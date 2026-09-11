@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.211.0
+
+A run whose budget reservation is still open at the join barrier now settles instead of throwing.
+The no-winner result carries `leakedReservations`, beside `teardownUnconfirmed`, so the tree and the
+journaled spend still reach the caller; each entry names the assignment, label, child id, and
+lifecycle stage that holds the ticket.
+`spentTotal` on such a result is a floor, not a measurement, because the conserved-pool identity does
+not hold.
+A winner still fails loud on an open ticket, because that arm claims a complete total.
+Consumers that implement `BudgetPool` themselves must add `attribute()` and `openReservations()`;
+`reserve()` accepts an optional holder.
+`runDirectoryHolderIsLive` reports whether a run directory's recorded holder is still the live
+process that took the lock, so a caller no longer hand-rolls `process.kill(pid, 0)`, which cannot
+tell a live holder from an unrelated process that later took the same pid.
+A provider-stated dollar with no billing receipt behind it now carries `usdEstimated`, so
+`usd - usdEstimated` reports only the money a provider is known to have billed.
+No receipt is promoted: such a dollar keeps `usdKnown: false` and a dollar-capped run admits and
+spends exactly what it did before.
+Consumers that compared `usd` against provider billing should subtract `usdEstimated` first.
+
 ## 0.210.0
 
 The public `Agent` and `DriveHarness` contracts expose optional `traceSource()` and `progress()`

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.210.0` and `@tangle-network/agent-eval@0.180.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.211.0` and `@tangle-network/agent-eval@0.180.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -220,7 +220,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 47 exports.
+Import from `@tangle-network/agent-runtime/durable` — 49 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -234,6 +234,7 @@ Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
 | `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
+| `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
 | `settleRecordJson` | function | The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785 |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
@@ -259,6 +260,7 @@ Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
+| `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
 | `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
@@ -416,7 +418,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 935 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 938 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -878,6 +880,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 935 exports.
 | `LeaderboardScenario` | interface | The campaign scenario a case is wrapped into: the case rides along so |
 | `LeaderboardScore` | interface | Structured per-case verdict a `score` function may return (a bare number is |
 | `LeaderboardSpec` | interface | The declarative leaderboard spec. `TArtifact` is the artifact channel the |
+| `LeakedReservation` | interface | One reservation still open when a run reached its join barrier — a conserved-pool leak, |
 | `LocalMcpMaterialization` | interface | The live same-host materialization of a profile's `mcp` surface. |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into Runtime cells. |
 | `LoopIterationDispatchPayload` | interface | Where the iteration's worker was placed. `sibling` = a fresh sandbox the |
@@ -935,6 +938,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 935 exports.
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
+| `ReservationHolder` | interface | Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
 | `ResolvedMcpServerLaunch` | interface | The spawn-ready strings for one stdio MCP server: profile config values |
 | `ResolvedSupervisorProfile` | interface | The exact profile fields consumed by supervisor materialization. |
@@ -1130,6 +1134,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 935 exports.
 | `RecoverRetainedRunResult` | type | Outcome of one recovery attempt from pre-dispatch admission coordinates. |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `ReservationRejection` | type | Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it |
+| `ReservationStage` | type | Where in the spawn lifecycle a reservation was last seen. `admitted` is the window between |
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
 | `RetainedInteractiveAdmission` | type | Durable records for one exact native coding-agent process. |

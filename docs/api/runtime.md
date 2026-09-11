@@ -971,7 +971,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`label`](#label-19)
+[`NodeSnapshot`](#nodesnapshot).[`label`](#label-21)
 
 ##### status
 
@@ -12323,6 +12323,102 @@ Optional so an externally constructed ticket stays valid; an absent flag is read
 
 ***
 
+### ReservationHolder
+
+Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission
+ mints a node id, so a ticket stranded at the join barrier names the work that holds it instead
+ of a bare counter. Every field except `stage` is optional: a pool used directly (no `Scope`)
+ names nothing, and an unattributable leak must still be reportable.
+
+#### Extended by
+
+- [`LeakedReservation`](#leakedreservation)
+
+#### Properties
+
+##### assignment?
+
+> `readonly` `optional` **assignment?**: `string`
+
+The manager-scoped assignment identity the caller declared (`SpawnOpts.assignmentId`, else
+ its `key`), when it declared one.
+
+##### label?
+
+> `readonly` `optional` **label?**: `string`
+
+The spawn label — the name an operator recognizes in a journal.
+
+##### childId?
+
+> `readonly` `optional` **childId?**: `string`
+
+The spawned node's id, once admission minted one. Absent for a reservation that escaped
+ before its child had an identity.
+
+##### stage
+
+> `readonly` **stage**: [`ReservationStage`](#reservationstage)
+
+***
+
+### LeakedReservation
+
+One reservation still open when a run reached its join barrier — a conserved-pool leak,
+ reported with the holder that can be chased rather than only its ticket id.
+
+#### Extends
+
+- [`ReservationHolder`](#reservationholder)
+
+#### Properties
+
+##### assignment?
+
+> `readonly` `optional` **assignment?**: `string`
+
+The manager-scoped assignment identity the caller declared (`SpawnOpts.assignmentId`, else
+ its `key`), when it declared one.
+
+###### Inherited from
+
+[`ReservationHolder`](#reservationholder).[`assignment`](#assignment)
+
+##### label?
+
+> `readonly` `optional` **label?**: `string`
+
+The spawn label — the name an operator recognizes in a journal.
+
+###### Inherited from
+
+[`ReservationHolder`](#reservationholder).[`label`](#label-12)
+
+##### childId?
+
+> `readonly` `optional` **childId?**: `string`
+
+The spawned node's id, once admission minted one. Absent for a reservation that escaped
+ before its child had an identity.
+
+###### Inherited from
+
+[`ReservationHolder`](#reservationholder).[`childId`](#childid)
+
+##### stage
+
+> `readonly` **stage**: [`ReservationStage`](#reservationstage)
+
+###### Inherited from
+
+[`ReservationHolder`](#reservationholder).[`stage`](#stage)
+
+##### ticketId
+
+> `readonly` **ticketId**: `number`
+
+***
+
 ### BudgetPoolRestore
 
 State recovered from a prior process before new work is admitted. `committed` is measured spend
@@ -12348,7 +12444,7 @@ while the public readout remains explicitly unknown.
 
 ##### reserve()
 
-> **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
+> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover standard or named channels — the
@@ -12360,9 +12456,36 @@ caller inspects `ok` before `ticket`.
 
 [`Budget`](#budget-18)
 
+###### holder?
+
+[`ReservationHolder`](#reservationholder)
+
 ###### Returns
 
 \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
+
+##### attribute()
+
+> **attribute**(`ticket`, `holder`): `void`
+
+Name (or rename) who holds an open reservation. Merges into what `reserve` recorded, so a
+caller states only what it just learned — the node id admission minted, or the stage the
+ticket moved to. A settled or unknown ticket is ignored: attribution is leak EVIDENCE, never
+a lifecycle guard, and must not be able to fail a run that is otherwise healthy.
+
+###### Parameters
+
+###### ticket
+
+[`ReservationTicket`](#reservationticket)
+
+###### holder
+
+[`ReservationHolder`](#reservationholder)
+
+###### Returns
+
+`void`
 
 ##### reconcile()
 
@@ -12454,6 +12577,17 @@ Fail loud if any reservation is still open — the conserved-pool leak detector.
 ###### Returns
 
 `void`
+
+##### openReservations()
+
+> **openReservations**(): readonly [`LeakedReservation`](#leakedreservation)[]
+
+Every reservation still open, with its holder. Empty on a healthy pool. Read at the join
+ barrier so a run that failed can REPORT a leak it must not also be destroyed by.
+
+###### Returns
+
+readonly [`LeakedReservation`](#leakedreservation)[]
 
 ***
 
@@ -21266,10 +21400,10 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 > `optional` **usdEstimated?**: `number`
 
-The part of `usd` priced from a model catalog because no provider receipt covered the work.
+The part of `usd` that is a PRICE rather than a charge, because no provider receipt covered
+ the work: a model catalog's own number, or a figure a provider stated but did not bill.
  `usd - usdEstimated` is what a provider is known to have billed. Present only with
- `usdKnown: false`; absence means nothing here was catalog-priced, not that `usd` is
- measured.
+ `usdKnown: false`; absence means nothing here was priced, not that `usd` is measured.
 
 ##### ms
 
@@ -26862,6 +26996,16 @@ What the supervisor AUTHORS per sub-task: one complete canonical profile whose n
 
 ***
 
+### ReservationStage
+
+> **ReservationStage** = `"admitted"` \| `"executing"`
+
+Where in the spawn lifecycle a reservation was last seen. `admitted` is the window between
+ `reserve` and the hand-off to the child's execution, which the spawning code owns; `executing`
+ means the child owns the ticket and only its settlement can close it.
+
+***
+
 ### BudgetReadout
 
 > **BudgetReadout** = `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
@@ -27578,11 +27722,12 @@ No receipt covers this work, so `usd` is an observed floor, never the total char
 
 > `optional` **usdEstimated?**: `number`
 
-The part of `usd` this runtime priced from a model catalog because no provider receipt
-covered the work. A catalog price approximates what a provider would bill and never
-measures what it did.
+The part of `usd` that is a PRICE rather than a charge: a model catalog's own number, or
+a figure a provider stated with no billing receipt behind it. Either way it approximates
+what a provider would bill and never measures what it did, so `usd - usdEstimated` stays
+the amount a provider is known to have billed.
 
-Absence means this runtime priced nothing here, NOT that `usd` is a receipt.
+Absence means nothing here was priced, NOT that `usd` is a receipt.
 
 ###### provenance
 
@@ -28715,7 +28860,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -28817,7 +28962,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](#nowinnererror); \}
 
 ###### kind
 
@@ -28870,6 +29015,16 @@ Settled children whose executor teardown was never acknowledged — the resource
  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
  healthy run never carries it.
+
+###### leakedReservations?
+
+> `optional` **leakedReservations?**: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>
+
+Budget reservations still open when the run reached its join barrier, each named by the
+ assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
+ `total ≡ free + reserved + committed` does not hold, so `spentTotal` is a floor rather
+ than a measurement — the run still settles with the tree and the spend the journal
+ recorded. Present exactly when non-empty; a healthy run never carries it.
 
 ###### spendGaps?
 
@@ -35272,7 +35427,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 **`Stable`**
 
@@ -35294,7 +35449,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 ***
 
