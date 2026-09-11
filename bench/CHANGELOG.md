@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.5
+
+Consume Runtime 0.218, including asynchronous coordination address resolution for provider managers.
+
 ## 0.11.4
 
 Admit Sandbox 0.39 through the shared dependency catalog and consume Runtime's retained result reconciliation fix.

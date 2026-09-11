@@ -193,6 +193,11 @@ Runtime does not renew credentials automatically or refresh credentials inside a
 Configure `ttlMs` to cover the manager invocation and expected coordinator downtime.
 Run deadlines do not extend credential lifetime.
 Set `coordination.publicUrl` to the caller-owned reachable endpoint or an actor-aware endpoint resolver.
+The resolver can return a promise and receives the bound port, run identity, actor identity, and manager signal.
+Runtime awaits resolution before admitting the manager, while the listener refuses requests.
+Cancellation or the manager deadline stops waiting and closes the listener; resolver failures do the same.
+Pass the supplied signal to endpoint provisioning so cancellation can stop that external operation too.
+Omit `coordination.port` to allocate a separate port for each concurrent manager.
 Runtime does not provision a proxy or tunnel.
 Remote public endpoints require HTTPS.
 
