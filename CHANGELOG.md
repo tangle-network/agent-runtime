@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.218.3
+
+Coordination public address resolvers can now return a promise and receive the manager's cancellation signal.
+Runtime waits for the reachable endpoint before dispatch, denies requests during setup, and closes the listener when resolution fails or is cancelled.
+Recursive managers can expose independently allocated ports through their provider's existing network API.
+
 ## 0.218.2
 
 A run that no later process will resume now releases the provider environments its retained
@@ -43,9 +49,6 @@ This is a backstop for a dead process, not the fix: it reaches only environments
 this adapter, and the SDK says a create/delete-only driver skips suspension entirely.
 ## 0.218.1
 
-Coordination public address resolvers can now return a promise and receive the manager's cancellation signal.
-Runtime waits for the reachable endpoint before dispatch, denies requests during setup, and closes the listener when resolution fails or is cancelled.
-Recursive managers can expose independently allocated ports through their provider's existing network API.
 A method-supplied supervisor tool served over the coordination MCP is now single-flight within one manager, and it answers within a fence instead of failing on the transport deadline.
 A call joins an existing invocation when its tool name and its RFC 8785 canonical arguments match a run that has not yet returned its outcome, so the handler runs once.
 A call whose handler is still running at the fence returns `{ pending: true, tool, elapsedMs, instruction }` instead of an error.
