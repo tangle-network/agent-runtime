@@ -1,10 +1,25 @@
 # Changelog
 
-## 0.218.0
+## 0.218.1
 
 Coordination public address resolvers can now return a promise and receive the manager's cancellation signal.
 Runtime waits for the reachable endpoint before dispatch, denies requests during setup, and closes the listener when resolution fails or is cancelled.
 Recursive managers can expose independently allocated ports through their provider's existing network API.
+A method-supplied supervisor tool served over the coordination MCP is now single-flight within one manager, and it answers within a fence instead of failing on the transport deadline.
+A call joins an existing invocation when its tool name and its RFC 8785 canonical arguments match a run that has not yet returned its outcome, so the handler runs once.
+A call whose handler is still running at the fence returns `{ pending: true, tool, elapsedMs, instruction }` instead of an error.
+The next identical call keeps waiting, then returns the result or throws the handler's error once the handler settles.
+An invocation's identity ends when a call returns its outcome, so a later identical call is a fresh run.
+A tool that reads live state, such as code mode's `execute` or `knowledge_search`, therefore still answers repeated identical arguments with a current result.
+
+The defect this closes: the coordination HTTP server answers 504 at `requestTimeoutMs`, 30 s by default, while a method tool that spawns and joins its own children runs for far longer.
+In run mech-interp-foundations-glm2-20260911d the director's `literature_sourcing` call failed after 30.0 s while its handler kept spawning children.
+The director retried with the same arguments in another key order, and the whole literature graph ran a second time: the three enumerate children twice, then two extract waves with three of four papers duplicated.
+
+Both coordination response fences now derive from `requestTimeoutMs`: half of it, capped at `DEFAULT_AWAIT_EVENT_TIMEOUT_MS`.
+The default 30 s request timeout leaves both at 15 s, as before.
+A configured request timeout below 30 s previously left `await_event` blocking for 15 s against a shorter deadline, so every call erred; it now returns its pending snapshot under the shorter fence.
+An action that outlives its request, such as a fenced tool that returned pending, stays charged against `maxConcurrentRequests` until it settles, exactly as a timed-out action already did.
 
 ## 0.217.2
 
