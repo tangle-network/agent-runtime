@@ -244,18 +244,26 @@ function keyedAssignments(
   return keys
 }
 
-/** Child reservations whose spawn was durable but whose terminal record never landed. */
+/** Child reservations whose spawn was durable, whose terminal record never landed, and whose
+ *  reservation was never reconciled: the process died with them in flight, so nothing observed
+ *  their spend and the ceiling is the only sound charge. An open node with a `reconciled` record is
+ *  not uncertain in that sense — its floor is measured evidence and is charged by
+ *  {@link sumMeasuredSpendFromEvents}, never here, so the two readers cannot charge one node twice. */
 export function uncertainSpawnBudgets(
   events: SpawnEvent[],
   recovered: ReadonlySet<NodeId> = new Set(),
 ): Budget[] {
   const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
+  const reconciled = new Set(
+    events.flatMap((event) => (event.kind === 'reconciled' ? [event.id] : [])),
+  )
   return events
     .filter(
       (event): event is Spawned =>
         event.kind === 'spawned' &&
         event.parent !== undefined &&
         !terminal.has(event.id) &&
+        !reconciled.has(event.id) &&
         !recovered.has(event.id) &&
         // An `inline` executor runs inside the process that spawned it, so a resume can prove it
         // dead rather than in-doubt: holding its reservation would charge the pool for work no
@@ -274,9 +282,12 @@ export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean
   return max
 }
 
-/** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled);
- *  `metered` = driver inference (re-homed up the tree, so a single root-tree pass already
- *  includes every nested driver's inference). */
+/** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled), plus
+ *  the reconciled floor of every node still open, plus the declared ceiling of every open node
+ *  nothing reconciled; `metered` = driver inference (re-homed up the tree, so a single root-tree
+ *  pass already includes every nested driver's inference). The pool commits exactly these amounts
+ *  — a floor where a reconcile ran, a ceiling where the process died first — so this sum is the
+ *  same ledger the pool holds, read from the journal. */
 export function sumSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
@@ -317,6 +328,12 @@ export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   let childWork = zeroSpend()
   let driverInference = zeroSpend()
   const owners = new Map<NodeId, Spend>()
+  const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
+  // A retained-pending node's reconciled floor is its child work for as long as the node stays
+  // open. The LATEST record is the whole charge, not a sum: a recovered execution reports its
+  // total again on its next reconcile, so an earlier floor would count the same work twice. A
+  // terminal record supersedes every floor for the same reason.
+  const floors = new Map<NodeId, Extract<SpawnEvent, { kind: 'reconciled' }>>()
   for (const ev of events) {
     if (ev.kind === 'settled' || ev.kind === 'cancelled')
       childWork = addSpend(
@@ -328,6 +345,13 @@ export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
       )
     else if (ev.kind === 'metered')
       owners.set(ev.id, addSpend(owners.get(ev.id) ?? zeroSpend(), ev.spend))
+    else if (ev.kind === 'reconciled' && !terminal.has(ev.id)) {
+      const prior = floors.get(ev.id)
+      if (prior === undefined || ev.seq > prior.seq) floors.set(ev.id, ev)
+    }
+  }
+  for (const [id, floor] of floors) {
+    childWork = addSpend(childWork, withBudgetResources(floor.spent, budgets.get(id) ?? {}))
   }
   for (const [id, spend] of owners) {
     driverInference = addSpend(driverInference, withBudgetResources(spend, budgets.get(id) ?? {}))
@@ -346,14 +370,20 @@ export async function prepareScopeResume(
   const prepared = await prepareInterruptedExecutors(opts, events, signal, now, parentId)
   const prior = prepared.events
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
-  // A restored manager's full reservation already covers its previous inference.
-  // Its executor reconciles total spend and publishes only the unrecorded meter delta.
+  // A restored child's full reservation already covers its previous inference and its reconciled
+  // floor. Its executor reconciles total spend and publishes only the unrecorded meter delta, so
+  // neither prior record may be committed a second time.
   const measuredEvents = prior.filter(
-    (event) => event.kind !== 'metered' || !recovering.has(event.id),
+    (event) =>
+      (event.kind !== 'metered' && event.kind !== 'reconciled') || !recovering.has(event.id),
   )
   const measured = sumMeasuredSpendFromEvents(measuredEvents)
   const hasCommittedEvidence = measuredEvents.some(
-    (event) => event.kind === 'metered' || event.kind === 'settled' || event.kind === 'cancelled',
+    (event) =>
+      event.kind === 'metered' ||
+      event.kind === 'reconciled' ||
+      event.kind === 'settled' ||
+      event.kind === 'cancelled',
   )
   const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
   signal.throwIfAborted()

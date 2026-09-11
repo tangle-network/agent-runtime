@@ -376,6 +376,11 @@ type PreSeqSettled =
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
        *  too, so the journal matches the pool (which already debited it via `observe`). */
       metered?: Spend
+      /** The child-work floor a RETAINED-PENDING child's reservation was reconciled at. Its cursor
+       *  slot stays open, so the settle path journals this as a `reconciled` record in place of
+       *  the `settled` record it cannot write — otherwise every journal reader charges the ceiling
+       *  the pool just refunded. */
+      reconciled?: Spend
     }
 
 /**
@@ -2275,14 +2280,44 @@ async function appendSettlementMetering(
   spend: Spend,
   at: string,
 ): Promise<void> {
+  const seq = await nextPerNodeSeq(journal, root, 'metered', id)
+  await appendAcknowledged(journal, root, { kind: 'metered', id, spend, seq, at })
+}
+
+/** An open node's reconciled floor has the same per-child sequence discipline as its metering:
+ *  outside the cursor namespace, monotonic per node, so a node reconciled once per process (a
+ *  retained failure, a recovery, a second retained failure) keeps its records ordered. */
+async function appendReconciledFloor(
+  journal: SpawnJournal,
+  root: NodeId,
+  id: NodeId,
+  spent: Spend,
+  at: string,
+): Promise<void> {
+  const seq = await nextPerNodeSeq(journal, root, 'reconciled', id)
+  await appendAcknowledged(journal, root, { kind: 'reconciled', id, spent, seq, at })
+}
+
+async function nextPerNodeSeq(
+  journal: SpawnJournal,
+  root: NodeId,
+  kind: 'metered' | 'reconciled',
+  id: NodeId,
+): Promise<number> {
   const prior = (await journal.loadTree(root)) ?? []
-  const seq =
+  return (
     prior.reduce(
-      (max, event) =>
-        event.kind === 'metered' && event.id === id ? Math.max(max, event.seq) : max,
+      (max, event) => (event.kind === kind && event.id === id ? Math.max(max, event.seq) : max),
       -1,
     ) + 1
-  const event: Extract<SpawnEvent, { kind: 'metered' }> = { kind: 'metered', id, spend, seq, at }
+  )
+}
+
+async function appendAcknowledged(
+  journal: SpawnJournal,
+  root: NodeId,
+  event: Extract<SpawnEvent, { kind: 'metered' | 'reconciled' }>,
+): Promise<void> {
   try {
     await journal.appendEvent(root, event)
   } catch (error) {
@@ -2290,7 +2325,7 @@ async function appendSettlementMetering(
     const persisted = await journal.loadTree(root)
     if (
       !persisted?.some(
-        (record) => record.kind === 'metered' && contentAddress(record) === contentAddress(event),
+        (record) => record.kind === event.kind && contentAddress(record) === contentAddress(event),
       )
     )
       throw error
@@ -2338,6 +2373,14 @@ async function finalizeSettlement<Out>(
         seq,
         at,
       })
+    // A retained-pending node keeps its cursor slot open for recovery, so it carries no terminal
+    // record — but its reservation WAS reconciled, and a journal that says nothing about that
+    // leaves every reader (terminal accounting, a restored pool, the tree view) charging the
+    // ceiling the pool refunded: measured 2026-09-11, the reported `childWork` carried 4M per
+    // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
+    // place, outside the cursor namespace, so the slot stays open and the ledgers agree.
+    else if (settlement.reconciled !== undefined)
+      await appendReconciledFloor(args.journal, args.root, child.id, settlement.reconciled, at)
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -2790,7 +2833,9 @@ async function runChild<C>(
       // above deliberately does not depend on it — but the attempt and its answer belong in the
       // record, and today these children carry no teardown receipt of any kind.
       await teardownOnce(opts.shutdown ?? 'brutalKill').catch(() => undefined)
-      // Charge what the executor actually metered, not the reservation ceiling.
+      // Charge what was observed, not the reservation ceiling — by the one rule the done and crash
+      // paths already apply: a recursive executor's explicit accounting, else the running total
+      // the conserved pool metered off the stream.
       //
       // `reconcile` refunds `reserved - spent`, so passing the ceiling as spend refunded exactly
       // nothing: a child that ran no turn was charged its entire per-worker allowance. Measured
@@ -2800,20 +2845,26 @@ async function runChild<C>(
       // no-winner reason in that archive, and a run could reach it having metered almost nothing
       // (#1190).
       //
-      // The meter is the same value handed to `downRecord` on the next line. When the executor
-      // exposes none, the ceiling remains the conservative fallback, because an unmeasured child
-      // may still be consuming the remote execution it was handed off to. Either way the spend is
-      // marked unknown, so a floor is never mistaken for a measurement.
-      const metered = executor.metered?.()
-      reconcileOnce({
-        iterations: metered?.iterations ?? opts.budget.maxIterations,
-        tokens: metered?.tokens ?? { input: opts.budget.maxTokens, output: 0 },
-        tokensKnown: false,
-        usd: metered?.usd ?? opts.budget.maxUsd ?? 0,
-        usdKnown: false,
-        ms: Math.max(0, now() - live.startedAt),
-      })
-      return downRecord(errMessage(err), true, trace, metered)
+      // The floor is `live.spent` for a leaf: every production leaf streams its usage into it, and
+      // none implements `metered`, so a fallback keyed on `metered` alone kept charging the ceiling
+      // for exactly the children measured above. Every channel is marked unknown, because the
+      // remote execution may still be consuming what it was handed off to: the floor is never read
+      // back as a measurement. The child-work part is journaled as this node's `reconciled` floor
+      // (its slot stays open, so no `settled` record can carry it), and a driver's own inference
+      // rides its `metered` record as on every other path.
+      //
+      // A ticket already reconciled at a measured terminal spend (a persistence failure after the
+      // artifact landed) keeps that measurement: `live.spent` is then what the pool committed.
+      if (!reconciled) {
+        const accounting = executor.accounting?.()
+        const ms = Math.max(0, now() - live.startedAt)
+        live.spent = { ...unknownFloor(accounting?.reported ?? live.spent), ms }
+        reconcileOnce({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
+      }
+      return {
+        ...downRecord(errMessage(err), true, trace, executor.metered?.()),
+        reconciled: live.spent,
+      }
     }
     // A thrown executor has also finished its own work — only the down-record persistence
     // remains, so the non-blocking drain may await this child too.
@@ -2844,21 +2895,7 @@ async function runChild<C>(
       // lower bound, but never reinterpret the unreported remainder as zero under either root
       // ceiling. A recursive executor's explicit accounting remains authoritative on its throw
       // path; a persistence/teardown failure after a terminal artifact does too.
-      live.spent = {
-        ...live.spent,
-        tokensKnown: false,
-        usdKnown: false,
-        ...(live.spent.resources === undefined
-          ? {}
-          : {
-              resources: Object.fromEntries(
-                Object.entries(live.spent.resources).map(([name, value]) => [
-                  name,
-                  { ...value, known: false },
-                ]),
-              ),
-            }),
-      }
+      live.spent = unknownFloor(live.spent)
     }
     const reconcileError = reconcileOnce(accounting?.reservation ?? live.spent)
     // A crashed driver child still re-homes the partial inference it durably metered.
@@ -3209,13 +3246,33 @@ async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise
   })
 }
 
+/** Observed partial counts as a lower bound on every channel: the work happened, its remainder went
+ *  unreported, and no reader may take the counts for a measurement. */
+function unknownFloor(spend: Spend): Spend {
+  return {
+    ...spend,
+    tokensKnown: false,
+    usdKnown: false,
+    ...(spend.resources === undefined
+      ? {}
+      : {
+          resources: Object.fromEntries(
+            Object.entries(spend.resources).map(([name, value]) => [
+              name,
+              { ...value, known: false },
+            ]),
+          ),
+        }),
+  }
+}
+
 function downRecord(
   reason: string,
   infra: boolean,
   trace: WorkerTraceEvidence,
   metered?: Spend,
   providerModel?: import('./types').ProviderModelExecutionEvidence,
-): PreSeqSettled {
+): Extract<PreSeqSettled, { kind: 'down' }> {
   return {
     kind: 'down',
     reason,

@@ -1,8 +1,17 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  closesCursorSlot,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+  materializeTreeView,
+} from '../../src/durable/spawn-journal'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
+import {
+  sumSpendFromEvents,
+  uncertainSpawnBudgets,
+} from '../../src/runtime/supervise/recover-executors'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -192,13 +201,12 @@ describe('supervise tree-wide worker capacity', () => {
     expect(leak).toMatchObject({ label: 'unkillable', runtime: 'router', status: 'failed' })
   })
 
-  it('charges a retained failure what it metered, not its reservation ceiling', async () => {
+  it('charges a retained failure what it metered, in the pool and in the reported ledger alike', async () => {
     // `reconcile` refunds `reserved - spent`, so passing the ceiling as spend refunded nothing: a
     // child that ran no turn was charged its whole per-worker allowance. Measured 2026-09-11 at a
     // 4M ceiling against a 32M root budget, 16 such children committed 64M — 200% of the entire
     // run — having metered 890k, and `budget-exhausted` became the second most common no-winner
     // reason in that archive (#1190).
-    const METERED = { iterations: 1, tokens: { input: 7, output: 3 }, usd: 0, ms: 1 }
     const retained = trackedLeaf('retained') as Agent<unknown, unknown> & {
       executorSpec: AgentSpec
     }
@@ -207,8 +215,12 @@ describe('supervise tree-wide worker capacity', () => {
       harness: null,
       executor: {
         runtime: 'router',
-        execute: () =>
-          Promise.reject(new RetainedExecutionPendingError(new Error('result read failed'))),
+        // The production shape: a leaf streams its usage into the conserved pool and the provider
+        // read fails after admission. No leaf implements `metered`; the stream IS its meter.
+        async *execute() {
+          yield { kind: 'tokens', input: 7, output: 3 }
+          throw new RetainedExecutionPendingError(new Error('result read failed'))
+        },
         teardown: async () => ({
           destroyed: false,
           detail: 'retained execution requires reconciliation',
@@ -216,7 +228,6 @@ describe('supervise tree-wide worker capacity', () => {
         resultArtifact: () => {
           throw new Error('retained executor has no result')
         },
-        metered: () => METERED,
       },
     }
     let secondAccepted: boolean | undefined
@@ -236,30 +247,137 @@ describe('supervise tree-wide worker capacity', () => {
           budget: { maxIterations: 40, maxTokens: 4000 },
           label: 'sibling',
         }).ok
+        expect((await scope.next())?.kind).toBe('done')
         return 'finished'
       },
     }
+    const journal = new InMemorySpawnJournal()
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 100, maxTokens: 5000 },
       maxLiveWorkers: 2,
       runId: 'retained-meter-not-ceiling',
-      journal: new InMemorySpawnJournal(),
+      journal,
       blobs: new InMemoryResultBlobStore(),
       executors: createExecutorRegistry(),
     })
-    // The conserved pool is what `budget-exhausted` is decided from, and it now refunds the
-    // unspent reservation: a sibling needing 4000 of the run's 5000 tokens is admitted where the
-    // ceiling charge would have left only 1000.
+    // The conserved pool is what `budget-exhausted` is decided from, and it refunds the unspent
+    // reservation: a sibling needing 4000 of the run's 5000 tokens is admitted where the ceiling
+    // charge would have left only 1000.
     expect(secondAccepted).toBe(true)
     expect(result.kind).toBe('winner')
-    if (result.kind === 'winner') {
-      // Still unknown, so a floor is never read back as a measurement.
-      expect(result.spentTotal.tokensKnown).toBe(false)
-      // KNOWN GAP, deliberately pinned rather than asserted away: the REPORTED childWork total is
-      // a second ledger, and it still carries the reservation ceiling. This change fixes the pool
-      // (admission), not the report. Tightening this expectation is the remaining half of #1190.
-      expect(result.spentBreakdown?.childWork.tokens.input).toBe(4000)
-    }
+    if (result.kind !== 'winner') return
+    // The REPORTED ledger is read off the journal, and it now carries the same floor the pool
+    // committed — 10 tokens for this child plus the sibling's 2 — not the 4000 ceiling that a
+    // journal with no record of the reconcile used to make every reader charge.
+    expect(result.spentTotal.tokens).toMatchObject({ input: 8, output: 4 })
+    // Still unknown, so a floor is never read back as a measurement.
+    expect(result.spentTotal.tokensKnown).toBe(false)
+    const events = (await journal.loadTree('retained-meter-not-ceiling')) as SpawnEvent[]
+    const retainedId = events.find(
+      (event) => event.kind === 'spawned' && event.label === 'retained',
+    )?.id
+    expect(retainedId).toBeDefined()
+    // The cursor slot stays open — a resume may still recover the execution — so no terminal
+    // record exists for the node; the reconciled floor stands in its place.
+    expect(events.filter((event) => event.id === retainedId && closesCursorSlot(event))).toEqual([])
+    expect(events.filter((event) => event.kind === 'reconciled')).toMatchObject([
+      { id: retainedId, spent: { tokens: { input: 7, output: 3 }, tokensKnown: false } },
+    ])
+    // Every journal reader charges that floor: terminal accounting, the ceiling list a restored
+    // pool is charged from, and the materialized tree.
+    const { childWork } = sumSpendFromEvents(events)
+    expect(childWork.tokens).toMatchObject({ input: 8, output: 4 })
+    expect(childWork.tokensKnown).toBe(false)
+    expect(uncertainSpawnBudgets(events)).toEqual([])
+    const node = materializeTreeView(events).nodes.find((n) => n.id === retainedId)
+    expect(node?.spent.tokens).toMatchObject({ input: 7, output: 3 })
+    expect(result.tree.nodes.find((n) => n.id === retainedId)?.spent.tokens).toMatchObject({
+      input: 7,
+      output: 3,
+    })
+  })
+
+  it('reads an open node at its latest reconciled floor and a settled node at its settlement', () => {
+    // The journal-side contract behind the case above, on a hand-built tree: a floor is the whole
+    // charge for an open node (latest wins — a recovery re-reports its total), a terminal record
+    // supersedes every floor for its node, and only a node nothing reconciled is charged its
+    // ceiling. Both readers partition the open nodes the same way, so no node is charged twice.
+    const at = new Date(0).toISOString()
+    const budget = { maxIterations: 40, maxTokens: 4000 }
+    const floor = (input: number, output: number) => ({
+      iterations: 1,
+      tokens: { input, output },
+      tokensKnown: false,
+      usd: 0,
+      usdKnown: false,
+      ms: 0,
+    })
+    const events: SpawnEvent[] = [
+      {
+        kind: 'spawned',
+        id: 'r',
+        label: 'r',
+        budget: { maxIterations: 100, maxTokens: 20000 },
+        runtime: 'inline',
+        seq: 0,
+        at,
+      },
+      {
+        kind: 'spawned',
+        id: 'r:s0',
+        parent: 'r',
+        label: 'open',
+        budget,
+        runtime: 'router',
+        seq: 0,
+        at,
+      },
+      {
+        kind: 'spawned',
+        id: 'r:s1',
+        parent: 'r',
+        label: 'recovered',
+        budget,
+        runtime: 'router',
+        seq: 1,
+        at,
+      },
+      {
+        kind: 'spawned',
+        id: 'r:s2',
+        parent: 'r',
+        label: 'lost',
+        budget,
+        runtime: 'router',
+        seq: 2,
+        at,
+      },
+      { kind: 'reconciled', id: 'r:s0', spent: floor(7, 3), seq: 0, at },
+      { kind: 'reconciled', id: 'r:s0', spent: floor(9, 4), seq: 1, at },
+      { kind: 'reconciled', id: 'r:s1', spent: floor(5, 5), seq: 0, at },
+      {
+        kind: 'settled',
+        id: 'r:s1',
+        status: 'done',
+        outRef: 'sha256:x',
+        spent: { ...knownZero, tokens: { input: 100, output: 50 } },
+        seq: 0,
+        at,
+      },
+    ]
+    expect(uncertainSpawnBudgets(events)).toEqual([budget])
+    const { childWork } = sumSpendFromEvents(events)
+    expect(childWork.tokens).toMatchObject({ input: 9 + 100 + 4000, output: 4 + 50 })
+    expect(childWork.tokensKnown).toBe(false)
+    const view = materializeTreeView(events)
+    expect(view.nodes.find((n) => n.id === 'r:s0')?.spent.tokens).toMatchObject({
+      input: 9,
+      output: 4,
+    })
+    expect(view.nodes.find((n) => n.id === 'r:s1')?.spent.tokens).toMatchObject({
+      input: 100,
+      output: 50,
+    })
   })
 
   it('holds one cap across root → manager → sub-manager → worker execution', async () => {

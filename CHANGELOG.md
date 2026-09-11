@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.217.0
+
+A retained child's failure now charges the reported ledger what the conserved pool charged: the
+spend its executor had observed, never its reservation ceiling.
+0.214.0 reconciled the pool at the observed spend, but the journal carried no record of that
+reconcile, and a retained-pending node keeps its cursor slot open for recovery so it carries no
+`settled` record either.
+Every journal reader therefore still charged the declared ceiling for that node:
+`spentBreakdown.childWork`, `spentTotal`, the tree view, and the pool a resumed run restores.
+Measured 2026-09-11 with a 4,000-token ceiling, the reported child work for a child that metered
+10 tokens was 4,000.
+
+The floor is now journaled as a `reconciled` event in the settlement's place.
+It lives outside the cursor namespace, so the slot stays open; a later `settled` or `cancelled`
+record for the same node supersedes it, and the latest `reconciled` record for an open node is its
+whole charge.
+A consumer that enumerates `SpawnEvent` kinds should expect the new kind.
+
+The floor a leaf is charged at is the running total the pool metered off its usage stream.
+No production leaf implements `Executor.metered`, so the 0.214.0 fallback to that method alone
+still charged the ceiling for exactly the streaming children the measurement above counted.
+Every channel of the floor stays marked unknown, because the remote execution may still be
+consuming what it was handed off to.
+
 ## 0.216.0
 
 A provider-stated dollar with no billing receipt behind it is priced once, not twice.

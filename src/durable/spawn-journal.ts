@@ -892,6 +892,7 @@ const outsideCursorNamespaceKinds = [
   'execution-admitted',
   'execution-result',
   'progress',
+  'reconciled',
   'edge',
   'teardown-unconfirmed',
   'trace-unpropagated',
@@ -985,6 +986,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'waiting') continue // arms a wait node; `woken` is its settlement
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
     if (ev.kind === 'progress') continue // live observation, not a settlement — irrelevant to replay
+    if (ev.kind === 'reconciled') continue // an OPEN node's charged floor, not a settlement
     if (ev.kind === 'materialized') continue // wire receipt, not a settlement
     if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
     if (
@@ -1234,6 +1236,17 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     const node = requireNode(nodes, ev.id)
     node.executionBindings ??= []
     node.executionBindings.push(ev.binding)
+  }
+  // An open node's reconciled floor is its child-work base until a terminal record replaces it: a
+  // retained-pending child stays `pending` here, and a view that showed zero for a node the ledger
+  // charges would be a second ledger. The latest record wins; a settled node ignores it.
+  for (const ev of [...events]
+    .filter(
+      (event): event is Extract<SpawnEvent, { kind: 'reconciled' }> => event.kind === 'reconciled',
+    )
+    .sort((a, b) => a.seq - b.seq)) {
+    const node = requireNode(nodes, ev.id)
+    if (node.status === 'pending') node.spent = cloneSpend(ev.spent)
   }
   // Driver inference: a separate pass so it accumulates ONTO the settled child-work base (no
   // dependence on metered-vs-settled seq order) without touching node status.
