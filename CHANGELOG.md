@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.215.0
+
+A lost bridge run now waits before replaying, instead of burning every reconnect attempt back to
+back.
+The pause starts at 200 ms and doubles per attempt to a 2 s ceiling, and it ends immediately when
+the turn aborts.
+Without it the default four attempts finished inside a millisecond, so a loopback bridge that
+restarts in about a second was never reconnected to: `bridge-run-disconnected ECONNREFUSED` is the
+largest remaining child-failure cause in one Lab's archive at 18 events across 11 runs.
+Waiting is safe because the replay contract that makes a reconnect correct — `afterEventId` and the
+replay-gap check — is unchanged.
+A consumer that measured worst-case reconnect latency should expect up to about 1.5 s more across
+four attempts.
+
 ## 0.214.0
 
 A terminally-settled child now releases its `max-live-workers` slot even when its teardown could

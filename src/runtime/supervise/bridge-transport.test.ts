@@ -1,7 +1,13 @@
 import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { BridgeSeam } from './bridge-config'
-import { BRIDGE_ROUTE_PROBE_TIMEOUT_MS, bridgeModelRouteRefusal } from './bridge-transport'
+import {
+  BRIDGE_RECONNECT_BASE_BACKOFF_MS,
+  BRIDGE_RECONNECT_MAX_BACKOFF_MS,
+  BRIDGE_ROUTE_PROBE_TIMEOUT_MS,
+  bridgeModelRouteRefusal,
+  reconnectBackoff,
+} from './bridge-transport'
 
 /** The budget the route probe used to borrow from run-state reads. A bridge slower than this but
  *  faster than the probe's own budget must still count as routing. */
@@ -118,5 +124,46 @@ describe('bridgeModelRouteRefusal', () => {
     setTimeout(() => controller.abort(), 100)
     await expect(probe).rejects.toThrow(/aborted/u)
     expect(stub.requests).toHaveLength(1)
+  })
+})
+
+describe('reconnectBackoff', () => {
+  const elapsed = async (run: () => Promise<unknown>): Promise<number> => {
+    const started = Date.now()
+    await run()
+    return Date.now() - started
+  }
+
+  it('waits before replaying, so a bridge that restarts in about a second is caught', async () => {
+    // Without a pause the loop burned all four attempts back to back and finished inside a
+    // millisecond, so a loopback bridge being redeployed was never reconnected to.
+    // `bridge-run-disconnected ECONNREFUSED` is the largest remaining child-death cause in this
+    // Lab's archive: 18 events across 11 runs, every one exhausting its attempts instantly.
+    const live = new AbortController()
+    const waited = await elapsed(() => reconnectBackoff(1, live.signal))
+    // Timers fire no earlier than their delay but schedulers round down by a tick, so allow a
+    // small margin rather than pinning an exact value.
+    expect(waited).toBeGreaterThanOrEqual(BRIDGE_RECONNECT_BASE_BACKOFF_MS - 20)
+  })
+
+  it('doubles per attempt and stops at the ceiling', async () => {
+    const live = new AbortController()
+    const second = await elapsed(() => reconnectBackoff(2, live.signal))
+    expect(second).toBeGreaterThanOrEqual(BRIDGE_RECONNECT_BASE_BACKOFF_MS * 2 - 20)
+    // A long-lived run must not stall behind a delay that keeps growing.
+    const far = await elapsed(() => reconnectBackoff(20, live.signal))
+    expect(far).toBeLessThan(BRIDGE_RECONNECT_MAX_BACKOFF_MS + 500)
+  }, 10_000)
+
+  it('returns at once when the turn is already aborted, and when it aborts mid-wait', async () => {
+    // Waiting must never outlive the turn: a teardown or a steer has to take effect now.
+    const already = new AbortController()
+    already.abort()
+    expect(await elapsed(() => reconnectBackoff(4, already.signal))).toBeLessThan(50)
+
+    const during = new AbortController()
+    const waiting = elapsed(() => reconnectBackoff(4, during.signal))
+    setTimeout(() => during.abort(), 30)
+    expect(await waiting).toBeLessThan(BRIDGE_RECONNECT_BASE_BACKOFF_MS * 8)
   })
 })

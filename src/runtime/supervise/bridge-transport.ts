@@ -323,6 +323,44 @@ interface StreamDurableBridgeRunArgs {
  * duplicate, or skipped event is accepted: an exact replay contract that
  * cannot prove continuity fails instead of returning a plausible partial answer.
  */
+/** First reconnect pause. Doubles per attempt, so the default four attempts span ~1.5 s rather
+ *  than finishing inside a millisecond. */
+export const BRIDGE_RECONNECT_BASE_BACKOFF_MS = 200
+
+/** Ceiling on one reconnect pause, so a long-lived run cannot stall behind a growing delay. */
+export const BRIDGE_RECONNECT_MAX_BACKOFF_MS = 2_000
+
+/**
+ * Wait before replaying a lost bridge run, and give up immediately on abort.
+ *
+ * Without this the reconnect loop burned every attempt back to back, so a bridge that restarts in
+ * about a second — the common case for a loopback process being redeployed — was never caught:
+ * `bridge-run-disconnected ECONNREFUSED` is the largest remaining child-death cause in this Lab's
+ * archive at 18 events across 11 runs, all of them exhausting their attempts in under a
+ * millisecond. Waiting is safe because the replay contract that makes a reconnect correct
+ * (`afterEventId` plus the replay-gap check) is already enforced below.
+ */
+export async function reconnectBackoff(attempt: number, signal: AbortSignal): Promise<void> {
+  const ms = Math.min(
+    BRIDGE_RECONNECT_MAX_BACKOFF_MS,
+    BRIDGE_RECONNECT_BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1),
+  )
+  if (ms <= 0 || signal.aborted) return
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    // A timer left armed past the run would pin the process to a deadline nobody reads.
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+      ;(timer as { unref: () => void }).unref()
+    }
+    signal.addEventListener('abort', done, { once: true })
+  })
+}
+
 export async function* streamDurableBridgeRun(
   args: StreamDurableBridgeRunArgs,
 ): AsyncIterable<BridgeStreamChunk> {
@@ -360,6 +398,7 @@ export async function* streamDurableBridgeRun(
         )
       }
       reconnects += 1
+      await reconnectBackoff(reconnects, args.signal)
       continue
     }
 
@@ -423,6 +462,7 @@ export async function* streamDurableBridgeRun(
         )
       }
       reconnects += 1
+      await reconnectBackoff(reconnects, args.signal)
       continue
     }
 
@@ -465,6 +505,7 @@ export async function* streamDurableBridgeRun(
       )
     }
     reconnects += 1
+    await reconnectBackoff(reconnects, args.signal)
   }
 }
 
