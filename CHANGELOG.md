@@ -24,6 +24,12 @@ still charged the ceiling for exactly the streaming children the measurement abo
 Every channel of the floor stays marked unknown, because the remote execution may still be
 consuming what it was handed off to.
 
+A raw `cli` leaf whose child exits, or closes its stdin, before reading the task now settles on
+the child's exit code.
+The write of the task raised EPIPE as a stream error with no listener, which was an uncaught
+exception in the supervising process; it is absorbed now, and any other delivery error fails the
+leaf.
+
 ## 0.216.0
 
 A provider-stated dollar with no billing receipt behind it is priced once, not twice.
