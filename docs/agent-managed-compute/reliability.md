@@ -8,6 +8,8 @@ Child recovery uses the configured executor factory and validates the original r
 Scope restores each live child's original identity, deadline, reservation, and shared worker slot before its manager acts.
 Recovery waits for descendant admission, while managers and children can continue communicating before either finishes.
 An accepted result can be reused after environment deletion.
+If retained event observation fails, Runtime reads the exact terminal result before leaving the invocation unresolved.
+Recovered results preserve incomplete event observation; invalid event identities and unavailable or invalid results still refuse settlement.
 An execution without sufficient recovery proof stays unresolved; it does not authorize replacement work.
 
 Provider manager recovery restores the original task and accepted output for the current invocation.

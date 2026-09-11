@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.217.2
+
+Retained provider children now reconcile their exact terminal result after event observation fails.
+Completed work settles without another dispatch, while provider failures remain failed and unavailable or incorrectly bound results remain unresolved.
+Recovered output records incomplete event observation and its error.
+Received events with invalid execution identities still refuse settlement.
+The supported Sandbox range now includes 0.39, which carries runtime MCP attachments for remote provider managers.
+
 ## 0.217.0
 
 A retained child's failure now charges the reported ledger what the conserved pool charged: the
