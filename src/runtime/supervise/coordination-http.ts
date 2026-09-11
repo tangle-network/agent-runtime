@@ -56,6 +56,10 @@ export function coordinationHttpHandler(input: {
   authorize(req: IncomingMessage): number | undefined
   handle(message: JsonRpcMessage): Promise<JsonRpcResponse | null>
   toolNames: ReadonlySet<string>
+  /** Actions still executing after their request already answered, such as a fenced tool that
+   *  returned pending. Like a timed-out action, each stays charged against concurrency until it
+   *  settles, so answering early cannot lift the bound on concurrent work. */
+  backgroundActions(): number
 }) {
   const limits = coordinationHttpLimits(input.options)
   let active = 0
@@ -152,7 +156,8 @@ export function coordinationHttpHandler(input: {
       controlRequests = 0
     }
     controlAdmission =
-      active >= limits.maxConcurrentRequests || requests >= limits.requestsPerMinute
+      active + input.backgroundActions() >= limits.maxConcurrentRequests ||
+      requests >= limits.requestsPerMinute
     if (controlAdmission) {
       // Keep a small independently bounded path for owner observation and cancellation.
       if (controlActive >= 2 || controlRequests >= 60) {
