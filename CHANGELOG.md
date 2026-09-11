@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.214.0
+
+A terminally-settled child now releases its `max-live-workers` slot even when its teardown could
+not be proven destroyed.
+The release was gated on confirmed cleanup, which a retained provider execution can never give while
+reconciliation is pending, so such a child held a slot for the life of the process: measured across
+14 pursuits, 127 of 177 children, with refusals reporting 16 live workers while one was running.
+The unconfirmed-cleanup fact is unchanged and still reaches `scope.workerCapacity.unconfirmed`, the
+`teardown-unconfirmed` journal event, and `result.teardownUnconfirmed`; a consumer that wanted
+back-pressure against unreclaimed environments must now count them itself rather than read it off the
+live-worker refusal.
+
+A retained-execution failure also reconciles its budget at what the executor metered rather than at
+its reservation ceiling, so the conserved pool refunds the difference.
+Passing the ceiling as spend refunded nothing, and a run could reach `budget-exhausted` having
+metered a fraction of it: three runs charged 200%, 175% and 113% of their whole root budget for
+children that returned no result.
+The reported `spentBreakdown.childWork` total is a separate ledger and still carries the ceiling;
+that half is not fixed here.
+
+Such a child now also attempts teardown, so a receipt exists where previously there was none.
+
+
 ## 0.213.0
 
 A `down` settlement's `reason` now carries the thrown error's `cause` chain, appended as

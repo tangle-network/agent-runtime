@@ -348,18 +348,25 @@ it('keeps nested cleanup uncertainty after the driver scope closes', async () =>
         ).toBe(true)
         const settled = await scope.next()
         expect(settled?.kind).toBe('down')
+        // The cleanup uncertainty is still recorded — that is what this test is for, and it
+        // survives on its own channel rather than on the live-worker counter.
         expect(scope.workerCapacity.unconfirmed.map((node) => node.id)).toContain('root:s0')
-        expect(
-          scope.spawn(
-            () => {
-              throw new Error('capacity must refuse before construction')
-            },
-            'fresh',
-            {
-              budget: { maxIterations: 1, maxTokens: 1 },
-            },
-          ),
-        ).toEqual({ ok: false, reason: 'max-live-workers' })
+        // But the settled node no longer occupies a live slot: replacement work is admitted.
+        // `maxLiveWorkers` counts workers that are running, and this one is not (#1183). The
+        // factory is still called only if capacity allows, so a throwing factory would prove the
+        // refusal — here it must be constructed instead.
+        let constructed = false
+        const fresh = scope.spawn(
+          () => {
+            constructed = true
+            return child
+          },
+          'fresh',
+          { budget: { maxIterations: 1, maxTokens: 10 } },
+        )
+        expect(fresh.ok).toBe(true)
+        expect(constructed).toBe(true)
+        await scope.next()
         return 'observed nested cleanup uncertainty'
       },
     },

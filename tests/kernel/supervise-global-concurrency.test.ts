@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
+import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -130,7 +131,7 @@ function profileDepth(profile: AgentProfile): number {
 }
 
 describe('supervise tree-wide worker capacity', () => {
-  it('retains a slot when teardown cannot prove the executor was destroyed, and names the node', async () => {
+  it('frees the slot of a settled child whose teardown could not be proven, and still names the node', async () => {
     let secondReason: string | undefined
     const unkillable = trackedLeaf('placeholder') as Agent<unknown, unknown> & {
       executorSpec: AgentSpec
@@ -175,16 +176,90 @@ describe('supervise tree-wide worker capacity', () => {
       executors: createExecutorRegistry(),
     })
 
-    // The ledger stays poisoned: the slot is never released, so replacement work cannot exceed
-    // the physical live count.
-    expect(secondReason).toBe('max-live-workers')
-    // The run still reaches its REAL terminal state — every child settled and its work is
-    // journaled, so a cleanup bookkeeping fault no longer voids the run.
+    // `maxLiveWorkers` caps SIMULTANEOUSLY LIVE workers, and this child has settled. Holding its
+    // slot conflated "how many workers are running" with "how many remote environments were never
+    // reclaimed", and cost a run its whole concurrency to nodes that were already dead: 127 of 177
+    // children across 14 pursuits on 2026-09-11, with refusals reporting `live: 16, freeSlots: 0`
+    // while one child ran (#1183).
+    expect(secondReason).toBe('accepted')
+    // Freeing the slot must not lose the cleanup fact. It is still named on the result and in the
+    // journal, so back-pressure against unreclaimed environments remains buildable — on its own
+    // counter, with its own refusal reason, rather than on a count of live workers.
     expect(result.kind).toBe('winner')
     expect(result.teardownUnconfirmed?.map((node) => node.label)).toEqual(['unkillable'])
     const events = (await journal.loadTree('retain-unconfirmed-capacity')) as SpawnEvent[]
     const leak = events.find((event) => event.kind === 'teardown-unconfirmed')
     expect(leak).toMatchObject({ label: 'unkillable', runtime: 'router', status: 'failed' })
+  })
+
+  it('charges a retained failure what it metered, not its reservation ceiling', async () => {
+    // `reconcile` refunds `reserved - spent`, so passing the ceiling as spend refunded nothing: a
+    // child that ran no turn was charged its whole per-worker allowance. Measured 2026-09-11 at a
+    // 4M ceiling against a 32M root budget, 16 such children committed 64M — 200% of the entire
+    // run — having metered 890k, and `budget-exhausted` became the second most common no-winner
+    // reason in that archive (#1190).
+    const METERED = { iterations: 1, tokens: { input: 7, output: 3 }, usd: 0, ms: 1 }
+    const retained = trackedLeaf('retained') as Agent<unknown, unknown> & {
+      executorSpec: AgentSpec
+    }
+    retained.executorSpec = {
+      profile: testAgentProfile('retained', { harness: 'cli-base' }),
+      harness: null,
+      executor: {
+        runtime: 'router',
+        execute: () =>
+          Promise.reject(new RetainedExecutionPendingError(new Error('result read failed'))),
+        teardown: async () => ({
+          destroyed: false,
+          detail: 'retained execution requires reconciliation',
+        }),
+        resultArtifact: () => {
+          throw new Error('retained executor has no result')
+        },
+        metered: () => METERED,
+      },
+    }
+    let secondAccepted: boolean | undefined
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(task, scope): Promise<unknown> {
+        expect(
+          scope.spawn(retained, task, {
+            budget: { maxIterations: 40, maxTokens: 4000 },
+            label: 'retained',
+          }).ok,
+        ).toBe(true)
+        expect((await scope.next())?.kind).toBe('down')
+        // The ceiling charge would have committed 4000 of the run's 5000 tokens for a child that
+        // metered 10, leaving no room for this sibling.
+        secondAccepted = scope.spawn(() => trackedLeaf('sibling'), task, {
+          budget: { maxIterations: 40, maxTokens: 4000 },
+          label: 'sibling',
+        }).ok
+        return 'finished'
+      },
+    }
+    const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      budget: { maxIterations: 100, maxTokens: 5000 },
+      maxLiveWorkers: 2,
+      runId: 'retained-meter-not-ceiling',
+      journal: new InMemorySpawnJournal(),
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+    })
+    // The conserved pool is what `budget-exhausted` is decided from, and it now refunds the
+    // unspent reservation: a sibling needing 4000 of the run's 5000 tokens is admitted where the
+    // ceiling charge would have left only 1000.
+    expect(secondAccepted).toBe(true)
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') {
+      // Still unknown, so a floor is never read back as a measurement.
+      expect(result.spentTotal.tokensKnown).toBe(false)
+      // KNOWN GAP, deliberately pinned rather than asserted away: the REPORTED childWork total is
+      // a second ledger, and it still carries the reservation ceiling. This change fixes the pool
+      // (admission), not the report. Tightening this expectation is the remaining half of #1190.
+      expect(result.spentBreakdown?.childWork.tokens.input).toBe(4000)
+    }
   })
 
   it('holds one cap across root → manager → sub-manager → worker execution', async () => {
