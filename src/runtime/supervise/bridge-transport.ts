@@ -49,13 +49,14 @@ const BRIDGE_RUN_STATE_TIMEOUT_MS = 2_000
  *  Half the bridge's own admission acquire deadline (60 s): a hung bridge still refuses. */
 export const BRIDGE_ROUTE_PROBE_TIMEOUT_MS = 30_000
 
-/** Bridge + wire model pairs a probe has seen route. Whether a bridge routes a model is a fact
- *  about its catalog, not about this turn, and `bridgeExecutor` rebuilds its seam per turn, so the
- *  key is the pair itself. Only a positive answer is kept: a cached refusal would be the mirror of
- *  the silent admission the preflight exists to remove, refusing a bridge that has since gained
- *  the backend until the process restarted. A positive that goes stale fails at dispatch with the
- *  bridge's own retained error, which is what a child saw before the preflight existed. */
-const routedModels = new Set<string>()
+/** Wire models a probe has seen each bridge route, keyed by bridge URL and then by model. Whether a
+ *  bridge routes a model is a fact about its catalog, not about this turn, and `bridgeExecutor`
+ *  rebuilds its seam per turn, so the key is the pair and not the seam object. Only a positive
+ *  answer is kept: a cached refusal would be the mirror of the silent admission the preflight
+ *  exists to remove, refusing a bridge that has since gained the backend until the process
+ *  restarted. A positive that goes stale fails at dispatch with the bridge's own retained error,
+ *  which is what a child saw before the preflight existed. */
+const routedModels = new Map<string, Set<string>>()
 
 /** One bridge GET over the `node:http(s)` core client — the same transport every other bridge
  *  read uses, so a computed provider endpoint never reaches global `fetch`. Resolves the status
@@ -120,8 +121,7 @@ export async function bridgeModelRouteRefusal(
   signal?: AbortSignal,
 ): Promise<BridgeModelRouteRefusal | undefined> {
   const base = seam.bridgeUrl.replace(/\/$/, '')
-  const routeKey = `${base}${wireModel}`
-  if (routedModels.has(routeKey)) return undefined
+  if (routedModels.get(base)?.has(wireModel)) return undefined
   let answer: { status: number; body: string }
   try {
     answer = await bridgeGet(
@@ -138,7 +138,12 @@ export async function bridgeModelRouteRefusal(
     }
   }
   if (answer.status === 200) {
-    routedModels.add(routeKey)
+    let routed = routedModels.get(base)
+    if (routed === undefined) {
+      routed = new Set<string>()
+      routedModels.set(base, routed)
+    }
+    routed.add(wireModel)
     return undefined
   }
   if (answer.status === 404) {
