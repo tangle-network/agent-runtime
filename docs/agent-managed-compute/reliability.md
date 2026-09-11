@@ -34,6 +34,14 @@ A failed provider turn settles its child as `down`, preserving its reason, measu
 Accepted failures keep that status through cancellation races and coordinator recovery.
 Recoverable tool failures inside a completed turn do not fail the child.
 
+Terminal success and failure receipts preserve observed usage and explicit completeness flags.
+Canonical input totals include cached input, and canonical output totals include reasoning.
+Reasoning counters classify output; Runtime does not add them to an inclusive output total.
+A reasoning-only observation remains a lower bound, not a complete output measurement.
+Repeated cumulative failure and completion receipts do not count the same work twice.
+Incomplete receipts stay incomplete through streamed progress, transport failure, and retained results.
+Provider cost estimates remain distinct from verified billing receipts.
+
 ## Required Invariants
 
 The implementation is complete only when all of these hold:

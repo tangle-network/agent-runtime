@@ -9,6 +9,107 @@ import {
 } from '../../src/runtime/sandbox-events'
 
 describe('sumSandboxUsage — meter an openSandboxRun turn', () => {
+  it.each(['error', 'done', 'result', 'final', 'message.completed'])(
+    'preserves incomplete accounting on a %s receipt',
+    (type) => {
+      const usage = { inputTokens: 49661, outputTokens: 1164, reasoningTokens: 417 }
+      const event: SandboxEvent = {
+        type,
+        data: {
+          ...(type === 'error' || type === 'done' ? { tokenUsage: usage } : { usage }),
+          totalCostUsd: 0.02,
+          tokensKnown: false,
+          usdKnown: false,
+        },
+      }
+      expect(sumSandboxUsage([event, structuredClone(event)])).toMatchObject({
+        input: 49661,
+        output: 1164,
+        costUsd: 0.02,
+        tokensKnown: false,
+        usdKnown: false,
+      })
+    },
+  )
+
+  it('does not promote an incomplete error receipt when done repeats the same totals', () => {
+    const data = {
+      tokenUsage: { inputTokens: 7, outputTokens: 3 },
+      totalCostUsd: 0.02,
+      usageMode: 'cumulative',
+      tokensKnown: false,
+      usdKnown: false,
+    }
+    expect(
+      sumSandboxUsage([
+        { type: 'error', data },
+        { type: 'done', data },
+      ]),
+    ).toEqual({
+      input: 7,
+      output: 3,
+      costUsd: 0.02,
+      tokensKnown: false,
+      usdKnown: false,
+    })
+  })
+
+  it('retains a reasoning-only lower bound without claiming the output total is complete', () => {
+    expect(
+      sumSandboxUsage([
+        { type: 'done', data: { tokenUsage: { inputTokens: 7, reasoningTokens: 3 } } },
+      ]),
+    ).toMatchObject({ input: 7, output: 3, tokensKnown: false, usdKnown: false })
+  })
+
+  it('prefers authoritative envelope accounting across different alias spellings', () => {
+    expect(
+      sumSandboxUsage([
+        {
+          type: 'done',
+          data: {
+            tokenUsage: { inputTokens: 7, outputTokens: 3, costUsd: 99, costKnown: true },
+            totalCostUsd: 0.02,
+            usdKnown: false,
+            tokensKnown: false,
+          },
+        },
+      ]),
+    ).toEqual({ input: 7, output: 3, costUsd: 0.02, tokensKnown: false, usdKnown: false })
+  })
+
+  it.each([
+    { tokensKnown: true, tokens_known: false, costKnown: true, usdKnown: false },
+    { tokensKnown: 'false', usdKnown: 'false' },
+    { tokensKnown: null, usdKnown: null },
+    { tokensKnown: 0, usdKnown: 0 },
+  ])('keeps conflicting or malformed completeness markers unknown: %j', (markers) => {
+    expect(
+      sumSandboxUsage([
+        {
+          type: 'done',
+          data: {
+            tokenUsage: { inputTokens: 7, outputTokens: 3 },
+            totalCostUsd: 0.02,
+            ...markers,
+          },
+        },
+      ]),
+    ).toMatchObject({ input: 7, output: 3, costUsd: 0.02, tokensKnown: false, usdKnown: false })
+  })
+
+  it.each(['error', 'done'])(
+    'retains explicit incomplete accounting on a counter-free %s receipt',
+    (type) => {
+      expect(
+        sumSandboxUsage([
+          { type: 'llm_call', data: { tokensIn: 7, tokensOut: 3 } },
+          { type, data: { tokensKnown: false, usdKnown: false } },
+        ]),
+      ).toMatchObject({ input: 7, output: 3, tokensKnown: false, usdKnown: false })
+    },
+  )
+
   it('counts repeated terminal totals once after incremental usage', () => {
     const events: SandboxEvent[] = [
       { type: 'llm_call', id: 'call-1', data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 } },
@@ -185,18 +286,18 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
   it.each([
     {
       type: 'result',
-      data: { usage: { inputTokens: 2, outputTokens: 3, reasoningTokens: 7 } },
+      data: { usage: { inputTokens: 2, outputTokens: 3, reasoningTokens: 2 } },
     },
     {
       type: 'usage',
-      data: { inputTokens: 2, outputTokens: 3, reasoningTokens: 7 },
+      data: { inputTokens: 2, outputTokens: 3, reasoningTokens: 2 },
     },
-  ] as const)('folds separate reasoning tokens into output for $type events', (event) => {
+  ] as const)('does not add the reasoning subset to inclusive output for $type events', (event) => {
     expect(extractLlmCallEvent(event, 'agent')).toEqual({
       type: 'llm_call',
       model: 'agent',
       tokensIn: 2,
-      tokensOut: 10,
+      tokensOut: 3,
       usdKnown: false,
     })
   })
@@ -205,7 +306,7 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
   // `tokenUsage` (not `usage`) with cost top-level — without this the in-process
   // loopDispatch ledger read {0,0} and the backend-integrity guard misreported a
   // real sandboxed run as a stub.
-  it('extracts cost+tokens from the sandbox 0.4.0 `done` event (reasoning folds into output)', () => {
+  it('extracts cost and inclusive tokens from the canonical done event', () => {
     expect(
       extractLlmCallEvent(
         {
@@ -213,7 +314,7 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
           data: {
             tokenUsage: {
               inputTokens: 17381,
-              outputTokens: 1851,
+              outputTokens: 3970,
               reasoningTokens: 2119,
               cacheReadInputTokens: 1792,
             },
@@ -227,7 +328,7 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
       type: 'llm_call',
       model: 'deepseek-v4-pro',
       tokensIn: 17381,
-      tokensOut: 1851 + 2119,
+      tokensOut: 3970,
       costUsd: 0.0042,
       // The same record states what the provider served from cache. Without it the budget
       // charges a re-read prefix at the price of new work.
