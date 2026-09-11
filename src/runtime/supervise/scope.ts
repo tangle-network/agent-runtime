@@ -1292,7 +1292,25 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           return resolution
         })
         .finally(() => {
-          if (live.cleanupConfirmed) permit.release()
+          // `maxLiveWorkers` caps workers that are SIMULTANEOUSLY LIVE, and a terminally-settled
+          // child is not live. Gating the release on proof of destruction conflated two questions:
+          // how many workers are running, and how many remote environments were never reclaimed.
+          // A child whose cleanup cannot be confirmed — which is every retained execution, because
+          // its executor answers `destroyed: false` by construction while reconciliation is pending
+          // — then held its slot for the life of the process.
+          //
+          // Measured 2026-09-11 across 14 pursuits: 127 of 177 children settled that way, each
+          // permanently consuming one of 16 slots. One run recorded `max-live-workers` refusals
+          // carrying `live: 16, freeSlots: 0` at moments when 2 and then 1 child was actually
+          // running, and two directors wrote the resulting refusal into their durable records as a
+          // trade-off they believed they had chosen (#1183).
+          //
+          // The unconfirmed-cleanup fact is not lost: it stays on `live.cleanupConfirmed`, in
+          // `scope.workerCapacity.unconfirmed`, in the `teardown-unconfirmed` journal event, and in
+          // `result.teardownUnconfirmed`. Back-pressure against unreclaimed environments is a real
+          // concern, but it needs its own counter and its own refusal reason rather than a refusal
+          // that reports live workers it does not have.
+          permit.release()
           clearChildDeadline?.()
           if (cascadeAbort) args.signal.removeEventListener('abort', cascadeAbort)
         })
@@ -2767,15 +2785,35 @@ async function runChild<C>(
       live.recoveryPending = true
       live.executorDone = true
       const trace = await captureTraceOnce()
+      // Attempt teardown so a receipt exists at all. A pending retained execution answers
+      // `destroyed: false` by construction, so this cannot confirm cleanup and the permit release
+      // above deliberately does not depend on it — but the attempt and its answer belong in the
+      // record, and today these children carry no teardown receipt of any kind.
+      await teardownOnce(opts.shutdown ?? 'brutalKill').catch(() => undefined)
+      // Charge what the executor actually metered, not the reservation ceiling.
+      //
+      // `reconcile` refunds `reserved - spent`, so passing the ceiling as spend refunded exactly
+      // nothing: a child that ran no turn was charged its entire per-worker allowance. Measured
+      // 2026-09-11, all three runs at a 4M per-worker ceiling against a 32M root budget: 16 dead
+      // children charged 64M (200% of the whole run's budget) having metered 890k; 14 charged 56M
+      // (175%) having metered 139k, a 359x overcharge. `budget-exhausted` is the second most common
+      // no-winner reason in that archive, and a run could reach it having metered almost nothing
+      // (#1190).
+      //
+      // The meter is the same value handed to `downRecord` on the next line. When the executor
+      // exposes none, the ceiling remains the conservative fallback, because an unmeasured child
+      // may still be consuming the remote execution it was handed off to. Either way the spend is
+      // marked unknown, so a floor is never mistaken for a measurement.
+      const metered = executor.metered?.()
       reconcileOnce({
-        iterations: opts.budget.maxIterations,
-        tokens: { input: opts.budget.maxTokens, output: 0 },
+        iterations: metered?.iterations ?? opts.budget.maxIterations,
+        tokens: metered?.tokens ?? { input: opts.budget.maxTokens, output: 0 },
         tokensKnown: false,
-        usd: opts.budget.maxUsd ?? 0,
+        usd: metered?.usd ?? opts.budget.maxUsd ?? 0,
         usdKnown: false,
         ms: Math.max(0, now() - live.startedAt),
       })
-      return downRecord(errMessage(err), true, trace, executor.metered?.())
+      return downRecord(errMessage(err), true, trace, metered)
     }
     // A thrown executor has also finished its own work — only the down-record persistence
     // remains, so the non-blocking drain may await this child too.
