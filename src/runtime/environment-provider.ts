@@ -971,15 +971,20 @@ async function* streamProviderExecutor(
       receipt.tokensKnown !== false
     ) {
       sawCompleteTokenReceipt = true
-    } else if (hasTokens || receipt.tokensUnknownReason) {
+    } else if (hasTokens || receipt.tokensKnown === false || receipt.tokensUnknownReason) {
       sawIncompleteTokenReceipt = true
     }
     const input = receipt.tokensIn ?? 0
     const output = receipt.tokensOut ?? 0
-    if (input || output) {
+    if (input || output || receipt.tokensKnown === false) {
       tokens.input += input
       tokens.output += output
-      yield { kind: 'tokens', input, output }
+      yield {
+        kind: 'tokens',
+        input,
+        output,
+        ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
+      }
     }
     if (receipt.costUsd) {
       usd += receipt.costUsd
@@ -1388,9 +1393,16 @@ function environmentAsSandboxInstance(
       let text = ''
       let usage: TokenUsage | undefined
       let terminal = false
+      const outcomeTracker = createAgentRunOutcomeTracker()
+      let explicitFailure = false
       for await (const event of environment.stream(turnInputFromPrompt(message, promptOptions))) {
         events.push(event)
         if (isTerminalEnvironmentEvent(event)) terminal = true
+        const failureEvent = providerFailureEvent(event, sandboxEventFromEnvironmentEvent(event))
+        if (failureEvent) {
+          explicitFailure = true
+          outcomeTracker.observe(failureEvent)
+        }
         text += textFromEnvironmentEvent(event)
         usage = mergeTokenUsage(usage, event.usage)
       }
@@ -1399,11 +1411,13 @@ function environmentAsSandboxInstance(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
       }
+      const outcome = explicitFailure ? outcomeTracker.finish() : undefined
       return {
         response: resultFromEvents(events, text).content,
-        success: true,
-        status: 'success',
+        success: outcome?.success ?? true,
+        status: outcome?.status ?? 'success',
         durationMs: 0,
+        ...(outcome?.error ? { error: outcome.error } : {}),
         ...(usage ? { usage } : {}),
       }
     },
@@ -1974,6 +1988,7 @@ function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | undefin
   return {
     type: 'usage',
     data: {
+      ...event.data,
       ...usage,
       ...('usageMode' in event
         ? { usageMode: event.usageMode }
@@ -2202,7 +2217,7 @@ function isTerminalEnvironmentEvent(event: AgentEnvironmentEvent): boolean {
 }
 
 function isTerminalEventShape(type: string, data: Record<string, unknown>): boolean {
-  if (isSandboxTerminalEvent(type)) return true
+  if (type === 'error' || isSandboxTerminalEvent(type)) return true
   // A namespaced completion this provider transport may emit under any prefix. Broader than the
   // named sandbox list on purpose: an unknown `<x>.completed` still ends the stream.
   if (type.endsWith('.completed') || type.endsWith('.failed')) return true

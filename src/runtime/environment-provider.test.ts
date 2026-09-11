@@ -49,6 +49,69 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 
 describe('environment provider adapters', () => {
   it.each([
+    { type: 'error', attachedUsage: false, disconnect: false },
+    { type: 'done', attachedUsage: false, disconnect: false },
+    { type: 'error', attachedUsage: true, disconnect: false },
+    { type: 'usage', attachedUsage: true, disconnect: true },
+  ])(
+    'keeps failed-attempt usage incomplete through $type with attachedUsage=$attachedUsage and disconnect=$disconnect',
+    async ({ type, attachedUsage, disconnect }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'failed-attempt-receipt',
+        capabilities: () => fakeCapabilities(),
+        create: async () =>
+          fakeEnvironment({
+            stream: async function* () {
+              const usage = {
+                inputTokens: 49661,
+                outputTokens: 1164,
+                totalTokens: 50825,
+                reasoningTokens: 417,
+                cacheReadInputTokens: 29696,
+              }
+              yield {
+                type,
+                ...(attachedUsage ? { usage } : {}),
+                data: {
+                  message: 'attempt failed',
+                  finalText: 'retained partial evidence',
+                  ...(attachedUsage ? {} : { tokenUsage: usage }),
+                  totalCostUsd: 0.02,
+                  usageMode: 'cumulative',
+                  tokensKnown: false,
+                  usdKnown: false,
+                },
+              }
+              if (disconnect) throw new Error('provider stream disconnected')
+            },
+          }),
+      }
+      const turn = await collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory: createExecutor({ backend: 'provider', provider }),
+            profile: {
+              name: 'failed-attempt-receipt',
+              harness: 'opencode',
+              model: { provider: 'fixture', default: 'fixture/model' },
+            },
+          },
+          { prompt: 'complete the task' },
+        ),
+      )
+      expect(turn.status).toBe(type === 'done' ? 'completed' : 'failed')
+      const final = turn.events.at(-1)
+      if (final?.type !== 'final') throw new Error('expected a terminal final event')
+      expect(final.metadata).toMatchObject({
+        tokenUsage: { input: 49661, output: 1164 },
+        tokensKnown: false,
+        usdKnown: false,
+      })
+    },
+  )
+
+  it.each([
     [false, false],
     [true, false],
     [true, true],
@@ -395,7 +458,7 @@ describe('environment provider adapters', () => {
     const artifact = executor.resultArtifact()
 
     expect(usage).toEqual([
-      { kind: 'tokens', input: 7, output: 16 },
+      { kind: 'tokens', input: 7, output: 11 },
       { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ])
@@ -414,7 +477,7 @@ describe('environment provider adapters', () => {
         ],
       },
       spent: {
-        tokens: { input: 7, output: 16 },
+        tokens: { input: 7, output: 11 },
         usd: 0.03,
       },
     })
@@ -1222,6 +1285,43 @@ describe('environment provider adapters', () => {
     await expect(box.prompt('hello')).rejects.toThrow(/terminal result/)
   })
 
+  it.each([
+    ['error', false],
+    ['done', false],
+    ['result', false],
+    ['done', true],
+    ['result', true],
+  ] as const)('preserves %s prompt success=%s', async (type, success) => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'fake-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'message.part.updated', data: { delta: 'partial' } }
+            yield {
+              type,
+              data: {
+                status: success ? 'success' : 'failed',
+                ...(success ? {} : { error: 'provider execution failed' }),
+              },
+            }
+          },
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+
+    const result = await box.prompt('hello')
+    expect(result).toMatchObject({
+      success,
+      status: success ? 'success' : 'failed',
+    })
+    expect(result.error).toBe(success ? undefined : 'provider execution failed')
+  })
+
   it('destroys an environment that cannot satisfy a required session', async () => {
     let destroyed = 0
     const provider: AgentEnvironmentProvider = {
@@ -1359,7 +1459,7 @@ describe('environment provider adapters', () => {
     const artifact = executor.resultArtifact()
 
     expect(usage).toEqual([
-      { kind: 'tokens', input: 7, output: 16 },
+      { kind: 'tokens', input: 7, output: 11 },
       // A provider event's dollar figure carries no receipt, so it is a price rather than a
       // charge: the whole amount rides `usdEstimated` and a dollar cap is not enforced against it.
       { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03, provenance: 'uncaptured' },
@@ -1368,7 +1468,7 @@ describe('environment provider adapters', () => {
     expect(artifact.out).toMatchObject({ content: 'hello world' })
     expect(artifact.spent).toMatchObject({
       iterations: 1,
-      tokens: { input: 7, output: 16 },
+      tokens: { input: 7, output: 11 },
       usd: 0.03,
       usdKnown: false,
       // `usd - usdEstimated` is what names billed money, so the settlement reports none.
@@ -1470,7 +1570,7 @@ describe('environment provider adapters', () => {
                 usage: {
                   inputTokens: 2,
                   outputTokens: 3,
-                  reasoningTokens: 4,
+                  reasoningTokens: 2,
                   cacheReadInputTokens: 11,
                   cost: 0.1,
                 },
@@ -1593,12 +1693,12 @@ describe('environment provider adapters', () => {
       // Turn 1 claims 11 cache-read tokens against a 2-token prompt total. A class set that does
       // not fit inside the total it says it partitions buys no credit, so nothing is classified
       // and the split is declared unknown.
-      { kind: 'tokens', input: 2, output: 7, cacheBreakdownKnown: false },
+      { kind: 'tokens', input: 2, output: 3, cacheBreakdownKnown: false },
       { kind: 'cost', usd: 0.1, usdKnown: false, usdEstimated: 0.1, provenance: 'uncaptured' },
       { kind: 'iteration' },
       // Turn 3 reports a cache WRITE and no read. The measured write is carried; the rest of the
       // prompt stays unclassified, so the split is incomplete rather than completed with a zero.
-      { kind: 'tokens', input: 5, output: 13, cacheWrite: 2, cacheBreakdownKnown: false },
+      { kind: 'tokens', input: 5, output: 7, cacheWrite: 2, cacheBreakdownKnown: false },
       { kind: 'cost', usd: 0.2, usdKnown: false, usdEstimated: 0.2, provenance: 'uncaptured' },
       { kind: 'iteration' },
       // The settlement's own dollar channel: no turn priced anything further, so there is nothing
@@ -1647,7 +1747,7 @@ describe('environment provider adapters', () => {
       },
       spent: {
         iterations: 2,
-        tokens: { input: 7, output: 20 },
+        tokens: { input: 7, output: 10 },
       },
     })
     expect(artifact.spent.usd).toBeCloseTo(0.3)
@@ -2118,12 +2218,12 @@ describe('environment provider adapters', () => {
     expect(final).toMatchObject({
       status: 'failed',
       metadata: {
-        tokenUsage: { input: 7, output: 14 },
+        tokenUsage: { input: 7, output: 11 },
         usdKnown: false,
         result: {
           output: { content: 'partial answer' },
           spent: {
-            tokens: { input: 7, output: 14 },
+            tokens: { input: 7, output: 11 },
             usd: 0.03,
             usdKnown: false,
           },

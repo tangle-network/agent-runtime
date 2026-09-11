@@ -268,49 +268,15 @@ export function extractLlmCallEvent(
       : ({} as Record<string, unknown>)
 
   if (type === 'llm_call' || type === 'cost.usage' || type === 'usage') {
-    return buildLlmCall({ ...plainRecord(data.usage), ...data }, agentRunName)
+    return buildLlmCall(usageReceiptData(data, plainRecord(data.usage)), agentRunName)
   }
-  if (isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage') {
-    const usage = data.usage as Record<string, unknown> | undefined
-    if (!usage || typeof usage !== 'object') return undefined
-    // `PromptResult.costUsd` — the platform's own provider-reported model cost for the prompt —
-    // is a SIBLING of `usage` on the terminal event, not a member of it, so reading only `usage`
-    // dropped every dollar the SDK reported. The runtime priced nothing here, so this is a
-    // receipt: it settles `usdKnown: true`. A terminal event that reports no number leaves the
-    // dollar channel unknown, never a measured zero.
-    return buildLlmCall(
-      {
-        ...usage,
-        model: data.model ?? usage.model,
-        ...(usage.costUsd === undefined && data.costUsd !== undefined
-          ? { costUsd: data.costUsd }
-          : {}),
-      },
-      agentRunName,
-    )
-  }
-  // sandbox 0.4.0 terminal event: `data = { tokenUsage: { inputTokens, outputTokens,
-  // reasoningTokens, cacheReadInputTokens }, totalCostUsd }`. Usage lives under
-  // `tokenUsage` (not `usage`) and the cost is top-level — neither matched the
-  // branches above, so an in-process loopDispatch run reported {0,0} and the
-  // backend-integrity guard misread a real run as a stub. Reasoning tokens are
-  // billed output (reasoning models), so they fold into the output count. The prompt-cache
-  // counters are read off the SAME `tokenUsage` record rather than re-derived, because only
-  // that record states what the provider billed.
-  if (type === 'done') {
-    const usage = plainRecord(data.tokenUsage) ?? plainRecord(data.usage) ?? {}
-    return buildLlmCall(
-      {
-        ...usage,
-        ...(data.totalCostUsd === undefined ? {} : { totalCostUsd: data.totalCostUsd }),
-        // The `PromptResult.costUsd` the polled-prompt path forwards onto its synthetic terminal
-        // event. `totalCostUsd` is the live SSE spelling of the same fact; a stream carries one or
-        // the other, never both.
-        ...(data.costUsd === undefined ? {} : { costUsd: data.costUsd }),
-        model: data.model ?? usage.model,
-      },
-      agentRunName,
-    )
+  if (type === 'error' || isSandboxTerminalEvent(type)) {
+    const field = type === 'error' ? 'tokenUsage' : sandboxTerminalUsageField(type)
+    const usage =
+      plainRecord(data[field]) ?? plainRecord(data[field === 'usage' ? 'tokenUsage' : 'usage'])
+    // Completeness and cost provenance describe the receipt from its envelope.
+    // Keep that envelope instead of projecting only counters from the nested usage.
+    return buildLlmCall(usageReceiptData(data, usage), agentRunName)
   }
   return undefined
 }
@@ -404,13 +370,26 @@ function creditCanonicalUsage(
       ? declaredMode
       : declaredMode === undefined && event.type === 'llm_call'
         ? 'delta'
-        : declaredMode === undefined && isSandboxTerminalEvent(String(event.type))
+        : declaredMode === undefined &&
+            (event.type === 'error' || isSandboxTerminalEvent(String(event.type)))
           ? 'cumulative'
           : undefined
   const result: LlmCallEvent = { ...call }
   // A cost-only receipt says nothing about token completeness. A later complete token total
   // can still establish it; a stream containing only cost receipts stays unknown at its fold.
-  if (call.tokensIn === undefined && call.tokensOut === undefined && !call.tokensUnknownReason) {
+  const data = plainRecord(event.data) ?? {}
+  const explicitTokensUnknown = [data, plainRecord(data.usage), plainRecord(data.tokenUsage)].some(
+    (receipt) =>
+      ['tokensKnown', 'tokens_known'].some(
+        (key) => receipt?.[key] !== undefined && receipt[key] !== true,
+      ),
+  )
+  if (
+    call.tokensIn === undefined &&
+    call.tokensOut === undefined &&
+    !call.tokensUnknownReason &&
+    !explicitTokensUnknown
+  ) {
     delete result.tokensKnown
   }
   let reason =
@@ -478,8 +457,7 @@ function creditCanonicalUsage(
  *     `output_tokens` — a turn reporting `output_tokens 1523` with `reasoning_output_tokens 1516`
  *     answered with about seven tokens of text — and `parseCodexUsageRecord` holds that as an
  *     invariant. The canonical `llm_call` carries no reasoning class, so the count is not
- *     forwarded to {@link buildLlmCall}, whose `reasoningTokens` input is for the sandbox
- *     `tokenUsage` record that reports reasoning BESIDE its output count.
+ *     forwarded to {@link buildLlmCall}. Canonical output totals already include reasoning.
  *
  * A counter no report carried stays absent, because a zero would claim the provider measured none.
  */
@@ -590,6 +568,36 @@ export function sumSandboxUsage(
   }
 }
 
+function usageReceiptData(
+  envelope: Record<string, unknown>,
+  usage: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const merged = { ...usage, ...envelope }
+  // An envelope overrides nested receipt fields even when their wire aliases differ.
+  for (const aliases of [
+    ['tokensIn', 'inputTokens', 'prompt_tokens'],
+    ['tokensOut', 'outputTokens', 'completion_tokens'],
+    ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'],
+    ['costProvenance', 'cost_provenance'],
+  ]) {
+    const key = aliases.find((alias) => envelope[alias] !== undefined)
+    if (key === undefined) continue
+    for (const alias of aliases) delete merged[alias]
+    merged[key] = envelope[key]
+  }
+  // A complete flag cannot promote a conflicting, malformed, or partial observation.
+  for (const aliases of [
+    ['tokensKnown', 'tokens_known'],
+    ['costKnown', 'cost_known', 'usdKnown', 'usd_known'],
+  ] as const) {
+    const values = [usage, envelope].flatMap((receipt) =>
+      aliases.map((key) => receipt[key]).filter((value) => value !== undefined),
+    )
+    if (values.length > 0) merged[aliases[0]] = values.every((value) => value === true)
+  }
+  return merged
+}
+
 function buildLlmCall(
   data: Record<string, unknown>,
   agentRunName: string,
@@ -597,10 +605,8 @@ function buildLlmCall(
   const tokensIn = pickFiniteNumber(data, ['tokensIn', 'inputTokens', 'prompt_tokens'])
   const outputTokens = pickFiniteNumber(data, ['tokensOut', 'outputTokens', 'completion_tokens'])
   const reasoningTokens = pickFiniteNumber(data, ['reasoningTokens'])
-  const tokensOut =
-    outputTokens !== undefined || reasoningTokens !== undefined
-      ? (outputTokens ?? 0) + (reasoningTokens ?? 0)
-      : undefined
+  // Reasoning classifies the inclusive output total. Alone, it is only a lower bound.
+  const tokensOut = outputTokens ?? reasoningTokens
   const reportedCostUsd = pickFiniteNumber(data, ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'])
   const explicitTokensKnown = data.tokensKnown ?? data.tokens_known
   const explicitCostKnown = data.costKnown ?? data.cost_known ?? data.usdKnown ?? data.usd_known
@@ -611,7 +617,7 @@ function buildLlmCall(
   const costUsd = costProvenance === 'catalog-estimate' ? undefined : reportedCostUsd
   const promptCache = readPromptCacheUsage(data)
   const tokensKnown =
-    explicitTokensKnown !== false && tokensIn !== undefined && tokensOut !== undefined
+    explicitTokensKnown !== false && tokensIn !== undefined && outputTokens !== undefined
   // Sandbox's canonical terminal `totalCostUsd` is already the provider-reported receipt. The
   // current SDK carries no provenance tag, so absence means the canonical receipt rather than
   // "unknown". Explicit estimates and explicit false-known markers remain unknown.
