@@ -41,6 +41,23 @@ export interface BridgeRunStateRead {
  *  silently stop every later refresh. */
 const BRIDGE_RUN_STATE_TIMEOUT_MS = 2_000
 
+/** Ceiling on one model-route probe. This is deliberately not the run-state budget: a slow
+ *  run-state read costs one skipped refresh, while a slow route probe refuses a spawn or a driver
+ *  turn, and three refusals in a row end the run at zero tokens. On a host at load average 261
+ *  `GET /v1/capabilities` measured 12-15 s while `POST /v1/chat/completions` on the same bridge
+ *  and model returned 200, so a 2 s budget reported a live bridge as one that routes nothing.
+ *  Half the bridge's own admission acquire deadline (60 s): a hung bridge still refuses. */
+export const BRIDGE_ROUTE_PROBE_TIMEOUT_MS = 30_000
+
+/** Wire models a probe has seen each bridge route, keyed by bridge URL and then by model. Whether a
+ *  bridge routes a model is a fact about its catalog, not about this turn, and `bridgeExecutor`
+ *  rebuilds its seam per turn, so the key is the pair and not the seam object. Only a positive
+ *  answer is kept: a cached refusal would be the mirror of the silent admission the preflight
+ *  exists to remove, refusing a bridge that has since gained the backend until the process
+ *  restarted. A positive that goes stale fails at dispatch with the bridge's own retained error,
+ *  which is what a child saw before the preflight existed. */
+const routedModels = new Map<string, Set<string>>()
+
 /** One bridge GET over the `node:http(s)` core client — the same transport every other bridge
  *  read uses, so a computed provider endpoint never reaches global `fetch`. Resolves the status
  *  and the body text; a transport failure rejects. */
@@ -104,12 +121,13 @@ export async function bridgeModelRouteRefusal(
   signal?: AbortSignal,
 ): Promise<BridgeModelRouteRefusal | undefined> {
   const base = seam.bridgeUrl.replace(/\/$/, '')
+  if (routedModels.get(base)?.has(wireModel)) return undefined
   let answer: { status: number; body: string }
   try {
     answer = await bridgeGet(
       seam,
       `/v1/capabilities?model=${encodeURIComponent(wireModel)}`,
-      BRIDGE_RUN_STATE_TIMEOUT_MS,
+      BRIDGE_ROUTE_PROBE_TIMEOUT_MS,
       signal,
     )
   } catch (error) {
@@ -119,7 +137,15 @@ export async function bridgeModelRouteRefusal(
       retryable: true,
     }
   }
-  if (answer.status === 200) return undefined
+  if (answer.status === 200) {
+    let routed = routedModels.get(base)
+    if (routed === undefined) {
+      routed = new Set<string>()
+      routedModels.set(base, routed)
+    }
+    routed.add(wireModel)
+    return undefined
+  }
   if (answer.status === 404) {
     return {
       detail: `bridge ${base} routes no backend for model ${JSON.stringify(wireModel)}`,

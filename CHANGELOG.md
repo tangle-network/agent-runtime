@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.212.0
+
+The bridge model-route probe (`GET /v1/capabilities?model=…`, run before every spawn and every
+driver turn) has its own budget, `BRIDGE_ROUTE_PROBE_TIMEOUT_MS` (30 s), instead of the 2 s
+run-state read ceiling it borrowed.
+On a loaded host a live bridge answered that probe in 12-15 s while serving completions, so every
+probe refused and a run ended as `no-progress` at zero tokens.
+A positive route answer is now kept per bridge and wire model for the process; a refusal is never
+cached, and a transport error, 404, or 5xx refuses exactly as before.
+A consumer that tuned retries around the 2 s probe should expect a slow bridge to be admitted
+rather than refused, and a hung bridge to take up to 30 s to refuse.
+
 ## 0.211.0
 
 A run whose budget reservation is still open at the join barrier now settles instead of throwing.
