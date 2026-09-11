@@ -50,6 +50,7 @@ import {
   coordinationHttpHandler,
   coordinationHttpLimits,
 } from './coordination-http'
+import { singleFlightTools } from './single-flight-tools'
 
 export type { CoordinationHttpAudit, CoordinationHttpOptions } from './coordination-http'
 
@@ -177,6 +178,20 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   coordinationHttpLimits(options)
 }
 
+/**
+ * The longest one coordination call holds its HTTP response before it answers with a re-pollable
+ * pending result instead: `await_event` by default, and every method-supplied node tool always.
+ *
+ * It is half of `requestTimeoutMs`, so the answer leaves before the transport's own 504 at
+ * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization.
+ * Deriving it here means a configured request timeout moves both fences with it. It is capped at
+ * {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS} so a long request timeout does not lengthen each wait; at
+ * the default 30 s request timeout both values are 15 s.
+ */
+export function coordinationResponseFenceMs(requestTimeoutMs: number): number {
+  return Math.max(1, Math.min(DEFAULT_AWAIT_EVENT_TIMEOUT_MS, Math.floor(requestTimeoutMs / 2)))
+}
+
 /** Stand up the existing coordination tools with bounded HTTP access over one live scope. */
 export async function serveCoordinationMcp(
   opts: CoordinationTransportOptions & {
@@ -196,7 +211,8 @@ export async function serveCoordinationMcp(
     maxLiveWorkers?: number
     /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
      *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
-     *  {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0` = prior unbounded block (in-process only). */
+     *  the `coordinationResponseFenceMs` derived from the request timeout; `<= 0` = prior unbounded
+     *  block (in-process only). */
     awaitTimeoutMs?: number
     /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
     analysts?: AnalystRegistry
@@ -230,7 +246,9 @@ export async function serveCoordinationMcp(
     /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
     priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
     /** Product-selected tools already bound to this exact supervisor node. They share this server
-     *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
+     *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
+     *  Each is served single-flight and fenced (`./single-flight-tools`): an identical call joins
+     *  the unreturned run, and a call still running at the fence returns a pending result. */
     nodeTools?: ReadonlyArray<McpToolDescriptor>
     /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
      *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
@@ -266,6 +284,8 @@ export async function serveCoordinationMcp(
 ): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
   assertCoordinationTransport(opts)
+  const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
+  const responseFenceMs = coordinationResponseFenceMs(requestTimeoutMs)
   if (opts.peerMail && (!isLoopbackHost(host) || opts.publicUrl)) {
     throw new ConfigError(
       'remote peer mail requires a separate reachable capability transport; coordination authentication does not authorize the peer listener',
@@ -370,7 +390,7 @@ export async function serveCoordinationMcp(
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
     ...(opts.onStop ? { onStop: opts.onStop } : {}),
     ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-    awaitTimeoutMs: opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+    awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
@@ -407,7 +427,8 @@ export async function serveCoordinationMcp(
     }
     reservedNames.add(tool.name)
   }
-  const availableTools = [...coord.tools, ...(opts.nodeTools ?? [])]
+  const nodeTools = singleFlightTools(opts.nodeTools ?? [], { fenceMs: responseFenceMs })
+  const availableTools = [...coord.tools, ...nodeTools.tools]
   const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
   if (!Array.isArray(opts.toolNames)) {
     throw new ValidationError(
@@ -443,6 +464,7 @@ export async function serveCoordinationMcp(
       identity,
       toolNames: new Set(servedTools.map((tool) => tool.name)),
       handle: (message) => mcp.handle(message),
+      backgroundActions: nodeTools.background,
       authorize: (req) => {
         if (!paths.has(req.url ?? '')) return 404
         if (!audiences.has(req.headers.host ?? '')) return 403
@@ -459,7 +481,6 @@ export async function serveCoordinationMcp(
     }),
   )
 
-  const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
   server.requestTimeout = requestTimeoutMs
   server.headersTimeout = requestTimeoutMs
 

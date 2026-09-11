@@ -988,6 +988,91 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     })
   })
 
+  it('a method tool that outruns the coordination fence runs once for a director that retries', async () => {
+    // The observed failure: run mech-interp-foundations-glm2-20260911d called `literature_sourcing`
+    // at 21:39:12Z, the POST failed after 30.0 s while the handler kept spawning children, and the
+    // director's retry at 21:40:19Z — the same arguments with the object keys in another order —
+    // started the whole literature graph a second time.
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let invocations = 0
+    let resolveGraph!: (value: unknown) => void
+    const graph = new Promise<unknown>((resolve) => {
+      resolveGraph = resolve
+    })
+    const responses: Array<{ result?: unknown; error?: unknown }> = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+      const call = async (sources: unknown) =>
+        (await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'literature_sourcing',
+          arguments: { sources },
+        })) as { result?: unknown; error?: unknown }
+      responses.push(await call([{ id: 'daniel-murfet', kind: 'researcher' }]))
+      responses.push(await call([{ kind: 'researcher', id: 'daniel-murfet' }]))
+      resolveGraph({ charter: 'one graph, one run' })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      responses.push(await call([{ id: 'daniel-murfet', kind: 'researcher' }]))
+    }
+    const root = supervisorAgent(
+      testAgentProfile('external-manager', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('literature_sourcing'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness,
+        // 200 ms request timeout ⇒ a 100 ms fence, the shape the 30 s default gives at 15 s.
+        coordination: { requestTimeoutMs: 200 },
+        nodeContext: {
+          runId: 'method-tool-single-flight',
+          runNamespace: 'method-tool-single-flight-namespace',
+          ownerId: 'owner-external',
+          depth: 0,
+          identity: {
+            profileDigest: `sha256:${'1'.repeat(64)}`,
+            taskDigest: `sha256:${'2'.repeat(64)}`,
+          },
+        },
+        resolveSupervisorTools: async () => [
+          {
+            name: 'literature_sourcing',
+            description: 'Run the registered source-to-charter method through this node’s children',
+            inputSchema: { type: 'object', properties: { sources: { type: 'array' } } },
+            handler: async () => {
+              invocations++
+              return graph
+            },
+          },
+        ],
+      },
+    )
+    await createSupervisor<unknown, unknown>().run(root, 'source the literature', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'method-tool-single-flight',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    expect(invocations).toBe(1)
+    expect(responses).toHaveLength(3)
+    for (const pending of responses.slice(0, 2)) {
+      expect(pending.error).toBeUndefined()
+      expect(pending.result).toMatchObject({
+        isError: false,
+        structuredContent: { pending: true, tool: 'literature_sourcing' },
+      })
+    }
+    expect(responses[2]?.error).toBeUndefined()
+    expect(responses[2]?.result).toMatchObject({
+      structuredContent: { charter: 'one graph, one run' },
+    })
+  })
+
   it('captures the resolver and rejects descriptor collisions before brain compute or MCP listen', async () => {
     const seed = {
       runId: 'sup',
