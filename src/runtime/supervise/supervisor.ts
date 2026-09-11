@@ -43,7 +43,7 @@ import {
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { addSpend } from '../util'
-import { RunCancellationReason, runAbortable } from './abortable'
+import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
 import { runTree } from './finalizer'
@@ -527,17 +527,22 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         return true
       }
 
-      const onCallerAbort = () =>
+      // `abortReason` keeps an `Error` reason's message and treats a reasonless `abort()` as the
+      // fallback, so a caller that aborts with `new Error('why')` settles as 'why' rather than the
+      // generic text, and every layer below sees the same reason this settlement records.
+      const onCallerAbort = () => {
+        const reason = opts.signal
+          ? abortReason(opts.signal, 'caller signal aborted')
+          : 'caller signal aborted'
         cascadeAbort(
-          opts.signal?.reason instanceof RunCancellationReason
-            ? opts.signal.reason
+          reason instanceof RunCancellationReason
+            ? reason
             : new RunCancellationReason(
                 'signal',
-                typeof opts.signal?.reason === 'string'
-                  ? opts.signal.reason
-                  : 'caller signal aborted',
+                typeof reason === 'string' ? reason : 'caller signal aborted',
               ),
         )
+      }
       if (opts.signal) {
         if (opts.signal.aborted) onCallerAbort()
         else opts.signal.addEventListener('abort', onCallerAbort, { once: true })
