@@ -106,6 +106,7 @@ import {
 import { detachedSnapshot } from './supervise/snapshot'
 import { createPushTraceSource, decodeBoxPart, type TraceSource } from './supervise/trace-source'
 import type {
+  EnvironmentTeardownReceipt,
   Executor,
   ExecutorCancellation,
   ExecutorContext,
@@ -325,6 +326,41 @@ export interface SandboxClientProviderOptions {
   /** Map portable creation into a supported SDK or deployment contract. Runtime attachments
    * require this explicit mapper until the maintained Sandbox SDK transports them. */
   mapCreateInput?: (input: CreateAgentEnvironmentInput) => CreateSandboxOptions
+  /**
+   * `idleTimeoutSeconds` sent on every Sandbox create this adapter makes (a mapped create, a
+   * `mapCreateInput` result, or a fork), unless those create options already name one. Defaults to
+   * {@link DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS}; a positive whole number of seconds.
+   */
+  idleTimeoutSeconds?: number
+}
+
+/**
+ * The idle timeout this adapter sends when nothing else names one: 1,800 seconds.
+ *
+ * Sandbox substitutes no value of its own: an omitted field falls back to the platform's global
+ * idle timeout, documented as 30 minutes unless an operator changed it, and Runtime sent none. Idle
+ * means inactivity to Sandbox, which suspends the sandbox (the container stops; the workspace is
+ * kept) rather than deleting it. The SDK does not define inactivity further. A request in flight
+ * counts as activity: a Discovery Lab seat created with `idleTimeoutSeconds: 1800` ran one request
+ * to 2,252 seconds, ended by a per-request cap, not by idling (fleet-launch-2026-08-22).
+ *
+ * The value restates the documented default, so it can tighten a longer operator setting but never
+ * loosen the default. It is 3.8 times the longest gap between frames recorded across a healthy
+ * fleet run (469 seconds, same report), and a supervised provider child is observed through an open
+ * stream for its whole turn. It is a backstop for a process that dies holding an environment; the
+ * settlement barrier releases retained environments itself (`Executor.releaseRetained`). It does
+ * nothing on a driver with a create/delete-only lifecycle, which the SDK says skips suspension.
+ */
+export const DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS = 1_800
+
+function sandboxIdleTimeoutSeconds(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new ValidationError(
+      `sandboxClientAsProvider: idleTimeoutSeconds must be a positive whole number of seconds, got ${String(value)}`,
+    )
+  }
+  return value
 }
 
 /**
@@ -337,6 +373,7 @@ export function sandboxClientAsProvider(
   options: SandboxClientProviderOptions = {},
 ): AgentEnvironmentProvider {
   const providerName = options.name ?? 'tangle-sandbox'
+  const idleTimeoutSeconds = sandboxIdleTimeoutSeconds(options.idleTimeoutSeconds)
   const providerCapabilities = async (): Promise<AgentEnvironmentCapabilities> => {
     const capabilities = options.capabilities
       ? typeof options.capabilities === 'function'
@@ -356,20 +393,29 @@ export function sandboxClientAsProvider(
     capabilities: providerCapabilities,
     ...(options.validateProfile ? { validateProfile: options.validateProfile } : {}),
     async create(input: CreateAgentEnvironmentInput): Promise<AgentEnvironment> {
+      const custom = options.mapCreateInput?.(input)
       const createOptions =
-        options.mapCreateInput?.(input) ??
-        (await sandboxOptionsFromCreateInput(
-          input,
-          options.defaultBackend ?? 'opencode',
-          options.resolveProfile,
-          providerName,
-        ))
+        custom === undefined
+          ? await sandboxOptionsFromCreateInput(
+              input,
+              options.defaultBackend ?? 'opencode',
+              options.resolveProfile,
+              providerName,
+              idleTimeoutSeconds,
+            )
+          : { ...custom, idleTimeoutSeconds: custom.idleTimeoutSeconds ?? idleTimeoutSeconds }
       const capabilities = await providerCapabilities()
       const box = await client.create(
         createOptions,
         input.signal === undefined ? undefined : { signal: input.signal },
       )
-      return sandboxInstanceAsEnvironment(box, providerName, client, capabilities)
+      return sandboxInstanceAsEnvironment(
+        box,
+        providerName,
+        client,
+        capabilities,
+        idleTimeoutSeconds,
+      )
     },
     ...(hasGet(client)
       ? {
@@ -377,7 +423,13 @@ export function sandboxClientAsProvider(
             const capabilities = await providerCapabilities()
             const box = await client.get(id)
             return box
-              ? sandboxInstanceAsEnvironment(box, providerName, client, capabilities)
+              ? sandboxInstanceAsEnvironment(
+                  box,
+                  providerName,
+                  client,
+                  capabilities,
+                  idleTimeoutSeconds,
+                )
               : null
           },
         }
@@ -739,6 +791,61 @@ function createProviderExecutor(
         }
       }
     },
+    async releaseRetained(signal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
+      controller.abort()
+      // `teardown` keeps a pending retained execution alive so a resumed process can reconcile the
+      // paid work inside it. The supervisor calls this once no process will: the root has settled.
+      if (!pending) return []
+      const environmentId =
+        retained?.controlRef.environmentId ?? environment?.id ?? admittedEnvironmentId(retention)
+      // An intent-phase admission names no environment yet; if `create` never returned there is
+      // nothing this process can name, and the node stays unconfirmed rather than receipted.
+      if (environmentId === undefined) return []
+      const receipt = (destroyed: boolean, detail?: string): EnvironmentTeardownReceipt => ({
+        provider: provider.name,
+        environmentId,
+        destroyed,
+        ...(detail === undefined ? {} : { detail }),
+      })
+      try {
+        const target =
+          environment ??
+          (provider.get === undefined
+            ? undefined
+            : await awaitAbortable(provider.get(environmentId), signal))
+        if (target === undefined) {
+          return [
+            receipt(
+              false,
+              `providerAsExecutor(${provider.name}): no environment handle and the provider exposes no get()`,
+            ),
+          ]
+        }
+        // `null` is the provider saying it no longer holds the environment: nothing remains to
+        // destroy, which is the same answer `recoverRetainedRun` reads as `not_found`.
+        if (target !== null) {
+          if (target.destroy === undefined) {
+            return [
+              receipt(
+                false,
+                `providerAsExecutor(${provider.name}): environment exposes no destroy()`,
+              ),
+            ]
+          }
+          await awaitAbortable(target.destroy(), signal)
+        }
+        pending = false
+        destroyed = true
+        return [receipt(true)]
+      } catch (error) {
+        return [
+          receipt(
+            false,
+            `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        ]
+      }
+    },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
         throw new ValidationError(
@@ -750,6 +857,15 @@ function createProviderExecutor(
     traceSource: (): TraceSource => trace.source,
   }
   return attestRuntimeOwnedPendingExecutor(executor, runtime, plannedDeclaration, plannedBinding)
+}
+
+/** The environment id the latest durable admission names, when creation got that far. */
+function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): string | undefined {
+  for (const admission of [...(retention?.admissions ?? [])].reverse()) {
+    if (admission.phase === 'dispatched') return admission.controlRef.environmentId
+    if (admission.phase === 'environment') return admission.environmentId
+  }
+  return undefined
 }
 
 interface StreamProviderExecutorArgs {
@@ -971,15 +1087,20 @@ async function* streamProviderExecutor(
       receipt.tokensKnown !== false
     ) {
       sawCompleteTokenReceipt = true
-    } else if (hasTokens || receipt.tokensUnknownReason) {
+    } else if (hasTokens || receipt.tokensKnown === false || receipt.tokensUnknownReason) {
       sawIncompleteTokenReceipt = true
     }
     const input = receipt.tokensIn ?? 0
     const output = receipt.tokensOut ?? 0
-    if (input || output) {
+    if (input || output || receipt.tokensKnown === false) {
       tokens.input += input
       tokens.output += output
-      yield { kind: 'tokens', input, output }
+      yield {
+        kind: 'tokens',
+        input,
+        output,
+        ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
+      }
     }
     if (receipt.costUsd) {
       usd += receipt.costUsd
@@ -1215,6 +1336,7 @@ async function sandboxOptionsFromCreateInput(
   defaultBackend: BackendType,
   resolveProfile?: SandboxClientProviderOptions['resolveProfile'],
   providerName = 'tangle-sandbox',
+  idleTimeoutSeconds = DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
 ): Promise<CreateSandboxOptions> {
   if (input.runtimeAttachments !== undefined) {
     throw new ValidationError(
@@ -1236,6 +1358,9 @@ async function sandboxOptionsFromCreateInput(
   const { profile: _baseProfile, ...baseBackend } = base.backend ?? {}
   return {
     ...base,
+    // The backstop against a process that dies holding the environment. A caller's own create
+    // options win; the adapter only fills the field Runtime used to leave unset.
+    idleTimeoutSeconds: base.idleTimeoutSeconds ?? idleTimeoutSeconds,
     ...(environment ? { environment } : {}),
     ...(workspace.repoUrl ? { git: { url: workspace.repoUrl, ref: workspace.gitRef } } : {}),
     ...(cwd === undefined ? {} : { cwd }),
@@ -1388,9 +1513,16 @@ function environmentAsSandboxInstance(
       let text = ''
       let usage: TokenUsage | undefined
       let terminal = false
+      const outcomeTracker = createAgentRunOutcomeTracker()
+      let explicitFailure = false
       for await (const event of environment.stream(turnInputFromPrompt(message, promptOptions))) {
         events.push(event)
         if (isTerminalEnvironmentEvent(event)) terminal = true
+        const failureEvent = providerFailureEvent(event, sandboxEventFromEnvironmentEvent(event))
+        if (failureEvent) {
+          explicitFailure = true
+          outcomeTracker.observe(failureEvent)
+        }
         text += textFromEnvironmentEvent(event)
         usage = mergeTokenUsage(usage, event.usage)
       }
@@ -1399,11 +1531,13 @@ function environmentAsSandboxInstance(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
       }
+      const outcome = explicitFailure ? outcomeTracker.finish() : undefined
       return {
         response: resultFromEvents(events, text).content,
-        success: true,
-        status: 'success',
+        success: outcome?.success ?? true,
+        status: outcome?.status ?? 'success',
         durationMs: 0,
+        ...(outcome?.error ? { error: outcome.error } : {}),
         ...(usage ? { usage } : {}),
       }
     },
@@ -1466,6 +1600,7 @@ async function sandboxInstanceAsEnvironment(
   providerName: string,
   client: SandboxClient,
   providerCapabilities: AgentEnvironmentCapabilities,
+  idleTimeoutSeconds: number,
 ): Promise<AgentEnvironment> {
   const capabilities = await sandboxEnvironmentCapabilities(box, providerCapabilities)
   const interactiveAgent = capabilities.interactiveAgent
@@ -1613,10 +1748,17 @@ async function sandboxInstanceAsEnvironment(
       const forked = await client.create({
         fromSnapshot: checkpoint.id,
         fromSandboxId: String(box.id),
+        idleTimeoutSeconds,
         ...(options?.name ? { name: options.name } : {}),
         ...(options?.metadata ? { metadata: options.metadata } : {}),
       })
-      return sandboxInstanceAsEnvironment(forked, providerName, client, providerCapabilities)
+      return sandboxInstanceAsEnvironment(
+        forked,
+        providerName,
+        client,
+        providerCapabilities,
+        idleTimeoutSeconds,
+      )
     },
     async placement(): Promise<PlacementInfo> {
       return placementInfoFromLoopPlacement(client.describePlacement?.(box), box)
@@ -1974,6 +2116,7 @@ function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | undefin
   return {
     type: 'usage',
     data: {
+      ...event.data,
       ...usage,
       ...('usageMode' in event
         ? { usageMode: event.usageMode }
@@ -2202,7 +2345,7 @@ function isTerminalEnvironmentEvent(event: AgentEnvironmentEvent): boolean {
 }
 
 function isTerminalEventShape(type: string, data: Record<string, unknown>): boolean {
-  if (isSandboxTerminalEvent(type)) return true
+  if (type === 'error' || isSandboxTerminalEvent(type)) return true
   // A namespaced completion this provider transport may emit under any prefix. Broader than the
   // named sandbox list on purpose: an unknown `<x>.completed` still ends the stream.
   if (type.endsWith('.completed') || type.endsWith('.failed')) return true

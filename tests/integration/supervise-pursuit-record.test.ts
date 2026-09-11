@@ -1,8 +1,13 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readRuntimeSupervisorRun } from '@tangle-network/agent-eval/supervisor-run'
 import { canonicalCandidateJson, sha256Bytes } from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { projectPursuit } from '../../src/durable/observer-projection'
@@ -20,7 +25,9 @@ import {
   settleRecordDigest,
   settleRecordJson,
 } from '../../src/durable/settle-record'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
+import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
 import type {
   DriveHarness,
@@ -34,6 +41,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
@@ -262,6 +270,86 @@ describe('supervisePursuit durable terminal records', () => {
     expect(executed.pursuit.runs).toEqual([
       expect.objectContaining({ runId, attemptIndex: 0, resumeCount: 0, status: 'done' }),
     ])
+  })
+
+  it('releases the environment a retained child holds before recording the settle', async () => {
+    // The Discovery Lab path the leak was measured on (2026-09-11): a pursuit whose child failed with
+    // its retained execution unreconciled settled `no-winner`, recorded result.json, and kept the
+    // child's sandbox running for 19 to 37 hours, because the settle record refuses the resume
+    // that would have reconciled or released it. 18 of a 60-slot fleet were held that way.
+    const stateFile = join(runDir, 'provider.json')
+    const provider = (): AgentEnvironmentProvider => {
+      const base = durableRetainedProvider(stateFile)
+      // The retained execution is admitted and dispatched durably; its result read is lost.
+      const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+        ...environment,
+        session: (id, options) => ({
+          ...environment.session!(id, options),
+          result: async () => {
+            throw new Error('provider result read lost')
+          },
+        }),
+      })
+      return {
+        ...base,
+        create: async (input) => wrap(await base.create(input)),
+        get: async (id) => {
+          const environment = await base.get!(id)
+          return environment ? wrap(environment) : null
+        },
+      }
+    }
+    const held = (): string[] =>
+      existsSync(stateFile)
+        ? Object.keys(
+            (JSON.parse(readFileSync(stateFile, 'utf8')) as { environments: object }).environments,
+          )
+        : []
+    const retainedWorker = (): Agent<unknown, unknown> =>
+      Object.assign(
+        { name: 'retained-worker', act: async () => 'unused' },
+        {
+          executorSpec: {
+            profile: testAgentProfile('retained-worker'),
+            harness: null,
+            executorFactory: providerAsExecutor(provider()),
+          },
+        },
+      )
+
+    const settled = await run(runDir, 'retained-release', { makeWorkerAgent: retainedWorker })
+
+    expect(held()).toEqual([])
+    expect(settled.result.teardownUnconfirmed).toBeUndefined()
+    const events =
+      (await new FileSpawnJournal(join(runDir, 'spawn-journal.jsonl')).loadTree(
+        'retained-release',
+      )) ?? []
+    const admitted = events.flatMap((event) =>
+      event.kind === 'execution-admitted' && event.admission.phase === 'environment'
+        ? [{ id: event.id, environmentId: event.admission.environmentId }]
+        : [],
+    )
+    expect(admitted).toHaveLength(1)
+    // One receipt, naming the node and the provider's own environment id.
+    expect(events.filter((event) => event.kind === 'environment-teardown')).toMatchObject([
+      {
+        id: admitted[0]?.id,
+        provider: 'durable-test',
+        environmentId: admitted[0]?.environmentId,
+        destroyed: true,
+      },
+    ])
+    expect(events.some((event) => event.kind === 'teardown-unconfirmed')).toBe(false)
+    // The settle record still lands, so the run stays final.
+    expect(await readSettleRecord(runDir)).toBeDefined()
+  })
+
+  it("refuses retainedAtSettlement 'keep', which a settle record would contradict", async () => {
+    await expect(run(runDir, 'keep-refused', { retainedAtSettlement: 'keep' })).rejects.toThrow(
+      /retainedAtSettlement 'keep' cannot hold/,
+    )
+    expect(await exists(join(runDir, SETTLE_RECORD_FILE))).toBe(false)
   })
 
   it('refuses to re-enter a directory that holds a settle record, before touching the journal', async () => {

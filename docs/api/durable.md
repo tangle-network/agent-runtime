@@ -1282,6 +1282,18 @@ Intelligence joins those isolated projections without a shared write head.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
 
+##### retainedAtSettlement?
+
+> `readonly` `optional` **retainedAtSettlement?**: `"release"`
+
+Always `'release'`. The settle record refuses re-entry, so no later call resumes a settled
+pursuit and nothing else would release the provider environments its retained children hold.
+`'keep'` is refused rather than ignored.
+
+###### Overrides
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-1)
+
 ##### budget
 
 > `readonly` **budget**: [`Budget`](runtime.md#budget-18)

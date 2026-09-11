@@ -905,6 +905,20 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
 
+##### retainedAtSettlement?
+
+> `readonly` `optional` **retainedAtSettlement?**: `"release"` \| `"keep"`
+
+What root settlement does with provider environments that settled children still hold for a
+retained execution: `'release'` them with one `environment-teardown` receipt each, or `'keep'`
+them for a later call that resumes this run. Default: `'keep'` with `runDir` (re-running the
+same `runDir` and `runId` resumes), `'release'` without it (nothing can resume an in-memory
+run). See `SupervisorOpts.retainedAtSettlement`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-1)
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
@@ -1732,6 +1746,20 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
+
+##### retainedAtSettlement?
+
+> `readonly` `optional` **retainedAtSettlement?**: `"release"` \| `"keep"`
+
+What root settlement does with provider environments that settled children still hold for a
+retained execution: `'release'` them with one `environment-teardown` receipt each, or `'keep'`
+them for a later call that resumes this run. Default: `'keep'` with `runDir` (re-running the
+same `runDir` and `runId` resumes), `'release'` without it (nothing can resume an in-memory
+run). See `SupervisorOpts.retainedAtSettlement`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-1)
 
 ##### resolveDriveHarness?
 

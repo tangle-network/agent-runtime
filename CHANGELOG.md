@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.218.2
+
+A run that no later process will resume now releases the provider environments its retained
+children still hold, instead of leaving them running for nobody.
+A child whose provider execution fails unreconciled (`RetainedExecutionPendingError`) settles with
+its cursor slot open and its environment alive on purpose: a resumed run reconciles the paid turn
+inside it.
+Nothing revisited those children when the ROOT settled, and a run whose settle record refuses
+re-entry is never resumed, so the environments could neither be recovered nor released.
+Measured 2026-09-11 on the Tangle Sandbox fleet: 18 of 23 running sandboxes belonged to four
+Discovery Lab runs that had settled `no-winner` 19 to 37 hours earlier, holding 18 of 60 customer
+slots, and later runs of the same lane were refused with `No available hosts with capacity`.
+
+Whether a later process resumes a run is the caller's knowledge, not the outcome's, so it is
+declared: `SupervisorOpts.retainedAtSettlement` / `SuperviseOptions.retainedAtSettlement` is
+`'release'` or `'keep'`.
+The default is `'keep'` for a durable run (`resume: true`, or `supervise({ runDir })`, which
+re-running resumes) and `'release'` for a run nothing can resume.
+`supervisePursuit` always releases and refuses `'keep'`, because the settle record it writes
+refuses re-entry.
+A process crash never reaches settlement, so it releases nothing under either value, and a
+resumable interruption still recovers its retained children.
+
+Each release is journaled as an `environment-teardown` record naming the provider's own environment
+id, the id a fleet listing shows: `{ destroyed: true }` when the provider released it, or
+`destroyed: false` with the reason when it did not, in which case the node stays named in
+`result.teardownUnconfirmed`.
+A consumer that enumerates `SpawnEvent` kinds should expect the new kind; replay, tree views, and
+cost readers skip it.
+An executor that holds a retained execution implements the new optional `Executor.releaseRetained`
+to answer the sweep; every other executor is untouched, and no executor's `teardown` is retried.
+
+`sandboxClientAsProvider` now sends `idleTimeoutSeconds` on every Sandbox create it makes — mapped,
+`mapCreateInput`-mapped, or a fork — unless those create options already name one.
+Runtime sent none, and Sandbox substitutes none, so the platform's global setting was the only
+bound on an environment whose owning process died.
+The default is `DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS` (1,800 seconds), which restates the
+documented platform default so an operator's longer setting cannot loosen it; pass
+`idleTimeoutSeconds` to the adapter, or `providerOptions.sandboxCreateOptions`, to choose another.
+This is a backstop for a dead process, not the fix: it reaches only environments created through
+this adapter, and the SDK says a create/delete-only driver skips suspension entirely.
 ## 0.218.1
 
 Coordination public address resolvers can now return a promise and receive the manager's cancellation signal.
