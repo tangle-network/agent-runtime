@@ -131,7 +131,15 @@ it('starts the resumed parent while its original child awaits parent coordinatio
     expect(interrupted).toBe(true)
     expect(creates).toBe(1)
     recovering = true
-    cutoff = setTimeout(() => abort.abort(new Error('recovery blocked parent coordination')), 500)
+    // The guard exists for one hazard: a recovery preflight that awaits the child's terminal
+    // event before the parent runs, which deadlocks against the gate above. Once the parent has
+    // acted that deadlock is impossible, and the remaining path (release the gate, journal the
+    // child's settlement) is a durable write sequence whose duration is a property of the host's
+    // fsync latency, not of the contract under test. Measured 2026-09-11 at load average ~350:
+    // 656-732 ms from arming to settlement, so an unscoped 500 ms guard cancelled a healthy run.
+    cutoff = setTimeout(() => {
+      if (!parentActed) abort.abort(new Error('recovery blocked parent coordination'))
+    }, 500)
     const result = await createSupervisor<string, unknown>().run(
       {
         name: 'root',
@@ -178,6 +186,9 @@ it('starts the resumed parent while its original child awaits parent coordinatio
       },
     )
     expect(parentActed).toBe(true)
+    // The guard never fired: the winner below came from the recovery path, not from a race the
+    // guard happened to lose.
+    expect(abort.signal.aborted).toBe(false)
     expect(result.kind).toBe('winner')
     expect(creates).toBe(1)
     const events = (await context.journal.loadTree('root')) ?? []
@@ -245,10 +256,15 @@ it.each([false, true])(
       { name: profile.name, act: async () => 'unused' },
       { executorSpec: { profile, harness: null, executorFactory: providerAsExecutor(provider) } },
     )
+    // A deadlock guard, not a performance bound: it converts a `destroy` that never starts, or a
+    // release that never comes, into a clean failure with cleanup. It must sit above the healthy
+    // path, which is ~11 fsynced journal appends before `destroy` runs. Measured 2026-09-11 at
+    // load average ~320: 1.2-2.4 s to `destroy`, so a 1 s guard cancelled the child before its
+    // result was accepted and the case flaked. 10 s keeps the guard under vitest's 20 s timeout.
     const cutoff = setTimeout(() => {
       controller.abort('test deadline')
       release()
-    }, 1000)
+    }, 10_000)
     try {
       await createSupervisor<string, unknown>().run(
         {

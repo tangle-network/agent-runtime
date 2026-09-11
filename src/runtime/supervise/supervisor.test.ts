@@ -150,6 +150,42 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
     })
   })
 
+  it('carries an Error abort reason onto the cancellation it settles', async () => {
+    const controller = new AbortController()
+    const result = await createSupervisor().run(
+      driver(async () => {
+        controller.abort(new Error('operator closed the session'))
+        return new Promise(() => {})
+      }),
+      'task',
+      supervisorOpts({ signal: controller.signal }),
+    )
+    expect(result).toMatchObject({
+      reason: 'cancelled',
+      source: 'signal',
+      cancellationReason: 'operator closed the session',
+    })
+  })
+
+  it('keeps the generic reason for a reasonless caller abort', async () => {
+    const controller = new AbortController()
+    const result = await createSupervisor().run(
+      driver(async () => {
+        controller.abort()
+        return new Promise(() => {})
+      }),
+      'task',
+      supervisorOpts({ signal: controller.signal }),
+    )
+    // A bare `abort()` sets a platform `AbortError` whose message names nothing; that is not
+    // promoted over the supervisor's own text.
+    expect(result).toMatchObject({
+      reason: 'cancelled',
+      source: 'signal',
+      cancellationReason: 'caller signal aborted',
+    })
+  })
+
   it('preserves a deadline that wins before cancellation', async () => {
     const controller = new AbortController()
     const result = await createSupervisor().run(
