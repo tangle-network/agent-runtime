@@ -1591,7 +1591,18 @@ async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
   }
 
   // Feed the task on stdin; the subprocess owns its own tool/agent loop.
+  //
+  // A child that exits, or closes its stdin, before reading the task leaves this write against a
+  // pipe with no reader, and the kernel answers with EPIPE. Node raises that as an `'error'` on
+  // the stream, and a Writable with no listener turns it into an uncaught exception: one took down
+  // a full serialized kernel run on 2026-09-11 after every test in it had passed. A closed read end
+  // is not this leaf's failure — the child's exit code, read below, is the verdict. Any other
+  // delivery error is, and fails the leaf once the process has been reaped.
+  let deliveryError: Error | undefined
   if (proc.stdin) {
+    proc.stdin.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EPIPE') deliveryError ??= error
+    })
     proc.stdin.write(prompt)
     proc.stdin.end()
   }
@@ -1615,6 +1626,12 @@ async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
   if (exit.code !== 0) {
     throw new ValidationError(
       `cliExecutor: ${args.seam.bin} exited ${exit.code}: ${errChunks.join('').slice(0, 200)}`,
+    )
+  }
+  if (deliveryError) {
+    throw new ValidationError(
+      `cliExecutor: could not deliver the task to ${args.seam.bin}: ${deliveryError.message}`,
+      { cause: deliveryError },
     )
   }
   const out = { content: chunks.join('') } as unknown

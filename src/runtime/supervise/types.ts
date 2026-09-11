@@ -1388,6 +1388,20 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** A retained child's reservation was reconciled at the child-work floor its executor had
+       *  observed, while its cursor slot stays OPEN so a resume can recover the execution. It stands
+       *  in for the `settled` record an open node cannot carry: cost readers and a restored pool
+       *  charge this floor for the node instead of its declared ceiling, and a later `settled` or
+       *  `cancelled` record for the same node supersedes it. A driver's own inference travels on its
+       *  `metered` record as on every other path, so `reconciled + metered` is what the pool
+       *  committed. Its `seq` lives outside the cursor-uniqueness namespace. */
+      kind: 'reconciled'
+      id: NodeId
+      spent: Spend
+      seq: number
+      at: string
+    }
+  | {
       /** A settled child whose executor teardown was never acknowledged: the run cannot prove the
        *  resource is gone, so its capacity slot stays charged for the rest of the run. Recorded so
        *  the leak is durable evidence about the EXECUTOR rather than a cause of run failure.
