@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.220.0
+
+A manager's `spawn_worker` call can name an inline resource by path: `{ kind: 'inline', name, path }`
+anywhere under `profile.resources`, with `path` relative to the manager's workspace.
+The coordination server reads the file, substitutes it as `content` before the canonical profile
+schema validates the spawn, and returns `resourcesFromPath: [{ at, path, byteLength, sha256 }]` so
+the manager can check the bytes against its own file.
+Nothing downstream changes: the journal, the provider, and the child see an ordinary inline resource.
+
+Before this, the bytes went through the model's own output.
+Measured 2026-09-12: a 29,144-character base64 payload reached three children as 15,928 characters
+with 11 substitutions, a fourth received the placeholder the manager meant to replace, and seven
+blind-check attempts across two runs delivered no data.
+
+A path is refused before any reservation, as `invalid-profile` naming the resource and the reason,
+when it is absolute, leaves the workspace root (directly or through a symlink), is not a regular
+file, exceeds 4 MiB, or is not UTF-8.
+The root is `SupervisorAgentDeps.spawnResourceRoot` / `CoordinationToolsOptions.spawnResourceRoot`;
+`supervise` sets it for a loopback bridge driver from that driver's `cwd` and leaves it unset for
+every other backend, where a resource by path is refused with the reason.
+
 ## 0.219.0
 
 Coordination public address resolvers can now return a promise and receive the manager's cancellation signal.

@@ -4064,6 +4064,16 @@ because both are minted AFTER the pre-journal point. Omit = the authored profile
 
 `AgentProfile`
 
+##### spawnResourceRoot?
+
+> `readonly` `optional` **spawnResourceRoot?**: `string`
+
+Directory the coordination server may read on the manager's behalf when a spawn names an
+inline resource by path (`{ kind: 'inline', name, path }` under `profile.resources`). The
+server substitutes the file's bytes as `content` BEFORE the canonical schema sees the
+profile, so the model's own output never carries them. Omit = a resource by path is refused
+with the reason; see `spawn-resource-paths.ts` for the measurement that motivates it.
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
