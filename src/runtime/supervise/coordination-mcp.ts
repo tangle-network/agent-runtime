@@ -279,6 +279,8 @@ export async function serveCoordinationMcp(
     /** Pre-journal profile resolution for `preflightSpawn`; see
      *  `CoordinationToolsOptions.resolveSpawnProfile`. */
     resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+    /** See `CoordinationToolsOptions.spawnResourceRoot`. */
+    spawnResourceRoot?: string
     /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
      *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
      *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
@@ -411,6 +413,7 @@ export async function serveCoordinationMcp(
       : {}),
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
+    ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
     ...(opts.peerMail
       ? {
           peerMail:

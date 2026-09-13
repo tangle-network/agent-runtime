@@ -64,6 +64,7 @@ import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util
 import { RunCancellationReason } from './abortable'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import type { DriverAttemptRecord, DriverRetryPolicy, OnUnmetContract } from './driver-retry'
@@ -2082,6 +2083,21 @@ function assertNoUncapturedExecutableOption(decisionData: Readonly<Record<string
  * detached and frozen; executable ports are copied as the exact references selected at intake.
  * Service internals intentionally remain live, while replacing a callback/service on the caller's
  * mutable options object can no longer change an in-flight run. */
+/** The directory a root manager's spawn may resolve an inline resource `path` under. Only a
+ *  loopback bridge driver has one this process can read: its `cwd` is a directory on this host.
+ *  A remote bridge, a provider sandbox, or an in-process driver with no cwd yields `undefined`. */
+export function rootSpawnResourceRoot(backend: ExecutorConfig | undefined): string | undefined {
+  if (backend === undefined || backend.backend !== 'bridge' || backend.cwd === undefined)
+    return undefined
+  let host: string
+  try {
+    host = new URL(backend.bridgeUrl).hostname
+  } catch {
+    return undefined
+  }
+  return isLoopbackHost(host) ? resolve(backend.cwd) : undefined
+}
+
 export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
@@ -2652,6 +2668,11 @@ function superviseInternal(
     : undefined
   const managerBackend =
     options.driverBackend ?? (options.rootDriverFromBackend === false ? undefined : options.backend)
+  // The root manager's workspace, when this process can read it: a loopback bridge runs the
+  // driver on this host with `cwd` as its workspace, so a spawn that names an inline resource by
+  // path resolves there. Any other backend leaves the root unset and such a spawn is refused with
+  // the reason, never resolved against a directory the driver cannot see.
+  const spawnResourceRoot = rootSpawnResourceRoot(managerBackend)
   if (options.driveHarness && options.resolveDriveHarness) {
     throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
   }
@@ -3159,6 +3180,7 @@ function superviseInternal(
         : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
+      ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),

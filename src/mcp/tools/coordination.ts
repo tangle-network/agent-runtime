@@ -49,6 +49,7 @@ import {
   workerTraceAnalysisStore,
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
+import { resolveSpawnResourcePaths } from './spawn-resource-paths'
 
 /** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
@@ -875,6 +876,14 @@ export interface CoordinationToolsOptions {
    */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /**
+   * Directory the coordination server may read on the manager's behalf when a spawn names an
+   * inline resource by path (`{ kind: 'inline', name, path }` under `profile.resources`). The
+   * server substitutes the file's bytes as `content` BEFORE the canonical schema sees the
+   * profile, so the model's own output never carries them. Omit = a resource by path is refused
+   * with the reason; see `spawn-resource-paths.ts` for the measurement that motivates it.
+   */
+  readonly spawnResourceRoot?: string
+  /**
    * OPT-IN parent channel for `ask_parent`. See {@link EscalateQuestion}.
    *
    * Omit and this manager is treated as the TOP of its question chain: `ask_parent` still raises and
@@ -1316,8 +1325,12 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
     description:
       'Files, tools, skills, and agents materialized into the child workspace before it starts. ' +
       'Brief form: `{ files?, tools?, skills?, agents? }`, each an array whose entries are ' +
-      '`{ kind: "inline", name, content }` or `{ kind: "github", repository?, path, ref? }` ' +
-      '(`files` entries wrap that as `{ path, resource, executable? }`). A child typically gets ' +
+      '`{ kind: "inline", name, content }`, `{ kind: "inline", name, path }`, or ' +
+      '`{ kind: "github", repository?, path, ref? }` ' +
+      '(`files` entries wrap that as `{ path, resource, executable? }`). An inline `path` is ' +
+      'relative to YOUR workspace and is read by the runtime, so use it for any file over a few ' +
+      'hundred bytes: content you retype in this call arrives truncated and altered, a path ' +
+      'arrives byte-exact and the result reports its sha256. A child typically gets ' +
       '`files` for seed inputs and `skills` for a procedure it must follow; the canonical ' +
       'AgentProfile schema carries the full form and governs validation.',
     brief: {
@@ -2868,7 +2881,18 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               freeSlots: freeWorkerSlots(),
             }))(liveWorkerCount()),
           )
-        const parsedProfile = agentProfileSchema.safeParse(a.profile)
+        // A resource named by path is read here, under the manager's workspace root, so the
+        // canonical schema validates the inline resource its bytes make and the journal records
+        // exactly what the child received.
+        const resourcePaths = await resolveSpawnResourcePaths(a.profile, opts.spawnResourceRoot)
+        if (!resourcePaths.ok) {
+          return {
+            error: 'invalid-profile' as const,
+            reason: `resources.${resourcePaths.at}: ${resourcePaths.reason}`,
+            issues: [{ path: `resources.${resourcePaths.at}`, message: resourcePaths.reason }],
+          }
+        }
+        const parsedProfile = agentProfileSchema.safeParse(resourcePaths.profile)
         if (!parsedProfile.success) {
           return Promise.resolve({
             error: 'invalid-profile' as const,
@@ -3011,6 +3035,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 live: liveWorkerCount(),
                 freeSlots: freeWorkerSlots(),
                 ...priorHistory,
+                // The receipt for every resource the server read by path: the manager can check
+                // the sha256 against its own file instead of trusting that the bytes arrived.
+                ...(resourcePaths.resolved.length === 0
+                  ? {}
+                  : { resourcesFromPath: resourcePaths.resolved }),
               }
             : {
                 error: res.reason,
