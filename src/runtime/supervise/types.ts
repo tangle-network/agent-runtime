@@ -948,6 +948,9 @@ export type Settled<Out> =
       kind: 'down'
       handle: Handle<Out>
       reason: string
+      /** Retained output evidence, when execution returned an artifact before this failure.
+       * Its presence does not make the result successful or eligible for selection. */
+      outRef?: string
       /** True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result. */
       infra: boolean
       /** Partial structured tool evidence captured before this failure was journaled. */
@@ -1188,7 +1191,7 @@ export interface NodeSnapshot {
   readonly spent: Spend
   /** Provider model evidence persisted separately from the execution plan. */
   readonly providerModel?: ProviderModelExecutionEvidence
-  /** `outRef` once the node is `done` (the replay/result pointer). */
+  /** Canonical retained output pointer; a failed or cancelled node may also have useful evidence. */
   readonly outRef?: string
   /** Present on terminal executor nodes; legacy records carry an explicit unavailable reason. */
   readonly trace?: WorkerTraceEvidence

@@ -1041,6 +1041,7 @@ export async function replaySpawnTree(
         kind: 'down',
         handle: handleFor(ev.id, 'cancelled'),
         reason: ev.reason,
+        ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
         infra: ev.infra === true,
         ...(ev.providerModel === undefined
           ? {}
@@ -1060,6 +1061,7 @@ export async function replaySpawnTree(
         // `reason` is written by every current scope. The verdict fallback preserves the
         // pre-field convention and the generic text keeps still-older reasonless journals usable.
         reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
+        ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
         infra: ev.infra === true,
         ...(ev.providerModel === undefined
           ? {}

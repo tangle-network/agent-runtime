@@ -207,6 +207,7 @@ export function cloneSpend(spend: Spend): Spend {
     ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
     ms: spend.ms,
     ...boxMinutesOf(spend),
+    ...(spend.tokensProvenance === undefined ? {} : { tokensProvenance: spend.tokensProvenance }),
   }
 }
 
