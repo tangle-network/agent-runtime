@@ -46,32 +46,32 @@ export function errMessage(error: unknown): string {
   const seen = new Set<Error>()
   let current = error
   for (let depth = 0; depth <= maxCauseDepth; depth += 1) {
-    if (!(current instanceof Error)) {
-      parts.push(errorText(current).slice(0, maxPartLength))
-      break
-    }
-    if (seen.has(current)) {
-      parts.push('[circular]')
-      break
-    }
-    seen.add(current)
-    const status = errorHttpStatus(current)
-    const message =
-      (status === undefined ? '' : `HTTP ${status}: `) + (errorProperty(current, 'message') ?? '')
-    parts.push(
-      (depth === 0 ? message : `${errorProperty(current, 'name')}: ${message}`).slice(
-        0,
-        maxPartLength,
-      ),
-    )
     try {
+      if (!(current instanceof Error)) {
+        parts.push(errorText(current).slice(0, maxPartLength))
+        break
+      }
+      if (seen.has(current)) {
+        parts.push('[circular]')
+        break
+      }
+      seen.add(current)
+      const status = errorHttpStatus(current)
+      const message =
+        (status === undefined ? '' : `HTTP ${status}: `) + (errorProperty(current, 'message') ?? '')
+      parts.push(
+        (depth === 0 ? message : `${errorProperty(current, 'name')}: ${message}`).slice(
+          0,
+          maxPartLength,
+        ),
+      )
       current = current.cause
+      if (current === undefined || current === null) break
+      if (depth === maxCauseDepth) parts.push('[cause chain truncated]')
     } catch {
       parts.push('[unreadable error cause]')
       break
     }
-    if (current === undefined || current === null) break
-    if (depth === maxCauseDepth) parts.push('[cause chain truncated]')
   }
   return parts.join(': caused by ').slice(0, maxMessageLength)
 }

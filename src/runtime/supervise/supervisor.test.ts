@@ -95,6 +95,29 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
     expect(persisted.error.message).toBe('original failure')
   })
 
+  it('keeps the typed settlement when a proxy cause refuses its prototype', async () => {
+    const cause = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('unreadable prototype')
+        },
+      },
+    )
+    const fault = new Error('original provider failure', { cause })
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toContain('original provider failure')
+    expect(persisted.error.message).toContain('[unreadable error cause]')
+  })
+
   it.each([false, true])(
     'persists first and last causes through retries with a long first wrapper: %s',
     async (longFirst) => {
