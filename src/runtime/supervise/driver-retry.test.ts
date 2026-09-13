@@ -10,6 +10,7 @@ import {
   defaultUnmetContractSteer,
   runDriverWithRetry,
 } from './driver-retry'
+import { RetainedExecutionPendingError } from './retained-executor'
 
 /** A pool readout with room in every channel — the case where only the driver's own failures
  *  decide whether another attempt runs. */
@@ -117,6 +118,32 @@ describe('classifyDriverFailure', () => {
     const abortError = new Error('aborted')
     abortError.name = 'AbortError'
     expect(classifyDriverFailure(abortError)).toBe('terminal')
+  })
+})
+
+describe('retained driver failure evidence', () => {
+  it('retains the first provider cause when reconciliation later fails differently', async () => {
+    const script = scriptedDrive([
+      new RetainedExecutionPendingError(new Error('backend runtime attachments unavailable')),
+      new RetainedExecutionPendingError(new Error('original environment cannot be read')),
+    ])
+    const records: DriverAttemptRecord[] = []
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxAttempts: 2 },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    }).catch((error: unknown) => error)
+    expect(records[0]?.error).toContain('backend runtime attachments unavailable')
+    expect(records[1]?.error).toContain('original environment cannot be read')
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(error instanceof DriverAttemptsExhaustedError)) return
+    expect(error.message).toContain('backend runtime attachments unavailable')
+    expect(error.message).toContain('original environment cannot be read')
+    expect(script.attempts).toEqual([1, 2])
   })
 })
 
