@@ -154,6 +154,8 @@ export interface DriverAgentOptions {
   /** Pre-journal profile resolution for `preflightSpawn`; see
    *  `CoordinationToolsOptions.resolveSpawnProfile`. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** See `CoordinationToolsOptions.spawnResourceRoot`. */
+  readonly spawnResourceRoot?: string
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -906,6 +908,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
+        ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
         ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),

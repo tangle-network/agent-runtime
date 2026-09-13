@@ -168,6 +168,12 @@ Pre-journal profile resolution for `preflightSpawn`; see
 
 `AgentProfile`
 
+##### spawnResourceRoot?
+
+> `readonly` `optional` **spawnResourceRoot?**: `string`
+
+See `CoordinationToolsOptions.spawnResourceRoot`.
+
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
@@ -2716,6 +2722,17 @@ Pre-journal profile resolution for `preflightSpawn`: the authored profile → th
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`resolveSpawnProfile`](runtime.md#resolvespawnprofile-1)
+
+##### spawnResourceRoot?
+
+> `readonly` `optional` **spawnResourceRoot?**: `string`
+
+See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
+ `path` resolves under. Set only for a manager whose workspace this process can read.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`spawnResourceRoot`](runtime.md#spawnresourceroot)
 
 ##### peerMail?
 

@@ -572,6 +572,9 @@ export interface SupervisorAgentDeps {
    *  will run, so the gate judges the canonical profile. See
    *  `CoordinationToolsOptions.resolveSpawnProfile`. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
+   *  `path` resolves under. Set only for a manager whose workspace this process can read. */
+  readonly spawnResourceRoot?: string
   /** OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
    *  beside the coordination MCP and mint each spawn a capability URL on
    *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
@@ -802,6 +805,7 @@ function buildSupervisorAgent(
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
+        ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
         ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
         ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
@@ -940,6 +944,7 @@ function buildSupervisorAgent(
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
+        ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
         ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
         ...(priorCoordination?.questions.length
           ? { priorQuestions: priorCoordination.questions }

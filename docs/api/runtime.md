@@ -20230,6 +20230,13 @@ Pre-journal profile resolution for `preflightSpawn`: the authored profile → th
 
 `AgentProfile`
 
+##### spawnResourceRoot?
+
+> `readonly` `optional` **spawnResourceRoot?**: `string`
+
+See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
+ `path` resolves under. Set only for a manager whose workspace this process can read.
+
 ##### peerMail?
 
 > `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>; \}
