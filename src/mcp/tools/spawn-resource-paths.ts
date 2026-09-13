@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { type FileHandle, open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 /**
@@ -82,39 +82,79 @@ async function readUnderRoot(
   const rootReal = await realpath(root).catch(() => undefined)
   if (rootReal === undefined) return { ok: false, reason: `workspace root ${root} does not exist` }
   const candidate = resolve(rootReal, requested)
-  const rel = relative(rootReal, candidate)
-  if (rel === '' || rel.startsWith(`..${sep}`) || rel === '..' || isAbsolute(rel)) {
+  if (!inside(rootReal, candidate)) {
     return { ok: false, reason: `path ${requested} leaves the workspace root` }
   }
-  const real = await realpath(candidate).catch(() => undefined)
-  if (real === undefined)
-    return { ok: false, reason: `path ${requested} does not exist under the workspace root` }
-  const realRel = relative(rootReal, real)
-  if (realRel.startsWith(`..${sep}`) || realRel === '..' || isAbsolute(realRel)) {
-    return { ok: false, reason: `path ${requested} resolves outside the workspace root` }
+  // Open first, then judge the OPENED file. A containment check on a path alone can be raced: the
+  // manager's workspace is live (a background process of its own can rename a directory and put a
+  // symlink in its place between the check and the read), so the descriptor's identity is what the
+  // verdict is about. The in-root real path must name the same inode the descriptor holds, and the
+  // bytes are read from the descriptor, never from the path.
+  let handle: FileHandle
+  try {
+    handle = await open(candidate, 'r')
+  } catch (error) {
+    return { ok: false, reason: `path ${requested}: ${describe(error)}` }
   }
-  const info = await stat(real)
-  if (!info.isFile()) return { ok: false, reason: `path ${requested} is not a regular file` }
-  if (info.size > SPAWN_RESOURCE_PATH_MAX_BYTES) {
-    return {
-      ok: false,
-      reason: `path ${requested} is ${info.size} bytes; an inline resource is at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`,
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) return { ok: false, reason: `path ${requested} is not a regular file` }
+    const real = await realpath(candidate).catch(() => undefined)
+    if (real === undefined || !inside(rootReal, real)) {
+      return { ok: false, reason: `path ${requested} resolves outside the workspace root` }
     }
-  }
-  const bytes = await readFile(real)
-  const content = bytes.toString('utf8')
-  if (!Buffer.from(content, 'utf8').equals(bytes)) {
-    return {
-      ok: false,
-      reason: `path ${requested} is not valid UTF-8; encode binary data (base64) before handing it to a child`,
+    const named = await stat(real).catch(() => undefined)
+    if (named === undefined || named.dev !== info.dev || named.ino !== info.ino) {
+      return {
+        ok: false,
+        reason: `path ${requested} changed while it was being read; retry the spawn`,
+      }
     }
+    if (info.size > SPAWN_RESOURCE_PATH_MAX_BYTES) {
+      return {
+        ok: false,
+        reason: `path ${requested} is ${info.size} bytes; an inline resource is at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`,
+      }
+    }
+    const bytes = await handle.readFile()
+    if (bytes.length > SPAWN_RESOURCE_PATH_MAX_BYTES) {
+      return {
+        ok: false,
+        reason: `path ${requested} is ${bytes.length} bytes; an inline resource is at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`,
+      }
+    }
+    const content = bytes.toString('utf8')
+    if (!Buffer.from(content, 'utf8').equals(bytes)) {
+      return {
+        ok: false,
+        reason: `path ${requested} is not valid UTF-8; encode binary data (base64) before handing it to a child`,
+      }
+    }
+    return {
+      ok: true,
+      content,
+      byteLength: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+  } catch (error) {
+    return { ok: false, reason: `path ${requested}: ${describe(error)}` }
+  } finally {
+    await handle.close().catch(() => undefined)
   }
-  return {
-    ok: true,
-    content,
-    byteLength: bytes.length,
-    sha256: createHash('sha256').update(bytes).digest('hex'),
-  }
+}
+
+/** `target` is `rootReal` itself or strictly below it; both must already be absolute. */
+function inside(rootReal: string, target: string): boolean {
+  const rel = relative(rootReal, target)
+  return rel !== '' && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel)
+}
+
+function describe(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code
+  if (code === 'ENOENT') return 'does not exist under the workspace root'
+  if (code === 'EACCES' || code === 'EPERM') return 'is not readable by the runtime process'
+  if (code === 'EISDIR') return 'is not a regular file'
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**

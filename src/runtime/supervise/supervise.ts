@@ -2668,15 +2668,18 @@ function superviseInternal(
     : undefined
   const managerBackend =
     options.driverBackend ?? (options.rootDriverFromBackend === false ? undefined : options.backend)
-  // The root manager's workspace, when this process can read it: a loopback bridge runs the
-  // driver on this host with `cwd` as its workspace, so a spawn that names an inline resource by
-  // path resolves there. Any other backend leaves the root unset and such a spawn is refused with
-  // the reason, never resolved against a directory the driver cannot see.
-  const spawnResourceRoot = rootSpawnResourceRoot(managerBackend)
   if (options.driveHarness && options.resolveDriveHarness) {
     throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
   }
   const hasCustomDriveHarness = Boolean(options.driveHarness || options.resolveDriveHarness)
+  // The root manager's workspace, when this process can read it: a loopback bridge runs the
+  // driver on this host with `cwd` as its workspace, so a spawn that names an inline resource by
+  // path resolves there. A caller-supplied harness is the actual driver and its workspace is its
+  // own; the bridge's cwd says nothing about it, so no root is inferred and a spawn by path is
+  // refused with the reason rather than read from a directory the driver never saw.
+  const spawnResourceRoot = hasCustomDriveHarness
+    ? undefined
+    : rootSpawnResourceRoot(managerBackend)
   // Runtime-managed tool declarations and the driver's coordination channel are checked before
   // reservation or journaling. A bridge adds its own route/admission check after that purely local
   // validation. A caller-owned worker port owns its own mount and receives the exact profile

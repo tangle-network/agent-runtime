@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -121,6 +121,26 @@ describe('resolveSpawnResourcePaths', () => {
       if (result.ok) continue
       expect(result.reason, path).toContain(fragment)
     }
+  })
+})
+
+describe('resolveSpawnResourcePaths failures the runtime process cannot read past', () => {
+  it('turns an unreadable file into the typed refusal instead of a thrown tool failure', async () => {
+    if (process.getuid?.() === 0) return // root reads everything; the permission bit means nothing
+    const { root } = await workspace()
+    await writeFile(join(root, 'locked.txt'), 'x')
+    await chmod(join(root, 'locked.txt'), 0o000)
+    const result = await resolveSpawnResourcePaths(
+      {
+        resources: {
+          files: [{ path: 'f', resource: { kind: 'inline', name: 'f', path: 'locked.txt' } }],
+        },
+      },
+      root,
+    )
+    expect(result).toMatchObject({ ok: false, at: 'files[0].resource' })
+    if (result.ok) return
+    expect(result.reason).toContain('not readable by the runtime process')
   })
 })
 
