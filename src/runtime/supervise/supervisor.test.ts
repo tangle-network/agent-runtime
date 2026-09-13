@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
+import { runDriverWithRetry } from './driver-retry'
+import { RetainedExecutionPendingError } from './retained-executor'
 import { createExecutorRegistry } from './runtime'
 import { createRootHandle, createSupervisor } from './supervisor'
 import type { Agent, Scope, Spend, SupervisorOpts } from './types'
@@ -33,6 +35,203 @@ function driver(body: (scope: Scope<unknown>) => Promise<unknown>): Agent<unknow
 }
 
 describe('supervisor: the driver rejection survives onto the typed no-winner', () => {
+  it('persists the SDK HTTP status through retained wrappers and retry exhaustion', async () => {
+    const fault = Object.assign(new Error('GET /v1/backends: Unknown error'), { status: 403 })
+    const result = await createSupervisor().run(
+      driver(async (scope) =>
+        runDriverWithRetry({
+          drive: async () => {
+            throw new RetainedExecutionPendingError(fault)
+          },
+          progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+          budget: () => scope.budget,
+          signal: scope.signal,
+          policy: { enabled: false },
+        }),
+      ),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toContain('HTTP 403')
+    expect(persisted.error.message).toContain('GET /v1/backends: Unknown error')
+  })
+
+  it.each(['Bearer fixture-status-secret', 99, 600, 403.5, Number.NaN])(
+    'does not export a non-HTTP status value: %s',
+    async (status) => {
+      const fault = Object.assign(new Error('provider failure'), { status })
+      const result = await createSupervisor().run(
+        driver(async () => {
+          throw fault
+        }),
+        'task',
+        supervisorOpts(),
+      )
+      const persisted = JSON.parse(JSON.stringify(result))
+      expect(persisted.reason).toBe('driver-failed')
+      expect(persisted.error.message).toBe('provider failure')
+      expect(JSON.stringify(persisted.error)).not.toContain('fixture-status-secret')
+    },
+  )
+
+  it('ignores an unreadable HTTP status without replacing the original failure', async () => {
+    const fault = new Error('original failure')
+    Object.defineProperty(fault, 'status', {
+      get() {
+        throw new Error('unreadable status')
+      },
+    })
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toBe('original failure')
+  })
+
+  it('keeps the typed settlement when a proxy cause refuses its prototype', async () => {
+    const cause = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('unreadable prototype')
+        },
+      },
+    )
+    const fault = new Error('original provider failure', { cause })
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toContain('original provider failure')
+    expect(persisted.error.message).toContain('[unreadable error cause]')
+  })
+
+  it.each([false, true])(
+    'persists first and last causes through retries with a long first wrapper: %s',
+    async (longFirst) => {
+      const faults = [
+        longFirst
+          ? new Error('wrapper'.repeat(1_000), { cause: new Error('original admission rejected') })
+          : new RetainedExecutionPendingError(new Error('original admission rejected')),
+        new RetainedExecutionPendingError(
+          new Error(`later reconciliation failed ${'detail '.repeat(1_000)}`),
+        ),
+      ]
+      let attempts = 0
+      const result = await createSupervisor().run(
+        driver(async (scope) =>
+          runDriverWithRetry({
+            drive: async () => {
+              throw faults[attempts++]
+            },
+            progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+            budget: () => scope.budget,
+            signal: scope.signal,
+            policy: { maxAttempts: 2 },
+            sleep: async () => {},
+          }),
+        ),
+        'task',
+        supervisorOpts(),
+      )
+      const persisted = JSON.parse(JSON.stringify(result))
+      expect(persisted.reason).toBe('driver-failed')
+      expect(persisted.error.message).toContain('original admission rejected')
+      expect(persisted.error.message).toContain('later reconciliation failed')
+      expect(attempts).toBe(2)
+    },
+  )
+
+  it('redacts error names and tolerates throwing error properties', async () => {
+    for (const field of ['name', 'message', 'stack'] as const) {
+      const fault = new Error('provider rejected')
+      fault.name = 'Bearer fixture-name-secret'
+      Object.defineProperty(fault, field, {
+        get() {
+          throw new Error('unreadable')
+        },
+      })
+      const result = await createSupervisor().run(
+        driver(async () => {
+          throw fault
+        }),
+        'task',
+        supervisorOpts(),
+      )
+      const persisted = JSON.parse(JSON.stringify(result))
+      expect(persisted.reason).toBe('driver-failed')
+      expect(JSON.stringify(persisted.error)).not.toContain('fixture-name-secret')
+      expect(JSON.stringify(persisted.error)).toContain(`[unreadable error ${field}]`)
+    }
+  })
+
+  it('keeps a retained provider cause through JSON without exposing a bearer credential', async () => {
+    const fault = new RetainedExecutionPendingError(
+      new Error('backend attachments unavailable; Authorization: Bearer fixture-secret-value'),
+    )
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toContain('backend attachments unavailable')
+    expect(JSON.stringify(persisted.error)).not.toContain('fixture-secret-value')
+  })
+
+  it('bounds a cyclic provider cause without changing the driver failure verdict', async () => {
+    const fault = new Error('provider failure')
+    fault.cause = fault
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner' || result.reason !== 'driver-failed') return
+    expect(result.error.message).toContain('[circular]')
+    expect(result.error.message.length).toBeLessThan(1024)
+  })
+
+  it('retains a nested cause after a long outer message and tolerates an unreadable cause', async () => {
+    const original = new Error('original create refusal')
+    Object.defineProperty(original, 'cause', {
+      get() {
+        throw new Error('unreadable')
+      },
+    })
+    const fault = new Error('wrapper'.repeat(5_000), { cause: original })
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    if (result.kind !== 'no-winner' || result.reason !== 'driver-failed')
+      throw new Error('wrong verdict')
+    expect(result.error.message).toContain('original create refusal')
+    expect(result.error.message).toContain('[unreadable error cause]')
+    expect(result.error.message.length).toBeLessThan(16_384)
+  })
+
   it('carries the rejection and names a driver failure when no child ever went down', async () => {
     // The real production shape: a misconfigured run that dies before the tree exists.
     const fault = new ValidationError('executors: no executor registered for runtime "router"')

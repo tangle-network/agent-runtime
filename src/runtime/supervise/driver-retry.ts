@@ -52,6 +52,7 @@ import {
   RuntimeRunStateError,
   ValidationError,
 } from '../../errors'
+import { errMessage, errorProperty, errorText } from './error-message'
 import type { Scope } from './types'
 
 /** The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this
@@ -260,7 +261,7 @@ export function classifyDriverFailure(
   signal?: AbortSignal,
 ): 'transient' | 'terminal' {
   if (signal?.aborted) return 'terminal'
-  if (error instanceof Error && error.name === 'AbortError') return 'terminal'
+  if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof BackendTransportError) {
     if (error.upstreamCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.upstreamCode))
       return 'terminal'
@@ -331,24 +332,21 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
   constructor(cause: unknown, attempts: readonly DriverAttemptRecord[], stop: DriverAttemptStop) {
     const last = attempts[attempts.length - 1]
     const causeText =
-      cause instanceof Error ? `${cause.name}: ${cause.message}` : describeUnknown(cause)
+      cause instanceof Error
+        ? `${errorProperty(cause, 'name')}: ${errMessage(cause)}`
+        : errMessage(cause)
+    const firstFailure = attempts.find((attempt) => attempt.error !== undefined)?.error
     super(
       `supervisor driver failed after ${attempts.length} attempt(s) — stopped by ${stop}; ` +
+        (firstFailure !== undefined && firstFailure !== last?.error
+          ? `first failure: ${errorText(firstFailure)}; `
+          : '') +
         `last cause: ${causeText}` +
         (last?.classification ? ` (classified ${last.classification})` : ''),
       { cause },
     )
     this.attempts = Object.freeze([...attempts])
     this.stop = stop
-  }
-}
-
-function describeUnknown(value: unknown): string {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value) ?? String(value)
-  } catch {
-    return String(value)
   }
 }
 
@@ -472,7 +470,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         await emit({
           attempt,
           durationMs,
-          error: error instanceof Error ? error.message : describeUnknown(error),
+          error: errMessage(error),
           classification,
           madeProgress: progressed,
           stop,
@@ -489,7 +487,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       await emit({
         attempt,
         durationMs,
-        error: error instanceof Error ? error.message : describeUnknown(error),
+        error: errMessage(error),
         classification,
         madeProgress: progressed,
         retryInMs: backoff,

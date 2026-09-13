@@ -46,6 +46,8 @@ import { addSpend } from '../util'
 import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
+import { DriverAttemptsExhaustedError } from './driver-retry'
+import { errMessage, errorProperty } from './error-message'
 import { runTree } from './finalizer'
 import {
   knownExecutionBindingReceipt,
@@ -322,19 +324,19 @@ interface DriverRejection {
  */
 function describeRejection(error: unknown): NoWinnerError {
   if (error instanceof Error) {
+    const stack = errorProperty(error, 'stack')
     return {
-      name: error.name,
-      message: error.message,
-      ...(error.stack !== undefined ? { stack: error.stack } : {}),
+      name: errorProperty(error, 'name') ?? 'Error',
+      // Retry exhaustion already renders both bounded chains; treating it as one wrapper would
+      // truncate the first failure again and leave only the final reconciliation cause.
+      message:
+        error instanceof DriverAttemptsExhaustedError
+          ? (errorProperty(error, 'message') ?? '')
+          : errMessage(error),
+      ...(stack !== undefined ? { stack } : {}),
     }
   }
-  let message: string
-  try {
-    message = typeof error === 'string' ? error : (JSON.stringify(error) ?? String(error))
-  } catch {
-    message = Object.prototype.toString.call(error)
-  }
-  return { name: 'NonError', message }
+  return { name: 'NonError', message: errMessage(error) }
 }
 
 /** Create a supervisor that owns one recursive agent execution tree. */

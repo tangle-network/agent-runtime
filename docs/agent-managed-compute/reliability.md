@@ -12,6 +12,11 @@ If retained event observation fails, Runtime reads the exact terminal result bef
 Recovered results preserve incomplete event observation and a bounded, redacted error summary.
 Runtime refuses settlement for received events with invalid identities and for unavailable or invalid exact results.
 An execution without sufficient recovery proof stays unresolved; it does not authorize replacement work.
+An intent record proves durable admission intent, not whether the provider created an environment.
+Driver attempt records and final failures preserve bounded, redacted cause chains.
+Error summaries include valid numeric HTTP statuses even when the provider message omits them.
+When retry failures differ, the final error includes the first failure before the last cause.
+These summaries expose admission failures without authorizing replacement of unresolved executions.
 
 Provider manager recovery restores the original task and accepted output for the current invocation.
 A later deliberate manager invocation receives a separate input record.
