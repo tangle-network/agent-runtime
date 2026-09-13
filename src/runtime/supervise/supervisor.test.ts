@@ -35,6 +35,66 @@ function driver(body: (scope: Scope<unknown>) => Promise<unknown>): Agent<unknow
 }
 
 describe('supervisor: the driver rejection survives onto the typed no-winner', () => {
+  it('persists the SDK HTTP status through retained wrappers and retry exhaustion', async () => {
+    const fault = Object.assign(new Error('GET /v1/backends: Unknown error'), { status: 403 })
+    const result = await createSupervisor().run(
+      driver(async (scope) =>
+        runDriverWithRetry({
+          drive: async () => {
+            throw new RetainedExecutionPendingError(fault)
+          },
+          progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+          budget: () => scope.budget,
+          signal: scope.signal,
+          policy: { enabled: false },
+        }),
+      ),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toContain('HTTP 403')
+    expect(persisted.error.message).toContain('GET /v1/backends: Unknown error')
+  })
+
+  it.each(['Bearer fixture-status-secret', 99, 600, 403.5, Number.NaN])(
+    'does not export a non-HTTP status value: %s',
+    async (status) => {
+      const fault = Object.assign(new Error('provider failure'), { status })
+      const result = await createSupervisor().run(
+        driver(async () => {
+          throw fault
+        }),
+        'task',
+        supervisorOpts(),
+      )
+      const persisted = JSON.parse(JSON.stringify(result))
+      expect(persisted.reason).toBe('driver-failed')
+      expect(persisted.error.message).toBe('provider failure')
+      expect(JSON.stringify(persisted.error)).not.toContain('fixture-status-secret')
+    },
+  )
+
+  it('ignores an unreadable HTTP status without replacing the original failure', async () => {
+    const fault = new Error('original failure')
+    Object.defineProperty(fault, 'status', {
+      get() {
+        throw new Error('unreadable status')
+      },
+    })
+    const result = await createSupervisor().run(
+      driver(async () => {
+        throw fault
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    const persisted = JSON.parse(JSON.stringify(result))
+    expect(persisted.reason).toBe('driver-failed')
+    expect(persisted.error.message).toBe('original failure')
+  })
+
   it.each([false, true])(
     'persists first and last causes through retries with a long first wrapper: %s',
     async (longFirst) => {

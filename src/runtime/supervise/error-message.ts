@@ -29,6 +29,17 @@ export function errorProperty(
   }
 }
 
+function errorHttpStatus(error: Error): number | undefined {
+  try {
+    const status: unknown = Reflect.get(error, 'status')
+    return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+      ? status
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Shared by child settlements, driver attempts, and the final no-winner result. */
 export function errMessage(error: unknown): string {
   const parts: string[] = []
@@ -44,7 +55,9 @@ export function errMessage(error: unknown): string {
       break
     }
     seen.add(current)
-    const message = errorProperty(current, 'message') ?? ''
+    const status = errorHttpStatus(current)
+    const message =
+      (status === undefined ? '' : `HTTP ${status}: `) + (errorProperty(current, 'message') ?? '')
     parts.push(
       (depth === 0 ? message : `${errorProperty(current, 'name')}: ${message}`).slice(
         0,
