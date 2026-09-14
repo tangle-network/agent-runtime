@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.225.1
+
+Provider-backed execution now preserves explicit Router/provider billing receipts through the
+Sandbox adapter. Untagged provider costs remain explicitly uncaptured instead of being promoted to
+measured spend.
+
 ## 0.225.0
 
 A scope now refuses new children once its root has settled, and `SpawnRejection` carries a new `scope-settled` reason for that refusal.
