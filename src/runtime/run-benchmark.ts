@@ -25,6 +25,7 @@ import {
   type Strategy,
   sample,
 } from './strategy'
+import { armDeadlineTimer } from './supervise/deadline'
 import { concreteModelId } from './supervise/model-policy'
 
 /** A checkable task domain — implement these 5 hooks and the suite does the rest. The
@@ -184,16 +185,20 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
     models.map(async (model) => {
       const controller = new AbortController()
       let timeoutError: Error | undefined
-      let timer: ReturnType<typeof setTimeout> | undefined
+      let clearTimer: (() => void) | undefined
       try {
         await Promise.race([
           check(model, cfg.worker, controller.signal),
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              timeoutError = new Error(`timed out after ${timeoutMs} ms`)
-              controller.abort(timeoutError)
-              reject(timeoutError)
-            }, timeoutMs)
+            clearTimer = armDeadlineTimer(
+              timeoutMs,
+              () => {
+                timeoutError = new Error(`timed out after ${timeoutMs} ms`)
+                controller.abort(timeoutError)
+                reject(timeoutError)
+              },
+              true,
+            )
           }),
         ])
       } catch (cause) {
@@ -203,7 +208,7 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
           cause: reported,
         })
       } finally {
-        if (timer) clearTimeout(timer)
+        clearTimer?.()
       }
     }),
   )

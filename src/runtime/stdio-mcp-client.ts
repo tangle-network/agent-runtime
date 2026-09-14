@@ -43,6 +43,7 @@ import { ValidationError } from '../errors'
 import { type KeyProvider, resolveMcpServerLaunch } from './key-provider'
 import { sanitizeMcpToolSchema } from './mcp-environment'
 import type { AgenticTool } from './strategy'
+import { armDeadlineTimer } from './supervise/deadline'
 
 const PROTOCOL_VERSION = '2024-11-05'
 
@@ -134,12 +135,12 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
   let closed = false
   const pending = new Map<
     number,
-    { resolve: (r: JsonRpcResponse) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
+    { resolve: (r: JsonRpcResponse) => void; reject: (e: Error) => void; clearTimer: () => void }
   >()
 
   const failAllPending = (err: Error) => {
     for (const p of pending.values()) {
-      clearTimeout(p.timer)
+      p.clearTimer()
       p.reject(err)
     }
     pending.clear()
@@ -190,7 +191,7 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
     const p = pending.get(msg.id)
     if (!p) return
     pending.delete(msg.id)
-    clearTimeout(p.timer)
+    p.clearTimer()
     p.resolve(msg)
   })
 
@@ -209,16 +210,20 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
       if (spawnFault) return reject(spawnFault)
       if (closed) return reject(new Error('MCP connection closed'))
       const id = nextId++
-      const timer = setTimeout(() => {
-        pending.delete(id)
-        reject(new Error(redactReason(`${timeoutMessage}${stderrTail()}`)))
-      }, timeoutMs)
-      pending.set(id, { resolve, reject, timer })
+      const clearTimer = armDeadlineTimer(
+        timeoutMs,
+        () => {
+          pending.delete(id)
+          reject(new Error(redactReason(`${timeoutMessage}${stderrTail()}`)))
+        },
+        true,
+      )
+      pending.set(id, { resolve, reject, clearTimer })
       try {
         send({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) })
       } catch (err) {
         pending.delete(id)
-        clearTimeout(timer)
+        clearTimer()
         reject(
           new Error(
             redactReason(

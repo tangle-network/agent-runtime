@@ -5,6 +5,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
+  assertCoordinationTransport,
   coordinationResponseFenceMs,
   serveCoordinationMcp,
 } from '../../src/runtime/supervise/coordination-mcp'
@@ -1289,4 +1290,30 @@ describe('the coordination HTTP boundary keeps its own deadline', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   })
+})
+
+describe('caller-owned long-lived coordination credentials', () => {
+  it('honors a finite lifetime beyond one day and still enforces its exact expiry', async () => {
+    const ttlMs = 30 * 24 * 60 * 60 * 1_000
+    await withBoundHttp({ authentication: { ttlMs } }, async (mcp) => {
+      const expires = mcp.credentialExpiresAt!
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(expires - 1)
+      try {
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+        clock.mockReturnValue(expires)
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(401)
+      } finally {
+        clock.mockRestore()
+      }
+    })
+  })
+})
+
+describe('coordination lifetime validation', () => {
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER])(
+    'refuses invalid or unrepresentable lifetime %s',
+    (ttlMs) => {
+      expect(() => assertCoordinationTransport({ authentication: { ttlMs } })).toThrow(/ttlMs/)
+    },
+  )
 })

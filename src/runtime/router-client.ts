@@ -20,6 +20,7 @@ import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
+import { armDeadlineTimer } from './supervise/deadline'
 import { addResourceSpend } from './supervise/resources'
 import type { Spend } from './supervise/types'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
@@ -983,9 +984,10 @@ function withRouterRequestTimeout(
     return { signal: callerSignal ?? new AbortController().signal, dispose: () => undefined }
   }
   const controller = new AbortController()
-  const timeout = setTimeout(
-    () => controller.abort(new Error(`router request timeout after ${timeoutMs}ms`)),
+  const clearTimeout = armDeadlineTimer(
     timeoutMs,
+    () => controller.abort(new Error(`router request timeout after ${timeoutMs}ms`)),
+    true,
   )
   const onCallerAbort = () => controller.abort(callerSignal?.reason ?? new Error('aborted'))
   if (callerSignal?.aborted) onCallerAbort()
@@ -993,7 +995,7 @@ function withRouterRequestTimeout(
   return {
     signal: controller.signal,
     dispose: () => {
-      clearTimeout(timeout)
+      clearTimeout()
       callerSignal?.removeEventListener('abort', onCallerAbort)
     },
   }

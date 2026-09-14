@@ -382,6 +382,19 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
   }
 }
 
+/** Shared receipt semantics; an undeclared nonterminal observation is not a cumulative total. */
+export function canonicalSandboxUsageMode(event: SandboxEvent): 'delta' | 'cumulative' | undefined {
+  const declaredMode = plainRecord(event.data)?.usageMode
+  return declaredMode === 'delta' || declaredMode === 'cumulative'
+    ? declaredMode
+    : declaredMode === undefined && event.type === 'llm_call'
+      ? 'delta'
+      : declaredMode === undefined &&
+          (event.type === 'error' || isSandboxTerminalEvent(String(event.type)))
+        ? 'cumulative'
+        : undefined
+}
+
 /** Terminal totals replace already credited usage; only per-call receipts add to it. */
 function creditCanonicalUsage(
   event: SandboxEvent,
@@ -390,16 +403,7 @@ function creditCanonicalUsage(
   receipts: Map<string, string>,
   onCredit: (receipt: LlmCallEvent, mode: 'delta' | 'cumulative' | undefined) => void,
 ): LlmCallEvent | undefined {
-  const declaredMode = plainRecord(event.data)?.usageMode
-  const mode =
-    declaredMode === 'delta' || declaredMode === 'cumulative'
-      ? declaredMode
-      : declaredMode === undefined && event.type === 'llm_call'
-        ? 'delta'
-        : declaredMode === undefined &&
-            (event.type === 'error' || isSandboxTerminalEvent(String(event.type)))
-          ? 'cumulative'
-          : undefined
+  const mode = canonicalSandboxUsageMode(event)
   const result: LlmCallEvent = { ...call }
   // A cost-only receipt says nothing about token completeness. A later complete token total
   // can still establish it; a stream containing only cost receipts stays unknown at its fold.

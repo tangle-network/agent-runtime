@@ -79,6 +79,7 @@ import {
 import { linkAbort } from './abortable'
 import { type BridgeSeam, bridgeSeamKey, validateBridgeModelCredential } from './bridge-config'
 import { bridgeExecutor, bridgeProfileModel } from './bridge-executor'
+import { armDeadlineTimer } from './deadline'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { contentRef } from './executor-outcome'
 import { assertExactConfigKeys, readSeam } from './executor-seams'
@@ -1520,9 +1521,14 @@ export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
         })
       },
       async teardown(grace): Promise<{ destroyed: boolean }> {
+        if (!proc) {
+          controller.abort()
+          return { destroyed: true }
+        }
+        // Aborting first would invoke the stream's emergency SIGKILL and discard graceful output.
+        const receipt = await killWithGrace(proc, grace)
         controller.abort()
-        if (!proc || proc.exitCode !== null || proc.killed) return { destroyed: true }
-        return killWithGrace(proc, grace)
+        return receipt
       },
       resultArtifact() {
         if (!artifact) {
@@ -1651,11 +1657,14 @@ function killWithGrace(
   proc: ReturnType<typeof spawn>,
   grace: number | 'brutalKill' | 'infinity',
 ): Promise<{ destroyed: boolean }> {
-  if (proc.exitCode !== null || proc.killed) return Promise.resolve({ destroyed: true })
+  // `killed` acknowledges sending a signal, not termination. A failed spawn has no process id.
+  if (proc.pid === undefined || proc.exitCode !== null || proc.signalCode !== null) {
+    return Promise.resolve({ destroyed: true })
+  }
   return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let clearTimer: (() => void) | undefined
     proc.once('close', () => {
-      if (timer) clearTimeout(timer)
+      clearTimer?.()
       resolve({ destroyed: true })
     })
     if (grace === 'brutalKill') {
@@ -1664,9 +1673,13 @@ function killWithGrace(
     }
     proc.kill('SIGTERM')
     if (grace === 'infinity') return
-    timer = setTimeout(() => {
-      if (proc.exitCode === null && !proc.killed) proc.kill('SIGKILL')
-    }, grace)
+    clearTimer = armDeadlineTimer(
+      grace,
+      () => {
+        if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
+      },
+      true,
+    )
   })
 }
 

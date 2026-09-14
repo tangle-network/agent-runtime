@@ -6,6 +6,7 @@ import { routerChatWithTools, routerChatWithUsage } from './router-client'
 // the router. The offline-benchmark path — a deterministic in-process responder, no network.
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -556,5 +557,41 @@ describe('reasoning-aware parsing and reasoning_effort forwarding', () => {
     const res = await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'hi' }])
     expect(res.content).toBe('pong')
     expect('reasoning' in res).toBe(false)
+  })
+})
+
+describe('long-lived router request boundaries', () => {
+  it('does not cancel a caller-selected month-long request after one millisecond', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    let reply!: (response: Response) => void
+    let signal: AbortSignal | undefined
+    const fetch = vi.fn((_url: unknown, init: RequestInit) => {
+      signal = init.signal ?? undefined
+      return new Promise<Response>((resolve) => {
+        reply = resolve
+      })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const result = routerChatWithUsage(
+      {
+        routerBaseUrl: 'https://router.invalid/v1',
+        routerKey: 'fixture',
+        model: 'fixture',
+        retry: { requestTimeoutMs: 30 * 24 * 60 * 60 * 1000, maxAttempts: 1 },
+      },
+      [{ role: 'user', content: 'long turn' }],
+    )
+    await vi.advanceTimersByTimeAsync(5)
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(signal?.aborted).toBe(false)
+    reply(
+      Response.json({
+        choices: [{ message: { content: 'saved' } }],
+        usage: { prompt_tokens: 7, completion_tokens: 2 },
+      }),
+    )
+    expect((await result).content).toBe('saved')
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

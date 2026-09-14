@@ -7,6 +7,7 @@
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'
+import { armDeadlineTimer } from './supervise/deadline'
 import { addResourceSpend } from './supervise/resources'
 import type { Spend, TokenUsageProvenance } from './supervise/types'
 import type { LoopTokenUsage } from './types'
@@ -65,24 +66,16 @@ export function isAbortError(err: unknown): boolean {
  * keeps the event loop alive. Resolves (does not reject) on abort — callers
  * re-check the signal explicitly after the sleep.
  */
-export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal, keepAlive = true): Promise<void> {
+  if (signal?.aborted) return Promise.resolve()
   return new Promise((resolve) => {
-    if (signal?.aborted) {
+    const done = () => {
+      clearTimer()
+      signal?.removeEventListener('abort', done)
       resolve()
-      return
     }
-    let onAbort: (() => void) | undefined
-    const timer = setTimeout(() => {
-      if (onAbort && signal) signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    if (signal) {
-      onAbort = () => {
-        clearTimeout(timer)
-        resolve()
-      }
-      signal.addEventListener('abort', onAbort, { once: true })
-    }
+    const clearTimer = armDeadlineTimer(ms, done, keepAlive)
+    signal?.addEventListener('abort', done, { once: true })
   })
 }
 
@@ -92,14 +85,14 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  */
 export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   return new Promise<T | undefined>((resolve) => {
-    const timer = setTimeout(() => resolve(undefined), ms)
+    const clearTimer = armDeadlineTimer(ms, () => resolve(undefined), true)
     promise.then(
       (value) => {
-        clearTimeout(timer)
+        clearTimer()
         resolve(value)
       },
       () => {
-        clearTimeout(timer)
+        clearTimer()
         resolve(undefined)
       },
     )

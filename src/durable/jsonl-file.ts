@@ -37,27 +37,67 @@ export async function writeAllBytes(
   }
 }
 
-/** Prepare a recovered JSONL file for its next append. A valid unterminated final value is retained
- * and needs a separator; an invalid unterminated tail was never committed and is truncated. */
+/** Prepare the tail under the journal owner's existing single-writer discipline.
+ * Healthy appends read one byte, regardless of history size. Only recovery scans backward,
+ * retaining a valid unterminated value or truncating an uncommitted torn tail. */
 export async function prepareJsonlAppend(path: string): Promise<boolean> {
   const fs = await import('node:fs/promises')
-  let bytes: Buffer
+  let handle: FileHandle
   try {
-    bytes = await fs.readFile(path)
+    handle = await fs.open(path, 'r+')
   } catch (error) {
     if (isNoEntError(error)) return false
     throw error
   }
-  if (bytes.byteLength === 0 || bytes[bytes.byteLength - 1] === 0x0a) return false
-
-  const lastNewline = bytes.lastIndexOf(0x0a)
-  const tail = bytes.subarray(lastNewline + 1).toString('utf8')
   try {
-    JSON.parse(tail)
-    return true
-  } catch {
-    await fs.truncate(path, lastNewline + 1)
-    return false
+    const size = (await handle.stat()).size
+    if (size === 0) return false
+    const lastByte = Buffer.allocUnsafe(1)
+    await readAt(handle, lastByte, size - 1)
+    if (lastByte[0] === 0x0a) return false
+
+    const chunks: Buffer[] = []
+    let end = size
+    let tailStart = 0
+    while (end > 0) {
+      const start = Math.max(0, end - 65_536)
+      const chunk = Buffer.allocUnsafe(end - start)
+      await readAt(handle, chunk, start)
+      const newline = chunk.lastIndexOf(0x0a)
+      chunks.push(chunk.subarray(newline + 1))
+      if (newline >= 0) {
+        tailStart = start + newline + 1
+        break
+      }
+      end = start
+    }
+    const tail = Buffer.concat(chunks.reverse()).toString('utf8')
+    try {
+      JSON.parse(tail)
+      return true
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error
+      await handle.truncate(tailStart)
+      await handle.sync()
+      return false
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+/** A short read is legal; an unexpected EOF means the owner's snapshot changed. */
+async function readAt(handle: FileHandle, buffer: Buffer, position: number): Promise<void> {
+  let offset = 0
+  while (offset < buffer.length) {
+    const { bytesRead } = await handle.read(
+      buffer,
+      offset,
+      buffer.length - offset,
+      position + offset,
+    )
+    if (bytesRead === 0) throw new Error('journal changed while preparing its append tail')
+    offset += bytesRead
   }
 }
 

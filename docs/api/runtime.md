@@ -13360,7 +13360,7 @@ End one peer exchange: every further mail on the thread is refused `thread-stopp
 
 > `readonly` `optional` **ttlMs?**: `number`
 
-Credential lifetime; defaults to 15 minutes and cannot exceed 24 hours.
+Explicit finite credential lifetime; defaults to 15 minutes. Longer runs must configure it.
 
 ##### signingKeys?
 

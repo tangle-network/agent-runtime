@@ -3,6 +3,7 @@ import { cp, mkdtemp, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
+import { armDeadlineTimer } from './supervise/deadline'
 
 export interface IsolatedCheckOptions {
   /** Trusted workspace boundary containing the untrusted tree. */
@@ -179,7 +180,7 @@ function execute(
         }
       }
     }
-    const timer = setTimeout(() => stop('timeout'), timeoutMs)
+    const clearTimer = armDeadlineTimer(timeoutMs, () => stop('timeout'), true)
     const cancel = () => stop('cancelled')
     signal?.addEventListener('abort', cancel, { once: true })
     if (signal?.aborted) cancel()
@@ -203,7 +204,7 @@ function execute(
       spawnError = error
     })
     child.on('close', (code) => {
-      clearTimeout(timer)
+      clearTimer()
       signal?.removeEventListener('abort', cancel)
       const out = Buffer.concat(stdout).toString()
       const err = Buffer.concat(stderr).toString()

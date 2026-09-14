@@ -27,7 +27,9 @@ import type { McpToolDescriptor } from '../../mcp/server'
 import { createCoordinationTools } from '../../mcp/tools/coordination'
 import { sandboxClientAsProvider } from '../environment-provider'
 import type { SandboxClient } from '../types'
+import { sleep } from '../util'
 import { createCancelAcknowledger, createSteerAcknowledger } from './coordination-driver'
+import { armDeadlineTimer } from './deadline'
 import { writeAtomicDurableFile } from './durable-file'
 import {
   type InteractiveWorkerEnvironment,
@@ -646,26 +648,21 @@ async function withTimeout<T>(
   label: string,
 ): Promise<T> {
   if (timeoutMs === undefined) return await promise
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let clearTimer: (() => void) | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(unavailable(`Runtime supervisor timed out waiting for ${label}`)),
-      timeoutMs,
+    clearTimer = armDeadlineTimer(timeoutMs, () =>
+      reject(unavailable(`Runtime supervisor timed out waiting for ${label}`)),
     )
-    if (typeof timer.unref === 'function') timer.unref()
   })
   try {
     return await Promise.race([promise, timeout])
   } finally {
-    if (timer !== undefined) clearTimeout(timer)
+    clearTimer?.()
   }
 }
 
 function delay(ms: number, keepAlive = false): Promise<void> {
-  return new Promise((resolveDelay) => {
-    const timer = setTimeout(resolveDelay, ms)
-    if (!keepAlive && typeof timer.unref === 'function') timer.unref()
-  })
+  return sleep(ms, undefined, keepAlive)
 }
 
 function updateStateFromResult(state: MutableState, result: SupervisedResult<unknown>): void {

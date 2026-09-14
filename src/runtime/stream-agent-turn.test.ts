@@ -9,7 +9,7 @@
 
 import { type InteractionRequest, interactionRequestDigest } from '@tangle-network/agent-interface'
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
 import { collectAgentTurn, streamAgentTurn, streamObservedAgentTurn } from './stream-agent-turn'
@@ -1508,5 +1508,43 @@ describe('collectAgentTurn contract', () => {
     await expect(collectAgentTurn(truncated())).rejects.toThrow(
       /ended without a terminal 'final' event/,
     )
+  })
+})
+
+describe('long-lived agent turn boundaries', () => {
+  it('preserves a month-long turn and clears its deadline after delivery', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    let finish!: () => void
+    const released = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    let observedSignal: AbortSignal | undefined
+    const client = inProcessSandboxClient({
+      onPrompt: async function* (_prompt, context): AsyncIterable<SandboxEvent> {
+        observedSignal = context.signal
+        await released
+        yield { type: 'result', data: { finalText: 'saved' } }
+        yield doneEvent()
+      },
+    })
+    try {
+      const box = await client.create()
+      const result = collectAgentTurn(
+        streamObservedAgentTurn(
+          { kind: 'box', box },
+          { prompt: 'long turn' },
+          { timeoutMs: 30 * 24 * 60 * 60 * 1000 },
+        ),
+      )
+      await vi.advanceTimersByTimeAsync(5)
+      expect(observedSignal?.aborted).toBe(false)
+      finish()
+      expect((await result).status).toBe('completed')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      finish()
+      vi.useRealTimers()
+    }
   })
 })

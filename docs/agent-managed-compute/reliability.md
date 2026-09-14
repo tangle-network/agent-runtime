@@ -203,7 +203,7 @@ Provider conformance tests belong in the shared provider test package.
 
 Remote coordination MCP requires:
 
-- a short-lived bearer token scoped to one run and actor,
+- an expiring bearer token scoped to one run and actor,
 - an audience bound to the MCP endpoint,
 - expiration and key rotation,
 - a maximum request size,
@@ -215,7 +215,8 @@ Remote coordination MCP requires:
 
 The default remains loopback-only.
 Set `coordination.authentication` to `true` to mint an ephemeral credential.
-Credentials expire after 15 minutes by default; `authentication.ttlMs` can extend this to at most 24 hours.
+Credentials expire after 15 minutes by default. A caller may set `authentication.ttlMs` to a longer finite lifetime with a safely representable expiry.
+There is no independent 24-hour cutoff. Long-lived bearer credentials increase exposure; use narrow grants, protected storage, and revocable signing keys.
 Runtime does not renew credentials automatically or refresh credentials inside a retained environment.
 Configure `ttlMs` to cover the manager invocation and expected coordinator downtime.
 Run deadlines do not extend credential lifetime.
@@ -348,3 +349,22 @@ Estimated box lifetime remains separate evidence and does not become a measured 
 
 See the offline [example](../../examples/supervise/named-resources.ts).
 The concurrent conservation and durable replay proof is in `tests/kernel/named-resource-budgets.test.ts`.
+
+
+## Long-running executions
+
+Run duration, transport deadlines, and credential lifetime are separate controls.
+The execution clock and cancellation-aware waits use chunked timers, so a duration beyond the host timer range does not become a one-millisecond deadline.
+Polling, retry, turn, and shutdown waits retain their caller-selected semantics; expiry and cancellation still stop new work.
+A disabled request timeout does not disable the parent execution budget or cancellation.
+Finite time bounds must remain representable as safe absolute timestamps.
+
+A CLI worker gets its requested graceful shutdown before escalation. Sending a signal is not proof of process exit; cleanup acknowledges actual termination.
+This covers the direct subprocess, not arbitrary descendants that escaped its execution boundary.
+Returned output, cleanup status, and accounting remain distinct facts.
+Provider dollar totals preserve billed and estimated portions separately, including an unknown remainder when additional observed work has no billing receipt.
+
+These contracts do not make a coordinator immortal or a local file lock a distributed lease.
+Use durable storage, retain the exact run's dependency cohort for recovery, and provide a reachable coordination endpoint.
+Choose a credential lifetime that covers the intended manager invocation and recovery interval; Runtime does not silently renew credentials inside a retained provider environment.
+A simulated long-clock test proves timer behavior, not months of observed production uptime.
