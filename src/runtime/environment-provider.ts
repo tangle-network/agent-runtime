@@ -938,7 +938,7 @@ async function* streamProviderExecutor(
   args.onEnvironment(environment)
   const archive = createTurnEventArchive()
   const seenTraceCalls = new Set<string>()
-  const tokens = zeroTokenUsage()
+  let tokens = zeroTokenUsage()
   const usageLedger = createSandboxUsageLedger(args.profile.harness)
   let sawCompleteTokenReceipt = false
   let sawIncompleteTokenReceipt = false
@@ -1103,13 +1103,12 @@ async function* streamProviderExecutor(
     }
     const input = receipt.tokensIn ?? 0
     const output = receipt.tokensOut ?? 0
-    if (input || output || receipt.tokensKnown === false) {
-      tokens.input += input
-      tokens.output += output
+    if (input || output || receipt.tokensKnown === false || receipt.promptCache !== undefined) {
+      tokens = usageLedger.tokenUsage()
       yield {
         kind: 'tokens',
-        input,
-        output,
+        mode: 'cumulative',
+        ...tokens,
         ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
       }
     }

@@ -8928,6 +8928,16 @@ The ledger never throws on a receipt it cannot read: `observe` returns a receipt
 
 #### Methods
 
+##### tokenUsage()
+
+> **tokenUsage**(): [`LoopTokenUsage`](#looptokenusage)
+
+Cumulative worker tokens, including cache classifications reported after the prompt total.
+
+###### Returns
+
+[`LoopTokenUsage`](#looptokenusage)
+
 ##### observe()
 
 > **observe**(`event`, `agentRunName`): RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
@@ -27761,17 +27771,23 @@ How a token count was obtained.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](#tokenusageprovenance); \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"resource"`; `name`: `string`; `unit`: `string`; `amount`: `number`; `known`: `boolean`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `mode?`: `"cumulative"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](#tokenusageprovenance); \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"resource"`; `name`: `string`; `unit`: `string`; `amount`: `number`; `known`: `boolean`; \} \| \{ `kind`: `"iteration"`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](#tokenusageprovenance); \}
+\{ `kind`: `"tokens"`; `mode?`: `"cumulative"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](#tokenusageprovenance); \}
 
 ###### kind
 
 > **kind**: `"tokens"`
+
+###### mode?
+
+> `optional` **mode?**: `"cumulative"`
+
+Entire executor token total. Omit for additive observations. Cumulative totals may refine cache classes.
 
 ###### tokensKnown?
 

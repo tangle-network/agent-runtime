@@ -454,6 +454,8 @@ export type TokenUsageProvenance = 'stream-receipt' | 'harness-store' | 'mixed'
 export type UsageEvent =
   | {
       kind: 'tokens'
+      /** Entire executor token total. Omit for additive observations. Cumulative totals may refine cache classes. */
+      mode?: 'cumulative'
       /** Known token subtotal. When false, these counts are only the observed/estimated floor. */
       tokensKnown?: false
       input: number

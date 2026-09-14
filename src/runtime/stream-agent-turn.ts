@@ -1289,8 +1289,16 @@ function foldUsageEvent(event: UsageEvent, acc: TurnAccumulator): void {
     const known = event.tokensKnown !== false
     acc.tokensKnown = acc.sawTokenUsage ? acc.tokensKnown && known : known
     acc.sawTokenUsage = true
-    acc.input += event.input
-    acc.output += event.output
+    if (event.mode === 'cumulative') {
+      if (event.input < acc.input || event.output < acc.output) {
+        throw new ValidationError('cumulative executor tokens must not decrease')
+      }
+      acc.input = event.input
+      acc.output = event.output
+    } else {
+      acc.input += event.input
+      acc.output += event.output
+    }
   } else if (event.kind === 'cost') {
     const known = event.usdKnown
     acc.usdKnown = acc.sawCostUsage ? acc.usdKnown && known : known
