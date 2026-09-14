@@ -1065,6 +1065,23 @@ describe('streamAgentTurn: executor backend', () => {
     expect(toreDown).toBe(1)
   })
 
+  it('keeps a failed cumulative executor stream at its last observed token total', async () => {
+    const factory: ExecutorFactory<unknown> = (spec, ctx) => {
+      const executor = stubFactory()(spec, ctx)
+      executor.execute = async function* () {
+        yield { kind: 'tokens', input: 80, output: 8 }
+        yield { kind: 'tokens', mode: 'cumulative', input: 100, output: 10 }
+        yield { kind: 'tokens', mode: 'cumulative', input: 100, output: 10 }
+        throw new Error('connection lost after cumulative usage')
+      }
+      return executor
+    }
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'executor', factory, profile: TEST_PROFILE }, { prompt: 'task' }),
+    )
+    expect(turn.usage).toMatchObject({ input: 100, output: 10 })
+  })
+
   it('projects one Sandbox executor result without a consumer wrapper', async () => {
     const client = inProcessSandboxClient({
       onPrompt: () =>

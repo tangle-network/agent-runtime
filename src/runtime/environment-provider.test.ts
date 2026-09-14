@@ -50,6 +50,179 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it('joins two independently refined provider snapshots without replacing the other worker', async () => {
+    const done: AgentEnvironmentEvent = {
+      type: 'done',
+      data: {},
+      usage: {
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadInputTokens: 60,
+        cacheCreationInputTokens: 20,
+      },
+    }
+    const { terminals, budget } = await settleProviderEvents(
+      [{ type: 'llm_call', data: { tokensIn: 80, tokensOut: 8 } }, done, done],
+      2,
+      50,
+    )
+    expect(terminals).toHaveLength(2)
+    for (const terminal of terminals) {
+      expect(terminal.spent.tokens).toEqual({
+        input: 100,
+        output: 10,
+        freshInput: 20,
+        cacheRead: 60,
+        cacheWrite: 20,
+      })
+    }
+    expect(budget.tokensLeft).toBe(0)
+    expect(budget.cacheBreakdownKnown).toBe(true)
+  })
+
+  it('does not promote a platform model binding into upstream served-model evidence', async () => {
+    const { terminal } = await settleProviderEvents([
+      {
+        type: 'execution.started',
+        data: { effectiveBackend: { provider: 'fixture', model: 'fixture/model@revision-1' } },
+      },
+      {
+        type: 'done',
+        data: { effectiveBackend: { provider: 'fixture', model: 'fixture/model@revision-1' } },
+      },
+    ])
+    expect(terminal).toMatchObject({
+      status: 'done',
+    })
+    expect(terminal?.providerModel).toBeUndefined()
+  })
+
+  it('keeps model identity unknown without a platform receipt', async () => {
+    const { terminal } = await settleProviderEvents([
+      { type: 'done', data: { model: 'fixture/model', finalText: 'fixture/model' } },
+    ])
+    expect(terminal).toMatchObject({
+      status: 'done',
+    })
+    expect(terminal?.providerModel).toBeUndefined()
+  })
+
+  it.each([80, 100])(
+    'refines cache classes after crediting %i unclassified input tokens',
+    async (input) => {
+      const { terminal } = await settleProviderEvents([
+        { type: 'llm_call', data: { tokensIn: input, tokensOut: 10 } },
+        {
+          type: 'done',
+          data: {},
+          usage: {
+            inputTokens: 100,
+            outputTokens: 10,
+            cacheReadInputTokens: 60,
+            cacheCreationInputTokens: 20,
+          },
+        },
+      ])
+      expect(terminal?.spent.tokens).toEqual({
+        input: 100,
+        output: 10,
+        freshInput: 20,
+        cacheRead: 60,
+        cacheWrite: 20,
+      })
+    },
+  )
+
+  it('preserves prompt-cache classes across per-call and repeated cumulative receipts', async () => {
+    const first: AgentEnvironmentEvent = {
+      id: 'call-1',
+      type: 'llm_call',
+      data: {
+        tokensIn: 40,
+        tokensOut: 4,
+        cacheReadInputTokens: 30,
+        cacheCreationInputTokens: 5,
+      },
+    }
+    const terminal: AgentEnvironmentEvent = {
+      type: 'done',
+      data: { finalText: 'complete' },
+      usage: {
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadInputTokens: 60,
+        cacheCreationInputTokens: 20,
+      },
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: 'cache-receipts',
+      capabilities: fakeCapabilities,
+      create: async () =>
+        fakeEnvironment({
+          stream: async function* () {
+            yield first
+            yield first
+            yield {
+              id: 'call-2',
+              type: 'llm_call',
+              data: {
+                tokensIn: 60,
+                tokensOut: 6,
+                cacheReadInputTokens: 30,
+                cacheCreationInputTokens: 15,
+              },
+            }
+            yield terminal
+            yield terminal
+          },
+        }),
+    }
+    const signal = new AbortController().signal
+    const executor = createExecutor({ backend: 'provider', provider })(
+      {
+        profile: {
+          name: 'cache-receipts',
+          harness: 'opencode',
+          model: { provider: 'fixture', default: 'fixture/model' },
+        },
+        harness: null,
+      },
+      { signal, seams: {} },
+    )
+    await collect(executor.execute('complete the task', signal) as AsyncIterable<UsageEvent>)
+    expect(executor.resultArtifact?.()?.spent?.tokens).toEqual({
+      input: 100,
+      output: 10,
+      freshInput: 20,
+      cacheRead: 60,
+      cacheWrite: 20,
+    })
+  })
+
+  it.each([
+    { cache: {}, expected: { input: 100, output: 10, cacheBreakdownKnown: false } },
+    {
+      cache: { cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      expected: { input: 100, output: 10, freshInput: 100, cacheRead: 0, cacheWrite: 0 },
+    },
+    {
+      cache: { cacheReadInputTokens: 60 },
+      expected: { input: 100, output: 10, cacheRead: 60, cacheBreakdownKnown: false },
+    },
+    {
+      cache: { cacheReadInputTokens: 101 },
+      expected: { input: 100, output: 10, cacheBreakdownKnown: false },
+    },
+  ])(
+    'preserves cache absence, zeroes, and incomplete classifications: $cache',
+    async ({ cache, expected }) => {
+      const { terminal } = await settleProviderEvents([
+        { type: 'done', data: {}, usage: { inputTokens: 100, outputTokens: 10, ...cache } },
+      ])
+      expect(terminal?.spent.tokens).toEqual(expected)
+    },
+  )
+
   it.each([
     { type: 'error', attachedUsage: false, disconnect: false },
     { type: 'done', attachedUsage: false, disconnect: false },
@@ -612,7 +785,7 @@ describe('environment provider adapters', () => {
     const artifact = executor.resultArtifact()
 
     expect(usage).toEqual([
-      { kind: 'tokens', input: 7, output: 11 },
+      { kind: 'tokens', mode: 'cumulative', input: 7, output: 11, cacheBreakdownKnown: false },
       { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ])
@@ -1685,7 +1858,7 @@ describe('environment provider adapters', () => {
     const artifact = executor.resultArtifact()
 
     expect(usage).toEqual([
-      { kind: 'tokens', input: 7, output: 11 },
+      { kind: 'tokens', mode: 'cumulative', input: 7, output: 11, cacheBreakdownKnown: false },
       // A provider event's dollar figure carries no receipt, so it is a price rather than a
       // charge: the whole amount rides `usdEstimated` and a dollar cap is not enforced against it.
       { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03, provenance: 'uncaptured' },
@@ -1726,7 +1899,7 @@ describe('environment provider adapters', () => {
     )
     const events = await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
     expect(events.filter((event) => event.kind === 'tokens')).toEqual([
-      { kind: 'tokens', input: 2791, output: 1238 },
+      { kind: 'tokens', mode: 'cumulative', input: 2791, output: 1238, cacheBreakdownKnown: false },
     ])
     expect(executor.resultArtifact().spent).toMatchObject({ tokens: { input: 2791, output: 1238 } })
   })
@@ -3206,6 +3379,67 @@ function fakeEnvironment(
     ...rest,
     stream,
   }
+}
+
+async function settleProviderEvents(
+  events: AgentEnvironmentEvent[],
+  workerCount = 1,
+  workerTokens = 1_000,
+) {
+  const provider: AgentEnvironmentProvider = {
+    name: 'model-receipts',
+    capabilities: fakeCapabilities,
+    create: async () =>
+      fakeEnvironment({
+        stream: async function* () {
+          yield* events
+        },
+      }),
+  }
+  const journal = new InMemorySpawnJournal()
+  await journal.beginTree('root', new Date(0).toISOString())
+  const pool = createBudgetPool(
+    { maxIterations: 2 * workerCount, maxTokens: workerTokens * workerCount },
+    0,
+  )
+  const scope = createScope({
+    parentId: 'root',
+    root: 'root',
+    journal,
+    blobs: new InMemoryResultBlobStore(),
+    pool,
+    executors: createExecutorRegistry(),
+    seams: {},
+    depth: 0,
+    signal: new AbortController().signal,
+  })
+  const profile: AgentProfile = {
+    name: 'model-receipts',
+    harness: 'opencode',
+    model: { provider: 'fixture', default: 'fixture/model' },
+  }
+  for (let worker = 0; worker < workerCount; worker++)
+    expect(
+      scope.spawn(
+        Object.assign(
+          { name: 'model-receipts', act: async () => 'unused' },
+          {
+            executorSpec: {
+              profile,
+              harness: null,
+              executorFactory: createExecutor({ backend: 'provider', provider }),
+            },
+          },
+        ),
+        'task',
+        { label: 'model-receipts', budget: { maxIterations: 1, maxTokens: workerTokens } },
+      ).ok,
+    ).toBe(true)
+  const settled = await scope.next()
+  for (let worker = 1; worker < workerCount; worker++) await scope.next()
+  const terminals =
+    (await journal.loadTree('root'))?.filter((event) => event.kind === 'settled') ?? []
+  return { settled, terminal: terminals[0], terminals, budget: pool.readout() }
 }
 
 function fakeCapabilities() {

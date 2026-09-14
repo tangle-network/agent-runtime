@@ -356,7 +356,28 @@ export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
     return
   }
   if (ev.kind === 'tokens') {
-    addTokenUsage(totals.tokens, ev)
+    if (ev.mode === 'cumulative') {
+      if (ev.input < totals.tokens.input || ev.output < totals.tokens.output) {
+        throw new ValidationError('cumulative executor tokens must not decrease')
+      }
+      const snapshot = zeroTokenUsage()
+      addTokenUsage(snapshot, {
+        ...ev,
+        ...(ev.freshInput === undefined && totals.tokens.freshInput !== undefined
+          ? { freshInput: totals.tokens.freshInput }
+          : {}),
+        ...(ev.cacheRead === undefined && totals.tokens.cacheRead !== undefined
+          ? { cacheRead: totals.tokens.cacheRead }
+          : {}),
+        ...(ev.cacheWrite === undefined && totals.tokens.cacheWrite !== undefined
+          ? { cacheWrite: totals.tokens.cacheWrite }
+          : {}),
+        ...(totals.tokens.tokensKnown === false ? { tokensKnown: false } : {}),
+      })
+      totals.tokens = snapshot
+    } else {
+      addTokenUsage(totals.tokens, ev)
+    }
     if (ev.tokensKnown === false) totals.tokensKnown = false
     // An event that names no provenance came from the executor's own live stream, which is what
     // every path reported before a harness store was readable.
