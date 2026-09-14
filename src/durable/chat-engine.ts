@@ -42,7 +42,7 @@ export interface ChatTurnIdentity {
 
 /** The live side of a turn returned by the product's `produce` hook. */
 export interface ChatTurnProducer<TEvent extends ChatStreamEvent = ChatStreamEvent> {
-  /** The turn's event stream. Forwarded verbatim to the caller. */
+  /** The turn's events. The engine emits completion after persistence. */
   stream: AsyncGenerator<TEvent, void, unknown>
   /** The turn's final assistant text. Read once, after `stream` drains. */
   finalText(): string
@@ -50,8 +50,8 @@ export interface ChatTurnProducer<TEvent extends ChatStreamEvent = ChatStreamEve
 
 /** Product callbacks invoked while one chat turn runs. */
 export interface ChatTurnHooks {
-  /** Build the backend stream. The engine forwards events verbatim and
-   *  reads `finalText()` once the stream drains. */
+  /** Build the backend stream. The engine forwards nonterminal events and
+   *  reads `finalText()` once the stream drains. Reported errors fail the turn. */
   produce(): ChatTurnProducer
   /** Persist the assistant message to the product's own store. Called
    *  once, after drain, with the assembled (transform-applied) text. */
@@ -179,7 +179,17 @@ export function handleChatTurn(input: RunChatTurnInput): ChatTurnResult {
         })
 
         const producer = hooks.produce()
+        let failureData: Record<string, unknown> | undefined
         for await (const event of producer.stream) {
+          if (event.type === 'session.run.failed') {
+            if (!failureData) await emit({ type: 'error', data: event.data })
+            failureData = { ...failureData, ...event.data }
+            continue
+          }
+          if (event.type === 'error') failureData = { ...failureData, ...event.data }
+          // A drained error stream is still a failed turn. Completion belongs
+          // to this engine, after persistence, even when an upstream emits it.
+          if (event.type === 'session.run.completed') continue
           await emit(event)
         }
         const rawFinal = producer.finalText()
@@ -199,8 +209,8 @@ export function handleChatTurn(input: RunChatTurnInput): ChatTurnResult {
         }
 
         await emit({
-          type: 'session.run.completed',
-          data: { sessionId: identity.sessionId },
+          type: failureData ? 'session.run.failed' : 'session.run.completed',
+          data: { ...failureData, sessionId: identity.sessionId },
         })
       } catch (err) {
         const message = await thrownErrorMessage(err)
