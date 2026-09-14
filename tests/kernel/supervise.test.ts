@@ -609,6 +609,71 @@ describe('conserved budget pool', () => {
     })
   })
 
+  it('refines one executor with duplicate cumulative snapshots between legacy deltas', () => {
+    const snapshot: UsageEvent = {
+      kind: 'tokens',
+      mode: 'cumulative',
+      input: 100,
+      output: 10,
+      freshInput: 20,
+      cacheRead: 60,
+      cacheWrite: 20,
+    }
+    const spend = spendFromUsageEvents([
+      { kind: 'tokens', input: 40, output: 4 },
+      snapshot,
+      snapshot,
+      { kind: 'tokens', input: 5, output: 1, freshInput: 5, cacheRead: 0, cacheWrite: 0 },
+    ])
+    expect(spend.tokens).toEqual({
+      input: 105,
+      output: 11,
+      freshInput: 25,
+      cacheRead: 60,
+      cacheWrite: 20,
+    })
+  })
+
+  it('does not credit overflowing cumulative cache classes or decreasing token totals', () => {
+    expect(
+      spendFromUsageEvents([
+        { kind: 'tokens', input: 100, output: 10 },
+        { kind: 'tokens', mode: 'cumulative', input: 100, output: 10, cacheRead: 101 },
+      ]).tokens,
+    ).toEqual({ input: 100, output: 10, cacheBreakdownKnown: false })
+    expect(() =>
+      spendFromUsageEvents([
+        { kind: 'tokens', input: 100, output: 10 },
+        { kind: 'tokens', mode: 'cumulative', input: 99, output: 10 },
+      ]),
+    ).toThrow('cumulative executor tokens must not decrease')
+  })
+
+  it('keeps observed cache classes when a later cumulative snapshot leaves new input unclassified', () => {
+    expect(
+      spendFromUsageEvents([
+        {
+          kind: 'tokens',
+          mode: 'cumulative',
+          input: 100,
+          output: 10,
+          freshInput: 20,
+          cacheRead: 60,
+          cacheWrite: 20,
+        },
+        { kind: 'iteration' },
+        { kind: 'tokens', mode: 'cumulative', input: 120, output: 12 },
+      ]).tokens,
+    ).toEqual({
+      input: 120,
+      output: 12,
+      freshInput: 20,
+      cacheRead: 60,
+      cacheWrite: 20,
+      cacheBreakdownKnown: false,
+    })
+  })
+
   it('preserves explicitly unknown dollar cost in sync and async usage folds', async () => {
     const events: UsageEvent[] = [
       { kind: 'tokens', input: 12, output: 3 },

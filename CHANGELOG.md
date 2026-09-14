@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.222.0
+
+Wildcard-bound coordination listeners accept the actual socket address used by an HTTP proxy.
+They still reject arbitrary hostnames, wrong ports, disallowed origins, and invalid bearer credentials.
+The address check remains closed until the public endpoint is initialized.
+
+Provider executors preserve prompt-cache classes through live usage, child settlement, and root accounting.
+Later cumulative receipts can classify input reported earlier without counting those tokens again.
+Missing cache counters remain absent, and reported zeroes remain zero.
+Invalid cache partitions receive no token credit.
+
+`UsageEvent` token records now accept `mode: 'cumulative'` for the entire executor token total.
+Provider executors emit this mode; records without it remain additive.
+Direct event consumers must honor the mode or use `spendFromUsageEvents`.
+`SandboxUsageLedger.tokenUsage()` exposes the accumulated token snapshot, including late cache classifications.
+Root accounting retains independent snapshots between iteration batches, so later additive receipts cannot mutate the already-metered baseline.
+Failed public turn streams also retain cumulative totals without double counting.
+
+Retained recovery does not refund historical input already metered without cache classes.
+That accounting remains explicitly incomplete when replay later supplies a classification.
+Sandbox's platform model binding is not promoted into upstream served-model evidence.
+
 ## 0.221.0
 
 `ProviderLeafOut.events`, the archive a provider-executed turn settles on, no longer keeps superseded part updates.

@@ -20,6 +20,35 @@ afterEach(async () => {
 })
 
 describe('retained external supervisor recovery', () => {
+  it('keeps historical unclassified root usage incomplete when replay supplies a cache split', async () => {
+    const fixture = await setup('metered', false, false, true)
+    await fixture.first()
+    await fixture.resume()
+    const metered = (await fixture.events()).flatMap((event) =>
+      event.kind === 'metered' ? [event.spend] : [],
+    )
+    expect(tokenTotal(await fixture.events())).toBe(5)
+    expect(metered.reduce((total, spend) => total + (spend.tokens.cacheRead ?? 0), 0)).toBe(0)
+    expect(metered.some((spend) => spend.tokens.cacheBreakdownKnown === false)).toBe(true)
+    expect(fixture.creates()).toBe(1)
+  })
+
+  it.each(['metered', 'settled'] as const)(
+    'retains the root cache split once after losing its %s acknowledgement',
+    async (loss) => {
+      const fixture = await setup(loss)
+      await fixture.first()
+      await fixture.resume()
+      const metered = (await fixture.events()).flatMap((event) =>
+        event.kind === 'metered' ? [event.spend] : [],
+      )
+      expect(metered.reduce((total, spend) => total + (spend.tokens.cacheRead ?? 0), 0)).toBe(1)
+      expect(metered.reduce((total, spend) => total + (spend.tokens.cacheWrite ?? 0), 0)).toBe(1)
+      expect(metered.reduce((total, spend) => total + (spend.tokens.freshInput ?? 0), 0)).toBe(1)
+      expect(fixture.creates()).toBe(1)
+    },
+  )
+
   it('reconnects the original manager and credential after partial accounting without another create or charge', async () => {
     const fixture = await setup('metered')
     await fixture.first()
@@ -92,7 +121,12 @@ function tokenTotal(events: SpawnEvent[]): number {
   )
 }
 
-async function setup(loss?: 'metered' | 'settled', repeat = false, retry = false) {
+async function setup(
+  loss?: 'metered' | 'settled',
+  repeat = false,
+  retry = false,
+  historicalUnknown = false,
+) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-'))
   directories.push(directory)
   const stateFile = join(directory, 'provider.json')
@@ -132,7 +166,13 @@ async function setup(loss?: 'metered' | 'settled', repeat = false, retry = false
           ...session,
           result: async () => ({
             ...(await session.result()),
-            usage: { inputTokens: 3, outputTokens: 2 },
+            usage: {
+              inputTokens: 3,
+              outputTokens: 2,
+              ...(historicalUnknown && !injected
+                ? {}
+                : { cacheReadInputTokens: 1, cacheCreationInputTokens: 1 }),
+            },
           }),
         }
       },

@@ -32,6 +32,10 @@ The file run lock protects one local coordinator.
 It does not fence provider mutations from a partitioned coordinator on another machine.
 No deployed or live multi-provider recovery proof is claimed here.
 
+An authenticated coordination listener bound to a wildcard accepts its actual local socket address and port.
+This supports proxies that rewrite HTTP `Host` to the container's IP without trusting forwarded hostname headers.
+Public endpoint initialization, configured credential audience, path, origin, and bearer checks remain mandatory.
+
 The sections below define distributed requirements beyond this local recovery boundary.
 
 Executor results carry an optional explicit execution outcome, separate from application output and scoring verdicts.
@@ -46,6 +50,16 @@ A reasoning-only observation remains a lower bound, not a complete output measur
 Repeated cumulative failure and completion receipts do not count the same work twice.
 Incomplete receipts stay incomplete through streamed progress, transport failure, and retained results.
 Provider cost estimates remain distinct from verified billing receipts.
+
+Provider executors carry reported prompt-cache classes through child settlement and root accounting.
+Retained recovery credits each class only for previously unrecorded usage.
+Fresh executions can refine earlier token totals when cache classes arrive in a later cumulative receipt.
+Duplicate snapshots do not add tokens, and each executor folds its own snapshots before joining the shared pool.
+Recovery does not refund historical input already metered without cache classes.
+That accounting stays explicitly incomplete, even if a later replay supplies the missing classification.
+An absent cache counter remains absent, while a reported zero remains zero.
+Sandbox's `effectiveBackend.model` reports a platform binding, not an upstream inference receipt.
+The provider executor leaves upstream model identity unknown without response-observed evidence.
 
 ## Required Invariants
 
