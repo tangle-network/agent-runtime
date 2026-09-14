@@ -874,11 +874,17 @@ export interface SpawnOpts {
 
 /** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
  *  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
- *  still LIVE in this scope, or a key whose prior remote execution has no terminal receipt.
+ *  still LIVE in this scope, a key whose prior remote execution has no terminal receipt, or a run
+ *  that has already reached its join barrier.
  *
  * `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
- * refuses every amount until the ROOT budget names a `maxUsd`. */
+ * refuses every amount until the ROOT budget names a `maxUsd`.
+ *
+ * `scope-settled` is separate from `scope-aborted` for the same reason: nothing cancelled this
+ * run, its driver simply finished. A caller that outlived the request it was serving (a background
+ * tool invocation still holding the driver's verbs) gets a refusal it can record, instead of a
+ * child nobody joins. */
 export type SpawnRejection =
   | 'budget-exhausted'
   | 'usd-unbudgeted'
@@ -889,6 +895,7 @@ export type SpawnRejection =
   | 'key-conflict'
   | 'max-live-workers'
   | 'scope-aborted'
+  | 'scope-settled'
 
 /**
  * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on

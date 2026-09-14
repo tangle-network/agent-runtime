@@ -263,6 +263,7 @@ type RuntimeOwnedProviderMeter = (
 const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+const admissionSeals = new WeakMap<object, () => void>()
 
 /** Per-child bound on a retained release: one remote destroy, answered or abandoned. */
 const RETAINED_RELEASE_TIMEOUT_MS = 30_000
@@ -290,6 +291,30 @@ export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void>
 export async function releaseRetainedEnvironments(scope: Scope<unknown>): Promise<void> {
   const release = retainedReleasers.get(scope)
   if (release) await release()
+}
+
+/**
+ * @internal Close this scope to NEW children. Idempotent, synchronous, and irreversible.
+ *
+ * The supervisor calls it the instant the root `act` has settled, before the join barrier drains.
+ * A driver's `act` returning does not stop everything that holds its scope: a supervisor tool
+ * whose handler outran its response fence keeps running detached (`single-flight-tools`
+ * `background()`) with the coordination verbs still bound, and a verb call reaches `spawn`
+ * in-process — closing the MCP listener does not reach it. Measured 2026-09-14: such a handler
+ * spawned `distill:all` 309 ms after the barrier had drained and released. The child was
+ * admitted, took a conserved reservation, built a sandbox, ran 12.4 s of provider work, and
+ * journaled its settlement 19 s after the run had already written its failure — while the live
+ * reservation it legitimately held was read back at the barrier as a conserved-pool leak and
+ * threw away 63 settled children.
+ *
+ * Nothing admitted here could reach the result anyway: the driver has already selected over the
+ * settled ledger. Sealing is total because `spawn` never suspends between this gate and the
+ * point the child is registered and its ticket marked `executing`, so no spawn can straddle it.
+ *
+ * Not a `Scope` method: an Agent must not be able to close its own siblings out of the run.
+ */
+export function closeScopeAdmission(scope: Scope<unknown>): void {
+  admissionSeals.get(scope)?.()
 }
 
 /** Mutable only inside Scope admission/release. Every nested scope receives this exact object. */
@@ -539,6 +564,8 @@ function makeNestedScopeSeam(
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const children = new Map<NodeId, LiveChild>()
   const settlementWrites = new Set<Promise<Settled<Out>>>()
+  // Set once by `closeScopeAdmission` at the join barrier; never cleared.
+  let admissionClosed = false
   const interactiveBindingDir = args.interactiveBindingDir
   const liveWorkerCapacity: LiveWorkerCapacityState = args.liveWorkerCapacity ?? {
     max: normalizeLiveWorkerLimit(args.maxLiveWorkers),
@@ -636,6 +663,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
     | { ok: false; reason: SpawnRejection } {
     if (args.signal.aborted) return { ok: false, reason: 'scope-aborted' }
+    // The run reached its join barrier: no later child can be joined, released, or selected over.
+    // Distinct from an abort — nothing cancelled this run (see `closeScopeAdmission`).
+    if (admissionClosed) return { ok: false, reason: 'scope-settled' }
     const task = detachedSnapshot(rawTask, 'scope.spawn task')
     const opts = detachedSnapshot(rawOpts, 'scope.spawn options')
 
@@ -1818,6 +1848,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     },
   }
+  admissionSeals.set(scope as Scope<unknown>, () => {
+    admissionClosed = true
+  })
   runtimeOwnedProviderMeters.set(
     scope as Scope<unknown>,
     async (spend, providerModel, detail, accountingOnly) =>

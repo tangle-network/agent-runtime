@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.225.0
+
+A scope now refuses new children once its root has settled, and `SpawnRejection` carries a new `scope-settled` reason for that refusal.
+
+Before this release the only admission gate on `scope.spawn` was the abort signal. A driver's `act` returning does not stop everything that holds its scope: a supervisor tool whose handler outran its response fence keeps running detached with the coordination verbs bound, and a verb call reaches `spawn` in-process, which closing the coordination MCP listener does not prevent. When `childSettleGraceMs` is null and the run has no deadline the cascade is never aborted either, so the scope stayed open through the whole join barrier.
+
+Measured 2026-09-14 in a research run: a child was admitted 309 ms after the barrier had drained and released environments. It held a legitimate reservation, so `assertNoOpenTickets` read it as a conserved-pool leak and threw, discarding 63 settled children. The child then built a sandbox, ran 12.4 s of provider work, and journaled its settlement 19 s after the run had written `failure.json`, into a run that no longer existed and after the barrier that would have released its environment.
+
+A consumer that inspects `SpawnRejection` must handle `scope-settled` alongside `scope-aborted`. They are deliberately distinct: `scope-aborted` means something cancelled the run, while `scope-settled` means the run finished normally and its output is already fixed. Nothing admitted after that point could be joined, released, or selected over.
+
+`assertNoOpenTickets` is unchanged. With admission sealed, a ticket still open at the barrier is once again unambiguously a leak, which is what that assertion exists to catch.
+
 ## 0.223.0
 
 A child that returns a finished result after spending more than its reservation now settles `done` with its output stored and `outRef` set.

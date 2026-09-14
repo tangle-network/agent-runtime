@@ -62,6 +62,7 @@ export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './r
 
 import { withBudgetResources } from './resources'
 import {
+  closeScopeAdmission,
   createScope,
   finalizeScopeOwnerMaterialization,
   releaseRetainedEnvironments,
@@ -678,6 +679,14 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // teardown failure in the barrier can never overwrite it (firstError precedence).
         actOutcome = { ok: false, error }
       } finally {
+        // Root execution has settled, so the run's output is fixed and nothing spawned from here
+        // on could be joined by the barrier below or selected over by a driver that has stopped
+        // reading. Close admission BEFORE the drain: a background supervisor-tool invocation that
+        // outlived its response fence still holds this scope's verbs and can call `spawn`
+        // in-process at any point during the barrier. One that did (2026-09-14) took a conserved
+        // reservation 309 ms after the drain finished, and `assertNoOpenTickets` below read that
+        // live ticket as a leak and destroyed a 63-child run over it.
+        closeScopeAdmission(openScope)
         executionAborted = controller.signal.aborted
         allChildrenDownAtSettle = allSpawnedChildrenDown(runTree(openScope))
         downCountAtSettle = breaker.downCount()
