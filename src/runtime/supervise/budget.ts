@@ -37,6 +37,9 @@
  * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always
  * closes it: a fail-loud condition settles the reservation first and throws afterwards, so no
  * error path can strand a reservation past the join barrier's `assertNoOpenTickets`.
+ * Measured spend above a reservation is not a fail-loud condition. The pool commits it, returns
+ * it as a `BudgetViolation`, and refuses later reservations from the reduced free balance; the
+ * work it paid for is not discarded.
  * A child that declared no `maxUsd` reserved no dollar allocation, so its real dollars are
  * committed as observed spend and debited from the root's balance rather than treated as an
  * overspend of a $0 ceiling it never asked for. If dollar cost is unknowable under a
@@ -59,9 +62,32 @@ import { ValidationError } from '../../errors'
 import type { LoopTokenUsage } from '../types'
 import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
 import { addResourceSpend, assertResources, withBudgetResources } from './resources'
-import type { Budget, Spend, TokenUsageProvenance, UsageEvent } from './types'
+import type {
+  Budget,
+  BudgetOverspend,
+  BudgetViolation,
+  Spend,
+  TokenUsageProvenance,
+  UsageEvent,
+} from './types'
 
-export type { Budget, Spend, UsageEvent }
+export type { Budget, BudgetOverspend, BudgetViolation, Spend, UsageEvent }
+
+/**
+ * A reconciliation whose spend the pool cannot verify. It is thrown after the reservation has
+ * settled. `budgetViolation` carries any measured overspend on the same settlement, so a child
+ * that fails closed on the fault still records how far its known channels exceeded the
+ * reservation.
+ */
+export class BudgetReconcileFault extends Error {
+  readonly budgetViolation?: BudgetViolation
+
+  constructor(message: string, budgetViolation?: BudgetViolation) {
+    super(message)
+    this.name = 'BudgetReconcileFault'
+    if (budgetViolation !== undefined) this.budgetViolation = budgetViolation
+  }
+}
 
 /** Opaque, single-use reservation handle returned by `reserve` and consumed by
  *  `reconcile`. Carries the reserved ceilings so reconciliation needs no lookup. */
@@ -280,8 +306,12 @@ export interface BudgetPool {
    * Release a reservation: commit the actual `spent`, refund the unspent remainder
    * to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
    * a double refund would silently break conservation).
+   *
+   * Returns the overspend when measured spend exceeded the reservation, after committing it.
+   * Throws, also after committing, when the spend cannot be verified: unknown dollar cost under
+   * a dollar cap, or unknown or overflowing usage of an enforced resource.
    */
-  reconcile(ticket: ReservationTicket, spent: Spend): void
+  reconcile(ticket: ReservationTicket, spent: Spend): BudgetViolation | undefined
   /** Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
    *  `addTokenUsage`, usd on its own channel, iterations from `'iteration'` events.
    *  `ms` is left zero — wall-clock duration is the caller's to record, not the pool's. */
@@ -501,16 +531,29 @@ export function createBudgetPool(
     }
   }
 
+  /**
+   * Commit named-resource spend and classify it. `allocations` is the settling reservation's own
+   * resource allocations, or `undefined` for spend that holds no reservation (`observe`, restore).
+   *
+   * Unverifiable usage is a `fault`: the remaining balance is consumed so admission closes.
+   * Measured usage above an allocation is `overspent`. Without allocations, measured usage that
+   * leaves a root limit overdrawn is `rootExceeded`. A reservation that stays within its own
+   * allocation is never charged with a root overdraw: `reserve` admits an allocation only from
+   * the remaining balance, so a negative balance at its settlement was caused, and reported, by
+   * earlier spend.
+   */
   function commitResources(
     spend: Spend,
-    reserved: Budget['resources'] = {},
+    allocations?: Budget['resources'],
     requireAll = true,
-  ): string | undefined {
-    let violation: string | undefined
+  ): { fault?: string; overspent: BudgetOverspend[]; rootExceeded?: string } {
+    let fault: string | undefined
+    let rootExceeded: string | undefined
+    const overspent: BudgetOverspend[] = []
     for (const [name, state] of resources) {
       const value = spend.resources?.[name]
       if (!requireAll && value === undefined) continue
-      const allocation = reserved?.[name]?.limit ?? 0
+      const allocation = allocations?.[name]?.limit ?? 0
       const amount = value?.amount ?? 0
       state.reserved -= allocation
       const committed = state.committed + amount
@@ -525,16 +568,18 @@ export function createBudgetPool(
         const retained = Math.max(0, state.remaining)
         state.committed += retained
         state.remaining -= retained
-        violation ??= overflow
+        fault ??= overflow
           ? `resource ${name}: amount overflow under an enforced limit`
           : `resource ${name}: unknown usage under an enforced limit`
-      } else if (reserved?.[name] && amount > allocation) {
-        violation ??= `resource ${name}: spent ${amount} > reserved ${allocation}`
+      } else if (allocations !== undefined) {
+        if (amount > allocation) {
+          overspent.push({ channel: `resource:${name}`, reserved: allocation, spent: amount })
+        }
       } else if (state.remaining < 0) {
-        violation ??= `resource ${name}: exceeded root limit ${state.limit}`
+        rootExceeded ??= `resource ${name}: exceeded root limit ${state.limit}`
       }
     }
-    return violation
+    return { ...(fault ? { fault } : {}), overspent, ...(rootExceeded ? { rootExceeded } : {}) }
   }
 
   let nextTicketId = 0
@@ -615,7 +660,7 @@ export function createBudgetPool(
     open.set(ticket.id, { ...current, ...holder })
   }
 
-  function reconcile(ticket: ReservationTicket, spent: Spend): void {
+  function reconcile(ticket: ReservationTicket, spent: Spend): BudgetViolation | undefined {
     if (!open.has(ticket.id)) {
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
@@ -631,34 +676,38 @@ export function createBudgetPool(
     // one. Conflating the two made a successful priced child fail its own reconcile.
     const usdBudgeted = ticket.reserved.usdBudgeted !== false
 
-    // Fail-loud conditions are DECIDED here and thrown at the very END, after the reservation
-    // has been settled. A throw placed before settlement is how a ticket escapes the pool:
+    // Two outcomes are DECIDED here and reported at the very END, after the reservation has
+    // been settled. A throw placed before settlement is how a ticket escapes the pool:
     // `Scope.runChild` marks the child reconciled before calling, so nothing retries, the
     // ticket stays open forever, and `assertNoOpenTickets` fails the whole run at the join
-    // barrier — on the SUCCESS path. Everything between here and the throw is unconditional
-    // pure arithmetic that cannot skip the settlement.
-    let violation: string | undefined
+    // barrier. Everything between here and the report is unconditional arithmetic.
+    //
+    // A FAULT is spend the pool cannot verify, and it throws. An OVERSPEND is measured spend
+    // above the reservation, and it is returned. The settlement commits the actual spend either
+    // way and lets `free` go negative, which keeps `total ≡ free + reserved + committed` exact
+    // and refuses later reservations on its own. Throwing on an overspend changed no accounting
+    // and discarded work that had already completed and been paid for (agent-runtime#1206).
+    // Unknown dollars are a fault even beside an overspend, so the child still fails closed.
+    const overspent: BudgetOverspend[] = []
     if (spentTokens > rTokens) {
-      // A child must never commit more than it reserved (that would overdraw the conserved
-      // pool). The settlement still commits the ACTUAL spend and lets `free` go negative,
-      // which keeps `total ≡ free + reserved + committed` exact and reports the overdraw
-      // through the readout instead of stranding the reservation.
-      violation = `ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`
-    } else if (spent.iterations > rIterations) {
-      violation = `ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`
-    } else if (unknownUnderCap) {
-      // Decided BEFORE the dollar comparison below. Dollars that are not measured may not be
-      // compared against a reservation as if they were billed: a catalog-priced turn can exceed
-      // the ceiling and would then be reported as an overspend the child never made. The known
-      // channels still settle, then the dollar channel is permanently tainted and admission
-      // closes.
-      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
-    } else if (usdCapped && usdBudgeted && spent.usd > rUsd) {
-      // USD is conserved ONLY when the root declared a ceiling AND the child declared one to
-      // be measured against. `maxUsd` is optional on both: when either is unset, usd is an
-      // OBSERVED quantity (committed for accounting), never a budgeted constraint — an unset
-      // ceiling must not behave as a hard $0 limit that fail-closes a real priced spend.
-      violation = `ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`
+      overspent.push({ channel: 'tokens', reserved: rTokens, spent: spentTokens })
+    }
+    if (spent.iterations > rIterations) {
+      overspent.push({ channel: 'iterations', reserved: rIterations, spent: spent.iterations })
+    }
+    // Dollars that are not measured may not be compared against a reservation as if they were
+    // billed: a catalog-priced turn can exceed the ceiling and would then be reported as an
+    // overspend the child never made. The known channels still settle, then the dollar channel
+    // is permanently tainted and admission closes.
+    let fault = unknownUnderCap
+      ? `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
+      : undefined
+    // USD is conserved ONLY when the root declared a ceiling AND the child declared one to be
+    // measured against. `maxUsd` is optional on both: when either is unset, usd is an OBSERVED
+    // quantity (committed for accounting), never a budgeted constraint — an unset ceiling must
+    // not behave as a hard $0 limit that fail-closes a real priced spend.
+    if (!unknownUnderCap && usdCapped && usdBudgeted && spent.usd > rUsd) {
+      overspent.push({ channel: 'usd', reserved: rUsd, spent: spent.usd })
     }
 
     // ── Settlement: unconditional, and the only place the ticket closes ───────────────
@@ -694,9 +743,18 @@ export function createBudgetPool(
       committedUsd += spent.usd
     }
 
-    const resourceViolation = commitResources(spent, ticket.reserved.resources)
-    violation ??= resourceViolation
-    if (violation !== undefined) throw new Error(`budget pool: ${violation}`)
+    const resourceSettlement = commitResources(spent, ticket.reserved.resources ?? {})
+    fault ??= resourceSettlement.fault
+    overspent.push(...resourceSettlement.overspent)
+    // Frozen: the same record reaches the journal, the settlement, and every observer.
+    const violation =
+      overspent.length === 0
+        ? undefined
+        : Object.freeze({
+            overspent: Object.freeze(overspent.map((entry) => Object.freeze(entry))),
+          })
+    if (fault !== undefined) throw new BudgetReconcileFault(`budget pool: ${fault}`, violation)
+    return violation
   }
 
   function observe(spend: Spend, options: { partial?: boolean } = {}): void {
@@ -731,7 +789,8 @@ export function createBudgetPool(
     committedIterations += spend.iterations
     committedUsd += spend.usd
     if (usdCapped) freeUsd -= spend.usd
-    const violation = commitResources(spend, {}, !options.partial)
+    const settlement = commitResources(spend, undefined, !options.partial)
+    const violation = settlement.fault ?? settlement.rootExceeded
     if (violation) throw new ValidationError(`budget pool: ${violation}`)
   }
 

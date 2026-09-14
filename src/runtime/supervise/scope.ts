@@ -40,6 +40,7 @@ import { abortError, RunCancellationReason } from './abortable'
 import {
   assertValidSpend,
   type BudgetPool,
+  BudgetReconcileFault,
   createBudgetPool,
   meterUsageEvent,
   newUsageTotals,
@@ -97,6 +98,7 @@ import type {
   Agent,
   AgentSpec,
   Budget,
+  BudgetViolation,
   DefaultVerdict,
   EnvironmentTeardownReceipt,
   ExecutionBindingReceipt,
@@ -317,6 +319,8 @@ interface LiveChild {
    *  terminal state back into the scope's key registry under it. */
   readonly key?: string
   spent: Spend
+  /** The overspend its reconciliation returned. Every terminal record of this node carries it. */
+  budgetViolation?: BudgetViolation
   recoveryReady?: Promise<void>
   acceptedResult?: ExecutorResult<unknown>
   recoveryPending?: boolean
@@ -2489,6 +2493,7 @@ async function finalizeSettlement<Out>(
         reason: settlement.reason,
         ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
         ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
+        ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
         trace: settlement.trace,
         seq,
         at,
@@ -2528,6 +2533,7 @@ async function finalizeSettlement<Out>(
       reason: settlement.reason,
       infra: settlement.infra,
       ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
+      ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
       trace: settlement.trace,
       settledAt,
       seq,
@@ -2547,6 +2553,7 @@ async function finalizeSettlement<Out>(
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
+    ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
     trace: settlement.trace,
     seq,
     at,
@@ -2581,6 +2588,7 @@ async function finalizeSettlement<Out>(
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
+    ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
     trace: settlement.trace,
     settledAt,
     seq,
@@ -2618,6 +2626,9 @@ function settledNodeEvidence(
             'execution binding receipts',
           ),
         }
+      : {}),
+    ...(child.budgetViolation
+      ? { budgetViolation: detachedSnapshot(child.budgetViolation, 'budget violation') }
       : {}),
     trace: detachedSnapshot(settlement.trace, 'worker trace evidence'),
   }
@@ -2770,15 +2781,19 @@ async function runChild<C>(
         spend = withBudgetResources({ ...spend, resources: undefined }, opts.budget)
         live.spent = withBudgetResources({ ...live.spent, resources: undefined }, opts.budget)
         try {
-          pool.reconcile(ticket, spend)
-        } catch {
+          live.budgetViolation = pool.reconcile(ticket, spend)
+        } catch (fault) {
           // Unknown enforced usage closes the ticket before reporting its violation.
+          if (fault instanceof BudgetReconcileFault) live.budgetViolation = fault.budgetViolation
         }
         throw error
       }
-      pool.reconcile(ticket, spend)
+      // An overspend is recorded, not thrown: the pool has committed the true spend, and a
+      // child that completed keeps its artifact. A fault still throws, carrying any overspend.
+      live.budgetViolation = pool.reconcile(ticket, spend)
       return undefined
     } catch (error) {
+      if (error instanceof BudgetReconcileFault) live.budgetViolation = error.budgetViolation
       reconciliationError = error
       return error
     }
@@ -2804,6 +2819,13 @@ async function runChild<C>(
       // authority), then read the terminal artifact after the stream drains. Each event also
       // republishes the running total + a fresh activity stamp onto the live child, so a
       // concurrent `scope.progress(id)` sees a worker mid-flight rather than a zeroed row.
+      //
+      // The fold does not abort when the running total crosses the reservation. Executors report
+      // usage after the model call it measures, and the Tangle sandbox executor reports all of it
+      // in the terminal receipt, so the crossing report is often the last event before the
+      // artifact. Aborting there would discard completed work while saving no spend. A cap that
+      // prevents spend belongs in the executor, before it starts a call the reservation cannot
+      // cover. An overspend is recorded at reconciliation instead.
       const spend = await foldStream(
         ran,
         async (running) => {
@@ -2981,6 +3003,10 @@ async function runChild<C>(
         live.spent = { ...unknownFloor(accounting?.reported ?? live.spent), ms }
         reconcileOnce({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
       }
+      // The node keeps its cursor slot open, so no terminal record can carry an overspend, and
+      // the floor is not the execution's final spend. The recovered settlement reports it from
+      // the recorded result; reporting it here would make the live views disagree with replay.
+      live.budgetViolation = undefined
       return {
         ...downRecord(errMessage(err), true, trace, executor.metered?.()),
         reconciled: live.spent,
@@ -3122,6 +3148,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     ...(c.outRef ? { outRef: c.outRef } : {}),
     ...(c.trace ? { trace: c.trace } : {}),
     ...(c.providerModel ? { providerModel: c.providerModel } : {}),
+    ...(c.budgetViolation ? { budgetViolation: c.budgetViolation } : {}),
   }))
   return {
     root,

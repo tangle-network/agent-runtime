@@ -196,6 +196,74 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     expect(root_tree.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
   })
 
+  it('shows a worker overspend to the driver on await_event and again in a resume brief', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const runId = 'cd-overspend'
+    const rootIdentity = {
+      profileDigest: canonicalCandidateDigest({ name: 'cd-overspend-root' }),
+      taskDigest: canonicalCandidateDigest({ task: 'solve it' }),
+    }
+    // The worker completes, but spends 1,500 tokens against the 1,000 `perWorker` reservation.
+    const worker = workerLeaf('w', {
+      out: { answer: 42 },
+      tokens: { input: 1_500, output: 0 },
+      iterations: 1,
+      score: 0.9,
+    })
+    const violation = { overspent: [{ channel: 'tokens', reserved: 1_000, spent: 1_500 }] }
+    const seen: SeenMessages = []
+    const chat = scriptedBrain(
+      [
+        {
+          toolCalls: [
+            {
+              name: 'spawn_worker',
+              arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+            },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ],
+      seen,
+    )
+    const runOpts = {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId,
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      rootIdentity,
+      maxDepth: 4,
+      now: () => 0,
+    }
+    const first = await createSupervisor<unknown, unknown>().run(
+      driverAgent(driverOpts('root', chat, () => worker)),
+      'solve it',
+      runOpts,
+    )
+    expect(first.kind).toBe('winner')
+    const awaited = seen[2]!
+      .filter((message) => message.role === 'tool')
+      .map((message) => JSON.parse(String(message.content)) as Record<string, unknown>)
+      .find((content) => content.type === 'settled')
+    expect(awaited).toMatchObject({ status: 'done', budgetViolation: violation })
+
+    const resumedSeen: SeenMessages = []
+    await createSupervisor<unknown, unknown>().run(
+      driverAgent(
+        driverOpts('root', scriptedBrain([{ content: 'done' }], resumedSeen), () => worker),
+      ),
+      'solve it',
+      { ...runOpts, resume: true },
+    )
+    const brief = resumedSeen[0]
+      ?.map((message) => String(message.content))
+      .find((content) => content.startsWith('RESUME:'))
+    expect(brief).toContain('overspent=tokens 1500 > reserved 1000')
+  })
+
   it('a delivered child the brain never awaited still wins (post-loop drain feeds finalize)', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()

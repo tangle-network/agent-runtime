@@ -2658,9 +2658,9 @@ function superviseInternal(
   const perWorker = options.perWorker ?? defaultPerWorker(options.budget)
   assertValidBudget(perWorker, 'supervise perWorker')
   // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
-  // silently misleads the caller: the child is capped by the reservation instead and dies with
-  // "ticket N spent X tokens > reserved Y", which reads as a budget outcome rather than a
-  // misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
+  // silently misleads the caller: the child is capped by the reservation instead and settles with
+  // a `budgetViolation` against that smaller reservation, which reads as a budget outcome rather
+  // than a misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
   // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)

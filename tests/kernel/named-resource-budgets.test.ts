@@ -273,6 +273,10 @@ describe('caller-named resource conservation', () => {
         await rm(dir, { recursive: true, force: true })
       }
     },
+    // The non-overflow case settles 100 children through a file journal. At a host load average
+    // near 200 on 2026-09-13, unmodified main took 11.3 s to 19.9 s across three isolated runs,
+    // against the 20 s default. That wall time is contention, not a hang.
+    60_000,
   )
 
   it('reserves all channels atomically and refunds only known unused capacity', () => {
@@ -345,9 +349,9 @@ describe('caller-named resource conservation', () => {
     const pool = createBudgetPool(budget(), 0)
     const reservation = pool.reserve(budget(4))
     if (!reservation.ok) throw new Error('reservation failed')
-    expect(() => pool.reconcile(reservation.ticket, measured(5, 20))).toThrow(
-      'spent 5 > reserved 4',
-    )
+    expect(pool.reconcile(reservation.ticket, measured(5, 20))).toEqual({
+      overspent: [{ channel: 'resource:gpu', reserved: 4, spent: 5 }],
+    })
     expect(pool.readout().resources?.gpu).toMatchObject({ remaining: 5, committed: 5, reserved: 0 })
     pool.assertNoOpenTickets()
     conserved(pool)
@@ -370,6 +374,28 @@ describe('caller-named resource conservation', () => {
     expect(restored.readout().resources?.gpu).toMatchObject({ remaining: 0, known: false })
     expect(restored.reserve(budget(0)).ok).toBe(false)
     conserved(restored)
+  })
+
+  it('charges an overdraw to the reservation that caused it, not to one that settles within its allocation', () => {
+    const pool = createBudgetPool(budget(), 0)
+    const overspender = pool.reserve(budget(4))
+    const inside = pool.reserve(budget(4))
+    if (!overspender.ok || !inside.ok) throw new Error('reservation failed')
+    expect(pool.reconcile(overspender.ticket, measured(9, 20))).toEqual({
+      overspent: [{ channel: 'resource:gpu', reserved: 4, spent: 9 }],
+    })
+    // The root is now overdrawn. The second reservation stayed inside its own allocation, so its
+    // settlement reports nothing, and admission stays closed on the negative balance.
+    expect(pool.reconcile(inside.ticket, measured(2, 20))).toBeUndefined()
+    expect(pool.readout().resources?.gpu).toMatchObject({
+      remaining: -1,
+      committed: 11,
+      known: true,
+    })
+    expect(pool.reserve(budget(0)).ok).toBe(false)
+    conserved(pool)
+    // Spend that holds no reservation still refuses a root overdraw.
+    expect(() => pool.observe(measured(1, 0))).toThrow('exceeded root limit')
   })
 
   it('treats explicit restored spend with omitted dimensions as unknown, including zero amounts', () => {
