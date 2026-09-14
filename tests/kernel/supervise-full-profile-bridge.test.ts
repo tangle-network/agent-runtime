@@ -892,6 +892,50 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(uncapped).toBeGreaterThan(capped)
   })
 
+  it('meters legacy additive usage from every root bridge iteration', async () => {
+    const runId = 'bridge-additive-iteration-accounting'
+    const handle = createRootHandle<unknown>()
+    const journal = new InMemorySpawnJournal()
+    let requests = 0
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      requests++
+      if (requests === 1) handle.deliver({ steer: 'Continue with the second check.' })
+      respondWithBridgeStream(
+        res,
+        body,
+        [
+          `data: ${JSON.stringify({ choices: [{ delta: { content: 'checked' } }] })}`,
+          `data: ${JSON.stringify({ usage: { prompt_tokens: requests === 1 ? 10 : 7, completion_tokens: requests === 1 ? 2 : 3, cost: 0.01 } })}`,
+          'data: [DONE]',
+          '',
+        ].join('\n\n'),
+      )
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const result = await supervise(codexTestProfile('root', 'Run both checks.'), 'Check.', {
+      rootHandle: handle,
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 100 },
+      journal,
+      runId,
+    })
+    expect(requests).toBe(2)
+    const metered = ((await journal.loadTree(runId)) ?? []).flatMap((event) =>
+      event.kind === 'metered' && event.spend.tokens.input > 0 ? [event.spend.tokens] : [],
+    )
+    expect(metered).toMatchObject([
+      { input: 10, output: 2 },
+      { input: 7, output: 3 },
+    ])
+    expect(result.spentTotal.tokens).toMatchObject({ input: 17, output: 5 })
+  })
+
   it('journals every outstanding served model when a resumed turn dies before terminal proof', async () => {
     const runId = 'bridge-two-outstanding-provider-attempts'
     const journal = new InMemorySpawnJournal()
