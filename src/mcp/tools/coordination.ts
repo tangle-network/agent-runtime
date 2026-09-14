@@ -1535,6 +1535,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         : {
             ...common,
             status: 'down',
+            ...(settled.outRef === undefined ? {} : { outRef: settled.outRef }),
             ...(node?.spent === undefined ? {} : { spent: node.spent }),
             reason: settled.reason,
           },

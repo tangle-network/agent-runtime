@@ -1132,7 +1132,7 @@ Provider model evidence persisted separately from the execution plan.
 
 > `readonly` `optional` **outRef?**: `string`
 
-`outRef` once the node is `done` (the replay/result pointer).
+Canonical retained output pointer; a failed or cancelled node may also have useful evidence.
 
 ###### Inherited from
 
@@ -22294,7 +22294,7 @@ Provider model evidence persisted separately from the execution plan.
 
 > `readonly` `optional` **outRef?**: `string`
 
-`outRef` once the node is `done` (the replay/result pointer).
+Canonical retained output pointer; a failed or cancelled node may also have useful evidence.
 
 ##### trace?
 
@@ -28221,7 +28221,7 @@ recovery before a replacement can run.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -28295,7 +28295,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -28308,6 +28308,13 @@ Epoch ms parsed from the durable settlement record when available.
 ###### reason
 
 > **reason**: `string`
+
+###### outRef?
+
+> `optional` **outRef?**: `string`
+
+Retained output evidence, when execution returned an artifact before this failure.
+Its presence does not make the result successful or eligible for selection.
 
 ###### infra
 

@@ -507,7 +507,7 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
       drive: script.drive,
       progress: () => mark(),
       budget: () => budget({ deadlineMs: 10 }),
-      now: () => 11,
+      now: () => (script.reentries.length === 0 ? 0 : 11),
       signal: new AbortController().signal,
       reprompt: { maxReprompts: 5 },
       onAttempt: (r) => void records.push(r),
@@ -524,7 +524,7 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
     await runDriverWithRetry({
       drive: script.drive,
       progress: () => mark(),
-      budget: () => budget({ tokensLeft: 0 }),
+      budget: () => budget({ tokensLeft: script.reentries.length === 0 ? 1000 : 0 }),
       signal: new AbortController().signal,
       reprompt: { maxReprompts: 5 },
       onAttempt: (r) => void records.push(r),
@@ -536,11 +536,13 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
 
   it('lets an aborted run refuse a re-prompt', async () => {
     const controller = new AbortController()
-    controller.abort('caller cancel')
     const script = completingDrive(99)
     const records: DriverAttemptRecord[] = []
     await runDriverWithRetry({
-      drive: script.drive,
+      drive: async (attempt, reentry) => {
+        await script.drive(attempt, reentry)
+        controller.abort('caller cancel')
+      },
       progress: () => mark(),
       budget: () => budget(),
       signal: controller.signal,
@@ -664,5 +666,96 @@ describe('defaultUnmetContractSteer', () => {
       budget: budget(),
     })
     expect(text).toContain('The deliverable this run owes is still missing.')
+  })
+})
+
+describe('driver admission after asynchronous callbacks', () => {
+  it('never dispatches a pre-cancelled invocation', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('operator cancelled'))
+    const script = scriptedDrive([null])
+    await expect(
+      runDriverWithRetry({
+        drive: script.drive,
+        progress: () => noProgress,
+        budget: () => budget(),
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ stop: 'aborted', attempts: [] })
+    expect(script.attempts).toEqual([])
+  })
+
+  it.each([
+    { tokensLeft: 0 },
+    { iterationsLeft: 0 },
+    { deadlineMs: 1 },
+    { usdCapped: true, usdKnown: false },
+  ])('never dispatches after the caller resource boundary (%j)', (limits) => {
+    const script = scriptedDrive([null])
+    return runDriverWithRetry({
+      drive: script.drive,
+      progress: () => noProgress,
+      budget: () => budget(limits),
+      signal: new AbortController().signal,
+      now: () => 2,
+    }).then(
+      () => {
+        throw new Error('expected admission refusal')
+      },
+      (error) => {
+        expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+        expect(script.attempts).toEqual([])
+      },
+    )
+  })
+
+  it.each(['abort', 'budget', 'deadline'] as const)(
+    'rechecks %s after the reprompt hook',
+    async (mode) => {
+      const controller = new AbortController()
+      let limits: Partial<DriverBudgetReadout> = {}
+      const records: DriverAttemptRecord[] = []
+      const script = scriptedDrive([null, null])
+      await runDriverWithRetry({
+        drive: script.drive,
+        progress: () => mark(),
+        budget: () => budget(limits),
+        signal: controller.signal,
+        now: () => 2,
+        onAttempt: (record) => {
+          records.push(record)
+        },
+        reprompt: {
+          maxReprompts: 1,
+          onUnmetContract: async () => {
+            await Promise.resolve()
+            if (mode === 'abort') controller.abort()
+            else limits = mode === 'budget' ? { tokensLeft: 0 } : { deadlineMs: 1 }
+            return { steer: 'continue the original task' }
+          },
+        },
+      })
+      expect(script.attempts).toEqual([1])
+      expect(records[0]?.repromptRefusedBy).toBe(
+        mode === 'abort' ? 'aborted' : mode === 'budget' ? 'budget-exhausted' : 'deadline',
+      )
+    },
+  )
+
+  it('does not buy another turn if the awaited attempt observer cancels it', async () => {
+    const controller = new AbortController()
+    const script = scriptedDrive([null, null])
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: controller.signal,
+      reprompt: { maxReprompts: 1 },
+      onAttempt: async () => {
+        await Promise.resolve()
+        controller.abort()
+      },
+    })
+    expect(script.attempts).toEqual([1])
   })
 })
