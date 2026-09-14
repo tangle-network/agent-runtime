@@ -3059,7 +3059,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                     ? "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd"
                     : res.reason === 'in-doubt'
                       ? 'this key has a prior worker recorded as started without a terminal receipt; no replacement was started because that remote worker may still be running — inspect or recover the exact prior execution before retrying'
-                      : `the conserved pool refused this spawn (${String(res.reason)}); the run has no allocation left to give this worker`,
+                      : // Nothing is exhausted and nothing was cancelled: this run's driver already
+                        // finished and the supervisor is joining. A caller that reaches here is
+                        // working past the end of its own request; the honest report is that the
+                        // stage never started, not that it failed.
+                        res.reason === 'scope-settled'
+                        ? 'this run has already reached its join barrier — its driver returned and the supervisor is settling, so no further worker can be started, joined, or paid for; record this stage as not started'
+                        : `the conserved pool refused this spawn (${String(res.reason)}); the run has no allocation left to give this worker`,
                 ...(res.reason === 'usd-unbudgeted'
                   ? {
                       hint:
