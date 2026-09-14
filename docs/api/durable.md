@@ -330,7 +330,7 @@ The live side of a turn returned by the product's `produce` hook.
 
 > **stream**: `AsyncGenerator`\<`TEvent`, `void`, `unknown`\>
 
-The turn's event stream. Forwarded verbatim to the caller.
+The turn's events. The engine emits completion after persistence.
 
 #### Methods
 
@@ -356,8 +356,8 @@ Product callbacks invoked while one chat turn runs.
 
 > **produce**(): [`ChatTurnProducer`](#chatturnproducer)
 
-Build the backend stream. The engine forwards events verbatim and
- reads `finalText()` once the stream drains.
+Build the backend stream. The engine forwards nonterminal events and
+ reads `finalText()` once the stream drains. Reported errors fail the turn.
 
 ###### Returns
 
