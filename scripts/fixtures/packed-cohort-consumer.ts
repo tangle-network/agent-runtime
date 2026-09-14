@@ -34,7 +34,7 @@ interface PackedScenario extends Scenario {
   kind: 'packed-cohort'
 }
 
-const scenarios: PackedScenario[] = Array.from({ length: 12 }, (_, index) => ({
+const scenarios: PackedScenario[] = Array.from({ length: 14 }, (_, index) => ({
   id: `packed-${index}`,
   kind: 'packed-cohort',
 }))
