@@ -1875,6 +1875,45 @@ describe('environment provider adapters', () => {
     })
   })
 
+  it('preserves a canonical provider billing receipt through provider execution', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'billed-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'llm_call',
+              data: {
+                tokensIn: 7,
+                tokensOut: 11,
+                costUsd: 0.03,
+                costProvenance: 'billing-receipt',
+              },
+            }
+            yield { type: 'done', data: { finalText: 'billed' } }
+          },
+        })
+      },
+    }
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'billed-worker' }, harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+
+    const usage = await collect(
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(usage).toContainEqual({
+      kind: 'cost',
+      usd: 0.03,
+      usdKnown: true,
+      provenance: 'provider-receipt',
+    })
+    expect(executor.resultArtifact().spent).toMatchObject({ usd: 0.03, usdKnown: true })
+  })
+
   it('credits a provider terminal usage total once when result and done repeat it', async () => {
     const provider: AgentEnvironmentProvider = {
       name: 'repeated-terminal',
