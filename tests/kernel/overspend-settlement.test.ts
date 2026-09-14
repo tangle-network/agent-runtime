@@ -21,6 +21,7 @@ import {
 } from '../../src/durable/spawn-journal'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import { type BudgetPool, createBudgetPool } from '../../src/runtime/supervise/budget'
+import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
 import type {
@@ -401,15 +402,101 @@ describe('an overspent child that did not complete, or whose accounting is at fa
       'task',
       { label: 'unpriced', budget: { maxIterations: 4, maxTokens: 800_000, maxUsd: 1 } },
     )
+    // The fault decides the outcome; the measured token overspend is still on the record.
+    const violation = { overspent: [{ channel: 'tokens', reserved: 800_000, spent: 900_000 }] }
     const settled = await scope.next()
     expect(settled).toMatchObject({
       kind: 'down',
       infra: true,
       reason: expect.stringMatching(/unknown dollar cost under a dollar-capped budget/),
+      budgetViolation: violation,
     })
-    expect(await settledRecord(journal, 'run:s0')).toMatchObject({ status: 'down', infra: true })
+    expect(await settledRecord(journal, 'run:s0')).toMatchObject({
+      status: 'down',
+      infra: true,
+      budgetViolation: violation,
+    })
     expect(pool.readout()).toMatchObject({ usdLeft: 0, reservedTokens: 0 })
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
+  it('records the overspend on a cancelled record, and replay reads it back', async () => {
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 2_000_000 }, 0)
+    const { scope, journal, blobs } = await scopeOver(pool)
+    let reported!: () => void
+    const usageReported = new Promise<void>((resolve) => {
+      reported = resolve
+    })
+    const executor: Executor<unknown> = {
+      runtime: 'router',
+      execute(_task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent> {
+        return (async function* () {
+          yield { kind: 'tokens' as const, input: 900_000, output: 0 }
+          // Runs only after the fold consumed the usage event above.
+          reported()
+          await new Promise<void>((_, reject) => {
+            if (signal.aborted) reject(signal.reason)
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+        })()
+      },
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => ({ outRef: 'never', out: 'never', spent: spendOf([]) }),
+    }
+    const spawned = scope.spawn(leaf('cancelled', executor), 'task', {
+      label: 'cancelled',
+      budget: { maxIterations: 4, maxTokens: 800_000 },
+    })
+    if (!spawned.ok) throw new Error('spawn refused')
+    await usageReported
+    await scope.cancel(spawned.handle.id, { operationId: 'cancel-overspent' })
+    const violation = { overspent: [{ channel: 'tokens', reserved: 800_000, spent: 900_000 }] }
+    expect(await scope.next()).toMatchObject({ kind: 'down', budgetViolation: violation })
+    const events = (await journal.loadTree('run')) ?? []
+    expect(events.find((event) => event.kind === 'cancelled')).toMatchObject({
+      id: spawned.handle.id,
+      budgetViolation: violation,
+    })
+    expect(await replaySpawnTree(journal, blobs, 'run')).toMatchObject([
+      { kind: 'down', budgetViolation: violation },
+    ])
+  })
+
+  it('keeps a retained-pending child free of a violation its journal cannot carry', async () => {
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 2_000_000 }, 0)
+    const { scope, journal } = await scopeOver(pool)
+    const executor: Executor<unknown> = {
+      runtime: 'router',
+      execute(): AsyncIterable<UsageEvent> {
+        return (async function* () {
+          yield { kind: 'tokens' as const, input: 900_000, output: 0 }
+          throw new RetainedExecutionPendingError(new Error('provider still running'))
+        })()
+      },
+      teardown: async () => ({ destroyed: false, detail: 'retained' }),
+      resultArtifact: () => ({ outRef: 'never', out: 'never', spent: spendOf([]) }),
+    }
+    const spawned = scope.spawn(leaf('retained', executor), 'task', {
+      label: 'retained',
+      budget: { maxIterations: 4, maxTokens: 800_000 },
+    })
+    if (!spawned.ok) throw new Error('spawn refused')
+    const settled = await scope.next()
+    // The node stays open for recovery, so it has no terminal record. The recovered settlement
+    // reports the overspend from the recorded result; the live views must not report one early.
+    expect(settled).toMatchObject({ kind: 'down', infra: true })
+    expect(settled).not.toHaveProperty('budgetViolation')
+    const events = (await journal.loadTree('run')) ?? []
+    expect(events.some((event) => event.kind === 'settled' || event.kind === 'cancelled')).toBe(
+      false,
+    )
+    expect(events.find((event) => event.kind === 'reconciled')).toMatchObject({
+      id: spawned.handle.id,
+    })
+    expect(scope.view.nodes.find((node) => node.id === spawned.handle.id)).not.toHaveProperty(
+      'budgetViolation',
+    )
+    expect(pool.readout().reservedTokens).toBe(0)
   })
 
   it('fails closed on unknown usage of an enforced resource', async () => {

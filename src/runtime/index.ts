@@ -622,6 +622,7 @@ export {
   type BudgetPool,
   type BudgetPoolRestore,
   type BudgetReadout,
+  BudgetReconcileFault,
   createBudgetPool,
   type LeakedReservation,
   type ReservationHolder,

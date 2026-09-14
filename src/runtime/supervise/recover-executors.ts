@@ -13,7 +13,12 @@ import {
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { addSpend, zeroSpend } from '../util'
-import { assertValidSpend, type BudgetPoolRestore, createBudgetPool } from './budget'
+import {
+  assertValidSpend,
+  type BudgetPoolRestore,
+  BudgetReconcileFault,
+  createBudgetPool,
+} from './budget'
 import { executorFailureReason } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
 import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
@@ -88,6 +93,7 @@ export async function prepareInterruptedExecutors(
         budgetViolation = validation.reconcile(reservation.ticket, recorded.spent)
       } catch (error) {
         fault = error instanceof Error ? error.message : String(error)
+        if (error instanceof BudgetReconcileFault) budgetViolation = error.budgetViolation
       }
       accepted.push({
         result: recorded,

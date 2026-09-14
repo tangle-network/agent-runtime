@@ -40,6 +40,7 @@ import { abortError, RunCancellationReason } from './abortable'
 import {
   assertValidSpend,
   type BudgetPool,
+  BudgetReconcileFault,
   createBudgetPool,
   meterUsageEvent,
   newUsageTotals,
@@ -2781,16 +2782,18 @@ async function runChild<C>(
         live.spent = withBudgetResources({ ...live.spent, resources: undefined }, opts.budget)
         try {
           live.budgetViolation = pool.reconcile(ticket, spend)
-        } catch {
+        } catch (fault) {
           // Unknown enforced usage closes the ticket before reporting its violation.
+          if (fault instanceof BudgetReconcileFault) live.budgetViolation = fault.budgetViolation
         }
         throw error
       }
       // An overspend is recorded, not thrown: the pool has committed the true spend, and a
-      // child that completed keeps its artifact. Only unverifiable spend throws here.
+      // child that completed keeps its artifact. A fault still throws, carrying any overspend.
       live.budgetViolation = pool.reconcile(ticket, spend)
       return undefined
     } catch (error) {
+      if (error instanceof BudgetReconcileFault) live.budgetViolation = error.budgetViolation
       reconciliationError = error
       return error
     }
@@ -3000,6 +3003,10 @@ async function runChild<C>(
         live.spent = { ...unknownFloor(accounting?.reported ?? live.spent), ms }
         reconcileOnce({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
       }
+      // The node keeps its cursor slot open, so no terminal record can carry an overspend, and
+      // the floor is not the execution's final spend. The recovered settlement reports it from
+      // the recorded result; reporting it here would make the live views disagree with replay.
+      live.budgetViolation = undefined
       return {
         ...downRecord(errMessage(err), true, trace, executor.metered?.()),
         reconciled: live.spent,

@@ -3676,7 +3676,7 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 ##### budgetViolation?
 
-> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-2)
+> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-3)
 
 Present when the worker's measured spend exceeded its reservation. The pool already charged
  the true spend; a `done` worker's output is still its result.

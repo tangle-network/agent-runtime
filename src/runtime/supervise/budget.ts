@@ -73,6 +73,22 @@ import type {
 
 export type { Budget, BudgetOverspend, BudgetViolation, Spend, UsageEvent }
 
+/**
+ * A reconciliation whose spend the pool cannot verify. It is thrown after the reservation has
+ * settled. `budgetViolation` carries any measured overspend on the same settlement, so a child
+ * that fails closed on the fault still records how far its known channels exceeded the
+ * reservation.
+ */
+export class BudgetReconcileFault extends Error {
+  readonly budgetViolation?: BudgetViolation
+
+  constructor(message: string, budgetViolation?: BudgetViolation) {
+    super(message)
+    this.name = 'BudgetReconcileFault'
+    if (budgetViolation !== undefined) this.budgetViolation = budgetViolation
+  }
+}
+
 /** Opaque, single-use reservation handle returned by `reserve` and consumed by
  *  `reconcile`. Carries the reserved ceilings so reconciliation needs no lookup. */
 export interface ReservationTicket {
@@ -729,12 +745,16 @@ export function createBudgetPool(
 
     const resourceSettlement = commitResources(spent, ticket.reserved.resources ?? {})
     fault ??= resourceSettlement.fault
-    if (fault !== undefined) throw new Error(`budget pool: ${fault}`)
     overspent.push(...resourceSettlement.overspent)
     // Frozen: the same record reaches the journal, the settlement, and every observer.
-    return overspent.length === 0
-      ? undefined
-      : Object.freeze({ overspent: Object.freeze(overspent.map((entry) => Object.freeze(entry))) })
+    const violation =
+      overspent.length === 0
+        ? undefined
+        : Object.freeze({
+            overspent: Object.freeze(overspent.map((entry) => Object.freeze(entry))),
+          })
+    if (fault !== undefined) throw new BudgetReconcileFault(`budget pool: ${fault}`, violation)
+    return violation
   }
 
   function observe(spend: Spend, options: { partial?: boolean } = {}): void {

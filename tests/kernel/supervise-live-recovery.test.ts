@@ -325,7 +325,7 @@ it.each([false, true])(
   },
 )
 
-it('keeps an accepted provider result from bypassing the child allocation', async () => {
+it('reconciles an accepted provider result against the child allocation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'supervise-accepted-overspend-'))
   const context = createFileRunContext(join(directory, 'run'))
   const base = durableRetainedProvider(join(directory, 'provider.json'))

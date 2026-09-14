@@ -449,6 +449,37 @@ describe('projectPursuit', () => {
   })
 })
 
+describe('projectPursuit carries a settled overspend', () => {
+  const settleWith = (childId: string, budgetViolation: unknown) => {
+    const event = settle('run:over', childId, 'run:over', spend(1_918_127, 0, 0))
+    return {
+      ...event,
+      event: {
+        ...event.event!,
+        payload: { ...(event.event!.payload as Record<string, unknown>), budgetViolation },
+      },
+    } as Parameters<typeof chain>[0][number]
+  }
+
+  it('keeps a done node done and names each overspent channel', () => {
+    const violation = { overspent: [{ channel: 'tokens', reserved: 800_000, spent: 1_918_127 }] }
+    const view = projectPursuit(
+      chain([
+        spawn('run:over', 'root:s0', 'run:over', 'enumerate'),
+        spawn('run:over', 'root:s1', 'run:over', 'malformed'),
+        settleWith('root:s0', violation),
+        settleWith('root:s1', { overspent: [{ channel: 'tokens', reserved: 'many' }] }),
+      ]),
+    )
+    expect(view.nodes.find((node) => node.id === 'root:s0')).toMatchObject({
+      status: 'done',
+      budgetViolation: violation,
+    })
+    // An unparseable record is not reported as an overspend of any size.
+    expect(view.nodes.find((node) => node.id === 'root:s1')).not.toHaveProperty('budgetViolation')
+  })
+})
+
 describe('projectPursuit reads the platform channel a node reported', () => {
   /** One run: spawn a sandbox child, settle it with the spend under test. */
   function runWith(spent: Record<string, unknown>) {

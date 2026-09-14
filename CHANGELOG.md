@@ -8,15 +8,22 @@ The pool's accounting is unchanged: it still charges the true spend, its free ba
 
 The overspend is recorded as `budgetViolation: { overspent: [{ channel, reserved, spent }] }`.
 `channel` is `tokens` (in charged tokens), `iterations`, `usd`, or `resource:<name>`, and each overspent channel has one entry.
-The field is on the `Settled` value from `scope.next()`, the `settled` or `cancelled` journal record, the `agent.child` hook payload, `NodeSnapshot` in live and materialized tree views, and replayed settlements.
+The field is on the `Settled` value from `scope.next()`, the `settled` or `cancelled` journal record, the `agent.child` hook payload, `NodeSnapshot` in live and materialized tree views, replayed settlements, and `PursuitNodeProjection`.
 A driver sees it on the `await_event` settlement and in `CoordinationTools.settled()`, and its roster and resume brief name each overspent channel.
-It is present on `down` settlements too, when a crashed or failed child had already overspent.
+It is present on `down` settlements too, when a crashed, failed, or cancelled child had already overspent.
 A saved retained result that overspent recovers as `done` with the same field.
+A retained child still awaiting recovery carries no field, because it has no terminal record yet.
+
+Three results follow from the new outcome.
+A crashed child that overspent now settles with `infra` decided by its own error; the overspend no longer makes it `infra: true`.
+A keyed child that completed with an overspend resolves as `completed`, so a later spawn under its key returns the result instead of retrying.
+The supervisor's down-rate breaker no longer counts a completed overspent child as a failure.
 
 `BudgetPool.reconcile` now returns `BudgetViolation | undefined` instead of `void`.
 It returns the overspend instead of throwing it, and it still throws after settling when spend cannot be verified.
 The unverifiable cases are unknown dollar cost under a dollar cap and unknown or overflowing usage of an enforced resource.
 In those cases the child still settles `down` with `infra: true`, and the error names that fault even when tokens also overspent.
+The thrown `BudgetReconcileFault` carries any measured overspend as `budgetViolation`, and the `down` settlement records it.
 A reservation that settles within its own resource allocation after another reservation overdrew the root no longer throws `exceeded root limit`.
 `BudgetPool.observe` still refuses a root overdraw.
 

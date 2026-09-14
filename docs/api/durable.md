@@ -1030,6 +1030,13 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 
 > `readonly` `optional` **infra?**: `boolean`
 
+##### budgetViolation?
+
+> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-3)
+
+Each channel on which the settled spend exceeded the node's reservation. The status is the
+ node's own outcome: a `done` node that overspent still delivered its output.
+
 ##### wait?
 
 > `readonly` `optional` **wait?**: `unknown`
