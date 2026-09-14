@@ -19,6 +19,7 @@ import type {
   AgentSessionStatus,
   AgentTurnResult,
 } from '@tangle-network/agent-interface/environment-provider'
+import { armDeadlineTimer } from './supervise/deadline'
 
 export function exactSession(
   environment: AgentEnvironment,
@@ -375,13 +376,13 @@ export function isTerminalSessionStatus(status: AgentSessionStatus | null): bool
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(abortError(signal.reason))
   return new Promise((resolveDelay, rejectDelay) => {
-    const timer = setTimeout(finish, ms)
+    const clearTimer = armDeadlineTimer(ms, finish, true)
     function finish() {
       signal?.removeEventListener('abort', onAbort)
       resolveDelay()
     }
     function onAbort() {
-      clearTimeout(timer)
+      clearTimer()
       signal?.removeEventListener('abort', onAbort)
       rejectDelay(abortError(signal?.reason))
     }

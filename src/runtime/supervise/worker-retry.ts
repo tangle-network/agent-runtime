@@ -35,6 +35,7 @@
 
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
+import { sleep } from '../util'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type {
   Agent,
@@ -360,13 +361,5 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
  *  timer lets the process exit mid-backoff when nothing else is pending. */
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0 || signal?.aborted) return Promise.resolve()
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', done)
-      resolve()
-    }
-    const timer = setTimeout(done, ms)
-    signal?.addEventListener('abort', done, { once: true })
-  })
+  return sleep(ms, signal)
 }

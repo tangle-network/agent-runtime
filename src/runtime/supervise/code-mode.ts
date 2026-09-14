@@ -31,9 +31,11 @@
  * THE GRANT CANNOT DRIFT FROM THE DOCS: `search` renders from `context.coordinationTools()`, the
  * same descriptor objects the verbs are served from — never prose written beside them.
  */
+
 import { createContext, runInContext } from 'node:vm'
 import { ValidationError } from '../../errors'
 import { assertAuthoredCode } from '../authored-code'
+import { armDeadlineTimer } from './deadline'
 import type {
   CoordinationToolFace,
   ResolveSupervisorTools,
@@ -324,17 +326,21 @@ export function codeModeSupervisorTools(
         const execution = new AbortController()
         let timedOut = false
         const onScopeAbort = () => execution.abort(abortReason(context.signal))
-        const timer =
+        const clearTimer =
           timeoutMs === null
-            ? null
-            : setTimeout(() => {
-                if (!execution.signal.aborted) {
-                  timedOut = true
-                  execution.abort(
-                    new ValidationError(`code mode: program timed out after ${timeoutMs}ms`),
-                  )
-                }
-              }, timeoutMs)
+            ? undefined
+            : armDeadlineTimer(
+                timeoutMs,
+                () => {
+                  if (!execution.signal.aborted) {
+                    timedOut = true
+                    execution.abort(
+                      new ValidationError(`code mode: program timed out after ${timeoutMs}ms`),
+                    )
+                  }
+                },
+                true,
+              )
         if (context.signal.aborted) execution.abort(abortReason(context.signal))
         else context.signal.addEventListener('abort', onScopeAbort, { once: true })
 
@@ -355,7 +361,7 @@ export function codeModeSupervisorTools(
         try {
           return await runner.run({ code, bindings, signal: execution.signal })
         } finally {
-          if (timer !== null) clearTimeout(timer)
+          clearTimer?.()
           context.signal.removeEventListener('abort', onScopeAbort)
         }
       },

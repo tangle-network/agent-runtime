@@ -79,6 +79,7 @@ import {
 } from './retained-run-start'
 import type { RetainedRunHandle } from './retained-run-types'
 import {
+  canonicalSandboxUsageMode,
   canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
   createSandboxUsageLedger,
@@ -944,6 +945,10 @@ async function* streamProviderExecutor(
   let sawIncompleteTokenReceipt = false
   let sawCostReceipt = false
   let sawUnknownCostReceipt = false
+  let sawCostEstimate = false
+  let pendingUnpricedWork = false
+  let pendingEstimate: number | undefined
+  let usdEstimated = 0
   let usd = 0
   let text = ''
   let terminal = false
@@ -987,11 +992,35 @@ async function* streamProviderExecutor(
       }
       const usageEvent = usageSandboxEvent(event)
       if (usageEvent)
-        yield* creditUsage(usageLedger.observe(usageEvent, args.profile.name ?? 'agent'))
-      yield* creditUsage(usageLedger.observe(sandboxEvent, args.profile.name ?? 'agent'))
+        yield* creditUsage(
+          usageLedger.observe(usageEvent, args.profile.name ?? 'agent'),
+          usageEvent,
+        )
+      yield* creditUsage(
+        usageLedger.observe(sandboxEvent, args.profile.name ?? 'agent'),
+        sandboxEvent,
+      )
       if (isTerminalEnvironmentEvent(event)) terminal = true
     }
     yield* creditUsage(usageLedger.settleTurn(args.profile.name ?? 'agent'))
+    // Interim missing prices and catalog estimates may be covered by a later cumulative bill.
+    // Only unresolved work becomes unknown at settlement; do not add a quote to that bill.
+    if (pendingUnpricedWork) {
+      const estimate = pendingEstimate ?? 0
+      sawUnknownCostReceipt = true
+      usd += estimate
+      if (pendingEstimate !== undefined) {
+        sawCostEstimate = true
+        usdEstimated += estimate
+      }
+      yield {
+        kind: 'cost',
+        usd: estimate,
+        usdKnown: false,
+        ...(pendingEstimate === undefined ? {} : { usdEstimated: estimate }),
+        provenance: pendingEstimate === undefined ? 'uncaptured' : 'catalog-estimate',
+      }
+    }
     if ((args.options.requireTerminalEvent ?? true) && !terminal) {
       throw new ValidationError(
         `providerAsExecutor(${args.provider.name}): stream ended without a terminal result/done/status event`,
@@ -1012,9 +1041,8 @@ async function* streamProviderExecutor(
       // A dollar total is known only when a canonical receipt arrived and none was marked
       // unknown. Bare provider numbers remain untrusted; Router billing receipts survive.
       usdKnown: sawCostReceipt && !sawUnknownCostReceipt,
-      // Unproven therefore priced, not charged: naming the whole amount on the estimate channel is
-      // what keeps `usd - usdEstimated` reading as the money a provider is known to have billed.
-      ...(usd > 0 ? { usdEstimated: usd } : {}),
+      // Only unverified amounts are estimates; a mixed run must retain its billed subtotal.
+      ...(sawCostEstimate ? { usdEstimated } : {}),
       ms: Date.now() - started,
     }
     // Scored HERE, before the `finally` destroys the environment: a validator that reads a file or
@@ -1090,7 +1118,10 @@ async function* streamProviderExecutor(
   }
   if (failed) throw failure
 
-  function* creditUsage(receipt: ReturnType<typeof usageLedger.observe>): Iterable<UsageEvent> {
+  function* creditUsage(
+    receipt: ReturnType<typeof usageLedger.observe>,
+    event?: SandboxEvent,
+  ): Iterable<UsageEvent> {
     if (receipt === undefined) return
     const hasTokens = receipt.tokensIn !== undefined || receipt.tokensOut !== undefined
     if (
@@ -1114,21 +1145,35 @@ async function* streamProviderExecutor(
         ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
       }
     }
-    if (receipt.costUsd !== undefined) {
+    const amount = receipt.costUsd
+    if (amount !== undefined) {
       sawCostReceipt = true
-      usd += receipt.costUsd
+      usd += amount
       if (receipt.usdKnown === false) {
         sawUnknownCostReceipt = true
+        sawCostEstimate = true
+        usdEstimated += amount
         yield {
           kind: 'cost',
           usdKnown: false,
-          usd: receipt.costUsd,
-          usdEstimated: receipt.costUsd,
+          usd: amount,
+          usdEstimated: amount,
           provenance: 'uncaptured',
         }
       } else {
-        yield { kind: 'cost', usdKnown: true, usd: receipt.costUsd, provenance: 'provider-receipt' }
+        if (event && canonicalSandboxUsageMode(event) === 'cumulative') {
+          // This receipt covers the bound execution's prior work, not just one new call.
+          pendingUnpricedWork = false
+          pendingEstimate = undefined
+        }
+        yield { kind: 'cost', usdKnown: true, usd: amount, provenance: 'provider-receipt' }
       }
+    } else if (receipt.estimatedCostUsd !== undefined) {
+      pendingUnpricedWork = true
+      pendingEstimate = (pendingEstimate ?? 0) + receipt.estimatedCostUsd
+    } else if (input > 0 || output > 0 || receipt.tokensKnown === false) {
+      // A duplicate terminal token total credits zero and cannot invent more unpriced work.
+      pendingUnpricedWork = true
     }
   }
 }

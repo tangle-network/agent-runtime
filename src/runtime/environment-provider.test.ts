@@ -50,6 +50,182 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it.each([false, true])(
+    'reconciles interim unpriced work with a complete terminal bill (estimate=%s)',
+    async (estimate) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'terminal-bill-fixture',
+        capabilities: fakeCapabilities,
+        create: async () =>
+          fakeEnvironment({
+            async *stream() {
+              yield {
+                type: 'llm_call',
+                data: {
+                  tokensIn: 7,
+                  tokensOut: 11,
+                  costUsd: 0.03,
+                  costProvenance: 'billing-receipt',
+                },
+              }
+              yield {
+                type: 'llm_call',
+                data: {
+                  tokensIn: 5,
+                  tokensOut: 9,
+                  ...(estimate
+                    ? { estimatedCostUsd: 0.02, costProvenance: 'catalog-estimate' }
+                    : {}),
+                },
+              }
+              yield {
+                type: 'result',
+                data: {
+                  finalText: 'result',
+                  costProvenance: 'billing-receipt',
+                  usage: {
+                    tokensIn: 12,
+                    tokensOut: 20,
+                    costUsd: 0.05,
+                    costProvenance: 'billing-receipt',
+                  },
+                },
+              }
+            },
+          }),
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile: { name: 'worker' }, harness: null },
+        { signal, seams: {} },
+      )
+      const events = await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+      const costs = events.filter((event) => event.kind === 'cost')
+      expect(costs.reduce((sum, event) => sum + event.usd, 0)).toBeCloseTo(0.05)
+      expect(costs.every((event) => event.usdKnown)).toBe(true)
+      expect(executor.resultArtifact().spent.usd).toBeCloseTo(0.05)
+      expect(executor.resultArtifact().spent.usdKnown).toBe(true)
+      expect(executor.resultArtifact().spent.usdEstimated).toBeUndefined()
+    },
+  )
+
+  it.each([
+    { provenance: 'billing-receipt', expectedKnown: true, expectedEstimate: undefined },
+    { provenance: 'uncaptured', expectedKnown: false, expectedEstimate: 0.03 },
+  ])(
+    'keeps terminal cost provenance consistent with streamed receipts ($provenance)',
+    async ({ provenance, expectedKnown, expectedEstimate }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'cost-fixture',
+        capabilities: fakeCapabilities,
+        create: async () =>
+          fakeEnvironment({
+            async *stream() {
+              yield {
+                type: 'llm_call',
+                data: { tokensIn: 7, tokensOut: 11, costUsd: 0.03, costProvenance: provenance },
+              }
+              yield { type: 'done', data: { finalText: 'result' } }
+            },
+          }),
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile: { name: 'worker' }, harness: null },
+        { signal, seams: {} },
+      )
+      await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+      const spent = executor.resultArtifact().spent
+      expect(spent.usd).toBeCloseTo(0.03)
+      expect(spent.usdKnown).toBe(expectedKnown)
+      expect(spent.usdEstimated).toBe(expectedEstimate)
+    },
+  )
+
+  it('does not relabel the billed part as estimated in a mixed-cost execution', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'mixed-cost-fixture',
+      capabilities: fakeCapabilities,
+      create: async () =>
+        fakeEnvironment({
+          async *stream() {
+            yield {
+              type: 'llm_call',
+              data: {
+                tokensIn: 7,
+                tokensOut: 11,
+                costUsd: 0.03,
+                costProvenance: 'billing-receipt',
+              },
+            }
+            yield {
+              type: 'llm_call',
+              data: { tokensIn: 5, tokensOut: 9, costUsd: 0.02, costProvenance: 'uncaptured' },
+            }
+            yield { type: 'done', data: { finalText: 'result' } }
+          },
+        }),
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'worker' }, harness: null },
+      { signal, seams: {} },
+    )
+    await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+    expect(executor.resultArtifact().spent).toMatchObject({ usdKnown: false })
+    expect(executor.resultArtifact().spent.usd).toBeCloseTo(0.05)
+    expect(executor.resultArtifact().spent.usdEstimated).toBeCloseTo(0.02)
+  })
+
+  it.each([
+    { data: { tokensIn: 5, tokensOut: 9 }, expectedUsd: 0.03, expectedEstimate: undefined },
+    {
+      data: {
+        tokensIn: 5,
+        tokensOut: 9,
+        estimatedCostUsd: 0.02,
+        costProvenance: 'catalog-estimate',
+      },
+      expectedUsd: 0.05,
+      expectedEstimate: 0.02,
+    },
+  ])(
+    'preserves incomplete dollars when a later call has no billing receipt ($expectedUsd)',
+    async ({ data, expectedUsd, expectedEstimate }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'partially-priced-fixture',
+        capabilities: fakeCapabilities,
+        create: async () =>
+          fakeEnvironment({
+            async *stream() {
+              yield {
+                type: 'llm_call',
+                data: {
+                  tokensIn: 7,
+                  tokensOut: 11,
+                  costUsd: 0.03,
+                  costProvenance: 'billing-receipt',
+                },
+              }
+              yield { type: 'llm_call', data }
+              yield { type: 'done', data: { finalText: 'result' } }
+            },
+          }),
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile: { name: 'worker' }, harness: null },
+        { signal, seams: {} },
+      )
+      const events = await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+      expect(events.some((event) => event.kind === 'cost' && event.usdKnown === false)).toBe(true)
+      const spent = executor.resultArtifact().spent
+      expect(spent.usdKnown).toBe(false)
+      expect(spent.usd).toBeCloseTo(expectedUsd)
+      expect(spent.usdEstimated).toBe(expectedEstimate)
+    },
+  )
+
   it('joins two independently refined provider snapshots without replacing the other worker', async () => {
     const done: AgentEnvironmentEvent = {
       type: 'done',

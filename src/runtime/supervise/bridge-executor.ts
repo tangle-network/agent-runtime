@@ -51,6 +51,7 @@ import {
   streamDurableBridgeRun,
 } from './bridge-transport'
 import { priceUnreceiptedWork } from './cost-estimate'
+import { armDeadlineTimer } from './deadline'
 import { contentRef } from './executor-outcome'
 import { readOptionalAbortSignal, readOptionalMcpAttachments, readSeam } from './executor-seams'
 import { createInbox, type Inbox } from './inbox'
@@ -570,16 +571,21 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     else external.addEventListener('abort', abortTurn)
     interruptSig.addEventListener('abort', abortTurn, { once: true })
     let timedOut = false
-    const timer =
+    const clearTimer =
       seam.timeoutMs !== undefined
-        ? setTimeout(() => {
-            timedOut = true
-            abortTurn()
-          }, seam.timeoutMs)
+        ? armDeadlineTimer(
+            seam.timeoutMs,
+            () => {
+              timedOut = true
+              abortTurn()
+            },
+            true,
+          )
         : undefined
     const cleanup = () => {
       external.removeEventListener('abort', abortTurn)
-      if (timer) clearTimeout(timer)
+      interruptSig.removeEventListener('abort', abortTurn)
+      clearTimer?.()
     }
 
     // Prove this bridge can accept the turn before allocating a remote run id. A refusal still

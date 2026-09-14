@@ -1077,13 +1077,11 @@ async function drainLiveChildren(
   // a settle grace, in which case the timer owns the cascade and the drain reads whatever the
   // children finish in the meantime. Exactly ONE cursor reader either way: the grace never races
   // `next()`, it only decides when the abort lands.
-  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  let clearGraceTimer: (() => void) | undefined
   if (settleGraceMs !== null && settleGraceMs > 0 && !controller.signal.aborted) {
-    graceTimer = setTimeout(
-      () => controller.abort('root driver failed; child settle grace expired'),
-      settleGraceMs,
+    clearGraceTimer = armDeadlineTimer(settleGraceMs, () =>
+      controller.abort('root driver failed; child settle grace expired'),
     )
-    graceTimer.unref?.()
   } else if (settleGraceMs !== null && !controller.signal.aborted) {
     // Same event as the grace-timer branch above, so it carries the same named reason: one
     // path stating why and the other going silent is what put identical deaths in two
@@ -1093,7 +1091,7 @@ async function drainLiveChildren(
   try {
     await drainCursor(scope)
   } finally {
-    if (graceTimer !== undefined) clearTimeout(graceTimer)
+    clearGraceTimer?.()
   }
   const after = scope.view
   if (after.inFlight > 0 || after.waiting > 0) {

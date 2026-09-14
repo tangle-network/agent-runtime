@@ -49,6 +49,7 @@ import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-line
 import { projectSandboxOutcome } from '../sandbox-outcome'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
 import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
+import { armDeadlineTimer } from './deadline'
 import type { Inbox } from './inbox'
 import { concreteProfileModel } from './model-policy'
 import {
@@ -311,13 +312,14 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           args.controller.signal.addEventListener('abort', abortTurn)
         }
         interruptSig.addEventListener('abort', abortTurn, { once: true })
-        const timer = args.options?.turnTimeoutMs
-          ? setTimeout(abortTurn, args.options.turnTimeoutMs)
+        const clearTimer = args.options?.turnTimeoutMs
+          ? armDeadlineTimer(args.options.turnTimeoutMs, abortTurn, true)
           : undefined
         const cleanup = () => {
           signal.removeEventListener('abort', abortTurn)
           args.controller.signal.removeEventListener('abort', abortTurn)
-          if (timer) clearTimeout(timer)
+          interruptSig.removeEventListener('abort', abortTurn)
+          clearTimer?.()
         }
 
         let events: AsyncIterable<SandboxEvent>

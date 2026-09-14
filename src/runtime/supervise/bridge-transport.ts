@@ -5,6 +5,7 @@ import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { BackendTransportError, ValidationError } from '../../errors'
+import { sleep } from '../util'
 import { runAbortable } from './abortable'
 import {
   type BridgeSeam,
@@ -346,19 +347,7 @@ export async function reconnectBackoff(attempt: number, signal: AbortSignal): Pr
     BRIDGE_RECONNECT_BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1),
   )
   if (ms <= 0 || signal.aborted) return
-  await new Promise<void>((resolve) => {
-    const done = () => {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', done)
-      resolve()
-    }
-    const timer = setTimeout(done, ms)
-    // A timer left armed past the run would pin the process to a deadline nobody reads.
-    if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
-      ;(timer as { unref: () => void }).unref()
-    }
-    signal.addEventListener('abort', done, { once: true })
-  })
+  await sleep(ms, signal, false)
 }
 
 export async function* streamDurableBridgeRun(

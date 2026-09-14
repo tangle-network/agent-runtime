@@ -30,6 +30,7 @@ import type { RetainedInteractiveRunHandle } from '../retained-interactive-types
 import { claimRetainedInteractiveControl, startRetainedInteractiveRun } from '../retained-run'
 import { retainedCreateMaterial } from '../retained-run-intent'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
+import { sleep } from '../util'
 import { abortError, linkAbort } from './abortable'
 import { executableAgentProfileSnapshot } from './executable-spec'
 import { createInbox } from './inbox'
@@ -753,31 +754,4 @@ async function safeStatus(
   } finally {
     if (timer !== undefined) clearTimeout(timer)
   }
-}
-
-async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  await new Promise<void>((resolve) => {
-    if (signal?.aborted) {
-      resolve()
-      return
-    }
-    let settled = false
-    const onAbort = (): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }
-    const timer = setTimeout(
-      () => {
-        if (settled) return
-        settled = true
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
-      },
-      Math.max(0, ms),
-    )
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }

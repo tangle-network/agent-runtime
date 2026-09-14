@@ -44,6 +44,7 @@
  */
 
 import { ValidationError } from '../../errors'
+import { sleep } from '../util'
 
 /** What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants so a wait
  *  re-armed by a later process keeps the deadline the first process set. */
@@ -352,17 +353,7 @@ function outcome(
 
 /** `setTimeout` that resolves early (and clears) when the scope aborts, so a cancelled wait
  *  releases the event loop immediately instead of holding the process to its deadline. */
-function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal.aborted) return Promise.resolve()
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    function onAbort(): void {
-      clearTimeout(timer)
-      resolve()
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
+function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve()
+  return sleep(ms, signal)
 }

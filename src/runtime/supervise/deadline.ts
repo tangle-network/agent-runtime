@@ -7,9 +7,17 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 export const DEFAULT_SUCCESSFUL_SHUTDOWN_MS = 5_000
 const TEARDOWN_ACKNOWLEDGEMENT_MS = 250
 
-/** Arm one wall-clock deadline without keeping the Node.js process alive. */
-export function armDeadlineTimer(delayMs: number, onDeadline: () => void): () => void {
+/** Arm a finite wall-clock deadline in safe chunks. Resource deadlines unref by default;
+ * a standalone wait opts into keeping the process alive until it settles or is cancelled. */
+export function armDeadlineTimer(
+  delayMs: number,
+  onDeadline: () => void,
+  keepAlive = false,
+): () => void {
   const deadlineAtMs = Date.now() + Math.max(0, delayMs)
+  if (!Number.isFinite(delayMs) || !Number.isSafeInteger(Math.ceil(deadlineAtMs))) {
+    throw new ValidationError('timer delay must produce a finite safe deadline')
+  }
   let cleared = false
   let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -24,7 +32,7 @@ export function armDeadlineTimer(delayMs: number, onDeadline: () => void): () =>
       },
       Math.min(remainingMs, MAX_TIMER_DELAY_MS),
     )
-    if (typeof timer.unref === 'function') timer.unref()
+    if (!keepAlive && typeof timer.unref === 'function') timer.unref()
   }
 
   arm()
@@ -89,18 +97,19 @@ export async function teardownExecutor<Out>(
     void work.catch(() => undefined)
     throw new ValidationError('executor teardown did not acknowledge before its deadline')
   } else {
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let clearTimer: (() => void) | undefined
     const timedOut = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
+      clearTimer = armDeadlineTimer(
+        waitMs,
         () =>
           reject(new ValidationError(`executor teardown did not acknowledge within ${waitMs}ms`)),
-        waitMs,
+        true,
       )
     })
     try {
       receipt = await Promise.race([work, timedOut])
     } finally {
-      if (timer !== undefined) clearTimeout(timer)
+      clearTimer?.()
     }
   }
 

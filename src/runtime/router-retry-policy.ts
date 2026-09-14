@@ -59,7 +59,12 @@ export function resolveRouterRetryPolicy(
     `${context}.initialBackoffMs`,
   )
   const maxBackoffMs = timerInteger(policy.maxBackoffMs, 30_000, `${context}.maxBackoffMs`)
-  const requestTimeoutMs = timerInteger(policy.requestTimeoutMs, 0, `${context}.requestTimeoutMs`)
+  const requestTimeoutMs = timerInteger(
+    policy.requestTimeoutMs,
+    0,
+    `${context}.requestTimeoutMs`,
+    Number.MAX_SAFE_INTEGER - Date.now(),
+  )
   const jitter = policy.jitter ?? 0.25
   if (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > 1) {
     throw new ValidationError(`${context}.jitter must be a finite number from 0 through 1`)
@@ -105,16 +110,21 @@ function positiveInteger(value: unknown, fallback: number, context: string): num
   return parsed
 }
 
-function timerInteger(value: unknown, fallback: number, context: string): number {
+function timerInteger(
+  value: unknown,
+  fallback: number,
+  context: string,
+  maximum = maximumTimerMs,
+): number {
   const parsed = value ?? fallback
   if (
     typeof parsed !== 'number' ||
     !Number.isSafeInteger(parsed) ||
     parsed < 0 ||
-    parsed > maximumTimerMs
+    parsed > maximum
   ) {
     throw new ValidationError(
-      `${context} must be a nonnegative safe integer no greater than ${maximumTimerMs}`,
+      `${context} must be a nonnegative safe integer no greater than ${maximum}`,
     )
   }
   return parsed

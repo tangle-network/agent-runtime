@@ -82,6 +82,7 @@ import {
   type SandboxUsageLedger,
 } from './sandbox-events'
 import { projectSandboxOutcome, readSandboxOutcome } from './sandbox-outcome'
+import { armDeadlineTimer } from './supervise/deadline'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
   authoredProfileDigest,
@@ -482,8 +483,14 @@ export async function* streamObservedAgentTurn(
 
 function assertTurnTimeout(timeoutMs: number | undefined): void {
   if (timeoutMs === undefined) return
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
-    throw new ValidationError('streamAgentTurn: timeoutMs must be an integer from 1 to 2147483647')
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    !Number.isSafeInteger(Date.now() + timeoutMs)
+  ) {
+    throw new ValidationError(
+      'streamAgentTurn: timeoutMs must be a positive safe integer with a safe deadline',
+    )
   }
 }
 
@@ -1453,16 +1460,12 @@ function deriveTurnSignal(
   timeoutMs: number,
 ): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController()
-  const timer =
+  const clearTimer =
     timeoutMs > 0
-      ? setTimeout(
-          () => controller.abort(new Error(`agent turn timed out after ${timeoutMs}ms`)),
-          timeoutMs,
+      ? armDeadlineTimer(timeoutMs, () =>
+          controller.abort(new Error(`agent turn timed out after ${timeoutMs}ms`)),
         )
       : undefined
-  if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
-    ;(timer as { unref: () => void }).unref()
-  }
   const onCallerAbort = () =>
     controller.abort(callerSignal?.reason ?? new Error('agent turn aborted'))
   if (callerSignal) {
@@ -1472,7 +1475,7 @@ function deriveTurnSignal(
   return {
     signal: controller.signal,
     dispose: () => {
-      if (timer) clearTimeout(timer)
+      clearTimer?.()
       callerSignal?.removeEventListener('abort', onCallerAbort)
     },
   }

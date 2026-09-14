@@ -104,7 +104,7 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 export interface CoordinationAuthentication {
-  /** Credential lifetime; defaults to 15 minutes and cannot exceed 24 hours. */
+  /** Explicit finite credential lifetime; defaults to 15 minutes. Longer runs must configure it. */
   readonly ttlMs?: number
   /** Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart. */
   readonly signingKeys?: {
@@ -150,9 +150,12 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
     )
   }
   const ttl = typeof options.authentication === 'object' ? options.authentication.ttlMs : undefined
-  if (ttl !== undefined && (!Number.isSafeInteger(ttl) || ttl <= 0 || ttl > 86_400_000)) {
+  if (
+    ttl !== undefined &&
+    (!Number.isSafeInteger(ttl) || ttl <= 0 || !Number.isSafeInteger(Date.now() + ttl))
+  ) {
     throw new ConfigError(
-      'coordination credential ttlMs must be a positive integer no greater than 24 hours',
+      'coordination credential ttlMs must be a positive safe integer with a safe expiry',
     )
   }
   if (options.publicUrl !== undefined && !options.authentication) {
@@ -324,11 +327,15 @@ export async function serveCoordinationMcp(
   const rotateCredential = () => {
     if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
     if (closed) throw new ConfigError('coordination server is closed')
+    const expiresAt = Date.now() + (auth?.ttlMs ?? 900_000)
+    if (!Number.isSafeInteger(expiresAt)) {
+      throw new ConfigError('coordination credential expiry must remain a safe integer')
+    }
     for (const [credential, expiry] of revoked) {
       if (expiry <= Date.now()) revoked.delete(credential)
     }
     if (token) revoked.set(token.toString(), credentialExpiresAt!)
-    credentialExpiresAt = Date.now() + (auth?.ttlMs ?? 900_000)
+    credentialExpiresAt = expiresAt
     const nonce = randomBytes(32).toString('base64url')
     let text = nonce
     if (signingKeys) {
