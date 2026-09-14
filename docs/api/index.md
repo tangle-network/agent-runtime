@@ -7333,7 +7333,7 @@ Shared settings for method train and selection calls.
 
 > `optional` **minimumLift?**: `number`
 
-Ship only when the paired final-test interval is entirely above this lift. Default `0`.
+Additional lift floor on Eval's deciding interval. Eval must also permit promotion. Default `0`.
 
 #### Type Parameters
 

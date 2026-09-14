@@ -347,7 +347,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       if (!step.id) throw new Error('expected a profile diff id')
       return step.id
     })
-    const reps = minimumPairedRuns
+    const reps = 24
     const seeds = Array.from({ length: reps }, (_, index) => 101 + index) as [number, ...number[]]
     const benchmark = sealAgentProfileImprovementSuite({
       splitDigest: canonicalCandidateDigest({ split: 'direct-profile-release' }),

@@ -520,7 +520,10 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     method: method.name,
     ...(score.provenance ? { provenance: copyProvenance(score.provenance) } : {}),
     candidate,
-    decision: cost.accountingComplete && score.liftCi.low > minimumLift ? 'ship' : 'hold',
+    decision:
+      cost.accountingComplete && score.decision.promote && score.decision.low > minimumLift
+        ? 'ship'
+        : 'hold',
     lift: score.lift,
     liftInterval: { ...score.liftCi },
     candidatePopulation,

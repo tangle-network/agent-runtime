@@ -118,7 +118,7 @@ export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   profileComponents?: ImproveProfileComponents
   /** Shared settings for method train and selection calls. */
   optimizationRunOptions?: ImproveOptimizationRunOptions<TScenario, TArtifact>
-  /** Ship only when the paired final-test interval is entirely above this lift. Default `0`. */
+  /** Additional lift floor on Eval's deciding interval. Eval must also permit promotion. Default `0`. */
   minimumLift?: number
 }
 

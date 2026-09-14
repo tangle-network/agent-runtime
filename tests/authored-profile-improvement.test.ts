@@ -1,4 +1,4 @@
-import { minimumPairsForPairedDeltaTest, type ProposalFinding } from '@tangle-network/agent-eval'
+import { BOOTSTRAP_GATE_MIN_N, type ProposalFinding } from '@tangle-network/agent-eval'
 import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
@@ -18,7 +18,7 @@ import {
   createProfileImprovementRunReceipt,
 } from './helpers/profile-improvement-fixture'
 
-const minimumPairedRuns = minimumPairsForPairedDeltaTest(0.95)
+const minimumPairedRuns = BOOTSTRAP_GATE_MIN_N
 const { proposal_origin: _fixtureOrigin, ...fixtureAnalystFinding } =
   fixtureFinding as ProposalFinding
 const productionFinding: ProposalFinding = {
