@@ -2,7 +2,15 @@
 
 `improve` runs a complete optimization method against a profile surface, including the entire profile.
 The method owns candidate generation and selection.
-Runtime keeps the final test set out of the method, scores the baseline and the selected candidate on it, and returns `ship` only when the paired confidence interval clears `minimumLift`.
+Runtime keeps the final test set out of the method and scores the baseline and selected candidate on it.
+It returns `ship` only when Eval permits promotion, the deciding interval clears `minimumLift`, and cost accounting is complete.
+Eval's decision includes the registered effect, independent observation count, interval validity, and applicable exact-test checks.
+An inconclusive result retains the selected candidate and the full decision in `result.raw.best.decision`.
+
+The existing options accept Eval's optional `claim` and `finalEvidence` through both improvement paths.
+Method reports retain them in `result.raw`, including source-unit counts and final exposure records.
+See [Eval's evaluation-integrity guide](https://github.com/tangle-network/agent-eval/blob/main/docs/evaluation-integrity.md) for their scope and host responsibilities.
+These controls do not grant product activation authority.
 The profile is never changed.
 
 The runnable offline path is [`examples/improve`](../examples/improve).

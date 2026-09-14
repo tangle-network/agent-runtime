@@ -382,11 +382,11 @@ describe('promotionGate', () => {
     expect(v.n).toBe(3)
   })
 
-  it('a consistent real lift at n=12 promotes; the verdict is deterministic', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => ({
+  it('a varied continuous gain at n=24 promotes; the verdict is deterministic', () => {
+    const rows = Array.from({ length: 24 }, (_, i) => ({
       id: `t${i}`,
       inc: 0.3 + (i % 3) * 0.05,
-      cand: 0.6 + (i % 3) * 0.05,
+      cand: 0.55 + (i % 3) * 0.1,
     }))
     const report = reportWith(rows)
     const a = promotionGate({ report, incumbent: 'incumbent', candidate: 'candidate' })
@@ -417,7 +417,7 @@ describe('promotionGate', () => {
   })
 
   it('symmetric noise does not promote (CI includes zero)', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => ({
+    const rows = Array.from({ length: 24 }, (_, i) => ({
       id: `t${i}`,
       inc: 0.5,
       cand: i % 2 === 0 ? 0.6 : 0.4,
@@ -819,7 +819,7 @@ describe('promotionGate non-inferiority', () => {
   })
 
   it('cheaper but score-inferior beyond tolerance LOSES', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => ({
+    const rows = Array.from({ length: 24 }, (_, i) => ({
       id: `t${i}`,
       incScore: 0.7,
       candScore: 0.55,

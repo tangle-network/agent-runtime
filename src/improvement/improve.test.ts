@@ -27,6 +27,10 @@ import type {
   MutableSurface,
   Scenario,
 } from '@tangle-network/agent-eval/contract'
+import {
+  defineEvaluationClaim,
+  openFinalEvidenceLedger,
+} from '@tangle-network/agent-eval/experiment'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
@@ -47,6 +51,10 @@ const selectionScenarios: TestScenario[] = [{ id: 'selection', kind: 'fixture' }
 const testScenarios: TestScenario[] = [
   { id: 'test-a', kind: 'fixture' },
   { id: 'test-b', kind: 'fixture' },
+  { id: 'test-c', kind: 'fixture' },
+  { id: 'test-d', kind: 'fixture' },
+  { id: 'test-e', kind: 'fixture' },
+  { id: 'test-f', kind: 'fixture' },
 ]
 const allScenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
 const executionRef = canonicalCandidateDigest({ fixture: 'improve-method' })
@@ -696,6 +704,106 @@ describe('improve method execution', () => {
 
     expect(result.lift).toBe(1)
     expect(result.decision).toBe('hold')
+  })
+
+  it('retains an improved candidate when two binary pairs cannot support promotion', async () => {
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      testScenarios: testScenarios.slice(0, 2),
+    })
+
+    expect(result.raw.best.decision.sufficient).toBe(false)
+    expect(result.raw.best.decision.n).toBe(2)
+    expect(result.decision).toBe('hold')
+    expect(result.candidate.profile.prompt?.systemPrompt).toBe('improved prompt')
+  })
+
+  it('honors an exact-test veto even when the deciding interval is positive', async () => {
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      agent: (profile, scenario, context) =>
+        paidArtifact(
+          scenario.id === 'test-f' ? 'baseline' : (profile.prompt?.systemPrompt ?? ''),
+          scenario,
+          context,
+        ),
+    })
+
+    expect(result.raw.best.decision.sufficient).toBe(true)
+    expect(result.raw.best.decision.low).toBeGreaterThan(0)
+    expect(result.raw.best.decision.exactTestVetoes).toBe(true)
+    expect(result.decision).toBe('hold')
+  })
+
+  it('checks minimumLift against the deciding binary interval', async () => {
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      minimumLift: 0.8,
+    })
+
+    expect(result.raw.best.decision.promote).toBe(true)
+    expect(result.raw.best.unitScores.every((unit) => unit.lift === 1)).toBe(true)
+    expect(result.raw.best.decision.low).toBeLessThan(0.8)
+    expect(result.decision).toBe('hold')
+  })
+
+  it('holds a constant continuous gain with an indeterminate interval', async () => {
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      testScenarios: Array.from(
+        { length: 24 },
+        (_, index): TestScenario => ({ id: `continuous-${index}`, kind: 'fixture' }),
+      ),
+      judges: [
+        {
+          name: 'continuous',
+          dimensions: [{ key: 'quality', description: 'continuous fixture' }],
+          score: ({ artifact }) => {
+            const quality = artifact.text.includes('improved') ? 0.2 : 0.1
+            return { dimensions: { quality }, composite: quality, notes: '' }
+          },
+        },
+      ],
+    })
+
+    expect(result.raw.best.decision.sufficient).toBe(true)
+    expect(result.raw.best.decision.indeterminate).toBe(true)
+    expect(result.raw.best.decision.low).toBeGreaterThan(0)
+    expect(result.decision).toBe('hold')
+  })
+
+  it('honors the registered effect and preserves claim and final exposure evidence', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'runtime-final-evidence-'))
+    populationFixtureRoots.push(root)
+    const claim = defineEvaluationClaim({
+      use: 'comparison',
+      population: { id: 'fixtures', description: 'Independent fixture tasks' },
+      samplingFrame: 'Declared fixture cases',
+      independentUnit: 'id',
+      generalization: 'new-units',
+      minimumEffect: 0.8,
+    })
+    const ledger = openFinalEvidenceLedger({ path: join(root, 'final.jsonl') })
+    const options = {
+      ...methodOptions(fixedMethod('improved prompt')),
+      claim,
+      finalEvidence: {
+        ledger,
+        requestId: 'fixture-comparison',
+        evaluatorDigest: canonicalCandidateDigest(improvementJudge.name),
+      },
+    }
+    const result = await improve(promptProfile(), options)
+
+    expect(result.raw.claim).toEqual(claim)
+    expect(result.raw.units.independentUnits).toBe(6)
+    expect(result.raw.best.decision.threshold).toBe(0.8)
+    expect(result.raw.best.decision.promote).toBe(false)
+    expect(result.raw.finalEvidence?.record.exposure?.measurement.evaluatorDigest).toBe(
+      options.finalEvidence.evaluatorDigest,
+    )
+    expect(result.decision).toBe('hold')
+    await expect(improve(promptProfile(), options)).rejects.toThrow(/exposed|consumed/i)
   })
 
   it('distinguishes train and selection boundaries in optimizer lineage', async () => {

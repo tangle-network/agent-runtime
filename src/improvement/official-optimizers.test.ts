@@ -84,6 +84,10 @@ const selection: OptimizerScenario[] = [
 const testCases: OptimizerScenario[] = [
   { id: 'test-a', kind: 'fixture', prompt: 'private test a', privateNote: 'TEST_SECRET_A' },
   { id: 'test-b', kind: 'fixture', prompt: 'private test b', privateNote: 'TEST_SECRET_B' },
+  { id: 'test-c', kind: 'fixture', prompt: 'private test c', privateNote: 'TEST_SECRET_C' },
+  { id: 'test-d', kind: 'fixture', prompt: 'private test d', privateNote: 'TEST_SECRET_D' },
+  { id: 'test-e', kind: 'fixture', prompt: 'private test e', privateNote: 'TEST_SECRET_E' },
+  { id: 'test-f', kind: 'fixture', prompt: 'private test f', privateNote: 'TEST_SECRET_F' },
 ]
 const executionRef = canonicalCandidateDigest({ fixture: 'official-optimizer-method' })
 const proposalFinding = (claim: string, metadata?: Record<string, unknown>) =>

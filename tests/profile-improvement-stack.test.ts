@@ -29,7 +29,7 @@ interface ProfileScenario extends Scenario {
   kind: 'profile-stack'
 }
 
-const scenarios: ProfileScenario[] = Array.from({ length: 12 }, (_, i) => ({
+const scenarios: ProfileScenario[] = Array.from({ length: 14 }, (_, i) => ({
   id: `profile-${i}`,
   kind: 'profile-stack' as const,
 }))

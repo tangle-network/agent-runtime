@@ -11,7 +11,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
+import { BOOTSTRAP_GATE_MIN_N } from '@tangle-network/agent-eval'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { canonicalCandidateDigest } from '../../src/candidate-execution/digest'
 import type { BenchmarkReport } from '../../src/runtime/run-benchmark'
@@ -204,7 +204,7 @@ describe('runStrategyEvolution', () => {
       environment: shotCountingSurface(),
       tasks: sliceTasks(sliceCalls),
       trainN: 8,
-      holdoutN: 8,
+      holdoutN: BOOTSTRAP_GATE_MIN_N,
       worker,
       modelPreflight: async (model) => {
         checkedModels.push(model)
@@ -226,7 +226,7 @@ describe('runStrategyEvolution', () => {
     // The no-adaptive-reuse rule: train = [0, 8), holdout = [8, …) — disjoint by offset.
     expect(sliceCalls).toEqual([
       { offset: 0, n: 8 },
-      { offset: 8, n: 8 },
+      { offset: 8, n: BOOTSTRAP_GATE_MIN_N },
     ])
     // Lineage + description length recorded on the authored node.
     const node = report.archive.find((n) => n.name === 'two-shot-depth')
@@ -401,7 +401,7 @@ describe('band-aware scoring', () => {
   it('holdout band screening keeps only headroom tasks; estimand recorded', async () => {
     stubWorkerRouter()
     const { chat } = scriptedChat([fenced(twoShotDepthModule)])
-    const minimumPairedTasks = minimumPairsForPairedDeltaTest(0.95)
+    const minimumPairedTasks = BOOTSTRAP_GATE_MIN_N
     const mixed = (offset: number, n: number): Promise<AgenticTask[]> =>
       Promise.resolve(
         Array.from({ length: n }, (_, i) => {
@@ -599,7 +599,7 @@ describe('checkpoint and resume', () => {
     environment: shotCountingSurface(),
     tasks: sliceTasks([]),
     trainN: 6,
-    holdoutN: 6,
+    holdoutN: BOOTSTRAP_GATE_MIN_N,
     worker,
     author: chat,
     budget: 3,

@@ -123,7 +123,8 @@ describe("improve surface 'rollout-policy'", () => {
       expectUsage: 'off',
     })
 
-    expect(result.decision).toBe('ship')
+    expect(result.decision).toBe('hold')
+    expect(result.raw.best.decision.sufficient).toBe(false)
     expect(result.lift).toBeCloseTo(0.2, 5)
     expect(structuralRolloutPolicyFromProfile(result.candidate.profile!)).toEqual({
       k: 7,
@@ -157,7 +158,8 @@ describe("improve surface 'rollout-policy'", () => {
       },
     )
 
-    expect(result.decision).toBe('ship')
+    expect(result.decision).toBe('hold')
+    expect(result.raw.best.decision.sufficient).toBe(false)
     expect(structuralRolloutPolicyFromProfile(result.candidate.profile!)).toEqual({
       k: 7,
       repairRounds: 2,
