@@ -942,6 +942,8 @@ async function* streamProviderExecutor(
   const usageLedger = createSandboxUsageLedger(args.profile.harness)
   let sawCompleteTokenReceipt = false
   let sawIncompleteTokenReceipt = false
+  let sawCostReceipt = false
+  let sawUnknownCostReceipt = false
   let usd = 0
   let text = ''
   let terminal = false
@@ -1007,9 +1009,9 @@ async function* streamProviderExecutor(
       // Distinct partial receipts cannot prove each other's missing counters.
       ...(sawCompleteTokenReceipt && !sawIncompleteTokenReceipt ? {} : { tokensKnown: false }),
       usd,
-      // No provider event carries a billing receipt, so the dollar channel stays unproven even
-      // when the provider reported a number. A dollar cap must refuse rather than compare.
-      usdKnown: false,
+      // A dollar total is known only when a canonical receipt arrived and none was marked
+      // unknown. Bare provider numbers remain untrusted; Router billing receipts survive.
+      usdKnown: sawCostReceipt && !sawUnknownCostReceipt,
       // Unproven therefore priced, not charged: naming the whole amount on the estimate channel is
       // what keeps `usd - usdEstimated` reading as the money a provider is known to have billed.
       ...(usd > 0 ? { usdEstimated: usd } : {}),
@@ -1112,14 +1114,20 @@ async function* streamProviderExecutor(
         ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
       }
     }
-    if (receipt.costUsd) {
+    if (receipt.costUsd !== undefined) {
+      sawCostReceipt = true
       usd += receipt.costUsd
-      yield {
-        kind: 'cost',
-        usdKnown: false,
-        usd: receipt.costUsd,
-        usdEstimated: receipt.costUsd,
-        provenance: 'uncaptured',
+      if (receipt.usdKnown === false) {
+        sawUnknownCostReceipt = true
+        yield {
+          kind: 'cost',
+          usdKnown: false,
+          usd: receipt.costUsd,
+          usdEstimated: receipt.costUsd,
+          provenance: 'uncaptured',
+        }
+      } else {
+        yield { kind: 'cost', usdKnown: true, usd: receipt.costUsd, provenance: 'provider-receipt' }
       }
     }
   }
@@ -2032,9 +2040,26 @@ function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): Sandbox
     }
     return baseData
   })()
+  // A provider adapter's numeric usage cost is not a billing receipt unless the source marked
+  // it as one. Preserve explicit Router/provider provenance and mark bare numbers uncaptured.
+  const costProvenance = data.costProvenance ?? data.cost_provenance
+  const nestedUsage = data.usage ?? data.tokenUsage
+  const nestedCost =
+    nestedUsage && typeof nestedUsage === 'object'
+      ? ((nestedUsage as Record<string, unknown>).cost ??
+        (nestedUsage as Record<string, unknown>).costUsd ??
+        (nestedUsage as Record<string, unknown>).totalCostUsd)
+      : undefined
+  const untrustedProviderCost =
+    (event.usage?.cost !== undefined ||
+      data.costUsd !== undefined ||
+      data.totalCostUsd !== undefined ||
+      nestedCost !== undefined) &&
+    costProvenance === undefined
+  const normalizedData = untrustedProviderCost ? { ...data, costProvenance: 'uncaptured' } : data
   return {
     type,
-    data: 'usageMode' in event ? { ...data, usageMode: event.usageMode } : data,
+    data: 'usageMode' in event ? { ...normalizedData, usageMode: event.usageMode } : normalizedData,
     ...(event.id ? { id: event.id } : {}),
   }
 }
