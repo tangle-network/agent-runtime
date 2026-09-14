@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.222.0` and `@tangle-network/agent-eval@0.180.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.223.0` and `@tangle-network/agent-eval@0.180.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -418,7 +418,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 940 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 942 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -775,7 +775,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 940 exports.
 | `BridgeModelCredential` | interface | A live, request-scoped model credential reference for a local cli-bridge. |
 | `BridgeSeam` | interface | cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs |
 | `Budget` | interface | A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. |
+| `BudgetOverspend` | interface | One channel on which a settled reservation's measured spend exceeded what it reserved. |
 | `BudgetPoolRestore` | interface | State recovered from a prior process before new work is admitted. `committed` is measured spend |
+| `BudgetViolation` | interface | A settled reservation whose measured spend exceeded what it reserved. |
 | `BusEvent` | interface | Every bus event is a discriminated union member keyed by `type`. |
 | `BusRecord` | interface | A published event stamped for ordering and observability. `seq` is the monotonic publish index; |
 | `ChatSessionStore` | interface | Conversation history keyed by the settled Runtime worker id. |

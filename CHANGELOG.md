@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.223.0
+
+A child that returns a finished result after spending more than its reservation now settles `done` with its output stored and `outRef` set.
+Before this release, `BudgetPool.reconcile` committed the true spend and then threw, and `Scope` settled that child `down` with `infra: true` and no `outRef`.
+The pool's accounting is unchanged: it still charges the true spend, its free balance goes negative, and later reservations are refused from that balance.
+
+The overspend is recorded as `budgetViolation: { overspent: [{ channel, reserved, spent }] }`.
+`channel` is `tokens` (in charged tokens), `iterations`, `usd`, or `resource:<name>`, and each overspent channel has one entry.
+The field is on the `Settled` value from `scope.next()`, the `settled` or `cancelled` journal record, the `agent.child` hook payload, `NodeSnapshot` in live and materialized tree views, and replayed settlements.
+A driver sees it on the `await_event` settlement and in `CoordinationTools.settled()`, and its roster and resume brief name each overspent channel.
+It is present on `down` settlements too, when a crashed or failed child had already overspent.
+A saved retained result that overspent recovers as `done` with the same field.
+
+`BudgetPool.reconcile` now returns `BudgetViolation | undefined` instead of `void`.
+It returns the overspend instead of throwing it, and it still throws after settling when spend cannot be verified.
+The unverifiable cases are unknown dollar cost under a dollar cap and unknown or overflowing usage of an enforced resource.
+In those cases the child still settles `down` with `infra: true`, and the error names that fault even when tokens also overspent.
+A reservation that settles within its own resource allocation after another reservation overdrew the root no longer throws `exceeded root limit`.
+`BudgetPool.observe` still refuses a root overdraw.
+
+The runtime does not abort a streaming child when its running usage crosses the reservation.
+Executors report usage after the model call it measures, and the Tangle sandbox executor reports it only in its terminal receipt.
+An abort at that point would discard completed work without saving spend.
+
+Measured 2026-09-12 in discovery-lab runs (agent-runtime#1206): children reserved at 800,000 and 70,000 tokens finished at 1,918,127 and 592,620 tokens.
+Both were settled `down` at reconcile with their output dropped.
+A literature-graph review child finished at 1,115,291 tokens against 800,000, and the graph failed closed without its charter.
+
 ## 0.222.0
 
 Wildcard-bound coordination listeners accept the actual socket address used by an HTTP proxy.

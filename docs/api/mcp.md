@@ -3674,6 +3674,13 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 > `readonly` `optional` **reason?**: `string`
 
+##### budgetViolation?
+
+> `readonly` `optional` **budgetViolation?**: [`BudgetViolation`](runtime.md#budgetviolation-2)
+
+Present when the worker's measured spend exceeded its reservation. The pool already charged
+ the true spend; a `done` worker's output is still its result.
+
 ##### trace
 
 > `readonly` **trace**: [`WorkerTraceEvidence`](runtime.md#workertraceevidence)
