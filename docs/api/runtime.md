@@ -4020,8 +4020,16 @@ require this explicit mapper until the maintained Sandbox SDK transports them.
 
 **`Experimental`**
 
-What one provider-executed turn settles on: the visible answer plus the complete event archive
-the environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
+What one provider-executed turn settles on: the visible answer plus the event archive the
+environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
+
+The archive is the streamed sequence, in order, without superseded part updates. A harness
+streams a text or reasoning part cumulatively: every `message.part.updated` frame restates the
+part's whole text so far. When a later frame of the same part extends a frame's text, the
+earlier frame is left out, so each such part is archived once, at its latest frame. Keeping
+every frame retains frames times text length, and the settled archive is hashed and stored.
+A frame that does not extend the part's text is kept, and every other event is kept verbatim.
+Read a part's text from `part.text`; a retained frame's `delta` is only that frame's increment.
 
 #### Properties
 
@@ -4036,6 +4044,14 @@ the environment streamed. It is the value a `ProviderExecutorOptions.validator` 
 > **events**: `AgentEnvironmentEvent`[]
 
 **`Experimental`**
+
+##### supersededPartUpdates?
+
+> `optional` **supersededPartUpdates?**: `number`
+
+**`Experimental`**
+
+How many streamed part updates the archive left out because a later frame superseded them.
 
 ***
 
