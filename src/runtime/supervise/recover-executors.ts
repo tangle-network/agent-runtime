@@ -22,6 +22,7 @@ import { detachedSnapshot } from './snapshot'
 import { nestedDriverTreeRoot } from './tree-key'
 import type {
   Budget,
+  BudgetViolation,
   NodeId,
   ResumedKeyState,
   Settled,
@@ -55,7 +56,11 @@ export async function prepareInterruptedExecutors(
       event.kind === 'spawned' && event.parent === parentId && !terminal.has(event.id),
   )
   const recoveries: RetainedChildRecovery[] = []
-  const accepted: Array<{ result: RecordedResult; violation?: string }> = []
+  const accepted: Array<{
+    result: RecordedResult
+    fault?: string
+    budgetViolation?: BudgetViolation
+  }> = []
   const rootBudget = events.find(
     (event): event is Spawned => event.kind === 'spawned' && event.parent === undefined,
   )?.budget
@@ -75,13 +80,20 @@ export async function prepareInterruptedExecutors(
         throw new RuntimeRunStateError(
           `retained child '${node.id}' exceeds its original root budget`,
         )
-      let violation: string | undefined
+      // An overspend is recorded beside the saved result, exactly as a live settlement records
+      // it. Only spend the pool cannot verify settles the saved result down.
+      let fault: string | undefined
+      let budgetViolation: BudgetViolation | undefined
       try {
-        validation.reconcile(reservation.ticket, recorded.spent)
+        budgetViolation = validation.reconcile(reservation.ticket, recorded.spent)
       } catch (error) {
-        violation = error instanceof Error ? error.message : String(error)
+        fault = error instanceof Error ? error.message : String(error)
       }
-      accepted.push({ result: recorded, ...(violation === undefined ? {} : { violation }) })
+      accepted.push({
+        result: recorded,
+        ...(fault === undefined ? {} : { fault }),
+        ...(budgetViolation === undefined ? {} : { budgetViolation }),
+      })
       continue
     }
     const admissions = owned.flatMap((event) =>
@@ -148,18 +160,19 @@ export async function prepareInterruptedExecutors(
   let seq =
     events.reduce((max, event) => (closesCursorSlot(event) ? Math.max(max, event.seq) : max), -1) +
     1
-  for (const { result, violation } of accepted) {
+  for (const { result, fault, budgetViolation } of accepted) {
     signal.throwIfAborted()
     const failureReason = executorFailureReason(result)
-    const reason = violation ?? failureReason
+    const reason = fault ?? failureReason
     // Await every admitted write before releasing the run lock, including cancellation races.
     await opts.journal.appendEvent(opts.runId, {
       kind: 'settled',
       id: result.id,
       status: reason === undefined ? 'done' : 'down',
       outRef: result.outRef,
-      ...(reason === undefined ? {} : { infra: violation !== undefined, reason }),
+      ...(reason === undefined ? {} : { infra: fault !== undefined, reason }),
       spent: result.spent,
+      ...(budgetViolation === undefined ? {} : { budgetViolation }),
       ...(result.verdict ? { verdict: result.verdict } : {}),
       seq: seq++,
       at: new Date(now()).toISOString(),

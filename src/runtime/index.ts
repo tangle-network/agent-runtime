@@ -1062,6 +1062,8 @@ export type {
   AgentExecutionRef,
   AgentSpec,
   Budget,
+  BudgetOverspend,
+  BudgetViolation,
   EnvironmentTeardownReceipt,
   ExecutionBindingReceipt,
   Executor,

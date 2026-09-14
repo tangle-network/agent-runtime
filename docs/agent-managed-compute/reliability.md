@@ -317,7 +317,8 @@ The existing budget pool reserves standard and named channels together before st
 Each child must declare every resource enforced by its parent, with matching units.
 `supervise` rejects incompatible `perWorker` resource declarations before invoking its driver.
 Known settlement commits measured usage and refunds the unused allocation.
-An overrun remains recorded and fails settlement.
+An overrun is committed and recorded on the settlement as `budgetViolation`, naming each overspent channel with its reserved and spent amounts.
+It does not change the outcome: a child that completed settles `done` with its output, and later reservations are refused from the reduced balance.
 Missing or unknown enforced measurements close admission for that dimension.
 An omitted measurement becomes unknown, including when an executor terminates or cancellation interrupts reporting.
 Only a proven refusal before execution can refund an unmeasured allocation as known zero.

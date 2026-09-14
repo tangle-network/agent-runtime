@@ -30,6 +30,7 @@ import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
 import { nestedDriverTreeRoot } from '../runtime/supervise/tree-key'
 import type {
+  BudgetViolation,
   NodeExecutionIdentity,
   NodeId,
   NodeSnapshot,
@@ -1045,6 +1046,7 @@ export async function replaySpawnTree(
         ...(ev.providerModel === undefined
           ? {}
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
+        ...budgetViolationOf(ev),
         trace: ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' },
         ...settlementTime(ev.at),
         seq: ev.seq,
@@ -1064,6 +1066,7 @@ export async function replaySpawnTree(
         ...(ev.providerModel === undefined
           ? {}
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
+        ...budgetViolationOf(ev),
         trace,
         ...settlementTime(ev.at),
         seq: ev.seq,
@@ -1094,6 +1097,7 @@ export async function replaySpawnTree(
       ...(ev.providerModel === undefined
         ? {}
         : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
+      ...budgetViolationOf(ev),
       trace,
       ...settlementTime(ev.at),
       seq: ev.seq,
@@ -1205,6 +1209,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.providerModel = copyProviderModelEvidence(ev.providerModel)
       node.outRef = ev.outRef
       node.trace = traceEvidenceFor(ev)
+      node.budgetViolation = budgetViolationOf(ev).budgetViolation
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else if (ev.kind === 'woken') {
@@ -1221,6 +1226,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       if (ev.spent !== undefined) node.spent = cloneSpend(ev.spent)
       node.providerModel = copyProviderModelEvidence(ev.providerModel)
       node.outRef = ev.outRef
+      node.budgetViolation = budgetViolationOf(ev).budgetViolation
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }
@@ -1304,8 +1310,25 @@ interface MutableSnapshot {
   providerModel?: NodeSnapshot['providerModel']
   outRef?: string
   trace?: NodeSnapshot['trace']
+  budgetViolation?: BudgetViolation
   settledAt?: number
   spawnedAt?: number
+}
+
+/** Copy a terminal record's overspend at the journal boundary; absent stays absent. */
+function budgetViolationOf(event: Extract<SpawnEvent, { kind: 'settled' | 'cancelled' }>): {
+  readonly budgetViolation?: BudgetViolation
+} {
+  if (event.budgetViolation === undefined) return {}
+  return {
+    budgetViolation: Object.freeze({
+      overspent: Object.freeze(
+        event.budgetViolation.overspent.map((entry) =>
+          Object.freeze({ channel: entry.channel, reserved: entry.reserved, spent: entry.spent }),
+        ),
+      ),
+    }),
+  }
 }
 
 /** Copy provider evidence at the journal boundary so replay never exposes mutable event state. */
@@ -1358,6 +1381,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     providerModel: node.providerModel,
     outRef: node.outRef,
     trace: node.trace,
+    ...(node.budgetViolation === undefined ? {} : { budgetViolation: node.budgetViolation }),
     settledAt: node.settledAt,
     spawnedAt: node.spawnedAt,
   }

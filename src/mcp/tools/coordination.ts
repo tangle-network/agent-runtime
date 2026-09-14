@@ -19,6 +19,7 @@ import { type Redactor, resolveRedactor } from '../../redact'
 import type {
   AgentExecutionRef,
   Budget,
+  BudgetViolation,
   ExecutionBindingReceipt,
   Handle,
   NodeExecutionIdentity,
@@ -69,6 +70,9 @@ export interface SettledWorker {
   readonly valid?: boolean
   readonly outRef?: string
   readonly reason?: string
+  /** Present when the worker's measured spend exceeded its reservation. The pool already charged
+   *  the true spend; a `done` worker's output is still its result. */
+  readonly budgetViolation?: BudgetViolation
   /** Structured tool-call evidence, never the worker's final prose. */
   readonly trace: WorkerTraceEvidence
   /** True when projected from a prior process of the same durable run. */
@@ -1512,6 +1516,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       ...(materialization === undefined ? {} : { materialization }),
       ...(executionBindings === undefined ? {} : { executionBindings }),
       ...(settledAt === undefined ? {} : { settledAt }),
+      ...(settled.budgetViolation === undefined
+        ? {}
+        : { budgetViolation: settled.budgetViolation }),
       trace,
       ...(resumed ? { resumed: true as const } : {}),
     }
