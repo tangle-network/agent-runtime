@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.221.0
+
+`ProviderLeafOut.events`, the archive a provider-executed turn settles on, no longer keeps superseded part updates.
+A harness streams a text or reasoning part cumulatively: every `message.part.updated` frame restates the part's whole text so far.
+When a later frame of the same part extends a frame's text, the earlier frame is left out, so the archive holds each such part once, at its latest frame.
+Kept events stay verbatim and in streamed order; tool part frames, frames that do not extend the part's text, and every other event are kept.
+`ProviderLeafOut.supersededPartUpdates` counts the frames left out and is absent when there were none.
+
+A validator or other archive reader must take a part's text from `part.text`.
+A kept frame's `delta` is only that frame's increment, so concatenating archived deltas no longer reconstructs the text.
+An archive that had superseded frames now has a different content address.
+The settled `content`, the metered usage, and the live progress events are unchanged.
+
+Measured 2026-09-13 (agent-runtime#1211): one pi reasoning part streamed 27,144 frames, and keeping every frame exhausted a 4 GB supervisor heap while settlement hashed the archive.
+A local reproduction of that stream through `createScope` and `providerAsExecutor` raised the post-GC heap from 75 MB to 904 MB and aborted at settlement under a 1,536 MB heap cap.
+With this change the heap stayed between 63 MB and 71 MB, and the turn settled with its content and usage.
+
 ## 0.220.0
 
 A manager's `spawn_worker` call can name an inline resource by path: `{ kind: 'inline', name, path }`

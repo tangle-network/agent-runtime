@@ -28,6 +28,7 @@ import {
   type AgentTurnInput,
   createAgentEnvironmentProviderRegistry,
   DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
+  type ProviderLeafOut,
   providerAsExecutor,
   providerAsSandboxClient,
   sandboxClientAsProvider,
@@ -192,6 +193,158 @@ describe('environment provider adapters', () => {
       expect(artifact).toMatchObject({ events })
     },
   )
+
+  it('archives each cumulative part once, at its latest frame, through the real supervised child seam', async () => {
+    // A harness streams a text or reasoning part cumulatively: every frame restates the part so far.
+    // Archiving every frame retained frames times text, and settlement hashes and stores the archive.
+    // 27,144 frames of one pi reasoning part exhausted a 4 GB supervisor heap (agent-runtime#1211).
+    const frames = 2_000
+    const partUpdate = (
+      id: string,
+      type: 'text' | 'reasoning',
+      text: string,
+      delta: string,
+    ): AgentEnvironmentEvent => {
+      const part = { id, sessionID: 'ses-1', messageID: 'msg-1', type, text }
+      return {
+        type: 'message.part.updated',
+        data: { part, delta },
+        normalized: { type: 'message.part.updated', part, delta },
+      }
+    }
+    const toolUpdate = (status: 'pending' | 'completed'): AgentEnvironmentEvent => {
+      const input = { command: 'ls' }
+      const part = {
+        id: 'prt-tool',
+        sessionID: 'ses-1',
+        messageID: 'msg-1',
+        type: 'tool',
+        tool: 'bash',
+        callID: 'call-1',
+        state:
+          status === 'pending'
+            ? { status, input }
+            : {
+                status,
+                input,
+                output: 'ok',
+                title: 'ls',
+                metadata: {},
+                time: { start: 1, end: 2 },
+              },
+      }
+      return {
+        type: 'message.part.updated',
+        data: { part },
+        normalized: { type: 'message.part.updated', part } as AgentEnvironmentEvent['normalized'],
+      }
+    }
+    const started: AgentEnvironmentEvent = { type: 'execution.started', data: {} }
+    const pending = toolUpdate('pending')
+    const completed = toolUpdate('completed')
+    const processing: AgentEnvironmentEvent = { type: 'status', data: { status: 'processing' } }
+    const reasoningFrames: AgentEnvironmentEvent[] = []
+    let reasoning = ''
+    for (let frame = 0; frame < frames; frame += 1) {
+      const delta = `step ${frame}. `
+      reasoning += delta
+      reasoningFrames.push(partUpdate('prt-reasoning', 'reasoning', reasoning, delta))
+    }
+    // The same part id restated with text that does not extend the part is different content.
+    const rewritten = partUpdate('prt-reasoning', 'reasoning', 'revised', 'revised')
+    const answer = partUpdate('prt-text', 'text', 'visible answer', ' answer')
+    const usage = { inputTokens: 7, outputTokens: 11 }
+    const result: AgentEnvironmentEvent = {
+      type: 'result',
+      data: { finalText: 'visible answer', usage },
+      usage,
+      usageMode: 'cumulative',
+    }
+    const done: AgentEnvironmentEvent = { type: 'done', data: {} }
+    const streamed = [
+      started,
+      pending,
+      completed,
+      ...reasoningFrames.slice(0, frames / 2),
+      processing,
+      ...reasoningFrames.slice(frames / 2),
+      rewritten,
+      partUpdate('prt-text', 'text', 'visible', 'visible'),
+      answer,
+      result,
+      done,
+    ]
+    const provider: AgentEnvironmentProvider = {
+      name: 'cumulative-parts',
+      capabilities: () => fakeCapabilities(),
+      create: async () =>
+        fakeEnvironment({
+          stream: async function* () {
+            yield* streamed
+          },
+        }),
+    }
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    await journal.beginTree('root', new Date(0).toISOString())
+    const scope = createScope({
+      parentId: 'root',
+      root: 'root',
+      journal,
+      blobs,
+      pool: createBudgetPool({ maxIterations: 2, maxTokens: 1_000 }, 0),
+      executors: createExecutorRegistry(),
+      seams: {},
+      depth: 0,
+      signal: new AbortController().signal,
+    })
+    const profile: AgentProfile = {
+      name: 'cumulative-worker',
+      harness: 'claude-code',
+      model: { provider: 'fixture', default: 'fixture/model' },
+    }
+    const spawned = scope.spawn(
+      Object.assign(
+        { name: profile.name!, act: async () => 'unused' },
+        {
+          executorSpec: { profile, harness: null, executorFactory: providerAsExecutor(provider) },
+        },
+      ),
+      'task',
+      { label: 'cumulative', budget: { maxIterations: 1, maxTokens: 1_000 } },
+    )
+    expect(spawned.ok).toBe(true)
+    expect((await scope.next())?.kind).toBe('done')
+    const terminal = (await journal.loadTree('root'))?.find((event) => event.kind === 'settled')
+    if (terminal?.kind !== 'settled' || !terminal.outRef) {
+      throw new Error('missing terminal evidence')
+    }
+    const artifact = (await blobs.get(terminal.outRef)) as ProviderLeafOut
+    expect(contentAddress(artifact)).toBe(terminal.outRef)
+    // The answer and the metered usage come from the stream, so leaving frames out changes neither.
+    expect(artifact.content).toBe('visible answer')
+    expect(terminal.spent.tokens).toMatchObject({ input: 7, output: 11 })
+    // Bounded retention: the archived part text is the text the turn produced, not frames times text.
+    const archivedPartText = artifact.events.reduce((chars, event) => {
+      const normalized = event.normalized
+      if (normalized?.type !== 'message.part.updated') return chars
+      const part = normalized.part
+      return part.type === 'text' || part.type === 'reasoning' ? chars + part.text.length : chars
+    }, 0)
+    expect(archivedPartText).toBe(reasoning.length + 'revised'.length + 'visible answer'.length)
+    expect(artifact.events).toEqual([
+      started,
+      pending,
+      completed,
+      processing,
+      reasoningFrames.at(-1),
+      rewritten,
+      answer,
+      result,
+      done,
+    ])
+    expect(artifact.supersededPartUpdates).toBe(frames)
+  })
 
   it('adapts a neutral provider to SandboxClient without losing profile/backend/dispatch data', async () => {
     let created: unknown
