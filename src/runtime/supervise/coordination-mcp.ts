@@ -473,7 +473,19 @@ export async function serveCoordinationMcp(
       backgroundActions: nodeTools.background,
       authorize: (req) => {
         if (!paths.has(req.url ?? '')) return 404
-        if (!audiences.has(req.headers.host ?? '')) return 403
+        // A proxy may use the destination IP as Host. A wildcard bind must
+        // recognize its actual socket address without trusting forwarded names.
+        const address = req.socket.localAddress?.replace(/^::ffff:/, '')
+        const localAuthority = address?.includes(':')
+          ? `[${address}]:${req.socket.localPort}`
+          : `${address}:${req.socket.localPort}`
+        const boundAuthority =
+          audiences.size > 0 &&
+          (host === '0.0.0.0' || host === '::') &&
+          address !== undefined &&
+          req.socket.localPort !== undefined &&
+          req.headers.host === localAuthority
+        if (!audiences.has(req.headers.host ?? '') && !boundAuthority) return 403
         if (closed) return 401
         if (!opts.authentication) return undefined
         const authorization = req.headers.authorization

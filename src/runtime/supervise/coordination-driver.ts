@@ -93,6 +93,7 @@ import { createProgressTracker, progressStop, type StopRule } from './stop-rules
 import type {
   Agent,
   Budget,
+  BudgetViolation,
   NodeSnapshot,
   ResultBlobStore,
   ResumedWork,
@@ -304,7 +305,17 @@ function formatRosterNode(node: NodeSnapshot, settled?: SettledWorker): string {
         : node.outRef
           ? `, outRef=${node.outRef}`
           : ''
-  return `- ${node.id}: ${node.status}, label=${node.label}, runtime=${node.runtime}${result}`
+  const overspend = formatOverspend(settled?.budgetViolation ?? node.budgetViolation)
+  return `- ${node.id}: ${node.status}, label=${node.label}, runtime=${node.runtime}${result}${overspend}`
+}
+
+/** One roster clause naming each channel a settled worker spent beyond its reservation. */
+function formatOverspend(violation: BudgetViolation | undefined): string {
+  if (violation === undefined) return ''
+  const channels = violation.overspent.map(
+    (entry) => `${entry.channel} ${entry.spent} > reserved ${entry.reserved}`,
+  )
+  return `, overspent=${channels.join('; ')}`
 }
 
 /** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
@@ -1305,11 +1316,12 @@ function resumeBrief(
   if (resume.settled.length === 0) lines.push('- none')
   for (const s of resume.settled) {
     lines.push(
-      s.kind === 'done'
+      (s.kind === 'done'
         ? `- ${s.handle.id} (${s.handle.label}): done, score=${s.verdict?.score ?? 0}, valid=${
             s.verdict?.valid ?? false
           }, outRef=${s.outRef}`
-        : `- ${s.handle.id} (${s.handle.label}): down, reason=${s.reason}`,
+        : `- ${s.handle.id} (${s.handle.label}): down, reason=${s.reason}`) +
+        formatOverspend(s.budgetViolation),
     )
   }
   const byState = (state: 'completed' | 'in-doubt' | 'down') =>

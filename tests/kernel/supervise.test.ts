@@ -259,16 +259,17 @@ describe('conserved budget pool', () => {
     const first = pool.reserve({ maxIterations: 1, maxTokens: 10 })
     if (!first.ok) throw new Error('reserve should have succeeded')
 
-    // The violation is fail-loud, but ONLY AFTER the settlement: the actual spend is committed,
-    // the ticket closes, and `free` goes honestly negative — never a clamp, never a strand.
-    expect(() =>
+    // The overspend is RETURNED after the settlement, not thrown: the actual spend is committed,
+    // the ticket closes, and `free` goes honestly negative — never a clamp, never a strand, and
+    // never a discarded result for work that already completed (#1206).
+    expect(
       pool.reconcile(first.ticket, {
         iterations: 1,
         tokens: { input: 20, output: 0 },
         usd: 0,
         ms: 0,
       }),
-    ).toThrow(/spent 20 tokens > reserved 10/)
+    ).toEqual({ overspent: [{ channel: 'tokens', reserved: 10, spent: 20 }] })
 
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
     expect(pool.readout().tokensLeft).toBe(0)
@@ -457,33 +458,35 @@ describe('conserved budget pool', () => {
     })
   })
 
-  it('still fails loud when a child that DECLARED a dollar ceiling exceeds it', () => {
+  it('still reports an overspend when a child that DECLARED a dollar ceiling exceeds it', () => {
     // The relaxation above is scoped to an UNDECLARED ceiling. A child that named `maxUsd` and
-    // blew through it is a clamp bug in the caller and stays fail-loud — while still settling.
+    // blew through it has overspent: the measured dollars settle and the overspend is returned.
     const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, 0)
     const r = pool.reserve({ maxIterations: 2, maxTokens: 500, maxUsd: 0.5 } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(r.ticket.reserved).toMatchObject({ usd: 0.5, usdBudgeted: true })
-    expect(() =>
+    expect(
       pool.reconcile(r.ticket, {
         iterations: 1,
         tokens: { input: 10, output: 10 },
         usd: 0.75,
         ms: 0,
       }),
-    ).toThrow(/spent \$0\.75 > reserved \$0\.5/)
+    ).toEqual({ overspent: [{ channel: 'usd', reserved: 0.5, spent: 0.75 }] })
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.readout().usdLeft).toBe(9.25)
   })
 
-  it('closes the ticket on EVERY fail-loud reconcile path (no reservation escapes)', () => {
-    // The leak detector only helps if no error path can walk past the settlement. Each case
-    // below throws; each must still release its reservation and close its ticket, because the
-    // caller (`Scope.runChild`) marks the child reconciled BEFORE calling and never retries.
-    const overspend = (spent: Spend, root: Budget, child: Budget) => {
+  it('closes the ticket on EVERY overspend and fault reconcile path (no reservation escapes)', () => {
+    // The leak detector only helps if no path can walk past the settlement. An overspend returns
+    // and a fault throws; each must still release its reservation and close its ticket, because
+    // the caller (`Scope.runChild`) marks the child reconciled BEFORE calling and never retries.
+    const settle = (spent: Spend, root: Budget, child: Budget, outcome: 'overspend' | 'fault') => {
       const pool = createBudgetPool(root, 0)
       const r = pool.reserve(child)
       if (!r.ok) throw new Error('reserve should have succeeded')
-      expect(() => pool.reconcile(r.ticket, spent)).toThrow()
+      if (outcome === 'fault') expect(() => pool.reconcile(r.ticket, spent)).toThrow()
+      else expect(pool.reconcile(r.ticket, spent)?.overspent.length).toBeGreaterThan(0)
       expect(() => pool.assertNoOpenTickets()).not.toThrow()
       expect(pool.readout().reservedTokens).toBe(0)
       return pool
@@ -493,19 +496,38 @@ describe('conserved budget pool', () => {
 
     // Token overspend: the actual spend is committed, so `free` goes honestly negative rather
     // than the reservation being stranded at its ceiling forever.
-    const tokensOver = overspend(
+    const tokensOver = settle(
       { iterations: 1, tokens: { input: 300, output: 0 }, usd: 0, ms: 0 },
       root,
       child,
+      'overspend',
     )
     expect(tokensOver.readout().tokensLeft).toBe(700)
 
-    overspend({ iterations: 9, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }, root, child)
-    overspend({ iterations: 1, tokens: { input: 1, output: 1 }, usd: 4, ms: 0 }, root, child)
-    overspend(
+    settle(
+      { iterations: 9, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+      root,
+      child,
+      'overspend',
+    )
+    settle(
+      { iterations: 1, tokens: { input: 1, output: 1 }, usd: 4, ms: 0 },
+      root,
+      child,
+      'overspend',
+    )
+    settle(
       { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, usdKnown: false, ms: 0 },
       root,
       child,
+      'fault',
+    )
+    // A fault outranks an overspend on the same settlement: unknown dollars still fail closed.
+    settle(
+      { iterations: 9, tokens: { input: 300, output: 0 }, usd: 0, usdKnown: false, ms: 0 },
+      root,
+      child,
+      'fault',
     )
   })
 
@@ -584,6 +606,71 @@ describe('conserved budget pool', () => {
       tokens: { input: 12, output: 8, cacheBreakdownKnown: false },
       usd: 0.01,
       ms: 0,
+    })
+  })
+
+  it('refines one executor with duplicate cumulative snapshots between legacy deltas', () => {
+    const snapshot: UsageEvent = {
+      kind: 'tokens',
+      mode: 'cumulative',
+      input: 100,
+      output: 10,
+      freshInput: 20,
+      cacheRead: 60,
+      cacheWrite: 20,
+    }
+    const spend = spendFromUsageEvents([
+      { kind: 'tokens', input: 40, output: 4 },
+      snapshot,
+      snapshot,
+      { kind: 'tokens', input: 5, output: 1, freshInput: 5, cacheRead: 0, cacheWrite: 0 },
+    ])
+    expect(spend.tokens).toEqual({
+      input: 105,
+      output: 11,
+      freshInput: 25,
+      cacheRead: 60,
+      cacheWrite: 20,
+    })
+  })
+
+  it('does not credit overflowing cumulative cache classes or decreasing token totals', () => {
+    expect(
+      spendFromUsageEvents([
+        { kind: 'tokens', input: 100, output: 10 },
+        { kind: 'tokens', mode: 'cumulative', input: 100, output: 10, cacheRead: 101 },
+      ]).tokens,
+    ).toEqual({ input: 100, output: 10, cacheBreakdownKnown: false })
+    expect(() =>
+      spendFromUsageEvents([
+        { kind: 'tokens', input: 100, output: 10 },
+        { kind: 'tokens', mode: 'cumulative', input: 99, output: 10 },
+      ]),
+    ).toThrow('cumulative executor tokens must not decrease')
+  })
+
+  it('keeps observed cache classes when a later cumulative snapshot leaves new input unclassified', () => {
+    expect(
+      spendFromUsageEvents([
+        {
+          kind: 'tokens',
+          mode: 'cumulative',
+          input: 100,
+          output: 10,
+          freshInput: 20,
+          cacheRead: 60,
+          cacheWrite: 20,
+        },
+        { kind: 'iteration' },
+        { kind: 'tokens', mode: 'cumulative', input: 120, output: 12 },
+      ]).tokens,
+    ).toEqual({
+      input: 120,
+      output: 12,
+      freshInput: 20,
+      cacheRead: 60,
+      cacheWrite: 20,
+      cacheBreakdownKnown: false,
     })
   })
 

@@ -62,7 +62,7 @@ import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
 import { RunCancellationReason } from './abortable'
-import { assertValidBudget, spendFromUsageEvents } from './budget'
+import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
@@ -923,17 +923,18 @@ function driveHarnessFromBackend(
     let started = false
     let terminalAccountingCaptured = false
     let pendingUsage: UsageEvent[] = []
+    const ownerUsage = newUsageTotals()
     let observedOwnerSpend = zeroSpend()
     let committedOwnerSpend = retainedOwner
       ? await scopeRetainedOwnerPriorSpend(scope)
       : zeroSpend()
-    const ownerDelta = (total: Spend): Spend => ({
+    const ownerDelta = (total: Spend, committed = committedOwnerSpend): Spend => ({
       ...addResourceSpend(
         total.resources === undefined
           ? undefined
           : Object.fromEntries(
               Object.entries(total.resources).map(([name, value]) => {
-                const prior = committedOwnerSpend.resources?.[name]
+                const prior = committed.resources?.[name]
                 if (prior && prior.unit !== value.unit)
                   throw new ValidationError(`resource ${name}: unit mismatch`)
                 return [
@@ -947,13 +948,23 @@ function driveHarnessFromBackend(
               }),
             ),
       ),
-      iterations: Math.max(0, total.iterations - committedOwnerSpend.iterations),
+      iterations: Math.max(0, total.iterations - committed.iterations),
       tokens: {
-        input: Math.max(0, total.tokens.input - committedOwnerSpend.tokens.input),
-        output: Math.max(0, total.tokens.output - committedOwnerSpend.tokens.output),
+        input: Math.max(0, total.tokens.input - committed.tokens.input),
+        output: Math.max(0, total.tokens.output - committed.tokens.output),
+        ...unmeteredOwnerCache(total.tokens, committed.tokens),
       },
-      usd: Math.max(0, total.usd - committedOwnerSpend.usd),
-      ms: Math.max(0, total.ms - committedOwnerSpend.ms),
+      usd: Math.max(0, total.usd - committed.usd),
+      ...(total.usdEstimated === undefined
+        ? {}
+        : {
+            usdEstimated: Math.min(
+              Math.max(0, total.usd - committed.usd),
+              Math.max(0, total.usdEstimated - (committed.usdEstimated ?? 0)),
+            ),
+          }),
+      ...(total.tokensProvenance === undefined ? {} : { tokensProvenance: total.tokensProvenance }),
+      ms: Math.max(0, total.ms - committed.ms),
       ...(total.tokensKnown === false ? { tokensKnown: false } : {}),
       ...(total.usdKnown === false ? { usdKnown: false } : {}),
     })
@@ -1018,9 +1029,11 @@ function driveHarnessFromBackend(
       }
       const batch = pendingUsage
       pendingUsage = []
-      const measured = spendFromUsageEvents(batch)
-      observedOwnerSpend = addRetainedSpend(observedOwnerSpend, measured)
-      const charge = retainedOwner ? ownerDelta(observedOwnerSpend) : measured
+      for (const event of batch) meterUsageEvent(ownerUsage, event)
+      const measured = spendFromUsageTotals(ownerUsage)
+      const charge = ownerDelta(measured, retainedOwner ? committedOwnerSpend : observedOwnerSpend)
+      // The next additive receipt mutates ownerUsage.tokens, not this already-metered baseline.
+      observedOwnerSpend = detachedSnapshot(measured, 'metered owner spend')
       await meterRuntimeOwnedProviderAttempt(
         scope,
         forceUnknown
@@ -2645,9 +2658,9 @@ function superviseInternal(
   const perWorker = options.perWorker ?? defaultPerWorker(options.budget)
   assertValidBudget(perWorker, 'supervise perWorker')
   // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
-  // silently misleads the caller: the child is capped by the reservation instead and dies with
-  // "ticket N spent X tokens > reserved Y", which reads as a budget outcome rather than a
-  // misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
+  // silently misleads the caller: the child is capped by the reservation instead and settles with
+  // a `budgetViolation` against that smaller reservation, which reads as a budget outcome rather
+  // than a misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
   // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)
@@ -3332,6 +3345,31 @@ function superviseInternal(
   }
 
   return start()
+}
+
+/** Historical unclassified input is already charged; replay cannot refund it with a class-only delta. */
+function unmeteredOwnerCache(total: Spend['tokens'], committed: Spend['tokens']) {
+  const cache = {
+    ...(total.freshInput === undefined
+      ? {}
+      : { freshInput: Math.max(0, total.freshInput - (committed.freshInput ?? 0)) }),
+    ...(total.cacheRead === undefined
+      ? {}
+      : { cacheRead: Math.max(0, total.cacheRead - (committed.cacheRead ?? 0)) }),
+    ...(total.cacheWrite === undefined
+      ? {}
+      : { cacheWrite: Math.max(0, total.cacheWrite - (committed.cacheWrite ?? 0)) }),
+  }
+  if (
+    (cache.freshInput ?? 0) + (cache.cacheRead ?? 0) + (cache.cacheWrite ?? 0) >
+    Math.max(0, total.input - committed.input)
+  ) {
+    return { cacheBreakdownKnown: false as const }
+  }
+  return {
+    ...cache,
+    ...(total.cacheBreakdownKnown === false ? { cacheBreakdownKnown: false as const } : {}),
+  }
 }
 
 function rootProviderModelEvidence(

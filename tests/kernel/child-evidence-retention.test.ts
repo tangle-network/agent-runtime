@@ -73,18 +73,18 @@ function worker(shape: 'promise' | 'stream', input = 20, teardownFails = false) 
 
 for (const shape of ['promise', 'stream'] as const) {
   describe(`${shape} child evidence`, () => {
-    it('retains an over-budget result in live state, the journal, replay, and parent tools', async () => {
+    it('retains failed cleanup evidence in live state, the journal, replay, and parent tools', async () => {
       const { root, scope, pool, journal, blobs } = await fixture()
-      const { agent, execute, out } = worker(shape)
+      const { agent, execute, out } = worker(shape, 20, true)
       const spawned = await scope.spawn(agent, 'task', {
         label: 'paid work',
-        budget: { maxIterations: 2, maxTokens: 10 },
+        budget: { maxIterations: 2, maxTokens: 100 },
       })
       expect(spawned.ok).toBe(true)
       const settled = await scope.next()
       expect(settled?.kind).toBe('down')
       if (settled?.kind !== 'down') throw new Error('expected a failed settlement')
-      expect(settled.reason).toMatch(/spent .* tokens > reserved/)
+      expect(settled.reason).toMatch(/cleanup failed after execution/)
       expect(settled.outRef).toBe(contentAddress(out))
       expect(await blobs.get(settled.outRef!)).toEqual(out)
       expect(
@@ -111,28 +111,12 @@ for (const shape of ['promise', 'stream'] as const) {
         scope,
         blobs,
         makeWorkerAgent: () => agent,
-        perWorker: { maxIterations: 2, maxTokens: 10 },
+        perWorker: { maxIterations: 2, maxTokens: 100 },
       })
       const observed = await tools.tools
         .find((tool) => tool.name === 'observe_agent')!
         .handler({ workerId: settled.handle.id })
       expect(observed).toMatchObject({ output: out })
-    })
-
-    it('retains the result if teardown fails without marking the failed settlement successful', async () => {
-      const { scope, blobs } = await fixture()
-      const { agent, out } = worker(shape, 2, true)
-      await scope.spawn(agent, 'task', {
-        label: 'cleanup failure',
-        budget: { maxIterations: 2, maxTokens: 100 },
-      })
-      const settled = await scope.next()
-      expect(settled).toMatchObject({
-        kind: 'down',
-        reason: expect.stringContaining('cleanup failed'),
-        outRef: contentAddress(out),
-      })
-      expect(await blobs.get(contentAddress(out))).toEqual(out)
     })
 
     it('charges the terminal usage even when output storage fails', async () => {

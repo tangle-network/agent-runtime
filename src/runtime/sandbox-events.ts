@@ -22,6 +22,8 @@ import type { RuntimeStreamEvent } from '../types'
 import { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
 import { parseCanonicalTransportEvent } from './sandbox-transport-events'
 import type { ExecutorProgressEvent } from './supervise/types'
+import type { LoopTokenUsage } from './types'
+import { addTokenUsage, cloneTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from './util'
 
 /** The canonical usage receipt every accounting path in the kernel reads. */
 type LlmCallEvent = RuntimeStreamEvent & { type: 'llm_call' }
@@ -299,6 +301,8 @@ export function extractLlmCallEvent(
  * `tokensKnown: false` and `tokensUnknownReason`, so one policy serves every consumer.
  */
 export interface SandboxUsageLedger {
+  /** Cumulative worker tokens, including cache classifications reported after the prompt total. */
+  tokenUsage(): LoopTokenUsage
   /** Account one event. Returns the canonical usage receipt to credit now, if the event is one. */
   observe(
     event: SandboxEvent,
@@ -315,12 +319,23 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
   let sawCanonical = false
   const credited: Record<string, number> = {}
   const receipts = new Map<string, string>()
+  const settledTokens = zeroTokenUsage()
+  let turnTokens = zeroTokenUsage()
   return {
+    tokenUsage() {
+      const total = cloneTokenUsage(settledTokens)
+      addTokenUsage(total, turnTokens)
+      return total
+    },
     observe(event, agentRunName) {
       const call = extractLlmCallEvent(event, agentRunName)
       if (call) {
         sawCanonical = true
-        return creditCanonicalUsage(event, call, credited, receipts)
+        const receipt = creditCanonicalUsage(event, call, credited, receipts, (receipt, mode) => {
+          refineCanonicalTokens(turnTokens, call, receipt, mode)
+        })
+        if (receipt?.tokensKnown === false) turnTokens.tokensKnown = false
+        return receipt
       }
       let usage: HarnessUsage | undefined
       try {
@@ -351,8 +366,18 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
       sawCanonical = false
       for (const key of Object.keys(credited)) delete credited[key]
       receipts.clear()
-      if (canonical || reports.length === 0) return undefined
-      return harnessUsageLlmCall(reports, agentRunName)
+      const receipt =
+        !canonical && reports.length > 0 ? harnessUsageLlmCall(reports, agentRunName) : undefined
+      if (receipt) {
+        addTokenUsage(turnTokens, {
+          input: receipt.tokensIn ?? 0,
+          output: receipt.tokensOut ?? 0,
+          ...promptCacheTokenClasses(receipt.tokensIn, receipt.promptCache),
+        })
+      }
+      addTokenUsage(settledTokens, turnTokens)
+      turnTokens = zeroTokenUsage()
+      return receipt
     },
   }
 }
@@ -363,6 +388,7 @@ function creditCanonicalUsage(
   call: LlmCallEvent,
   credited: Record<string, number>,
   receipts: Map<string, string>,
+  onCredit: (receipt: LlmCallEvent, mode: 'delta' | 'cumulative' | undefined) => void,
 ): LlmCallEvent | undefined {
   const declaredMode = plainRecord(event.data)?.usageMode
   const mode =
@@ -441,7 +467,47 @@ function creditCanonicalUsage(
       result.tokensUnknownReason = reason
     }
   }
+  onCredit(result, mode)
   return result
+}
+
+/** Cache partitions belong to the original receipt, not the smaller incremental charge. */
+function refineCanonicalTokens(
+  tokens: LoopTokenUsage,
+  call: LlmCallEvent,
+  receipt: LlmCallEvent,
+  mode: 'delta' | 'cumulative' | undefined,
+): void {
+  const input = receipt.tokensIn ?? 0
+  const output = receipt.tokensOut ?? 0
+  const cache = promptCacheTokenClasses(call.tokensIn, call.promptCache)
+  if (mode !== 'cumulative') {
+    addTokenUsage(tokens, { input, output, ...cache })
+    return
+  }
+  tokens.input += input
+  tokens.output += output
+  const full = cache.freshInput !== undefined && call.tokensIn === tokens.input
+  if (full && receipt.tokensKnown !== false) {
+    tokens.freshInput = cache.freshInput
+    tokens.cacheRead = cache.cacheRead
+    tokens.cacheWrite = cache.cacheWrite
+    delete tokens.cacheBreakdownKnown
+    return
+  }
+  if (cache.cacheRead !== undefined)
+    tokens.cacheRead = Math.max(tokens.cacheRead ?? 0, cache.cacheRead)
+  if (cache.cacheWrite !== undefined)
+    tokens.cacheWrite = Math.max(tokens.cacheWrite ?? 0, cache.cacheWrite)
+  if (
+    (tokens.freshInput ?? 0) + (tokens.cacheRead ?? 0) + (tokens.cacheWrite ?? 0) >
+    tokens.input
+  ) {
+    delete tokens.freshInput
+    delete tokens.cacheRead
+    delete tokens.cacheWrite
+  }
+  if (input > 0 || cache.cacheBreakdownKnown === false) tokens.cacheBreakdownKnown = false
 }
 
 /**

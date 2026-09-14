@@ -1,4 +1,6 @@
 import type {
+  BudgetOverspend,
+  BudgetViolation,
   ExecutionBindingReceipt,
   ProfileMaterializationReceipt,
   ProviderModelExecutionEvidence,
@@ -183,6 +185,9 @@ export interface PursuitNodeProjection {
   readonly valid?: boolean
   readonly reason?: string
   readonly infra?: boolean
+  /** Each channel on which the settled spend exceeded the node's reservation. The status is the
+   *  node's own outcome: a `done` node that overspent still delivered its output. */
+  readonly budgetViolation?: BudgetViolation
   readonly wait?: unknown
   readonly firstSequence: number
   readonly lastSequence: number
@@ -263,6 +268,7 @@ type MutableNode = {
   valid?: boolean
   reason?: string
   infra?: boolean
+  budgetViolation?: BudgetViolation
   wait?: unknown
   firstSequence: number
   lastSequence: number
@@ -516,6 +522,8 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   if (reason) node.reason = reason
   const infra = booleanField(payload, 'infra')
   if (infra !== undefined) node.infra = infra
+  const budgetViolation = budgetViolationField(payload)
+  if (budgetViolation) node.budgetViolation = budgetViolation
   if (payload && Object.hasOwn(payload, 'wait')) node.wait = payload.wait
   attachSettlementEvidence(node, payload)
 }
@@ -816,6 +824,25 @@ function spendField(value: Record<string, unknown> | undefined, key: string): Sp
     return undefined
   }
   return cloneSpend(field as unknown as Spend)
+}
+
+/** Read a journaled overspend without trusting the wire: one malformed channel drops the record,
+ *  so an unparseable entry is never reported as an overspend of some size. */
+function budgetViolationField(
+  value: Record<string, unknown> | undefined,
+): BudgetViolation | undefined {
+  const overspent = objectRecord(value?.budgetViolation)?.overspent
+  if (!Array.isArray(overspent) || overspent.length === 0) return undefined
+  const entries: BudgetOverspend[] = []
+  for (const raw of overspent) {
+    const entry = objectRecord(raw)
+    const channel = stringField(entry, 'channel')
+    const reserved = numberField(entry, 'reserved')
+    const spent = numberField(entry, 'spent')
+    if (channel === undefined || reserved === undefined || spent === undefined) return undefined
+    entries.push({ channel: channel as BudgetOverspend['channel'], reserved, spent })
+  }
+  return { overspent: entries }
 }
 
 function stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {

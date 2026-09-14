@@ -325,7 +325,7 @@ it.each([false, true])(
   },
 )
 
-it('keeps an accepted provider result from bypassing the child allocation', async () => {
+it('reconciles an accepted provider result against the child allocation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'supervise-accepted-overspend-'))
   const context = createFileRunContext(join(directory, 'run'))
   const base = durableRetainedProvider(join(directory, 'provider.json'))
@@ -351,6 +351,7 @@ it('keeps an accepted provider result from bypassing the child allocation', asyn
     },
   }
   const profile = testAgentProfile('overspending-child')
+  const violation = { overspent: [{ channel: 'tokens', reserved: 10, spent: 11 }] }
   const worker: Agent<unknown, unknown> = Object.assign(
     { name: profile.name, act: async () => 'unused' },
     { executorSpec: { profile, harness: null, executorFactory: providerAsExecutor(provider) } },
@@ -367,7 +368,10 @@ it('keeps an accepted provider result from bypassing the child allocation', asyn
             }).ok,
           ).toBe(true)
           const settled = await scope.next()
-          expect(settled?.kind).toBe('down')
+          // The accepted result is reconciled against the child's allocation: it keeps its
+          // output, the pool charges all 11 tokens, and the overspend is on the record.
+          expect(settled).toMatchObject({ kind: 'done', budgetViolation: violation })
+          expect(scope.budget.tokensLeft).toBe(89)
           return settled?.kind === 'done' ? settled.out : undefined
         },
       },
@@ -386,8 +390,12 @@ it('keeps an accepted provider result from bypassing the child allocation', asyn
     expect(events.some((event) => event.kind === 'execution-result')).toBe(true)
     expect(
       events.find((event) => event.kind === 'settled' && event.id === 'root:s0'),
-    ).toMatchObject({ status: 'down' })
-    expect(result.kind).toBe('no-winner')
+    ).toMatchObject({
+      status: 'done',
+      budgetViolation: violation,
+      spent: { tokens: { input: 11 } },
+    })
+    expect(result.kind).toBe('winner')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

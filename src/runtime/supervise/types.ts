@@ -454,6 +454,8 @@ export type TokenUsageProvenance = 'stream-receipt' | 'harness-store' | 'mixed'
 export type UsageEvent =
   | {
       kind: 'tokens'
+      /** Entire executor token total. Omit for additive observations. Cumulative totals may refine cache classes. */
+      mode?: 'cumulative'
       /** Known token subtotal. When false, these counts are only the observed/estimated floor. */
       tokensKnown?: false
       input: number
@@ -940,6 +942,8 @@ export type Settled<Out> =
       providerModel?: ProviderModelExecutionEvidence
       /** Structured tool evidence captured before this settlement was journaled. */
       trace: WorkerTraceEvidence
+      /** Present when the measured spend exceeded this child's reservation. */
+      budgetViolation?: BudgetViolation
       /** Epoch ms parsed from the durable settlement record when available. */
       settledAt?: number
       seq: number
@@ -957,6 +961,8 @@ export type Settled<Out> =
       trace: WorkerTraceEvidence
       /** Partial provider model evidence survives an aborted or failed execution. */
       providerModel?: ProviderModelExecutionEvidence
+      /** Present when the spend reconciled for this child exceeded its reservation. */
+      budgetViolation?: BudgetViolation
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
@@ -1195,6 +1201,8 @@ export interface NodeSnapshot {
   readonly outRef?: string
   /** Present on terminal executor nodes; legacy records carry an explicit unavailable reason. */
   readonly trace?: WorkerTraceEvidence
+  /** Present once a settled node's measured spend exceeded its reservation. */
+  readonly budgetViolation?: BudgetViolation
 }
 
 /** The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. */
@@ -1300,6 +1308,8 @@ export type SpawnEvent =
       reason?: string
       /** Structured tool evidence. Optional only for journals written before trace capture. */
       trace?: WorkerTraceEvidence
+      /** Present when the reconciled spend exceeded the reservation, on either status. */
+      budgetViolation?: BudgetViolation
       seq: number
       at: string
     }
@@ -1313,6 +1323,7 @@ export type SpawnEvent =
       providerModel?: ProviderModelExecutionEvidence
       trace?: WorkerTraceEvidence
       outRef?: string
+      budgetViolation?: BudgetViolation
       seq: number
       at: string
     }
@@ -1713,6 +1724,31 @@ export interface SpendGap {
   readonly label?: string
   readonly kind: 'never-settled' | 'unreported'
   readonly channels: ReadonlyArray<SpendChannel>
+}
+
+/**
+ * One channel on which a settled reservation's measured spend exceeded what it reserved.
+ * `tokens` is in the pool's charged unit (`chargedTokens`), `usd` is measured dollars, and a
+ * `resource:<name>` entry is in the unit that resource's budget declares.
+ */
+export interface BudgetOverspend {
+  readonly channel: SpendChannel | 'iterations'
+  readonly reserved: number
+  readonly spent: number
+}
+
+/**
+ * A settled reservation whose measured spend exceeded what it reserved.
+ *
+ * It records an accounting fact, not an outcome. A child that completed stays `done` with its
+ * artifact, and a child that failed stays `down`. The pool commits the true spend, so its free
+ * balance already carries the overspend and later reservations are refused on their own.
+ * Spend the pool cannot verify (unknown dollars under a dollar cap, unknown or overflowing
+ * resource usage) is not an overspend: it fails the child closed instead.
+ */
+export interface BudgetViolation {
+  /** Every overspent channel, in the order tokens, iterations, usd, then resources. Never empty. */
+  readonly overspent: ReadonlyArray<BudgetOverspend>
 }
 
 /** Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. */

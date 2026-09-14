@@ -126,6 +126,109 @@ describe('handleChatTurn', () => {
     expect(events.at(-1)?.type).toBe('session.run.failed')
   })
 
+  it.each([
+    { name: 'an error', events: [{ type: 'error' }] },
+    { name: 'a terminal failure', events: [{ type: 'session.run.failed' }] },
+    {
+      name: 'an error followed by completion',
+      events: [{ type: 'error' }, { type: 'session.run.completed' }],
+    },
+    {
+      name: 'an error followed by an empty terminal failure',
+      events: [{ type: 'error' }, { type: 'session.run.failed' }],
+    },
+  ] satisfies { name: string; events: ChatStreamEvent[] }[])(
+    'retains $name through persistence and settlement',
+    async ({ events: sourceEvents }) => {
+      const message = 'Sandbox create recovery is in progress'
+      const order: string[] = []
+      const { body } = handleChatTurn({
+        identity: IDENTITY,
+        hooks: {
+          produce: () => ({
+            stream: (async function* () {
+              for (const [index, event] of sourceEvents.entries()) {
+                yield index === 0 ? { ...event, data: { message } } : event
+              }
+            })(),
+            finalText: () => 'The sandbox is still recovering.',
+          }),
+          persistAssistantMessage: async ({ finalText }) => {
+            expect(finalText).toBe('The sandbox is still recovering.')
+            order.push('persist')
+          },
+          onTurnComplete: async () => {
+            order.push('settle')
+          },
+          onEvent: (event) => {
+            if (event.type === 'session.run.failed') order.push('terminal')
+          },
+        },
+      })
+      const events = await drain(body)
+      expect(events.filter((event) => event.type === 'session.run.completed')).toEqual([])
+      expect(events.filter((event) => event.type === 'session.run.failed')).toEqual([
+        { type: 'session.run.failed', data: { sessionId: IDENTITY.sessionId, message } },
+      ])
+      expect(events.filter((event) => event.type === 'error')).toHaveLength(1)
+      expect(order).toEqual(['persist', 'settle', 'terminal'])
+    },
+  )
+
+  it.each([false, true])(
+    'settles upstream completion after persistence (persistence fails: %s)',
+    async (failPersistence) => {
+      const order: string[] = []
+      const { body } = handleChatTurn({
+        identity: IDENTITY,
+        log: () => undefined,
+        hooks: {
+          produce: () => ({
+            stream: (async function* () {
+              yield { type: 'session.run.completed' }
+            })(),
+            finalText: () => 'answer',
+          }),
+          persistAssistantMessage: async () => {
+            order.push('persist')
+            if (failPersistence) throw new Error('db down')
+          },
+          onEvent: (event) => {
+            if (event.type === 'session.run.completed' || event.type === 'session.run.failed')
+              order.push(event.type)
+          },
+        },
+      })
+      const events = await drain(body)
+      const terminalType = failPersistence ? 'session.run.failed' : 'session.run.completed'
+      expect(
+        events.filter(
+          (event) => event.type === 'session.run.completed' || event.type === 'session.run.failed',
+        ),
+      ).toHaveLength(1)
+      expect(order).toEqual(['persist', terminalType])
+    },
+  )
+
+  it('allows a handled tool failure without failing the turn', async () => {
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      hooks: {
+        produce: () => ({
+          stream: (async function* () {
+            yield { type: 'tool.error', data: { message: 'File not found' } }
+            yield { type: 'message.part.updated', data: { delta: 'I found the renamed file.' } }
+          })(),
+          finalText: () => 'I found the renamed file.',
+        }),
+        persistAssistantMessage: async () => undefined,
+      },
+    })
+    const events = await drain(body)
+    expect(events.at(-1)?.type).toBe('session.run.completed')
+    expect(events.some((event) => event.type === 'tool.error')).toBe(true)
+  })
+
   it('onEvent side channel receives every emitted event', async () => {
     const broadcast: string[] = []
     const { body } = handleChatTurn({

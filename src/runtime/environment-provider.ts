@@ -452,14 +452,24 @@ export function sandboxClientAsProvider(
 }
 
 /**
- * What one provider-executed turn settles on: the visible answer plus the complete event archive
- * the environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
+ * What one provider-executed turn settles on: the visible answer plus the event archive the
+ * environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
+ *
+ * The archive is the streamed sequence, in order, without superseded part updates. A harness
+ * streams a text or reasoning part cumulatively: every `message.part.updated` frame restates the
+ * part's whole text so far. When a later frame of the same part extends a frame's text, the
+ * earlier frame is left out, so each such part is archived once, at its latest frame. Keeping
+ * every frame retains frames times text length, and the settled archive is hashed and stored.
+ * A frame that does not extend the part's text is kept, and every other event is kept verbatim.
+ * Read a part's text from `part.text`; a retained frame's `delta` is only that frame's increment.
  *
  * @experimental
  */
 export interface ProviderLeafOut {
   content: string
   events: AgentEnvironmentEvent[]
+  /** How many streamed part updates the archive left out because a later frame superseded them. */
+  supersededPartUpdates?: number
 }
 
 /**
@@ -926,9 +936,9 @@ async function* streamProviderExecutor(
   const source = await providerExecutionSource(args, turn, linked)
   const environment = source.environment
   args.onEnvironment(environment)
-  const events: AgentEnvironmentEvent[] = []
+  const archive = createTurnEventArchive()
   const seenTraceCalls = new Set<string>()
-  const tokens = zeroTokenUsage()
+  let tokens = zeroTokenUsage()
   const usageLedger = createSandboxUsageLedger(args.profile.harness)
   let sawCompleteTokenReceipt = false
   let sawIncompleteTokenReceipt = false
@@ -948,7 +958,7 @@ async function* streamProviderExecutor(
     const toolParts = createSandboxToolPartState()
     const outcomeTracker = createAgentRunOutcomeTracker()
     for await (const event of source.events) {
-      events.push(event)
+      archive.append(event)
       text += textFromEnvironmentEvent(event)
       const sandboxEvent = sandboxEventFromEnvironmentEvent(event)
       const eventData = sandboxEvent.data
@@ -987,7 +997,8 @@ async function* streamProviderExecutor(
     }
     yield { kind: 'iteration' }
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
-      ...resultFromEvents(events, text),
+      ...resultFromEvents(archive.events(), text),
+      ...(archive.superseded > 0 ? { supersededPartUpdates: archive.superseded } : {}),
       ...(explicitFailure ? { outcome: outcomeTracker.finish() } : {}),
     }
     const spent: Spend = {
@@ -1092,13 +1103,12 @@ async function* streamProviderExecutor(
     }
     const input = receipt.tokensIn ?? 0
     const output = receipt.tokensOut ?? 0
-    if (input || output || receipt.tokensKnown === false) {
-      tokens.input += input
-      tokens.output += output
+    if (input || output || receipt.tokensKnown === false || receipt.promptCache !== undefined) {
+      tokens = usageLedger.tokenUsage()
       yield {
         kind: 'tokens',
-        input,
-        output,
+        mode: 'cumulative',
+        ...tokens,
         ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
       }
     }
@@ -2302,6 +2312,53 @@ function taskToPrompt(task: unknown): string {
     }
   }
   return JSON.stringify(task)
+}
+
+/**
+ * The archive one provider turn settles on, as `ProviderLeafOut` documents it. A superseded slot is
+ * cleared when the superseding frame arrives, so a cumulative part holds one copy of its text no
+ * matter how many frames restate it, and the kept events stay in streamed order.
+ */
+function createTurnEventArchive(): {
+  append(event: AgentEnvironmentEvent): void
+  events(): AgentEnvironmentEvent[]
+  readonly superseded: number
+} {
+  const slots: Array<AgentEnvironmentEvent | undefined> = []
+  const latestByPart = new Map<string, { index: number; text: string }>()
+  let superseded = 0
+  return {
+    append(event) {
+      const update = cumulativePartUpdate(event)
+      if (update !== undefined) {
+        const latest = latestByPart.get(update.key)
+        if (latest !== undefined && update.text.startsWith(latest.text)) {
+          slots[latest.index] = undefined
+          superseded += 1
+        }
+        latestByPart.set(update.key, { index: slots.length, text: update.text })
+      }
+      slots.push(event)
+    },
+    events: () => slots.filter((event): event is AgentEnvironmentEvent => event !== undefined),
+    get superseded() {
+      return superseded
+    },
+  }
+}
+
+/** A text or reasoning part update's identity and whole text, read from the canonical event. */
+function cumulativePartUpdate(
+  event: AgentEnvironmentEvent,
+): { key: string; text: string } | undefined {
+  const normalized = event.normalized
+  if (normalized?.type !== 'message.part.updated') return undefined
+  const part = normalized.part
+  if (part.type !== 'text' && part.type !== 'reasoning') return undefined
+  if (typeof part.id !== 'string' || part.id.length === 0 || typeof part.text !== 'string') {
+    return undefined
+  }
+  return { key: JSON.stringify([part.type, part.messageID, part.id]), text: part.text }
 }
 
 function resultFromEvents(events: AgentEnvironmentEvent[], fallbackText: string): ProviderLeafOut {

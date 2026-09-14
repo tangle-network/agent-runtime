@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.223.0
+
+A child that returns a finished result after spending more than its reservation now settles `done` with its output stored and `outRef` set.
+Before this release, `BudgetPool.reconcile` committed the true spend and then threw, and `Scope` settled that child `down` with `infra: true` and no `outRef`.
+The pool's accounting is unchanged: it still charges the true spend, its free balance goes negative, and later reservations are refused from that balance.
+
+The overspend is recorded as `budgetViolation: { overspent: [{ channel, reserved, spent }] }`.
+`channel` is `tokens` (in charged tokens), `iterations`, `usd`, or `resource:<name>`, and each overspent channel has one entry.
+The field is on the `Settled` value from `scope.next()`, the `settled` or `cancelled` journal record, the `agent.child` hook payload, `NodeSnapshot` in live and materialized tree views, replayed settlements, and `PursuitNodeProjection`.
+A driver sees it on the `await_event` settlement and in `CoordinationTools.settled()`, and its roster and resume brief name each overspent channel.
+It is present on `down` settlements too, when a crashed, failed, or cancelled child had already overspent.
+A saved retained result that overspent recovers as `done` with the same field.
+A retained child still awaiting recovery carries no field, because it has no terminal record yet.
+
+Three results follow from the new outcome.
+A crashed child that overspent now settles with `infra` decided by its own error; the overspend no longer makes it `infra: true`.
+A keyed child that completed with an overspend resolves as `completed`, so a later spawn under its key returns the result instead of retrying.
+The supervisor's down-rate breaker no longer counts a completed overspent child as a failure.
+
+`BudgetPool.reconcile` now returns `BudgetViolation | undefined` instead of `void`.
+It returns the overspend instead of throwing it, and it still throws after settling when spend cannot be verified.
+The unverifiable cases are unknown dollar cost under a dollar cap and unknown or overflowing usage of an enforced resource.
+In those cases the child still settles `down` with `infra: true`, and the error names that fault even when tokens also overspent.
+The thrown `BudgetReconcileFault` carries any measured overspend as `budgetViolation`, and the `down` settlement records it.
+A reservation that settles within its own resource allocation after another reservation overdrew the root no longer throws `exceeded root limit`.
+`BudgetPool.observe` still refuses a root overdraw.
+
+The runtime does not abort a streaming child when its running usage crosses the reservation.
+Executors report usage after the model call it measures, and the Tangle sandbox executor reports it only in its terminal receipt.
+An abort at that point would discard completed work without saving spend.
+
+Measured 2026-09-12 in discovery-lab runs (agent-runtime#1206): children reserved at 800,000 and 70,000 tokens finished at 1,918,127 and 592,620 tokens.
+Both were settled `down` at reconcile with their output dropped.
+A literature-graph review child finished at 1,115,291 tokens against 800,000, and the graph failed closed without its charter.
+
+## 0.222.0
+
+Wildcard-bound coordination listeners accept the actual socket address used by an HTTP proxy.
+They still reject arbitrary hostnames, wrong ports, disallowed origins, and invalid bearer credentials.
+The address check remains closed until the public endpoint is initialized.
+
+Provider executors preserve prompt-cache classes through live usage, child settlement, and root accounting.
+Later cumulative receipts can classify input reported earlier without counting those tokens again.
+Missing cache counters remain absent, and reported zeroes remain zero.
+Invalid cache partitions receive no token credit.
+
+`UsageEvent` token records now accept `mode: 'cumulative'` for the entire executor token total.
+Provider executors emit this mode; records without it remain additive.
+Direct event consumers must honor the mode or use `spendFromUsageEvents`.
+`SandboxUsageLedger.tokenUsage()` exposes the accumulated token snapshot, including late cache classifications.
+Root accounting retains independent snapshots between iteration batches, so later additive receipts cannot mutate the already-metered baseline.
+Failed public turn streams also retain cumulative totals without double counting.
+
+Retained recovery does not refund historical input already metered without cache classes.
+That accounting remains explicitly incomplete when replay later supplies a classification.
+Sandbox's platform model binding is not promoted into upstream served-model evidence.
+
+## 0.221.0
+
+`ProviderLeafOut.events`, the archive a provider-executed turn settles on, no longer keeps superseded part updates.
+A harness streams a text or reasoning part cumulatively: every `message.part.updated` frame restates the part's whole text so far.
+When a later frame of the same part extends a frame's text, the earlier frame is left out, so the archive holds each such part once, at its latest frame.
+Kept events stay verbatim and in streamed order; tool part frames, frames that do not extend the part's text, and every other event are kept.
+`ProviderLeafOut.supersededPartUpdates` counts the frames left out and is absent when there were none.
+
+A validator or other archive reader must take a part's text from `part.text`.
+A kept frame's `delta` is only that frame's increment, so concatenating archived deltas no longer reconstructs the text.
+An archive that had superseded frames now has a different content address.
+The settled `content`, the metered usage, and the live progress events are unchanged.
+
+Measured 2026-09-13 (agent-runtime#1211): one pi reasoning part streamed 27,144 frames, and keeping every frame exhausted a 4 GB supervisor heap while settlement hashed the archive.
+A local reproduction of that stream through `createScope` and `providerAsExecutor` raised the post-GC heap from 75 MB to 904 MB and aborted at settlement under a 1,536 MB heap cap.
+With this change the heap stayed between 63 MB and 71 MB, and the turn settled with its content and usage.
+
 ## 0.220.0
 
 A manager's `spawn_worker` call can name an inline resource by path: `{ kind: 'inline', name, path }`

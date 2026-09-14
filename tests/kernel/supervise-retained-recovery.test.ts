@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest, type TokenUsage } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
@@ -25,6 +25,32 @@ afterEach(async () => {
 })
 
 describe('supervised retained provider recovery', () => {
+  it.each(['dispatched', 'settled'] as const)(
+    'preserves cache receipts after losing the %s acknowledgement',
+    async (loss) => {
+      const fixture = await setup(loss, loss === 'settled', 1, {
+        inputTokens: 3,
+        outputTokens: 2,
+        cacheReadInputTokens: 1,
+        cacheCreationInputTokens: 1,
+      })
+      await fixture.first()
+      await fixture.resume()
+      const events = (await fixture.context.journal.loadTree('root')) ?? []
+      expect(
+        events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
+      ).toMatchObject([
+        {
+          spent: { tokens: { input: 3, output: 2, freshInput: 1, cacheRead: 1, cacheWrite: 1 } },
+        },
+      ])
+      expect(fixture.creations()).toBe(1)
+      expect(fixture.dispatches()).toBe(1)
+      // One cache read is excluded by the conserved pool's existing token charge.
+      expect(fixture.resumeBudget()).toBe(96)
+    },
+  )
+
   it.each(['transport', 'transport-open', 'transport-partial', 'transport-secret'] as const)(
     'settles an exact completed result after %s observation failure',
     async (observationFailure) => {
@@ -348,12 +374,15 @@ describe('supervised retained provider recovery', () => {
     expect(fixture.creations()).toBe(1)
   })
 
-  it('preserves a saved over-budget result as a failed settlement on replay', async () => {
+  it('settles a saved over-budget result done with its overspend on replay', async () => {
     const fixture = await setup('settled', true, 1, { inputTokens: 9, outputTokens: 2 })
     await fixture.first()
+    const violation = { overspent: [{ channel: 'tokens', reserved: 10, spent: 11 }] }
     await fixture.run(
       async (scope) => {
-        expect(scope.resume?.keys.get('work')?.state).toBe('down')
+        const prior = scope.resume?.keys.get('work')
+        expect(prior?.state).toBe('completed')
+        expect(prior?.settled).toMatchObject({ kind: 'done', budgetViolation: violation })
         return 'inspected'
       },
       () => {
@@ -363,7 +392,14 @@ describe('supervised retained provider recovery', () => {
     const events = (await fixture.context.journal.loadTree('root')) ?? []
     expect(
       events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
-    ).toMatchObject([{ status: 'down', spent: { tokens: { input: 9, output: 2 } } }])
+    ).toMatchObject([
+      {
+        status: 'done',
+        outRef: expect.any(String),
+        budgetViolation: violation,
+        spent: { tokens: { input: 9, output: 2 } },
+      },
+    ])
     expect(fixture.creations()).toBe(1)
   })
 
@@ -398,7 +434,7 @@ async function setup(
   loss: 'environment' | 'dispatched' | 'settled',
   destroyOnSettle = false,
   childCount = 1,
-  usage = { inputTokens: 3, outputTokens: 2 },
+  usage: TokenUsage = { inputTokens: 3, outputTokens: 2 },
   failure?: string,
   observationFailure?:
     | 'transport'

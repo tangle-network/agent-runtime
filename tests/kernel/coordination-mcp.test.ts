@@ -1,4 +1,5 @@
 import { createServer, request } from 'node:http'
+import { networkInterfaces } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
@@ -514,6 +515,74 @@ function postHttp(
 }
 
 describe('authenticated and bounded coordination HTTP', () => {
+  it.each(['0.0.0.0', '::'])(
+    'accepts only the actual bound address behind a proxy with wildcard %s',
+    async (host) => {
+      const address = Object.values(networkInterfaces())
+        .flat()
+        .find((entry) => entry?.family === 'IPv4' && !entry.internal)?.address
+      if (!address)
+        throw new Error('This HTTP regression needs an assigned non-loopback IPv4 address')
+      const post = (port: number, headers: Record<string, string>, path = '/mcp') =>
+        new Promise<number>((resolve, reject) => {
+          const req = request(
+            `http://${address}:${port}${path}`,
+            { method: 'POST', headers: { 'content-type': 'application/json', ...headers } },
+            (response) => {
+              response.resume()
+              resolve(response.statusCode!)
+            },
+          )
+          req.on('error', reject)
+          req.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+        })
+      await withBoundHttp(
+        {
+          host,
+          publicUrl: async ({ port }) => {
+            // The bound socket exists before public routing and credentials are ready.
+            expect(await post(port, { Host: `${address}:${port}` })).toBe(403)
+            return 'https://coordination.example/mcp'
+          },
+        },
+        async (mcp) => {
+          expect(await post(mcp.port, { ...mcp.headers, Host: `${address}:${mcp.port}` })).toBe(200)
+          expect(await post(mcp.port, { ...mcp.headers, Host: 'coordination.example' })).toBe(200)
+          for (const authority of [
+            `${address}:${mcp.port + 1}`,
+            `192.0.2.1:${mcp.port}`,
+            'attacker.example',
+            `${address}:${mcp.port}@attacker.example`,
+          ]) {
+            expect(
+              await post(mcp.port, {
+                ...mcp.headers,
+                Host: authority,
+                'x-forwarded-host': 'coordination.example',
+              }),
+            ).toBe(403)
+          }
+          expect(await post(mcp.port, { Host: `${address}:${mcp.port}` })).toBe(401)
+          expect(
+            await post(mcp.port, { Host: `${address}:${mcp.port}`, Authorization: 'Bearer wrong' }),
+          ).toBe(401)
+          expect(
+            await post(mcp.port, {
+              ...mcp.headers,
+              Host: `${address}:${mcp.port}`,
+              Origin: 'https://attacker.example',
+            }),
+          ).toBe(403)
+          expect(await post(mcp.port, mcp.headers, '/unselected')).toBe(404)
+          const revoked = mcp.headers
+          mcp.rotateCredential()
+          expect(await post(mcp.port, revoked)).toBe(401)
+          expect(await post(mcp.port, mcp.headers)).toBe(200)
+        },
+      )
+    },
+  )
+
   it('rejects absent, wrong-run, wrong-actor and revoked credentials before handler execution', async () => {
     let calls = 0
     await withBoundHttp(
