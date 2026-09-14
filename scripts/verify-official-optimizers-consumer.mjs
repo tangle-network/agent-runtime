@@ -294,6 +294,10 @@ async function runOmniVerification() {
       testScenarios: [
         { id: 'test-1', kind: 'official', prompt: 'Set k to 2.' },
         { id: 'test-2', kind: 'official', prompt: 'Set k to 2 again.' },
+        { id: 'test-3', kind: 'official', prompt: 'Set k to 2 for case 3.' },
+        { id: 'test-4', kind: 'official', prompt: 'Set k to 2 for case 4.' },
+        { id: 'test-5', kind: 'official', prompt: 'Set k to 2 for case 5.' },
+        { id: 'test-6', kind: 'official', prompt: 'Set k to 2 for case 6.' },
       ],
       agent: async (candidate) => ({ text: candidate.tools?.search === true ? candidate.prompt?.systemPrompt ?? '' : '{}' }),
       judges: [kEqualsTwoJudge],
@@ -386,6 +390,10 @@ function runGepa({
     testScenarios: [
       { id: 'test-1', kind: 'official', prompt: 'Set k to 2.' },
       { id: 'test-2', kind: 'official', prompt: 'Set k to 2 again.' },
+      { id: 'test-3', kind: 'official', prompt: 'Set k to 2 for case 3.' },
+      { id: 'test-4', kind: 'official', prompt: 'Set k to 2 for case 4.' },
+      { id: 'test-5', kind: 'official', prompt: 'Set k to 2 for case 5.' },
+      { id: 'test-6', kind: 'official', prompt: 'Set k to 2 for case 6.' },
     ],
     agent: async (candidate) => ({ text: candidate.prompt?.systemPrompt ?? '' }),
     judges: [kEqualsTwoJudge],
@@ -457,6 +465,10 @@ function runSkillOpt(runDir, modelUrl) {
     testScenarios: [
       { id: 'test-1', kind: 'official', prompt: 'Return READY.' },
       { id: 'test-2', kind: 'official', prompt: 'Return READY again.' },
+      { id: 'test-3', kind: 'official', prompt: 'Return READY for case 3.' },
+      { id: 'test-4', kind: 'official', prompt: 'Return READY for case 4.' },
+      { id: 'test-5', kind: 'official', prompt: 'Return READY for case 5.' },
+      { id: 'test-6', kind: 'official', prompt: 'Return READY for case 6.' },
     ],
     agent: async (candidate) => {
       const skill = candidate.resources?.skills?.find(
