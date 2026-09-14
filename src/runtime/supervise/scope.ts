@@ -1332,6 +1332,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               s.trace,
               s.metered,
               s.providerModel,
+              s.outRef,
             )
           }
           live.resolved = resolution
@@ -2480,6 +2481,7 @@ async function finalizeSettlement<Out>(
   if (settlement.kind === 'down') {
     const cancellation = child.cancellationReason
     child.status = cancellation === undefined ? 'failed' : 'cancelled'
+    child.outRef = settlement.outRef
     child.trace = settlement.trace
     child.providerModel = settlement.providerModel
     if (!child.recoveryPending)
@@ -2519,6 +2521,7 @@ async function finalizeSettlement<Out>(
         payload: {
           childId: child.id,
           status: 'down',
+          ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
           reason: settlement.reason,
           infra: settlement.infra,
           spent: child.spent,
@@ -2532,6 +2535,7 @@ async function finalizeSettlement<Out>(
       handle,
       reason: settlement.reason,
       infra: settlement.infra,
+      ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
       ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
       ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
       trace: settlement.trace,
@@ -2748,6 +2752,29 @@ async function runChild<C>(
   let terminalTelemetryCaptured = false
   let teardownStarted = false
   let traceEvidence: WorkerTraceEvidence | undefined
+  let retainedOutputRef: string | undefined
+  const retainOutput = async (
+    result: ExecutorResult<C>,
+    measured: Spend = result.spent,
+  ): Promise<ExecutorResult<C>> => {
+    // Capture valid usage before storage: a failed write must not refund paid-for execution.
+    let usageError: unknown
+    try {
+      assertReportedSpend(result.spent, `scope.spawn ${live.id}`)
+      live.spent = executor.accounting?.()?.reported ?? measured
+      terminalTelemetryCaptured = true
+      live.executorDone = true
+    } catch (error) {
+      usageError = error
+    }
+    // Output is evidence, not a success verdict. Preserve it even when terminal usage is invalid.
+    const out = detachedSnapshot(result.out, 'scope child output')
+    const outRef = contentAddress(out)
+    await blobs.put(outRef, out)
+    retainedOutputRef = outRef
+    if (usageError !== undefined) throw usageError
+    return { ...result, out, outRef }
+  }
   const captureTraceOnce = async (): Promise<WorkerTraceEvidence> => {
     traceEvidence ??= await captureWorkerTraceEvidence(live.readTraceSource, blobs, started)
     return traceEvidence
@@ -2842,9 +2869,9 @@ async function runChild<C>(
         childAbort.signal,
       )
       live.spent = spend
+      const reported = executor.resultArtifact() as ExecutorResult<C>
+      artifact = await retainOutput(reported, preserveUnknownTelemetry(spend, reported.spent))
       await executionEvidence.complete()
-      artifact = executor.resultArtifact() as ExecutorResult<C>
-      assertReportedSpend(artifact.spent, `scope.spawn ${live.id}`)
       const accounting = executor.accounting?.()
       const terminalSpend = preserveUnknownTelemetry(spend, artifact.spent)
       live.spent = accounting?.reported ?? terminalSpend
@@ -2853,8 +2880,9 @@ async function runChild<C>(
       const reconcileError = reconcileOnce(accounting?.reservation ?? terminalSpend)
       if (reconcileError !== undefined) throw reconcileError
     } else {
-      const terminal = await awaitAbortable(Promise.resolve(ran), childAbort.signal)
-      assertReportedSpend(terminal.spent, `scope.spawn ${live.id}`)
+      const terminal = await retainOutput(
+        await awaitAbortable(Promise.resolve(ran), childAbort.signal),
+      )
       await executionEvidence.complete()
       const accounting = executor.accounting?.()
       live.spent = accounting?.reported ?? terminal.spent
@@ -2881,17 +2909,12 @@ async function runChild<C>(
         trace,
         ownMetered,
         runtimeOwnedExecutorProviderEvidence(executor),
+        retainedOutputRef,
       )
     }
 
-    // The durable record is keyed by the canonical content address of the output — the
-    // single addressing scheme the blob store enforces and the supervisor's winner path
-    // uses. An executor's self-minted `resultArtifact().outRef` is its own internal dedup
-    // hint; the journal/blob `outRef` is re-derived here so replay rehydrates by one
-    // scheme. Persist the blob BEFORE the journal `settled` record references its `outRef`,
-    // so a crash never leaves a journaled ref pointing at a missing blob.
-    const outRef = contentAddress(artifact.out)
-    await blobs.put(outRef, artifact.out)
+    // retainOutput derived and persisted the canonical reference before settlement work.
+    const outRef = artifact.outRef
     const failureReason = executorFailureReason(artifact)
     if (failureReason !== undefined) {
       await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS).catch(() => undefined)
@@ -3008,7 +3031,14 @@ async function runChild<C>(
       // the recorded result; reporting it here would make the live views disagree with replay.
       live.budgetViolation = undefined
       return {
-        ...downRecord(errMessage(err), true, trace, executor.metered?.()),
+        ...downRecord(
+          errMessage(err),
+          true,
+          trace,
+          executor.metered?.(),
+          undefined,
+          retainedOutputRef,
+        ),
         reconciled: live.spent,
       }
     }
@@ -3060,6 +3090,7 @@ async function runChild<C>(
       trace,
       executor.metered?.(),
       providerModel,
+      retainedOutputRef,
     )
   } finally {
     await closeRetainedWrites()
@@ -3419,6 +3450,7 @@ function downRecord(
   trace: WorkerTraceEvidence,
   metered?: Spend,
   providerModel?: import('./types').ProviderModelExecutionEvidence,
+  outRef?: string,
 ): Extract<PreSeqSettled, { kind: 'down' }> {
   return {
     kind: 'down',
@@ -3427,6 +3459,7 @@ function downRecord(
     trace,
     ...(providerModel ? { providerModel } : {}),
     ...(metered ? { metered } : {}),
+    ...(outRef === undefined ? {} : { outRef }),
   }
 }
 

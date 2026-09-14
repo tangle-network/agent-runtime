@@ -426,6 +426,12 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       (await run.reprompt?.onUnmetContract?.(context)) ??
       ({ steer: defaultUnmetContractSteer(context) } as const)
     if (decision === 'stop') return { refusedBy: 'caller-stop' }
+    // The hook may await external work; admission must be checked again after it returns.
+    if (run.signal.aborted) return { refusedBy: 'aborted' }
+    const afterHook = budgetStop(run.budget(), now())
+    if (afterHook === 'deadline' || afterHook === 'budget-exhausted') {
+      return { refusedBy: afterHook }
+    }
     // Checked rather than assumed: JavaScript callers reach this hook too, and a non-string here
     // would otherwise become a TypeError inside the loop that owns the run.
     const steer = typeof decision.steer === 'string' ? decision.steer.trim() : ''
@@ -447,6 +453,20 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     // The completed-drive arm lives OUTSIDE this try. A configuration fault raised while deciding
     // the re-prompt is the caller's, not the driver's, and must reach the caller unwrapped instead
     // of being classified as one more driver failure.
+    // No asynchronous work separates this check from dispatch. It covers first entry and
+    // re-entry after onAttempt, whose awaited observer may exhaust authority or resources.
+    const admissionStop = run.signal.aborted ? 'aborted' : budgetStop(run.budget(), now())
+    if (admissionStop !== undefined) {
+      // A completed-but-unmet invocation remains completed; its finalizer owns acceptance.
+      if (reentry !== undefined) return
+      throw new DriverAttemptsExhaustedError(
+        run.signal.aborted
+          ? run.signal.reason
+          : new ValidationError(`driver admission: ${admissionStop}`),
+        attempts,
+        admissionStop,
+      )
+    }
     try {
       await run.drive(attempt, reentry)
     } catch (error) {
