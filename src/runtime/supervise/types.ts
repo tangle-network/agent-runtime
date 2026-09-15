@@ -25,6 +25,7 @@
  * @experimental
  */
 
+import type { NativeSessionEvidence } from '../native-session-evidence'
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
@@ -259,6 +260,16 @@ export type WorkerTraceEvidence =
       /** Content-addressed pointer to a persisted `WorkerToolTraceArtifact`. */
       readonly traceRef: string
       readonly spanCount: number
+      /**
+       * The child's OWN harness transcript, read out of its environment before destroy.
+       *
+       * `traceRef` above points at the supervisor's tool spans: toolName, args, status,
+       * callId, with startedAt === endedAt. It carries no assistant text, no reasoning and
+       * no tool results, so `status: 'available'` on this object never meant the child's
+       * session survived — it was destroyed with the environment. This says whether it did.
+       * Absent on a settlement recorded before the capture existed.
+       */
+      readonly nativeSession?: NativeSessionEvidence
     }
   | {
       readonly status: 'unavailable'
