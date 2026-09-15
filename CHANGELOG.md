@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.225.4
+
+A re-prompted scope owner may now run its next attempt in a new execution environment.
+
+The mid-run guard compared whole materialization receipts, and a receipt names the execution
+instance. Runtime itself asks the provider for a new environment when `repromptOnUnmet` re-enters an
+unmet completion check, so the new environment id read as `scope owner materialization changed
+mid-run`. The refusal surfaces as a transient `RetainedExecutionPendingError`, so every remaining
+driver attempt hit the same wall and the run settled `no-winner` with `DriverAttemptsExhaustedError`.
+
+Measured on a sandbox-placed pi root (mech-interp-foundations-pi-20260914e): its first turn completed
+with 210,978 input and 80,379 output tokens in one sandbox, the reprompt carried a new task into a
+second sandbox, and the journal holds one materialization and two bindings, the second `unknown` with
+reason `invalid-executor-report`, which is the rejection.
+
+The guard now compares everything a live run must hold fixed — authored and effective profile,
+materialization plan, platform attachments, runtime, backend, model, materializer, and the execution
+kind — and treats only the instance as per-attempt routing. When that is the sole difference, the
+attempt binds to the committed materialization, which keeps one materialization per node in the
+journal; the admission events already name the environment each attempt used. Any other difference
+still throws exactly as before.
+
 ## 0.225.1
 
 Provider-backed execution now preserves explicit Router/provider billing receipts through the
