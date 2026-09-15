@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0
+
+Requires Eval 0.182.0 and Runtime's current supervisor-run contract.
+Removed the private SWE and quant research campaign drivers, their historical fixtures, and the campaign-specific rollout ledger bridge.
+Use Supervisor Lab or Discovery Lab for registered campaigns; Bench now contains maintained adapters, execution primitives, and package proofs only.
+
 ## 0.12.1
 
 Keep the published Sandbox dependency range aligned with the supported 0.39.x cohort.
