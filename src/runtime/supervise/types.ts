@@ -1677,6 +1677,21 @@ export interface SupervisorOpts {
  * alias is never substituted when the provider omits the identity. */
 export type RootProviderModelEvidence = ProviderModelExecutionEvidence
 
+/**
+ * The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per
+ * progress event the root's executor observed, referenced by the content address of the file's
+ * bytes and its committed line count. Present exactly when the run had a run directory and a
+ * Runtime-driven root that began at least one drive attempt; a caller-supplied harness leaves it
+ * absent, never an empty receipt. Distinct from `outRef`, which on a `winner` names the SELECTED
+ * CHILD's artifact.
+ */
+export interface RootStreamReceipt {
+  /** `sha256:<hex>` over the file's bytes as they were when the receipt was taken. */
+  readonly ref: string
+  /** Committed lines in the file. `0` is a root that drove and produced no observable output. */
+  readonly events: number
+}
+
 /** One provider/harness inference attempt. An empty observation list means the attempt started but
  * no trusted served model identity arrived before it failed or ended, unless Router explicitly
  * proves that admission rejected it before provider dispatch. */
@@ -1776,6 +1791,8 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
       /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
       readonly rootProviderModel?: RootProviderModelEvidence
+      /** The root manager's retained provider stream, when the run directory holds one. */
+      readonly rootStream?: RootStreamReceipt
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose executor teardown was never acknowledged — the resources this run
@@ -1811,6 +1828,8 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
       /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
       readonly rootProviderModel?: RootProviderModelEvidence
+      /** The root manager's retained provider stream, when the run directory holds one. */
+      readonly rootStream?: RootStreamReceipt
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose executor teardown was never acknowledged — the resources this run
@@ -1858,6 +1877,8 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
       /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
       readonly rootProviderModel?: RootProviderModelEvidence
+      /** The root manager's retained provider stream, when the run directory holds one. */
+      readonly rootStream?: RootStreamReceipt
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose executor teardown was never acknowledged — the resources this run

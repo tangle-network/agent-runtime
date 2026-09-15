@@ -102,6 +102,7 @@ import {
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
+import { createRootStreamSink, type RootStreamSink } from './root-stream'
 import { watchRunCancellation } from './run-cancellation'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
@@ -164,6 +165,7 @@ import type {
   ResultBlobStore,
   RootHandle,
   RootProviderModelEvidence,
+  RootStreamReceipt,
   SpawnJournal,
   Spend,
   SupervisedResult,
@@ -764,6 +766,7 @@ function driveHarnessFromBackend(
   executionId: string,
   now: () => number = Date.now,
   maxTurns?: number,
+  rootStream?: RootStreamSink,
 ): DriveHarness {
   // Same refusal the router arm makes in `driverAgent`: a negative cap would silently run zero
   // turns and finalize an empty no-winner.
@@ -1175,6 +1178,9 @@ function driveHarnessFromBackend(
       if (retainedOwner?.admissions.length && !executor.recover) {
         throw new ValidationError('retained owner executor does not support recovery')
       }
+      // The stream file opens at the first attempt that actually runs an executor, so a resumed
+      // owner whose accepted result was restored above leaves it untouched.
+      await rootStream?.beginAttempt()
       const run = retainedOwner?.admissions.length
         ? executor.recover!(originalTask, scope.signal)
         : executor.execute(originalTask, scope.signal)
@@ -1187,8 +1193,11 @@ function driveHarnessFromBackend(
             if (turnStop !== undefined && turns >= turnCap && !turnStop.signal.aborted) {
               turnStop.abort(`supervise: maxTurns ${turnCap} reached`)
             }
-          } else if (event.kind !== 'progress') {
-            // A progress event carries the driver's observed output, never accounting.
+          } else if (event.kind === 'progress') {
+            // A progress event carries the driver's observed output, never accounting: it is
+            // retained in the run directory as it arrives and never reaches a meter.
+            rootStream?.append(event.progress)
+          } else {
             pendingUsage.push(event)
           }
         }
@@ -2670,6 +2679,12 @@ function superviseInternal(
   const log = ctx.coordinationLog
   const rootOwnerId = rootCoordinationOwner(rootExecution.identity)
   const rootProviderModels: Array<string | undefined> = []
+  // The root's own provider stream is retained only where a run directory can hold it. Nested
+  // managers share this harness and are left unretained here; a per-owner file is a later step.
+  const rootStreamSink =
+    options.runDir === undefined
+      ? undefined
+      : createRootStreamSink(resolve(options.runDir), options.now ?? Date.now)
   const observeNodeEvent = options.onCoordinationEvent
     ? async (
         context: SupervisorNodeContext,
@@ -2779,6 +2794,7 @@ function superviseInternal(
           }),
           options.now ?? Date.now,
           options.maxTurns,
+          context.depth === 0 ? rootStreamSink : undefined,
         )
       : undefined
   }
@@ -3309,11 +3325,18 @@ function superviseInternal(
     })
     const settle = async () => {
       let result: Awaited<typeof run>
+      let rootStream: RootStreamReceipt | undefined
       try {
         result = await run
       } finally {
-        cancellation?.close()
-        cancellation?.check()
+        // Closed on BOTH exits. A run that throws releases the file here, and whoever records
+        // the failure recomputes the same receipt from the bytes on disk.
+        try {
+          rootStream = await rootStreamSink?.close()
+        } finally {
+          cancellation?.close()
+          cancellation?.check()
+        }
       }
       recordRunCancellationOutcome(options.runDir, result, now)
       const rootProviderModel =
@@ -3329,6 +3352,7 @@ function superviseInternal(
       return {
         ...result,
         rootProviderModel,
+        ...(rootStream === undefined ? {} : { rootStream }),
       }
     }
     if (!recorder) return settle()

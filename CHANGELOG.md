@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.226.0
+
+The root agent's provider stream is now retained. Every `progress` event the root's executor emits — `text_delta`, `reasoning_delta`, `tool_call`, `tool_result`, `interaction`, `child_task` — is appended as it arrives to `<runDir>/root-stream.jsonl`, one JSON line per event with `{seq, at, attempt, event}`. Lines are written synchronously before the next event is drained and fsynced at drive-attempt boundaries and on close, so a root that dies keeps every line already written. The reader tolerates a torn final line.
+
+`SupervisedResult` gains `rootStream?: { ref, events }` on every arm, where `ref` is the sha256 of the file's bytes at close and `events` the line count. `DurableFailureRecord` gains the same field, computed from the bytes on disk, so `failure.json` references the partial stream when a run throws after the root has streamed. The winner's `outRef` keeps its meaning: it is still the selected child's artifact, and the two are asserted distinct.
+
+Before this release the root's stream was drained for accounting and discarded (`driveHarnessFromBackend`), and a root that died left a failure record of a few hundred bytes. Measured on 2026-09-15: a run that lost 63 settled children at its join barrier retained none of its director's reasoning, while the harness's private store held 236,909 characters of it.
+
+A consumer that reads `SupervisedResult` or `DurableFailureRecord` may now see `rootStream`; it is absent, never an empty receipt, for a root driven by a caller-supplied harness. `/durable` exports `ROOT_STREAM_FILE`, `readRootStream`, `readRootStreamReceipt`, `RootStreamReceipt` and `RootStreamRecord`.
+
+Two limits, both recorded as their own issues. A bridge-placed root retains text and tool calls only, because the bridge's SSE decoder carries no reasoning delta (drewstone/cli-bridge#227). Nested managers below depth 0 do not yet get a stream file. `rootProviderModel` is unchanged and still reports `provider-model-missing` on every run-directory run (#1238).
+
 ## 0.225.6
 
 A re-prompted scope owner in a new execution environment now binds instead of being refused.
