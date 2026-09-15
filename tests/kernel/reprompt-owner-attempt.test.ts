@@ -149,7 +149,11 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
       await recordScopeOwnerMaterialization(
         scope,
         'tangle-sandbox',
-        { ...declarationFor(profile), backend: 'tangle-sandbox', execution: { kind: 'environment', id: environment } },
+        {
+          ...declarationFor(profile),
+          backend: 'tangle-sandbox',
+          execution: { kind: 'environment', id: environment },
+        },
         bindingFor(attemptId, environment),
       )
       if (reported.length === 1) return
@@ -182,7 +186,11 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
         profileDigest: canonicalAgentProfileDigest(profile),
         taskDigest: canonicalCandidateDigest('solve it'),
       },
-      rootMaterialization: { runtime: 'tangle-sandbox', declaration: 'deferred', authoredProfile: profile },
+      rootMaterialization: {
+        runtime: 'tangle-sandbox',
+        declaration: 'deferred',
+        authoredProfile: profile,
+      },
     })
 
     expect(result.kind).toBe('winner')
