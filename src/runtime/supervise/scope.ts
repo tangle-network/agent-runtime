@@ -2138,10 +2138,12 @@ export async function recordScopeOwnerMaterialization(
     // appends a binding rather than a second receipt. A materialization that actually CHANGED is
     // still a fault: backend, model, execution identity, and plan may not move under a live run.
     if (canonicalCandidateDigest(state.receipt) !== canonicalCandidateDigest(receipt)) {
-      if (!onlyExecutionInstanceMoved(state.receipt, receipt)) {
+      const changed = changedRunIdentityFields(state.receipt, receipt)
+      if (changed.length > 0) {
         await rejectOwnerMaterialization(state)
         throw new ValidationError(
-          'scope owner materialization changed mid-run; backend, model, execution identity, and plan must match across driver attempts',
+          'scope owner materialization changed mid-run; these fields must match across driver ' +
+            `attempts but differ: ${changed.join(', ')}`,
         )
       }
       // The attempt ran in a DIFFERENT execution instance with everything else identical, which is
@@ -2320,28 +2322,33 @@ async function rejectOwnerMaterialization(state: OwnerMaterializationState): Pro
 }
 
 /**
- * True when two known receipts agree on everything one run must hold fixed — authored and effective
- * profile, materialization plan, platform attachments, runtime, backend, model and materializer —
- * and differ only in which execution instance served the attempt.
+ * The fields two known receipts disagree on, ignoring which execution instance served the attempt.
+ * Empty means only the instance moved, which a re-prompted attempt is allowed to do: Runtime asks
+ * the provider for a new environment when it re-prompts an unmet completion check, and a retained
+ * environment can be replaced between attempts.
  *
- * The instance is per-attempt evidence, not run identity: Runtime asks the provider for a new
- * environment when it re-prompts an unmet completion check, and a retained environment can be
- * replaced between attempts.
+ * This answers WHICH field moved, not just THAT one did. The guard used to return a boolean, so a
+ * production rejection named four candidate fields and identified none of them. Measured on
+ * mech-interp-foundations-pi-20260915g and -20260915h: ten rejected bindings across two runs, and
+ * the receipt that was rejected is not journalled, so no operator could tell from the record which
+ * field had changed. A guard that refuses a live run owes the reason.
  */
-function onlyExecutionInstanceMoved(
+function changedRunIdentityFields(
   prior: ProfileMaterializationReceipt,
   next: ProfileMaterializationReceipt,
-): boolean {
-  if (prior.status !== 'known' || next.status !== 'known') return false
+): readonly string[] {
+  if (prior.status !== 'known' || next.status !== 'known') return ['status']
   const withoutInstance = (
     receipt: Extract<ProfileMaterializationReceipt, { status: 'known' }>,
-  ) => {
+  ): Record<string, unknown> => {
     const { execution, ...rest } = receipt
     return { ...rest, execution: { kind: execution.kind } }
   }
-  return (
-    canonicalCandidateDigest(withoutInstance(prior)) ===
-    canonicalCandidateDigest(withoutInstance(next))
+  const before = withoutInstance(prior)
+  const after = withoutInstance(next)
+  const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
+  return names.filter(
+    (name) => canonicalCandidateDigest(before[name]) !== canonicalCandidateDigest(after[name]),
   )
 }
 
