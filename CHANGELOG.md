@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.222.2
+
+Preserve explicit provider billing receipts as known dollar usage for capped Sandbox runs.
+Bare provider cost numbers remain unknown and are reported as estimates.
+
 ## 0.222.0
 
 Wildcard-bound coordination listeners accept the actual socket address used by an HTTP proxy.
