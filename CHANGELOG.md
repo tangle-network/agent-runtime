@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.227.0
+
+A bridge-placed root's retained stream now carries its reasoning and its tool outcomes. cli-bridge forwards `choices[0].delta.reasoning` and a `delta.tool_results` extension beside `tool_calls` (cli-bridge#227); `parseSseChatStream` decodes them into `BridgeStreamChunk.reasoning` and `BridgeStreamChunk.toolResults` (new exported `BridgeToolResult`), and the bridge executor surfaces them as `reasoning_delta` and `tool_result` progress, plus an activity note that carries the call's status beside the status-less note for the decision.
+
+Measured before this release on two live Discovery directors on runtime 0.226.0: `root-stream.jsonl` held 0 reasoning and 0 tool-output bytes against 33k-41k reasoning and 99k-160k tool-output bytes in the harness's own store. A bridge older than the cli-bridge change sends neither field, and this runtime then behaves exactly as 0.226.0 did.
+
 ## 0.226.0
 
 The root agent's provider stream is now retained. Every `progress` event the root's executor emits — `text_delta`, `reasoning_delta`, `tool_call`, `tool_result`, `interaction`, `child_task` — is appended as it arrives to `<runDir>/root-stream.jsonl`, one JSON line per event with `{seq, at, attempt, event}`. Lines are written synchronously before the next event is drained and fsynced at drive-attempt boundaries and on close, so a root that dies keeps every line already written. The reader tolerates a torn final line.

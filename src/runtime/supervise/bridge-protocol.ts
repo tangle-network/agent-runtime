@@ -113,8 +113,27 @@ function bridgeUpstreamError(
   )
 }
 
+/**
+ * The outcome of one tool call the bridge's harness ran itself, keyed by the same id as the
+ * `toolCalls` entry that announced it. cli-bridge carries it as `choices[0].delta.tool_results`,
+ * an extension beside OpenAI's `tool_calls` (cli-bridge#227).
+ */
+export interface BridgeToolResult {
+  readonly id?: string
+  readonly name: string
+  readonly status: 'completed' | 'error'
+  /** The tool's output on completion, as the harness rendered it for the model. */
+  readonly output?: string
+  /** The harness's error text when `status` is `error`. */
+  readonly error?: string
+}
+
 export interface BridgeStreamChunk {
   content?: string
+  /** Model reasoning streamed ahead of the content it produced (`choices[0].delta.reasoning`). */
+  reasoning?: string
+  /** Every finished tool call the delta reported, beside the calls it announced. */
+  toolResults?: ReadonlyArray<BridgeToolResult>
   /** Provider-reported response model, not the bridge request model. */
   model?: string
   /** Provider response fingerprint carried alongside the response model. */
@@ -574,6 +593,12 @@ function bridgeInferenceMoney(value: unknown, field: string): number {
  * cli-bridge emits each call complete in ONE delta (`{id, name, arguments}` together), so no
  * cross-delta argument-fragment assembly is needed; a frame that carries argument bytes without a
  * name decodes to nothing rather than to a nameless call.
+ *
+ * Since cli-bridge#227 a harness that knows the outcome reports it SEPARATELY as
+ * `delta.tool_results` (decoded below into `BridgeStreamChunk.toolResults`); the executor surfaces
+ * that as `tool_result` progress and an activity note with a status. The call step itself stays
+ * an instant without status, because the two arrive as distinct facts and joining them into one
+ * span is a trace-source concern this decoder does not own.
  */
 function decodeBridgeToolCalls(raw: unknown): ToolStepInput[] {
   if (!Array.isArray(raw)) return []
@@ -600,6 +625,33 @@ function decodeBridgeToolCalls(raw: unknown): ToolStepInput[] {
     })
   }
   return steps
+}
+
+/**
+ * Decode `delta.tool_results` into `BridgeToolResult`s. An entry without a name or with a status
+ * outside `completed | error` is dropped rather than guessed, the same stance `decodeBridgeToolCalls`
+ * takes on a nameless call; a bridge that reports an outcome must say whose and which.
+ */
+function decodeBridgeToolResults(raw: unknown): BridgeToolResult[] {
+  if (!Array.isArray(raw)) return []
+  const results: BridgeToolResult[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const record = entry as Record<string, unknown>
+    const name = record.name
+    const status = record.status
+    if (typeof name !== 'string' || name.length === 0) continue
+    if (status !== 'completed' && status !== 'error') continue
+    const id = typeof record.id === 'string' && record.id.length > 0 ? record.id : undefined
+    results.push({
+      ...(id === undefined ? {} : { id }),
+      name,
+      status,
+      ...(typeof record.output === 'string' ? { output: record.output } : {}),
+      ...(typeof record.error === 'string' ? { error: record.error } : {}),
+    })
+  }
+  return results
 }
 
 type BridgeSseEvent =
@@ -702,7 +754,9 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
     choices?: Array<{
       delta?: {
         content?: string | null
+        reasoning?: unknown
         tool_calls?: unknown
+        tool_results?: unknown
       }
       message?: { content?: string | null }
     }>
@@ -768,8 +822,12 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   const choice = parsed.choices?.[0]
   const content = choice?.delta?.content ?? choice?.message?.content
   if (typeof content === 'string' && content.length > 0) out.content = content
+  const reasoning = choice?.delta?.reasoning
+  if (typeof reasoning === 'string' && reasoning.length > 0) out.reasoning = reasoning
   const toolCalls = decodeBridgeToolCalls(choice?.delta?.tool_calls)
   if (toolCalls.length > 0) out.toolCalls = toolCalls
+  const toolResults = decodeBridgeToolResults(choice?.delta?.tool_results)
+  if (toolResults.length > 0) out.toolResults = toolResults
   const u = parsed.usage
   if (u) {
     const input = optionalBridgeTokenCount(u.prompt_tokens, 'prompt_tokens')
