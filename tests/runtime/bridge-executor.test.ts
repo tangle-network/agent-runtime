@@ -1145,19 +1145,34 @@ describe('bridgeExecutor live observability', () => {
     }
   })
 
-  it('surfaces the bridge\'s reasoning and tool outcomes as progress, beside the decisions (cli-bridge#227)', async () => {
+  it("surfaces the bridge's reasoning and tool outcomes as progress, beside the decisions (cli-bridge#227)", async () => {
     bridgeHttpHandler = () =>
       streamOf([
-        frame(1, { choices: [{ index: 0, delta: { reasoning: 'Read the probe file before answering.' }, finish_reason: null }] }),
+        frame(1, {
+          choices: [
+            {
+              index: 0,
+              delta: { reasoning: 'Read the probe file before answering.' },
+              finish_reason: null,
+            },
+          ],
+        }),
         frame(2, {
           choices: [
             {
               index: 0,
               delta: {
                 tool_calls: [
-                  { index: 0, id: 'prt_read1', type: 'function', function: { name: 'read', arguments: '{"path":"/tmp/probe.txt"}' } },
+                  {
+                    index: 0,
+                    id: 'prt_read1',
+                    type: 'function',
+                    function: { name: 'read', arguments: '{"path":"/tmp/probe.txt"}' },
+                  },
                 ],
-                tool_results: [{ id: 'prt_read1', name: 'read', status: 'completed', output: 'PLATYPUS\n' }],
+                tool_results: [
+                  { id: 'prt_read1', name: 'read', status: 'completed', output: 'PLATYPUS\n' },
+                ],
               },
               finish_reason: null,
             },
@@ -1168,7 +1183,14 @@ describe('bridgeExecutor live observability', () => {
             {
               index: 0,
               delta: {
-                tool_calls: [{ index: 0, id: 'prt_bash1', type: 'function', function: { name: 'bash', arguments: '{"command":"false"}' } }],
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'prt_bash1',
+                    type: 'function',
+                    function: { name: 'bash', arguments: '{"command":"false"}' },
+                  },
+                ],
                 // A nameless entry and an unknown status are dropped, never guessed.
                 tool_results: [
                   { id: 'prt_bash1', name: 'bash', status: 'error', error: 'exit status 1' },
@@ -1192,20 +1214,31 @@ describe('bridgeExecutor live observability', () => {
       { kind: 'reasoning_delta', text: 'Read the probe file before answering.' },
     ])
     // Reasoning never leaks into the turn's text.
-    expect(progress.filter((p) => p.kind === 'text_delta')).toEqual([{ kind: 'text_delta', text: 'PLATYPUS' }])
+    expect(progress.filter((p) => p.kind === 'text_delta')).toEqual([
+      { kind: 'text_delta', text: 'PLATYPUS' },
+    ])
     expect(progress.filter((p) => p.kind === 'tool_result')).toEqual([
       { kind: 'tool_result', toolName: 'read', toolCallId: 'prt_read1', result: 'PLATYPUS\n' },
-      { kind: 'tool_result', toolName: 'bash', toolCallId: 'prt_bash1', result: { error: 'exit status 1' } },
+      {
+        kind: 'tool_result',
+        toolName: 'bash',
+        toolCallId: 'prt_bash1',
+        result: { error: 'exit status 1' },
+      },
     ])
     // The decision keeps its honest status-less note; the outcome adds one with a status.
     const notes = executor.progress?.()?.recentActivity ?? []
-    expect(notes.filter((note) => note.kind === 'tool').map((note) => [note.label, note.status ?? null])).toEqual([
+    expect(
+      notes.filter((note) => note.kind === 'tool').map((note) => [note.label, note.status ?? null]),
+    ).toEqual([
       ['read', null],
       ['read', 'ok'],
       ['bash', null],
       ['bash', 'error'],
     ])
-    expect(notes.find((note) => note.label === 'bash' && note.status === 'error')?.detail).toBe('exit status 1')
+    expect(notes.find((note) => note.label === 'bash' && note.status === 'error')?.detail).toBe(
+      'exit status 1',
+    )
   })
 
   it('records every tool call in one delta, not just the first', async () => {

@@ -782,7 +782,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
             kind: 'tool',
             label: result.name,
             status: result.status === 'completed' ? 'ok' : 'error',
-            ...(result.status === 'error' && result.error !== undefined ? { detail: result.error } : {}),
+            ...(result.status === 'error' && result.error !== undefined
+              ? { detail: result.error }
+              : {}),
           })
           yield {
             kind: 'progress',
