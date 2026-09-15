@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.222.3
+
+Update release fixtures to the published Runtime version.
+
 ## 0.222.2
 
 Preserve explicit provider billing receipts as known dollar usage for capped Sandbox runs.
