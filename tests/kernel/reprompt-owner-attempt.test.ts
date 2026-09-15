@@ -125,3 +125,84 @@ describe('a re-prompted root is a new execution attempt (#1085)', () => {
     expect(events.some((e) => JSON.stringify(e).includes('spawn journal corrupted'))).toBe(false)
   })
 })
+
+describe('a re-prompted root in a new execution environment (#1225, #1230)', () => {
+  // The fleet shape: a sandbox-placed root gets a NEW environment for its re-prompted attempt, so
+  // the second report carries a different execution id. Measured on
+  // mech-interp-foundations-pi-20260914e, -20260915g and -20260915h: the first turn completes, the
+  // reprompt fires, and every attempt after it is refused. This drives the real supervisor and
+  // the real reprompt loop with no sandbox and no model, so the guard is the only thing under test.
+  it('accepts the second attempt when only the execution instance moved', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const profile = testAgentProfile('sup', {
+      harness: 'pi',
+      model: { provider: 'offline', default: 'test/model' },
+      prompt: { systemPrompt: 'solve or delegate' },
+      tools: runtimeToolDeclarations('submit_result'),
+    })
+    const reported: string[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, scope }) => {
+      const { attemptId } = scopeOwnerExecutorNodeContext(scope)
+      reported.push(attemptId)
+      const environment = `sandbox-${reported.length}`
+      await recordScopeOwnerMaterialization(
+        scope,
+        'tangle-sandbox',
+        {
+          ...declarationFor(profile),
+          backend: 'tangle-sandbox',
+          execution: { kind: 'environment', id: environment },
+        },
+        bindingFor(attemptId, environment),
+      )
+      if (reported.length === 1) return
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'submit_result',
+        arguments: { result: { answer: 42 } },
+      })
+    }
+    const root = supervisorAgent(profile, {
+      blobs,
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker,
+      driveHarness,
+      deliverable: {
+        describe: 'an object whose answer is 42',
+        check: (result) => (result as { answer?: unknown }).answer === 42,
+      },
+      repromptOnUnmet: 1,
+    })
+
+    const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'sup',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+      rootIdentity: {
+        profileDigest: canonicalAgentProfileDigest(profile),
+        taskDigest: canonicalCandidateDigest('solve it'),
+      },
+      rootMaterialization: {
+        runtime: 'tangle-sandbox',
+        declaration: 'deferred',
+        authoredProfile: profile,
+      },
+    })
+
+    expect(result.kind).toBe('winner')
+    expect(reported).toHaveLength(2)
+
+    const events = (await journal.loadTree('sup')) ?? []
+    const materialized = events.filter((e) => e.kind === 'materialized' && e.id === 'sup')
+    expect(materialized).toHaveLength(1)
+    const bindings = events.filter((e) => e.kind === 'execution-bound' && e.id === 'sup')
+    expect(bindings.map((e) => (e.kind === 'execution-bound' ? e.binding.status : ''))).toEqual([
+      'known',
+      'known',
+    ])
+  })
+})
