@@ -121,6 +121,35 @@ describe('scope owner materialization across driver attempts', () => {
     expect(await kinds(journal, 'materialized')).toHaveLength(1)
   })
 
+  // A rejection that names four candidate fields and identifies none of them cannot be diagnosed
+  // from the journal, because the rejected receipt is not written there. Two production runs
+  // (mech-interp-foundations-pi-20260915g and -20260915h) lost ten bindings to this guard with no
+  // way to tell which field had moved.
+  it('names the field that moved, so a rejection can be diagnosed from the message', async () => {
+    const { scope } = await scopeUnderTest()
+    await publish(scope, 'root:attempt:1', declaration('sandbox-first'))
+    const second = beginScopeOwnerAttempt(scope, 2)
+    await expect(
+      publish(scope, second as string, declaration('sandbox-second', 'a-different-backend')),
+    ).rejects.toThrow(/differ: .*\bbackend\b/)
+  })
+
+  it('names every field that moved, not just the first', async () => {
+    const { scope } = await scopeUnderTest()
+    await publish(scope, 'root:attempt:1', declaration('sandbox-first'))
+    const second = beginScopeOwnerAttempt(scope, 2)
+    const moved = {
+      ...declaration('sandbox-second', 'a-different-backend'),
+      plan: { image: 'a-different-image' },
+    }
+    const error = await publish(scope, second as string, moved).catch((thrown: unknown) => thrown)
+    const message = error instanceof Error ? error.message : String(error)
+    // The receipt stores the plan as a digest, so that is the name an operator sees and the name
+    // this test pins. Both moved fields appear, in the receipt's own vocabulary.
+    expect(message).toContain('backend')
+    expect(message).toContain('materializationPlanDigest')
+  })
+
   it('appends only a binding when the same attempt republishes the same environment', async () => {
     const { scope, journal } = await scopeUnderTest()
     await publish(scope, 'root:attempt:1', declaration('sandbox-first'))
