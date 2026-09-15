@@ -1101,6 +1101,7 @@ export type {
   RootMaterialization,
   RootProviderModelEvidence,
   RootSignal,
+  RootStreamReceipt,
   Runtime,
   Scope,
   Settled,

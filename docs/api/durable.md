@@ -1261,6 +1261,13 @@ ISO instant the throw was recorded.
 
 > `readonly` **message**: `string`
 
+##### rootStream?
+
+> `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](#rootstreamreceipt)
+
+The root's retained provider stream at the time of the throw, when the directory holds one:
+ a root that died mid-turn keeps what it had streamed, and this names it.
+
 ***
 
 ### SupervisePursuitOptions
@@ -2288,6 +2295,31 @@ already knowing the root node or coordination run id stored inside it.
 
 > `readonly` **coordinationStreams**: readonly [`DurableCoordinationStreamIdentity`](#durablecoordinationstreamidentity)[]
 
+***
+
+### RootStreamReceipt
+
+The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per
+progress event the root's executor observed, referenced by the content address of the file's
+bytes and its committed line count. Present exactly when the run had a run directory and a
+Runtime-driven root that began at least one drive attempt; a caller-supplied harness leaves it
+absent, never an empty receipt. Distinct from `outRef`, which on a `winner` names the SELECTED
+CHILD's artifact.
+
+#### Properties
+
+##### ref
+
+> `readonly` **ref**: `string`
+
+`sha256:<hex>` over the file's bytes as they were when the receipt was taken.
+
+##### events
+
+> `readonly` **events**: `number`
+
+Committed lines in the file. `0` is a root that drove and produced no observable output.
+
 ## Type Aliases
 
 ### ObserverRecordKind
@@ -2322,6 +2354,35 @@ rest; `unknown` = nothing priced it, so `usd` is a floor and never the cost.
 
 Where and how a node's execution was placed, read off its execution-binding receipt.
 
+***
+
+### RootStreamRecord
+
+> **RootStreamRecord** = `object` & \{ `event`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent); \} \| \{ `dropped`: \{ `kind`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent)\[`"kind"`\]; `reason`: `string`; \}; \}
+
+One line of `root-stream.jsonl`.
+
+#### Type Declaration
+
+##### seq
+
+> `readonly` **seq**: `number`
+
+1-based position in the file, continuing across drive attempts and across processes.
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO instant the line was appended, from the run's own clock.
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The 1-based drive attempt of the root that produced it: a driver retry or re-prompt
+ re-enters the harness and continues the same file with the next attempt number.
+
 ## Variables
 
 ### RUN\_DIRECTORY\_LOCK\_FILE
@@ -2345,6 +2406,14 @@ The settle record: the returned `SupervisedResult` as canonical JSON, written on
 > `const` **FAILURE\_RECORD\_FILE**: `"failure.json"` = `'failure.json'`
 
 The failure record: the most recent throw, replaced by a later throw.
+
+***
+
+### ROOT\_STREAM\_FILE
+
+> `const` **ROOT\_STREAM\_FILE**: `"root-stream.jsonl"` = `'root-stream.jsonl'`
+
+The root stream: one JSONL line per progress event the root's executor observed.
 
 ## Functions
 
@@ -2665,7 +2734,7 @@ Read the most recent failure record, or `undefined` when the directory holds non
 
 ### supervisePursuit()
 
-> **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend); `childWork`: [`Spend`](runtime.md#spend); \}; \}\>\>
+> **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend); `childWork`: [`Spend`](runtime.md#spend); \}; \}\>\>
 
 One-call durable pursuit execution over the canonical `supervise()` kernel.
 
@@ -2702,7 +2771,7 @@ An abandoned `supervise.lock.guard` requires removal after confirming no lock mu
 
 #### Returns
 
-`Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend); `childWork`: [`Spend`](runtime.md#spend); \}; \}\>\>
+`Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend); `childWork`: [`Spend`](runtime.md#spend); \}; \}\>\>
 
 ***
 
@@ -2728,3 +2797,43 @@ append is ignored because it was never acknowledged as committed.
 #### Returns
 
 `Promise`\<[`DurableSupervisionDiscovery`](#durablesupervisiondiscovery)\>
+
+***
+
+### readRootStreamReceipt()
+
+> **readRootStreamReceipt**(`runDir`): `Promise`\<[`RootStreamReceipt`](#rootstreamreceipt) \| `undefined`\>
+
+The receipt for the root stream a run directory holds, recomputed from the file's bytes, or
+`undefined` when the directory holds none. This is what a run that never settled — a root that
+died mid-turn — gets on its failure record, and it equals what `close()` returned for a run
+that did.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`RootStreamReceipt`](#rootstreamreceipt) \| `undefined`\>
+
+***
+
+### readRootStream()
+
+> **readRootStream**(`runDir`): `Promise`\<[`RootStreamRecord`](#rootstreamrecord)[] \| `undefined`\>
+
+Every committed line of the root stream, in order, or `undefined` when there is no file. A
+ torn final line from a process that died mid-write is not a record and is left out.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`RootStreamRecord`](#rootstreamrecord)[] \| `undefined`\>

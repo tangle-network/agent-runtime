@@ -25,8 +25,17 @@
  *     gives each isolated run a stable cross-run pursuit identity, holds the run
  *     directory's `supervise.lock` for the call, and leaves the directory's terminal
  *     record beside the journal: `result.json` at settle, `failure.json` on a throw.
+ *   - `readRootStream` / `readRootStreamReceipt`: the root manager's own provider stream,
+ *     `root-stream.jsonl`, journaled as it arrives and referenced from both terminal records.
  */
 
+export {
+  ROOT_STREAM_FILE,
+  type RootStreamReceipt,
+  type RootStreamRecord,
+  readRootStream,
+  readRootStreamReceipt,
+} from '../runtime/supervise/root-stream'
 export type {
   ChatStreamEvent,
   ChatTurnHooks,
