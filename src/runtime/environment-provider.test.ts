@@ -292,7 +292,7 @@ describe('environment provider adapters', () => {
 
     expect(usage).toEqual([
       { kind: 'tokens', input: 7, output: 16 },
-      { kind: 'cost', usd: 0.03 },
+      { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03 },
       { kind: 'iteration' },
     ])
     expect(artifact).toMatchObject({
@@ -1077,7 +1077,7 @@ describe('environment provider adapters', () => {
 
     expect(usage).toEqual([
       { kind: 'tokens', input: 7, output: 16 },
-      { kind: 'cost', usd: 0.03 },
+      { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03 },
       { kind: 'iteration' },
     ])
     expect(artifact.out).toMatchObject({ content: 'hello world' })
@@ -1086,6 +1086,31 @@ describe('environment provider adapters', () => {
       tokens: { input: 7, output: 16 },
       usd: 0.03,
     })
+  })
+
+  it('preserves an explicit provider billing receipt as known cost', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'billed-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'llm_call',
+              data: { tokensIn: 1, tokensOut: 2, costUsd: 0.03, costProvenance: 'billing-receipt' },
+            }
+            yield { type: 'done', data: { finalText: 'ok' } }
+          },
+        })
+      },
+    }
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'billed-worker' }, harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const usage = await collect(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
+    expect(usage).toContainEqual({ kind: 'cost', usd: 0.03 })
+    expect(executor.resultArtifact().spent).toMatchObject({ usd: 0.03, usdKnown: true })
   })
 
   it('composes a profile-only supervisor spec through one steerable CLI-bridge-like Pi session', async () => {

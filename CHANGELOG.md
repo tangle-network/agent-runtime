@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.141.2
+
+Preserve explicit provider billing receipts as known dollar usage so capped Sandbox runs settle.
+Bare provider cost numbers remain unknown and are reported as estimates.
+
 ## 0.141.1
 
 ### Eval moves to 0.148.0, so the peer window moves with it

@@ -417,6 +417,8 @@ async function* streamProviderExecutor(
     args.options.taskToTurn?.(args.task, args.profile) ?? taskToTurnInput(args.task, linked)
   const events: AgentEnvironmentEvent[] = []
   const tokens = zeroTokenUsage()
+  let sawCostReceipt = false
+  let sawUnknownCostReceipt = false
   let usd = 0
   let text = ''
   let terminal = false
@@ -430,9 +432,25 @@ async function* streamProviderExecutor(
         tokens.output += usage.output
         yield { kind: 'tokens', input: usage.input, output: usage.output }
       }
-      if (usage.usd) {
+      const data = event.data && typeof event.data === 'object' ? event.data : {}
+      const costProvenance =
+        typeof data === 'object' && data !== null
+          ? (data as Record<string, unknown>).costProvenance ??
+            (data as Record<string, unknown>).cost_provenance
+          : undefined
+      const hasCost =
+        usage.usd !== 0 ||
+        (typeof data === 'object' && data !== null &&
+          ((data as Record<string, unknown>).costUsd !== undefined ||
+            (data as Record<string, unknown>).totalCostUsd !== undefined))
+      if (hasCost) {
+        sawCostReceipt = true
         usd += usage.usd
-        yield { kind: 'cost', usd: usage.usd }
+        const known = costProvenance !== undefined && costProvenance !== 'uncaptured'
+        if (!known) sawUnknownCostReceipt = true
+        yield known
+          ? { kind: 'cost', usd: usage.usd }
+          : { kind: 'cost', usdKnown: false, usd: usage.usd, usdEstimated: usage.usd }
       }
       if (isTerminalEnvironmentEvent(event)) terminal = true
     }
@@ -447,6 +465,8 @@ async function* streamProviderExecutor(
       iterations: 1,
       tokens,
       usd,
+      usdKnown: sawCostReceipt && !sawUnknownCostReceipt,
+      ...(usd > 0 && (!sawCostReceipt || sawUnknownCostReceipt) ? { usdEstimated: usd } : {}),
       ms: Date.now() - started,
     }
     args.onArtifact({
@@ -1058,9 +1078,25 @@ function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): Sandbox
     }
     return baseData
   })()
+  // Numeric provider costs are untrusted unless the source marks billing provenance explicitly.
+  const costProvenance = data.costProvenance ?? data.cost_provenance
+  const nestedUsage = data.usage ?? data.tokenUsage
+  const nestedCost =
+    nestedUsage && typeof nestedUsage === 'object'
+      ? ((nestedUsage as Record<string, unknown>).cost ??
+        (nestedUsage as Record<string, unknown>).costUsd ??
+        (nestedUsage as Record<string, unknown>).totalCostUsd)
+      : undefined
+  const hasCost =
+    event.usage?.cost !== undefined ||
+    data.costUsd !== undefined ||
+    data.totalCostUsd !== undefined ||
+    nestedCost !== undefined
+  const normalizedData =
+    hasCost && costProvenance === undefined ? { ...data, costProvenance: 'uncaptured' } : data
   return {
     type,
-    data,
+    data: 'usageMode' in event ? { ...normalizedData, usageMode: event.usageMode } : normalizedData,
     ...(event.id ? { id: event.id } : {}),
   }
 }
