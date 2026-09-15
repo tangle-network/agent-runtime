@@ -20,13 +20,15 @@
  *     `exec`. An environment with `read` but no `exec` cannot be enumerated and is also
  *     reported, not guessed at.
  *
+ * Storage is NOT this module's business. The executor returns the artifact inside the result
+ * it already settles with, and supervise puts that under the child's `outRef` in its own
+ * `ResultBlobStore`. No destroy site learns about storage, and replay rehydrates it for free.
+ *
  * Credentials are excluded by construction: enumeration lists only the transcript globs
  * for the harness, and any path matching DENY is dropped even if a producer moved a
  * credential file inside a session directory. The helper never reads `auth.json`,
  * `.credentials.json`, `credentials`, or a dotenv file.
  */
-import { contentAddress } from '../durable/content-address'
-
 /** Where each harness keeps the session files that hold the conversation. */
 const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'claude-code': Object.freeze(['.claude/projects', '.claude/history.jsonl', '.claude/todos']),
@@ -37,10 +39,14 @@ const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze
 /** Never read, whatever a producer put inside a session tree. */
 const DENY = /(^|\/)(auth\.json|\.credentials\.json|credentials|\.env(\..*)?|secrets?(\.|$)|.*\.pem|id_[a-z]+)$/u
 
-/** A bound per file and in total, so one enormous transcript cannot stall a teardown. */
-const MAX_FILE_BYTES = 8 * 1024 * 1024
-const MAX_TOTAL_BYTES = 64 * 1024 * 1024
-const MAX_FILES = 2_000
+/**
+ * Bounds per file and in total. These are deliberately modest: the artifact rides inside the
+ * settled result that supervise blobs under one `outRef`, so an unbounded transcript would
+ * bloat every replay of that child, not just the capture.
+ */
+const MAX_FILE_BYTES = 2 * 1024 * 1024
+const MAX_TOTAL_BYTES = 16 * 1024 * 1024
+const MAX_FILES = 1_000
 
 export const NATIVE_SESSION_SCHEMA_VERSION = 1 as const
 
@@ -61,11 +67,10 @@ export interface NativeSessionArtifact {
 export type NativeSessionEvidence =
   | {
       readonly status: 'available'
-      /** Content-addressed pointer to a persisted `NativeSessionArtifact`. */
-      readonly sessionRef: string
+      readonly artifact: NativeSessionArtifact
       readonly fileCount: number
       readonly totalBytes: number
-      /** Non-empty when some transcript was found but deliberately not carried. */
+      /** Non-zero when some transcript was found but deliberately not carried. */
       readonly skippedCount: number
     }
   | {
@@ -75,7 +80,6 @@ export type NativeSessionEvidence =
         | 'unknown-harness'
         | 'no-transcript'
         | 'enumeration-failed'
-        | 'persistence-failed'
     }
 
 interface ReadableEnvironment {
@@ -84,10 +88,6 @@ interface ReadableEnvironment {
     command: string,
     options?: Record<string, unknown>,
   ) => Promise<{ readonly stdout?: string; readonly exitCode?: number }>
-}
-
-interface BlobSink {
-  readonly put: (ref: string, value: unknown) => Promise<void>
 }
 
 type NativeSessionUnavailableReason = Extract<NativeSessionEvidence, { status: 'unavailable' }>['reason']
@@ -122,16 +122,16 @@ async function enumerate(
 }
 
 /**
- * Persist the harness transcript of one live environment.
+ * Read the harness transcript out of one LIVE environment.
  *
- * Call this BEFORE `environment.destroy()`. It never throws: a teardown must not fail
- * because evidence could not be collected, and every failure mode is a named `reason` the
- * settled receipt carries instead.
+ * Call this before the environment is destroyed — on the settled path that means before the
+ * result is built, since the `finally` that destroys runs after. It never throws: a teardown
+ * must not fail because evidence could not be collected, and every failure mode is a named
+ * `reason` the settled receipt carries instead of an empty artifact that reads as coverage.
  */
 export async function captureNativeSessionEvidence(
   environment: ReadableEnvironment | undefined,
   harness: string | undefined,
-  blobs: BlobSink,
   signal?: AbortSignal,
 ): Promise<NativeSessionEvidence> {
   if (!environment?.read) return unavailable('unsupported-environment')
@@ -178,15 +178,9 @@ export async function captureNativeSessionEvidence(
     files: Object.freeze(files),
     skipped: Object.freeze(skipped),
   })
-  const sessionRef = contentAddress(artifact)
-  try {
-    await blobs.put(sessionRef, artifact)
-  } catch {
-    return unavailable('persistence-failed')
-  }
   return Object.freeze({
     status: 'available',
-    sessionRef,
+    artifact,
     fileCount: files.length,
     totalBytes: total,
     skippedCount: skipped.length,
