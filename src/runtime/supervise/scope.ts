@@ -2138,10 +2138,25 @@ export async function recordScopeOwnerMaterialization(
     // appends a binding rather than a second receipt. A materialization that actually CHANGED is
     // still a fault: backend, model, execution identity, and plan may not move under a live run.
     if (canonicalCandidateDigest(state.receipt) !== canonicalCandidateDigest(receipt)) {
-      await rejectOwnerMaterialization(state)
-      throw new ValidationError(
-        'scope owner materialization changed mid-run; backend, model, execution identity, and plan must match across driver attempts',
-      )
+      if (!onlyExecutionInstanceMoved(state.receipt, receipt)) {
+        await rejectOwnerMaterialization(state)
+        throw new ValidationError(
+          'scope owner materialization changed mid-run; backend, model, execution identity, and plan must match across driver attempts',
+        )
+      }
+      // The attempt ran in a DIFFERENT execution instance with everything else identical, which is
+      // Runtime's own doing: the `repromptOnUnmet` re-entry asks the provider for a new environment,
+      // and a retained environment can be replaced between attempts. Rejecting it stranded a root
+      // that had already completed a turn (agent-runtime#1225): the refusal surfaced as a transient
+      // RetainedExecutionPendingError and every remaining driver attempt hit the same wall.
+      // The committed materialization stays the run's identity — the journal commits one per node —
+      // and this attempt binds to it. Which instance served the attempt is per-attempt routing, and
+      // the admission events already name it.
+      const boundToCommitted = knownExecutionBindingReceipt(state.receipt, bindingInput)
+      await appendOwnerBinding(state, boundToCommitted)
+      state.onReceipt?.(state.receipt, boundToCommitted)
+      state.publishedThisProcess = true
+      return
     }
     await appendOwnerBinding(state, binding)
     state.onReceipt?.(state.receipt, binding)
@@ -2302,6 +2317,32 @@ async function rejectOwnerMaterialization(state: OwnerMaterializationState): Pro
   )
   await appendOwnerMaterialization(state, receipt, binding)
   state.onReceipt?.(receipt, binding)
+}
+
+/**
+ * True when two known receipts agree on everything one run must hold fixed — authored and effective
+ * profile, materialization plan, platform attachments, runtime, backend, model and materializer —
+ * and differ only in which execution instance served the attempt.
+ *
+ * The instance is per-attempt evidence, not run identity: Runtime asks the provider for a new
+ * environment when it re-prompts an unmet completion check, and a retained environment can be
+ * replaced between attempts.
+ */
+function onlyExecutionInstanceMoved(
+  prior: ProfileMaterializationReceipt,
+  next: ProfileMaterializationReceipt,
+): boolean {
+  if (prior.status !== 'known' || next.status !== 'known') return false
+  const withoutInstance = (
+    receipt: Extract<ProfileMaterializationReceipt, { status: 'known' }>,
+  ) => {
+    const { execution, ...rest } = receipt
+    return { ...rest, execution: { kind: execution.kind } }
+  }
+  return (
+    canonicalCandidateDigest(withoutInstance(prior)) ===
+    canonicalCandidateDigest(withoutInstance(next))
+  )
 }
 
 async function appendOwnerMaterialization(
