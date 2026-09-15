@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.141.5
+
+Pin the packed Agent Core dependency to prevent duplicate first-party runtimes.
+
 ## 0.141.4
 
 Format provider receipt handling for the release verifier.
