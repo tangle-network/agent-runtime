@@ -1108,7 +1108,9 @@ describe('environment provider adapters', () => {
       { profile: { name: 'billed-worker' }, harness: null },
       { signal: new AbortController().signal, seams: {} },
     )
-    const usage = await collect(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
+    const usage = await collect(
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
     expect(usage).toContainEqual({ kind: 'cost', usd: 0.03 })
     expect(executor.resultArtifact().spent).toMatchObject({ usd: 0.03, usdKnown: true })
   })

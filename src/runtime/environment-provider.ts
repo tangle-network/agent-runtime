@@ -435,12 +435,13 @@ async function* streamProviderExecutor(
       const data = event.data && typeof event.data === 'object' ? event.data : {}
       const costProvenance =
         typeof data === 'object' && data !== null
-          ? (data as Record<string, unknown>).costProvenance ??
-            (data as Record<string, unknown>).cost_provenance
+          ? ((data as Record<string, unknown>).costProvenance ??
+            (data as Record<string, unknown>).cost_provenance)
           : undefined
       const hasCost =
         usage.usd !== 0 ||
-        (typeof data === 'object' && data !== null &&
+        (typeof data === 'object' &&
+          data !== null &&
           ((data as Record<string, unknown>).costUsd !== undefined ||
             (data as Record<string, unknown>).totalCostUsd !== undefined))
       if (hasCost) {
