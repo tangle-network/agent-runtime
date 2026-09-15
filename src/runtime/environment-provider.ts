@@ -682,7 +682,6 @@ function createProviderExecutor(
       destroyOnSettle: options.destroyOnSettle ?? true,
       requireTerminalEvent: options.requireTerminalEvent ?? true,
       tokenLimits,
-      environmentId: null,
       ...(placement ? { placement } : {}),
     },
   }
@@ -728,13 +727,19 @@ function createProviderExecutor(
       },
       onEnvironment: (env) => {
         environment = env
-        // `create` resolved, so the environment identity the provider issued is now evidence.
+        // `create` resolved, so the environment identity the provider issued is now evidence. It
+        // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
+        // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
+        // re-prompted attempt in a new environment changed `materializationPlanDigest` and was
+        // refused as a changed materialization even after #1230 excused `execution.id`. Measured
+        // on mech-interp-foundations-pi-20260915i under 0.225.5, which was the first guard able to
+        // name the field. The admission events already record which environment served each
+        // attempt; nothing reads the id from the plan.
         finalizeRuntimeOwnedPendingExecutor(
           executor,
           {
             ...plannedDeclaration,
             execution: { kind: 'environment', id: env.id },
-            plan: { ...(plannedDeclaration.plan as object), environmentId: env.id },
           },
           plannedBinding,
         )

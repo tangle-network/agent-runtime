@@ -110,6 +110,17 @@ describe('retained external supervisor recovery', () => {
     expect(new Set(intents.map((intent) => intent.idempotencyKey)).size).toBe(2)
     expect(fixture.creates()).toBe(2)
     expect(tokenTotal(events)).toBe(10)
+    // The second drive ran in a NEW environment. Its report must bind as known to the one
+    // committed materialization. Before the provider stopped writing the environment id into the
+    // plan, this second binding was unknown with reason invalid-executor-report: the id moved
+    // materializationPlanDigest, the guard refused the receipt, and on the fleet every retry hit
+    // the same wall (mech-interp-foundations-pi-20260914e, -20260915g, -20260915h, -20260915i).
+    // This test ran green through all four of those runs because it never looked at the binding.
+    const bindings = events.flatMap((event) =>
+      event.kind === 'execution-bound' ? [event.binding.status] : [],
+    )
+    expect(bindings).toEqual(['known', 'known'])
+    expect(events.filter((event) => event.kind === 'materialized')).toHaveLength(1)
   })
 })
 
