@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1
+
+Keep the published Sandbox dependency range aligned with the supported 0.39.x cohort.
+
 ## 0.11.5
 
 Consume Runtime 0.218, including asynchronous coordination address resolution for provider managers.
