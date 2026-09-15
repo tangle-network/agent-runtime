@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.225.5
+
+The mid-run materialization guard now names the fields that differ when it refuses an attempt.
+
+The message used to list four candidate fields and identify none of them, and the rejected receipt
+is not journalled, so a refusal could not be diagnosed from the record. Measured on two sandbox-placed
+pi roots (mech-interp-foundations-pi-20260915g and -20260915h): ten rejected bindings, every one
+recorded as `invalid-executor-report`, with a healthy environment and a healthy coordination server at
+the time of each rejection. The message was the only evidence and it carried nothing.
+
+`changedRunIdentityFields` replaces the boolean `onlyExecutionInstanceMoved` and returns the
+differing field names in the receipt's own vocabulary, for example `backend, materializationPlanDigest`.
+Behaviour is unchanged: an empty list accepts exactly as 0.225.4 did, so a re-prompted attempt in a new
+execution instance still binds to the committed materialization.
+
 ## 0.225.4
 
 A re-prompted scope owner may now run its next attempt in a new execution environment.
