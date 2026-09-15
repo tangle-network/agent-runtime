@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.141.3
+
+Regenerate versioned testing fixtures for this patch release.
+
 ## 0.141.2
 
 Preserve explicit provider billing receipts as known dollar usage so capped Sandbox runs settle.
