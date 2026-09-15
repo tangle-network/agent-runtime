@@ -6,6 +6,7 @@ import { readRuntimeSupervisorRun } from '@tangle-network/agent-eval/supervisor-
 import { canonicalCandidateJson, sha256Bytes } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
+  AgentEnvironmentEvent,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -39,6 +40,7 @@ import type {
   Budget,
   Executor,
   ExecutorResult,
+  SpawnJournal,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -428,5 +430,208 @@ describe('supervisePursuit durable terminal records', () => {
 
     const executed = await run(runDir, 'run:record:second')
     expect(executed.result.kind).toBe('winner')
+  })
+})
+
+/**
+ * agent-runtime#1233: the ROOT's provider stream is retained nowhere Runtime owns. A child's
+ * full event stream lives in its `outRef` blob (28k to 76k reasoning characters per child on
+ * real runs); the root's is discarded at the drain loop, so a root that dies leaves a 600-byte
+ * failure.json and nothing it thought. These tests drive a provider-placed root whose fake
+ * environment emits reasoning, text, and tool parts, and hold three things: the lines are on
+ * disk WHILE the turn is still streaming, result.json references the stream after settlement,
+ * and failure.json references the partial stream when the run throws after the root streamed.
+ */
+describe('supervisePursuit root stream', () => {
+  let runDir: string
+  const streamPath = () => join(runDir, 'root-stream.jsonl')
+  const rootParts: AgentEnvironmentEvent[] = [
+    {
+      id: 'root-reasoning',
+      type: 'message.part.updated',
+      data: { part: { type: 'reasoning', text: 'the root thinks' }, delta: 'the root thinks' },
+    },
+    {
+      id: 'root-text',
+      type: 'message.part.updated',
+      data: { part: { type: 'text', text: 'the root says' }, delta: 'the root says' },
+    },
+    {
+      id: 'root-tool',
+      type: 'message.part.updated',
+      data: {
+        part: {
+          type: 'tool',
+          tool: 'read',
+          callID: 'call-1',
+          state: { status: 'completed', input: { path: 'notes.md' }, output: 'notes' },
+        },
+      },
+    },
+  ]
+  /** The progress events those three parts project to, in the order the root streamed them. */
+  const rootProgress = [
+    { kind: 'reasoning_delta', text: 'the root thinks' },
+    { kind: 'text_delta', text: 'the root says' },
+    { kind: 'tool_call', toolName: 'read', toolCallId: 'call-1', args: { path: 'notes.md' } },
+    { kind: 'tool_result', toolName: 'read', toolCallId: 'call-1', result: 'notes' },
+  ]
+
+  beforeEach(async () => {
+    runDir = await mkdtemp(join(tmpdir(), 'pursuit-root-stream-'))
+  })
+  afterEach(async () => {
+    await rm(runDir, { recursive: true, force: true })
+  })
+
+  const readStreamLines = async () =>
+    (await readFile(streamPath(), 'utf8'))
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map(
+        (line) =>
+          JSON.parse(line) as { seq: number; at: string; attempt: number; event: { kind: string } },
+      )
+
+  /**
+   * The durable test provider, advertising the coordination attachment a provider-placed root
+   * needs, with the root's session prepending the three parts to its retained events. After the
+   * parts are handed to Runtime, the session reads the run directory before yielding anything
+   * else, so `seenDuringTurn` is what was on disk while the turn was still open.
+   */
+  function rootProvider(seen: { duringTurn?: number }): AgentEnvironmentProvider {
+    const base = durableRetainedProvider(join(runDir, 'provider.json'))
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      session: (id, options) => {
+        const session = environment.session!(id, options)
+        return {
+          ...session,
+          async *events(eventOptions) {
+            for (const part of rootParts) yield structuredClone(part)
+            seen.duringTurn = existsSync(streamPath())
+              ? readFileSync(streamPath(), 'utf8')
+                  .split('\n')
+                  .filter((line) => line.length > 0).length
+              : 0
+            yield* session.events(eventOptions)
+          },
+        }
+      },
+    })
+    return {
+      ...base,
+      capabilities: async () => ({
+        ...(await base.capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => wrap(await base.create(input)),
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+  }
+
+  function providerRootRun(runId: string, overrides: Record<string, unknown> = {}) {
+    return supervisePursuit(
+      testAgentProfile('stream-root', {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('stop'),
+      }),
+      'Think, say, read, then finish.',
+      {
+        pursuitId: 'pursuit:root-stream',
+        runId,
+        runDir,
+        budget: { maxIterations: 8, maxTokens: 100_000 },
+        perWorker: { maxIterations: 1, maxTokens: 10 },
+        driverRetry: { enabled: false },
+        coordination: {
+          authentication: {
+            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+          },
+          publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager`,
+        },
+        ...overrides,
+      },
+    )
+  }
+
+  it('journals the root stream as it arrives and references it from result.json apart from outRef', async () => {
+    const seen: { duringTurn?: number } = {}
+    const executed = await providerRootRun('root-stream-settle', {
+      backend: { backend: 'provider', provider: rootProvider(seen) },
+    })
+
+    // Every part the root had streamed was on disk BEFORE the turn continued: a root killed at
+    // that instant keeps what it thought, said, and called.
+    expect(seen.duringTurn).toBe(rootProgress.length)
+
+    const lines = await readStreamLines()
+    expect(lines.slice(0, rootProgress.length).map((line) => line.event)).toEqual(rootProgress)
+    // The retained provider's own interaction request rides the same stream after the parts.
+    expect(lines.map((line) => line.event.kind)).toEqual([
+      'reasoning_delta',
+      'text_delta',
+      'tool_call',
+      'tool_result',
+      'interaction',
+    ])
+    expect(lines.map((line) => line.seq)).toEqual([1, 2, 3, 4, 5])
+    expect(lines.every((line) => line.attempt === 1)).toBe(true)
+
+    const bytes = await readFile(streamPath())
+    const receipt = { ref: sha256Bytes(bytes), events: lines.length }
+    expect(executed.result.rootStream).toEqual(receipt)
+    const record = JSON.parse(await readFile(executed.settlePath, 'utf8')) as {
+      rootStream?: unknown
+      outRef?: unknown
+    }
+    expect(record.rootStream).toEqual(receipt)
+    // No child delivered, so there is no winner outRef; the root stream never stands in for one.
+    expect(executed.result.kind).toBe('no-winner')
+    expect(record.outRef).toBeUndefined()
+    // Eval's supervisor-run reader consumes the settle record with the additive key unchanged.
+    const sources = await readRuntimeSupervisorRun(runDir)
+    expect(sources.result).toBe(await readFile(executed.settlePath, 'utf8'))
+  })
+
+  it('references the partial root stream from failure.json when the run throws after the root streamed', async () => {
+    const seen: { duringTurn?: number } = {}
+    // The root drives to completion, then the settlement's journal read fails: the shape of a
+    // root that ran and whose run died at its barrier (fourier-e, 2026-09-14: 63 children, a
+    // 607-byte failure.json, and nothing of the root).
+    let armed = false
+    const journalPath = join(runDir, 'spawn-journal.jsonl')
+    const file = new FileSpawnJournal(journalPath)
+    const journal: SpawnJournal = {
+      beginTree: file.beginTree.bind(file),
+      appendEvent: file.appendEvent.bind(file),
+      loadTree: async (root) => {
+        if (armed) throw new Error('spawn journal unreadable at settlement')
+        return file.loadTree(root)
+      },
+    }
+    const failed = await providerRootRun('root-stream-failure', {
+      backend: { backend: 'provider', provider: rootProvider(seen) },
+      journal,
+      finalizer: () => {
+        armed = true
+        return undefined
+      },
+    }).catch((error) => error)
+    expect(failed).toBeInstanceOf(SupervisePursuitError)
+    expect((failed as Error).message).toMatch(/spawn journal unreadable/)
+
+    expect(seen.duringTurn).toBe(rootProgress.length)
+    const lines = await readStreamLines()
+    expect(lines.slice(0, rootProgress.length).map((line) => line.event)).toEqual(rootProgress)
+    const bytes = await readFile(streamPath())
+    const failure = (await readFailureRecord(runDir)) as
+      | { rootStream?: { ref: string; events: number } }
+      | undefined
+    expect(failure?.rootStream).toEqual({ ref: sha256Bytes(bytes), events: lines.length })
+    expect(await exists(join(runDir, SETTLE_RECORD_FILE))).toBe(false)
   })
 })

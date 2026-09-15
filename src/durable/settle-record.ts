@@ -5,7 +5,7 @@ import {
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
 } from '../runtime/supervise/durable-file'
-import type { SupervisedResult } from '../runtime/supervise/types'
+import type { RootStreamReceipt, SupervisedResult } from '../runtime/supervise/types'
 import { isNoEntError } from './jsonl-file'
 
 /*
@@ -42,6 +42,9 @@ export interface DurableFailureRecord {
   /** ISO instant the throw was recorded. */
   readonly at: string
   readonly error: { readonly name: string; readonly message: string }
+  /** The root's retained provider stream at the time of the throw, when the directory holds one:
+   *  a root that died mid-turn keeps what it had streamed, and this names it. */
+  readonly rootStream?: RootStreamReceipt
 }
 
 /** The directory already holds a settle record, so the run it records must not be re-entered. */
@@ -201,7 +204,9 @@ export async function readFailureRecord(runDir: string): Promise<DurableFailureR
     typeof record.pursuitId !== 'string' ||
     typeof record.at !== 'string' ||
     typeof record.error?.name !== 'string' ||
-    typeof record.error.message !== 'string'
+    typeof record.error.message !== 'string' ||
+    (record.rootStream !== undefined &&
+      (typeof record.rootStream.ref !== 'string' || typeof record.rootStream.events !== 'number'))
   ) {
     throw new Error(`supervisePursuit: ${path} is not a failure record`)
   }

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -7,10 +7,12 @@ import {
   type AgentProfile,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
+  sha256Bytes,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   FileResultBlobStore,
+  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   replaySpawnTree,
@@ -322,6 +324,32 @@ async function callCoordination(url: string, name: string, args: unknown): Promi
 function successStream(content: string): string {
   return [
     `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+    `data: ${JSON.stringify({ usage: { prompt_tokens: 11, completion_tokens: 7, cost: 0.01 } })}`,
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+}
+
+/** A root turn that says something and then decides to call a tool, as cli-bridge relays it. */
+function rootToolCallStream(content: string): string {
+  return [
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+    `data: ${JSON.stringify({
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'note', arguments: JSON.stringify({ text: 'hello' }) },
+              },
+            ],
+          },
+        },
+      ],
+    })}`,
     `data: ${JSON.stringify({ usage: { prompt_tokens: 11, completion_tokens: 7, cost: 0.01 } })}`,
     'data: [DONE]',
     '',
@@ -2586,6 +2614,172 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       // One reconnect under the same durable run id proves the first transport loss before the
       // repeated event id fails continuity. Resume itself starts no replacement manager.
       expect(requests).toBe(2)
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('retains the bridge-placed root stream in the run directory and references it apart from the winner outRef', async () => {
+    // agent-runtime#1233: a child's full event stream is retained in its `outRef` blob, while the
+    // root's is discarded at the drain loop. On a `winner` run `result.outRef` is the SELECTED
+    // CHILD's artifact (verified on cpp-glm: result.outRef === child s6's settled outRef), so the
+    // root's own stream needs its own record and its own reference.
+    const runDir = await mkdtemp(join(tmpdir(), 'root-stream-bridge-'))
+    const requests: BridgeRequest[] = []
+    server = createBridgeServer(async (req, res) => {
+      try {
+        const body = await readJson(req)
+        requests.push(body)
+        const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+        if (body.agent_profile.name === 'root' && coordination?.url) {
+          await callCoordination(coordination.url, 'spawn_worker', {
+            profile: codexTestProfile('worker', 'Return the measured result.'),
+            task: 'Measure and report RESULT=42.',
+          })
+          await callCoordination(coordination.url, 'await_event', {})
+        }
+        respondWithBridgeStream(
+          res,
+          body,
+          body.agent_profile.name === 'worker'
+            ? successStream('RESULT=42')
+            : rootToolCallStream('root says hi'),
+        )
+      } catch (error) {
+        res.writeHead(500, { 'content-type': 'text/plain' })
+        res.end(error instanceof Error ? error.message : String(error))
+      }
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    try {
+      const result = await supervise(
+        codexTestProfile('root', 'Lead the pursuit.', ['spawn_worker', 'await_event']),
+        'Delegate one measurement.',
+        {
+          backend: {
+            backend: 'bridge',
+            bridgeUrl: `http://127.0.0.1:${port}`,
+            bridgeBearer: 'test-token',
+          },
+          budget: { maxIterations: 6, maxTokens: 10_000 },
+          perWorker: { maxIterations: 2, maxTokens: 1_000 },
+          runDir,
+          runId: 'root-stream-bridge',
+          deliverable: {
+            check: (out) =>
+              typeof out === 'object' &&
+              out !== null &&
+              (out as { content?: unknown }).content === 'RESULT=42',
+          },
+        },
+      )
+      expect(requests.map((request) => request.agent_profile.name)).toEqual(['root', 'worker'])
+      expect(result.kind).toBe('winner')
+      if (result.kind !== 'winner') return
+
+      // The root's stream is journaled AS IT ARRIVES into the run directory, one line per
+      // progress event, in arrival order, with the drive attempt that produced it.
+      const bytes = await readFile(join(runDir, 'root-stream.jsonl'))
+      const lines = bytes
+        .toString('utf8')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map(
+          (line) =>
+            JSON.parse(line) as { seq: number; at: string; attempt: number; event: unknown },
+        )
+      expect(lines.map((line) => line.event)).toEqual([
+        { kind: 'text_delta', text: 'root says hi' },
+        { kind: 'tool_call', toolName: 'note', toolCallId: 'call-1', args: { text: 'hello' } },
+      ])
+      expect(lines.map((line) => line.seq)).toEqual([1, 2])
+      expect(lines.map((line) => line.attempt)).toEqual([1, 1])
+      expect(lines.every((line) => Number.isFinite(Date.parse(line.at)))).toBe(true)
+
+      // The result references the root stream by the content address of the file's bytes,
+      // SEPARATELY from the winner's outRef, which keeps naming the selected child's blob.
+      expect(result.rootStream).toEqual({ ref: sha256Bytes(bytes), events: 2 })
+      const events =
+        (await new FileSpawnJournal(join(runDir, 'spawn-journal.jsonl')).loadTree(
+          'root-stream-bridge',
+        )) ?? []
+      const settled = events.filter(
+        (event): event is Extract<SpawnEvent, { kind: 'settled' }> => event.kind === 'settled',
+      )
+      expect(settled).toHaveLength(1)
+      expect(result.outRef).toBe(settled[0]?.outRef)
+      expect(result.outRef).not.toBe(result.rootStream?.ref)
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('continues the root stream across a driver retry, numbering each attempt', async () => {
+    // A retry re-enters `drive()` with a fresh executor. The first attempt's lines must survive
+    // it and the second attempt's lines must say which attempt they came from.
+    const runDir = await mkdtemp(join(tmpdir(), 'root-stream-retry-'))
+    const runIds: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      const cancelled = cancelledRunId(req.url)
+      if (cancelled !== undefined) {
+        respondWithTerminalCancellation(res, cancelled)
+        return
+      }
+      const body = await readJson(req)
+      runIds.push(body.run_id)
+      if (runIds.length === 1) {
+        // One text chunk reaches Runtime, then the transport dies before any terminal receipt.
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'x-run-id': body.run_id,
+          'x-run-request-digest': TEST_RUN_DIGEST,
+        })
+        res.write(
+          `id: 1\ndata: ${JSON.stringify({ choices: [{ delta: { content: 'first attempt' } }] })}\n\n`,
+        )
+        setTimeout(() => res.socket?.destroy(new Error('socket died mid-stream')), 10)
+        return
+      }
+      if (body.run_id === runIds[0]) {
+        // The executor reconnects under the SAME run id inside attempt 1. Refusing it is what
+        // ends attempt 1 and hands the failure to the driver retry, which starts a new run id.
+        res.writeHead(500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'run is gone', type: 'server_error' } }))
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('second attempt'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const attempts: DriverAttemptRecord[] = []
+    try {
+      const result = await supervise(codexTestProfile('root', 'Lead.'), 'Say something.', {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 6, maxTokens: 10_000 },
+        runDir,
+        runId: 'root-stream-retry',
+        driverRetry: { maxAttempts: 2, initialBackoffMs: 0, maxBackoffMs: 0 },
+        onDriverAttempt: (attempt) => void attempts.push(attempt),
+      })
+      expect(attempts.map((attempt) => attempt.attempt)).toEqual([1, 2])
+      expect(new Set(runIds).size).toBe(2)
+      expect(result.kind).toBe('no-winner')
+      const bytes = await readFile(join(runDir, 'root-stream.jsonl'))
+      const lines = bytes
+        .toString('utf8')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { seq: number; attempt: number; event: unknown })
+      expect(lines).toMatchObject([
+        { seq: 1, attempt: 1, event: { kind: 'text_delta', text: 'first attempt' } },
+        { seq: 2, attempt: 2, event: { kind: 'text_delta', text: 'second attempt' } },
+      ])
+      expect(result.rootStream).toEqual({ ref: sha256Bytes(bytes), events: 2 })
     } finally {
       await rm(runDir, { recursive: true, force: true })
     }

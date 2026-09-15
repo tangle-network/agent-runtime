@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
@@ -158,11 +159,15 @@ export async function supervisePursuit(
       // A failure record that cannot be written must not hide the journal fact above; it is
       // reported as its own cause beside the run's error.
       try {
+        // The root's stream is already on disk whether or not the run settled; the record names
+        // it so a root that died mid-turn keeps what it had streamed.
+        const rootStream = await readRootStreamReceipt(runDir)
         await writeFailureRecord(runDir, {
           runId,
           pursuitId,
           at: new Date(now()).toISOString(),
           error: { name: errorName(error), message: errorMessage(error) },
+          ...(rootStream === undefined ? {} : { rootStream }),
         })
       } catch (recordError) {
         throw new Error(
