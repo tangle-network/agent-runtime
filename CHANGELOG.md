@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.225.6
+
+A re-prompted scope owner in a new execution environment now binds instead of being refused.
+
+The environment provider wrote the server-issued environment id into both `execution.id` and
+`plan.environmentId`. 0.225.4 taught the mid-run guard to treat `execution.id` as per-attempt
+routing, but the same id inside `plan` still moved `materializationPlanDigest`, so the re-prompted
+attempt was refused as a changed materialization, every driver retry created another environment,
+and the run settled `no-winner`. Named by 0.225.5's guard on mech-interp-foundations-pi-20260915i and
+reproduced on an opencode root with the same placement, so this was placement, not harness.
+
+The id is dropped from the plan. The admission events already record which environment served
+each attempt, and `execution.id` carries it on the receipt.
+
+tests/kernel/supervise-retained-owner-recovery.test.ts already drove this path and passed on every
+version that had the defect, because it never asserted on the binding. It now does.
+
 ## 0.225.5
 
 The mid-run materialization guard now names the fields that differ when it refuses an attempt.
