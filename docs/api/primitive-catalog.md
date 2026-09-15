@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.226.0` and `@tangle-network/agent-eval@0.181.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.225.6` and `@tangle-network/agent-eval@0.181.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -220,7 +220,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 54 exports.
+Import from `@tangle-network/agent-runtime/durable` — 49 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -232,8 +232,6 @@ Import from `@tangle-network/agent-runtime/durable` — 54 exports.
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
-| `readRootStream` | function | Every committed line of the root stream, in order, or `undefined` when there is no file. A |
-| `readRootStreamReceipt` | function | The receipt for the root stream a run directory holds, recomputed from the file's bytes, or |
 | `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
@@ -241,7 +239,6 @@ Import from `@tangle-network/agent-runtime/durable` — 54 exports.
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
-| `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
 | `SETTLE_RECORD_FILE` | const | The settle record: the returned `SupervisedResult` as canonical JSON, written once. |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
@@ -262,7 +259,6 @@ Import from `@tangle-network/agent-runtime/durable` — 54 exports.
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
-| `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
@@ -270,7 +266,6 @@ Import from `@tangle-network/agent-runtime/durable` — 54 exports.
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
 | `PursuitNodePlacement` | type | Where and how a node's execution was placed, read off its execution-binding receipt. |
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
-| `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `ObserverRecordKind`.
 
@@ -423,7 +418,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 944 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 943 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -974,7 +969,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 944 exports.
 | `RetainedRunSnapshot` | interface | Stable status snapshot for a retained run. |
 | `RetainedRunStartMaterial` | interface | Environment, turn, and optional identity needed to replay one retained start. |
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
-| `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
 | `RouterSeam` | interface | Router/inline transport seam. The profile owns model, prompt, and generation behavior. |
 | `RouterToolsSeam` | interface | Router seam WITH tool use — the tool-using router backend. Same direct |
 | `RouterTransportConfig` | interface | Connection details for Runtime's Router-backed executors. |
