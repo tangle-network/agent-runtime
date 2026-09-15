@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.141.4
+
+Format provider receipt handling for the release verifier.
+
 ## 0.141.3
 
 Regenerate versioned testing fixtures for this patch release.
