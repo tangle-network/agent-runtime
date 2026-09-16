@@ -29,7 +29,10 @@ export function errorProperty(
   }
 }
 
-function errorHttpStatus(error: Error): number | undefined {
+/** An HTTP status carried on a thrown error, read without trusting its getter. Provider SDKs put
+ *  one on their own error classes, so this is how a refusal is recognised outside the transport
+ *  taxonomy — for the persisted message here, and for the driver's retry verdict. */
+export function errorHttpStatus(error: Error): number | undefined {
   try {
     const status: unknown = Reflect.get(error, 'status')
     return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
