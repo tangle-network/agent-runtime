@@ -138,6 +138,42 @@ describe('SupervisorFinalizer — bestDelivered is the unchanged default', () =>
     expect(await runWith(bestDelivered, fx)).toBeUndefined()
     expect(await runWith(collectDelivered, fx)).toBeUndefined()
   })
+
+  it.each([true, false])(
+    'checks the parent objective in score order with a complete sibling present: %s',
+    async (completeSibling) => {
+      const fx = await ledgerFixture([
+        { id: 'component', status: 'done', valid: true, score: 0.9, payload: 'database ready' },
+        {
+          id: 'product',
+          status: 'done',
+          valid: true,
+          score: 0.5,
+          payload: completeSibling ? 'product verified' : 'api ready',
+        },
+        { id: 'invalid', status: 'done', valid: false, score: 1, payload: 'product verified' },
+      ])
+      const checked: unknown[] = []
+      const result = await runFinalizer(bestDelivered, {
+        settled: fx.rows,
+        blobs: fx.blobs,
+        tree: emptyTree,
+        budget: poolReadout,
+        deliverable: {
+          check: (candidate) => {
+            checked.push(candidate)
+            return candidate === 'product verified'
+          },
+        },
+      })
+      expect(result).toBe(completeSibling ? 'product verified' : undefined)
+      expect(checked).toEqual([
+        'database ready',
+        completeSibling ? 'product verified' : 'api ready',
+      ])
+      expect(fx.rows.map((row) => row.valid)).toEqual([true, true, false])
+    },
+  )
 })
 
 describe('SupervisorFinalizer — collectDelivered is the second implementation', () => {
