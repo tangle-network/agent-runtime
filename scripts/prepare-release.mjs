@@ -73,8 +73,11 @@ console.log(
     `Prepared ${version}. Next:`,
     '  git add -A && git commit -m "chore(release): <version>"',
     '  open a PR, merge it, then tag the tip of main:',
+    '  git fetch --tags origin && gh run list --workflow=publish.yml --limit 1   # nothing in progress, no newer tag',
     `  git tag v${version} <merged-main-sha> && git push origin v${version}`,
     '',
-    'Publish rejects a tag that is not the tip of main (or of release/<major>.<minor>.x).',
+    'Publish rejects a tag that is not the tip of main (or of release/<major>.<minor>.x), and',
+    'refuses a tag main has since moved past. Releases run one at a time; say on the PR that',
+    'you are cutting before you tag, because more than one session publishes this package.',
   ].join('\n'),
 )

@@ -15,6 +15,16 @@ on:
 permissions:
   contents: read
 
+# One release at a time, and never a queue. Three sessions cut 0.228.0, 0.231.1 and 0.232.0 within
+# hours of each other on 2026-09-16, and v0.232.0 was pushed four minutes before #1259 merged, so
+# the tag published without the change main declared in that version. Two tags racing this
+# workflow would both pass the per-tag tip check below and publish out of order; the group makes
+# the second wait for the first, and `cancel-in-progress: false` means a tag that is already
+# publishing is never interrupted by a later one.
+concurrency:
+  group: publish-agent-runtime
+  cancel-in-progress: false
+
 jobs:
   release-source:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -78,6 +88,17 @@ jobs:
           if [ "$TAG_SHA" = "$MAIN_SHA" ]; then
             echo "Tag is the tip of main: $TAG_SHA"
             exit 0
+          fi
+          # A tag that was the tip of main when it was pushed, but is not by the time this job
+          # runs, is the race the concurrency group serialises: another session merged after the
+          # tag. Publishing it now would ship less than main declares under this version. Name the
+          # commits it would leave out and stop, exactly as for a stale tag.
+          if git merge-base --is-ancestor "$TAG_SHA" "$MAIN_SHA" 2>/dev/null; then
+            echo "::error::Tag $RELEASE_TAG is at $TAG_SHA, but main has moved to $MAIN_SHA since it was pushed."
+            echo "Commits on main this tag would NOT publish:"
+            git log --oneline "$TAG_SHA".."$MAIN_SHA" || true
+            echo "Bump the version on main and re-cut the tag at its tip."
+            exit 1
           fi
           VERSION="${RELEASE_TAG#v}"
           LINE="release/${VERSION%.*}.x"
