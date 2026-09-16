@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { captureHarnessTranscript } from './harness-transcript'
+import { InMemoryResultBlobStore } from '../durable/spawn-journal'
+import {
+  captureHarnessTranscript,
+  harnessTranscriptArtifact,
+  persistHarnessTranscript,
+} from './harness-transcript'
 
 function environment(files: Record<string, string>, opts: { read?: boolean; exec?: boolean } = {}) {
   const listing = Object.keys(files).join('\n')
@@ -145,5 +150,45 @@ describe('captureHarnessTranscript', () => {
       'codex',
     )
     expect(reads).toEqual(['/root/.codex/sessions/r.jsonl'])
+  })
+})
+
+describe('persistHarnessTranscript', () => {
+  it('settles a pointer and the files come back only when someone opens them', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const capture = await captureHarnessTranscript(
+      environment({ '/root/.codex/sessions/s.jsonl': '{"text":"the reasoning"}' }),
+      'codex',
+    )
+    const evidence = await persistHarnessTranscript(capture, blobs)
+    expect(evidence.status).toBe('available')
+    if (evidence.status !== 'available') return
+    // The receipt is small and names what it points at; the bytes are not on it (#1248).
+    expect(evidence).toMatchObject({ harness: 'codex', fileCount: 1, skippedCount: 0 })
+    expect(JSON.stringify(evidence)).not.toContain('the reasoning')
+    const artifact = await harnessTranscriptArtifact(evidence, blobs)
+    expect(artifact?.files.map((file) => file.content).join('')).toContain('the reasoning')
+  })
+
+  it('names a capture that never reached disk instead of settling a dangling pointer', async () => {
+    const capture = await captureHarnessTranscript(
+      environment({ '/root/.codex/sessions/s.jsonl': '{}' }),
+      'codex',
+    )
+    const evidence = await persistHarnessTranscript(capture, {
+      put: async () => {
+        throw new Error('disk full')
+      },
+    })
+    expect(evidence).toEqual({ status: 'unavailable', reason: 'transcript-persistence-failed' })
+  })
+
+  it('passes an unavailable capture through untouched', async () => {
+    const evidence = await persistHarnessTranscript(
+      { status: 'unavailable', reason: 'no-transcript' },
+      new InMemoryResultBlobStore(),
+    )
+    expect(evidence).toEqual({ status: 'unavailable', reason: 'no-transcript' })
+    expect(await harnessTranscriptArtifact(evidence, new InMemoryResultBlobStore())).toBeUndefined()
   })
 })

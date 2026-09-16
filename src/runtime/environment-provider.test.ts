@@ -33,6 +33,7 @@ import {
   providerAsSandboxClient,
   sandboxClientAsProvider,
 } from './environment-provider'
+import { harnessTranscriptArtifact } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 import { retainedCreateMaterial } from './retained-run-intent'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
@@ -2122,6 +2123,87 @@ describe('environment provider adapters', () => {
     expect(executor.harnessTranscript?.()).toEqual({
       status: 'unavailable',
       reason: 'execution-never-started',
+    })
+  })
+
+  // End to end, #1244: the drop reaches the journal's settled record as a pointer that resolves.
+  it('journals a dropped child with a transcript pointer that resolves in the run blobs', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'dropping-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          exec: async () => ({
+            stdout: '/root/.claude/projects/a/session.jsonl',
+            stderr: '',
+            exitCode: 0,
+          }),
+          read: async () => '{"role":"assistant","text":"the corner certificate holds"}',
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'message.part.updated', data: { delta: 'working' } }
+            throw new Error('sidecar start failed')
+          },
+        }) as AgentEnvironment
+      },
+    }
+    const journal = new InMemorySpawnJournal()
+    await journal.beginTree('root', new Date(0).toISOString())
+    const blobs = new InMemoryResultBlobStore()
+    const scope = createScope({
+      parentId: 'root',
+      root: 'root',
+      journal,
+      blobs,
+      pool: createBudgetPool({ maxIterations: 2, maxTokens: 1_000 }, 0),
+      executors: createExecutorRegistry(),
+      seams: {},
+      depth: 0,
+      signal: new AbortController().signal,
+    })
+    const profile: AgentProfile = {
+      name: 'dropper',
+      harness: 'claude-code',
+      model: { provider: 'fixture', default: 'fixture/model' },
+    }
+    expect(
+      scope.spawn(
+        Object.assign(
+          { name: 'dropper', act: async () => 'unused' },
+          {
+            executorSpec: {
+              profile,
+              harness: null,
+              executorFactory: createExecutor({ backend: 'provider', provider }),
+            },
+          },
+        ),
+        'task',
+        { label: 'dropper', budget: { maxIterations: 1, maxTokens: 1_000 } },
+      ).ok,
+    ).toBe(true)
+
+    const settled = await scope.next()
+    expect(settled).not.toBeNull()
+    if (settled === null) return
+    expect(settled.kind).toBe('down')
+    if (settled.kind !== 'down') return
+    // No result artifact, no tool spans — and still the receipt is there and resolves.
+    expect(settled.harnessTranscript?.status).toBe('available')
+    if (settled.harnessTranscript?.status !== 'available') return
+    const artifact = await harnessTranscriptArtifact(settled.harnessTranscript, blobs)
+    expect(artifact?.files.map((file) => file.content).join('')).toContain(
+      'the corner certificate holds',
+    )
+    // The durable record carries the same pointer, so replay and Lab read it without the process.
+    const record = (await journal.loadTree('root'))?.find(
+      (event) => event.kind === 'settled' && event.id === settled.handle.id,
+    )
+    expect(record).toMatchObject({
+      status: 'down',
+      harnessTranscript: {
+        status: 'available',
+        transcriptRef: settled.harnessTranscript.transcriptRef,
+      },
     })
   })
 
