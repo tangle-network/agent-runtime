@@ -5,10 +5,14 @@ on:
     paths: [.github/workflows/final-pursuit-audit.yml]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
-  BASE_SHA: 9973f284a052b3a9be69c95211f959ac3b0ec57f
-  REPAIR_BRANCH: fix/stream-long-pursuit-journals
-  EXPECTED_HEAD: 29e34ca95ee2b9169a5080770d72cff74a921dd8
+  BASE_SHA: 43bb5614275f15608f8b51f633d4d570f0432723
+  OLD_BASE: 9973f284a052b3a9be69c95211f959ac3b0ec57f
+  EXPECTED_HEAD: abfb572c6887490232c522529f086b8daf3bd5cf
+  DELIVERY_BRANCH: audit/verified-pr1270-043bb561
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -18,37 +22,146 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Apply reviewed repair to the exact updated base
+      - name: Inspect real merge conflicts and retain only the existing repair
         run: |
-          base64 --decode .audit/streaming-journals.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/repair.patch"
-          echo "c3b9fbe2395a339b4bde64e556d634441189a44d209f218db95c696f691399d0  $RUNNER_TEMP/repair.patch" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/checks"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff "$OLD_BASE" "$EXPECTED_HEAD" -- src docs/agent-managed-compute/reliability.md ':!src/testing/fixtures' > "$RUNNER_TEMP/repair.patch"
+          test -s "$RUNNER_TEMP/repair.patch"
+          git checkout --detach "$EXPECTED_HEAD"
+          set +e
+          git merge --no-commit --no-ff "$BASE_SHA" > "$RUNNER_TEMP/checks/merge.log" 2>&1
+          code=$?
+          set -e
+          test "$code" -le 1
+          git diff --name-only --diff-filter=U > "$RUNNER_TEMP/checks/conflicts.txt"
+          if test -f .git/MERGE_HEAD; then git merge --abort; fi
           git checkout --detach "$BASE_SHA"
           git apply --check "$RUNNER_TEMP/repair.patch"
-          git apply "$RUNNER_TEMP/repair.patch"
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/durable/observer-journal.ts')
-          s = p.read_text()
-          assert s.count('private records()') == 1
-          assert s.count('this.records()') == 2
-          p.write_text(s.replace('private records()', 'private readExistingUnsafe()').replace('this.records()', 'this.readExistingUnsafe()'))
-          PY
+          git show "$EXPECTED_HEAD:src/durable/tests/streaming-journal.test.ts" > src/durable/tests/streaming-journal.test.ts
+          git rev-parse HEAD > "$RUNNER_TEMP/checks/baseline-commit.txt"
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-      - name: Install exact declared dependencies
-        run: pnpm install --frozen-lockfile && pnpm peers check
-      - name: Prepare patch release through maintained scripts
+      - name: Install current main's exact dependency lock
         run: |
-          pnpm run release:prepare 0.236.1
+          pnpm install --frozen-lockfile
+          pnpm peers check
+          cp package.json pnpm-workspace.yaml release/cohort.json "$RUNNER_TEMP/checks/"
+          pnpm list --depth 0 --json > "$RUNNER_TEMP/checks/installed.json"
+      - name: Query live registry versions without changing dependencies
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { parse } from 'yaml'
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+          const catalog = parse(readFileSync('pnpm-workspace.yaml', 'utf8')).catalog
+          const declared = { ...pkg.peerDependencies, ...pkg.dependencies, ...pkg.devDependencies }
+          const names = [...new Set([...Object.keys(declared), '@tangle-network/agent-runtime', '@tangle-network/agent-provider-tangle', 'pnpm'])]
+          const results = []
+          let cursor = 0
+          await Promise.all(Array.from({length: 4}, async () => {
+            while (cursor < names.length) {
+              const name = names[cursor++]
+              let installed = null
+              try { installed = JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf8')).version } catch {}
+              const requested = declared[name] === 'catalog:' ? catalog[name] : declared[name] ?? null
+              const alias = typeof requested === 'string' && requested.startsWith('npm:') ? requested.slice(4).replace(/@[^@]*$/, '') : name
+              const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(alias)}/latest`, {signal: AbortSignal.timeout(30000)})
+              if (!response.ok) throw new Error(`${name}: registry HTTP ${response.status}`)
+              const latest = await response.json()
+              results.push({name, declared: requested, installed, latest: latest.version, queriedAt: new Date().toISOString(), peers: latest.peerDependencies ?? {}, engines: latest.engines ?? {}, deprecated: latest.deprecated ?? null, gitHead: latest.gitHead ?? null})
+            }
+          }))
+          results.sort((a,b) => a.name.localeCompare(b.name))
+          writeFileSync(`${process.env.RUNNER_TEMP}/checks/dependencies.json`, JSON.stringify({base: process.env.BASE_SHA, packageVersion: pkg.version, results}, null, 2))
+          console.table(results.map(({name, declared, installed, latest}) => ({name, declared, installed, latest})))
+          JS
+      - name: Prove the existing consumer regressions still fail on current main
+        run: |
+          set +e
+          pnpm exec vitest run src/durable/tests/streaming-journal.test.ts -t 'durable consumers share streaming reads' --reporter=json --outputFile="$RUNNER_TEMP/checks/baseline-tests.json" > "$RUNNER_TEMP/checks/baseline-tests.log" 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 1
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          import assert from 'node:assert/strict'
+          const result = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/checks/baseline-tests.json`, 'utf8'))
+          assert.equal(result.numFailedTests, 5)
+          assert.equal(result.numPassedTests, 1)
+          console.log('Current main: five consumer regressions fail; the corruption control passes.')
+          JS
+          rm src/durable/tests/streaming-journal.test.ts
+          git diff --exit-code
+      - name: Reproduce the real file-size failure on current main
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          directory = root / 'size-fixture'
+          directory.mkdir()
+          digest = hashlib.sha256()
+          with (directory / 'root-stream.jsonl').open('xb') as handle:
+              for index in range(8704):
+                  record = {'seq': index + 1, 'at': '2026-09-16T00:00:00.000Z', 'attempt': 1, 'event': {'kind': 'text_delta', 'text': f'evidence-{index}'}}
+                  content = json.dumps(record).encode()
+                  line = content + b' ' * (65535 - len(content)) + b'\n'
+                  handle.write(line)
+                  digest.update(line)
+          (root / 'checks/fixture.json').write_text(json.dumps({'bytes': 570425344, 'events': 8704, 'sha256': digest.hexdigest()}))
+          PY
+          cat > "$RUNNER_TEMP/size-probe.mjs" <<'JS'
+          import { pathToFileURL } from 'node:url'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import assert from 'node:assert/strict'
+          const mode = process.argv[2]
+          const {readRootStreamReceipt, createRootStreamSink} = await import(pathToFileURL(`${process.cwd()}/src/runtime/supervise/root-stream.ts`).href)
+          const fixture = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/checks/fixture.json`, 'utf8'))
+          const runDir = `${process.env.RUNNER_TEMP}/size-fixture`
+          const started = performance.now()
+          const report = { mode, node: process.version, bytes: fixture.bytes }
+          try {
+            const receipt = await readRootStreamReceipt(runDir)
+            assert.equal(receipt.events, fixture.events)
+            assert.equal(receipt.ref, `sha256:${fixture.sha256}`)
+            const sink = createRootStreamSink(runDir, () => 1)
+            await sink.beginAttempt()
+            sink.append({kind:'text_delta', text:'resumed on current main plus repair'})
+            const after = await sink.close()
+            assert.equal(after.events, fixture.events + 1)
+            Object.assign(report, {succeeded:true, eventsAfter:after.events})
+          } catch(error) {
+            Object.assign(report, {succeeded:false, error:{name:error.name, code:error.code, message:error.message}})
+          }
+          Object.assign(report, {elapsedMs:Math.round(performance.now()-started), maxRssKiB:process.resourceUsage().maxRSS})
+          writeFileSync(`${process.env.RUNNER_TEMP}/checks/${mode}-size.json`, JSON.stringify(report, null, 2))
+          console.log(report)
+          if(mode === 'baseline') { assert.equal(report.succeeded, false); assert.equal(report.error.code, 'ERR_STRING_TOO_LONG') }
+          else { assert.equal(report.succeeded, true) }
+          JS
+          node --max-old-space-size=1024 --import tsx "$RUNNER_TEMP/size-probe.mjs" baseline
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr1270-current-main-audit
+          path: ${{ runner.temp }}/checks/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Apply repair while preserving all newer mainline work and dependencies
+        run: |
+          git apply "$RUNNER_TEMP/repair.patch"
+          node --max-old-space-size=128 --import tsx "$RUNNER_TEMP/size-probe.mjs" repaired
+          pnpm run release:prepare 0.237.1
           python3 - <<'PY'
           from pathlib import Path
           path = Path('CHANGELOG.md')
           text = path.read_text()
           assert text.startswith('# Changelog\n')
           entry = '''
-          ## 0.236.1
+          ## 0.237.1
 
           File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
           Observer restart verifies its complete digest chain while retaining only the last record.
@@ -61,9 +174,13 @@ jobs:
           '''
           path.write_text('# Changelog\n' + entry + text[len('# Changelog\n'):])
           PY
+          git diff "$BASE_SHA" -- src docs/agent-managed-compute/reliability.md ':!src/testing/fixtures' > "$RUNNER_TEMP/reapplied.patch"
+          git add src/durable/tests/streaming-journal.test.ts
+          git diff "$BASE_SHA" -- src docs/agent-managed-compute/reliability.md ':!src/testing/fixtures' > "$RUNNER_TEMP/reapplied.patch"
+          cmp "$RUNNER_TEMP/repair.patch" "$RUNNER_TEMP/reapplied.patch"
+          git diff --exit-code "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml release/cohort.json
       - name: Native lint, complete tests, source and example types
         run: |
-          mkdir -p "$RUNNER_TEMP/checks"
           pnpm run lint 2>&1 | tee "$RUNNER_TEMP/checks/lint.log"
           pnpm test 2>&1 | tee "$RUNNER_TEMP/checks/tests.log"
           pnpm run typecheck 2>&1 | tee "$RUNNER_TEMP/checks/typecheck.log"
@@ -72,50 +189,39 @@ jobs:
           pnpm run verify:package 2>&1 | tee "$RUNNER_TEMP/checks/package.log"
           pnpm run docs:freshness
           git diff --check
-      - name: Retain one clean verified product commit
+      - name: Retain a verified merge commit without rewriting the PR history
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          if git diff --cached --name-only | grep -E '^(\.github/|\.audit/)'; then
-            echo 'Temporary audit files must not enter the product tree.' >&2
-            exit 1
-          fi
-          git commit -m 'fix(durable): stream long pursuit journals without whole-file allocation'
-          pnpm run docs:check
+          if git diff --cached --name-only "$BASE_SHA" | grep -E '^(\.github/|\.audit/)'; then exit 1; fi
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'Merge current main into PR 1270; regenerate release 0.237.1' | git commit-tree "$tree" -p "$EXPECTED_HEAD" -p "$BASE_SHA")
+          git checkout --detach "$commit"
+          pnpm run docs:check 2>&1 | tee "$RUNNER_TEMP/checks/docs.log"
           test -z "$(git status --porcelain)"
           out="$RUNNER_TEMP/verified-repair"
           mkdir -p "$out"
           cp -R "$RUNNER_TEMP/checks" "$out/checks"
-          git rev-parse HEAD > "$out/commit.txt"
-          git rev-parse HEAD^{tree} > "$out/tree.txt"
-          git rev-parse HEAD^ > "$out/base.txt"
+          printf '%s\n' "$commit" > "$out/commit.txt"
+          printf '%s\n' "$tree" > "$out/tree.txt"
+          printf '%s\n' "$BASE_SHA" > "$out/base.txt"
           git diff --stat "$BASE_SHA" HEAD > "$out/diff-stat.txt"
           git diff --binary "$BASE_SHA" HEAD > "$out/repair.patch"
-          git bundle create "$out/verified.bundle" "$BASE_SHA..HEAD"
-          node --version > "$out/node-version.txt"
+          git bundle create "$out/verified.bundle" HEAD "^$BASE_SHA" "^$EXPECTED_HEAD"
           (cd "$out" && sha256sum verified.bundle repair.patch > SHA256SUMS)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: verified-streaming-repair
+          name: verified-streaming-repair-current
           path: ${{ runner.temp }}/verified-repair/
           retention-days: 7
           if-no-files-found: error
-      - name: Retain failure diagnostics without weakening checks
-        if: failure()
-        run: |
-          mkdir -p "$RUNNER_TEMP/checks"
-          cp package.json tsdown.config.ts "$RUNNER_TEMP/checks/"
-          if test -d dist; then tar -czf "$RUNNER_TEMP/checks/dist.tar.gz" dist; fi
-          git diff --stat > "$RUNNER_TEMP/checks/diff-stat.txt"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: failure()
         with:
-          name: streaming-repair-diagnostics
+          name: pr1270-reconciliation-diagnostics
           path: ${{ runner.temp }}/checks/
-          retention-days: 2
+          retention-days: 7
           if-no-files-found: warn
-  review-branch:
+  deliver-objects:
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -124,13 +230,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9973f284a052b3a9be69c95211f959ac3b0ec57f
+          ref: 43bb5614275f15608f8b51f633d4d570f0432723
           fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: verified-streaming-repair
+          name: verified-streaming-repair-current
           path: ${{ runner.temp }}/verified-repair
-      - name: Update only the existing owned review branch with an exact lease
+      - name: Deliver only verified Git objects to a new temporary branch
         run: |
           out="$RUNNER_TEMP/verified-repair"
           (cd "$out" && sha256sum --check SHA256SUMS)
@@ -138,7 +244,9 @@ jobs:
           git fetch "$out/verified.bundle" HEAD
           commit=$(cat "$out/commit.txt")
           test "$(git rev-parse FETCH_HEAD)" = "$commit"
-          test "$(git rev-parse "$commit^")" = "$BASE_SHA"
+          test "$(git rev-parse "$commit^1")" = "$EXPECTED_HEAD"
+          test "$(git rev-parse "$commit^2")" = "$BASE_SHA"
           test "$(git rev-parse "$commit^{tree}")" = "$(cat "$out/tree.txt")"
           if git diff --name-only "$BASE_SHA" "$commit" | grep -E '^(\.github/|\.audit/)'; then exit 1; fi
-          git push --force-with-lease="refs/heads/$REPAIR_BRANCH:$EXPECTED_HEAD" origin "$commit:refs/heads/$REPAIR_BRANCH"
+          if git ls-remote --exit-code --heads origin "$DELIVERY_BRANCH" >/dev/null 2>&1; then exit 1; fi
+          git push origin "$commit:refs/heads/$DELIVERY_BRANCH"
