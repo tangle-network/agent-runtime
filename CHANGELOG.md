@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.231.1
+
+Allow Sandbox 0.40.x beside Runtime without a consumer dependency override.
+The supported range is now `>=0.36.4 <0.41.0`.
+The existing package checks exercise the oldest supported release and the 0.40 release line.
+
 ## 0.231.0
 
 Retained provider directors now reuse their environment and conversation across deliberate re-prompts.
