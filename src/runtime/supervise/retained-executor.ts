@@ -60,9 +60,11 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  *
  * Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
  * list — never its message text, because the provider is not a dependency of this package and
- * its messages are not a contract. Two exhibits (#1204's 3 and 6) are thrown by the provider as
- * plain `Error`s with no code, so a structure-only classifier cannot name them until the provider
- * types them; they land on `'unobservable'`, which is the safe side.
+ * its messages are not a contract. #1204's exhibit 3 (an event without a stable id) is delivered
+ * rather than thrown since agent-provider-tangle 1.4.0, so it no longer reaches this path; its
+ * exhibit 6 is typed as `JsonBoundError` (`code: 'JSON_BOUND_VIOLATION'`) since 1.5.0 and lands
+ * with the schema violations. A provider still throwing plain `Error`s lands on `'unobservable'`,
+ * which is the safe side.
  *
  * One `RetainedRunProviderContractError` is NOT one meaning. The runtime mints it both when the
  * provider answered wrongly and when a READ of the provider failed (`RETAINED_RESULT_READ_FAILED`,
@@ -151,9 +153,15 @@ export function classifyRetainedPendingCause(
       queue.unshift({ value: Reflect.get(value, 'cause'), phase: 'execution' })
       continue
     }
-    if (name === 'ZodError' || Array.isArray(Reflect.get(value, 'issues'))) {
-      // A schema violation at admission is a rejected request. After admission it is the
-      // runtime refusing the PROVIDER's answer — a contract violation on the provider's side.
+    if (
+      name === 'ZodError' ||
+      Array.isArray(Reflect.get(value, 'issues')) ||
+      // agent-provider-tangle's bound refusal (JsonBoundError, since 1.5.0): the same fact as a
+      // schema violation, typed at last — #1204's exhibit 6.
+      code === 'JSON_BOUND_VIOLATION'
+    ) {
+      // A schema or bound violation at admission is a rejected request. After admission it is
+      // the runtime refusing the PROVIDER's answer — a contract violation on the provider's side.
       return at === 'admission' ? 'request-rejected' : 'provider-contract'
     }
     if (code !== undefined && transportCodes.has(code)) return 'transport'
