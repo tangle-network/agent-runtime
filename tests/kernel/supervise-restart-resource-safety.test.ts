@@ -1159,7 +1159,11 @@ describe('supervision restart and resource safety', () => {
     if (result.kind !== 'winner') return
     expect(result.out).toEqual({
       downKind: 'down',
-      second: { ok: false, reason: 'budget-exhausted' },
+      second: {
+        ok: false,
+        reason: 'budget-exhausted',
+        shortfalls: [{ channel: 'usd', requested: 1, free: 0, closedByUnknownSpend: true }],
+      },
     })
     expect(replacementExecutions).toBe(0)
     expect(result.spentTotal).toMatchObject({

@@ -39,6 +39,7 @@ import type { HarnessTranscriptCapture, HarnessTranscriptEvidence } from '../har
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
+import type { ReservationShortfall } from './budget'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { RetainedPendingCause } from './retained-executor'
 import type { TraceSource } from './trace-source'
@@ -1041,7 +1042,9 @@ export interface Scope<Out> {
     agent: Agent<unknown, C> | (() => Agent<unknown, C>),
     task: unknown,
     opts: SpawnOpts,
-  ): { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> } | { ok: false; reason: SpawnRejection }
+  ):
+    | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
+    | { ok: false; reason: SpawnRejection; shortfalls?: readonly ReservationShortfall[] }
   /** ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
    *  `null` when the live set is empty. */
   next(): Promise<Settled<Out> | null>

@@ -639,6 +639,7 @@ export {
   type LeakedReservation,
   type ReservationHolder,
   type ReservationRejection,
+  type ReservationShortfall,
   type ReservationStage,
   type ReservationTicket,
   spendFromUsageEvents,

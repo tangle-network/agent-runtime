@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.237.0
+
+**A refused spawn says which budget channels ran short and by how much.** A `budget-exhausted` reservation now carries `shortfalls`: every channel that did not fit, each as `{ channel, requested, free }` (`ReservationShortfall`, exported). `scope.spawn` passes them through, and `spawn_worker` returns them with a reason a driver can act on, for example `the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits`.
+
+Iterations can be requested at exactly `free`, because a driver's own turns charge none. Tokens and dollars cannot: the driver's next turn is metered from the same pool before its retry reaches admission, so the text says to ask for well under `free`. A channel closed by unmeasured spend (`closedByUnknownSpend`) says the run admits no further spawn at any budget.
+
+Measured 2026-09-16 on a Discovery director placed on the Tangle sandbox: its first research child asked for 100 iterations against a 60-iteration pool, got "the run has no allocation left to give this worker", spent a throwaway 3-iteration probe worker to learn the pool still had room, and moved its research to local processes.
+
+That same sentence was also the reply for every other refusal: `max-live-workers`, `depth-exceeded`, `duplicate-key`, `key-conflict`, `invalid-identity`, and `scope-aborted` were each reported as an empty pool. Each now names its own cause and a next step a driver can take. The `usd-unbudgeted`, `in-doubt`, and `scope-settled` texts are unchanged, and `usd-unbudgeted` still yields to an exhausted channel as before.
+
+Resource validation (a child missing a root resource, a unit mismatch, an undeclared resource) now throws before any shortfall is computed, where before a short resource could return first. A consumer that compared a refusal with `toEqual({ ok: false, reason: 'budget-exhausted' })` now also receives `shortfalls`.
+
 ## 0.236.0
 
 A root that ran to completion under budget, selected nothing, and **never spawned a child** now settles `no-winner` with reason `no-children-spawned`. It used to settle `all-children-down` with `downCount: 0`, which reads as a fleet failure to anyone who did not open the journal. Fifteen sandbox-placed directors settled that way in one week while the actual fault was that the root never recursed, and every reader went looking at the fleet.
