@@ -282,7 +282,33 @@ export function classifyDriverFailure(
   // Every other AgentEvalError (session mismatch, planner, analyst, not-found) is a structural
   // refusal too. Kept after the transport check, which is itself an AgentEvalError subclass.
   if (error instanceof AgentEvalError) return 'terminal'
-  return 'transient'
+  return foreignHttpStatusVerdict(error) ?? 'transient'
+}
+
+/**
+ * A foreign error that still carries an HTTP status is a refusal we can read.
+ *
+ * A provider SDK throws its own error classes, so an environment `create` that the platform
+ * refused arrives here as neither a `BackendTransportError` nor an `AgentEvalError`, and the
+ * default sends it to `transient`. Measured 2026-09-16: a Tangle Sandbox create refused
+ * `HTTP 400 {"code":"CONFIG_ERROR"}` for a key whose budget was fully reserved retried 14-22
+ * times per node while the run showed a durable intent and no other event, so eleven of twelve
+ * roots sat for 25 minutes with nothing to diagnose. The status was on the error the whole time.
+ *
+ * Reading it applies the same rule the transport branch already promises consumers: 408, 429 and
+ * 5xx are the upstream having a bad moment, and any other 4xx is a request that will fail
+ * identically forever. Anything without a plain numeric status keeps the historical default.
+ */
+function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | undefined {
+  // Only a thrown Error is read. `status` is a common field name on ordinary objects — a
+  // settlement, a run state, a provider-model record — and treating one of those as an HTTP
+  // refusal would silently stop retries that have nothing to do with a rejected request.
+  if (!(error instanceof Error)) return undefined
+  const status = (error as Error & { readonly status?: unknown }).status
+  if (typeof status !== 'number' || !Number.isInteger(status)) return undefined
+  if (status < 400 || status > 599) return undefined
+  if (status === 408 || status === 429 || status >= 500) return 'transient'
+  return 'terminal'
 }
 
 /** The budget's own verdict on whether another attempt may run at all. */

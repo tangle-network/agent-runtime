@@ -85,6 +85,59 @@ describe('classifyDriverFailure', () => {
     expect(classifyDriverFailure(missing)).toBe('terminal')
   })
 
+  it('reads an HTTP status off a provider SDK error, so a refused create does not retry forever', () => {
+    // A provider SDK throws its own classes, so a refused environment `create` is neither a
+    // BackendTransportError nor an AgentEvalError. Measured 2026-09-16: a Tangle Sandbox create
+    // refused HTTP 400 CONFIG_ERROR (the key's budget was fully reserved by a live box) retried
+    // 14-22 times per node, and eleven of twelve roots showed a durable intent and nothing else
+    // for 25 minutes.
+    class SandboxSdkError extends Error {
+      constructor(
+        message: string,
+        readonly status: number,
+        readonly code: string,
+      ) {
+        super(message)
+        this.name = 'SandboxError'
+      }
+    }
+
+    const refused = new SandboxSdkError('Platform key delegation failed', 400, 'CONFIG_ERROR')
+    const quota = new SandboxSdkError('concurrent limit reached', 403, 'QUOTA_EXCEEDED')
+    const wrongState = new SandboxSdkError('sandbox is stopped', 409, 'INVALID_STATE')
+    expect(classifyDriverFailure(refused)).toBe('terminal')
+    expect(classifyDriverFailure(quota)).toBe('terminal')
+    expect(classifyDriverFailure(wrongState)).toBe('terminal')
+
+    // The same split the transport branch promises: the upstream having a bad moment still retries.
+    expect(classifyDriverFailure(new SandboxSdkError('gateway', 502, 'UPSTREAM'))).toBe('transient')
+    expect(classifyDriverFailure(new SandboxSdkError('slow down', 429, 'RATE_LIMIT'))).toBe(
+      'transient',
+    )
+    expect(classifyDriverFailure(new SandboxSdkError('timeout', 408, 'TIMEOUT'))).toBe('transient')
+  })
+
+  it('keeps the historical default when a status is absent or is not an HTTP status', () => {
+    // A `status` field is common on unrelated objects; only a plain integer in the HTTP range
+    // decides anything, and everything else keeps retrying as it always did.
+    expect(classifyDriverFailure(Object.assign(new Error('died'), { status: 'running' }))).toBe(
+      'transient',
+    )
+    expect(classifyDriverFailure(Object.assign(new Error('died'), { status: 0 }))).toBe('transient')
+    expect(classifyDriverFailure(Object.assign(new Error('died'), { status: 302 }))).toBe(
+      'transient',
+    )
+    expect(classifyDriverFailure(Object.assign(new Error('died'), { status: 404.5 }))).toBe(
+      'transient',
+    )
+    expect(classifyDriverFailure('a thrown string')).toBe('transient')
+
+    // Only a thrown Error is read. `status` is an ordinary field name on settlements, run states
+    // and provider-model records; a bridge child that aborts mid-turn rejects with such a value,
+    // and reading it as an HTTP refusal stopped the retry that journals its paid usage.
+    expect(classifyDriverFailure({ status: 400, kind: 'cancelled' })).toBe('transient')
+  })
+
   it('settles a profile that cannot materialize after one attempt, with or without a status', () => {
     // The bridge reports a materialization failure as its own `parse_error` class; on the stream
     // path no status rides with it, and the status split alone re-drove the same deterministic

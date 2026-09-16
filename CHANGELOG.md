@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.237.1
+
+**A refused environment create fails closed instead of retrying forever.** A provider SDK throws its own error classes, so a `create` the platform refused arrived at the driver's classifier as neither a `BackendTransportError` nor an `AgentEvalError` and took the foreign-accident default: retry. `classifyDriverFailure` now reads a plain HTTP status off any thrown `Error` and applies the split the transport branch already promises — 408, 429 and 5xx are the upstream having a bad moment, any other 4xx is a request that will fail identically forever.
+
+Measured 2026-09-16 on discovery-lab: a Tangle Sandbox create refused `HTTP 400 {"code":"CONFIG_ERROR"}`, for a key whose budget was fully reserved by an existing box, retried 14-22 times per node. Eleven of twelve roots showed a durable admission intent and no other event for 25 minutes, with healthy coordination servers and no error anywhere for an operator to read.
+
+Only a thrown `Error` is read: `status` is an ordinary field name on settlements and run-state records, and treating one as an HTTP refusal stops retries that have nothing to do with a rejected request.
+
 ## 0.237.0
 
 **A refused spawn says which budget channels ran short and by how much.** A `budget-exhausted` reservation now carries `shortfalls`: every channel that did not fit, each as `{ channel, requested, free }` (`ReservationShortfall`, exported). `scope.spawn` passes them through, and `spawn_worker` returns them with a reason a driver can act on, for example `the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits`.
