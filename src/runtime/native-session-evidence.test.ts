@@ -40,7 +40,9 @@ describe('captureNativeSessionEvidence', () => {
     const evidence = await captureNativeSessionEvidence(
       {
         exec: async () => ({
-          stdout: ['/root/.codex/sessions/rollout.jsonl', '/root/.codex/sessions/auth.json'].join('\n'),
+          stdout: ['/root/.codex/sessions/rollout.jsonl', '/root/.codex/sessions/auth.json'].join(
+            '\n',
+          ),
           exitCode: 0,
         }),
         read: async (path: string) => {

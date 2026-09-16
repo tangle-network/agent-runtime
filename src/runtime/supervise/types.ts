@@ -25,7 +25,6 @@
  * @experimental
  */
 
-import type { NativeSessionEvidence } from '../native-session-evidence'
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
@@ -36,6 +35,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
+import type { NativeSessionEvidence } from '../native-session-evidence'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'

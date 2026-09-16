@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.229.0
+
+- A settlement can now say whether a sandbox child's own harness transcript survived
+  teardown. Runtime reads the child's Claude Code / Codex / OpenCode session files out of
+  the environment while it is still live and settles them with the result, so they reach a
+  run record instead of being destroyed with the environment. Read them from
+  `ProviderLeafOut.nativeSession` on the settled artifact, or from
+  `WorkerTraceEvidence.nativeSession` on the receipt. The existing `trace` receipt is
+  unchanged and still carries the supervisor's tool spans only, so `status: 'available'`
+  there never meant the transcript survived; this is the field that says. An environment
+  whose provider does not expose file reads reports a reason rather than an empty artifact,
+  and settlements recorded before this release carry no `nativeSession` at all.
+
 ## 0.228.0
 
 A bridge-placed root's retained stream now carries its reasoning and its tool outcomes. cli-bridge forwards `choices[0].delta.reasoning` and a `delta.tool_results` extension beside `tool_calls` (cli-bridge#227); `parseSseChatStream` decodes them into `BridgeStreamChunk.reasoning` and `BridgeStreamChunk.toolResults` (new exported `BridgeToolResult`), and the bridge executor surfaces them as `reasoning_delta` and `tool_result` progress, plus an activity note that carries the call's status beside the status-less note for the decision.

@@ -37,7 +37,8 @@ const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze
 })
 
 /** Never read, whatever a producer put inside a session tree. */
-const DENY = /(^|\/)(auth\.json|\.credentials\.json|credentials|\.env(\..*)?|secrets?(\.|$)|.*\.pem|id_[a-z]+)$/u
+const DENY =
+  /(^|\/)(auth\.json|\.credentials\.json|credentials|\.env(\..*)?|secrets?(\.|$)|.*\.pem|id_[a-z]+)$/u
 
 /**
  * Bounds per file and in total. These are deliberately modest: the artifact rides inside the
@@ -90,7 +91,10 @@ interface ReadableEnvironment {
   ) => Promise<{ readonly stdout?: string; readonly exitCode?: number }>
 }
 
-type NativeSessionUnavailableReason = Extract<NativeSessionEvidence, { status: 'unavailable' }>['reason']
+type NativeSessionUnavailableReason = Extract<
+  NativeSessionEvidence,
+  { status: 'unavailable' }
+>['reason']
 
 function unavailable(reason: NativeSessionUnavailableReason): NativeSessionEvidence {
   return Object.freeze({ status: 'unavailable', reason })

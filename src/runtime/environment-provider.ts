@@ -1,5 +1,5 @@
-import { captureNativeSessionEvidence, type NativeSessionEvidence } from './native-session-evidence'
 import { randomUUID } from 'node:crypto'
+import { captureNativeSessionEvidence, type NativeSessionEvidence } from './native-session-evidence'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 
 export type { ProviderPlacement } from './provider-placement'
