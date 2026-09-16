@@ -157,7 +157,9 @@ export type HarnessTranscriptEvidence =
     }
   | HarnessTranscriptUnavailable
 
-interface ReadableEnvironment {
+/** The two optional environment reads the capture needs. Public because `captureHarnessTranscript`
+ *  is, so a BYO executor can satisfy it with any box that offers a bounded `read` and an `exec`. */
+export interface ReadableEnvironment {
   readonly read?: (path: string, options?: { readonly signal?: AbortSignal }) => Promise<string>
   readonly exec?: (
     command: string,
