@@ -61,6 +61,15 @@ describe('captureSuperviseOptions carries every callback option', () => {
     ).not.toThrow(/structured-cloneable/)
   })
 
+  it('captures a deliverable diagnostic callback without reading it as mutable decision data', () => {
+    const explainFailure = () => 'required evidence is missing'
+    const deliverable = { check: () => false, describe: 'checked evidence', explainFailure }
+    const captured = captureSuperviseOptions({ ...baseOptions(), deliverable })
+    deliverable.explainFailure = () => 'later replacement'
+    expect(captured.deliverable).toMatchObject({ explainFailure })
+    expect(Object.isFrozen(captured.deliverable)).toBe(true)
+  })
+
   it('carries every listed callback option by reference, not just the one that broke', () => {
     // Driven off the list the compile-time test binds to `SuperviseOptions`, so a callback option
     // added later is exercised here the moment it is declared.

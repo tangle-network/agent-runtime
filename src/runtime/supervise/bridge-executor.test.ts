@@ -1138,7 +1138,6 @@ describe('bridgeExecutor upstream-error propagation', () => {
 
   it('journals served identity and paid usage when a bridge child aborts before terminal materialization', async () => {
     const servedModel = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_abort'
-    let abortChild: (() => void) | undefined
     let resolveCancel!: () => void
     const cancelSeen = new Promise<void>((resolve) => {
       resolveCancel = resolve
@@ -1188,7 +1187,6 @@ describe('bridgeExecutor upstream-error propagation', () => {
           },
         })}\n\n`,
       )
-      setTimeout(() => abortChild?.(), 10)
     })
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
@@ -1223,7 +1221,14 @@ describe('bridgeExecutor upstream-error propagation', () => {
           budget: { maxIterations: 4, maxTokens: 1_000 },
         })
         if (!spawned.ok) throw new Error(spawned.reason)
-        abortChild = () => spawned.handle.abort('abort after paid model frame')
+        await vi.waitFor(
+          () => {
+            const node = scope.view.nodes.find((candidate) => candidate.id === spawned.handle.id)
+            expect(node?.spent.tokens).toMatchObject({ input: 17, output: 3 })
+          },
+          { timeout: 10_000 },
+        )
+        spawned.handle.abort('abort after paid model frame')
         await scope.next()
         return null
       },
