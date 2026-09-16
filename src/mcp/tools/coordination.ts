@@ -1437,15 +1437,40 @@ const BUDGET_FIELD: Readonly<Record<'tokens' | 'iterations' | 'usd', string>> = 
   usd: 'maxUsd',
 }
 
+function budgetField(channel: ReservationShortfall['channel']): string {
+  return channel.startsWith('resource:')
+    ? `resources.${channel.slice('resource:'.length)}.limit`
+    : BUDGET_FIELD[channel as 'tokens' | 'iterations' | 'usd']
+}
+
+/** One clause per short channel. Iterations can be requested at exactly `free`: a driver's own
+ *  turns charge none. Tokens and dollars cannot: the driver's next turn is metered from the same
+ *  pool before its retry reaches admission, so the clause says to leave room. */
+function shortfallClause(shortfall: ReservationShortfall): string {
+  const { channel, requested, free } = shortfall
+  const field = budgetField(channel)
+  if (shortfall.closedByUnknownSpend === true) {
+    return `${channel} is closed: work with unmeasured ${channel} usage ran under the run's enforced limit, so this run admits no further spawn at any budget`
+  }
+  const asked = `this spawn asked for budget.${field} ${requested}`
+  if (free === 0) {
+    return `${channel} has nothing free (${asked}); an unused reservation returns only when its live worker settles`
+  }
+  if (channel === 'iterations' || channel.startsWith('resource:')) {
+    return `${channel} has ${free} free (${asked}); budget.${field} at most ${free} fits`
+  }
+  return `${channel} has ${free} free right now (${asked}); your own turns draw ${channel} from this same pool before a retry is admitted, so ask for well under ${free}`
+}
+
 /**
  * The reason text `spawn_worker` returns for a refused spawn. Every rejection kind names its own
  * cause: a live-worker cap, a depth limit, or a key collision is not an empty budget, and telling a
  * driver "no allocation left" for those sends it after the wrong fix. A `budget-exhausted` refusal
- * names the channel and the amounts, so the driver can size its next request in one step.
+ * names every channel that did not fit and the amounts, so the driver can size its next request.
  */
 export function spawnRefusalReason(
   reason: SpawnRejection,
-  shortfall: ReservationShortfall | undefined,
+  shortfalls: readonly ReservationShortfall[] | undefined,
   pinned: {
     readonly usdUnbudgeted: string
     readonly inDoubt: string
@@ -1460,32 +1485,26 @@ export function spawnRefusalReason(
     case 'scope-settled':
       return pinned.scopeSettled
     case 'scope-aborted':
-      return 'this run was cancelled or hit its deadline; no further worker can start'
+      return 'this run stopped admitting work (it was cancelled, passed its deadline, or too many children went down); no further worker can start'
     case 'depth-exceeded':
       return "this spawn would exceed the run's maxDepth; a worker at the deepest level cannot start children of its own"
     case 'max-live-workers':
-      return 'the run already has its maximum number of live workers; wait for or cancel a live worker, then spawn again'
+      return 'the run already has its maximum number of live workers; wait for one to settle (await_event), then spawn again'
     case 'duplicate-key':
       return 'a worker under this key is still live; wait for it to settle, or use a different key for different work'
     case 'key-conflict':
       return "this key is already recorded for a different profile or task in this run's journal; use a new key for different work"
     case 'invalid-identity':
-      return 'this profile and task could not be given a complete execution identity, so a keyed spawn cannot be journaled; check the profile'
+      return 'a keyed spawn needs a complete execution identity to journal, and this profile and task did not produce one; spawn again without a key'
     case 'budget-exhausted': {
-      if (shortfall === undefined) {
+      if (shortfalls === undefined || shortfalls.length === 0) {
         return "the conserved pool refused this spawn (budget-exhausted): the run's remaining budget cannot cover this worker's budget"
       }
-      const { channel, requested, free } = shortfall
-      const field = channel.startsWith('resource:')
-        ? `resources.${channel.slice('resource:'.length)}.limit`
-        : BUDGET_FIELD[channel as 'tokens' | 'iterations' | 'usd']
-      if (shortfall.closedByUnknownSpend === true) {
-        return `the run pool admits no spawn on ${channel}: work with unmeasured ${channel} usage ran under the run's enforced limit, so no smaller request fits; the caller must raise or re-measure the root budget`
+      if (shortfalls.some((shortfall) => shortfall.closedByUnknownSpend === true)) {
+        const closed = shortfalls.find((shortfall) => shortfall.closedByUnknownSpend === true)!
+        return `the run pool refused this spawn: ${shortfallClause(closed)}; the caller must re-run with a measurable or larger root budget`
       }
-      if (free === 0) {
-        return `the run pool has no ${channel} left to reserve (this spawn asked for budget.${field} ${requested}); a live worker's unused reservation returns when it settles, otherwise the caller must raise the root budget`
-      }
-      return `the run pool has ${free} ${channel} free and this spawn asked for budget.${field} ${requested}; spawn again with budget.${field} at most ${free}, or ask the caller for a larger root budget`
+      return `the run pool refused this spawn: ${shortfalls.map(shortfallClause).join('; ')}; or ask the caller for a larger root budget`
     }
   }
 }
@@ -3114,7 +3133,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 // `usd-unbudgeted` is the one rejection no retry can clear, so it says so: without
                 // that, a driver reads "budget" and walks its request down until it gives up.
                 // A refusal a driver can ACT on: each kind says what happened and what to do next.
-                reason: spawnRefusalReason(res.reason, res.shortfall, {
+                reason: spawnRefusalReason(res.reason, res.shortfalls, {
                   usdUnbudgeted:
                     "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd",
                   inDoubt:
@@ -3126,7 +3145,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                   scopeSettled:
                     'this run has already reached its join barrier — its driver returned and the supervisor is settling, so no further worker can be started, joined, or paid for; record this stage as not started',
                 }),
-                ...(res.shortfall === undefined ? {} : { shortfall: res.shortfall }),
+                ...(res.shortfalls === undefined ? {} : { shortfalls: res.shortfalls }),
                 ...(res.reason === 'usd-unbudgeted'
                   ? {
                       hint:

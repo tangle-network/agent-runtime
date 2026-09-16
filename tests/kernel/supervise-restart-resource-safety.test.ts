@@ -1162,7 +1162,7 @@ describe('supervision restart and resource safety', () => {
       second: {
         ok: false,
         reason: 'budget-exhausted',
-        shortfall: { channel: 'usd', requested: 1, free: 0, closedByUnknownSpend: true },
+        shortfalls: [{ channel: 'usd', requested: 1, free: 0, closedByUnknownSpend: true }],
       },
     })
     expect(replacementExecutions).toBe(0)

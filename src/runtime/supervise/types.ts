@@ -1044,7 +1044,7 @@ export interface Scope<Out> {
     opts: SpawnOpts,
   ):
     | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
-    | { ok: false; reason: SpawnRejection; shortfall?: ReservationShortfall }
+    | { ok: false; reason: SpawnRejection; shortfalls?: readonly ReservationShortfall[] }
   /** ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
    *  `null` when the live set is empty. */
   next(): Promise<Settled<Out> | null>

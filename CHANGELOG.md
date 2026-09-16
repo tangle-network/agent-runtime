@@ -2,13 +2,15 @@
 
 ## 0.237.0
 
-**A refused spawn says which budget ran short and by how much.** A `budget-exhausted` reservation now carries `shortfall: { channel, requested, free }` (`ReservationShortfall`, exported), and `scope.spawn` passes it through. `spawn_worker` returns the same object and a reason a driver can act on: `the run pool has 58 iterations free and this spawn asked for budget.maxIterations 100; spawn again with budget.maxIterations at most 58, or ask the caller for a larger root budget`. A channel closed by unmeasured spend says no smaller request fits.
+**A refused spawn says which budget channels ran short and by how much.** A `budget-exhausted` reservation now carries `shortfalls`: every channel that did not fit, each as `{ channel, requested, free }` (`ReservationShortfall`, exported). `scope.spawn` passes them through, and `spawn_worker` returns them with a reason a driver can act on, for example `the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits`.
 
-Measured 2026-09-16 on a Discovery director placed on the Tangle sandbox: its first research child asked for 100 iterations against a 60-iteration pool, got "the run has no allocation left to give this worker", and spent a throwaway 3-iteration probe worker to learn the pool still had room.
+Iterations can be requested at exactly `free`, because a driver's own turns charge none. Tokens and dollars cannot: the driver's next turn is metered from the same pool before its retry reaches admission, so the text says to ask for well under `free`. A channel closed by unmeasured spend (`closedByUnknownSpend`) says the run admits no further spawn at any budget.
 
-That same sentence was also the reply for every other refusal: `max-live-workers`, `depth-exceeded`, `duplicate-key`, `key-conflict`, `invalid-identity`, and `scope-aborted` were each reported as an empty pool. Each now names its own cause and next step. The `usd-unbudgeted`, `in-doubt`, and `scope-settled` texts are unchanged.
+Measured 2026-09-16 on a Discovery director placed on the Tangle sandbox: its first research child asked for 100 iterations against a 60-iteration pool, got "the run has no allocation left to give this worker", spent a throwaway 3-iteration probe worker to learn the pool still had room, and moved its research to local processes.
 
-A consumer that compared a refusal with `toEqual({ ok: false, reason: 'budget-exhausted' })` now also receives `shortfall`.
+That same sentence was also the reply for every other refusal: `max-live-workers`, `depth-exceeded`, `duplicate-key`, `key-conflict`, `invalid-identity`, and `scope-aborted` were each reported as an empty pool. Each now names its own cause and a next step a driver can take. The `usd-unbudgeted`, `in-doubt`, and `scope-settled` texts are unchanged, and `usd-unbudgeted` still yields to an exhausted channel as before.
+
+Resource validation (a child missing a root resource, a unit mismatch, an undeclared resource) now throws before any shortfall is computed, where before a short resource could return first. A consumer that compared a refusal with `toEqual({ ok: false, reason: 'budget-exhausted' })` now also receives `shortfalls`.
 
 ## 0.236.0
 

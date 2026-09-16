@@ -208,7 +208,7 @@ describe('conserved budget pool', () => {
     expect(b).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'tokens', requested: 500, free: 400 },
+      shortfalls: [{ channel: 'tokens', requested: 500, free: 400 }],
     })
     expect(pool.readout().tokensLeft).toBe(400)
     expect(pool.readout().reservedTokens).toBe(600)
@@ -241,7 +241,7 @@ describe('conserved budget pool', () => {
     expect(over).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'usd', requested: 0.5, free: 0.25 },
+      shortfalls: [{ channel: 'usd', requested: 0.5, free: 0.25 }],
     })
   })
 
@@ -284,7 +284,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'tokens', requested: 1, free: 0 },
+      shortfalls: [{ channel: 'tokens', requested: 1, free: 0 }],
     })
   })
 
@@ -464,7 +464,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.01 } as Budget)).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'usd', requested: 0.01, free: 0 },
+      shortfalls: [{ channel: 'usd', requested: 0.01, free: 0 }],
     })
   })
 
@@ -563,7 +563,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 10 } as Budget)).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+      shortfalls: [{ channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true }],
     })
   })
 
@@ -734,7 +734,10 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 1 } as Budget)).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+      shortfalls: [
+        { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+        { channel: 'iterations', requested: 1, free: 0 },
+      ],
     })
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
@@ -1220,7 +1223,7 @@ describe('equal-k by construction', () => {
     ).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+      shortfalls: [{ channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true }],
     })
   })
 
@@ -1330,7 +1333,7 @@ describe('equal-k by construction', () => {
     ).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+      shortfalls: [{ channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true }],
     })
   })
 
@@ -1700,7 +1703,10 @@ describe('reactive scope', () => {
     expect(overflow).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'tokens', requested: 10, free: 0 },
+      shortfalls: [
+        { channel: 'tokens', requested: 10, free: 0 },
+        { channel: 'iterations', requested: 1, free: 0 },
+      ],
     })
   })
 

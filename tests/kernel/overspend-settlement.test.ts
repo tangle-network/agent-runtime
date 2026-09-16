@@ -192,7 +192,7 @@ describe('a completed child that overspent its reservation', () => {
     ).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfall: { channel: 'tokens', requested: 800_000, free: 581_873 },
+      shortfalls: [{ channel: 'tokens', requested: 800_000, free: 581_873 }],
     })
 
     // Replay and the materialized tree read the same record.

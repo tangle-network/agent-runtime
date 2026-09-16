@@ -705,7 +705,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     recovery?: RetainedChildRecovery,
   ):
     | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
-    | { ok: false; reason: SpawnRejection; shortfall?: ReservationShortfall } {
+    | { ok: false; reason: SpawnRejection; shortfalls?: readonly ReservationShortfall[] } {
     if (args.signal.aborted) return { ok: false, reason: 'scope-aborted' }
     // The run reached its join barrier: no later child can be joined, released, or selected over.
     // Distinct from an abort — nothing cancelled this run (see `closeScopeAdmission`).
@@ -817,7 +817,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       return {
         ok: false,
         reason: reservation.reason,
-        ...(reservation.shortfall === undefined ? {} : { shortfall: reservation.shortfall }),
+        ...(reservation.shortfalls === undefined ? {} : { shortfalls: reservation.shortfalls }),
       }
     }
 
