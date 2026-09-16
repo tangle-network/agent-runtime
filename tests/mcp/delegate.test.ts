@@ -24,7 +24,12 @@ import {
 } from '../../src/mcp/tools/delegate'
 import type { RouterTransportConfig } from '../../src/runtime/router-client'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
-import type { Spend, SupervisedResult, TreeView } from '../../src/runtime/supervise/types'
+import type {
+  FleetYield,
+  Spend,
+  SupervisedResult,
+  TreeView,
+} from '../../src/runtime/supervise/types'
 
 const router: RouterTransportConfig = {
   routerBaseUrl: 'http://localhost/v1',
@@ -48,12 +53,21 @@ const spentTotal: Spend = {
   usd: 0.0019,
   ms: 4200,
 }
+const fleetYield: FleetYield = {
+  spawned: 0,
+  done: 0,
+  down: 0,
+  cancelled: 0,
+  neverSettled: 0,
+  releasedUnrecovered: 0,
+}
 const winnerResult: SupervisedResult<unknown> = {
   kind: 'winner',
   out: { patch: 'diff' },
   outRef: 'blob:1',
   tree: emptyTree,
   spentTotal,
+  fleetYield,
 }
 
 beforeEach(() => {

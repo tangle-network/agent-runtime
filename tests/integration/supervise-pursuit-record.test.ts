@@ -26,7 +26,7 @@ import {
   settleRecordDigest,
   settleRecordJson,
 } from '../../src/durable/settle-record'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal'
+import { closesCursorSlot, FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
@@ -343,8 +343,38 @@ describe('supervisePursuit durable terminal records', () => {
       },
     ])
     expect(events.some((event) => event.kind === 'teardown-unconfirmed')).toBe(false)
-    // The settle record still lands, so the run stays final.
-    expect(await readSettleRecord(runDir)).toBeDefined()
+    // The release closed the slot: one terminal record after the receipt, marked released.
+    const terminal = events.filter(
+      (event) => event.id === admitted[0]?.id && closesCursorSlot(event),
+    )
+    expect(terminal).toMatchObject([
+      { kind: 'settled', status: 'down', retainedExecution: 'released' },
+    ])
+    expect(events.indexOf(terminal[0]!)).toBeGreaterThan(
+      events.findIndex((event) => event.kind === 'environment-teardown'),
+    )
+    // The settle record still lands, so the run stays final — and it carries the yield, the
+    // released marker on the tree, and the gap as a floor rather than a ceiling.
+    const result = await readSettleRecord(runDir)
+    expect(result).toBeDefined()
+    if (result === undefined) return
+    expect(result.fleetYield).toMatchObject({ releasedUnrecovered: 1, neverSettled: 0 })
+    expect(result.tree.nodes.find((node) => node.id === admitted[0]?.id)).toMatchObject({
+      retainedExecution: 'released',
+    })
+    expect(result.spendGaps).toEqual([
+      expect.objectContaining({ id: admitted[0]?.id, kind: 'unreported' }),
+    ])
+    expect(result.spendGaps?.some((gap) => gap.kind === 'never-settled')).toBe(false)
+    // The operator's projection says the same thing off the observer journal.
+    const projected = projectPursuit(
+      await new FileObserverJournal(settled.observerPath, 'pursuit:record').read(),
+    )
+    expect(projected.nodes.find((node) => node.id === admitted[0]?.id)).toMatchObject({
+      status: 'down',
+      retainedExecution: 'released',
+      releasedAt: expect.any(Number),
+    })
   })
 
   it("refuses retainedAtSettlement 'keep', which a settle record would contradict", async () => {

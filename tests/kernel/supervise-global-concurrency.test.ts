@@ -277,11 +277,25 @@ describe('supervise tree-wide worker capacity', () => {
       (event) => event.kind === 'spawned' && event.label === 'retained',
     )?.id
     expect(retainedId).toBeDefined()
-    // The cursor slot stays open — a resume may still recover the execution — so no terminal
-    // record exists for the node; the reconciled floor stands in its place.
+    // The cursor slot stays open: this executor implements no `releaseRetained`, so the root's
+    // release sweep has nothing to release and never selects it. No terminal record exists for the
+    // node; the reconciled floor stands in its place, and the run reports it as never settled.
+    // (tests/kernel/retained-environment-release.test.ts pins the other half: an executor WITH
+    // `releaseRetained` gets a released terminal record at settlement.)
     expect(events.filter((event) => event.id === retainedId && closesCursorSlot(event))).toEqual([])
     expect(events.filter((event) => event.kind === 'reconciled')).toMatchObject([
       { id: retainedId, spent: { tokens: { input: 7, output: 3 }, tokensKnown: false } },
+    ])
+    expect(result.fleetYield).toEqual({
+      spawned: 2,
+      done: 1,
+      down: 0,
+      cancelled: 0,
+      neverSettled: 1,
+      releasedUnrecovered: 0,
+    })
+    expect(result.spendGaps).toEqual([
+      expect.objectContaining({ id: retainedId, kind: 'never-settled' }),
     ])
     // Every journal reader charges that floor: terminal accounting, the ceiling list a restored
     // pool is charged from, and the materialized tree.
@@ -352,6 +366,16 @@ describe('supervise tree-wide worker capacity', () => {
         seq: 2,
         at,
       },
+      {
+        kind: 'spawned',
+        id: 'r:s3',
+        parent: 'r',
+        label: 'released',
+        budget,
+        runtime: 'router',
+        seq: 3,
+        at,
+      },
       { kind: 'reconciled', id: 'r:s0', spent: floor(7, 3), seq: 0, at },
       { kind: 'reconciled', id: 'r:s0', spent: floor(9, 4), seq: 1, at },
       { kind: 'reconciled', id: 'r:s1', spent: floor(5, 5), seq: 0, at },
@@ -364,10 +388,25 @@ describe('supervise tree-wide worker capacity', () => {
         seq: 0,
         at,
       },
+      // A node the release sweep closed: its floor and then the terminal record carrying the same
+      // floor, marked released. The floor is charged once, no ceiling, and the view says why.
+      { kind: 'reconciled', id: 'r:s3', spent: floor(11, 2), seq: 0, at },
+      {
+        kind: 'settled',
+        id: 'r:s3',
+        status: 'down',
+        infra: true,
+        reason: 'retained provider execution requires reconciliation before replacement',
+        spent: floor(11, 2),
+        trace: { status: 'unavailable', reason: 'execution-did-not-start' },
+        retainedExecution: 'released',
+        seq: 1,
+        at,
+      },
     ]
     expect(uncertainSpawnBudgets(events)).toEqual([budget])
     const { childWork } = sumSpendFromEvents(events)
-    expect(childWork.tokens).toMatchObject({ input: 9 + 100 + 4000, output: 4 + 50 })
+    expect(childWork.tokens).toMatchObject({ input: 9 + 100 + 4000 + 11, output: 4 + 50 + 2 })
     expect(childWork.tokensKnown).toBe(false)
     const view = materializeTreeView(events)
     expect(view.nodes.find((n) => n.id === 'r:s0')?.spent.tokens).toMatchObject({
@@ -378,6 +417,12 @@ describe('supervise tree-wide worker capacity', () => {
       input: 100,
       output: 50,
     })
+    expect(view.nodes.find((n) => n.id === 'r:s3')).toMatchObject({
+      status: 'failed',
+      retainedExecution: 'released',
+      spent: { tokens: { input: 11, output: 2 } },
+    })
+    expect(view.nodes.find((n) => n.id === 'r:s0')).not.toHaveProperty('retainedExecution')
   })
 
   it('holds one cap across root → manager → sub-manager → worker execution', async () => {

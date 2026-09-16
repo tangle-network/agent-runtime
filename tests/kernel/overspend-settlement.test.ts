@@ -484,7 +484,7 @@ describe('an overspent child that did not complete, or whose accounting is at fa
     const settled = await scope.next()
     // The node stays open for recovery, so it has no terminal record. The recovered settlement
     // reports the overspend from the recorded result; the live views must not report one early.
-    expect(settled).toMatchObject({ kind: 'down', infra: true })
+    expect(settled).toMatchObject({ kind: 'down', infra: true, retainedExecution: 'pending' })
     expect(settled).not.toHaveProperty('budgetViolation')
     const events = (await journal.loadTree('run')) ?? []
     expect(events.some((event) => event.kind === 'settled' || event.kind === 'cancelled')).toBe(
@@ -493,9 +493,9 @@ describe('an overspent child that did not complete, or whose accounting is at fa
     expect(events.find((event) => event.kind === 'reconciled')).toMatchObject({
       id: spawned.handle.id,
     })
-    expect(scope.view.nodes.find((node) => node.id === spawned.handle.id)).not.toHaveProperty(
-      'budgetViolation',
-    )
+    const node = scope.view.nodes.find((entry) => entry.id === spawned.handle.id)
+    expect(node).not.toHaveProperty('budgetViolation')
+    expect(node).toMatchObject({ retainedExecution: 'pending' })
     expect(pool.readout().reservedTokens).toBe(0)
   })
 

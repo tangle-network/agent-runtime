@@ -38,6 +38,7 @@ import type {
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
   ResultBlobStore,
+  RetainedExecutionState,
   Runtime,
   Settled,
   SpawnEvent,
@@ -1049,6 +1050,8 @@ export async function replaySpawnTree(
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
         ...budgetViolationOf(ev),
         trace: ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' },
+        ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
+        ...(ev.retainedExecution === undefined ? {} : { retainedExecution: ev.retainedExecution }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1073,6 +1076,9 @@ export async function replaySpawnTree(
         // A field the journal holds and replay drops is the #1214 bug again: a reader of the
         // replayed tree would see no transcript where the record says there is one.
         ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
+        // Replay yields the settlement the driver saw except for the one deliberate difference:
+        // live carried `'pending'` while recoverable; the journal records how the slot closed.
+        ...(ev.retainedExecution === undefined ? {} : { retainedExecution: ev.retainedExecution }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1216,6 +1222,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.outRef = ev.outRef
       node.trace = traceEvidenceFor(ev)
       node.budgetViolation = budgetViolationOf(ev).budgetViolation
+      if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else if (ev.kind === 'woken') {
@@ -1233,6 +1240,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.providerModel = copyProviderModelEvidence(ev.providerModel)
       node.outRef = ev.outRef
       node.budgetViolation = budgetViolationOf(ev).budgetViolation
+      if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }
@@ -1317,6 +1325,7 @@ interface MutableSnapshot {
   outRef?: string
   trace?: NodeSnapshot['trace']
   budgetViolation?: BudgetViolation
+  retainedExecution?: RetainedExecutionState
   settledAt?: number
   spawnedAt?: number
 }
@@ -1388,6 +1397,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     outRef: node.outRef,
     trace: node.trace,
     ...(node.budgetViolation === undefined ? {} : { budgetViolation: node.budgetViolation }),
+    ...(node.retainedExecution === undefined ? {} : { retainedExecution: node.retainedExecution }),
     settledAt: node.settledAt,
     spawnedAt: node.spawnedAt,
   }

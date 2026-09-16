@@ -77,6 +77,14 @@ function winner(): SupervisedResult<unknown> {
       usd: 0.004,
       ms: 75,
     },
+    fleetYield: {
+      spawned: 0,
+      done: 0,
+      down: 0,
+      cancelled: 0,
+      neverSettled: 0,
+      releasedUnrecovered: 0,
+    },
   } as unknown as SupervisedResult<unknown>
 }
 

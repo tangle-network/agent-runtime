@@ -1663,10 +1663,11 @@ export interface SuperviseOptions {
   readonly childSettleGraceMs?: number | null
   /**
    * What root settlement does with provider environments that settled children still hold for a
-   * retained execution: `'release'` them with one `environment-teardown` receipt each, or `'keep'`
-   * them for a later call that resumes this run. Default: `'keep'` with `runDir` (re-running the
-   * same `runDir` and `runId` resumes), `'release'` without it (nothing can resume an in-memory
-   * run). See `SupervisorOpts.retainedAtSettlement`.
+   * retained execution: `'release'` them with one `environment-teardown` receipt each and close
+   * each released child's cursor slot with a terminal record marked `retainedExecution:
+   * 'released'`, or `'keep'` them for a later call that resumes this run. Default: `'keep'` with
+   * `runDir` (re-running the same `runDir` and `runId` resumes), `'release'` without it (nothing
+   * can resume an in-memory run). See `SupervisorOpts.retainedAtSettlement`.
    */
   readonly retainedAtSettlement?: 'release' | 'keep'
   /** Resolve one custom external-harness session per trusted manager identity. Use this instead of
