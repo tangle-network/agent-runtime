@@ -74,6 +74,7 @@ import {
 } from './retained-run-binding'
 import {
   assertRetainedRunReplayMaterial,
+  mintRetainedIdentity,
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
@@ -558,8 +559,6 @@ export interface ProviderExecutorOptions {
    * has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
    * files and run commands in the environment it is scoring. Every other supervised hook fires
    * after teardown and can only read the artifact.
-   * `ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
-   * shared validator can apply a root-only contract without applying it to nested managers.
    *
    * The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
    * back to its own settle verdict.
@@ -642,7 +641,7 @@ function createProviderExecutor(
   options: ProviderExecutorOptions,
   placement?: { id: string; digest: string },
 ): Executor<unknown> {
-  const controller = linkAbort(ctx.signal)
+  const controller = new AbortController()
   const node =
     ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
 
@@ -694,7 +693,7 @@ function createProviderExecutor(
     plan: {
       kind: 'agent-environment',
       provider: provider.name,
-      destroyOnSettle: options.destroyOnSettle ?? true,
+      destroyOnSettle: retention?.preserveEnvironment ? false : (options.destroyOnSettle ?? true),
       requireTerminalEvent: options.requireTerminalEvent ?? true,
       tokenLimits,
       ...(placement ? { placement } : {}),
@@ -717,56 +716,60 @@ function createProviderExecutor(
   }
 
   let executor!: Executor<unknown>
-  const run = (
+  const run = async function* (
     task: unknown,
     signal: AbortSignal,
     recovering = false,
-  ): AsyncIterable<UsageEvent> => {
-    return streamProviderExecutor({
-      provider,
-      profile,
-      createProfile,
-      task,
-      signal,
-      controller,
-      options,
-      ...(node === undefined ? {} : { node }),
-      retention,
-      executionId,
-      trace,
-      recovering,
-      onRetained: (handle) => {
-        retained = handle
-      },
-      onPending: (value) => {
-        pending = value
-      },
-      onEnvironment: (env) => {
-        environment = env
-        // `create` resolved, so the environment identity the provider issued is now evidence. It
-        // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
-        // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
-        // re-prompted attempt in a new environment changed `materializationPlanDigest` and was
-        // refused as a changed materialization even after #1230 excused `execution.id`. Measured
-        // on mech-interp-foundations-pi-20260915i under 0.225.5, which was the first guard able to
-        // name the field. The admission events already record which environment served each
-        // attempt; nothing reads the id from the plan.
-        finalizeRuntimeOwnedPendingExecutor(
-          executor,
-          {
-            ...plannedDeclaration,
-            execution: { kind: 'environment', id: env.id },
-          },
-          plannedBinding,
-        )
-      },
-      onArtifact: (next) => {
-        artifact = next
-      },
-      onDestroyed: () => {
-        destroyed = true
-      },
-    })
+  ): AsyncIterable<UsageEvent> {
+    const linked = linkAbort(ctx.signal, signal, controller.signal)
+    try {
+      yield* streamProviderExecutor({
+        provider,
+        profile,
+        createProfile,
+        task,
+        signal: linked.signal,
+        ...(node === undefined ? {} : { node }),
+        options,
+        retention,
+        executionId,
+        trace,
+        recovering,
+        onRetained: (handle) => {
+          retained = handle
+        },
+        onPending: (value) => {
+          pending = value
+        },
+        onEnvironment: (env) => {
+          environment = env
+          // `create` resolved, so the environment identity the provider issued is now evidence. It
+          // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
+          // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
+          // re-prompted attempt in a new environment changed `materializationPlanDigest` and was
+          // refused as a changed materialization even after #1230 excused `execution.id`. Measured
+          // on mech-interp-foundations-pi-20260915i under 0.225.5, which was the first guard able to
+          // name the field. The admission events already record which environment served each
+          // attempt; nothing reads the id from the plan.
+          finalizeRuntimeOwnedPendingExecutor(
+            executor,
+            {
+              ...plannedDeclaration,
+              execution: { kind: 'environment', id: env.id },
+            },
+            plannedBinding,
+          )
+        },
+        onArtifact: (next) => {
+          artifact = next
+        },
+        onDestroyed: () => {
+          destroyed = true
+        },
+      })
+    } finally {
+      linked.release()
+    }
   }
   executor = {
     runtime,
@@ -908,9 +911,8 @@ interface StreamProviderExecutorArgs {
   createProfile: AgentProfile
   task: unknown
   signal: AbortSignal
-  controller: AbortController
-  options: ProviderExecutorOptions
   node?: ExecutorNodeContext
+  options: ProviderExecutorOptions
   retention?: RetainedExecutorContext
   executionId: string
   trace: ReturnType<typeof createPushTraceSource>
@@ -928,7 +930,7 @@ async function* streamProviderExecutor(
   args: StreamProviderExecutorArgs,
 ): AsyncIterable<UsageEvent> {
   const started = Date.now()
-  const linked = linkAbort(args.signal, args.controller.signal).signal
+  const linked = args.signal
   // READINESS IS THE PROVIDER'S CONTRACT. `create` resolves with an environment that can take a
   // turn, so this streams straight into it and adds no wait of its own. The sandbox seam's
   // `acquireSandbox` exists because a raw `SandboxClient.create` returns before the box is ready;
@@ -1117,6 +1119,7 @@ async function* streamProviderExecutor(
   } finally {
     if (
       (!source.retained || (settled !== undefined && !failed)) &&
+      !(source.retained && args.retention?.preserveEnvironment) &&
       (args.options.destroyOnSettle ?? true)
     ) {
       try {
@@ -1246,14 +1249,26 @@ async function providerExecutionSource(
     admitted = true
     args.onPending(true)
   }
+  const priorSession = retention.priorSession
+  const environmentKey = priorSession?.idempotencyKey ?? `runtime:${args.executionId}`
+  const turnId = `${args.executionId}:turn:0`
   const material = {
     environment: {
       ...args.options.defaults,
       profile: args.createProfile,
-      idempotencyKey: `runtime:${args.executionId}`,
+      idempotencyKey: environmentKey,
       signal,
     },
-    turn: { ...turn, turnId: `${args.executionId}:turn:0` },
+    turn: { ...turn, turnId },
+    ...(priorSession === undefined
+      ? {}
+      : {
+          existingEnvironmentId: priorSession.environmentId,
+          identity: {
+            sessionId: priorSession.sessionId,
+            executionId: mintRetainedIdentity(environmentKey, turnId).executionId,
+          },
+        }),
   }
   try {
     const admissions = retention.admissions
@@ -1275,12 +1290,22 @@ async function providerExecutionSource(
       if (!reconnected) throw new Error('retained provider environment is unavailable')
       handle = reconnected
     } else if (args.recovering && environmentAdmission?.phase === 'environment') {
-      let recovered = await recoverRetainedRun({
-        provider: args.provider,
-        environmentId: environmentAdmission.environmentId,
-        sessionId: environmentAdmission.sessionId,
-        executionId: environmentAdmission.executionId,
-      })
+      // Before a new turn dispatches, a reused session still identifies its previous turn.
+      // Replay the committed intent rather than mistaking that prior result for this execution.
+      let recovered =
+        material.existingEnvironmentId !== undefined && intent?.phase === 'intent'
+          ? await recoverRetainedRun({
+              provider: args.provider,
+              admission: intent,
+              replay: material,
+              onAdmission,
+            })
+          : await recoverRetainedRun({
+              provider: args.provider,
+              environmentId: environmentAdmission.environmentId,
+              sessionId: environmentAdmission.sessionId,
+              executionId: environmentAdmission.executionId,
+            })
       if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {
         // The environment admission precedes dispatch. Replay the validated original keys
         // when the provider cannot yet identify a session, including a lost dispatch reply.
@@ -1320,45 +1345,78 @@ async function providerExecutionSource(
     if (!environment) throw new Error('retained provider environment is unavailable')
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
-      let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
       let observationFailure: { error: unknown } | undefined
-      try {
-        iterator = session
-          .events({
-            executionId: handle.controlRef.executionId,
-            signal,
-          })
-          [Symbol.asyncIterator]()
-      } catch (error) {
-        if (signal.aborted) throw error
-        observationFailure = { error }
-      }
-      try {
-        while (iterator !== undefined) {
-          let next: IteratorResult<AgentEnvironmentEvent>
-          try {
-            next = await awaitAbortable(
-              Promise.resolve().then(() => iterator!.next()),
-              signal,
-            )
-          } catch (error) {
-            if (signal.aborted) throw error
-            observationFailure = { error }
-            break
+      // The last frame that carried a replay position, and whether any frame ended the turn. The
+      // SSE contract lets a frame arrive with no position; such a frame does not move the cursor,
+      // so this is where a reconnect resumes from.
+      let lastReplayPosition: string | undefined
+      let sawTerminal = false
+      const drain = async function* (
+        open: () => AsyncIterable<AgentEnvironmentEvent>,
+      ): AsyncGenerator<AgentEnvironmentEvent, boolean> {
+        let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
+        let failed = false
+        try {
+          iterator = open()[Symbol.asyncIterator]()
+        } catch (error) {
+          if (signal.aborted) throw error
+          observationFailure = { error }
+          return false
+        }
+        try {
+          while (true) {
+            let next: IteratorResult<AgentEnvironmentEvent>
+            try {
+              next = await awaitAbortable(
+                Promise.resolve().then(() => iterator!.next()),
+                signal,
+              )
+            } catch (error) {
+              if (signal.aborted) throw error
+              observationFailure = { error }
+              failed = true
+              break
+            }
+            if (next.done) break
+            // A received event for another execution must never be accepted as evidence.
+            assertEventBinding(next.value, handle.controlRef)
+            if (next.value.id !== undefined) lastReplayPosition = next.value.id
+            if (isTerminalEnvironmentEvent(next.value)) sawTerminal = true
+            yield next.value
           }
-          if (next.done) break
-          // A received event for another execution must never be accepted as evidence.
-          assertEventBinding(next.value, handle.controlRef)
-          yield next.value
+        } finally {
+          if (signal.aborted || failed) {
+            void Promise.resolve()
+              .then(() => iterator?.return?.())
+              .catch(() => undefined)
+          } else {
+            await iterator?.return?.()
+          }
         }
-      } finally {
-        if (signal.aborted || observationFailure !== undefined) {
-          void Promise.resolve()
-            .then(() => iterator?.return?.())
-            .catch(() => undefined)
-        } else {
-          await iterator?.return?.()
-        }
+        return !failed
+      }
+      const completed = yield* drain(() =>
+        session.events({ executionId: handle.controlRef.executionId, signal }),
+      )
+      if (!completed && !sawTerminal && lastReplayPosition !== undefined) {
+        // The live stream broke before the terminal receipt. That receipt is where a Sandbox
+        // execution reports its token usage, and the exact result read below does not carry it,
+        // so a break here used to settle a 15-minute turn at 0 tokens with tokensKnown: false,
+        // which the conserved pool debits as nothing. Measured on
+        // mech-interp-foundations-pi-20260915k turn 1 (926 s, 0/0) and -20260915l turns 2 and 3
+        // (1693 s and 846 s, 0/0), each cut by one frame the provider refused mid-stream. The
+        // provider replays from a cursor, so resume once from the last replay position. A second
+        // failure keeps the first as the recorded cause; it is the one that lost the frames.
+        const firstFailure = observationFailure
+        observationFailure = undefined
+        const resumed = yield* drain(() =>
+          session.events({
+            executionId: handle.controlRef.executionId,
+            since: lastReplayPosition,
+            signal,
+          }),
+        )
+        if (!resumed) observationFailure = firstFailure
       }
       // Observation failure does not establish execution failure. Only the exact retained
       // result can settle the invocation; retain incomplete observation beside that result.

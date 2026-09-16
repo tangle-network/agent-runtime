@@ -89,7 +89,10 @@ import {
   type RetainedExecutorContext,
   retainedExecutorSeamKey,
 } from './retained-executor'
-import { registerScopeRetainedOwner } from './retained-scope-owner'
+import {
+  registerScopeRetainedOwner,
+  releaseScopeRetainedOwnerEnvironment,
+} from './retained-scope-owner'
 import { detachedSnapshot } from './snapshot'
 import { captureWorkerTraceEvidence } from './trace-evidence'
 import type { TraceSource } from './trace-source'
@@ -288,9 +291,11 @@ export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void>
  * per environment, on this scope's own tree; a nested manager reaches its children through
  * `Executor.releaseRetained`, and its nested scope journals theirs.
  */
-export async function releaseRetainedEnvironments(scope: Scope<unknown>): Promise<void> {
+export async function releaseRetainedEnvironments(scope: Scope<unknown>) {
   const release = retainedReleasers.get(scope)
   if (release) await release()
+  const ownerUnconfirmed = await releaseScopeRetainedOwnerEnvironment(scope)
+  return [...scope.workerCapacity.unconfirmed, ...ownerUnconfirmed]
 }
 
 /**
