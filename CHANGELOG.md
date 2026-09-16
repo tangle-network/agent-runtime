@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.237.0
+
+**A refused spawn says which budget ran short and by how much.** A `budget-exhausted` reservation now carries `shortfall: { channel, requested, free }` (`ReservationShortfall`, exported), and `scope.spawn` passes it through. `spawn_worker` returns the same object and a reason a driver can act on: `the run pool has 58 iterations free and this spawn asked for budget.maxIterations 100; spawn again with budget.maxIterations at most 58, or ask the caller for a larger root budget`. A channel closed by unmeasured spend says no smaller request fits.
+
+Measured 2026-09-16 on a Discovery director placed on the Tangle sandbox: its first research child asked for 100 iterations against a 60-iteration pool, got "the run has no allocation left to give this worker", and spent a throwaway 3-iteration probe worker to learn the pool still had room.
+
+That same sentence was also the reply for every other refusal: `max-live-workers`, `depth-exceeded`, `duplicate-key`, `key-conflict`, `invalid-identity`, and `scope-aborted` were each reported as an empty pool. Each now names its own cause and next step. The `usd-unbudgeted`, `in-doubt`, and `scope-settled` texts are unchanged.
+
+A consumer that compared a refusal with `toEqual({ ok: false, reason: 'budget-exhausted' })` now also receives `shortfall`.
+
 ## 0.236.0
 
 A root that ran to completion under budget, selected nothing, and **never spawned a child** now settles `no-winner` with reason `no-children-spawned`. It used to settle `all-children-down` with `downCount: 0`, which reads as a fleet failure to anyone who did not open the journal. Fifteen sandbox-placed directors settled that way in one week while the actual fault was that the root never recursed, and every reader went looking at the fleet.

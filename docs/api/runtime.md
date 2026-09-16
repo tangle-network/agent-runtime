@@ -12674,6 +12674,35 @@ The spawned node's id, once admission minted one. Absent for a reservation that 
 
 ***
 
+### ReservationShortfall
+
+The channel a `budget-exhausted` reservation could not fit, with the amounts that decided it.
+A caller sizes its next request from `free` in one step instead of probing the pool with
+throwaway spawns (observed live: a director whose 100-iteration child was refused spent a
+probe worker to learn the pool still admitted 3). `free` is what the channel could give right
+now; live reservations return to it as their workers settle. `closedByUnknownSpend` means work
+with unmeasured usage ran under that enforced limit, so the channel admits no amount at all.
+
+#### Properties
+
+##### channel
+
+> `readonly` **channel**: `"tokens"` \| `"iterations"` \| `"usd"` \| `` `resource:${string}` ``
+
+##### requested
+
+> `readonly` **requested**: `number`
+
+##### free
+
+> `readonly` **free**: `number`
+
+##### closedByUnknownSpend?
+
+> `readonly` `optional` **closedByUnknownSpend?**: `true`
+
+***
+
 ### BudgetPoolRestore
 
 State recovered from a prior process before new work is admitted. `committed` is measured spend
@@ -12699,7 +12728,7 @@ while the public readout remains explicitly unknown.
 
 ##### reserve()
 
-> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
+> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfall?`: [`ReservationShortfall`](#reservationshortfall); \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover standard or named channels — the
@@ -12717,7 +12746,7 @@ caller inspects `ok` before `ticket`.
 
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfall?`: [`ReservationShortfall`](#reservationshortfall); \}
 
 ##### attribute()
 
@@ -22031,7 +22060,7 @@ One tree-wide view of simultaneous spawned work. Every nested scope reads the sa
 
 ##### spawn()
 
-> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); \}
+> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); `shortfall?`: [`ReservationShortfall`](#reservationshortfall); \}
 
 Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
 lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
@@ -22065,7 +22094,7 @@ work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ###### Returns
 
-\{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); \}
+\{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); `shortfall?`: [`ReservationShortfall`](#reservationshortfall); \}
 
 ##### next()
 
@@ -23044,7 +23073,7 @@ One channel on which a settled reservation's measured spend exceeded what it res
 
 ##### channel
 
-> `readonly` **channel**: [`SpendChannel`](#spendchannel) \| `"iterations"`
+> `readonly` **channel**: `"iterations"` \| [`SpendChannel`](#spendchannel)
 
 ##### reserved
 

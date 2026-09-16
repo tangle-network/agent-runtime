@@ -27,11 +27,12 @@ import type {
   ResultBlobStore,
   Scope,
   Settled,
+  SpawnRejection,
   Spend,
   Agent as SuperviseAgent,
   WorkerTraceEvidence,
 } from '../../runtime'
-import { assertValidBudget } from '../../runtime/supervise/budget'
+import { assertValidBudget, type ReservationShortfall } from '../../runtime/supervise/budget'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
@@ -1428,6 +1429,65 @@ function spawnProfileArg(): Record<string, unknown> {
     spawnProfileArgCache = detachedFrozen(deriveSpawnProfileArg(canonical.properties))
   }
   return spawnProfileArgCache
+}
+
+const BUDGET_FIELD: Readonly<Record<'tokens' | 'iterations' | 'usd', string>> = {
+  tokens: 'maxTokens',
+  iterations: 'maxIterations',
+  usd: 'maxUsd',
+}
+
+/**
+ * The reason text `spawn_worker` returns for a refused spawn. Every rejection kind names its own
+ * cause: a live-worker cap, a depth limit, or a key collision is not an empty budget, and telling a
+ * driver "no allocation left" for those sends it after the wrong fix. A `budget-exhausted` refusal
+ * names the channel and the amounts, so the driver can size its next request in one step.
+ */
+export function spawnRefusalReason(
+  reason: SpawnRejection,
+  shortfall: ReservationShortfall | undefined,
+  pinned: {
+    readonly usdUnbudgeted: string
+    readonly inDoubt: string
+    readonly scopeSettled: string
+  },
+): string {
+  switch (reason) {
+    case 'usd-unbudgeted':
+      return pinned.usdUnbudgeted
+    case 'in-doubt':
+      return pinned.inDoubt
+    case 'scope-settled':
+      return pinned.scopeSettled
+    case 'scope-aborted':
+      return 'this run was cancelled or hit its deadline; no further worker can start'
+    case 'depth-exceeded':
+      return "this spawn would exceed the run's maxDepth; a worker at the deepest level cannot start children of its own"
+    case 'max-live-workers':
+      return 'the run already has its maximum number of live workers; wait for or cancel a live worker, then spawn again'
+    case 'duplicate-key':
+      return 'a worker under this key is still live; wait for it to settle, or use a different key for different work'
+    case 'key-conflict':
+      return "this key is already recorded for a different profile or task in this run's journal; use a new key for different work"
+    case 'invalid-identity':
+      return 'this profile and task could not be given a complete execution identity, so a keyed spawn cannot be journaled; check the profile'
+    case 'budget-exhausted': {
+      if (shortfall === undefined) {
+        return "the conserved pool refused this spawn (budget-exhausted): the run's remaining budget cannot cover this worker's budget"
+      }
+      const { channel, requested, free } = shortfall
+      const field = channel.startsWith('resource:')
+        ? `resources.${channel.slice('resource:'.length)}.limit`
+        : BUDGET_FIELD[channel as 'tokens' | 'iterations' | 'usd']
+      if (shortfall.closedByUnknownSpend === true) {
+        return `the run pool admits no spawn on ${channel}: work with unmeasured ${channel} usage ran under the run's enforced limit, so no smaller request fits; the caller must raise or re-measure the root budget`
+      }
+      if (free === 0) {
+        return `the run pool has no ${channel} left to reserve (this spawn asked for budget.${field} ${requested}); a live worker's unused reservation returns when it settles, otherwise the caller must raise the root budget`
+      }
+      return `the run pool has ${free} ${channel} free and this spawn asked for budget.${field} ${requested}; spawn again with budget.${field} at most ${free}, or ask the caller for a larger root budget`
+    }
+  }
 }
 
 /** Build the driver's MCP tools over a live scope. */
@@ -3051,21 +3111,22 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               }
             : {
                 error: res.reason,
-                // A refusal a driver can ACT on. `usd-unbudgeted` is the one rejection that no
-                // retry can clear, so it says so: without this, a driver reads "budget" and walks
-                // its request down until it gives up.
-                reason:
-                  res.reason === 'usd-unbudgeted'
-                    ? "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd"
-                    : res.reason === 'in-doubt'
-                      ? 'this key has a prior worker recorded as started without a terminal receipt; no replacement was started because that remote worker may still be running — inspect or recover the exact prior execution before retrying'
-                      : // Nothing is exhausted and nothing was cancelled: this run's driver already
-                        // finished and the supervisor is joining. A caller that reaches here is
-                        // working past the end of its own request; the honest report is that the
-                        // stage never started, not that it failed.
-                        res.reason === 'scope-settled'
-                        ? 'this run has already reached its join barrier — its driver returned and the supervisor is settling, so no further worker can be started, joined, or paid for; record this stage as not started'
-                        : `the conserved pool refused this spawn (${String(res.reason)}); the run has no allocation left to give this worker`,
+                // `usd-unbudgeted` is the one rejection no retry can clear, so it says so: without
+                // that, a driver reads "budget" and walks its request down until it gives up.
+                // A refusal a driver can ACT on: each kind says what happened and what to do next.
+                reason: spawnRefusalReason(res.reason, res.shortfall, {
+                  usdUnbudgeted:
+                    "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd",
+                  inDoubt:
+                    'this key has a prior worker recorded as started without a terminal receipt; no replacement was started because that remote worker may still be running — inspect or recover the exact prior execution before retrying',
+                  // Nothing is exhausted and nothing was cancelled: this run's driver already
+                  // finished and the supervisor is joining. A caller that reaches here is working
+                  // past the end of its own request; the honest report is that the stage never
+                  // started, not that it failed.
+                  scopeSettled:
+                    'this run has already reached its join barrier — its driver returned and the supervisor is settling, so no further worker can be started, joined, or paid for; record this stage as not started',
+                }),
+                ...(res.shortfall === undefined ? {} : { shortfall: res.shortfall }),
                 ...(res.reason === 'usd-unbudgeted'
                   ? {
                       hint:

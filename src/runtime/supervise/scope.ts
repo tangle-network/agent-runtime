@@ -50,6 +50,7 @@ import {
   createBudgetPool,
   meterUsageEvent,
   newUsageTotals,
+  type ReservationShortfall,
   type ReservationTicket,
   spendFromUsageTotals,
 } from './budget'
@@ -704,7 +705,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     recovery?: RetainedChildRecovery,
   ):
     | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
-    | { ok: false; reason: SpawnRejection } {
+    | { ok: false; reason: SpawnRejection; shortfall?: ReservationShortfall } {
     if (args.signal.aborted) return { ok: false, reason: 'scope-aborted' }
     // The run reached its join barrier: no later child can be joined, released, or selected over.
     // Distinct from an abort — nothing cancelled this run (see `closeScopeAdmission`).
@@ -813,7 +814,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
     if (!reservation.ok) {
       permit.release()
-      return { ok: false, reason: reservation.reason }
+      return {
+        ok: false,
+        reason: reservation.reason,
+        ...(reservation.shortfall === undefined ? {} : { shortfall: reservation.shortfall }),
+      }
     }
 
     // Resolve the leaf executor through the open registry after both worker and budget admission.

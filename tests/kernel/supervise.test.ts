@@ -205,7 +205,11 @@ describe('conserved budget pool', () => {
     expect(a.ok).toBe(true)
     // 600 reserved, 400 free; a 500-token child must fail closed (never overcommit).
     const b = pool.reserve({ maxIterations: 2, maxTokens: 500, label: '' } as Budget)
-    expect(b).toEqual({ ok: false, reason: 'budget-exhausted' })
+    expect(b).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfall: { channel: 'tokens', requested: 500, free: 400 },
+    })
     expect(pool.readout().tokensLeft).toBe(400)
     expect(pool.readout().reservedTokens).toBe(600)
   })
@@ -234,7 +238,11 @@ describe('conserved budget pool', () => {
       pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.75, label: '' } as Budget).ok,
     ).toBe(true)
     const over = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.5, label: '' } as Budget)
-    expect(over).toEqual({ ok: false, reason: 'budget-exhausted' })
+    expect(over).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfall: { channel: 'usd', requested: 0.5, free: 0.25 },
+    })
   })
 
   it('refunds the unspent remainder on reconcile (Σ conservation)', () => {
@@ -276,6 +284,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
       ok: false,
       reason: 'budget-exhausted',
+      shortfall: { channel: 'tokens', requested: 1, free: 0 },
     })
   })
 
@@ -455,6 +464,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.01 } as Budget)).toEqual({
       ok: false,
       reason: 'budget-exhausted',
+      shortfall: { channel: 'usd', requested: 0.01, free: 0 },
     })
   })
 
@@ -553,6 +563,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 10 } as Budget)).toEqual({
       ok: false,
       reason: 'budget-exhausted',
+      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
     })
   })
 
@@ -723,6 +734,7 @@ describe('conserved budget pool', () => {
     expect(pool.reserve({ maxIterations: 1, maxTokens: 1 } as Budget)).toEqual({
       ok: false,
       reason: 'budget-exhausted',
+      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
     })
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
@@ -1205,7 +1217,11 @@ describe('equal-k by construction', () => {
         label: 'after-unknown-cost',
         budget: { maxIterations: 1, maxTokens: 1 },
       }),
-    ).toEqual({ ok: false, reason: 'budget-exhausted' })
+    ).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+    })
   })
 
   // ── The cost-event × declared-ceiling matrix ──────────────────────────────────
@@ -1311,7 +1327,11 @@ describe('equal-k by construction', () => {
         label: 'after-unknown',
         budget: { maxIterations: 1, maxTokens: 1 },
       }),
-    ).toEqual({ ok: false, reason: 'budget-exhausted' })
+    ).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfall: { channel: 'usd', requested: 0, free: 0, closedByUnknownSpend: true },
+    })
   })
 
   it('records a priced child on an UNCAPPED root as observed-but-unbudgeted dollars', async () => {
@@ -1677,7 +1697,11 @@ describe('reactive scope', () => {
       budget: { maxIterations: 1, maxTokens: 10 },
       label: 'b',
     })
-    expect(overflow).toEqual({ ok: false, reason: 'budget-exhausted' })
+    expect(overflow).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfall: { channel: 'tokens', requested: 10, free: 0 },
+    })
   })
 
   it('abort mid-flight reaps the live child (down, no throw)', async () => {

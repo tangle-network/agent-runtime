@@ -335,7 +335,7 @@ describe('coordination tools', () => {
     expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       error: 'budget-exhausted',
       reason:
-        'the conserved pool refused this spawn (budget-exhausted); the run has no allocation left to give this worker',
+        "the conserved pool refused this spawn (budget-exhausted): the run's remaining budget cannot cover this worker's budget",
       live: 1,
       freeSlots: null,
     })
