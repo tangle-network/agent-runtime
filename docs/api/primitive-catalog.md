@@ -423,7 +423,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 952 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 954 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -454,6 +454,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 952 exports.
 | `cancelWorker` | function | Request the cancellation of ONE worker, idempotently, and return the operation's current |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
 | `canonicalFindingEvent` | function | Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst |
+| `captureHarnessTranscript` | function | Read the harness transcript out of one LIVE environment. |
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `chatTransportExecutor` | function | Build one exact profile-driven chat executor through `createExecutor`. |
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
@@ -942,6 +943,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 952 exports.
 | `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
 | `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
 | `QuestionEscalationRecord` | interface | The operator-facing artifact written for every `ask_parent`: which question left, whether |
+| `ReadableEnvironment` | interface | The two optional environment reads the capture needs. Public because `captureHarnessTranscript` |
 | `ReconnectRetainedInteractiveRunOptions` | interface | Reconstruct one exact provider-owned native coding-agent process. |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
 | `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |

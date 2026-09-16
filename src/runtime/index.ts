@@ -231,6 +231,7 @@ export {
   type HarnessTranscriptUnavailableReason,
   harnessTranscriptArtifact,
   persistHarnessTranscript,
+  type ReadableEnvironment,
 } from './harness-transcript'
 // Per-harness usage decoders: the ONE registry of harnesses that report token usage only inside
 // their own event, read alongside the canonical usage events by `createSandboxUsageLedger`. Only
