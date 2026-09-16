@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.232.1
+
+Support Sandbox 0.41 through the published peer range.
+Sandbox cleanup accepts its stopped-and-billing-settled acknowledgement without waiting for physical storage reclamation.
+
 ## 0.232.0
 
 External directors can use `repromptOnUnmet: 'until-complete'` with a completion check and finite positive budget deadline.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.3
+
+Support Sandbox 0.41 and consume Runtime 0.232.1 through the published dependency ranges.
+
 ## 0.13.2
 
 Allow Sandbox 0.40.x and consume Runtime 0.231.1 through the published dependency ranges.
