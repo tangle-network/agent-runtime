@@ -40,6 +40,7 @@ import type { RetainedInteractiveRunHandle } from '../retained-interactive-types
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
+import type { RetainedPendingCause } from './retained-executor'
 import type { TraceSource } from './trace-source'
 import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
 import type { WorkerTraceResolver } from './worker-trace'
@@ -1003,6 +1004,12 @@ export type Settled<Out> =
        *  states, so a reader never splits this population on `reason` text — which is identical
        *  on every one of these children. */
       retainedExecution?: RetainedExecutionState
+      /** WHY the retained execution has no accepted result, as a value: the safety refusal
+       *  (`'unobservable'`) against a provider contract violation, a rejected request, a lost
+       *  transport, or a nested recovery that could not be reconstructed. Present iff
+       *  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
+       *  have to parse it (#1204). */
+      retainedPendingCause?: RetainedPendingCause
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
@@ -1248,6 +1255,8 @@ export interface NodeSnapshot {
    *  (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
    *  retained-vs-down question without the observer journal. */
   readonly retainedExecution?: RetainedExecutionState
+  /** Why a retained child has no accepted result; see `RetainedPendingCause`. */
+  readonly retainedPendingCause?: RetainedPendingCause
 }
 
 /** The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. */
@@ -1375,6 +1384,7 @@ export type SpawnEvent =
        *  instant, and the release instant is on the receipt immediately before it. Typed so a
        *  `'pending'` can never be journaled: the journal states that as `reconciled`. */
       retainedExecution?: Extract<RetainedExecutionState, 'released'>
+      retainedPendingCause?: RetainedPendingCause
       seq: number
       at: string
     }
@@ -1395,6 +1405,7 @@ export type SpawnEvent =
       /** As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
        *  builder writes whichever kind the settlement had. */
       retainedExecution?: Extract<RetainedExecutionState, 'released'>
+      retainedPendingCause?: RetainedPendingCause
       seq: number
       at: string
     }
@@ -1532,6 +1543,7 @@ export type SpawnEvent =
       /** The settlement the driver received, verbatim, as `settled`/`cancelled` carry it. Optional
        *  only so journals written before these fields existed remain replayable. */
       reason?: string
+      retainedPendingCause?: RetainedPendingCause
       infra?: boolean
       trace?: WorkerTraceEvidence
       outRef?: string
@@ -1879,6 +1891,8 @@ export interface SpendGap {
  * path and the recorded-result path writes no marker.
  */
 export type RetainedExecutionState = 'pending' | 'released'
+
+export type { RetainedPendingCause } from './retained-executor'
 
 /**
  * How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at

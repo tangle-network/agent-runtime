@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.235.0
+
+**A retained child's settlement says WHY it is pending, as a value (#1204).** One reason string —
+`retained provider execution requires reconciliation before replacement` — covered two situations
+that call for opposite operator responses: an execution whose status genuinely cannot be
+determined, where refusing to replace it is correct and the operator must reconcile before
+retrying or pay twice for one turn; and a provider that broke its contract, where nothing needs
+reconciling and the right response is to fix or report the provider. Six exhibits in three days
+wore the first name for the second fault, and the runtime itself made it worse: it minted one
+`RetainedRunProviderContractError` class both when the provider answered wrongly and when a read
+of the provider merely failed.
+
+- `RetainedExecutionPendingError` now carries `pendingCause: RetainedPendingCause` —
+  `'unobservable'` (the safety refusal), `'provider-contract'`, `'request-rejected'`,
+  `'transport'`, `'nested-recovery'` — and its message names which one. The cause is classified
+  from the typed error's STRUCTURE (class name, `code`, HTTP `status`, a Zod issue list, the
+  members of an `AggregateError`), never from message text: the provider is not a dependency of
+  this package and its messages are not a contract.
+- Classification is **phase-aware**. A 4xx, a not-found, or a client deadline hit AFTER admission
+  means the provider cannot resolve what it admitted — exhibit 4's situation — and stays
+  `'unobservable'`; `'request-rejected'` is named only at admission. A schema failure after
+  admission is the runtime refusing the provider's answer, `'provider-contract'`.
+- A `RetainedRunProviderContractError` whose code says a READ failed
+  (`RETAINED_RESULT_READ_FAILED`, `RETAINED_CONTROL_REF_READ_FAILED`, and the new
+  `RETAINED_EVENT_STREAM_READ_FAILED`, split off `RETAINED_EVENT_STREAM_INVALID` so the
+  runtime's own stream checks keep their verdict) is a wrapper: what it wraps decides. The live
+  stream's event-binding check now mints `RETAINED_EVENT_BINDING_INVALID`, so an event bound to
+  another run classifies as the contract violation it is. Every `driverExecutor` throw that is a
+  nested-recovery failure says so instead of being inferred from whatever the driver threw.
+- `retainedPendingCause` rides beside `retainedExecution` everywhere that field goes: `Settled`'s
+  down arm, the `reconciled` and terminal journal records (through the one shared field spread,
+  so the released record — written live or healed on resume — carries it forward), `NodeSnapshot`
+  live and materialized, replay, both `agent.child` payloads, and `PursuitNodeProjection`. A
+  reader never splits the population on the reason's wording.
+- **Not covered, stated rather than faked:** #1204's exhibits 3 (`Tangle session event arrived
+  without a stable id`) and 6 (`value exceeds its JSON bound`) are thrown by agent-provider-tangle
+  as plain `Error`s with no code, so a structure-only classifier cannot name them; they land on
+  `'unobservable'`, the safe side, until the provider types them. Where they arrive as an
+  observation failure beside a failed result read, the read decides.
+- The refusal behaviour is unchanged: every cause still settles the child `down`, `infra: true`,
+  retained-pending, and counts in `fleetYield.releasedUnrecovered` once released. The cause says
+  what to do next, not whether the fleet lost the child. Journals written before this release
+  carry no cause; a reader treats absence as unknown, not as unobservable.
+
 ## 0.234.0
 
 **A resume heals the 0.233.0 crash window.** The `reconciled` record now carries the settlement

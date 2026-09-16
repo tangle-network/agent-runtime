@@ -40,6 +40,7 @@ import type {
   ProviderModelExecutionEvidence,
   ResultBlobStore,
   RetainedExecutionState,
+  RetainedPendingCause,
   Runtime,
   Settled,
   SpawnEvent,
@@ -1145,6 +1146,9 @@ export async function replaySpawnTree(
         trace: ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' },
         ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
         ...(ev.retainedExecution === undefined ? {} : { retainedExecution: ev.retainedExecution }),
+        ...(ev.retainedPendingCause === undefined
+          ? {}
+          : { retainedPendingCause: ev.retainedPendingCause }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1172,6 +1176,9 @@ export async function replaySpawnTree(
         // Replay yields the settlement the driver saw except for the one deliberate difference:
         // live carried `'pending'` while recoverable; the journal records how the slot closed.
         ...(ev.retainedExecution === undefined ? {} : { retainedExecution: ev.retainedExecution }),
+        ...(ev.retainedPendingCause === undefined
+          ? {}
+          : { retainedPendingCause: ev.retainedPendingCause }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1316,6 +1323,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.trace = traceEvidenceFor(ev)
       node.budgetViolation = budgetViolationOf(ev).budgetViolation
       if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
+      if (ev.retainedPendingCause !== undefined) node.retainedPendingCause = ev.retainedPendingCause
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else if (ev.kind === 'woken') {
@@ -1334,6 +1342,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.outRef = ev.outRef
       node.budgetViolation = budgetViolationOf(ev).budgetViolation
       if (ev.retainedExecution !== undefined) node.retainedExecution = ev.retainedExecution
+      if (ev.retainedPendingCause !== undefined) node.retainedPendingCause = ev.retainedPendingCause
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }
@@ -1419,6 +1428,7 @@ interface MutableSnapshot {
   trace?: NodeSnapshot['trace']
   budgetViolation?: BudgetViolation
   retainedExecution?: RetainedExecutionState
+  retainedPendingCause?: RetainedPendingCause
   settledAt?: number
   spawnedAt?: number
 }
@@ -1491,6 +1501,9 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     trace: node.trace,
     ...(node.budgetViolation === undefined ? {} : { budgetViolation: node.budgetViolation }),
     ...(node.retainedExecution === undefined ? {} : { retainedExecution: node.retainedExecution }),
+    ...(node.retainedPendingCause === undefined
+      ? {}
+      : { retainedPendingCause: node.retainedPendingCause }),
     settledAt: node.settledAt,
     spawnedAt: node.spawnedAt,
   }

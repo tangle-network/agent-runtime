@@ -266,6 +266,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
       } else if (prior.length !== 1 && !recovering) {
         throw new RetainedExecutionPendingError(
           new ValidationError('driverExecutor: interrupted nested execution requires recovery'),
+          'nested-recovery',
         )
       }
       if (recovering && (!spec.recoverExecutor || !seam.restore)) {
@@ -273,6 +274,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
           new ValidationError(
             'driverExecutor: nested recovery has no original executor reconstruction',
           ),
+          'nested-recovery',
         )
       }
       signal.throwIfAborted()
@@ -289,7 +291,8 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
       } catch (error) {
         controller.abort(error)
         signal.removeEventListener('abort', onParentAbort)
-        throw new RetainedExecutionPendingError(error)
+        // The nested tree's spawn record already exists; a replacement must recover it.
+        throw new RetainedExecutionPendingError(error, 'nested-recovery')
       }
       active = { controller, scope: nestedScope }
       nestedScopeHeld = nestedScope
@@ -375,7 +378,8 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         ) {
           // An admitted backend or accepted backend result is not a finalized manager output.
           // Keep the parent's key in doubt until a supported nested recovery can run its finalizer.
-          throw new RetainedExecutionPendingError(err)
+          // The cause is journal state, not whatever the driver threw, so it is stated.
+          throw new RetainedExecutionPendingError(err, 'nested-recovery')
         }
         if (cleanupError !== undefined) throw cleanupError
         throw err

@@ -1171,6 +1171,16 @@ Present on a retained child: `'pending'` while its cursor slot is open, `'releas
 
 [`NodeSnapshot`](#nodesnapshot).[`retainedExecution`](#retainedexecution-1)
 
+##### retainedPendingCause?
+
+> `readonly` `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
+Why a retained child has no accepted result; see `RetainedPendingCause`.
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`retainedPendingCause`](#retainedpendingcause-2)
+
 ***
 
 ### SpawnForestInDoubtNode
@@ -22502,6 +22512,12 @@ Present on a retained child: `'pending'` while its cursor slot is open, `'releas
  (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
  retained-vs-down question without the observer journal.
 
+##### retainedPendingCause?
+
+> `readonly` `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
+Why a retained child has no accepted result; see `RetainedPendingCause`.
+
 ***
 
 ### TreeView
@@ -27952,6 +27968,47 @@ Why an attempt did not reach a sibling. Each value is a fact the sender can read
 
 ***
 
+### RetainedPendingCause
+
+> **RetainedPendingCause** = `"unobservable"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"`
+
+Why a retained execution has no accepted terminal result, classified where the cause is still
+a typed value rather than a string in a journal.
+
+One reason string used to cover two situations that call for opposite operator responses
+(#1204): an execution whose status genuinely cannot be determined — refusing to replace it is
+correct, and the operator must reconcile before retrying or pay twice for one turn — and a
+provider that broke its contract, where nothing needs reconciling and the right response is to
+fix or report the provider. Six exhibits in three days wore the first name for the second fault.
+
+- `'unobservable'`: the execution may have run and nothing local can say. The safety refusal.
+  Anything unclassifiable lands here, and so does a 4xx, a not-found, or a client deadline hit
+  AFTER admission: the provider cannot resolve what it admitted, which is exactly the case the
+  refusal exists for, not a rejected request.
+- `'provider-contract'`: the provider answered with something its own contract forbids — a
+  `RetainedRunProviderContractError` naming a broken answer (an `*_INVALID`, `*_CHANGED`,
+  `*_DUPLICATE`, `*_MISSING` code), an event bound to another run.
+- `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
+  (`ZodError`), an HTTP 4xx at admission. Never named after admission.
+- `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
+  error, a platform service answering with a server error. Status is in doubt only because
+  the transport was.
+- `'nested-recovery'`: a nested manager's own recovery could not be reconstructed. Stated by
+  the thrower, never inferred.
+
+Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
+list — never its message text, because the provider is not a dependency of this package and
+its messages are not a contract. Two exhibits (#1204's 3 and 6) are thrown by the provider as
+plain `Error`s with no code, so a structure-only classifier cannot name them until the provider
+types them; they land on `'unobservable'`, which is the safe side.
+
+One `RetainedRunProviderContractError` is NOT one meaning. The runtime mints it both when the
+provider answered wrongly and when a READ of the provider failed (`RETAINED_RESULT_READ_FAILED`,
+`RETAINED_CONTROL_REF_READ_FAILED`). The second kind is a wrapper: what it wraps decides, in a
+post-admission context, and a wrapper around nothing classifiable is exhibit 4.
+
+***
+
 ### RunContext
 
 > **RunContext** = [`InMemoryRunContext`](#inmemoryruncontext)
@@ -28586,7 +28643,7 @@ recovery before a replacement can run.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -28670,7 +28727,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -28735,6 +28792,16 @@ Present only when this child's provider execution was RETAINED (see
  states, so a reader never splits this population on `reason` text — which is identical
  on every one of these children.
 
+###### retainedPendingCause?
+
+> `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
+WHY the retained execution has no accepted result, as a value: the safety refusal
+ (`'unobservable'`) against a provider contract violation, a rejected request, a lost
+ transport, or a nested recovery that could not be reconstructed. Present iff
+ `retainedExecution` is; the `reason` text names the same thing, but a reader must never
+ have to parse it (#1204).
+
 ###### settledAt?
 
 > `optional` **settledAt?**: `number`
@@ -28749,7 +28816,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\>; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\>; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -28985,7 +29052,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -29070,6 +29137,10 @@ Written by the release sweep in the settling process, on the same tree, after ev
  instant, and the release instant is on the receipt immediately before it. Typed so a
  `'pending'` can never be journaled: the journal states that as `reconciled`.
 
+###### retainedPendingCause?
+
+> `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
 ###### seq
 
 > **seq**: `number`
@@ -29082,7 +29153,7 @@ Written by the release sweep in the settling process, on the same tree, after ev
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -29137,6 +29208,10 @@ The child's harness transcript receipt, when the executor could still be read at
 
 As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
  builder writes whichever kind the settlement had.
+
+###### retainedPendingCause?
+
+> `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
 
 ###### seq
 
@@ -29451,7 +29526,7 @@ without charging the same spend twice.
 
 ##### Type Literal
 
-\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -29504,6 +29579,10 @@ The cursor seq `next()` stamped on the delivery this floor stands in for — wha
 
 The settlement the driver received, verbatim, as `settled`/`cancelled` carry it. Optional
  only so journals written before these fields existed remain replayable.
+
+###### retainedPendingCause?
+
+> `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
 
 ###### infra?
 

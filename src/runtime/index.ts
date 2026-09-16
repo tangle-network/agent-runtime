@@ -1111,6 +1111,7 @@ export type {
   ResumedKeyState,
   ResumedWork,
   RetainedExecutionState,
+  RetainedPendingCause,
   RootHandle,
   RootMaterialization,
   RootProviderModelEvidence,
