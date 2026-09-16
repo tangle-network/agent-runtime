@@ -35,6 +35,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
+import type { NativeSessionEvidence } from '../native-session-evidence'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
@@ -259,6 +260,16 @@ export type WorkerTraceEvidence =
       /** Content-addressed pointer to a persisted `WorkerToolTraceArtifact`. */
       readonly traceRef: string
       readonly spanCount: number
+      /**
+       * The child's OWN harness transcript, read out of its environment before destroy.
+       *
+       * `traceRef` above points at the supervisor's tool spans: toolName, args, status,
+       * callId, with startedAt === endedAt. It carries no assistant text, no reasoning and
+       * no tool results, so `status: 'available'` on this object never meant the child's
+       * session survived — it was destroyed with the environment. This says whether it did.
+       * Absent on a settlement recorded before the capture existed.
+       */
+      readonly nativeSession?: NativeSessionEvidence
     }
   | {
       readonly status: 'unavailable'

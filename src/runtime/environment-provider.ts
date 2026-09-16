@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { captureNativeSessionEvidence, type NativeSessionEvidence } from './native-session-evidence'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 
 export type { ProviderPlacement } from './provider-placement'
@@ -471,6 +472,15 @@ export interface ProviderLeafOut {
   events: AgentEnvironmentEvent[]
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
+  /**
+   * The child's own harness transcript, read before the environment was destroyed.
+   *
+   * `events` above is the provider's stream and `trace` on the settlement is the supervisor's
+   * tool spans; neither carries the harness's session files, which used to die with the
+   * environment. Always present on the settled path: an environment that cannot be read says
+   * so with a `reason` rather than being silently absent. #1214.
+   */
+  nativeSession?: NativeSessionEvidence
 }
 
 /**
@@ -1032,8 +1042,24 @@ async function* streamProviderExecutor(
       )
     }
     yield { kind: 'iteration' }
+    // Read the child's own harness transcript while the environment is still live. The
+    // `finally` below destroys it, and nothing used to read these files first, so a child's
+    // Claude Code / Codex / OpenCode session never reached a run record: the `trace` receipt
+    // carries the supervisor's tool spans only (toolName, args, status, callId, with
+    // startedAt === endedAt), never assistant text or tool results. #1214.
+    //
+    // It rides inside the settled result, so supervise blobs it under this child's outRef in
+    // its own ResultBlobStore and replay rehydrates it. No destroy site learns about storage.
+    const nativeSession = await captureNativeSessionEvidence(
+      environment as Parameters<typeof captureNativeSessionEvidence>[0],
+      args.profile.harness,
+      // The run's linked abort, so a cancelled run stops mid-enumeration instead of reading
+      // up to MAX_FILES out of an environment that is already being torn down.
+      linked,
+    )
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...resultFromEvents(archive.events(), text),
+      nativeSession,
       ...(archive.superseded > 0 ? { supersededPartUpdates: archive.superseded } : {}),
       ...(explicitFailure ? { outcome: outcomeTracker.finish() } : {}),
     }
