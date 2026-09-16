@@ -229,6 +229,14 @@ Omit `coordination.port` to allocate a separate port for each concurrent manager
 Runtime does not provision a proxy or tunnel.
 Remote public endpoints require HTTPS.
 
+Before provider admission, Runtime checks each configured public endpoint with authenticated `initialize` and `tools/list` requests.
+The returned grants must match that manager's exact tool names.
+The check takes at most 10 seconds, or `coordination.requestTimeoutMs` when shorter, and stops on manager cancellation.
+Responses are limited to 1 MiB independently of the incoming request limit, and redirects are refused.
+Failure closes the listener and reports a credential-free cause before inference starts.
+This verifies the operator's public route; it does not establish reachability from the provider's network.
+Omitting `coordination.publicUrl` preserves local-only startup without this network check.
+
 For same-host coordinator restart, configure `authentication.signingKeys` with an active key ID and a secret key map.
 Keep the public URL, run ID, actor ID, tool grants, and verification key stable until the retained credential expires.
 Stable keys support resumed coordination only before the original credential expires.

@@ -8,13 +8,16 @@ import type {
 import { afterEach, describe, expect, it } from 'vitest'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
+import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   )
@@ -103,11 +106,16 @@ describe('nested retained owner journal isolation', () => {
           }
         },
       }
+      const proxy = await coordinationProxy()
+      proxies.push(proxy)
       const coordination = {
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'nested-test-secret-'.repeat(3) } },
         },
-        publicUrl: () => 'https://coordination.example/nested',
+        publicUrl: ({ port }: { port: number }) => {
+          proxy.forwardTo(port)
+          return `${proxy.url}/nested`
+        },
       }
       const finalizer = () => ({ finalizedBy: 'manager' })
       const manager = testAgentProfile('manager', {

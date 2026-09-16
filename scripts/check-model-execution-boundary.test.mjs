@@ -48,6 +48,14 @@ describe('model execution boundary source check', () => {
     expect(violations[0]?.location).toBe('3:7')
   })
 
+  it('permits dynamic MCP preflight routes without admitting named model endpoints', () => {
+    const path = 'src/runtime/supervise/coordination-preflight.ts'
+    expect(checkJavaScript(path, 'await fetch(input.url)')).toEqual([])
+    expect(
+      checkJavaScript(path, "await fetch('https://router.tangle.tools/v1/chat/completions')"),
+    ).toHaveLength(1)
+  })
+
   it('rejects qualified and aliased global fetch calls', () => {
     expect(
       checkJavaScript(

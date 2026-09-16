@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, request } from 'node:http'
-import { networkInterfaces } from 'node:os'
-import { describe, expect, it, vi } from 'vitest'
+import { connect, type Socket } from 'node:net'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/agent-knowledge'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
@@ -21,8 +25,19 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { coordinationProxy } from '../helpers/coordination-proxy'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
+
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
+afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
+})
+async function publicProxy() {
+  const proxy = await coordinationProxy()
+  proxies.push(proxy)
+  return proxy
+}
 
 // A real (simple) delivering leaf — NOT a mock of the MCP path; the HTTP→MCP→Scope.spawn is real.
 function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
@@ -516,6 +531,55 @@ function postHttp(
 }
 
 describe('authenticated and bounded coordination HTTP', () => {
+  it('preflights the coordination and Knowledge tools independently of the incoming request limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'coordination-knowledge-'))
+    try {
+      const nodeTools = createKnowledgeTools({
+        stores: createRunScopedStores({ root }),
+        runId: 'preflight',
+        retrieverVersion: 'test',
+      }).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchemaJson!,
+        handler: tool.handler,
+      }))
+      const toolNames = [
+        'spawn_worker',
+        'observe_agent',
+        'steer_agent',
+        'await_event',
+        'list_questions',
+        'answer_question',
+        'ask_parent',
+        'stop',
+        'read_journal',
+        'list_analysts',
+        'run_analyst',
+        ...nodeTools.map((tool) => tool.name),
+      ]
+      await withBoundHttp(
+        {
+          maxRequestBytes: 1024,
+          publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+          analysts: { kinds: [], run: async () => [] },
+          nodeTools,
+          toolNames,
+        },
+        async (mcp) => {
+          const listing = await jsonRpc(mcp.url, 'tools/list', {}, mcp.headers)
+          expect(Buffer.byteLength(JSON.stringify(listing))).toBeGreaterThan(1024)
+          expect(Buffer.byteLength(JSON.stringify(listing))).toBeLessThan(1024 * 1024)
+          expect(listing.result).toMatchObject({
+            tools: toolNames.map((name) => expect.objectContaining({ name })),
+          })
+        },
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each(['0.0.0.0', '::'])(
     'accepts only the actual bound address behind a proxy with wildcard %s',
     async (host) => {
@@ -524,6 +588,7 @@ describe('authenticated and bounded coordination HTTP', () => {
         .find((entry) => entry?.family === 'IPv4' && !entry.internal)?.address
       if (!address)
         throw new Error('This HTTP regression needs an assigned non-loopback IPv4 address')
+      const proxy = await publicProxy()
       const post = (port: number, headers: Record<string, string>, path = '/mcp') =>
         new Promise<number>((resolve, reject) => {
           const req = request(
@@ -543,12 +608,13 @@ describe('authenticated and bounded coordination HTTP', () => {
           publicUrl: async ({ port }) => {
             // The bound socket exists before public routing and credentials are ready.
             expect(await post(port, { Host: `${address}:${port}` })).toBe(403)
-            return 'https://coordination.example/mcp'
+            proxy.forwardTo(port, address)
+            return `${proxy.url}/mcp`
           },
         },
         async (mcp) => {
           expect(await post(mcp.port, { ...mcp.headers, Host: `${address}:${mcp.port}` })).toBe(200)
-          expect(await post(mcp.port, { ...mcp.headers, Host: 'coordination.example' })).toBe(200)
+          expect(await post(mcp.port, { ...mcp.headers, Host: new URL(proxy.url).host })).toBe(200)
           for (const authority of [
             `${address}:${mcp.port + 1}`,
             `192.0.2.1:${mcp.port}`,
@@ -839,21 +905,23 @@ describe('authenticated and bounded coordination HTTP', () => {
   it.each([false, true])(
     'binds the caller-owned endpoint and credential audience with async resolution=%s',
     async (asynchronous) => {
+      const proxy = await publicProxy()
       await withBoundHttp(
         {
-          publicUrl: ({ actorId }) => {
-            const url = `https://coordination.example/${actorId}`
+          publicUrl: ({ actorId, port }) => {
+            proxy.forwardTo(port)
+            const url = `${proxy.url}/${actorId}`
             return asynchronous ? Promise.resolve(url) : url
           },
         },
         async (mcp) => {
-          expect(mcp.url).toBe('https://coordination.example/actor-a')
+          expect(mcp.url).toBe(`${proxy.url}/actor-a`)
           expect(mcp.url).not.toContain(mcp.headers.Authorization!)
           const response = await fetch(`http://127.0.0.1:${mcp.port}/actor-a`, {
             method: 'POST',
             headers: {
               ...mcp.headers,
-              Host: 'coordination.example',
+              Host: new URL(proxy.url).host,
               'content-type': 'application/json',
             },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
@@ -970,9 +1038,58 @@ describe('authenticated and bounded coordination HTTP', () => {
 })
 
 describe('coordination credential continuity', () => {
+  it('closes partial startup connections when public preflight fails', async () => {
+    let socket: Socket | undefined
+    try {
+      await withBoundHttp({}, async (parent) => {
+        await expect(
+          withBoundHttp(
+            {
+              publicUrl: async ({ port }) => {
+                socket = connect(port, '127.0.0.1')
+                await new Promise<void>((resolve, reject) => {
+                  socket!.once('connect', resolve)
+                  socket!.once('error', reject)
+                })
+                socket.write('POST /mcp HTTP/1.1\r\n')
+                return parent.url
+              },
+              identity: { runId: 'run-a', actorId: 'actor-b' },
+            },
+            async () => {
+              throw new Error('must not admit a failed endpoint')
+            },
+          ),
+        ).rejects.toThrow('coordination public endpoint preflight failed: HTTP 401')
+      })
+    } finally {
+      socket?.destroy()
+    }
+  }, 2_000)
+
+  it('refuses a public route to another actor before exposing a manager handle', async () => {
+    await withBoundHttp({}, async (parent) => {
+      await expect(
+        withBoundHttp(
+          {
+            publicUrl: parent.url,
+            identity: { runId: 'run-a', actorId: 'actor-b' },
+          },
+          async () => {
+            throw new Error('must not expose the wrong actor')
+          },
+        ),
+      ).rejects.toThrow('coordination public endpoint preflight failed: HTTP 401')
+    })
+  })
+
   it('accepts an original credential only for its exact restarted authority and retained verification key', async () => {
     const signingKeys = { activeKeyId: 'original', keys: { original: 'a'.repeat(48) } }
-    const publicUrl = 'https://coordination.example/manager'
+    const proxy = await publicProxy()
+    const publicUrl = ({ port }: { port: number }) => {
+      proxy.forwardTo(port)
+      return `${proxy.url}/manager`
+    }
     let original: Readonly<Record<string, string>> = {}
     await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
       original = mcp.headers
@@ -990,7 +1107,12 @@ describe('coordination credential continuity', () => {
     for (const mismatch of [
       { identity: { runId: 'other-run', actorId: 'actor-a' } },
       { identity: { runId: 'run-a', actorId: 'other-actor' } },
-      { publicUrl: 'https://coordination.example/other' },
+      {
+        publicUrl: ({ port }: { port: number }) => {
+          proxy.forwardTo(port)
+          return `${proxy.url}/other`
+        },
+      },
       { toolNames: ['probe', 'stop'] },
       { authentication: { signingKeys: { activeKeyId: 'next', keys: { next: 'b'.repeat(48) } } } },
     ]) {
