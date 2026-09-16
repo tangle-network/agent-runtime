@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.232.0
+
+A child that DROPS now keeps its transcript, the receipt that says so has moved to where an
+unavailable trace cannot hide it, and the thing itself is finally called what it is.
+
+**Renamed.** 0.229.0 shipped this as `NativeSession*`. "Native" answered a question nobody was
+asking — native to what, as against what? — and the honest contrast is not native/non-native: it
+is the HARNESS's own first-person session file (`.claude/projects/*/session.jsonl` and its Codex
+/ OpenCode peers) against the SUPERVISOR's second-hand `trace` receipt of tool spans. So the
+vocabulary is now `HarnessTranscript*` throughout: `HarnessTranscriptEvidence`,
+`HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HARNESS_TRANSCRIPT_SCHEMA_VERSION`,
+`captureHarnessTranscript`, and the field `harnessTranscript`. `src/runtime/harness-transcript.ts`
+replaces `src/runtime/native-session-evidence.ts`. Nothing had time to depend on the old names.
+
+0.229.0 captured a sandbox child's harness transcript just before the settled result was built,
+which covers the settled path and is the right seam for it. A child that settles `down` has no
+result artifact for the capture to ride in, so its transcript died at destroy exactly as before
+— and these are the children an operator most wants to read, because they are the ones that
+failed. Measured 2026-09-15 on three capability-per-parameter pursuits under 0.226.0/0.227.0: 45
+children in one evening executed, reasoned, and settled `down` with nothing. One run lost 38 of
+68 inside a ten-minute window (#1244).
+
+- The capture now also runs in `providerAsExecutor`'s failure path, at the last point the
+  environment is still live — the `finally` that destroys it runs after, so this is the only
+  moment a dropped child's session files can be read at all.
+- `Executor` gains an optional `harnessTranscript()`, read on settle and valid after `execute`
+  resolves OR throws, exactly like the existing `metered()`. The scope carries the answer on
+  every settlement arm, done and down alike.
+- **Breaking:** `WorkerTraceEvidence.nativeSession` is removed. It was declared in 0.229.0,
+  documented as a read path, and assigned by nothing — every settlement carried `undefined`
+  there, including successful ones. It also could not have worked on the path that needed it:
+  it sat inside the `status: 'available'` arm, and a child that drops has zero tool spans, so
+  its trace is `unavailable` and the field had no home. The receipt is now `harnessTranscript` on
+  the settlement itself, a SIBLING of `trace`, on `Settled` (both arms) and on the journal's
+  `settled` record. `ProviderLeafOut.nativeSession` (0.229.0's inline carrier) is removed too; see below.
+- Four absences are now told apart instead of collapsing into one silence, because an operator
+  acts differently on each: `execution-never-started` (no environment was ever created — the
+  `maxUsd` admission refusal of #1240), `capture-did-not-run` (a box existed and the abort path
+  closed the stream before the capture could run), `executor-exposes-no-transcript` (a CLI
+  or in-process child that has no transcript by construction), and the capture's own reasons
+  (`unsupported-environment`, `enumeration-failed`, `no-transcript`, `unknown-harness`).
+  None of them is ever an empty artifact that reads as coverage.
+
+**The transcript is now its own blob, and the receipt is a pointer (#1248).** 0.229.0 inlined the
+files as `content` strings inside the settled result, so every replay and resume of a child
+re-read and re-parsed up to 16 MiB of transcript whether or not anyone wanted it, and a 132-child
+fleet at the ceiling carried ~2.1 GiB inside its result blobs. Now the scope persists each capture
+under its own content ref in the `ResultBlobStore` — the way the tool-span trace already is — and
+the settlement carries `harnessTranscript: { status: 'available', transcriptRef, harness,
+fileCount, totalBytes, skippedCount }`. Replay rehydrates a ref; the bytes are a disk number and
+nobody pays for a transcript until they open it with the new `harnessTranscriptArtifact(evidence,
+blobs)`. Consequences, all deliberate:
+
+- `ProviderLeafOut.nativeSession` is gone: the executor reports the in-memory
+  `HarnessTranscriptCapture` through its port and never touches storage, which restores the
+  "no blob sink in any provider or destroy site" property 0.229.0 set out to keep.
+- The per-child bounds stay 2 MiB / 16 MiB / 1000 files, now enforced exactly (after each read,
+  so a child settles at or under 16 MiB instead of 16 MiB plus one file), and the module comment
+  carries the fleet multiplication so the next person sizing a fleet finds it.
+- `transcript-persistence-failed` names a capture that existed in memory and never reached disk,
+  mirroring `trace-persistence-failed`.
+
+Settlements recorded before this release carry no `harnessTranscript` on the record, which is not
+the same fact as a recorded `unavailable`, and stays absent rather than defaulting.
+
 ## 0.231.1
 
 Allow Sandbox 0.40.x beside Runtime without a consumer dependency override.
@@ -27,8 +92,9 @@ Related system issue: SYS-011 — outcome: mitigates — proof: agent-runtime#12
   teardown. Runtime reads the child's Claude Code / Codex / OpenCode session files out of
   the environment while it is still live and settles them with the result, so they reach a
   run record instead of being destroyed with the environment. Read them from
-  `ProviderLeafOut.nativeSession` on the settled artifact, or from
-  `WorkerTraceEvidence.nativeSession` on the receipt. The existing `trace` receipt is
+  `ProviderLeafOut.nativeSession` on the settled artifact. (This entry also named
+  `WorkerTraceEvidence.nativeSession`; that field was declared and never written by any code
+  path, and 0.232.0 removes it — see below.) The existing `trace` receipt is
   unchanged and still carries the supervisor's tool spans only, so `status: 'available'`
   there never meant the transcript survived; this is the field that says. An environment
   whose provider does not expose file reads reports a reason rather than an empty artifact,

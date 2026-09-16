@@ -35,7 +35,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
-import type { NativeSessionEvidence } from '../native-session-evidence'
+import type { HarnessTranscriptCapture, HarnessTranscriptEvidence } from '../harness-transcript'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
@@ -239,6 +239,18 @@ export interface Executor<Out> {
    * executors omit it (returns `undefined`).
    */
   metered?(): Spend | undefined
+  /**
+   * The child's OWN harness transcript, read out of its environment while that environment was
+   * still live. Read on settle, valid after `execute` resolves OR throws — the throw half is the
+   * point: a child that drops produces no result artifact, so before this the only carrier was
+   * the settled result and a dropped child's reasoning died with its box (#1244).
+   *
+   * An executor with no transcript to offer omits the method entirely; the settle path then
+   * records `executor-exposes-no-transcript` rather than an empty artifact that reads as
+   * coverage. Never throws. Returns the in-memory capture; the SCOPE persists it under its own
+   * content ref and settles the receipt, so no executor ever learns about storage.
+   */
+  harnessTranscript?(): HarnessTranscriptCapture | undefined
 }
 
 /** Why Runtime cannot provide structured tool-call evidence for one settled execution. */
@@ -260,16 +272,6 @@ export type WorkerTraceEvidence =
       /** Content-addressed pointer to a persisted `WorkerToolTraceArtifact`. */
       readonly traceRef: string
       readonly spanCount: number
-      /**
-       * The child's OWN harness transcript, read out of its environment before destroy.
-       *
-       * `traceRef` above points at the supervisor's tool spans: toolName, args, status,
-       * callId, with startedAt === endedAt. It carries no assistant text, no reasoning and
-       * no tool results, so `status: 'available'` on this object never meant the child's
-       * session survived — it was destroyed with the environment. This says whether it did.
-       * Absent on a settlement recorded before the capture existed.
-       */
-      readonly nativeSession?: NativeSessionEvidence
     }
   | {
       readonly status: 'unavailable'
@@ -962,6 +964,12 @@ export type Settled<Out> =
       providerModel?: ProviderModelExecutionEvidence
       /** Structured tool evidence captured before this settlement was journaled. */
       trace: WorkerTraceEvidence
+      /** Whether the child's OWN harness transcript survived its environment, or why it did not.
+       *  A SIBLING of `trace`, not a field inside it: `trace` carries the supervisor's tool spans
+       *  (toolName, args, status, callId, startedAt === endedAt) and nothing the child said, and a
+       *  child with zero tool spans has an UNAVAILABLE trace — so a receipt nested inside the
+       *  available arm could never describe exactly the children that need it most (#1244). */
+      harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the measured spend exceeded this child's reservation. */
       budgetViolation?: BudgetViolation
       /** Epoch ms parsed from the durable settlement record when available. */
@@ -979,6 +987,11 @@ export type Settled<Out> =
       infra: boolean
       /** Partial structured tool evidence captured before this failure was journaled. */
       trace: WorkerTraceEvidence
+      /** The child's own harness transcript, read out of its environment at the last moment it
+       *  was live, or the named reason it could not be. This is the path the capture existed
+       *  for and never covered: a dropped child produces no result artifact, so before #1244
+       *  its reasoning was destroyed with its box. */
+      harnessTranscript?: HarnessTranscriptEvidence
       /** Partial provider model evidence survives an aborted or failed execution. */
       providerModel?: ProviderModelExecutionEvidence
       /** Present when the spend reconciled for this child exceeded its reservation. */
@@ -1328,6 +1341,10 @@ export type SpawnEvent =
       reason?: string
       /** Structured tool evidence. Optional only for journals written before trace capture. */
       trace?: WorkerTraceEvidence
+      /** Whether this child's harness transcript survived, or the named reason it did not.
+       *  Absent on journals written before the capture existed — which is not the same fact as
+       *  a recorded `unavailable`, and is why this stays optional rather than defaulting. */
+      harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the reconciled spend exceeded the reservation, on either status. */
       budgetViolation?: BudgetViolation
       seq: number
@@ -1342,6 +1359,9 @@ export type SpawnEvent =
       spent?: Spend
       providerModel?: ProviderModelExecutionEvidence
       trace?: WorkerTraceEvidence
+      /** The child's harness transcript receipt, when the executor could still be read at the
+       *  cancel. The settle path writes it on this record exactly as on `settled`. */
+      harnessTranscript?: HarnessTranscriptEvidence
       outRef?: string
       budgetViolation?: BudgetViolation
       seq: number
@@ -1461,6 +1481,11 @@ export type SpawnEvent =
       kind: 'reconciled'
       id: NodeId
       spent: Spend
+      /** The transcript receipt of a retained-pending child. This record is the ONLY durable home
+       *  it has: the node writes no `settled` record while its slot stays open, and these are the
+       *  #1244 children exactly — dropped mid-run with a live box the capture read. A later
+       *  terminal record for the node carries the same receipt forward. */
+      harnessTranscript?: HarnessTranscriptEvidence
       seq: number
       at: string
     }

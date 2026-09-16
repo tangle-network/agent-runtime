@@ -90,6 +90,7 @@ export function gateOnDeliverable<Out>(
     ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
+    ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
     execute(task, signal) {
       const r = inner.execute(task, signal)
       if (isAsyncIterable(r)) {
@@ -184,6 +185,7 @@ export function mapExecutorResult<In, Out>(
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
+    ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
     execute(task, signal) {
       const execution = inner.execute(task, signal)
       if (isAsyncIterable(execution)) {

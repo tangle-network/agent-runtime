@@ -259,6 +259,7 @@ export function retryPreSpawnRefusals<Out>(
     ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
+    ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
     ...(inner.interactive === undefined
       ? {}
       : { interactive: (): WorkerInteractiveSession => interactiveOf(inner) }),
