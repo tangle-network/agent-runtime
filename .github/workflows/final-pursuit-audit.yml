@@ -1,38 +1,123 @@
-name: Final pursuit audit preparation
+name: Final pursuit repair verification
 on:
   push:
     branches: [audit/long-pursuit-final-20260916]
     paths: [.github/workflows/final-pursuit-audit.yml]
 permissions:
   contents: read
+env:
+  BASE_SHA: 9b74ebd1925e32a448756989a8538393e4b73d6f
+  REPAIR_BRANCH: fix/stream-long-pursuit-journals
 jobs:
-  prepare:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Apply reviewed patch to the exact current base
+        run: |
+          base64 --decode .audit/streaming-journals.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/repair.patch"
+          echo "c3b9fbe2395a339b4bde64e556d634441189a44d209f218db95c696f691399d0  $RUNNER_TEMP/repair.patch" | sha256sum --check
+          git checkout --detach "$BASE_SHA"
+          git apply --check "$RUNNER_TEMP/repair.patch"
+          git apply "$RUNNER_TEMP/repair.patch"
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-      - name: Prepare exact source and dependencies
+      - name: Install exact declared dependencies
+        run: pnpm install --frozen-lockfile && pnpm peers check
+      - name: Prepare patch release through maintained scripts
         run: |
-          pnpm install --frozen-lockfile && pnpm peers check
-          out="$RUNNER_TEMP/final-pursuit"
+          pnpm run release:prepare 0.235.1
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('CHANGELOG.md')
+          text = path.read_text()
+          assert text.startswith('# Changelog\n')
+          entry = '''
+          ## 0.235.1
+
+          File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
+          Observer restart verifies its complete digest chain while retaining only the last record.
+          Root-stream receipts hash and count the same raw-byte prefix, including an uncommitted tail in the hash.
+          Spawn, coordination, conversation, corpus and discovery readers share the same committed-record parser.
+          Corrupt committed lines, truncated snapshots and non-parse failures remain explicit errors; torn final writes retain their existing semantics.
+          Public array-returning methods still retain their selected history, and individual records remain subject to Node limits.
+          No execution policy, limits, credential behavior or durable wire format changes.
+
+          '''
+          path.write_text('# Changelog\n' + entry + text[len('# Changelog\n'):])
+          PY
+      - name: Native lint, complete tests, source and example types
+        run: |
+          pnpm run lint
+          pnpm test
+          pnpm run typecheck
+      - name: Verify published-package surface and docs
+        run: |
+          pnpm run verify:package
+          pnpm run docs:freshness
+          git diff --check
+      - name: Retain one clean verified product commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --name-only | grep -E '^(\.github/|\.audit/)'; then
+            echo 'Temporary audit files must not enter the product tree.' >&2
+            exit 1
+          fi
+          git commit -m 'fix(durable): stream long pursuit journals without whole-file allocation'
+          pnpm run docs:check
+          test -z "$(git status --porcelain)"
+          out="$RUNNER_TEMP/verified-repair"
           mkdir -p "$out"
-          git archive --format=tar.gz HEAD > "$out/source.tar.gz"
-          git rev-parse HEAD > "$out/revision.txt"
-          tar -czf "$out/dependencies.tar.gz" node_modules bench/node_modules
+          git rev-parse HEAD > "$out/commit.txt"
+          git rev-parse HEAD^{tree} > "$out/tree.txt"
+          git rev-parse HEAD^ > "$out/base.txt"
+          git diff --stat "$BASE_SHA" HEAD > "$out/diff-stat.txt"
+          git diff --binary "$BASE_SHA" HEAD > "$out/repair.patch"
+          git bundle create "$out/verified.bundle" "$BASE_SHA..HEAD"
           node --version > "$out/node-version.txt"
-          pnpm --version > "$out/pnpm-version.txt"
-          (cd "$out" && sha256sum *.tar.gz > SHA256SUMS)
+          (cd "$out" && sha256sum verified.bundle repair.patch > SHA256SUMS)
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: final-pursuit-workspace
-          path: ${{ runner.temp }}/final-pursuit/
-          retention-days: 2
-          compression-level: 0
+          name: verified-streaming-repair
+          path: ${{ runner.temp }}/verified-repair/
+          retention-days: 7
           if-no-files-found: error
+  review-branch:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9b74ebd1925e32a448756989a8538393e4b73d6f
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: verified-streaming-repair
+          path: ${{ runner.temp }}/verified-repair
+      - name: Push verified Git objects only to a new review branch
+        run: |
+          out="$RUNNER_TEMP/verified-repair"
+          (cd "$out" && sha256sum --check SHA256SUMS)
+          git bundle verify "$out/verified.bundle"
+          git fetch "$out/verified.bundle" HEAD
+          commit=$(cat "$out/commit.txt")
+          test "$(git rev-parse FETCH_HEAD)" = "$commit"
+          test "$(git rev-parse "$commit^")" = "$BASE_SHA"
+          test "$(git rev-parse "$commit^{tree}")" = "$(cat "$out/tree.txt")"
+          if git diff --name-only "$BASE_SHA" "$commit" | grep -E '^(\.github/|\.audit/)'; then exit 1; fi
+          if git ls-remote --exit-code --heads origin "$REPAIR_BRANCH" >/dev/null 2>&1; then
+            echo 'Review branch already exists; refusing to overwrite it.' >&2
+            exit 1
+          fi
+          git push origin "$commit:refs/heads/$REPAIR_BRANCH"
