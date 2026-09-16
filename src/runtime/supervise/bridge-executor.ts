@@ -743,6 +743,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           turnText += chunk.content
           yield { kind: 'progress', progress: { kind: 'text_delta', text: chunk.content } }
         }
+        // Reasoning is the model's own record of why; it is never part of the turn's text.
+        if (chunk.reasoning) {
+          yield { kind: 'progress', progress: { kind: 'reasoning_delta', text: chunk.reasoning } }
+        }
         for (const step of chunk.toolCalls ?? []) {
           toolCalls.push({
             ...(step.callId === undefined ? {} : { id: step.callId }),
@@ -767,6 +771,28 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
               toolName: step.toolName,
               ...(step.callId === undefined ? {} : { toolCallId: step.callId }),
               args: step.args,
+            },
+          }
+        }
+        for (const result of chunk.toolResults ?? []) {
+          // A finished call is a second fact beside the decision above: it carries the status the
+          // decision honestly lacked, so it gets its own note rather than rewriting that one.
+          observation.activity.push({
+            at: Date.now(),
+            kind: 'tool',
+            label: result.name,
+            status: result.status === 'completed' ? 'ok' : 'error',
+            ...(result.status === 'error' && result.error !== undefined
+              ? { detail: result.error }
+              : {}),
+          })
+          yield {
+            kind: 'progress',
+            progress: {
+              kind: 'tool_result',
+              toolName: result.name,
+              ...(result.id === undefined ? {} : { toolCallId: result.id }),
+              result: result.status === 'completed' ? result.output : { error: result.error },
             },
           }
         }

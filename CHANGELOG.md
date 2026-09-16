@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.228.0
+
+A bridge-placed root's retained stream now carries its reasoning and its tool outcomes. cli-bridge forwards `choices[0].delta.reasoning` and a `delta.tool_results` extension beside `tool_calls` (cli-bridge#227); `parseSseChatStream` decodes them into `BridgeStreamChunk.reasoning` and `BridgeStreamChunk.toolResults` (new exported `BridgeToolResult`), and the bridge executor surfaces them as `reasoning_delta` and `tool_result` progress, plus an activity note that carries the call's status beside the status-less note for the decision.
+
+Measured before this release on two live Discovery directors on runtime 0.226.0: `root-stream.jsonl` held 0 reasoning and 0 tool-output bytes against 33k-41k reasoning and 99k-160k tool-output bytes in the harness's own store. A bridge older than the cli-bridge change sends neither field, and this runtime then behaves exactly as 0.226.0 did.
+
 ## 0.227.0
 
 The Runtime cohort moves to agent-eval 0.182.0 and agent-knowledge 17.0.1. agent-eval 0.182.0 retires the legacy loops supervisor-run reader; the Runtime uses none of it and only its peer range changes: `@tangle-network/agent-eval` is now `>=0.182.0 <0.183.0` (was `>=0.181.0 <0.182.0`), and the workspace catalog admits `agent-knowledge ^17.0.1`, which peers on eval 0.182.
