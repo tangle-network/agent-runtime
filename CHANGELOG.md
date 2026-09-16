@@ -2,6 +2,16 @@
 
 ## 0.232.0
 
+External directors can use `repromptOnUnmet: 'until-complete'` with a completion check and finite positive budget deadline.
+Successful continuations reuse the retained conversation without consuming `driverRetry.maxAttempts`.
+That limit now counts failed invocations; numeric continuation caps retain their separate meaning.
+Completion, explicit stop, cancellation, deadlines, resources, and failure limits still stop the driver.
+Provider failures remain visible when recording unknown cost also fails, and that accounting refusal remains terminal.
+
+Local regressions exercise 12 turns in one retained environment, interrupted continuation recovery, and refused further dispatch under unknown cost.
+These checks do not establish live multi-hour fleet reliability.
+Related system issue: SYS-011 — outcome: mitigates — proof: retained-owner recovery and driver-retry regression tests.
+
 A child that DROPS now keeps its transcript, the receipt that says so has moved to where an
 unavailable trace cannot hide it, and the thing itself is finally called what it is.
 

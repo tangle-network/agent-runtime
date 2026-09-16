@@ -40,7 +40,7 @@ import {
   unsupportedProfileDimensions,
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
-import { ConfigError, ValidationError } from '../../errors'
+import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   AnalyzeOnSettleRoute,
@@ -67,7 +67,13 @@ import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
-import type { DriverAttemptRecord, DriverRetryPolicy, OnUnmetContract } from './driver-retry'
+import type {
+  DriverAttemptRecord,
+  DriverRepromptPolicy,
+  DriverRetryPolicy,
+  OnUnmetContract,
+} from './driver-retry'
+import { errMessage } from './error-message'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import {
@@ -1364,12 +1370,12 @@ function driveHarnessFromBackend(
             )
           }
         } catch (error) {
-          // The budget pool intentionally throws after durably recording unknown capped usage and
-          // closing that capacity. Only replace the original failure if the marker did not land.
-          const budget = scope.budget
-          if (budget.tokensKnown !== false || (budget.usdCapped && budget.usdKnown !== false)) {
-            failure = error
-          }
+          // The pool can reject before updating its readout. Preserve the provider diagnosis,
+          // but keep failed accounting terminal even when the original failure was transient.
+          failure = new RuntimeRunStateError(
+            `${errMessage(failure)}; accounting failed: ${errMessage(error)}`,
+            { cause: failure },
+          )
         }
       }
       try {
@@ -1643,16 +1649,19 @@ export interface SuperviseOptions {
    * could only LABEL an undelivered result `valid:false`, never send the driver back for it.
    *
    * A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-   * live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+   * live children, and the same budget, deadline, and abort bounds. Successful continuations do
+   * not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
    * run the coordination server already stopped is never re-prompted — that stop was a decision.
    *
    * Requires `deliverable`, and applies to every external manager with a completion check. A
    * recursive manager receives the check selected for its exact assignment. Refused for a
    * router-brained manager, which runs its turn loop in process. Omit/`0` = never.
+   * Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
+   * Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
    */
-  readonly repromptOnUnmet?: number
+  readonly repromptOnUnmet?: DriverRepromptPolicy['maxReprompts']
   /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
-   *  Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+   *  Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
    *  owes and reports how many workers passed the check. */
   readonly onUnmetContract?: OnUnmetContract
   /**

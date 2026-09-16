@@ -7,6 +7,7 @@ import type {
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
@@ -24,171 +25,180 @@ afterEach(async () => {
 })
 
 describe('retained external supervisor recovery', () => {
-  it('reconstructs a reprompt interrupted after environment admission without a third dispatch', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-crash-'))
-    directories.push(directory)
-    const proxy = await coordinationProxy()
-    proxies.push(proxy)
-    const stateFile = join(directory, 'provider.json')
-    const runDirectory = join(directory, 'run')
-    const context = createFileRunContext(runDirectory)
-    let creates = 0
-    let dispatches = 0
-    let destroys = 0
-    let failed = false
-    let port = 0
-    let token = ''
-    const turns: AgentTurnInput[] = []
-    const environmentIds: string[] = []
-    const provider: AgentEnvironmentProvider = {
-      ...durableRetainedProvider(stateFile),
-      capabilities: async () => ({
-        ...(await durableRetainedProvider(stateFile).capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
-      }),
-      create: async (input) => {
-        creates++
-        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
-        const environment = await durableRetainedProvider(stateFile).create(input)
-        return wrap(environment)
-      },
-      get: async (id) => {
-        const environment = await durableRetainedProvider(stateFile).get!(id)
-        return environment ? wrap(environment) : null
-      },
-    }
-    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
-      ...environment,
-      session: (id, sessionOptions) => {
-        const session = environment.session!(id, sessionOptions)
-        return {
-          ...session,
-          result: async () => ({
-            ...(await session.result()),
-            usage:
-              sessionOptions?.controlRef?.executionId === turns[1]?.executionId
-                ? { inputTokens: 5, outputTokens: 5 }
-                : { inputTokens: 0, outputTokens: 0 },
-          }),
-        }
-      },
-      dispatch: async (turn) => {
-        dispatches++
-        turns.push(turn)
-        environmentIds.push(environment.id)
-        const result = await environment.dispatch(turn)
-        if (dispatches === 2) {
-          const response = await fetch(`http://127.0.0.1:${port}/manager`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 'resumed-final',
-              method: 'tools/call',
-              params: { name: 'submit_result', arguments: { result: { answer: 'resumed' } } },
+  it.each([1, 'until-complete'] as const)(
+    'recovers %s continuation after interrupted admission without a third dispatch',
+    async (repromptOnUnmet) => {
+      const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-crash-'))
+      directories.push(directory)
+      const proxy = await coordinationProxy()
+      proxies.push(proxy)
+      const stateFile = join(directory, 'provider.json')
+      const runDirectory = join(directory, 'run')
+      const context = createFileRunContext(runDirectory)
+      let creates = 0
+      let dispatches = 0
+      let destroys = 0
+      let failed = false
+      let port = 0
+      let token = ''
+      const turns: AgentTurnInput[] = []
+      const environmentIds: string[] = []
+      const provider: AgentEnvironmentProvider = {
+        ...durableRetainedProvider(stateFile),
+        capabilities: async () => ({
+          ...(await durableRetainedProvider(stateFile).capabilities()),
+          create: { runtimeAttachments: { mcp: true } },
+        }),
+        create: async (input) => {
+          creates++
+          token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+          const environment = await durableRetainedProvider(stateFile).create(input)
+          return wrap(environment)
+        },
+        get: async (id) => {
+          const environment = await durableRetainedProvider(stateFile).get!(id)
+          return environment ? wrap(environment) : null
+        },
+      }
+      const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+        ...environment,
+        session: (id, sessionOptions) => {
+          const session = environment.session!(id, sessionOptions)
+          return {
+            ...session,
+            result: async () => ({
+              ...(await session.result()),
+              usage:
+                sessionOptions?.controlRef?.executionId === turns[1]?.executionId
+                  ? { inputTokens: 5, outputTokens: 5 }
+                  : { inputTokens: 0, outputTokens: 0 },
             }),
-          })
-          if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
-        }
-        return result
-      },
-      destroy: async () => {
-        destroys++
-        await environment.destroy?.()
-      },
-    })
-    const profile = testAgentProfile('root', {
-      harness: 'codex',
-      tools: runtimeToolDeclarations('submit_result'),
-    })
-    const options = {
-      runDir: runDirectory,
-      runId: 'reprompt-crash-root',
-      backend: { backend: 'provider' as const, provider },
-      driverBackend: { backend: 'provider' as const, provider },
-      budget: { maxIterations: 8, maxTokens: 100 },
-      driverRetry: { enabled: false },
-      repromptOnUnmet: 1,
-      deliverable: {
-        describe: 'resumed answer',
-        check: (v: unknown) => (v as { answer?: string }).answer === 'resumed',
-      },
-      coordination: {
-        authentication: {
-          signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
-        },
-        publicUrl: (address: { port: number }) => {
-          port = address.port
-          proxy.forwardTo(port)
-          return `${proxy.url}/manager`
-        },
-      },
-      journal: {
-        beginTree: context.journal.beginTree.bind(context.journal),
-        loadTree: context.journal.loadTree.bind(context.journal),
-        appendEvent: async (root: string, event: SpawnEvent) => {
-          await context.journal.appendEvent(root, event)
-          if (
-            !failed &&
-            event.kind === 'execution-admitted' &&
-            event.admission.phase === 'environment'
-          ) {
-            const prior = (await context.journal.loadTree(root)) ?? []
-            if (
-              prior.filter(
-                (e) => e.kind === 'execution-admitted' && e.admission.phase === 'environment',
-              ).length === 2
-            ) {
-              failed = true
-              throw new Error('test crash after second environment admission')
-            }
           }
         },
-      },
-      blobs: context.blobs,
-    }
-    const interrupted = await supervise(profile, 'answer', options)
-    expect(interrupted).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
-    const resumeAbort = new AbortController()
-    const resumeTimer = setTimeout(() => resumeAbort.abort(new Error('resume timeout')), 5_000)
-    const result = await supervise(profile, 'answer', {
-      ...options,
-      retainedAtSettlement: 'release',
-      signal: resumeAbort.signal,
-    })
-    clearTimeout(resumeTimer)
-    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'resumed' } })
-    expect(creates).toBe(1)
-    expect(dispatches).toBe(2)
-    expect(new Set(turns.map((turn) => turn.sessionId)).size).toBe(1)
-    expect(new Set(turns.map((turn) => turn.executionId)).size).toBe(2)
-    expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(2)
-    expect(destroys).toBe(1)
-    const events = (await context.journal.loadTree('reprompt-crash-root')) ?? []
-    const environments = events.filter(
-      (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
-    )
-    expect(environments).toHaveLength(2)
-    const resumed = environments[1]
-    expect(resumed?.kind === 'execution-admitted' ? resumed.admission : undefined).toMatchObject({
-      environmentId: environmentIds[1],
-      sessionId: turns[1]?.sessionId,
-      executionId: turns[1]?.executionId,
-    })
-    expect(
-      events.reduce(
-        (total, event) =>
-          event.kind === 'metered'
-            ? total + event.spend.tokens.input + event.spend.tokens.output
-            : total,
-        0,
-      ),
-    ).toBe(10)
-  })
+        dispatch: async (turn) => {
+          dispatches++
+          turns.push(turn)
+          environmentIds.push(environment.id)
+          const result = await environment.dispatch(turn)
+          if (dispatches === 2) {
+            const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'resumed-final',
+                method: 'tools/call',
+                params: { name: 'submit_result', arguments: { result: { answer: 'resumed' } } },
+              }),
+            })
+            if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+          }
+          return result
+        },
+        destroy: async () => {
+          destroys++
+          await environment.destroy?.()
+        },
+      })
+      const profile = testAgentProfile('root', {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('submit_result'),
+      })
+      const options = {
+        runDir: runDirectory,
+        runId: 'reprompt-crash-root',
+        backend: { backend: 'provider' as const, provider },
+        driverBackend: { backend: 'provider' as const, provider },
+        budget: { maxIterations: 8, maxTokens: 100, deadlineMs: 60_000 },
+        driverRetry: { enabled: false },
+        repromptOnUnmet,
+        deliverable: {
+          describe: 'resumed answer',
+          check: (v: unknown) => (v as { answer?: string }).answer === 'resumed',
+        },
+        coordination: {
+          authentication: {
+            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+          },
+          publicUrl: (address: { port: number }) => {
+            port = address.port
+            proxy.forwardTo(port)
+            return `${proxy.url}/manager`
+          },
+        },
+        journal: {
+          beginTree: context.journal.beginTree.bind(context.journal),
+          loadTree: context.journal.loadTree.bind(context.journal),
+          appendEvent: async (root: string, event: SpawnEvent) => {
+            await context.journal.appendEvent(root, event)
+            if (
+              !failed &&
+              event.kind === 'execution-admitted' &&
+              event.admission.phase === 'environment'
+            ) {
+              const prior = (await context.journal.loadTree(root)) ?? []
+              if (
+                prior.filter(
+                  (e) => e.kind === 'execution-admitted' && e.admission.phase === 'environment',
+                ).length === 2
+              ) {
+                failed = true
+                throw new Error('test crash after second environment admission')
+              }
+            }
+          },
+        },
+        blobs: context.blobs,
+      }
+      const interrupted = await supervise(profile, 'answer', options)
+      expect(interrupted).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+      const resumeAbort = new AbortController()
+      const resumeTimer = setTimeout(() => resumeAbort.abort(new Error('resume timeout')), 5_000)
+      const result = await supervise(profile, 'answer', {
+        ...options,
+        retainedAtSettlement: 'release',
+        signal: resumeAbort.signal,
+      })
+      clearTimeout(resumeTimer)
+      expect(result).toMatchObject({ kind: 'winner', out: { answer: 'resumed' } })
+      expect(creates).toBe(1)
+      expect(dispatches).toBe(2)
+      expect(new Set(turns.map((turn) => turn.sessionId)).size).toBe(1)
+      expect(new Set(turns.map((turn) => turn.executionId)).size).toBe(2)
+      expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(2)
+      expect(destroys).toBe(1)
+      const events = (await context.journal.loadTree('reprompt-crash-root')) ?? []
+      const environments = events.filter(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
+      )
+      expect(environments).toHaveLength(2)
+      const resumed = environments[1]
+      expect(resumed?.kind === 'execution-admitted' ? resumed.admission : undefined).toMatchObject({
+        environmentId: environmentIds[1],
+        sessionId: turns[1]?.sessionId,
+        executionId: turns[1]?.executionId,
+      })
+      expect(
+        events.reduce(
+          (total, event) =>
+            event.kind === 'metered'
+              ? total + event.spend.tokens.input + event.spend.tokens.output
+              : total,
+          0,
+        ),
+      ).toBe(10)
+    },
+  )
 
-  it.each(['release', 'keep', 'release-failed'] as const)(
-    're-prompts one retained provider conversation with %s cleanup',
-    async (cleanup) => {
+  it.each([
+    { cleanup: 'release', continuations: 2 },
+    { cleanup: 'keep', continuations: 2 },
+    { cleanup: 'release-failed', continuations: 2 },
+    { cleanup: 'release', continuations: 'until-complete' },
+  ] as const)(
+    're-prompts one retained provider conversation with $cleanup cleanup and $continuations continuation',
+    async ({ cleanup, continuations }) => {
+      const expectedTurns = continuations === 'until-complete' ? 12 : 3
       const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-'))
       directories.push(directory)
       const proxy = await coordinationProxy()
@@ -218,7 +228,7 @@ describe('retained external supervisor recovery', () => {
           })
           const dispatched = await environment.dispatch(turn)
           reprompt++
-          if (reprompt === 3) {
+          if (reprompt === expectedTurns) {
             const response = await fetch(`http://127.0.0.1:${coordinationPort}/manager`, {
               method: 'POST',
               headers: {
@@ -280,9 +290,9 @@ describe('retained external supervisor recovery', () => {
           runId: 'reprompt-root',
           backend: { backend: 'provider', provider },
           driverBackend: { backend: 'provider', provider },
-          budget: { maxIterations: 8, maxTokens: 100 },
+          budget: { maxIterations: 100, maxTokens: 1000, deadlineMs: 60_000 },
           driverRetry: { enabled: false },
-          repromptOnUnmet: 2,
+          repromptOnUnmet: continuations,
           retainedAtSettlement: cleanup === 'keep' ? 'keep' : 'release',
           deliverable: {
             describe: 'an answer from the final reprompt',
@@ -304,17 +314,19 @@ describe('retained external supervisor recovery', () => {
       expect(creates).toBe(1)
       expect(result.kind).toBe('winner')
       expect(result).toMatchObject({ out: { answer: 'final reprompt' } })
-      expect(turns).toHaveLength(3)
+      expect(turns).toHaveLength(expectedTurns)
       expect(new Set(turns.map((turn) => turn.environmentId)).size).toBe(1)
       expect(turns.every((turn) => turn.sessionId !== undefined)).toBe(true)
       expect(new Set(turns.map((turn) => turn.sessionId)).size).toBe(1)
       expect(turns.every((turn) => turn.executionId !== undefined)).toBe(true)
-      expect(new Set(turns.map((turn) => turn.executionId)).size).toBe(3)
+      expect(new Set(turns.map((turn) => turn.executionId)).size).toBe(expectedTurns)
       expect(turns.every((turn) => turn.turnId !== undefined)).toBe(true)
-      expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(3)
+      expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(expectedTurns)
       expect(destroys).toBe(cleanup === 'keep' ? 0 : 1)
       const events = (await context.journal.loadTree('reprompt-root')) ?? []
-      expect(events.filter((event) => event.kind === 'execution-result')).toHaveLength(3)
+      expect(events.filter((event) => event.kind === 'execution-result')).toHaveLength(
+        expectedTurns,
+      )
       expect(events.filter((event) => event.kind === 'environment-teardown')).toMatchObject(
         cleanup === 'keep'
           ? []
@@ -437,6 +449,69 @@ describe('retained external supervisor recovery', () => {
     expect(bindings).toEqual(['known', 'known'])
     expect(events.filter((event) => event.kind === 'materialized')).toHaveLength(1)
   })
+
+  it.each([false, true])(
+    'preserves a provider create failure (frozen: %s) without retrying unknown cost',
+    async (frozen) => {
+      const directory = await mkdtemp(join(tmpdir(), 'retained-owner-create-failure-'))
+      directories.push(directory)
+      const proxy = await coordinationProxy()
+      proxies.push(proxy)
+      const runDirectory = join(directory, 'run')
+      const context = createFileRunContext(runDirectory)
+      const base = durableRetainedProvider(join(directory, 'provider.json'))
+      const providerError = new Error('egress enabled but no model API key resolved')
+      if (frozen) Object.freeze(providerError)
+      const attempts: DriverAttemptRecord[] = []
+      let creates = 0
+      const provider: AgentEnvironmentProvider = {
+        ...base,
+        capabilities: async () => ({
+          ...(await base.capabilities()),
+          create: { runtimeAttachments: { mcp: true } },
+        }),
+        create: async () => {
+          creates += 1
+          throw providerError
+        },
+      }
+      const result = await supervise(
+        testAgentProfile('root', { harness: 'codex' }),
+        'Answer the task.',
+        {
+          runDir: runDirectory,
+          runId: 'create-failure-root',
+          journal: context.journal,
+          blobs: context.blobs,
+          backend: { backend: 'provider', provider },
+          driverBackend: { backend: 'provider', provider },
+          budget: { maxIterations: 4, maxTokens: 100, maxUsd: 1 },
+          driverRetry: { maxAttempts: 3, initialBackoffMs: 0, maxBackoffMs: 0 },
+          onDriverAttempt: (record) => void attempts.push(record),
+          coordination: {
+            authentication: {
+              signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+            },
+            publicUrl: (address) => {
+              proxy.forwardTo(address.port)
+              return `${proxy.url}/manager`
+            },
+          },
+        },
+      )
+      expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+      if (result.kind === 'no-winner' && result.reason === 'driver-failed') {
+        expect(result.error.message).toContain('egress enabled but no model API key resolved')
+      }
+      expect(creates).toBe(1)
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]).toMatchObject({ classification: 'terminal', stop: 'terminal-error' })
+      const events = (await context.journal.loadTree('create-failure-root')) ?? []
+      expect(events.filter((event) => event.kind === 'execution-admitted')).toHaveLength(1)
+      expect(events.some((event) => event.kind === 'metered' && !event.spend.usdKnown)).toBe(true)
+      expect(result.kind === 'no-winner' ? result.spentTotal.usdKnown : true).toBe(false)
+    },
+  )
 })
 
 function tokenTotal(events: SpawnEvent[]): number {

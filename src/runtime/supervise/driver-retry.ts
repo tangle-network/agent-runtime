@@ -42,7 +42,8 @@
  * ended on this loop's own `stop: 'completed'`, with the completion gate left to label the result
  * rather than to change it. A completed drive whose contract is unmet is now a first-class moment:
  * `reprompt.maxReprompts` re-enters the SAME live session with the unmet items, and every re-entry
- * crosses the same budget, deadline, abort, and attempt bounds a retry crosses.
+ * crosses the same budget, deadline, and abort bounds. Successful continuations do not consume
+ * the failure retry allowance.
  */
 
 import {
@@ -72,10 +73,9 @@ export interface DriverRetryPolicy {
   /** Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
    *  before the run gives up. Default 3. A failure that made progress resets the count. */
   readonly maxConsecutiveFailures?: number
-  /** Absolute ceiling on attempts, regardless of progress. Default 8. The barren counter alone
-   *  cannot bound a driver that crashes every turn AFTER metering a little: each attempt looks like
-   *  progress, so without this backstop such a run would retry until it had eaten the entire
-   *  envelope. A caller who wants budget-only bounding sets this high deliberately. */
+  /** Ceiling on failed invocations across this driver run, regardless of progress. Default 8,
+   *  minimum 1. Successful continuations do not consume this allowance or reset it.
+   *  This bounds repeated crashes that each make enough progress to reset the barren streak. */
   readonly maxAttempts?: number
   /** Backoff before the first retry, doubling per consecutive failure. Default 2000ms. */
   readonly initialBackoffMs?: number
@@ -163,7 +163,7 @@ export interface DriverUnmetContractContext {
   readonly attempt: number
   /** How many re-prompts this run has already issued. */
   readonly reprompts: number
-  readonly maxReprompts: number
+  readonly maxReprompts: DriverRepromptPolicy['maxReprompts']
   /** The mark read AFTER the completed drive. */
   readonly progress: DriverProgressMark
   readonly budget: DriverBudgetReadout
@@ -182,9 +182,10 @@ export type OnUnmetContract = (
 /** How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where
  *  such a drive ends the run and only the completion gate's label records what happened. */
 export interface DriverRepromptPolicy {
-  /** How many times one run may re-enter its live session with the unmet items. `0` = never. Each
-   *  re-prompt also consumes an attempt, so `maxAttempts` bounds it too. */
-  readonly maxReprompts: number
+  /** How many times one run may re-enter its live session with the unmet items. `0` = never.
+   *  `'until-complete'` removes the count cap and requires a finite positive scope deadline.
+   *  Budget, cancellation, explicit stop, and failure retry limits still apply. */
+  readonly maxReprompts: number | 'until-complete'
   /** Compose the instruction, or return `'stop'`. Omit = {@link defaultUnmetContractSteer}. */
   readonly onUnmetContract?: OnUnmetContract
   /** What the run owes, surfaced in the default instruction. */
@@ -377,10 +378,19 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const initialBackoff = Math.max(0, policy.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS)
   const maxBackoff = Math.max(initialBackoff, policy.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS)
 
-  const maxReprompts = Math.max(0, run.reprompt?.maxReprompts ?? 0)
+  const maxReprompts = run.reprompt?.maxReprompts ?? 0
+  if (maxReprompts === 'until-complete') {
+    const deadline = run.budget().deadlineMs
+    if (!Number.isFinite(deadline) || deadline <= 0) {
+      throw new ValidationError(
+        'runDriverWithRetry: until-complete requires a finite positive deadline',
+      )
+    }
+  }
 
   const attempts: DriverAttemptRecord[] = []
   let consecutiveBarren = 0
+  let failures = 0
   let reprompts = 0
   let reentry: DriverReentry | undefined
 
@@ -398,11 +408,12 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     attempt: number,
     after: DriverProgressMark,
   ): Promise<{ steer: string } | { refusedBy: DriverRepromptRefusal }> => {
-    if (reprompts >= maxReprompts) return { refusedBy: 'reprompts-exhausted' }
+    if (maxReprompts !== 'until-complete' && reprompts >= maxReprompts) {
+      return { refusedBy: 'reprompts-exhausted' }
+    }
     if (run.signal.aborted) return { refusedBy: 'aborted' }
     const byBudget = budgetStop(run.budget(), now())
     if (byBudget === 'deadline' || byBudget === 'budget-exhausted') return { refusedBy: byBudget }
-    if (attempt >= maxAttempts) return { refusedBy: 'max-attempts' }
     const context: DriverUnmetContractContext = {
       attempt,
       reprompts,
@@ -459,6 +470,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     try {
       await run.drive(attempt, reentry)
     } catch (error) {
+      failures += 1
       const durationMs = now() - startedAt
       const classification = classifyDriverFailure(error, run.signal)
       const progressed = madeProgress(before, run.progress())
@@ -468,7 +480,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         if (run.signal.aborted) return 'aborted'
         const byBudget = budgetStop(run.budget(), now())
         if (byBudget) return byBudget
-        if (attempt >= maxAttempts) return 'max-attempts'
+        if (failures >= maxAttempts) return 'max-attempts'
         // Progress resets the barren counter: a driver that is doing real work between crashes
         // has earned another attempt, and the budget remains the bound on how many.
         if (progressed) return undefined
@@ -521,7 +533,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const progressed = madeProgress(before, after)
     const contract = contractOf(after)
     const contractField = contract === 'none' ? {} : { contract }
-    if (contract === 'unmet' && maxReprompts > 0) {
+    if (contract === 'unmet' && (maxReprompts === 'until-complete' || maxReprompts > 0)) {
       const decision = await decideReprompt(attempt, after)
       if ('steer' in decision) {
         reprompts += 1

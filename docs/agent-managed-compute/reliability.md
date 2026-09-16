@@ -35,7 +35,10 @@ Recovery validates the actual retained bytes before accepting another append.
 The index is not a second durable record or a cross-process ownership fence.
 Observer records detach their inputs before queued I/O, so later hook mutations cannot rewrite the evidence being saved.
 Completed director invocations reset the consecutive transport-failure counter even when the pursuit remains incomplete.
-The explicit total-attempt, deadline, cancellation, and resource bounds still apply.
+The failure-attempt, deadline, cancellation, and resource bounds still apply.
+Successful incomplete invocations do not consume `driverRetry.maxAttempts`; only failed invocations consume that allowance.
+Use `repromptOnUnmet: 'until-complete'` with a completion check and finite positive budget deadline to omit the continuation count cap.
+Numeric continuation caps retain their meaning, and zero still disables continuation.
 
 The file run lock protects one local coordinator.
 It does not fence provider mutations from a partitioned coordinator on another machine.

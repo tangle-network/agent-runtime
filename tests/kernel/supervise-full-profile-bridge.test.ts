@@ -2473,6 +2473,29 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(requests[1]?.session_id).toBe(requests[0]?.session_id)
   })
 
+  it('preserves a provider failure when unknown cost closes a dollar-capped budget', async () => {
+    const providerError = new Error('provider admission failed')
+    let calls = 0
+
+    const result = await supervise(routerTestProfile('pi-leader', 'Lead the pursuit.'), 'Choose.', {
+      backend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: 'test-token' },
+      budget: { maxIterations: 4, maxTokens: 10_000, maxUsd: 1 },
+      brain: async () => {
+        calls += 1
+        throw providerError
+      },
+    })
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    if (result.reason === 'driver-failed') {
+      expect(result.error.message).toContain('provider admission failed')
+    }
+    expect(calls).toBe(1)
+    expect(result.spentTotal.usdKnown).toBe(false)
+  })
+
   it('refuses a manager with unknown cost under a dollar-capped budget', async () => {
     server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
