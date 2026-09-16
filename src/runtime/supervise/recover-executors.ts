@@ -6,12 +6,14 @@ import {
 import {
   closesCursorSlot,
   contentAddress,
+  loadSpawnForest,
   materializeTreeView,
   ownedTreeRootSpawn,
   pendingWaits,
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
+import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { addSpend, zeroSpend } from '../util'
 import {
   assertValidSpend,
@@ -24,6 +26,7 @@ import { addResourceSpend, withBudgetResources } from './resources'
 import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
 import type { ScopeArgs } from './scope'
 import { detachedSnapshot } from './snapshot'
+import { releasedChildPayload, terminalDownEvent } from './terminal-record'
 import { nestedDriverTreeRoot } from './tree-key'
 import type {
   Budget,
@@ -36,9 +39,155 @@ import type {
   SupervisorOpts,
 } from './types'
 
-type ResumeStores = Pick<SupervisorOpts, 'runId' | 'journal' | 'blobs' | 'recoverExecutor'>
+type ResumeStores = Pick<
+  SupervisorOpts,
+  'runId' | 'journal' | 'blobs' | 'recoverExecutor' | 'hooks'
+>
 type Spawned = Extract<SpawnEvent, { kind: 'spawned' }>
 type RecordedResult = Extract<SpawnEvent, { kind: 'execution-result' }>
+type Reconciled = Extract<SpawnEvent, { kind: 'reconciled' }>
+type TeardownReceipt = Extract<SpawnEvent, { kind: 'environment-teardown' }>
+
+/** The environment id the node's latest durable admission names — the executor's own rule
+ *  (`admittedEnvironmentId` in environment-provider.ts), read off the journal. */
+function journaledEnvironmentId(owned: ReadonlyArray<SpawnEvent>): string | undefined {
+  for (const event of [...owned].reverse()) {
+    if (event.kind !== 'execution-admitted') continue
+    if (event.admission.phase === 'dispatched') return event.admission.controlRef.environmentId
+    if (event.admission.phase === 'environment') return event.admission.environmentId
+  }
+  return undefined
+}
+
+/**
+ * Close the cursor slot of every node the release sweep destroyed but never recorded: the
+ * settling process died between the last `environment-teardown` receipt and the terminal record
+ * (the 0.233.0 crash window). The record is the sweep's own — the same builder, the cursor seq
+ * `next()` stamped on the delivery and the settlement instant, all read back from the node's
+ * latest `reconciled` record — so a healed journal replays as one the sweep completed.
+ *
+ * The gate is fail-closed, every clause required, because the heal cannot re-ask the executor
+ * to confirm teardown the way the sweep does:
+ *  - the latest `reconciled` record carries `settledSeq`, `reason`, `infra` and `trace` (a record
+ *    written before those fields existed names no cursor position and is not healed);
+ *  - at least one receipt sits after that record and every such receipt reads `destroyed: true`
+ *    (an empty set must not close the slot vacuously, and a receipt from an earlier process
+ *    belongs to an earlier settlement);
+ *  - the environment the latest admission names is among those receipts, so a receipt for an
+ *    environment the journal never admitted, or a re-admitted node whose receipt names the
+ *    earlier environment, is left open where the live sweep would have closed it.
+ * A node with an `execution-result` is left to the recorded-result branch of
+ * {@link prepareInterruptedExecutors}, which settles it from the durable blob and takes
+ * precedence. The walk is over the whole forest because a nested manager settled on the ordinary
+ * path is never restored, so a per-tree heal inside the resume of its tree would never reach its
+ * grandchild. Returns the number of records written.
+ */
+export async function healReleasedSlots(
+  opts: ResumeStores,
+  signal: AbortSignal,
+  now: () => number,
+): Promise<number> {
+  const forest = await loadSpawnForest(opts.journal, opts.runId)
+  let healed = 0
+  for (const tree of forest.trees) {
+    signal.throwIfAborted()
+    const events = tree.events
+    const closed = new Set(events.filter(closesCursorSlot).map((event) => event.id))
+    const recorded = new Set(
+      events.flatMap((event) => (event.kind === 'execution-result' ? [event.id] : [])),
+    )
+    for (const spawned of events) {
+      if (spawned.kind !== 'spawned' || spawned.parent === undefined) continue
+      if (closed.has(spawned.id) || recorded.has(spawned.id)) continue
+      const owned = events.filter((event) => event.id === spawned.id)
+      const floor = owned.reduce<Reconciled | undefined>(
+        (latest, event) =>
+          event.kind === 'reconciled' && (latest === undefined || event.seq > latest.seq)
+            ? event
+            : latest,
+        undefined,
+      )
+      if (
+        floor?.settledSeq === undefined ||
+        floor.reason === undefined ||
+        floor.infra === undefined ||
+        floor.trace === undefined
+      )
+        continue
+      const receipts = owned
+        .slice(owned.indexOf(floor) + 1)
+        .filter((event): event is TeardownReceipt => event.kind === 'environment-teardown')
+      if (receipts.length === 0 || !receipts.every((receipt) => receipt.destroyed)) continue
+      const held = journaledEnvironmentId(owned)
+      if (held === undefined || !receipts.some((receipt) => receipt.environmentId === held))
+        continue
+      const settledSeq = floor.settledSeq
+      // The journal's own duplicate-cursor guard is the backstop; this names the node first, and
+      // writes nothing. A fixed process cannot produce it: the resumed cursor starts past every
+      // open node's `settledSeq` (see `maxCursorSeq` below).
+      if (events.some((event) => closesCursorSlot(event) && event.seq === settledSeq)) {
+        throw new RuntimeRunStateError(
+          `retained child '${spawned.id}' cannot be released at cursor seq ${settledSeq}: tree '${tree.root}' already closes that seq`,
+        )
+      }
+      const subject = {
+        id: spawned.id,
+        spent: floor.spent,
+        ...(floor.budgetViolation ? { budgetViolation: floor.budgetViolation } : {}),
+        ...(floor.cancellation ? { cancellationReason: floor.cancellation } : {}),
+      }
+      const settlement = {
+        kind: 'down' as const,
+        reason: floor.reason,
+        infra: floor.infra,
+        trace: floor.trace,
+        ...(floor.outRef ? { outRef: floor.outRef } : {}),
+        ...(floor.providerModel ? { providerModel: floor.providerModel } : {}),
+        ...(floor.harnessTranscript ? { harnessTranscript: floor.harnessTranscript } : {}),
+      }
+      await opts.journal.appendEvent(
+        tree.root,
+        terminalDownEvent(subject, settlement, settledSeq, floor.at, 'released'),
+      )
+      healed += 1
+      // The sweep's `agent.child` on the resumed stream, so a projection whose node state comes
+      // only from that target flips the node to released as it does live. `startedAt` is the
+      // runtime's own rule for a recovered child (the spawn instant), `releasedAt` the last
+      // receipt's instant; the journal record above is the byte-identical surface.
+      const materialized = owned.find((event) => event.kind === 'materialized')
+      const lastReceipt = receipts[receipts.length - 1]!
+      notifyRuntimeHookEvent(
+        opts.hooks,
+        {
+          id: `${spawned.id}:released`,
+          runId: tree.root,
+          target: 'agent.child',
+          phase: 'after',
+          timestamp: now(),
+          stepIndex: settledSeq,
+          parentId: tree.ownerNodeId ?? opts.runId,
+          payload: releasedChildPayload(
+            {
+              ...subject,
+              runtime: materialized?.receipt.runtime ?? spawned.runtime,
+              startedAt: Date.parse(spawned.at),
+              ...(materialized === undefined ? {} : { materialization: materialized.receipt }),
+              executionBindings: owned.flatMap((event) =>
+                event.kind === 'execution-bound' ? [event.binding] : [],
+              ),
+              ...(floor.providerModel ? { providerModel: floor.providerModel } : {}),
+            },
+            settlement,
+            Date.parse(floor.at),
+            Date.parse(lastReceipt.at),
+          ),
+        },
+        { signal },
+      )
+    }
+  }
+  return healed
+}
 
 /** Validate durable inputs without waiting for work that may need its resumed manager. */
 export async function prepareInterruptedExecutors(
@@ -163,9 +312,9 @@ export async function prepareInterruptedExecutors(
       factory: prepared?.factory ?? opts.recoverExecutor,
     })
   }
-  let seq =
-    events.reduce((max, event) => (closesCursorSlot(event) ? Math.max(max, event.seq) : max), -1) +
-    1
+  // Past every closed AND reserved seq: an open node's `settledSeq` is where its terminal record
+  // lands, and a recovered result written there would be the collision the heal refuses.
+  let seq = reservedCursorFloor(events) + 1
   for (const { result, fault, budgetViolation } of accepted) {
     signal.throwIfAborted()
     const failureReason = executorFailureReason(result)
@@ -301,6 +450,29 @@ export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean
   return max
 }
 
+/**
+ * The highest cursor seq any record in the journal already owns, closed OR reserved.
+ *
+ * A closed slot owns its seq outright. An open retained node owns the `settledSeq` its
+ * `reconciled` record carries: that is the seq the driver already branched on, and the seq the
+ * heal (or a later release sweep) writes the terminal record under. Every writer that mints a
+ * new cursor seq in a resumed process — the recorded-result settlements below and the resumed
+ * scope's own cursor — must start past BOTH, or a recovered result lands on a seq an open node
+ * has reserved and the heal can only ever collide. One function so no writer can drift.
+ */
+export function reservedCursorFloor(events: SpawnEvent[]): number {
+  return Math.max(
+    maxSeqOf(events, closesCursorSlot),
+    events.reduce(
+      (max, event) =>
+        event.kind === 'reconciled' && event.settledSeq !== undefined
+          ? Math.max(max, event.settledSeq)
+          : max,
+      -1,
+    ),
+  )
+}
+
 /** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled), plus
  *  the reconciled floor of every node still open, plus the declared ceiling of every open node
  *  nothing reconciled; `metered` = driver inference (re-homed up the tree, so a single root-tree
@@ -386,6 +558,13 @@ export async function prepareScopeResume(
   now: () => number,
   parentId = opts.runId,
 ): Promise<{ resumeFrom: ScopeResumeState; poolRestore: BudgetPoolRestore }> {
+  // The root resume walks the whole forest once; the nested restore, whose `parentId` is the
+  // manager node, does not walk again. A healed node is then terminal to everything below:
+  // never interrupted, never a recovery, charged its floor as `settled.spent` instead of the
+  // reconciled floor (the same object), and replayed at the driver's own seq.
+  if (parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
+    events = (await opts.journal.loadTree(opts.runId)) ?? events
+  }
   const prepared = await prepareInterruptedExecutors(opts, events, signal, now, parentId)
   const prior = prepared.events
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
@@ -419,7 +598,9 @@ export async function prepareScopeResume(
       settled,
       view: materializeTreeView(prior),
       maxSpawnOrdinal: maxSeqOf(prior, (event) => event.kind === 'spawned'),
-      maxCursorSeq: maxSeqOf(prior, closesCursorSlot),
+      // An open node's journaled cursor seq is reserved across processes: the resumed scope must
+      // never mint it for another node, or the heal above could only ever collide.
+      maxCursorSeq: reservedCursorFloor(prior),
       maxWaitOrdinal: maxSeqOf(prior, (event) => event.kind === 'waiting'),
       waits: pendingWaits(prior),
       keys: keyedAssignments(prior, settled),
