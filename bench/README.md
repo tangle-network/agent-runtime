@@ -41,7 +41,7 @@ pnpm install                                              # tsx + link parent
 The judge needs only Docker; workers need a model key (Tangle router `TANGLE_API_KEY`, or a direct provider).
 
 Live optimizer scripts require explicit token prices so cost records cannot be guessed.
-Set `INPUT_USD_PER_MILLION`, `CACHED_INPUT_USD_PER_MILLION`, `CACHE_WRITE_USD_PER_MILLION`, and `OUTPUT_USD_PER_MILLION`.
+Set `REFLECT_INPUT_USD_PER_MILLION`, `REFLECT_CACHED_INPUT_USD_PER_MILLION`, `REFLECT_CACHE_WRITE_USD_PER_MILLION`, and `REFLECT_OUTPUT_USD_PER_MILLION`.
 Missing prices fail before an optimizer model call.
 
 Retain every official per-test log and report before the temporary evaluator directory is removed:

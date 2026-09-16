@@ -2,9 +2,13 @@
 
 ## 0.13.0
 
-Requires Eval 0.182.0 and Runtime's current supervisor-run contract.
-Removed the private SWE and quant research campaign drivers, their historical fixtures, and the campaign-specific rollout ledger bridge.
-Use Supervisor Lab or Discovery Lab for registered campaigns; Bench now contains maintained adapters, execution primitives, and package proofs only.
+Remove the SWE and quant research campaign drivers, their historical fixtures, and the campaign-specific rollout ledger bridge from the source package.
+These drivers depended on the retired `.loops` layout.
+Public benchmark adapters and exports remain available.
+
+## 0.12.2
+
+Consume the agent-eval 0.182.0 and agent-knowledge 17.0.1 cohort with Runtime 0.227.0.
 
 ## 0.12.1
 
