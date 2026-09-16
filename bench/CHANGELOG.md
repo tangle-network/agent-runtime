@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1
+
+Require Knowledge 17.0.2 for validated memory writes, matching the Runtime workspace cohort.
+
 ## 0.13.0
 
 Remove the SWE and quant research campaign drivers, their historical fixtures, and the campaign-specific rollout ledger bridge from the source package.
