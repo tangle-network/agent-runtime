@@ -40,6 +40,7 @@ import {
   closesCursorSlot,
   contentAddress,
   loadSpawnForest,
+  type SpawnForest,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { addSpend } from '../util'
@@ -72,6 +73,7 @@ import { detachedSnapshot } from './snapshot'
 import type {
   Agent,
   ExecutionBindingReceipt,
+  FleetYield,
   NodeId,
   NoWinnerError,
   ProfileMaterializationReceipt,
@@ -786,7 +788,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
           // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
           // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
-          const { spentTotal, childWork, driverInference, gaps, providerModel } =
+          const { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield } =
             await terminalAccounting(journal, opts.runId, now() - runEpochMs)
           return {
             kind: 'winner',
@@ -797,6 +799,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             providerModel,
             ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
             ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
+            fleetYield,
             ...(isNonEmptySpend(driverInference)
               ? { spentBreakdown: { driverInference, childWork } }
               : {}),
@@ -815,7 +818,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
       // summed off the SAME journal the winner path reads — the caller always learns the cost.
       async function noWinner(rejection?: DriverRejection): Promise<SupervisedResult<Out>> {
-        const { spentTotal, gaps, providerModel } = await terminalAccounting(
+        const { spentTotal, gaps, providerModel, fleetYield } = await terminalAccounting(
           journal,
           opts.runId,
           now() - runEpochMs,
@@ -829,6 +832,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
           ...(leakedReservations.length > 0 ? { leakedReservations } : {}),
           ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
+          fleetYield,
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
         // proven one ends it. `undefined` means the supervisor's own state explains nothing.
@@ -1034,13 +1038,23 @@ function createIntensityBreaker(opts: SupervisorOpts, trip: () => void): Intensi
 
 /** Decorate the journal so the breaker observes every `settled`-`down` event the scope
  *  appends, without the supervisor intercepting `scope.next()`. The decorator is
- *  transparent — it forwards every method verbatim and only reads the down events. */
+ *  transparent — it forwards every method verbatim and only reads the down events.
+ *
+ *  A record marked `retainedExecution: 'released'` is skipped: it is the driver's earlier down
+ *  re-stated by the release sweep, which runs AFTER the join barrier and before the result is
+ *  classified. Counting it would trip an armed breaker on a run that has already settled and turn
+ *  a delivered winner into `all-children-down`, and its backdated `at` (the settlement instant)
+ *  would sit out of order in the sliding window. A retained child was never counted at its
+ *  settlement either (it writes no `settled` record then), so `downCount` stays what it was:
+ *  ordinary downs only; `fleetYield.down` is where a retained child is counted. */
 function wrapJournalForBreaker(journal: SpawnJournal, breaker: IntensityBreaker): SpawnJournal {
   return {
     loadTree: (root) => journal.loadTree(root),
     beginTree: (root, at) => journal.beginTree(root, at),
     appendEvent: (root, ev: SpawnEvent) => {
-      if (ev.kind === 'settled' && ev.status === 'down') breaker.recordDown(Date.parse(ev.at))
+      if (ev.kind === 'settled' && ev.status === 'down' && ev.retainedExecution === undefined) {
+        breaker.recordDown(Date.parse(ev.at))
+      }
       return journal.appendEvent(root, ev)
     },
   }
@@ -1235,6 +1249,7 @@ async function terminalAccounting(
   driverInference: Spend
   gaps: SpendGap[]
   providerModel: import('./types').ProviderModelExecutionEvidence
+  fleetYield: FleetYield
 }> {
   const events = await journal.loadTree(root)
   if (events === undefined) {
@@ -1246,6 +1261,7 @@ async function terminalAccounting(
   const gaps = spendGapsFromEvents(events)
   const forest = await loadSpawnForest(journal, root)
   const providerModel = aggregateProviderModelEvidence(forest)
+  const fleetYield = fleetYieldFromForest(forest)
   const summed = addSpend(childWork, driverInference)
   const spentTotal: Spend = {
     ...summed,
@@ -1254,7 +1270,58 @@ async function terminalAccounting(
       summed.tokensKnown !== false && !gaps.some((gap) => gap.channels.includes('tokens')),
     usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
   }
-  return { spentTotal, childWork, driverInference, gaps, providerModel }
+  return { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield }
+}
+
+/** How the run's spawned children ended, by node id across every tree of the forest. Read after
+ *  the join barrier and the release sweep, so the terminal records the sweep wrote are in it.
+ *  Spawned records without a parent are exempt: the run root, and the re-rooted owner copy a
+ *  nested driver writes as its tree's first record (`ownedTreeRootSpawn` strips the parent), so
+ *  a manager is counted once, in its parent's tree. Buckets are id sets rather than record counts
+ *  because the journal guards seq uniqueness, not one-terminal-per-node, and the invariant
+ *  `spawned === done + down + cancelled + neverSettled` must not rest on scope discipline alone;
+ *  it is asserted here so a future root-id terminal record cannot silently break the tally. */
+function fleetYieldFromForest(forest: SpawnForest): FleetYield {
+  const spawned = new Set<NodeId>()
+  // Each id lands in exactly one bucket, by its last terminal record in journal order.
+  const terminal = new Map<NodeId, 'done' | 'down' | 'cancelled'>()
+  const released = new Set<NodeId>()
+  for (const { event } of forest.events) {
+    if (event.kind === 'spawned') {
+      if (event.parent !== undefined) spawned.add(event.id)
+    } else if (event.kind === 'settled' || event.kind === 'cancelled') {
+      const bucket = event.kind === 'cancelled' ? 'cancelled' : event.status
+      terminal.set(event.id, bucket)
+      // `released` is a subset of down + cancelled BY CONSTRUCTION here, not by trust in the
+      // writer: only the release sweep writes the marker and it never writes `done`, but a
+      // hand-built `done` record carrying it must not count twice.
+      if (event.retainedExecution === 'released' && bucket !== 'done') released.add(event.id)
+      else released.delete(event.id)
+    }
+  }
+  const count = (bucket: 'done' | 'down' | 'cancelled'): number =>
+    [...terminal.values()].filter((value) => value === bucket).length
+  const fleetYield: FleetYield = {
+    spawned: spawned.size,
+    done: count('done'),
+    down: count('down'),
+    cancelled: count('cancelled'),
+    neverSettled: forest.inDoubt.length,
+    releasedUnrecovered: released.size,
+  }
+  const accounted =
+    fleetYield.done + fleetYield.down + fleetYield.cancelled + fleetYield.neverSettled
+  if (accounted !== fleetYield.spawned) {
+    throw new RuntimeRunStateError(
+      `supervisor: fleet yield does not partition the spawned children of '${forest.root}' (${JSON.stringify(fleetYield)})`,
+    )
+  }
+  if (fleetYield.releasedUnrecovered > fleetYield.down + fleetYield.cancelled) {
+    throw new RuntimeRunStateError(
+      `supervisor: released children exceed down + cancelled for '${forest.root}' (${JSON.stringify(fleetYield)})`,
+    )
+  }
+  return fleetYield
 }
 
 /** The journaled nodes whose usage accounting is incomplete — one `SpendGap` per node+kind,

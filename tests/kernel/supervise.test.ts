@@ -2834,6 +2834,14 @@ describe('supervisor: terminal accounting — wall-clock ms, explicit known flag
     expect(result.spentTotal.tokensKnown).toBe(true)
     expect(result.spentTotal.usdKnown).toBe(true)
     expect(result.spendGaps).toBeUndefined()
+    expect(result.fleetYield).toEqual({
+      spawned: 2,
+      done: 2,
+      down: 0,
+      cancelled: 0,
+      neverSettled: 0,
+      releasedUnrecovered: 0,
+    })
   })
 
   it('a child that died before reporting keeps tokensKnown false AND is named in spendGaps', async () => {
@@ -2931,6 +2939,8 @@ describe('supervisor: terminal accounting — wall-clock ms, explicit known flag
         channels: ['tokens', 'usd'],
       },
     ])
+    // A crash-orphaned spawn is never-settled — distinct from a released one, which is down.
+    expect(result.fleetYield).toMatchObject({ spawned: 1, neverSettled: 1, releasedUnrecovered: 0 })
     // Wall clock anchors to the ORIGINAL root instant recorded in the journal, not this process.
     expect(result.spentTotal.ms).toBe(50)
   })

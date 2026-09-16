@@ -996,6 +996,13 @@ export type Settled<Out> =
       providerModel?: ProviderModelExecutionEvidence
       /** Present when the spend reconciled for this child exceeded its reservation. */
       budgetViolation?: BudgetViolation
+      /** Present only when this child's provider execution was RETAINED (see
+       *  `RetainedExecutionState`); absent on an ordinary down. `'pending'` on the settlement the
+       *  driver receives at the reconcile; `'released'` on the replayed settlement of a node the
+       *  release sweep closed. The driver and every replay reader see the fact the journal
+       *  states, so a reader never splits this population on `reason` text — which is identical
+       *  on every one of these children. */
+      retainedExecution?: RetainedExecutionState
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
@@ -1236,6 +1243,11 @@ export interface NodeSnapshot {
   readonly trace?: WorkerTraceEvidence
   /** Present once a settled node's measured spend exceeded its reservation. */
   readonly budgetViolation?: BudgetViolation
+  /** Present on a retained child: `'pending'` while its cursor slot is open, `'released'` once
+   *  the release sweep closed it. The live view (`makeTreeView`) and the journal view
+   *  (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
+   *  retained-vs-down question without the observer journal. */
+  readonly retainedExecution?: RetainedExecutionState
 }
 
 /** The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. */
@@ -1347,6 +1359,17 @@ export type SpawnEvent =
       harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the reconciled spend exceeded the reservation, on either status. */
       budgetViolation?: BudgetViolation
+      /** Written only by the release sweep, on the same tree, after every `environment-teardown`
+       *  receipt for the node reads `destroyed: true` and the executor's own teardown confirmed.
+       *  `spent` is this node's child-work component of the reconcile the pool committed — for
+       *  a leaf the streamed floor itself, for a recursive executor its `accounting().reported`
+       *  split with the remainder on its `metered` records — never the reservation ceiling.
+       *  `reason`/`infra`/`trace`/`harnessTranscript`/`outRef`/`providerModel` are the
+       *  settlement the driver received, verbatim; `seq` is the cursor seq stamped on that
+       *  delivery, so replay yields it at the position the driver saw it; `at` is the settlement
+       *  instant, and the release instant is on the receipt immediately before it. Typed so a
+       *  `'pending'` can never be journaled: the journal states that as `reconciled`. */
+      retainedExecution?: Extract<RetainedExecutionState, 'released'>
       seq: number
       at: string
     }
@@ -1364,6 +1387,9 @@ export type SpawnEvent =
       harnessTranscript?: HarnessTranscriptEvidence
       outRef?: string
       budgetViolation?: BudgetViolation
+      /** As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
+       *  builder writes whichever kind the settlement had. */
+      retainedExecution?: Extract<RetainedExecutionState, 'released'>
       seq: number
       at: string
     }
@@ -1475,7 +1501,9 @@ export type SpawnEvent =
        *  observed, while its cursor slot stays OPEN so a resume can recover the execution. It stands
        *  in for the `settled` record an open node cannot carry: cost readers and a restored pool
        *  charge this floor for the node instead of its declared ceiling, and a later `settled` or
-       *  `cancelled` record for the same node supersedes it. A driver's own inference travels on its
+       *  `cancelled` record for the same node supersedes it. That record has two writers: a
+       *  resumed process's recovered settlement, or the release sweep's terminal record marked
+       *  `retainedExecution: 'released'`. A driver's own inference travels on its
        *  `metered` record as on every other path, so `reconciled + metered` is what the pool
        *  committed. Its `seq` lives outside the cursor-uniqueness namespace. */
       kind: 'reconciled'
@@ -1510,7 +1538,11 @@ export type SpawnEvent =
        *  the environment its executor kept for recovery could never be recovered; this is the
        *  receipt of the supervisor's release, one per environment, naming the provider's own id
        *  so a fleet listing can be reconciled against it. A `destroyed: false` receipt carries why
-       *  in `detail`, and the node is then also journaled as `teardown-unconfirmed`.
+       *  in `detail`, and the node is then also journaled as `teardown-unconfirmed`. When every
+       *  receipt for a node is `destroyed: true` and the executor confirms teardown, the node's
+       *  terminal `settled`/`cancelled` record with `retainedExecution: 'released'` follows on
+       *  the same tree and closes the cursor slot; a `destroyed: false` receipt or an unconfirmed
+       *  teardown leaves the slot open because the environment may still exist.
        *  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
        *  per node, outside the cursor-uniqueness namespace. */
       kind: 'environment-teardown'
@@ -1670,7 +1702,11 @@ export interface SupervisorOpts {
    * - `'release'`: the run will not be resumed, so nothing would ever reconcile or release those
    *   environments. The join barrier releases each one and journals an `environment-teardown`
    *   receipt per environment. Measured 2026-09-11: four settled runs held 18 of a 60-slot
-   *   Sandbox fleet for 19 to 37 hours without it.
+   *   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
+   *   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
+   *   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
+   *   `fleetYield.releasedUnrecovered` counts it; a refused release leaves the slot open and
+   *   the node in `teardownUnconfirmed`.
    * - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
    *
    * Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
@@ -1787,6 +1823,55 @@ export interface SpendGap {
 }
 
 /**
+ * The recorded fate of a child whose provider execution was RETAINED: admitted durably, with no
+ * accepted terminal result when local observation stopped (the `RetainedExecutionPendingError`
+ * path). Not a failure classification — the child is `down` either way.
+ *
+ * - `'pending'`: the reservation was reconciled at a floor, the cursor slot is open, and the
+ *   environment is kept so a resume can reconcile the paid execution. Only ever on the in-memory
+ *   `Settled` and the first `agent.child` payload; the journal states it as the `reconciled`
+ *   record and replay never yields it. For an executor without `releaseRetained` it means only
+ *   that nothing could be released.
+ * - `'released'`: root settlement under `retainedAtSettlement: 'release'` destroyed the
+ *   environment (executor-confirmed) before any process recovered the execution; this is the
+ *   node's terminal record. The pool's own admission fault, if the reconcile raised one, is not
+ *   on this record.
+ *
+ * Absent = an ordinary child. The live `Settled` a driver branched on carried `'pending'` where
+ * replay yields `'released'` for the same seq, so a resume-aware driver must not branch on the
+ * two values. No `'recovered'` value exists yet: a live-adopted recovery settles on the ordinary
+ * path and the recorded-result path writes no marker.
+ */
+export type RetainedExecutionState = 'pending' | 'released'
+
+/**
+ * How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at
+ * root settlement — after the join barrier and the release sweep, so the terminal records the
+ * sweep wrote are included, and forest-wide so a director's grandchildren count (the population
+ * the observer projection shows). Invariant: `spawned === done + down + cancelled + neverSettled`.
+ * Distinct from a no-winner's `downCount`, the breaker's tally of ordinary down settlements: a
+ * released record is the driver's earlier down re-stated, so the breaker skips it and
+ * `downCount` never includes a retained child, while `down` here does. `spendGaps` stays
+ * root-tree scoped, so on a nested run the two disagree by design.
+ */
+export interface FleetYield {
+  /** Every `spawned` record with a parent; the run root and an owned tree's re-rooted owner copy
+   *  are exempt. */
+  readonly spawned: number
+  readonly done: number
+  /** `settled` records with `status: 'down'`, released records included. */
+  readonly down: number
+  readonly cancelled: number
+  /** Spawned with no terminal record: a crash-orphaned child, a refused release, or a retained
+   *  executor with nothing to release. Named after `SpendGap`'s `never-settled`. */
+  readonly neverSettled: number
+  /** Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
+   *  A nested manager whose OWN retained execution was released counts here beside the
+   *  grandchildren it released, because its execution was destroyed unrecovered too. */
+  readonly releasedUnrecovered: number
+}
+
+/**
  * One channel on which a settled reservation's measured spend exceeded what it reserved.
  * `tokens` is in the pool's charged unit (`chargedTokens`), `usd` is measured dollars, and a
  * `resource:<name>` entry is in the unit that resource's budget declares.
@@ -1841,6 +1926,8 @@ export type SupervisedResult<Out> =
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
+      /** How the fleet ended, see `FleetYield`. Always present: zeros are facts. */
+      fleetYield: FleetYield
       /** Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
        *  `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
        *  `driverInference + childWork === spentTotal` on `iterations`/`tokens`/`usd`; the
@@ -1884,6 +1971,8 @@ export type SupervisedResult<Out> =
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
+      /** How the fleet ended, see `FleetYield`. Always present: zeros are facts. */
+      fleetYield: FleetYield
       /** Never present on a lifecycle arm — the discriminant, not prose, is what makes
        *  `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it. */
       error?: never
@@ -1933,6 +2022,8 @@ export type SupervisedResult<Out> =
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
+      /** How the fleet ended, see `FleetYield`. Always present: zeros are facts. */
+      fleetYield: FleetYield
       /** The driver's own rejection, carried across the typed no-winner boundary so the failure is
        *  recoverable by the caller. A non-`Error` rejection is normalized, never dropped. */
       error: NoWinnerError

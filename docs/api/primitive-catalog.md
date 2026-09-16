@@ -423,7 +423,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 954 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 956 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -869,6 +869,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 954 exports.
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
 | `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
 | `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
+| `FleetYield` | interface | How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at |
 | `ForkCapableBox` | interface | Loop-side widening of the legacy checkpoint fork method. |
 | `GraphNode` | interface | A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way a node is |
 | `Handle` | interface | A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into |
@@ -1155,6 +1156,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 954 exports.
 | `ReservationStage` | type | Where in the spawn lifecycle a reservation was last seen. `admitted` is the window between |
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
+| `RetainedExecutionState` | type | The recorded fate of a child whose provider execution was RETAINED: admitted durably, with no |
 | `RetainedInteractiveAdmission` | type | Durable records for one exact native coding-agent process. |
 | `RetainedInteractiveAdmissionHook` | type | Persist each exact interactive record before the runtime proceeds. |
 | `RetainedInteractiveEnvironmentInput` | type | Environment and exact AgentProfile used to start one native coding-agent process. |

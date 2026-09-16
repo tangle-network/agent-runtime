@@ -79,3 +79,32 @@ describe('createWaterfallCollector', () => {
     expect(w.report().spans).toHaveLength(0)
   })
 })
+
+describe('a released retained child keeps its bar at the settlement instant', () => {
+  it('ignores the release event timestamp once the child has settled', () => {
+    const w = createWaterfallCollector()
+    w.hooks.onEvent?.(spawn('r0', 'worker:0', 1000) as never, {})
+    w.hooks.onEvent?.(settle('r0', 3000, 0.01, 10, 5, undefined, true) as never, {})
+    // Root settlement releases the retained environment much later and re-states the down;
+    // without the guard the bar would stretch from 3000 to 90000.
+    w.hooks.onEvent?.(
+      {
+        id: 'r0:released',
+        runId: 'run-1',
+        target: 'agent.child',
+        phase: 'after',
+        timestamp: 90_000,
+        payload: {
+          childId: 'r0',
+          status: 'down',
+          retainedExecution: 'released',
+          releasedAt: 90_000,
+        },
+      } as never,
+      {},
+    )
+    const span = w.report().spans.find((entry) => entry.id === 'r0')
+    expect(span?.endMs).toBe(3000)
+    expect(span?.status).toBe('down')
+  })
+})
