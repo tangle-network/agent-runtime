@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import {
   type RuntimeDecisionPoint,
   type RuntimeHookEvent,
@@ -108,6 +109,15 @@ export class FileObserverJournal implements ObserverJournal {
       )
     }
 
+    // Other hooks receive this same input and may mutate it before queued I/O runs.
+    // Detach now, not after awaiting the previous append or computing the digest.
+    let snapshot: typeof value
+    try {
+      snapshot = detachedSnapshot(value, 'observer record')
+    } catch (error) {
+      return Promise.reject(error)
+    }
+
     let result: ObserverRecord | undefined
     const operation = this.tail.then(async () => {
       this.assertComplete()
@@ -126,8 +136,8 @@ export class FileObserverJournal implements ObserverJournal {
         observedAt: Date.now(),
         ...(this.previousDigest ? { previousDigest: this.previousDigest } : {}),
         ...(kind === 'event'
-          ? { event: value as RuntimeHookEvent }
-          : { decision: value as RuntimeDecisionPoint }),
+          ? { event: snapshot as RuntimeHookEvent }
+          : { decision: snapshot as RuntimeDecisionPoint }),
       }
       const record: ObserverRecord = Object.freeze({
         ...unsigned,

@@ -20,6 +20,7 @@
  * @stable
  */
 
+import type { BigIntStats } from 'node:fs'
 import { assertValidSpend } from '../runtime/supervise/budget'
 import {
   assertNoSymlinkDescendant,
@@ -225,7 +226,10 @@ function assertContentAddress(outRef: string, artifact: unknown): void {
  * @stable
  */
 export class InMemorySpawnJournal implements SpawnJournal {
-  private readonly trees = new Map<NodeId, { begunAt: string; events: SpawnEvent[] }>()
+  private readonly trees = new Map<
+    NodeId,
+    { begunAt: string; events: SpawnEvent[]; index: SpawnEventIndex }
+  >()
 
   async loadTree(root: NodeId): Promise<SpawnEvent[] | undefined> {
     const tree = this.trees.get(root)
@@ -243,7 +247,7 @@ export class InMemorySpawnJournal implements SpawnJournal {
       }
       return
     }
-    this.trees.set(root, { begunAt: at, events: [] })
+    this.trees.set(root, { begunAt: at, events: [], index: new SpawnEventIndex(root) })
   }
 
   async appendEvent(root: NodeId, ev: SpawnEvent): Promise<void> {
@@ -251,8 +255,10 @@ export class InMemorySpawnJournal implements SpawnJournal {
     if (!tree) {
       throw new Error(`appendEvent called for unknown spawn tree '${root}'; call beginTree first`)
     }
-    assertSeqUnique(root, tree.events, ev)
-    tree.events.push(detachedSnapshot(ev, 'spawn event'))
+    const event = detachedSnapshot(ev, 'spawn event')
+    tree.index.assert(event)
+    tree.events.push(event)
+    tree.index.add(event)
   }
 }
 
@@ -267,6 +273,10 @@ export class InMemorySpawnJournal implements SpawnJournal {
  */
 export class FileSpawnJournal implements SpawnJournal {
   private appendTail: Promise<void> = Promise.resolve()
+  // Rebuildable validation state, not another journal or a copy of event payloads.
+  private appendIndex:
+    | { stamp: string | undefined; trees: Map<NodeId, { begunAt: string; index: SpawnEventIndex }> }
+    | undefined
 
   constructor(private readonly path: string) {}
 
@@ -281,6 +291,7 @@ export class FileSpawnJournal implements SpawnJournal {
     }
     let begun = false
     const events: SpawnEvent[] = []
+    const index = new SpawnEventIndex(root)
     for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
       if (record.root !== root) continue
       if (record.kind === 'begin') {
@@ -291,7 +302,8 @@ export class FileSpawnJournal implements SpawnJournal {
             `spawn journal corrupted: event for tree '${root}' precedes its begin record`,
           )
         }
-        assertSeqUnique(root, events, record.event)
+        index.assert(record.event)
+        index.add(record.event)
         events.push(record.event)
       }
     }
@@ -300,44 +312,77 @@ export class FileSpawnJournal implements SpawnJournal {
 
   async beginTree(root: NodeId, at: string): Promise<void> {
     return this.serializeAppend(async () => {
-      const existing = await this.loadTreeBegin(root)
+      const state = await this.validationIndex()
+      const existing = state.trees.get(root)
       if (existing) {
-        if (existing !== at) {
+        if (existing.begunAt !== at) {
           throw new Error(
-            `spawn tree '${root}' already begun in ${this.path} at ${existing}; refusing to overwrite with ${at}`,
+            `spawn tree '${root}' already begun in ${this.path} at ${existing.begunAt}; refusing to overwrite with ${at}`,
           )
         }
         return
       }
-      await this.writeRecord({ kind: 'begin', root, at })
+      state.stamp = await this.writeRecord({ kind: 'begin', root, at })
+      state.trees.set(root, { begunAt: at, index: new SpawnEventIndex(root) })
     })
   }
 
   async appendEvent(root: NodeId, ev: SpawnEvent): Promise<void> {
     const event = detachedSnapshot(ev, 'spawn event')
     return this.serializeAppend(async () => {
-      const events = await this.loadTree(root)
-      if (events === undefined) {
+      const state = await this.validationIndex()
+      const tree = state.trees.get(root)
+      if (tree === undefined) {
         throw new Error(`appendEvent called for unknown spawn tree '${root}'; call beginTree first`)
       }
-      assertSeqUnique(root, events, event)
-      await this.writeRecord({ kind: 'event', root, event })
+      tree.index.assert(event)
+      state.stamp = await this.writeRecord({ kind: 'event', root, event })
+      // An unacknowledged append cannot advance validation state. A failed write invalidates
+      // the index, so recovery reads the actual committed bytes before admitting another event.
+      tree.index.add(event)
     })
   }
 
-  private async loadTreeBegin(root: NodeId): Promise<string | undefined> {
+  private async validationIndex() {
     const fs = await import('node:fs/promises')
-    let text: string
+    const stamp = await this.fileStamp()
+    if (this.appendIndex && this.appendIndex.stamp === stamp) return this.appendIndex
+    this.appendIndex = undefined
+    const trees = new Map<NodeId, { begunAt: string; index: SpawnEventIndex }>()
+    if (stamp !== undefined) {
+      const text = await fs.readFile(this.path, 'utf8')
+      if ((await this.fileStamp()) !== stamp) {
+        throw new Error('spawn journal changed while rebuilding its append index')
+      }
+      for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
+        if (record.kind === 'begin') {
+          if (!trees.has(record.root)) {
+            trees.set(record.root, { begunAt: record.at, index: new SpawnEventIndex(record.root) })
+          }
+        } else {
+          const tree = trees.get(record.root)
+          if (!tree) {
+            throw new Error(
+              `spawn journal corrupted: event for tree '${record.root}' precedes its begin record`,
+            )
+          }
+          tree.index.assert(record.event)
+          tree.index.add(record.event)
+        }
+      }
+    }
+    this.appendIndex = { stamp, trees }
+    return this.appendIndex
+  }
+
+  private async fileStamp(): Promise<string | undefined> {
+    const fs = await import('node:fs/promises')
     try {
-      text = await fs.readFile(this.path, 'utf8')
-    } catch (err) {
-      if (isNoEntError(err)) return undefined
-      throw err
+      return journalFileStamp(await fs.stat(this.path, { bigint: true }))
+    } catch (error) {
+      if (isNoEntError(error)) return undefined
+      throw error
     }
-    for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
-      if (record.root === root && record.kind === 'begin') return record.at
-    }
-    return undefined
   }
 
   private async serializeAppend(operation: () => Promise<void>): Promise<void> {
@@ -346,19 +391,34 @@ export class FileSpawnJournal implements SpawnJournal {
     return append
   }
 
-  private async writeRecord(record: SpawnJournalRecord): Promise<void> {
+  private async writeRecord(record: SpawnJournalRecord): Promise<string> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    await fs.mkdir(path.dirname(this.path), { recursive: true })
-    const needsSeparator = await prepareJsonlAppend(this.path)
-    const fh = await fs.open(this.path, 'a')
     try {
-      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
-      await fh.sync()
-    } finally {
-      await fh.close()
+      await fs.mkdir(path.dirname(this.path), { recursive: true })
+      const needsSeparator = await prepareJsonlAppend(this.path)
+      const fh = await fs.open(this.path, 'a')
+      try {
+        await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
+        await fh.sync()
+        const stamp = journalFileStamp(await fh.stat({ bigint: true }))
+        if ((await this.fileStamp()) !== stamp) {
+          throw new Error('spawn journal changed while acknowledging its append')
+        }
+        return stamp
+      } finally {
+        await fh.close()
+      }
+    } catch (error) {
+      this.appendIndex = undefined
+      throw error
     }
   }
+}
+
+/** Detect replacement, truncation, and same-size edits; this is not a cross-process write lock. */
+function journalFileStamp(stat: BigIntStats): string {
+  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`
 }
 
 /**
@@ -736,131 +796,164 @@ type SpawnJournalRecord =
   | { kind: 'begin'; root: NodeId; at: string }
   | { kind: 'event'; root: NodeId; event: SpawnEvent }
 
-/** Retained records form one ordered admission chain; older journals need no such chain. */
-function assertRetainedExecutionOrder(events: SpawnEvent[], event: SpawnEvent): void {
-  if (
-    event.kind !== 'execution-input' &&
-    event.kind !== 'execution-admitted' &&
-    event.kind !== 'execution-result'
-  )
-    return
-  const nodeEvents = events.filter((item) => item.id === event.id)
-  let inputIndex = -1
-  for (let index = 0; index < nodeEvents.length; index++) {
-    if (nodeEvents[index]!.kind === 'execution-input') inputIndex = index
-  }
-  const prior = inputIndex < 0 ? nodeEvents : nodeEvents.slice(inputIndex)
-  function fail(reason: string): never {
-    throw new Error(`spawn journal corrupted: retained execution '${event.id}' ${reason}`)
-  }
-  if (!nodeEvents.some((item) => item.kind === 'spawned')) fail('precedes its spawn')
-  if (nodeEvents.some(closesCursorSlot)) fail('follows its terminal settlement')
-  if (event.kind === 'execution-input') {
-    if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
-    if (nodeEvents.some((item) => item.kind === 'execution-input' && item.seq === event.seq))
-      fail('has duplicate input sequence')
-    if (inputIndex >= 0 && !prior.some((item) => item.kind === 'execution-result'))
-      fail('input replaces an unfinished invocation')
-    return
-  }
-  const admissions = prior.flatMap((item) =>
-    item.kind === 'execution-admitted' ? [item.admission] : [],
-  )
-  if (event.kind === 'execution-result') {
-    if (prior.some((item) => item.kind === 'execution-result')) fail('has duplicate result')
-    if (!admissions.some((item) => item.phase === 'dispatched')) fail('result precedes dispatch')
-    if (!/^sha256:[0-9a-f]{64}$/.test(event.outRef)) fail('has an invalid result reference')
-    assertValidSpend(event.spent, 'retained execution result')
-    executorFailureReason(event)
-    return
-  }
-  const admission = event.admission
-  if (!admission || !['intent', 'environment', 'dispatched'].includes(admission.phase))
-    fail('has an invalid admission phase')
-  if (admissions.some((item) => item.phase === admission.phase))
-    fail('has duplicate admission phase')
-  if (prior.some((item) => item.kind === 'execution-result')) fail('admission follows result')
-  if (!prior.some((item) => item.kind === 'execution-input')) fail('admission precedes input')
-  if (admission.phase === 'intent') {
-    if (admissions.length !== 0) fail('intent follows another admission')
-    return
-  }
-  const intent = admissions.find((item) => item.phase === 'intent')
-  if (intent?.phase !== 'intent') fail('admission precedes intent')
-  if (admission.idempotencyKey !== intent.idempotencyKey || admission.turnId !== intent.turnId)
-    fail('changes its admitted request identity')
-  if (admission.phase === 'environment') {
-    if (
-      admission.provider !== intent.provider ||
-      admission.sessionId !== intent.sessionId ||
-      admission.executionId !== intent.executionId
-    )
-      fail('changes its admitted execution identity')
-    return
-  }
-  const environment = admissions.find((item) => item.phase === 'environment')
-  if (environment?.phase !== 'environment') fail('dispatch precedes environment')
-  const control = admission.controlRef
-  if (
-    !control ||
-    control.provider !== intent.provider ||
-    control.environmentId !== environment.environmentId ||
-    control.sessionId !== intent.sessionId ||
-    control.executionId !== intent.executionId
-  )
-    fail('dispatch changes its admitted execution identity')
+/** Minimal state needed to validate a node; progress and trace payloads are never retained here. */
+interface JournalNodeIndex {
+  spawned: boolean
+  closed: boolean
+  materialized: boolean
+  bindings: Set<string>
+  inputs: Set<number>
+  input: boolean
+  result: boolean
+  admissions: Map<
+    Extract<SpawnEvent, { kind: 'execution-admitted' }>['admission']['phase'],
+    Extract<SpawnEvent, { kind: 'execution-admitted' }>['admission']
+  >
 }
 
-/**
- * Two `seq` namespaces share the journal: a `spawned` event's `seq` is the spawn ordinal
- * (the order children were created), and a `settled`/`cancelled` event's `seq` is the
- * monotonic CURSOR order `scope.next()` yielded that settlement (B2). The uniqueness
- * replay rests on is the cursor namespace — two settlements cannot share the position
- * replay orders by — so the guard checks only settled/cancelled events. A `spawned`
- * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
- */
-function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
-  assertRetainedExecutionOrder(events, ev)
-  if (ev.kind === 'materialized') {
-    if (events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
-      throw new Error(
-        `spawn journal corrupted: duplicate materialization receipt for node '${ev.id}' in tree '${root}'`,
-      )
+/** One validation implementation for memory, durable append, and cold replay. */
+class SpawnEventIndex {
+  private readonly nodes = new Map<NodeId, JournalNodeIndex>()
+  private readonly cursors = new Set<number>()
+
+  constructor(private readonly root: NodeId) {}
+
+  assert(event: SpawnEvent): void {
+    const node = this.nodes.get(event.id)
+    this.assertRetained(node, event)
+    if (event.kind === 'materialized') {
+      if (node?.materialized) {
+        throw new Error(
+          `spawn journal corrupted: duplicate materialization receipt for node '${event.id}' in tree '${this.root}'`,
+        )
+      }
+      if (!node?.spawned) {
+        throw new Error(
+          `spawn journal corrupted: materialization for node '${event.id}' precedes its spawn in tree '${this.root}'`,
+        )
+      }
     }
-    if (!events.some((event) => event.kind === 'spawned' && event.id === ev.id)) {
+    if (event.kind === 'execution-bound') {
+      if (node?.bindings.has(event.binding.attemptId)) {
+        throw new Error(
+          `spawn journal corrupted: duplicate execution binding for node '${event.id}' attempt '${event.binding.attemptId}' in tree '${this.root}'`,
+        )
+      }
+      if (!node?.materialized) {
+        throw new Error(
+          `spawn journal corrupted: execution binding for node '${event.id}' precedes materialization in tree '${this.root}'`,
+        )
+      }
+    }
+    if (!outsideCursorNamespace(event) && this.cursors.has(event.seq)) {
       throw new Error(
-        `spawn journal corrupted: materialization for node '${ev.id}' precedes its spawn in tree '${root}'`,
+        `spawn journal corrupted: duplicate cursor seq ${event.seq} in tree '${this.root}'; ` +
+          'the cursor order replay relies on is not unique',
       )
     }
   }
-  if (ev.kind === 'execution-bound') {
+
+  /** Called only after validation and, for the file writer, a successful durable append. */
+  add(event: SpawnEvent): void {
+    if (!outsideCursorNamespace(event)) this.cursors.add(event.seq)
     if (
-      events.some(
-        (event) =>
-          event.kind === 'execution-bound' &&
-          event.id === ev.id &&
-          event.binding.attemptId === ev.binding.attemptId,
-      )
-    ) {
-      throw new Error(
-        `spawn journal corrupted: duplicate execution binding for node '${ev.id}' attempt '${ev.binding.attemptId}' in tree '${root}'`,
-      )
-    }
-    if (!events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
-      throw new Error(
-        `spawn journal corrupted: execution binding for node '${ev.id}' precedes materialization in tree '${root}'`,
-      )
-    }
-  }
-  // `spawned` (ordinal namespace), `waiting` (the wait-ordinal namespace — it CREATES a node, it
-  // does not settle one), and `metered` (informational spend, no settlement order) live outside
-  // the cursor-uniqueness namespace replay relies on. `woken` IS a settlement and does not.
-  if (outsideCursorNamespace(ev)) return
-  if (events.some((e) => !outsideCursorNamespace(e) && e.seq === ev.seq)) {
-    throw new Error(
-      `spawn journal corrupted: duplicate cursor seq ${ev.seq} in tree '${root}'; ` +
-        'the cursor order replay relies on is not unique',
+      event.kind !== 'spawned' &&
+      event.kind !== 'materialized' &&
+      event.kind !== 'execution-bound' &&
+      event.kind !== 'execution-input' &&
+      event.kind !== 'execution-admitted' &&
+      event.kind !== 'execution-result' &&
+      !closesCursorSlot(event)
     )
+      return
+    let node = this.nodes.get(event.id)
+    if (!node) {
+      node = {
+        spawned: false,
+        closed: false,
+        materialized: false,
+        bindings: new Set(),
+        inputs: new Set(),
+        input: false,
+        result: false,
+        admissions: new Map(),
+      }
+      this.nodes.set(event.id, node)
+    }
+    if (event.kind === 'spawned') node.spawned = true
+    else if (event.kind === 'materialized') node.materialized = true
+    else if (event.kind === 'execution-bound') node.bindings.add(event.binding.attemptId)
+    else if (event.kind === 'execution-input') {
+      node.inputs.add(event.seq)
+      node.input = true
+      node.result = false
+      node.admissions.clear()
+    } else if (event.kind === 'execution-admitted') {
+      node.admissions.set(event.admission.phase, event.admission)
+    } else if (event.kind === 'execution-result') node.result = true
+    if (closesCursorSlot(event)) node.closed = true
+  }
+
+  private assertRetained(node: JournalNodeIndex | undefined, event: SpawnEvent): void {
+    if (
+      event.kind !== 'execution-input' &&
+      event.kind !== 'execution-admitted' &&
+      event.kind !== 'execution-result'
+    )
+      return
+    function fail(reason: string): never {
+      throw new Error(`spawn journal corrupted: retained execution '${event.id}' ${reason}`)
+    }
+    if (!node?.spawned) fail('precedes its spawn')
+    if (node.closed) fail('follows its terminal settlement')
+    if (event.kind === 'execution-input') {
+      if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
+      if (node.inputs.has(event.seq)) fail('has duplicate input sequence')
+      if (node.input && !node.result) fail('input replaces an unfinished invocation')
+      return
+    }
+    if (event.kind === 'execution-result') {
+      if (node.result) fail('has duplicate result')
+      if (!node.admissions.has('dispatched')) fail('result precedes dispatch')
+      if (!/^sha256:[0-9a-f]{64}$/.test(event.outRef)) fail('has an invalid result reference')
+      assertValidSpend(event.spent, 'retained execution result')
+      executorFailureReason(event)
+      return
+    }
+    const admission = event.admission
+    if (!admission || !['intent', 'environment', 'dispatched'].includes(admission.phase))
+      fail('has an invalid admission phase')
+    if (node.admissions.has(admission.phase)) fail('has duplicate admission phase')
+    if (node.result) fail('admission follows result')
+    if (!node.input) fail('admission precedes input')
+    if (admission.phase === 'intent') {
+      if (node.admissions.size !== 0) fail('intent follows another admission')
+      return
+    }
+    const intent = node.admissions.get('intent')
+    if (intent?.phase !== 'intent') fail('admission precedes intent')
+    if (admission.idempotencyKey !== intent.idempotencyKey || admission.turnId !== intent.turnId)
+      fail('changes its admitted request identity')
+    if (admission.phase === 'environment') {
+      if (
+        admission.provider !== intent.provider ||
+        admission.sessionId !== intent.sessionId ||
+        admission.executionId !== intent.executionId
+      )
+        fail('changes its admitted execution identity')
+      return
+    }
+    const environment = node.admissions.get('environment')
+    if (environment?.phase !== 'environment') fail('dispatch precedes environment')
+    const control = admission.controlRef
+    if (
+      !control ||
+      control.provider !== intent.provider ||
+      control.environmentId !== environment.environmentId ||
+      control.sessionId !== intent.sessionId ||
+      control.executionId !== intent.executionId
+    )
+      fail('dispatch changes its admitted execution identity')
   }
 }
 
