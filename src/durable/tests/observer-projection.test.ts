@@ -363,6 +363,68 @@ describe('projectPursuit', () => {
     ])
   })
 
+  it('folds a retained child from pending to released on one node without moving its settlement', () => {
+    // Runtime records the settlement first (`pending`, with the driver's own metering) and the
+    // release later (`released`, no metering). One node, two events: the marker overwrites in
+    // observed order, the settlement instant stays, the release instant is added, and the
+    // driver's inference is counted once.
+    const settledAt = 2
+    const releasedAt = 9
+    const floor = spend(7, 3, 0, { tokensKnown: false, usdKnown: false })
+    const childEvent = (
+      id: string,
+      timestamp: number,
+      payload: Record<string, unknown>,
+    ): Parameters<typeof chain>[0][number] => ({
+      kind: 'event',
+      event: {
+        id,
+        pursuitId: 'pursuit:test',
+        runId: 'run:retained',
+        target: 'agent.child',
+        phase: 'after',
+        timestamp,
+        parentId: 'run:retained',
+        payload: { childId: 'root:s0', status: 'down', ...payload },
+      },
+    })
+    const view = projectPursuit(
+      chain([
+        spawn('run:retained', 'root:s0', 'run:retained', 'retained'),
+        spawn('run:retained', 'root:s1', 'run:retained', 'plain'),
+        childEvent('root:s0:settled', settledAt, {
+          retainedExecution: 'pending',
+          settledAt,
+          spent: floor,
+          metered: spend(5, 1, 0.001),
+        }),
+        settle('run:retained', 'root:s1', 'run:retained', spend(1, 1, 0.0001)),
+        childEvent('root:s0:released', releasedAt, {
+          retainedExecution: 'released',
+          releasedAt,
+          settledAt,
+          spent: floor,
+        }),
+      ]),
+    )
+    const node = view.nodes.find((entry) => entry.id === 'root:s0')
+    expect(node).toMatchObject({
+      status: 'down',
+      retainedExecution: 'released',
+      settledAt,
+      releasedAt,
+      eventCount: 3,
+    })
+    expect(node?.ownInference).toMatchObject({ tokens: { input: 5, output: 1 } })
+    expect(node?.spent).toMatchObject({ tokens: { input: 7, output: 3 } })
+    expect(view.runs[0]?.spendGaps).toEqual([
+      { id: 'root:s0', label: 'retained', kind: 'unreported', channels: ['tokens', 'usd'] },
+    ])
+    const plain = view.nodes.find((entry) => entry.id === 'root:s1')
+    expect(plain).not.toHaveProperty('retainedExecution')
+    expect(plain).not.toHaveProperty('releasedAt')
+  })
+
   it('keeps a reported, estimated, partly-priced and unpriced cost distinguishable', () => {
     const view = projectPursuit(
       chain([

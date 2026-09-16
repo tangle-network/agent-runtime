@@ -190,9 +190,12 @@ interface Enumeration {
 /**
  * Enumerate candidate transcript paths inside the environment.
  *
- * `find` is given the roots and prints one `size<TAB>path` line per file. A missing root is not
- * an error: a child that never used a harness has no directory for it. A line with no size (an
- * environment whose `find` lacks `-printf`) is read and bounded after the read, as before.
+ * `find -printf` is given the roots and prints one `size<TAB>path` line per file. A missing root
+ * is not an error: a child that never used a harness has no directory for it. GNU find is the
+ * target (the Tangle Linux box); BSD and BusyBox `find` have no `-printf`, their error is
+ * discarded by `2>/dev/null`, and the empty listing then reads as `no-transcript` — that is a
+ * known limit, not a fallback. A path-only line (no size) is still accepted and bounded after
+ * the read, which is what a stub or a wrapped `find` produces, not what BSD does.
  *
  * Two omissions used to be silent, so `skippedCount` could read 0 on an incomplete capture: a
  * `-size` filter dropped oversized files before they were ever listed, and `head` cut the listing

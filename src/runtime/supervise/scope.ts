@@ -30,7 +30,7 @@ import {
   type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import { contentAddress } from '../../durable/spawn-journal'
+import { closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import {
@@ -130,6 +130,7 @@ import type {
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,
+  RetainedExecutionState,
   Scope,
   Settled,
   SpawnEvent,
@@ -357,6 +358,11 @@ interface LiveChild {
   spent: Spend
   /** The overspend its reconciliation returned. Every terminal record of this node carries it. */
   budgetViolation?: BudgetViolation
+  /** The overspend a RETAINED reconcile returned, held back from the open-slot surfaces (the
+   *  driver's settlement, the tree, the first `agent.child`) because the floor is not the
+   *  execution's final spend. The release sweep restores it onto `budgetViolation` before it
+   *  writes the terminal record, so that record agrees with what the pool committed. */
+  retainedViolation?: BudgetViolation
   recoveryReady?: Promise<void>
   acceptedResult?: ExecutorResult<unknown>
   recoveryPending?: boolean
@@ -367,6 +373,12 @@ interface LiveChild {
   providerModel?: import('./types').ProviderModelExecutionEvidence
   /** Exact terminal timestamp committed to the journal. */
   settledAt?: number
+  /** The cursor seq `next()` stamped on this child's settlement. A retained-pending child's
+   *  terminal record is written later by the release sweep under THIS seq, so replay yields it
+   *  at the position the driver saw it; the sweep never mints a new `cursorSeq` for it. */
+  settledSeq?: number
+  /** Mirrors the journal's statement about a retained execution so `makeTreeView` reports it. */
+  retainedExecution?: RetainedExecutionState
   /** Resolves with the terminal settlement WITHOUT a `seq` — `next()` stamps the seq. */
   readonly settled: Promise<PreSeqSettled>
   /** Synchronous mirror of `settled`'s value once it has resolved (else `undefined`). */
@@ -2023,6 +2035,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
       ),
     )
+    // One tree read for the whole sweep: the duplicate guard below only needs the records that
+    // existed before it, and a 35-child release must not cost 35 full-tree reads.
+    const prior = released.length > 0 ? ((await args.journal.loadTree(args.root)) ?? []) : []
     for (const { child, receipts } of released) {
       for (const receipt of receipts) {
         await appendEnvironmentTeardown(
@@ -2031,6 +2046,68 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           child.id,
           receipt,
           new Date(now()).toISOString(),
+        )
+      }
+      // A retained-pending child whose environment is now gone can never be recovered, so its
+      // cursor slot closes here with the settlement the driver already received, under the seq
+      // `next()` stamped on it. Measured 2026-09-15: 0 of 35 reconciled children on one pursuit
+      // ever settled, and 185 of 223 lost sandbox children across 385 runs stopped at
+      // `reconciled` — every one read as `never-settled` and charged its ceiling by every
+      // journal reader although the pool had committed the floor. The gate is the same
+      // `cleanupConfirmed` the barrier reads: a `destroyed: false` receipt, an executor throw, an
+      // environment-less `[]` answer or a refused `confirmTeardown` leave the slot open, because
+      // the environment may still exist and `[].every` would otherwise close it vacuously. A
+      // crash between the receipt and this record leaves the slot open too; nothing below can
+      // run without the executor's confirmation in hand. A manager settled on the ordinary path
+      // already has its record and never passes `recoveryPending`.
+      if (
+        child.cleanupConfirmed &&
+        child.recoveryPending === true &&
+        child.resolved?.kind === 'down' &&
+        child.settledSeq !== undefined &&
+        child.settledAt !== undefined &&
+        !prior.some((event) => event.id === child.id && closesCursorSlot(event))
+      ) {
+        child.budgetViolation = child.retainedViolation
+        const settledAt = child.settledAt
+        await args.journal.appendEvent(
+          args.root,
+          terminalDownEvent(
+            child,
+            child.resolved,
+            child.settledSeq,
+            new Date(settledAt).toISOString(),
+            'released',
+          ),
+        )
+        child.retainedExecution = 'released'
+        const releasedAt = now()
+        // A second `agent.child` for one node is already how a live-recovered child flips
+        // down→done, so the projection folds this in observed order; `settledAt` stays the
+        // settlement instant and `metered` is omitted so the driver's inference is not summed twice.
+        notifyRuntimeHookEvent(
+          args.hooks,
+          {
+            id: `${child.id}:released`,
+            runId: args.root,
+            target: 'agent.child',
+            phase: 'after',
+            timestamp: releasedAt,
+            stepIndex: child.settledSeq,
+            parentId: args.parentId,
+            payload: {
+              childId: child.id,
+              status: 'down',
+              retainedExecution: 'released',
+              releasedAt,
+              ...(child.resolved.outRef === undefined ? {} : { outRef: child.resolved.outRef }),
+              reason: child.resolved.reason,
+              infra: child.resolved.infra,
+              spent: child.spent,
+              ...settledNodeEvidence(child, { ...child.resolved, metered: undefined }, settledAt),
+            },
+          },
+          { signal: args.signal },
         )
       }
     }
@@ -2586,6 +2663,7 @@ async function finalizeSettlement<Out>(
   if (child.wait) return finalizeWait<Out>(child, settlement, seq, args, now, handle)
   const settledAt = now()
   child.settledAt = settledAt
+  child.settledSeq = seq
   const at = new Date(settledAt).toISOString()
   // A terminal cursor must never hide inference that has not reached the parent journal.
   if (settlement.metered) {
@@ -2597,40 +2675,35 @@ async function finalizeSettlement<Out>(
     child.outRef = settlement.outRef
     child.trace = settlement.trace
     child.providerModel = settlement.providerModel
-    if (!child.recoveryPending)
-      await args.journal.appendEvent(args.root, {
-        ...(cancellation === undefined
-          ? { kind: 'settled' as const, status: 'down' as const }
-          : { kind: 'cancelled' as const, source: cancellation.source }),
-        id: child.id,
-        spent: child.spent,
-        infra: settlement.infra,
-        reason: settlement.reason,
-        ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
-        ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
-        ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
-        trace: settlement.trace,
-        ...(settlement.harnessTranscript
-          ? { harnessTranscript: settlement.harnessTranscript }
-          : {}),
-        seq,
-        at,
-      })
+    const retainedPending = child.recoveryPending === true
+    if (!retainedPending)
+      await args.journal.appendEvent(args.root, terminalDownEvent(child, settlement, seq, at))
     // A retained-pending node keeps its cursor slot open for recovery, so it carries no terminal
-    // record — but its reservation WAS reconciled, and a journal that says nothing about that
+    // record yet — but its reservation WAS reconciled, and a journal that says nothing about that
     // leaves every reader (terminal accounting, a restored pool, the tree view) charging the
     // ceiling the pool refunded: measured 2026-09-11, the reported `childWork` carried 4M per
     // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
-    // place, outside the cursor namespace, so the slot stays open and the ledgers agree.
-    else if (settlement.reconciled !== undefined)
-      await appendReconciledFloor(
-        args.journal,
-        args.root,
-        child.id,
-        settlement.reconciled,
-        at,
-        settlement.harnessTranscript,
-      )
+    // place, outside the cursor namespace, so the slot stays open and the ledgers agree. The
+    // slot closes in exactly two ways: a resume recovers the execution and settles it on the
+    // ordinary path, or root settlement under `retainedAtSettlement: 'release'` destroys the
+    // environment and the release sweep (`retainedReleasers`, above) writes this settlement as
+    // the terminal record with `retainedExecution: 'released'`, under the seq stamped here.
+    else {
+      child.retainedExecution = 'pending'
+      if (settlement.reconciled !== undefined)
+        await appendReconciledFloor(
+          args.journal,
+          args.root,
+          child.id,
+          settlement.reconciled,
+          at,
+          settlement.harnessTranscript,
+        )
+    }
+    // The in-memory down and the first `agent.child` are the only surfaces that exist while the
+    // slot is open, so they are where `'pending'` lives; the journal states the same fact as the
+    // `reconciled` record and replay never yields it.
+    const retainedExecution = retainedPending ? { retainedExecution: 'pending' as const } : {}
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -2647,6 +2720,7 @@ async function finalizeSettlement<Out>(
           ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
           reason: settlement.reason,
           infra: settlement.infra,
+          ...retainedExecution,
           spent: child.spent,
           ...settledNodeEvidence(child, settlement, settledAt),
         },
@@ -2658,6 +2732,7 @@ async function finalizeSettlement<Out>(
       handle,
       reason: settlement.reason,
       infra: settlement.infra,
+      ...retainedExecution,
       ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
       ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
       ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
@@ -2733,6 +2808,38 @@ async function finalizeSettlement<Out>(
  * absent — an unreported receipt must not read as an empty one. Snapshots are detached because
  * an observer may serialize them after the live child has moved on.
  */
+/** The one builder of a down child's terminal record, for both its writers: the settle path at
+ *  the reconcile and the release sweep closing a retained slot later. Two hand-written literals
+ *  for one record shape is how a field lands on one path and not the other (#1244 was exactly
+ *  that for `harnessTranscript`). `cancelled` keeps its `source` from the child's own
+ *  cancellation reason, so a released cancelled child records the same source it settled with. */
+function terminalDownEvent(
+  child: LiveChild,
+  settlement: Extract<PreSeqSettled, { kind: 'down' }>,
+  seq: number,
+  at: string,
+  retainedExecution?: 'released',
+): Extract<SpawnEvent, { kind: 'settled' | 'cancelled' }> {
+  const cancellation = child.cancellationReason
+  return {
+    ...(cancellation === undefined
+      ? { kind: 'settled' as const, status: 'down' as const }
+      : { kind: 'cancelled' as const, source: cancellation.source }),
+    id: child.id,
+    spent: child.spent,
+    infra: settlement.infra,
+    reason: settlement.reason,
+    ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
+    ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
+    ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
+    trace: settlement.trace,
+    ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+    ...(retainedExecution === undefined ? {} : { retainedExecution }),
+    seq,
+    at,
+  }
+}
+
 function settledNodeEvidence(
   child: LiveChild,
   settlement: PreSeqSettled,
@@ -3157,8 +3264,9 @@ async function runChild<C>(
       // for exactly the children measured above. Every channel is marked unknown, because the
       // remote execution may still be consuming what it was handed off to: the floor is never read
       // back as a measurement. The child-work part is journaled as this node's `reconciled` floor
-      // (its slot stays open, so no `settled` record can carry it), and a driver's own inference
-      // rides its `metered` record as on every other path.
+      // (its slot stays open until a resume recovers it or the release sweep closes it, so no
+      // `settled` record carries it yet), and a driver's own inference rides its `metered`
+      // record as on every other path.
       //
       // A ticket already reconciled at a measured terminal spend (a persistence failure after the
       // artifact landed) keeps that measurement: `live.spent` is then what the pool committed.
@@ -3168,9 +3276,13 @@ async function runChild<C>(
         live.spent = { ...unknownFloor(accounting?.reported ?? live.spent), ms }
         reconcileOnce({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
       }
-      // The node keeps its cursor slot open, so no terminal record can carry an overspend, and
-      // the floor is not the execution's final spend. The recovered settlement reports it from
-      // the recorded result; reporting it here would make the live views disagree with replay.
+      // The node keeps its cursor slot open, so no terminal record can carry an overspend yet, and
+      // the floor is not the execution's final spend. A recovered settlement reports it from the
+      // recorded result; reporting it here would make the live views disagree with replay. The
+      // pool did commit it, though, and when the run RELEASES the node the floor is its final
+      // charge — so the answer is held aside for the release sweep's terminal record rather than
+      // discarded, or that record would say 'within reservation' for a node the pool overspent.
+      live.retainedViolation = live.budgetViolation
       live.budgetViolation = undefined
       return {
         ...downRecord(
@@ -3326,6 +3438,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     ...(c.trace ? { trace: c.trace } : {}),
     ...(c.providerModel ? { providerModel: c.providerModel } : {}),
     ...(c.budgetViolation ? { budgetViolation: c.budgetViolation } : {}),
+    ...(c.retainedExecution ? { retainedExecution: c.retainedExecution } : {}),
   }))
   return {
     root,

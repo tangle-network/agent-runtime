@@ -19,7 +19,12 @@ vi.mock('../../src/runtime/supervise/supervise', () => ({
 
 import { defaultDelegateBudget, delegate } from '../../src/runtime/supervise/delegate'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
-import type { Spend, SupervisedResult, TreeView } from '../../src/runtime/supervise/types'
+import type {
+  FleetYield,
+  Spend,
+  SupervisedResult,
+  TreeView,
+} from '../../src/runtime/supervise/types'
 import { testAgentProfile } from './test-agent-profile'
 
 const router: RouterTransportConfig = {
@@ -46,8 +51,17 @@ const spentTotal: Spend = {
   ms: 5100,
 }
 
+const fleetYield: FleetYield = {
+  spawned: 0,
+  done: 0,
+  down: 0,
+  cancelled: 0,
+  neverSettled: 0,
+  releasedUnrecovered: 0,
+}
+
 function winner(out: unknown): SupervisedResult<unknown> {
-  return { kind: 'winner', out, outRef: 'blob:1', tree: emptyTree, spentTotal }
+  return { kind: 'winner', out, outRef: 'blob:1', tree: emptyTree, spentTotal, fleetYield }
 }
 
 beforeEach(() => {

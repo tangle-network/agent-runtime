@@ -42,6 +42,7 @@ interface SpawnPayload {
 interface SettlePayload {
   childId?: string
   status?: string
+  retainedExecution?: string
   score?: number
   spent?: { usd?: number; tokens?: { input?: number; output?: number } }
 }
@@ -81,6 +82,9 @@ export function createWaterfallCollector(): WaterfallCollector {
       if (!id) return
       const span = spans.get(id)
       if (!span) return
+      // The release event's timestamp is the release instant, not the settlement; without this
+      // guard a released child's bar would stretch to root settlement.
+      if (span.endMs !== undefined && p.retainedExecution === 'released') return
       span.endMs = event.timestamp
       span.status = p.status === 'down' ? 'down' : 'done'
       span.usd = p.spent?.usd ?? 0

@@ -80,6 +80,50 @@ blobs)`. Consequences, all deliberate:
 Settlements recorded before this release carry no `harnessTranscript` on the record, which is not
 the same fact as a recorded `unavailable`, and stays absent rather than defaulting.
 
+**A released retained child now settles (#1247).** A child whose provider execution was RETAINED
+— admitted durably, result read lost — settles `down` with its cursor slot open and its
+reservation reconciled at the floor it had streamed (0.230.0, #1190), so that a later process
+could resume the run and reconcile the paid execution. On the pursuit path no later process ever
+comes: `supervisePursuit` writes a settle record that refuses re-entry and forces
+`retainedAtSettlement: 'release'`, so every one of these children is released at root settlement
+and none is ever recovered — by construction, not by accident. Measured 2026-09-15: on
+`capability-per-parameter-cpp-glm-20260915c`, 0 of 35 reconciled children ever settled, and 185
+of 223 lost sandbox children across 385 runs stopped at `reconciled`. Each one read as
+`never-settled` to every journal reader and was charged its ceiling, while the pool had committed
+the floor; Lab told them apart from ordinary downs by matching the reason string.
+
+- The release sweep now writes the node's terminal record after the `environment-teardown`
+  receipt, once the executor confirms teardown: the settlement the driver received (reason,
+  `infra`, `trace`, `harnessTranscript`, `outRef`, `providerModel`), under the seq the driver
+  saw, marked `retainedExecution: 'released'`. Its `spent` is the node's child-work component
+  of the reconcile the pool committed — the streamed floor for a leaf, `accounting().reported`
+  for a recursive executor — never the reservation. A cancelled retained child keeps the
+  `cancelled` kind and its `source`. The overspend a retained reconcile returned, which the
+  open-slot surfaces withhold, is carried on this record, because when the run releases the node
+  the floor is its final charge. A refused release (`destroyed: false`, or an executor whose
+  teardown will not confirm) writes nothing: the environment may still exist, so the slot stays
+  open and the node stays in `teardownUnconfirmed`.
+- `retainedExecution: 'pending' | 'released'` (new `RetainedExecutionState`) is stated on
+  `Settled`'s down arm (`'pending'` at the reconcile, `'released'` on replay of a closed node),
+  on the journal's `settled`/`cancelled` records (`'released'` only), on `NodeSnapshot` from
+  both the live and the materialized tree, on the `agent.child` payload (a second event per
+  released node, carrying `releasedAt`), and on `PursuitNodeProjection`. A reader never splits
+  the population on `reason` text again. `PursuitStatus` stays three-valued.
+- `SupervisedResult` gains `fleetYield` on every arm (new `FleetYield`): `spawned`, `done`,
+  `down`, `cancelled`, `neverSettled`, `releasedUnrecovered`, counted by node id across the
+  whole journal forest, with `spawned === done + down + cancelled + neverSettled` asserted.
+  Always present; zeros are facts. It rides into `result.json`. `spendGaps` stays root-tree
+  scoped, so the two disagree on a nested run by design. A no-winner's `downCount` is unchanged:
+  the breaker skips released records, so a retained child is counted in `fleetYield.down` and
+  never in `downCount` — as it never was.
+- `spentTotal.tokensKnown`/`usdKnown` stay `false` on a run with a released child: its record
+  carries the unknown-flagged floor, so the gap changes kind from `never-settled` (a ceiling) to
+  `unreported` (a floor), not presence. The one exception is a ticket already reconciled at a
+  measured terminal spend (a persistence failure after the artifact landed), whose released record
+  is known. The pool half — the refund at the reconcile (#1190) — is unchanged.
+- A crash between the receipt and the terminal record leaves an open slot beside a destroyed
+  environment; the next process cannot self-heal it and this release does not try.
+
 ## 0.231.1
 
 Allow Sandbox 0.40.x beside Runtime without a consumer dependency override.
