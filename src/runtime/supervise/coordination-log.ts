@@ -16,12 +16,7 @@
  * @experimental
  */
 
-import {
-  isNoEntError,
-  parseCommittedJsonLines,
-  prepareJsonlAppend,
-  writeAllBytes,
-} from '../../durable/jsonl-file'
+import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from '../../durable/jsonl-file'
 import type {
   AnalystFindingEvent,
   ContinuationInstruction,
@@ -148,14 +143,6 @@ export class FileCoordinationLog implements CoordinationLog {
   }
 
   async load(runId: string, ownerId?: CoordinationOwnerId): Promise<PriorCoordination> {
-    const fs = await import('node:fs/promises')
-    let text: string
-    try {
-      text = await fs.readFile(this.path, 'utf8')
-    } catch (err) {
-      if (isNoEntError(err)) return emptyPriorCoordination(ownerId)
-      throw err
-    }
     const byId = new Map<string, QuestionRecord>()
     const findings: AnalystFindingEvent[] = []
     const escalations: QuestionEscalationRecord[] = []
@@ -165,9 +152,9 @@ export class FileCoordinationLog implements CoordinationLog {
     const mail: PeerMailEvent[] = []
     const records: BusRecord<CoordinationEvent>[] = []
     let legacySeq = 0
-    for (const stored of parseCommittedJsonLines<
+    for await (const stored of readCommittedJsonLines<
       CoordinationLogRecord | LegacyCoordinationLogRecord
-    >(text, this.path)) {
+    >(this.path, { allowMissing: true })) {
       if (stored.runId !== runId) continue
       // Omitting ownerId preserves the historical all-run read for direct consumers. Runtime always
       // supplies one, so root and nested supervisors never receive one another's evidence.
@@ -228,19 +215,5 @@ export class FileCoordinationLog implements CoordinationLog {
       mail,
       records,
     }
-  }
-}
-
-function emptyPriorCoordination(ownerId?: CoordinationOwnerId): PriorCoordination {
-  return {
-    ...(ownerId !== undefined ? { ownerId } : {}),
-    questions: [],
-    findings: [],
-    escalations: [],
-    analystDefinitions: [],
-    continuations: [],
-    deliveryEvidence: [],
-    mail: [],
-    records: [],
   }
 }

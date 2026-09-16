@@ -18,12 +18,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import {
-  isNoEntError,
-  parseCommittedJsonLines,
-  prepareJsonlAppend,
-  writeAllBytes,
-} from '../../durable/jsonl-file'
+import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from '../../durable/jsonl-file'
 import { detachedFrozen } from '../supervise/snapshot'
 import type {
   Corpus,
@@ -266,19 +261,10 @@ export class FileCorpus implements Corpus {
   }
 
   private async load(path = this.path): Promise<Map<string, CorpusRecord>> {
-    const fs = await import('node:fs/promises')
-    let text: string
-    try {
-      text = await fs.readFile(path, 'utf8')
-    } catch (err) {
-      if (isNoEntError(err)) return new Map()
-      throw err
-    }
     const byId = new Map<string, CorpusRecord>()
-    const records = parseCommittedJsonLines<unknown>(text, this.path)
-    for (let i = 0; i < records.length; i++) {
-      const parsed = records[i]
-      assertCorpusRecord(parsed, `corpus ${this.path} line ${i + 1}`)
+    let recordNumber = 0
+    for await (const parsed of readCommittedJsonLines<unknown>(path, { allowMissing: true })) {
+      assertCorpusRecord(parsed, `corpus ${this.path} line ${++recordNumber}`)
       const existing = byId.get(parsed.id)
       if (existing && !recordsEqual(existing, parsed)) {
         throw new Error(

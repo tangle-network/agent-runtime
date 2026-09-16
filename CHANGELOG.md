@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.236.1
+
+File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
+Observer restart verifies its complete digest chain while retaining only the last record.
+Root-stream receipts hash and count the same raw-byte prefix, including an uncommitted tail in the hash.
+Spawn, coordination, conversation, corpus and discovery readers share the same committed-record parser.
+Corrupt committed lines, truncated snapshots and non-parse failures remain explicit errors; torn final writes retain their existing semantics.
+Public array-returning methods still retain their selected history, and individual records remain subject to Node limits.
+No execution policy, limits, credential behavior or durable wire format changes.
+
+
 ## 0.236.0
 
 A root that ran to completion under budget, selected nothing, and **never spawned a child** now settles `no-winner` with reason `no-children-spawned`. It used to settle `all-children-down` with `downCount: 0`, which reads as a fleet failure to anyone who did not open the journal. Fifteen sandbox-placed directors settled that way in one week while the actual fault was that the root never recursed, and every reader went looking at the fleet.

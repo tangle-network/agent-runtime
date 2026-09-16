@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import type { NodeId } from '../runtime/supervise/types'
-import { isNoEntError, parseCommittedJsonLines } from './jsonl-file'
+import { readCommittedJsonLines } from './jsonl-file'
 
 export interface DurableCoordinationStreamIdentity {
   readonly runId: string
@@ -57,67 +57,57 @@ export async function discoverDurableSupervisionRun(
   const canonicalRunDir = resolve(runDir)
   const spawnJournalPath = `${canonicalRunDir}/spawn-journal.jsonl`
   const coordinationLogPath = `${canonicalRunDir}/coordination-log.jsonl`
-  const [spawnText, coordinationText] = await Promise.all([
-    readOptionalText(spawnJournalPath),
-    readOptionalText(coordinationLogPath),
-  ])
-
   const allRoots = new Set<NodeId>()
   const nestedRoots = new Set<NodeId>()
   const rootsBegunAt = new Map<NodeId, string | null>()
-  if (spawnText !== undefined) {
-    for (const record of parseCommittedJsonLines<SpawnJournalIdentityRecord>(
-      spawnText,
-      spawnJournalPath,
-    )) {
-      if (record.kind === 'begin') {
-        if (typeof record.root !== 'string' || record.root.length === 0) {
-          throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
-        }
-        allRoots.add(record.root as NodeId)
-        rootsBegunAt.set(record.root as NodeId, typeof record.at === 'string' ? record.at : null)
-        continue
+  for await (const record of readCommittedJsonLines<SpawnJournalIdentityRecord>(spawnJournalPath, {
+    allowMissing: true,
+  })) {
+    if (record.kind === 'begin') {
+      if (typeof record.root !== 'string' || record.root.length === 0) {
+        throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
       }
-      if (record.kind !== 'event') continue
-      const event = record.event
-      if (!isRecord(event) || event.kind !== 'spawned') continue
-      if (!Object.hasOwn(event, 'ownedTreeRoot')) continue
-      if (typeof event.ownedTreeRoot !== 'string' || event.ownedTreeRoot.length === 0) {
-        throw new Error(
-          `${spawnJournalPath}: spawned event ownedTreeRoot must be a non-empty string when present`,
-        )
-      }
-      nestedRoots.add(event.ownedTreeRoot as NodeId)
+      allRoots.add(record.root as NodeId)
+      rootsBegunAt.set(record.root as NodeId, typeof record.at === 'string' ? record.at : null)
+      continue
     }
+    if (record.kind !== 'event') continue
+    const event = record.event
+    if (!isRecord(event) || event.kind !== 'spawned') continue
+    if (!Object.hasOwn(event, 'ownedTreeRoot')) continue
+    if (typeof event.ownedTreeRoot !== 'string' || event.ownedTreeRoot.length === 0) {
+      throw new Error(
+        `${spawnJournalPath}: spawned event ownedTreeRoot must be a non-empty string when present`,
+      )
+    }
+    nestedRoots.add(event.ownedTreeRoot as NodeId)
   }
 
   const streams = new Map<
     string,
     { owners: Set<string>; unscopedRecords: number; recordCount: number }
   >()
-  if (coordinationText !== undefined) {
-    for (const record of parseCommittedJsonLines<CoordinationIdentityRecord>(
-      coordinationText,
-      coordinationLogPath,
-    )) {
-      if (typeof record.runId !== 'string' || record.runId.length === 0) {
-        throw new Error(`${coordinationLogPath}: record has no non-empty string runId identity`)
-      }
-      const stream = streams.get(record.runId) ?? {
-        owners: new Set<string>(),
-        unscopedRecords: 0,
-        recordCount: 0,
-      }
-      stream.recordCount += 1
-      if (record.ownerId === undefined) {
-        stream.unscopedRecords += 1
-      } else if (typeof record.ownerId === 'string' && record.ownerId.length > 0) {
-        stream.owners.add(record.ownerId)
-      } else {
-        throw new Error(`${coordinationLogPath}: ownerId must be a non-empty string when present`)
-      }
-      streams.set(record.runId, stream)
+  for await (const record of readCommittedJsonLines<CoordinationIdentityRecord>(
+    coordinationLogPath,
+    { allowMissing: true },
+  )) {
+    if (typeof record.runId !== 'string' || record.runId.length === 0) {
+      throw new Error(`${coordinationLogPath}: record has no non-empty string runId identity`)
     }
+    const stream = streams.get(record.runId) ?? {
+      owners: new Set<string>(),
+      unscopedRecords: 0,
+      recordCount: 0,
+    }
+    stream.recordCount += 1
+    if (record.ownerId === undefined) {
+      stream.unscopedRecords += 1
+    } else if (typeof record.ownerId === 'string' && record.ownerId.length > 0) {
+      stream.owners.add(record.ownerId)
+    } else {
+      throw new Error(`${coordinationLogPath}: ownerId must be a non-empty string when present`)
+    }
+    streams.set(record.runId, stream)
   }
 
   const coordinationStreams = [...streams.entries()]
@@ -140,16 +130,6 @@ export async function discoverDurableSupervisionRun(
     rootsBegunAt: Object.freeze(roots.map((root) => rootsBegunAt.get(root) ?? null)),
     coordinationStreams: Object.freeze(coordinationStreams),
   })
-}
-
-async function readOptionalText(path: string): Promise<string | undefined> {
-  const fs = await import('node:fs/promises')
-  try {
-    return await fs.readFile(path, 'utf8')
-  } catch (error) {
-    if (isNoEntError(error)) return undefined
-    throw error
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

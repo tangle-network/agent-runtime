@@ -34,9 +34,9 @@
 
 import { createHash } from 'node:crypto'
 import { closeSync, constants as fsConstants, fsyncSync, openSync, writeSync } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { isNoEntError, parseCommittedJsonLines, prepareJsonlAppend } from '../../durable/jsonl-file'
+import { isNoEntError, prepareJsonlAppend, readCommittedJsonLines } from '../../durable/jsonl-file'
 import { assertNoSymlinkDescendant } from './durable-file'
 import type { ExecutorProgressEvent, RootStreamReceipt } from './types'
 
@@ -90,7 +90,12 @@ export function createRootStreamSink(runDir: string, now: () => number): RootStr
     // A resumed run continues the same file. Recovery scans the tail once, so a torn line from a
     // process that died mid-write is truncated rather than followed by a record it would corrupt.
     const needsSeparator = await prepareJsonlAppend(path)
-    seq = ((await readRootStream(dir)) ?? []).length
+    seq = 0
+    for await (const _record of readCommittedJsonLines<RootStreamRecord>(path, {
+      allowMissing: true,
+    })) {
+      seq += 1
+    }
     fd = openSync(
       path,
       fsConstants.O_APPEND |
@@ -177,31 +182,35 @@ export async function readRootStreamReceipt(
   runDir: string,
 ): Promise<RootStreamReceipt | undefined> {
   const path = resolve(runDir, ROOT_STREAM_FILE)
-  let bytes: Buffer
+  const hash = createHash('sha256')
+  let events = 0
   try {
-    bytes = await readFile(path)
+    for await (const _record of readCommittedJsonLines<RootStreamRecord>(path, {
+      onBytes: (bytes) => {
+        hash.update(bytes)
+      },
+    })) {
+      events += 1
+    }
   } catch (error) {
     if (isNoEntError(error)) return undefined
     throw error
   }
-  return Object.freeze({
-    ref: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
-    events: parseCommittedJsonLines<RootStreamRecord>(bytes.toString('utf8'), path).length,
-  })
+  return Object.freeze({ ref: `sha256:${hash.digest('hex')}`, events })
 }
 
 /** Every committed line of the root stream, in order, or `undefined` when there is no file. A
  *  torn final line from a process that died mid-write is not a record and is left out. */
 export async function readRootStream(runDir: string): Promise<RootStreamRecord[] | undefined> {
   const path = resolve(runDir, ROOT_STREAM_FILE)
-  let text: string
+  const records: RootStreamRecord[] = []
   try {
-    text = await readFile(path, 'utf8')
+    for await (const record of readCommittedJsonLines<RootStreamRecord>(path)) records.push(record)
   } catch (error) {
     if (isNoEntError(error)) return undefined
     throw error
   }
-  return parseCommittedJsonLines<RootStreamRecord>(text, path)
+  return records
 }
 
 function errorMessage(error: unknown): string {

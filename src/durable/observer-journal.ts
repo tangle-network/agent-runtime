@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import {
@@ -8,7 +7,7 @@ import {
   type RuntimeHooks,
   withPursuitContext,
 } from '../runtime-hooks'
-import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
+import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from './jsonl-file'
 
 export type ObserverRecordKind = 'event' | 'decision'
 
@@ -84,17 +83,13 @@ export class FileObserverJournal implements ObserverJournal {
   async read(): Promise<readonly ObserverRecord[]> {
     await this.tail
     this.assertComplete()
-    let text: string
-    try {
-      text = await readFile(this.path, 'utf8')
-    } catch (error) {
-      if (isNoEnt(error)) return []
-      throw error
+    const records: ObserverRecord[] = []
+    const verify = observerVerifier(this.pursuitId)
+    for await (const record of this.readExistingUnsafe()) {
+      verify(record)
+      records.push(record)
     }
-    return verifyObserverRecords(
-      parseCommittedJsonLines<ObserverRecord>(text, this.path),
-      this.pursuitId,
-    )
+    return Object.freeze(records)
   }
 
   private enqueue(
@@ -165,9 +160,12 @@ export class FileObserverJournal implements ObserverJournal {
 
   private async initialize(): Promise<void> {
     if (this.initialized) return
-    const records = await this.readExistingUnsafe()
-    const verified = verifyObserverRecords(records, this.pursuitId)
-    const tail = verified.at(-1)
+    const verify = observerVerifier(this.pursuitId)
+    let tail: ObserverRecord | undefined
+    for await (const record of this.readExistingUnsafe()) {
+      verify(record)
+      tail = record
+    }
     this.sequence = tail?.sequence ?? 0
     this.previousDigest = tail?.digest
     // Only latch after recovery + verification succeed. A transient read error or
@@ -175,15 +173,8 @@ export class FileObserverJournal implements ObserverJournal {
     this.initialized = true
   }
 
-  private async readExistingUnsafe(): Promise<ObserverRecord[]> {
-    let text: string
-    try {
-      text = await readFile(this.path, 'utf8')
-    } catch (error) {
-      if (isNoEnt(error)) return []
-      throw error
-    }
-    return parseCommittedJsonLines<ObserverRecord>(text, this.path)
+  private readExistingUnsafe(): AsyncGenerator<ObserverRecord> {
+    return readCommittedJsonLines<ObserverRecord>(this.path, { allowMissing: true })
   }
 
   private async writeRecord(record: ObserverRecord): Promise<void> {
@@ -214,9 +205,16 @@ export function verifyObserverRecords(
   records: readonly ObserverRecord[],
   pursuitId?: string,
 ): readonly ObserverRecord[] {
+  const verify = observerVerifier(pursuitId)
+  for (const record of records) verify(record)
+  return Object.freeze([...records])
+}
+
+/** The same full chain validation is used for replay, startup and in-memory evidence. */
+function observerVerifier(pursuitId?: string): (record: ObserverRecord) => void {
   let previousDigest: string | undefined
   let expectedSequence = 1
-  for (const record of records) {
+  return (record) => {
     if (record.schemaVersion !== 1) throw new Error('observer journal: unsupported schemaVersion')
     if (pursuitId !== undefined && record.pursuitId !== pursuitId) {
       throw new Error(`observer journal: pursuit identity mismatch at sequence ${record.sequence}`)
@@ -253,7 +251,6 @@ export function verifyObserverRecords(
     previousDigest = digest
     expectedSequence += 1
   }
-  return Object.freeze([...records])
 }
 
 /** Compute the canonical SHA-256 digest for an unsigned observer record. */
@@ -271,15 +268,6 @@ export function createFileObserverHooks(
 } {
   const journal = new FileObserverJournal(path, pursuitId)
   return { journal, hooks: journal.hooks() }
-}
-
-function isNoEnt(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  )
 }
 
 function toError(error: unknown): Error {
