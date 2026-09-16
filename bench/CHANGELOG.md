@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.2
+
+Consume the agent-eval 0.182.0 and agent-knowledge 17.0.1 cohort with Runtime 0.227.0.
+
 ## 0.12.1
 
 Keep the published Sandbox dependency range aligned with the supported 0.39.x cohort.
