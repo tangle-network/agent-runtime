@@ -91,4 +91,59 @@ describe('captureNativeSessionEvidence', () => {
     // Keeps supervise's contentRef over the settled result stable across a re-capture.
     expect(first.artifact).toEqual(second.artifact)
   })
+
+  it('stops reading when the run is aborted rather than draining a dying environment', async () => {
+    // Without the run's linked signal a cancelled run still enumerated and read up to
+    // MAX_FILES out of an environment the `finally` was already tearing down.
+    const controller = new AbortController()
+    const reads: string[] = []
+    const evidence = await captureNativeSessionEvidence(
+      {
+        exec: async () => ({
+          stdout: Array.from({ length: 50 }, (_, i) => `/root/.codex/sessions/r${i}.jsonl`).join(
+            '\n',
+          ),
+          exitCode: 0,
+        }),
+        read: async (path: string, options?: { signal?: AbortSignal }) => {
+          options?.signal?.throwIfAborted()
+          reads.push(path)
+          if (reads.length === 3) controller.abort()
+          return '{}'
+        },
+      },
+      'codex',
+      controller.signal,
+    )
+    expect(reads.length).toBe(3)
+    expect(evidence.status).toBe('available')
+    if (evidence.status !== 'available') return
+    // The reads that never happened are named, not silently missing.
+    expect(evidence.skippedCount).toBe(47)
+  })
+
+  it('refuses every credential shape, not just the lowercase ones', async () => {
+    const reads: string[] = []
+    const denied = [
+      '/root/.codex/sessions/.netrc',
+      '/root/.codex/sessions/ID_RSA',
+      '/root/.codex/sessions/server.key',
+      '/root/.codex/sessions/bundle.p12',
+      '/root/.codex/sessions/AUTH.JSON',
+    ]
+    await captureNativeSessionEvidence(
+      {
+        exec: async () => ({
+          stdout: ['/root/.codex/sessions/r.jsonl', ...denied].join('\n'),
+          exitCode: 0,
+        }),
+        read: async (path: string) => {
+          reads.push(path)
+          return '{}'
+        },
+      },
+      'codex',
+    )
+    expect(reads).toEqual(['/root/.codex/sessions/r.jsonl'])
+  })
 })

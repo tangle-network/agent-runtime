@@ -34,11 +34,18 @@ const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze
   'claude-code': Object.freeze(['.claude/projects', '.claude/history.jsonl', '.claude/todos']),
   codex: Object.freeze(['.codex/sessions', '.codex/history.jsonl']),
   opencode: Object.freeze(['.local/share/opencode/storage', '.local/share/opencode/log']),
+  // Pi keeps a session tree per cwd; it had no entry, so a pi child captured nothing.
+  pi: Object.freeze(['.pi/agent/sessions']),
 })
 
-/** Never read, whatever a producer put inside a session tree. */
+/**
+ * Never read, whatever a producer put inside a session tree.
+ *
+ * Case-insensitive and broader than the obvious names: `.netrc`, `*.key`, `*.p12`/`*.pfx`
+ * and an uppercase `ID_RSA` all slipped an earlier lowercase-only pattern.
+ */
 const DENY =
-  /(^|\/)(auth\.json|\.credentials\.json|credentials|\.env(\..*)?|secrets?(\.|$)|.*\.pem|id_[a-z]+)$/u
+  /(^|\/)(auth\.json|\.credentials\.json|credentials|\.netrc|\.env(\..*)?|secrets?(\.|$)|.*\.(pem|key|p12|pfx)|id_[a-z0-9_]+)$/iu
 
 /**
  * Bounds per file and in total. These are deliberately modest: the artifact rides inside the
@@ -153,6 +160,13 @@ export async function captureNativeSessionEvidence(
   const skipped: { path: string; reason: string }[] = []
   let total = 0
   for (const path of paths) {
+    // Stop on abort rather than attempting every remaining read and failing each: a
+    // cancelled run should leave the dying environment alone, not make MAX_FILES doomed
+    // calls into it. The remainder is still named in `skipped`.
+    if (signal?.aborted) {
+      skipped.push({ path, reason: 'aborted' })
+      continue
+    }
     if (DENY.test(path)) {
       skipped.push({ path, reason: 'denied-credential-shaped-path' })
       continue

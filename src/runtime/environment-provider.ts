@@ -1053,6 +1053,9 @@ async function* streamProviderExecutor(
     const nativeSession = await captureNativeSessionEvidence(
       environment as Parameters<typeof captureNativeSessionEvidence>[0],
       args.profile.harness,
+      // The run's linked abort, so a cancelled run stops mid-enumeration instead of reading
+      // up to MAX_FILES out of an environment that is already being torn down.
+      linked,
     )
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...resultFromEvents(archive.events(), text),
