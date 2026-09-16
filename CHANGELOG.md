@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.233.1
+
+Support Sandbox 0.41 through the published peer range.
+Sandbox cleanup accepts its stopped-and-billing-settled acknowledgement without waiting for physical storage reclamation.
+
 ## 0.233.0
 
 **A released retained child now settles (#1247).** A child whose provider execution was RETAINED
