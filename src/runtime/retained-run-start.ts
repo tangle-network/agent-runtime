@@ -113,13 +113,32 @@ export async function startRetainedRun(
   )
   options.environment.signal?.throwIfAborted()
   options.turn.signal?.throwIfAborted()
-  const environment = await options.provider.create({
-    ...options.environment,
-    metadata: retainedEnvironmentMetadata(
-      options.environment.metadata,
+  let environment: AgentEnvironment
+  if (options.existingEnvironmentId !== undefined) {
+    assertStableText(options.existingEnvironmentId, 'retained environment id')
+    const existing = await options.provider.get(options.existingEnvironmentId)
+    if (
+      !existing ||
+      existing.id !== options.existingEnvironmentId ||
+      existing.provider !== options.provider.name
+    ) {
+      throw new Error('retained provider environment is unavailable or has another identity')
+    }
+    await assertRetainedEnvironmentOwnership(
+      options.provider,
+      existing.id,
       options.environment.idempotencyKey,
-    ),
-  })
+    )
+    environment = existing
+  } else {
+    environment = await options.provider.create({
+      ...options.environment,
+      metadata: retainedEnvironmentMetadata(
+        options.environment.metadata,
+        options.environment.idempotencyKey,
+      ),
+    })
+  }
   let capabilities: AgentEnvironmentCapabilities
   try {
     capabilities = retainedCapabilitiesForEnvironment(
@@ -133,6 +152,7 @@ export async function startRetainedRun(
       capabilities,
     )
   } catch (error) {
+    if (options.existingEnvironmentId !== undefined) throw error
     try {
       await environment.destroy?.()
     } catch (cleanupError) {
@@ -144,6 +164,11 @@ export async function startRetainedRun(
     throw error
   }
   if (!environment.dispatch || !environment.session) {
+    if (options.existingEnvironmentId !== undefined) {
+      throw new Error(
+        `provider "${options.provider.name}" does not expose detached session control`,
+      )
+    }
     try {
       await environment.destroy?.()
     } catch (cleanupError) {
@@ -169,6 +194,7 @@ export async function startRetainedRun(
     onAdmission: options.onAdmission,
     capabilities,
     now: options.now,
+    preserveEnvironment: options.existingEnvironmentId !== undefined,
   })
 }
 
@@ -240,6 +266,7 @@ export async function startRetainedRunInEnvironment(
     onAdmission: options.onAdmission,
     capabilities,
     now: options.now,
+    preserveEnvironment: true,
   })
 }
 
@@ -267,6 +294,7 @@ async function assertRetainedEnvironmentOwnership(
 }
 
 interface DispatchRetainedRunOptions {
+  readonly preserveEnvironment?: boolean
   readonly signal?: AbortSignal
   readonly provider: AgentEnvironmentProvider
   readonly environment: AgentEnvironment
@@ -304,7 +332,7 @@ async function dispatchRetainedRun(
   // only `created` is destroyed, and `replayed` or an absent receipt is kept, because an
   // environment whose creation cannot be proven may be held by someone else.
   const destroyIfCreated = async (cause: unknown): Promise<never> => {
-    if (environment.creation !== 'created') throw cause
+    if (options.preserveEnvironment || environment.creation !== 'created') throw cause
     try {
       await environment.destroy?.()
     } catch (cleanupError) {
@@ -536,6 +564,9 @@ function retainedRunIntent(
     kind: 'retained-run-intent.v1',
     provider: options.provider.name,
     idempotencyKey: options.environment.idempotencyKey,
+    ...(options.existingEnvironmentId === undefined
+      ? {}
+      : { existingEnvironmentId: options.existingEnvironmentId }),
     turnId: options.turn.turnId,
     sessionId: identity.sessionId,
     executionId: identity.executionId,

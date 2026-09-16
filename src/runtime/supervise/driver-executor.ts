@@ -401,12 +401,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         : { destroyed: true }
     },
     async releaseRetained(): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
-      // A manager holds no environment of its own. Its retained children live in the nested scope,
-      // which journals their receipts to the nested tree; what changes here is the answer this
-      // executor's `teardown` gives next, read from the nested scope after the release.
+      // The nested scope releases its retained owner and children and journals their receipts.
+      // The executor's next teardown reports any release that remains unconfirmed.
       if (nestedScopeHeld === undefined) return []
-      await releaseRetainedEnvironments(nestedScopeHeld)
-      unconfirmedDescendants = nestedScopeHeld.workerCapacity.unconfirmed.map((node) => node.id)
+      const unconfirmed = await releaseRetainedEnvironments(nestedScopeHeld)
+      unconfirmedDescendants = unconfirmed.map((node) => node.id)
       return []
     },
     resultArtifact(): ExecutorResult<unknown> {

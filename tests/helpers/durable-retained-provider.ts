@@ -18,6 +18,8 @@ import type {
   AgentEnvironmentCapabilities,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
+  AgentEnvironmentQuery,
+  AgentEnvironmentSummary,
   AgentNativeContextContinuationOptions,
   AgentSession,
   AgentSessionStatus,
@@ -27,6 +29,7 @@ import type {
 interface StoredSession {
   readonly id: string
   controlRef: AgentExactRunControlRef
+  readonly controls: Record<string, AgentExactRunControlRef>
   status: AgentSessionStatus
   readonly events: AgentEnvironmentEvent[]
   readonly dispatches: Array<Record<string, unknown>>
@@ -51,6 +54,7 @@ interface StoredSession {
 
 interface StoredEnvironment {
   readonly id: string
+  readonly metadata?: Record<string, unknown>
   readonly sessions: Record<string, StoredSession>
 }
 
@@ -68,7 +72,11 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
       if (!input.idempotencyKey) throw new Error('durable test provider requires a create key')
       const state = readState(stateFile)
       const id = `environment-${input.idempotencyKey}`
-      state.environments[id] ??= { id, sessions: {} }
+      state.environments[id] ??= {
+        id,
+        sessions: {},
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+      }
       writeState(stateFile, state)
       return environmentFor(stateFile, providerName, id)
     },
@@ -76,6 +84,18 @@ export function durableRetainedProvider(stateFile: string): AgentEnvironmentProv
       return readState(stateFile).environments[id]
         ? environmentFor(stateFile, providerName, id)
         : null
+    },
+    async list(query?: AgentEnvironmentQuery): Promise<AgentEnvironmentSummary[]> {
+      return Object.values(readState(stateFile).environments)
+        .filter((environment) => {
+          const expected = query?.metadata?.retainedIdempotencyKey
+          return expected === undefined || environment.metadata?.retainedIdempotencyKey === expected
+        })
+        .map((environment) => ({
+          id: environment.id,
+          provider: providerName,
+          ...(environment.metadata === undefined ? {} : { metadata: environment.metadata }),
+        }))
     },
   }
 }
@@ -116,6 +136,7 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
         session = {
           id: sessionId,
           controlRef,
+          controls: { [executionId]: controlRef },
           status: 'running',
           events: retainedEvents(controlRef),
           dispatches: [],
@@ -126,6 +147,35 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
           nativeResponseLosses: {},
         }
         environment.sessions[sessionId] = session
+      } else {
+        const prior = session.controls[executionId]
+        if (prior) {
+          const digest = canonicalCandidateDigest({
+            environmentId: id,
+            sessionId,
+            turnId: input.turnId,
+            prompt: input.prompt ?? null,
+            parts: input.parts ?? null,
+          })
+          if (prior.requestDigest !== digest) throw new Error('durable test turn key conflict')
+        } else {
+          const controlRef: AgentExactRunControlRef = {
+            runId: `run-${input.turnId}`,
+            provider,
+            environmentId: id,
+            sessionId,
+            executionId,
+            requestDigest: canonicalCandidateDigest({
+              environmentId: id,
+              sessionId,
+              turnId: input.turnId,
+              prompt: input.prompt ?? null,
+              parts: input.parts ?? null,
+            }),
+          }
+          session.controls[executionId] = controlRef
+          session.controlRef = controlRef
+        }
       }
       session.dispatches.push(serializableTurn(input))
       writeState(stateFile, state)
@@ -133,13 +183,18 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
     },
     session(sessionId, options) {
       const stored = sessionState(stateFile, id, sessionId)
+      const requested =
+        options?.controlRef?.executionId === undefined
+          ? undefined
+          : stored.controls?.[options.controlRef.executionId]
+      const selected = requested ?? stored.controlRef
       if (
         options?.controlRef &&
-        canonicalCandidateDigest(options.controlRef) !== canonicalCandidateDigest(stored.controlRef)
+        canonicalCandidateDigest(options.controlRef) !== canonicalCandidateDigest(selected)
       ) {
         throw new Error('durable test provider received the wrong control reference')
       }
-      return sessionFor(stateFile, id, stored)
+      return sessionFor(stateFile, id, { ...stored, controlRef: selected })
     },
     async destroy() {
       const state = readState(stateFile)
