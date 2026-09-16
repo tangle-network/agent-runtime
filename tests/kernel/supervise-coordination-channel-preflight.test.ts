@@ -8,6 +8,7 @@
  * refusal points at, so the same child is admitted once one is present.
  */
 
+import { createServer } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironmentCapabilities,
@@ -229,3 +230,41 @@ it('never admits a provider manager when asynchronous endpoint provisioning fail
   expect(events.some((event) => event.kind === 'settled' && event.status === 'down')).toBe(true)
   await expect(fetch(localUrl)).rejects.toThrow()
 })
+
+it.each([401, 403, 404, 503, 200, 'timeout'] as const)(
+  'refuses a public coordinator failure %s before provider creation',
+  async (status) => {
+    const server = createServer((_request, response) => {
+      if (status !== 'timeout') response.writeHead(status).end('private-upstream-response')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('endpoint did not bind')
+    const { provider: base, creates } = neverCreatingProvider()
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+    }
+    try {
+      const { events } = await spawnLeadFromRoot(
+        {
+          backend: { backend: 'provider', provider },
+          coordination: {
+            authentication: true,
+            publicUrl: `http://127.0.0.1:${address.port}/manager`,
+            requestTimeoutMs: 100,
+          },
+          driverRetry: { enabled: false },
+        },
+        true,
+      )
+      expect(creates()).toBe(0)
+      expect(events.some((event) => event.kind === 'settled' && event.status === 'down')).toBe(true)
+      expect(JSON.stringify(events)).toContain('coordination public endpoint preflight failed')
+      expect(JSON.stringify(events)).not.toContain('private-upstream-response')
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  },
+)
