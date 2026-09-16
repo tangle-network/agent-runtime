@@ -1865,7 +1865,9 @@ export interface FleetYield {
   /** Spawned with no terminal record: a crash-orphaned child, a refused release, or a retained
    *  executor with nothing to release. Named after `SpendGap`'s `never-settled`. */
   readonly neverSettled: number
-  /** Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`. */
+  /** Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
+   *  A nested manager whose OWN retained execution was released counts here beside the
+   *  grandchildren it released, because its execution was destroyed unrecovered too. */
   readonly releasedUnrecovered: number
 }
 

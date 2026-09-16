@@ -23004,6 +23004,8 @@ Spawned with no terminal record: a crash-orphaned child, a refused release, or a
 > `readonly` **releasedUnrecovered**: `number`
 
 Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
+ A nested manager whose OWN retained execution was released counts here beside the
+ grandchildren it released, because its execution was destroyed unrecovered too.
 
 ***
 

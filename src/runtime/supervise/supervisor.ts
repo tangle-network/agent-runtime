@@ -1290,8 +1290,12 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
     if (event.kind === 'spawned') {
       if (event.parent !== undefined) spawned.add(event.id)
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
-      terminal.set(event.id, event.kind === 'cancelled' ? 'cancelled' : event.status)
-      if (event.retainedExecution === 'released') released.add(event.id)
+      const bucket = event.kind === 'cancelled' ? 'cancelled' : event.status
+      terminal.set(event.id, bucket)
+      // `released` is a subset of down + cancelled BY CONSTRUCTION here, not by trust in the
+      // writer: only the release sweep writes the marker and it never writes `done`, but a
+      // hand-built `done` record carrying it must not count twice.
+      if (event.retainedExecution === 'released' && bucket !== 'done') released.add(event.id)
       else released.delete(event.id)
     }
   }
@@ -1310,6 +1314,11 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
   if (accounted !== fleetYield.spawned) {
     throw new RuntimeRunStateError(
       `supervisor: fleet yield does not partition the spawned children of '${forest.root}' (${JSON.stringify(fleetYield)})`,
+    )
+  }
+  if (fleetYield.releasedUnrecovered > fleetYield.down + fleetYield.cancelled) {
+    throw new RuntimeRunStateError(
+      `supervisor: released children exceed down + cancelled for '${forest.root}' (${JSON.stringify(fleetYield)})`,
     )
   }
   return fleetYield
