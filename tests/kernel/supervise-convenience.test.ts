@@ -310,7 +310,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
     )
 
-    expect(result.kind).toBe('no-winner')
+    // The child's own check is what judged the child: consulted exactly once, and it passed.
     expect(childCheckCalls).toBe(1)
     expect(await journal.loadTree('parent-contract')).toEqual(
       expect.arrayContaining([
@@ -322,6 +322,10 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         }),
       ]),
     )
+    // A child that satisfies its narrower assignment does not complete the parent. The run-wide
+    // check rejects the child's output, no continuation is configured, so the parent's contract
+    // stays unmet and the partial component is not promoted to the winner.
+    expect(result.kind).toBe('no-winner')
   })
 
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
