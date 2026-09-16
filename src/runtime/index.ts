@@ -280,10 +280,10 @@ export {
 // replay readers ship with them, because a durable journal you cannot fold back into a
 // tree is only a log.
 export type {
-  NativeSessionArtifact,
-  NativeSessionEvidence,
-  NativeSessionFile,
-} from './native-session-evidence'
+  HarnessTranscriptArtifact,
+  HarnessTranscriptEvidence,
+  HarnessTranscriptFile,
+} from './harness-transcript'
 export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).

@@ -2051,6 +2051,80 @@ describe('environment provider adapters', () => {
     })
   })
 
+  // #1244. The capture PR (#1243) reads the transcript just before the settled result is built,
+  // so a child whose stream throws never reaches it and its reasoning dies with the box. Measured
+  // 2026-09-15: 45 children in one evening executed, reasoned, and settled `down` with nothing.
+  it('keeps a dropped child transcript that has no result artifact to ride in', async () => {
+    const transcript = '{"role":"assistant","text":"I proved the corner case"}'
+    const provider: AgentEnvironmentProvider = {
+      name: 'dropping-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          exec: async () => ({
+            stdout: '/root/.claude/projects/a/session.jsonl',
+            stderr: '',
+            exitCode: 0,
+          }),
+          read: async () => transcript,
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'message.part.updated', data: { delta: 'working' } }
+            // A platform 502 mid-stream: the exact shape that dropped 38 of 68 children on
+            // capability-per-parameter-cpp-glm-20260915c.
+            throw new Error('Platform key verification unavailable')
+          },
+        }) as AgentEnvironment
+      },
+    }
+    const spec: AgentSpec = {
+      profile: { name: 'worker', harness: 'claude-code' } as AgentProfile,
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = providerAsExecutor(provider)(spec, ctx)
+
+    await expect(
+      collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>),
+    ).rejects.toThrow(/Platform key verification unavailable/u)
+
+    // The executor threw and produced NO artifact, yet the reasoning survived.
+    const evidence = executor.harnessTranscript?.()
+    expect(evidence?.status).toBe('available')
+    if (evidence?.status !== 'available') return
+    expect(evidence.artifact.files.map((file) => file.content).join('')).toContain(
+      'I proved the corner case',
+    )
+  })
+
+  // The two absences are different facts and an operator acts differently on each: a child that
+  // never got a box has nothing to recover, a child that ran for twenty seconds does.
+  it('separates a child that never started from one whose transcript went unread', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'refusing-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        throw new Error('budget pool refused unknown dollar cost under maxUsd')
+      },
+    }
+    const spec: AgentSpec = {
+      profile: { name: 'worker', harness: 'claude-code' } as AgentProfile,
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = providerAsExecutor(provider)(spec, ctx)
+
+    await expect(
+      collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>),
+    ).rejects.toThrow(/budget pool refused/u)
+
+    // No environment was ever created (#1240), so this is an absence by construction and must
+    // never be reported as a transcript that merely went unread.
+    expect(executor.harnessTranscript?.()).toEqual({
+      status: 'unavailable',
+      reason: 'execution-never-started',
+    })
+  })
+
   it('preserves a canonical provider billing receipt through provider execution', async () => {
     const provider: AgentEnvironmentProvider = {
       name: 'billed-provider',

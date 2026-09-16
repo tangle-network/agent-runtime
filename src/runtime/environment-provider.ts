@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { captureNativeSessionEvidence, type NativeSessionEvidence } from './native-session-evidence'
+import {
+  captureHarnessTranscriptEvidence,
+  type HarnessTranscriptEvidence,
+  harnessTranscriptUnavailable,
+} from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 
 export type { ProviderPlacement } from './provider-placement'
@@ -481,7 +485,7 @@ export interface ProviderLeafOut {
    * environment. Always present on the settled path: an environment that cannot be read says
    * so with a `reason` rather than being silently absent. #1214.
    */
-  nativeSession?: NativeSessionEvidence
+  harnessTranscript?: HarnessTranscriptEvidence
 }
 
 /**
@@ -646,6 +650,18 @@ function createProviderExecutor(
   let artifact: ExecutorResult<unknown> | undefined
   let retained: RetainedRunHandle | undefined
   let pending = false
+  // The child's own harness transcript, read out of the environment while it was still live.
+  //
+  // It is held HERE, on the executor, rather than only inside the settled result, because the
+  // children whose reasoning an operator most wants are the ones that never produce a result:
+  // a stream that throws lands in the `catch` below with no artifact to ride in (#1244). The
+  // scope pulls this after `execute` resolves OR throws, exactly as it pulls `metered()`.
+  //
+  // Seeded, never left undefined, so the two absences stay apart: a child killed at admission
+  // never had a box and keeps this seed, while a child whose box was created and then dropped
+  // reports `capture-did-not-run`. Reporting the second as the first would file a child that
+  // reasoned for twenty seconds as one that never ran — which is the #1240 population exactly.
+  let harnessTranscript: HarnessTranscriptEvidence = harnessTranscriptUnavailable('execution-never-started')
   const retention = retainedExecutorContext(ctx)
   // The stream destroys the environment on settle by default, so a later `teardown` would issue a
   // SECOND delete against a resource that is already gone. That second call is what the provider
@@ -739,6 +755,14 @@ function createProviderExecutor(
         },
         onEnvironment: (env) => {
           environment = env
+          // A box now exists, so `execution-never-started` has stopped being true. Until the
+          // capture reports, the honest answer is that nobody read it.
+          if (
+            harnessTranscript.status === 'unavailable' &&
+            harnessTranscript.reason === 'execution-never-started'
+          ) {
+            harnessTranscript = harnessTranscriptUnavailable('capture-did-not-run')
+          }
           // `create` resolved, so the environment identity the provider issued is now evidence. It
           // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
           // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
@@ -758,6 +782,9 @@ function createProviderExecutor(
         },
         onArtifact: (next) => {
           artifact = next
+        },
+        onNativeSession: (next) => {
+          harnessTranscript = next
         },
         onDestroyed: () => {
           destroyed = true
@@ -886,6 +913,7 @@ function createProviderExecutor(
       return artifact
     },
     traceSource: (): TraceSource => trace.source,
+    harnessTranscript: (): HarnessTranscriptEvidence | undefined => harnessTranscript,
   }
   return attestRuntimeOwnedPendingExecutor(executor, runtime, plannedDeclaration, plannedBinding)
 }
@@ -916,6 +944,9 @@ interface StreamProviderExecutorArgs {
   onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
   onArtifact: (artifact: ExecutorResult<unknown>) => void
+  /** The harness transcript read out of the live environment, reported on the settled path AND
+   *  on the drop path. One channel for both, so a reader never has to know which path ran. */
+  onNativeSession: (evidence: HarnessTranscriptEvidence) => void
   /** The environment was destroyed here, so `teardown` must not DELETE it a second time — the
    *  double delete is what produced the 409 that used to fail a completed run. */
   onDestroyed: () => void
@@ -1054,16 +1085,20 @@ async function* streamProviderExecutor(
     //
     // It rides inside the settled result, so supervise blobs it under this child's outRef in
     // its own ResultBlobStore and replay rehydrates it. No destroy site learns about storage.
-    const nativeSession = await captureNativeSessionEvidence(
-      environment as Parameters<typeof captureNativeSessionEvidence>[0],
+    const harnessTranscript = await captureHarnessTranscriptEvidence(
+      environment as Parameters<typeof captureHarnessTranscriptEvidence>[0],
       args.profile.harness,
       // The run's linked abort, so a cancelled run stops mid-enumeration instead of reading
       // up to MAX_FILES out of an environment that is already being torn down.
       linked,
     )
+    // Same evidence, two readers: it rides inside the result for the settled path (replay
+    // rehydrates it with the blob), and it is reported to the executor so the scope can put it
+    // on the settlement record whether this turn settles or drops.
+    args.onNativeSession(harnessTranscript)
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...resultFromEvents(archive.events(), text),
-      nativeSession,
+      harnessTranscript,
       ...(archive.superseded > 0 ? { supersededPartUpdates: archive.superseded } : {}),
       ...(explicitFailure ? { outcome: outcomeTracker.finish() } : {}),
     }
@@ -1110,6 +1145,23 @@ async function* streamProviderExecutor(
   } catch (error) {
     failure = source.retained ? new RetainedExecutionPendingError(error) : error
     failed = true
+    // THE LAST POINT THE ENVIRONMENT IS STILL LIVE. The `finally` below destroys it for a
+    // non-retained source, and a retained one is released later by `releaseRetained` — either
+    // way nothing downstream can read it again. Measured 2026-09-15 on the
+    // capability-per-parameter pursuits: 45 children in one evening executed, reasoned, and
+    // settled `down` with no artifact for a transcript to ride in (#1244). These are the
+    // children an operator most wants to read, because they are the ones that failed.
+    //
+    // `linked` is already aborted when the drop was a cancellation; the capture then names
+    // every remaining path `aborted` rather than making doomed reads into a dying box.
+    // It never throws, so this cannot convert a stream failure into a teardown failure.
+    args.onNativeSession(
+      await captureHarnessTranscriptEvidence(
+        environment as Parameters<typeof captureHarnessTranscriptEvidence>[0],
+        args.profile.harness,
+        linked,
+      ),
+    )
   } finally {
     if (
       (!source.retained || (settled !== undefined && !failed)) &&

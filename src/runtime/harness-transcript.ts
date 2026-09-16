@@ -56,26 +56,26 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_BYTES = 16 * 1024 * 1024
 const MAX_FILES = 1_000
 
-export const NATIVE_SESSION_SCHEMA_VERSION = 1 as const
+export const HARNESS_TRANSCRIPT_SCHEMA_VERSION = 1 as const
 
-export interface NativeSessionFile {
+export interface HarnessTranscriptFile {
   readonly path: string
   readonly bytes: number
   readonly content: string
 }
 
-export interface NativeSessionArtifact {
-  readonly schemaVersion: typeof NATIVE_SESSION_SCHEMA_VERSION
+export interface HarnessTranscriptArtifact {
+  readonly schemaVersion: typeof HARNESS_TRANSCRIPT_SCHEMA_VERSION
   readonly harness: string
-  readonly files: readonly NativeSessionFile[]
+  readonly files: readonly HarnessTranscriptFile[]
   /** Paths found but not read, with why — a gap named is a gap an operator can act on. */
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
 }
 
-export type NativeSessionEvidence =
+export type HarnessTranscriptEvidence =
   | {
       readonly status: 'available'
-      readonly artifact: NativeSessionArtifact
+      readonly artifact: HarnessTranscriptArtifact
       readonly fileCount: number
       readonly totalBytes: number
       /** Non-zero when some transcript was found but deliberately not carried. */
@@ -88,6 +88,20 @@ export type NativeSessionEvidence =
         | 'unknown-harness'
         | 'no-transcript'
         | 'enumeration-failed'
+        /** No environment was ever created for this child, so there is no transcript and never
+         *  was one. The admission refusal of #1240 is the measured case: a budget pool that
+         *  refuses an unknown dollar cost kills the child before it runs. Distinct from
+         *  `unsupported-environment`, which means a box existed and could not be read. */
+        | 'execution-never-started'
+        /** An environment WAS created and the child ran, but the capture never executed — the
+         *  deadline/abort path closes the stream with `iterator.return()`, which runs the
+         *  generator's `finally` and skips its `catch`. Says only what is known: this child had a
+         *  transcript and nobody read it. Never collapse it into `execution-never-started`; that
+         *  would report a child that reasoned for twenty seconds as one that never ran. */
+        | 'capture-did-not-run'
+        /** This executor has no native transcript to offer at all — a CLI or in-process child
+         *  rather than a sandbox one. An absence by construction, never a failure. */
+        | 'executor-exposes-no-transcript'
     }
 
 interface ReadableEnvironment {
@@ -98,13 +112,22 @@ interface ReadableEnvironment {
   ) => Promise<{ readonly stdout?: string; readonly exitCode?: number }>
 }
 
-type NativeSessionUnavailableReason = Extract<
-  NativeSessionEvidence,
+type HarnessTranscriptUnavailableReason = Extract<
+  HarnessTranscriptEvidence,
   { status: 'unavailable' }
 >['reason']
 
-function unavailable(reason: NativeSessionUnavailableReason): NativeSessionEvidence {
+function unavailable(reason: HarnessTranscriptUnavailableReason): HarnessTranscriptEvidence {
   return Object.freeze({ status: 'unavailable', reason })
+}
+
+/** The one place an absent transcript is spelled, so every settlement reads the same — the
+ *  settle path needs it for the reasons only IT can know (an executor that offers no transcript,
+ *  a child that never started), which the capture itself never sees. */
+export function harnessTranscriptUnavailable(
+  reason: HarnessTranscriptUnavailableReason,
+): HarnessTranscriptEvidence {
+  return unavailable(reason)
 }
 
 /**
@@ -140,11 +163,11 @@ async function enumerate(
  * must not fail because evidence could not be collected, and every failure mode is a named
  * `reason` the settled receipt carries instead of an empty artifact that reads as coverage.
  */
-export async function captureNativeSessionEvidence(
+export async function captureHarnessTranscriptEvidence(
   environment: ReadableEnvironment | undefined,
   harness: string | undefined,
   signal?: AbortSignal,
-): Promise<NativeSessionEvidence> {
+): Promise<HarnessTranscriptEvidence> {
   if (!environment?.read) return unavailable('unsupported-environment')
   // Narrow `harness` before use: the roots lookup alone does not, and an artifact must
   // name the harness it came from.
@@ -156,7 +179,7 @@ export async function captureNativeSessionEvidence(
   if (paths === undefined) return unavailable('enumeration-failed')
   if (paths.length === 0) return unavailable('no-transcript')
 
-  const files: NativeSessionFile[] = []
+  const files: HarnessTranscriptFile[] = []
   const skipped: { path: string; reason: string }[] = []
   let total = 0
   for (const path of paths) {
@@ -190,8 +213,8 @@ export async function captureNativeSessionEvidence(
   }
   if (files.length === 0) return unavailable('no-transcript')
 
-  const artifact: NativeSessionArtifact = Object.freeze({
-    schemaVersion: NATIVE_SESSION_SCHEMA_VERSION,
+  const artifact: HarnessTranscriptArtifact = Object.freeze({
+    schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
     harness,
     files: Object.freeze(files),
     skipped: Object.freeze(skipped),
