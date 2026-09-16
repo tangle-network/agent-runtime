@@ -1312,45 +1312,78 @@ async function providerExecutionSource(
     if (!environment) throw new Error('retained provider environment is unavailable')
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
-      let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
       let observationFailure: { error: unknown } | undefined
-      try {
-        iterator = session
-          .events({
-            executionId: handle.controlRef.executionId,
-            signal,
-          })
-          [Symbol.asyncIterator]()
-      } catch (error) {
-        if (signal.aborted) throw error
-        observationFailure = { error }
-      }
-      try {
-        while (iterator !== undefined) {
-          let next: IteratorResult<AgentEnvironmentEvent>
-          try {
-            next = await awaitAbortable(
-              Promise.resolve().then(() => iterator!.next()),
-              signal,
-            )
-          } catch (error) {
-            if (signal.aborted) throw error
-            observationFailure = { error }
-            break
+      // The last frame that carried a replay position, and whether any frame ended the turn. The
+      // SSE contract lets a frame arrive with no position; such a frame does not move the cursor,
+      // so this is where a reconnect resumes from.
+      let lastReplayPosition: string | undefined
+      let sawTerminal = false
+      const drain = async function* (
+        open: () => AsyncIterable<AgentEnvironmentEvent>,
+      ): AsyncGenerator<AgentEnvironmentEvent, boolean> {
+        let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
+        let failed = false
+        try {
+          iterator = open()[Symbol.asyncIterator]()
+        } catch (error) {
+          if (signal.aborted) throw error
+          observationFailure = { error }
+          return false
+        }
+        try {
+          while (true) {
+            let next: IteratorResult<AgentEnvironmentEvent>
+            try {
+              next = await awaitAbortable(
+                Promise.resolve().then(() => iterator!.next()),
+                signal,
+              )
+            } catch (error) {
+              if (signal.aborted) throw error
+              observationFailure = { error }
+              failed = true
+              break
+            }
+            if (next.done) break
+            // A received event for another execution must never be accepted as evidence.
+            assertEventBinding(next.value, handle.controlRef)
+            if (next.value.id !== undefined) lastReplayPosition = next.value.id
+            if (isTerminalEnvironmentEvent(next.value)) sawTerminal = true
+            yield next.value
           }
-          if (next.done) break
-          // A received event for another execution must never be accepted as evidence.
-          assertEventBinding(next.value, handle.controlRef)
-          yield next.value
+        } finally {
+          if (signal.aborted || failed) {
+            void Promise.resolve()
+              .then(() => iterator?.return?.())
+              .catch(() => undefined)
+          } else {
+            await iterator?.return?.()
+          }
         }
-      } finally {
-        if (signal.aborted || observationFailure !== undefined) {
-          void Promise.resolve()
-            .then(() => iterator?.return?.())
-            .catch(() => undefined)
-        } else {
-          await iterator?.return?.()
-        }
+        return !failed
+      }
+      const completed = yield* drain(() =>
+        session.events({ executionId: handle.controlRef.executionId, signal }),
+      )
+      if (!completed && !sawTerminal && lastReplayPosition !== undefined) {
+        // The live stream broke before the terminal receipt. That receipt is where a Sandbox
+        // execution reports its token usage, and the exact result read below does not carry it,
+        // so a break here used to settle a 15-minute turn at 0 tokens with tokensKnown: false,
+        // which the conserved pool debits as nothing. Measured on
+        // mech-interp-foundations-pi-20260915k turn 1 (926 s, 0/0) and -20260915l turns 2 and 3
+        // (1693 s and 846 s, 0/0), each cut by one frame the provider refused mid-stream. The
+        // provider replays from a cursor, so resume once from the last replay position. A second
+        // failure keeps the first as the recorded cause; it is the one that lost the frames.
+        const firstFailure = observationFailure
+        observationFailure = undefined
+        const resumed = yield* drain(() =>
+          session.events({
+            executionId: handle.controlRef.executionId,
+            since: lastReplayPosition,
+            signal,
+          }),
+        )
+        if (!resumed) observationFailure = firstFailure
       }
       // Observation failure does not establish execution failure. Only the exact retained
       // result can settle the invocation; retain incomplete observation beside that result.
