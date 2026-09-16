@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.229.1
+
+Allow Sandbox 0.40.x beside Runtime without a consumer dependency override.
+The supported range is now `>=0.36.4 <0.41.0`.
+The existing package checks exercise the oldest supported release and the 0.40 release line.
+
 ## 0.229.0
 
 - A settlement can now say whether a sandbox child's own harness transcript survived
