@@ -251,6 +251,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
   it('uses a child-specific completion check when a managed child submits its own result', async () => {
     let childCheckCalls = 0
+    const journal = new InMemorySpawnJournal()
     const child = testAgentProfile('specialist', {
       harness: 'opencode',
       tools: runtimeToolDeclarations('submit_result'),
@@ -288,6 +289,8 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         perWorker: { maxIterations: 4, maxTokens: 10_000 },
         makeLeafAgent: () => deliveringLeaf('unused', {}),
         driveHarness,
+        journal,
+        runId: 'parent-contract',
         // The run-wide check deliberately rejects the child's output. A profile-managed child
         // must instead receive the check selected for its exact authorized assignment.
         deliverable: { check: () => false },
@@ -307,9 +310,22 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
     )
 
-    expect(result.kind).toBe('winner')
-    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+    // The child's own check is what judged the child: consulted exactly once, and it passed.
     expect(childCheckCalls).toBe(1)
+    expect(await journal.loadTree('parent-contract')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'settled',
+          id: 'parent-contract:s0',
+          status: 'done',
+          verdict: expect.objectContaining({ valid: true }),
+        }),
+      ]),
+    )
+    // A child that satisfies its narrower assignment does not complete the parent. The run-wide
+    // check rejects the child's output, no continuation is configured, so the parent's contract
+    // stays unmet and the partial component is not promoted to the winner.
+    expect(result.kind).toBe('no-winner')
   })
 
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {

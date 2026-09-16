@@ -894,6 +894,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           rootId: args.root,
           parentId: args.parentId,
           nodeId: id,
+          depth: args.depth + 1,
           attemptId,
           ...(identity ? { identity } : {}),
         },
@@ -1890,6 +1891,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       journal: args.journal,
       root: args.ownerMaterialization.journalRoot ?? args.root,
       nodeId: args.ownerMaterialization.nodeId ?? args.parentId,
+      depth: args.depth,
       runtime: args.ownerMaterialization.runtime,
       attemptId: args.ownerMaterialization.attemptId,
       ...(authoredProfile === undefined ? {} : { authoredProfile }),
@@ -2077,6 +2079,7 @@ interface OwnerMaterializationState {
   readonly journal: SpawnJournal
   readonly root: NodeId
   readonly nodeId: NodeId
+  readonly depth: number
   readonly runtime: NodeSnapshot['runtime']
   /** Rotated by `beginScopeOwnerAttempt` on every driver attempt after the first. */
   attemptId: string
@@ -2217,6 +2220,7 @@ export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNo
     rootId: state.root,
     parentId: state.nodeId,
     nodeId: state.nodeId,
+    depth: state.depth,
     attemptId: state.attemptId,
   })
 }

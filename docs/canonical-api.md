@@ -7,7 +7,7 @@ Run pnpm docs:freshness after editing this file. -->
 > **Version 0.232.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.182.0 <0.183.0`.
-> `sandbox` must satisfy `>=0.36.4 <0.40.0`.
+> `sandbox` must satisfy `>=0.36.4 <0.41.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.6.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
@@ -126,6 +126,14 @@ A general "loop" primitive is the single most common modelling error in this rep
 **DYNAMIC shape → this is orchestration, NOT a loop.** When an LLM decides *at runtime* what to spawn next and when to stop (decompose a messy goal, react to each result, no fixed round count), it is a reactive tree, not a loop: `Scope` + Supervisor in-process (`supervise` / `runPersonified`), or `createCoordinationTools` for a sandbox driver. Its topology is *data*, so no fixed-round "loop" grammar can describe it.
 
 **The trap** is a single grammar (`defineLoop`, a `runXxxLoop`) spanning all of the above: there can't be one, because some are code and one is a model deciding. No new loop primitive lands without a tiny executable proof, **over real agents**, of the exact substrate join it claims to simplify.
+
+A child can satisfy its own assignment while its parent's objective remains incomplete.
+When the parent declares a `deliverable`, its finalizer's candidate must pass that check before the parent completes.
+The default selects the highest-scoring child that also passes the parent's check.
+Custom finalizers assemble their candidate before the check.
+Child validity and delivery counts remain unchanged.
+An external director can then use `repromptOnUnmet` to continue from a rejected candidate within its existing resource limits.
+A thrown parent check reports a validation error through the existing driver failure record.
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|

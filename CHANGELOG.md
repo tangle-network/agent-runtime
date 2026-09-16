@@ -34,7 +34,7 @@ children in one evening executed, reasoned, and settled `down` with nothing. One
   it sat inside the `status: 'available'` arm, and a child that drops has zero tool spans, so
   its trace is `unavailable` and the field had no home. The receipt is now `harnessTranscript` on
   the settlement itself, a SIBLING of `trace`, on `Settled` (both arms) and on the journal's
-  `settled` record. Read `ProviderLeafOut.harnessTranscript` for the settled payload as before.
+  `settled` record. `ProviderLeafOut.nativeSession` (0.229.0's inline carrier) is removed too; see below.
 - Four absences are now told apart instead of collapsing into one silence, because an operator
   acts differently on each: `execution-never-started` (no environment was ever created — the
   `maxUsd` admission refusal of #1240), `capture-did-not-run` (a box existed and the abort path
@@ -53,7 +53,7 @@ fileCount, totalBytes, skippedCount }`. Replay rehydrates a ref; the bytes are a
 nobody pays for a transcript until they open it with the new `harnessTranscriptArtifact(evidence,
 blobs)`. Consequences, all deliberate:
 
-- `ProviderLeafOut.harnessTranscript` is gone: the executor reports the in-memory
+- `ProviderLeafOut.nativeSession` is gone: the executor reports the in-memory
   `HarnessTranscriptCapture` through its port and never touches storage, which restores the
   "no blob sink in any provider or destroy site" property 0.229.0 set out to keep.
 - The per-child bounds stay 2 MiB / 16 MiB / 1000 files, now enforced exactly (after each read,
@@ -64,6 +64,12 @@ blobs)`. Consequences, all deliberate:
 
 Settlements recorded before this release carry no `harnessTranscript` on the record, which is not
 the same fact as a recorded `unavailable`, and stays absent rather than defaulting.
+
+## 0.231.1
+
+Allow Sandbox 0.40.x beside Runtime without a consumer dependency override.
+The supported range is now `>=0.36.4 <0.41.0`.
+The existing package checks exercise the oldest supported release and the 0.40 release line.
 
 ## 0.231.0
 
@@ -86,7 +92,7 @@ Related system issue: SYS-011 — outcome: mitigates — proof: agent-runtime#12
   teardown. Runtime reads the child's Claude Code / Codex / OpenCode session files out of
   the environment while it is still live and settles them with the result, so they reach a
   run record instead of being destroyed with the environment. Read them from
-  `ProviderLeafOut.harnessTranscript` on the settled artifact. (This entry also named
+  `ProviderLeafOut.nativeSession` on the settled artifact. (This entry also named
   `WorkerTraceEvidence.nativeSession`; that field was declared and never written by any code
   path, and 0.232.0 removes it — see below.) The existing `trace` receipt is
   unchanged and still carries the supervisor's tool spans only, so `status: 'available'`

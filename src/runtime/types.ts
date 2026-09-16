@@ -24,6 +24,7 @@ import type {
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
+import type { ExecutorNodeContext } from './supervise/types'
 
 // DefaultVerdict is a substrate primitive — it lives in @tangle-network/agent-eval.
 // agent-runtime re-exports it here so existing consumers keep working without
@@ -42,6 +43,11 @@ export interface ValidationCtx {
    * to bypass the loop kernel with raw Sandbox SDK orchestration.
    */
   box?: SandboxInstance
+  /**
+   * Detached, immutable node identity supplied by supervised provider execution.
+   * Runtime scopes include depth (root = 0); standalone execution may omit this context.
+   */
+  readonly node?: ExecutorNodeContext
   /** Cooperative cancellation channel. */
   signal: AbortSignal
   /**

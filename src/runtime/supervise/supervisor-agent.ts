@@ -982,9 +982,18 @@ function buildSupervisorAgent(
         const baseTokensLeft = scope.budget.tokensLeft
         const contractDeclared = deps.deliverable !== undefined
         const maxReprompts = deps.repromptOnUnmet ?? 0
+        let candidate: unknown
+        const finalize = () =>
+          runFinalizer(deps.finalizer ?? bestDelivered, {
+            settled: mcp.settled(),
+            blobs: deps.blobs,
+            tree: runTree(scope),
+            budget: scope.budget,
+            ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+          })
         const readProgress = (): DriverProgressMark => {
           const settled = mcp.settled()
-          // The same delivered-only rule the finalizer applies: settled `done` AND check-passed.
+          // Child delivery is progress, but its check may cover only the child's assignment.
           const deliveredCount = settled.filter(
             (w) => w.status === 'done' && w.valid === true,
           ).length
@@ -996,13 +1005,14 @@ function buildSupervisorAgent(
             deliveredCount,
             contract: !contractDeclared
               ? 'none'
-              : submitted || deliveredCount > 0
+              : submitted || candidate !== undefined
                 ? 'met'
                 : 'unmet',
           }
         }
         await runDriverWithRetry({
           drive: async (attempt, reentry) => {
+            candidate = undefined
             if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
               applyRunCancellation(deps.controlDir, deps.abortRun, () => new Date().toISOString())
             }
@@ -1028,6 +1038,12 @@ function buildSupervisorAgent(
               // cannot erase that completed work — and there is nothing left to retry FOR. Without
               // an accepted submission the backend error propagates into the retry decision.
               if (!mcp.submittedResult() && !mcp.isStopped()) throw error
+            }
+            // Decide this parent's completion before the retry loop reads progress. Cache the
+            // checked candidate so neither the finalizer nor its oracle runs twice on return.
+            if (contractDeclared && !mcp.submittedResult()) {
+              await mcp.drainResolved()
+              candidate = await finalize()
             }
           },
           progress: readProgress,
@@ -1059,9 +1075,8 @@ function buildSupervisorAgent(
             : {}),
           ...(deps.onDriverAttempt ? { onAttempt: deps.onDriverAttempt } : {}),
         })
-        // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
-        // awaited must still reach the finalize ledger.
-        await mcp.drainResolved()
+        // Without a parent oracle, preserve the single finalization after the driver finishes.
+        if (!contractDeclared) await mcp.drainResolved()
         // Direct work is eligible only through `submit_result`, after the injected independent
         // check passes. Raw harness prose remains ineligible.
         const submitted = mcp.submittedResult()
@@ -1071,12 +1086,7 @@ function buildSupervisorAgent(
         }
         // The deliverable comes from the finalizer seam over DELIVERED children only — never the
         // harness's own output (Foreman 0/18). Default keep-best.
-        return await runFinalizer(deps.finalizer ?? bestDelivered, {
-          settled: mcp.settled(),
-          blobs: deps.blobs,
-          tree: runTree(scope),
-          budget: scope.budget,
-        })
+        return contractDeclared ? candidate : await finalize()
       } finally {
         await mcp.close()
       }

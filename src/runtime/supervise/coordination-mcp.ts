@@ -51,6 +51,7 @@ import {
   coordinationHttpHandler,
   coordinationHttpLimits,
 } from './coordination-http'
+import { preflightPublicCoordination } from './coordination-preflight'
 import { singleFlightTools } from './single-flight-tools'
 
 export type { CoordinationHttpAudit, CoordinationHttpOptions } from './coordination-http'
@@ -567,8 +568,21 @@ export async function serveCoordinationMcp(
     audiences.add(publicAddress.host)
     if (host === '0.0.0.0' || host === '::') audiences.add(`127.0.0.1:${port}`)
     paths.add(publicAddress.pathname)
+    if (configured !== undefined) {
+      await preflightPublicCoordination({
+        url,
+        headers,
+        signal: opts.scope.signal,
+        requestTimeoutMs,
+        toolNames: selectedNames,
+      })
+    }
   } catch (error) {
-    await new Promise<void>((resolve) => server.close(() => resolve()))
+    closed = true
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve())
+      server.closeAllConnections()
+    })
     throw error
   }
 

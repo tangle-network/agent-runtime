@@ -4173,6 +4173,8 @@ OPT-IN executable score for this worker, with the SAME contract the sandbox seam
 has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
 files and run commands in the environment it is scoring. Every other supervised hook fires
 after teardown and can only read the artifact.
+`ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
+shared validator can apply a root-only contract without applying it to nested managers.
 
 The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
 back to its own settle verdict.
@@ -17728,6 +17730,8 @@ OPT-IN executable score for this worker, with the SAME contract the sandbox seam
 has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
 files and run commands in the environment it is scoring. Every other supervised hook fires
 after teardown and can only read the artifact.
+`ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
+shared validator can apply a root-only contract without applying it to nested managers.
 
 The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
 back to its own settle verdict.
@@ -21472,6 +21476,12 @@ Kernel-owned context for the concrete supervised node a factory is constructing.
 
 > `readonly` **nodeId**: `string`
 
+##### depth?
+
+> `readonly` `optional` **depth?**: `number`
+
+Recursion depth supplied by Runtime scopes (root = 0). Standalone callers may omit it.
+
 ##### attemptId
 
 > `readonly` **attemptId**: `string`
@@ -24262,6 +24272,13 @@ Iteration index this output came from (0-based).
 Live sandbox for this iteration. Validators that need execution-grounded
 evidence can inspect files or run commands here instead of forcing callers
 to bypass the loop kernel with raw Sandbox SDK orchestration.
+
+##### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+Detached, immutable node identity supplied by supervised provider execution.
+Runtime scopes include depth (root = 0); standalone execution may omit this context.
 
 ##### signal
 
@@ -34607,7 +34624,11 @@ readonly `T`[]
 Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the
 ledger to structurally delivered children, materialize their outputs, and hand the finalizer a
 blob reader that throws on any ref outside that set. This is the one call site both driver arms
-(the in-process tool-loop and the MCP-mounted harness) finalize through.
+(the in-process tool-loop and the MCP-mounted harness) finalize through. When a parent declares
+a deliverable, its candidate must also pass that check: children may have narrower assignments.
+The default selects the highest-scoring child that passes the parent's check; custom finalizers
+assemble their candidate before the check. A rejection leaves the parent incomplete; a thrown
+oracle surfaces a validation error. Neither changes child validity.
 
 #### Parameters
 
@@ -34632,6 +34653,10 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 ###### budget
 
 `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+
+###### deliverable?
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 #### Returns
 
