@@ -12674,6 +12674,38 @@ The spawned node's id, once admission minted one. Absent for a reservation that 
 
 ***
 
+### ReservationShortfall
+
+One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
+decided it. A refusal lists every channel that did not fit (`shortfalls`), so shrinking one
+request is not answered by a second refusal on a channel the caller was never told about
+(observed live: a director whose 100-iteration child was refused spent a probe worker to learn
+the pool still admitted 3). `free` is a snapshot: live reservations return to it as their
+workers settle, and a driver's own metered turns draw tokens and dollars from the same pool
+before its next request arrives, so only `iterations` can be requested at exactly `free`.
+`closedByUnknownSpend` means work with unmeasured usage ran under that enforced limit; the
+channel then refuses every reservation for the rest of the run.
+
+#### Properties
+
+##### channel
+
+> `readonly` **channel**: `"tokens"` \| `"iterations"` \| `"usd"` \| `` `resource:${string}` ``
+
+##### requested
+
+> `readonly` **requested**: `number`
+
+##### free
+
+> `readonly` **free**: `number`
+
+##### closedByUnknownSpend?
+
+> `readonly` `optional` **closedByUnknownSpend?**: `true`
+
+***
+
 ### BudgetPoolRestore
 
 State recovered from a prior process before new work is admitted. `committed` is measured spend
@@ -12699,7 +12731,7 @@ while the public readout remains explicitly unknown.
 
 ##### reserve()
 
-> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
+> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover standard or named channels — the
@@ -12717,7 +12749,7 @@ caller inspects `ok` before `ticket`.
 
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 ##### attribute()
 
@@ -22031,7 +22063,7 @@ One tree-wide view of simultaneous spawned work. Every nested scope reads the sa
 
 ##### spawn()
 
-> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); \}
+> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
 lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
@@ -22065,7 +22097,7 @@ work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ###### Returns
 
-\{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); \}
+\{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 ##### next()
 
@@ -23044,7 +23076,7 @@ One channel on which a settled reservation's measured spend exceeded what it res
 
 ##### channel
 
-> `readonly` **channel**: [`SpendChannel`](#spendchannel) \| `"iterations"`
+> `readonly` **channel**: `"iterations"` \| [`SpendChannel`](#spendchannel)
 
 ##### reserved
 

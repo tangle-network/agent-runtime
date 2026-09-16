@@ -189,6 +189,22 @@ export type BudgetReadout = Readonly<{
  * unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
 export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
 
+/** One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
+ * decided it. A refusal lists every channel that did not fit (`shortfalls`), so shrinking one
+ * request is not answered by a second refusal on a channel the caller was never told about
+ * (observed live: a director whose 100-iteration child was refused spent a probe worker to learn
+ * the pool still admitted 3). `free` is a snapshot: live reservations return to it as their
+ * workers settle, and a driver's own metered turns draw tokens and dollars from the same pool
+ * before its next request arrives, so only `iterations` can be requested at exactly `free`.
+ * `closedByUnknownSpend` means work with unmeasured usage ran under that enforced limit; the
+ * channel then refuses every reservation for the rest of the run. */
+export interface ReservationShortfall {
+  readonly channel: 'tokens' | 'iterations' | 'usd' | `resource:${string}`
+  readonly requested: number
+  readonly free: number
+  readonly closedByUnknownSpend?: true
+}
+
 /** State recovered from a prior process before new work is admitted. `committed` is measured spend
  * already present in the durable journal. Each `uncertainReservation` is a child that was recorded
  * as started but never recorded as settled: its full declared ceiling is charged conservatively,
@@ -294,7 +310,9 @@ export interface BudgetPool {
   reserve(
     b: Budget,
     holder?: ReservationHolder,
-  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection }
+  ):
+    | { ok: true; ticket: ReservationTicket }
+    | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] }
   /**
    * Name (or rename) who holds an open reservation. Merges into what `reserve` recorded, so a
    * caller states only what it just learned — the node id admission minted, or the stage the
@@ -588,14 +606,14 @@ export function createBudgetPool(
   function reserve(
     b: Budget,
     holder: ReservationHolder = { stage: 'admitted' },
-  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection } {
+  ):
+    | { ok: true; ticket: ReservationTicket }
+    | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] } {
     assertValidBudget(b, 'reservation budget')
     for (const [name, state] of resources) {
       const wanted = b.resources?.[name]
       if (!wanted) throw new ValidationError(`resource ${name}: child must declare its limit`)
       if (wanted.unit !== state.unit) throw new ValidationError(`resource ${name}: unit mismatch`)
-      if (!state.known || wanted.limit > state.remaining)
-        return { ok: false, reason: 'budget-exhausted' }
     }
     for (const name of Object.keys(b.resources ?? {})) {
       if (!resources.has(name))
@@ -604,18 +622,42 @@ export function createBudgetPool(
     const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
     const wantIterations = b.maxIterations
-    if (usdCapped && usdTainted) return { ok: false, reason: 'budget-exhausted' }
-    // Fail-closed admission: every requested channel must fit the free balance. A
-    // usd request against an uncapped root is unsatisfiable (the root declared no $).
-    if (wantTokens > freeTokens) return { ok: false, reason: 'budget-exhausted' }
-    if (wantIterations > freeIterations) return { ok: false, reason: 'budget-exhausted' }
+    // Fail-closed admission: every requested channel must fit the free balance. Every channel
+    // that does not fit is reported, so a caller that shrinks one request is not refused again
+    // on a second channel it was never told about.
+    const shortfalls: ReservationShortfall[] = []
+    const short = (
+      channel: ReservationShortfall['channel'],
+      requested: number,
+      free: number,
+      closedByUnknownSpend = false,
+    ): void => {
+      shortfalls.push({
+        channel,
+        requested,
+        free: closedByUnknownSpend ? 0 : Math.max(0, free),
+        ...(closedByUnknownSpend ? { closedByUnknownSpend: true as const } : {}),
+      })
+    }
+    for (const [name, state] of resources) {
+      const limit = b.resources![name]!.limit
+      if (!state.known) short(`resource:${name}`, limit, 0, true)
+      else if (limit > state.remaining) short(`resource:${name}`, limit, state.remaining)
+    }
+    if (usdCapped && usdTainted) short('usd', wantUsd, 0, true)
+    if (wantTokens > freeTokens) short('tokens', wantTokens, freeTokens)
+    if (wantIterations > freeIterations) short('iterations', wantIterations, freeIterations)
     // A dollar request against a root that declared no dollar ceiling can never be satisfied at
     // ANY amount, which is a different fact from an exhausted balance and calls for a different
     // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
     // caller to shrink its request forever — observed live, a driver walked its child budget down
-    // to $0.01 and spent 68k tokens before asking for help.
-    if (wantUsd > 0 && !usdCapped) return { ok: false, reason: 'usd-unbudgeted' }
-    if (wantUsd > freeUsd) return { ok: false, reason: 'budget-exhausted' }
+    // to $0.01 and spent 68k tokens before asking for help. An exhausted channel above still
+    // takes precedence, as it did before shortfalls were reported.
+    if (shortfalls.length === 0 && wantUsd > 0 && !usdCapped) {
+      return { ok: false, reason: 'usd-unbudgeted' }
+    }
+    if (usdCapped && !usdTainted && wantUsd > freeUsd) short('usd', wantUsd, freeUsd)
+    if (shortfalls.length > 0) return { ok: false, reason: 'budget-exhausted', shortfalls }
 
     for (const [name, state] of resources) {
       const amount = b.resources![name]!.limit

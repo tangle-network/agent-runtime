@@ -189,7 +189,11 @@ describe('a completed child that overspent its reservation', () => {
         label: 'next',
         budget: { maxIterations: 16, maxTokens: 800_000 },
       }),
-    ).toEqual({ ok: false, reason: 'budget-exhausted' })
+    ).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfalls: [{ channel: 'tokens', requested: 800_000, free: 581_873 }],
+    })
 
     // Replay and the materialized tree read the same record.
     const [replayed] = await replaySpawnTree(journal, blobs, 'run')
