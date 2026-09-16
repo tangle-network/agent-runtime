@@ -58,6 +58,7 @@ import {
 import { chargedTokens, promptCacheTokenClasses, unmeteredSpend } from '../util'
 import type { DeliverableSpec } from './completion-gate'
 import type { PriorCoordination } from './coordination-log'
+import { errMessage } from './error-message'
 import type { BusRecord } from './event-bus'
 import {
   bestDelivered,
@@ -1059,19 +1060,27 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           // Calling the brain is the provider-attempt boundary. A rejection after that boundary
           // carries no trusted served identity, so preserve an empty attempt for root settlement.
           opts.onProviderModel?.(undefined)
-          await meterRuntimeOwnedProviderAttempt(
-            scope,
-            withBudgetResources(unmeteredSpend(0), scope.budget),
-            providerAttemptEvidence(undefined),
-            {
-              driver: opts.name,
-              inferenceFailed: true,
-              call,
-              callId: callContext.callId,
-              correlationId: callContext.correlationId,
-              ...detail,
-            },
-          )
+          try {
+            await meterRuntimeOwnedProviderAttempt(
+              scope,
+              withBudgetResources(unmeteredSpend(0), scope.budget),
+              providerAttemptEvidence(undefined),
+              {
+                driver: opts.name,
+                inferenceFailed: true,
+                call,
+                callId: callContext.callId,
+                correlationId: callContext.correlationId,
+                ...detail,
+              },
+            )
+          } catch (meteringError) {
+            // Preserve the provider diagnosis without turning an accounting refusal into a retry.
+            throw new RuntimeRunStateError(
+              `${errMessage(error)}; accounting failed: ${errMessage(meteringError)}`,
+              { cause: error },
+            )
+          }
           throw error
         }
         let evidenceError: ValidationError | undefined
@@ -1503,8 +1512,4 @@ function safeJson(v: unknown): string {
   } catch {
     return String(v)
   }
-}
-
-function errMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
 }

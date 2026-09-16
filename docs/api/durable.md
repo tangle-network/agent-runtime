@@ -1749,7 +1749,7 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 ##### repromptOnUnmet?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number`
+> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
 
 How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
 re-entered on the SAME live session with the unmet items.
@@ -1760,12 +1760,15 @@ runs): 376 of 376 winning runs ended on the driver's own completion, and the com
 could only LABEL an undelivered result `valid:false`, never send the driver back for it.
 
 A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+live children, and the same budget, deadline, and abort bounds. Successful continuations do
+not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
 Requires `deliverable`, and applies to every external manager with a completion check. A
 recursive manager receives the check selected for its exact assignment. Refused for a
 router-brained manager, which runs its turn loop in process. Omit/`0` = never.
+Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
+Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
 
 ###### Inherited from
 
@@ -1776,7 +1779,7 @@ router-brained manager, which runs its turn loop in process. Omit/`0` = never.
 > `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](runtime.md#onunmetcontract)
 
 Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+ Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
  owes and reports how many workers passed the check.
 
 ###### Inherited from

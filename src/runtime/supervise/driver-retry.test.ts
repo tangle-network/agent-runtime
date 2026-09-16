@@ -553,7 +553,7 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
     expect(records[0]?.repromptRefusedBy).toBe('aborted')
   })
 
-  it('bounds re-prompts by the absolute attempt ceiling as well as by their own cap', async () => {
+  it('does not charge successful continuations against the failure attempt allowance', async () => {
     const script = completingDrive(99)
     const records: DriverAttemptRecord[] = []
     await runDriverWithRetry({
@@ -567,9 +567,89 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
       sleep: instantSleep,
     })
 
-    expect(script.reentries).toHaveLength(2)
-    expect(records[1]?.repromptRefusedBy).toBe('max-attempts')
+    expect(script.reentries).toHaveLength(10)
+    expect(records[9]?.repromptRefusedBy).toBe('reprompts-exhausted')
   })
+
+  it('continues until completion beyond the default retry ceiling', async () => {
+    const script = completingDrive(20)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark({ contract: script.delivered() ? 'met' : 'unmet' }),
+      budget: () => budget({ deadlineMs: 1000 }),
+      now: () => 0,
+      signal: new AbortController().signal,
+      reprompt: {
+        maxReprompts: 'until-complete',
+        onUnmetContract: (context) => {
+          expect(context.maxReprompts).toBe('until-complete')
+          return { steer: 'Continue the same work.' }
+        },
+      },
+      onAttempt: (record) => void records.push(record),
+    })
+    expect(script.reentries).toHaveLength(21)
+    expect(records.map((record) => record.attempt)).toEqual(
+      Array.from({ length: 21 }, (_, index) => index + 1),
+    )
+    expect(records.at(-1)).toMatchObject({ contract: 'met', stop: 'completed' })
+  })
+
+  it.each([0, -1, Number.POSITIVE_INFINITY, Number.NaN])(
+    'refuses completion-driven continuation without a finite positive deadline (%s)',
+    async (deadlineMs) => {
+      const script = completingDrive(1)
+      await expect(
+        runDriverWithRetry({
+          drive: script.drive,
+          progress: () => mark(),
+          budget: () => budget({ deadlineMs }),
+          signal: new AbortController().signal,
+          reprompt: { maxReprompts: 'until-complete' },
+        }),
+      ).rejects.toThrow(/finite positive deadline/u)
+      expect(script.reentries).toHaveLength(0)
+    },
+  )
+
+  it.each(['deadline', 'budget', 'unknown-cost', 'aborted', 'caller-stop'] as const)(
+    'completion-driven continuation still honors %s',
+    async (stop) => {
+      const script = completingDrive(99)
+      const controller = new AbortController()
+      const records: DriverAttemptRecord[] = []
+      await runDriverWithRetry({
+        drive: async (attempt, reentry) => {
+          await script.drive(attempt, reentry)
+          if (attempt === 12 && stop === 'aborted') controller.abort('cancelled')
+        },
+        progress: () => mark(),
+        budget: () =>
+          budget({
+            deadlineMs: 1000,
+            ...(script.reentries.length >= 12 && stop === 'budget' ? { tokensLeft: 0 } : {}),
+            ...(script.reentries.length >= 12 && stop === 'unknown-cost'
+              ? { usdCapped: true, usdKnown: false }
+              : {}),
+          }),
+        now: () => (script.reentries.length >= 12 && stop === 'deadline' ? 1000 : 0),
+        signal: controller.signal,
+        reprompt: {
+          maxReprompts: 'until-complete',
+          onUnmetContract: () =>
+            script.reentries.length >= 12 && stop === 'caller-stop'
+              ? 'stop'
+              : { steer: 'Continue the same work.' },
+        },
+        onAttempt: (record) => void records.push(record),
+      })
+      expect(script.reentries).toHaveLength(12)
+      expect(records.at(-1)?.repromptRefusedBy).toBe(
+        stop === 'budget' || stop === 'unknown-cost' ? 'budget-exhausted' : stop,
+      )
+    },
+  )
 
   it('lets the caller end the run instead of re-prompting', async () => {
     const script = completingDrive(99)
@@ -805,25 +885,31 @@ describe('long-run retry streaks', () => {
     expect(calls).toBe(4)
   })
 
-  it('does not weaken an explicit total attempt ceiling', async () => {
-    let calls = 0
-    const records: DriverAttemptRecord[] = []
-    await runDriverWithRetry({
-      drive: async () => {
-        calls++
-        if (calls % 2 === 1) throw new Error('temporary transport interruption')
-      },
-      progress: () => mark(),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { maxAttempts: 4, maxConsecutiveFailures: 3 },
-      reprompt: { maxReprompts: 10 },
-      onAttempt: (record) => {
-        records.push(record)
-      },
-      sleep: instantSleep,
-    })
-    expect(calls).toBe(4)
-    expect(records.at(-1)?.repromptRefusedBy).toBe('max-attempts')
-  })
+  it.each([10, 'until-complete'] as const)(
+    'bounds cumulative failures across successful turns with %s continuation',
+    async (maxReprompts) => {
+      let calls = 0
+      const records: DriverAttemptRecord[] = []
+      await expect(
+        runDriverWithRetry({
+          drive: async () => {
+            calls++
+            if (calls % 2 === 1) throw new Error('temporary transport interruption')
+          },
+          progress: () => mark(),
+          budget: () => budget({ deadlineMs: 1000 }),
+          now: () => 0,
+          signal: new AbortController().signal,
+          policy: { maxAttempts: 4, maxConsecutiveFailures: 3 },
+          reprompt: { maxReprompts },
+          onAttempt: (record) => {
+            records.push(record)
+          },
+          sleep: instantSleep,
+        }),
+      ).rejects.toMatchObject({ stop: 'max-attempts' })
+      expect(calls).toBe(7)
+      expect(records.filter((record) => record.error)).toHaveLength(4)
+    },
+  )
 })

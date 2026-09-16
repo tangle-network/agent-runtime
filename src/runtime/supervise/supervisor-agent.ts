@@ -48,6 +48,7 @@ import {
 import {
   type DriverAttemptRecord,
   type DriverProgressMark,
+  type DriverRepromptPolicy,
   type DriverRetryPolicy,
   defaultUnmetContractSteer,
   type OnUnmetContract,
@@ -477,11 +478,12 @@ export interface SupervisorAgentDeps {
    *  end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
    *  ended on the driver's own completion, and the completion gate could only label that result,
    *  never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
-   *  live children, same budget/deadline/abort/attempt bounds. Requires `deliverable`; refused for
-   *  a router-brained supervisor, which runs its loop in process. Omit/`0` = never re-prompt. */
-  readonly repromptOnUnmet?: number
+   *  live children, same budget/deadline/abort bounds. Successful turns do not consume failure
+   *  retries. Use `'until-complete'` with a finite positive scope deadline to omit the count cap.
+   *  Requires `deliverable`; refused for a router-brained supervisor. Omit/`0` = never re-prompt. */
+  readonly repromptOnUnmet?: DriverRepromptPolicy['maxReprompts']
   /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
-   *  Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction. */
+   *  Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's own instruction. */
   readonly onUnmetContract?: OnUnmetContract
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
   readonly nodeContext?: SupervisorNodeContextSeed
@@ -742,21 +744,23 @@ function buildSupervisorAgent(
 
   if (
     deps.repromptOnUnmet !== undefined &&
+    deps.repromptOnUnmet !== 'until-complete' &&
     (!Number.isInteger(deps.repromptOnUnmet) || deps.repromptOnUnmet < 0)
   ) {
     throw new ValidationError(
-      'supervisorAgent: repromptOnUnmet must be a non-negative integer (0 = never re-prompt)',
+      "supervisorAgent: repromptOnUnmet must be a non-negative integer or 'until-complete' (0 = never re-prompt)",
     )
   }
 
-  if (deps.onUnmetContract !== undefined && (deps.repromptOnUnmet ?? 0) <= 0) {
+  const repromptEnabled =
+    deps.repromptOnUnmet === 'until-complete' || (deps.repromptOnUnmet ?? 0) > 0
+  if (deps.onUnmetContract !== undefined && !repromptEnabled) {
     throw new ValidationError(
-      'supervisorAgent: onUnmetContract needs repromptOnUnmet >= 1 — without a cap the hook is ' +
-        'never consulted',
+      "supervisorAgent: onUnmetContract needs repromptOnUnmet >= 1 or 'until-complete'",
     )
   }
 
-  if ((deps.repromptOnUnmet ?? 0) > 0 && deps.deliverable === undefined) {
+  if (repromptEnabled && deps.deliverable === undefined) {
     throw new ValidationError(
       'supervisorAgent: repromptOnUnmet needs a `deliverable` completion check — with no check ' +
         'there is no contract that can be unmet, and every run would re-prompt',
@@ -1050,7 +1054,7 @@ function buildSupervisorAgent(
           budget: () => scope.budget,
           signal: scope.signal,
           ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
-          ...(maxReprompts > 0
+          ...(repromptEnabled
             ? {
                 reprompt: {
                   maxReprompts,

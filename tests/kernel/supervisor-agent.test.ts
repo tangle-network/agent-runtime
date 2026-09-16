@@ -1707,18 +1707,21 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     expect(hookCalls).toBe(0)
   })
 
-  it('refuses repromptOnUnmet with no completion check to be unmet', () => {
-    const blobs = new InMemoryResultBlobStore()
-    expect(() =>
-      supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        perWorker,
-        driveHarness: async () => {},
-        repromptOnUnmet: 2,
-      }),
-    ).toThrow(/needs a `deliverable` completion check/u)
-  })
+  it.each([2, 'until-complete'] as const)(
+    'refuses %s with no completion check to be unmet',
+    (repromptOnUnmet) => {
+      const blobs = new InMemoryResultBlobStore()
+      expect(() =>
+        supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('w', {}),
+          perWorker,
+          driveHarness: async () => {},
+          repromptOnUnmet,
+        }),
+      ).toThrow(/needs a `deliverable` completion check/u)
+    },
+  )
 
   it('refuses onUnmetContract without a re-prompt cap, instead of never consulting it', () => {
     const blobs = new InMemoryResultBlobStore()
