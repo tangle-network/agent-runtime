@@ -8081,6 +8081,12 @@ Environment, turn, and optional identity needed to replay one retained start.
 
 > **idempotencyKey**: `string`
 
+##### existingEnvironmentId?
+
+> `readonly` `optional` **existingEnvironmentId?**: `string`
+
+Reuse an environment whose retained ownership key is verified instead of creating one.
+
 ##### turn
 
 > `readonly` **turn**: [`RetainedRunTurnInput`](#retainedrunturninput)
@@ -8128,6 +8134,16 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 ###### Inherited from
 
 [`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-2)
+
+##### existingEnvironmentId?
+
+> `readonly` `optional` **existingEnvironmentId?**: `string`
+
+Reuse an environment whose retained ownership key is verified instead of creating one.
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`existingEnvironmentId`](#existingenvironmentid)
 
 ##### turn
 
@@ -13360,7 +13376,7 @@ End one peer exchange: every further mail on the thread is refused `thread-stopp
 
 > `readonly` `optional` **ttlMs?**: `number`
 
-Explicit finite credential lifetime; defaults to 15 minutes. Longer runs must configure it.
+Explicit finite lifetime. Omission binds the credential to the live scope and its deadline.
 
 ##### signingKeys?
 
