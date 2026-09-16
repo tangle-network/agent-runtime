@@ -701,6 +701,8 @@ export interface ExecutorNodeContext {
   readonly rootId: NodeId
   readonly parentId: NodeId
   readonly nodeId: NodeId
+  /** Recursion depth supplied by Runtime scopes (root = 0). Standalone callers may omit it. */
+  readonly depth?: number
   /** Kernel-minted identity for this concrete execution attempt. */
   readonly attemptId: string
   readonly identity?: NodeExecutionIdentity

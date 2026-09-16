@@ -211,6 +211,7 @@ describe("createExecutor({ backend: 'provider' })", () => {
         provider,
         validator: {
           async validate(out, validationCtx) {
+            expect(validationCtx.node).toBeUndefined()
             // The environment is still alive here: the check runs a command inside the box it
             // is scoring, which no post-teardown hook can do.
             const proof = await validationCtx.box?.exec('cat answer.txt')
@@ -225,6 +226,42 @@ describe("createExecutor({ backend: 'provider' })", () => {
     expect(artifact.verdict).toEqual({ valid: true, score: 1 })
     // Ordering is the contract: the score reads the environment, then teardown releases it.
     expect(lifecycle).toEqual(['exec:cat answer.txt', 'destroy'])
+  })
+
+  it('detaches and freezes the validator node before execution begins', async () => {
+    const { provider } = recordingProvider()
+    const node = {
+      rootId: 'root',
+      parentId: 'root',
+      nodeId: 'root:s0',
+      depth: 1,
+      attemptId: 'root:s0:attempt:1',
+      identity: { correlation: { project: 'original' } },
+    }
+    const executor = createExecutor({
+      backend: 'provider',
+      provider,
+      validator: {
+        async validate(_out, validationCtx) {
+          expect(validationCtx.node).not.toBe(node)
+          expect(validationCtx.node?.depth).toBe(1)
+          expect(validationCtx.node?.identity?.correlation?.project).toBe('original')
+          expect(Object.isFrozen(validationCtx.node)).toBe(true)
+          expect(Object.isFrozen(validationCtx.node?.identity?.correlation)).toBe(true)
+          expect(() => Object.assign(validationCtx.node ?? {}, { depth: 0 })).toThrow()
+          return { valid: true, score: 1 }
+        },
+      },
+    })(spec, { ...ctx(), node })
+    node.depth = 9
+    node.identity.correlation.project = 'changed'
+
+    for await (const _event of executor.execute('work', new AbortController().signal)) {
+      // Drain before reading the checked artifact.
+    }
+
+    expect((await executor.resultArtifact()).verdict).toEqual({ valid: true, score: 1 })
+    expect(node.depth).toBe(9)
   })
 
   it('carries the declared prompt options through the steerable session', async () => {
