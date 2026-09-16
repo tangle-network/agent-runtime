@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { contentAddress } from '../durable/content-address'
 import { InMemoryResultBlobStore } from '../durable/spawn-journal'
 import {
   captureHarnessTranscript,
@@ -221,5 +222,90 @@ describe('captureHarnessTranscript bounds and absences', () => {
     expect(capture.artifact.skipped).toEqual([
       { path: '/root/.codex/sessions/8.jsonl', reason: 'total-byte-budget-exhausted' },
     ])
+  })
+})
+
+describe('enumeration omissions are reported, never folded into no-transcript', () => {
+  // A box whose `find -printf` answers `size<TAB>path` per file, as a real one does.
+  const boxWith = (listing: [number, string][], reads: string[]) => ({
+    exec: async () => ({
+      stdout: listing.map(([size, path]) => `${size}\t${path}`).join('\n'),
+      exitCode: 0,
+    }),
+    read: async (path: string) => {
+      reads.push(path)
+      return '{}'
+    },
+  })
+
+  it('lists an oversized file as skipped without ever reading it', async () => {
+    const reads: string[] = []
+    const capture = await captureHarnessTranscript(
+      boxWith(
+        [
+          [2, '/root/.codex/sessions/small.jsonl'],
+          [3 * 1024 * 1024, '/root/.codex/sessions/huge.jsonl'],
+        ],
+        reads,
+      ),
+      'codex',
+    )
+    expect(capture.status).toBe('captured')
+    if (capture.status !== 'captured') return
+    expect(reads).toEqual(['/root/.codex/sessions/small.jsonl'])
+    expect(capture.skippedCount).toBe(1)
+    expect(capture.artifact.skipped).toEqual([
+      { path: '/root/.codex/sessions/huge.jsonl', reason: 'file-exceeds-byte-bound' },
+    ])
+  })
+
+  it('names a listing that overflowed the file bound instead of reading as complete', async () => {
+    const reads: string[] = []
+    const all = Array.from(
+      { length: 1001 },
+      (_, i) => [2, `/root/.codex/sessions/${i}.jsonl`] as [number, string],
+    )
+    const capture = await captureHarnessTranscript(boxWith(all, reads), 'codex')
+    expect(capture.status).toBe('captured')
+    if (capture.status !== 'captured') return
+    expect(capture.fileCount).toBe(1000)
+    expect(capture.artifact.skipped).toEqual([
+      { path: '.codex/sessions .codex/history.jsonl', reason: 'enumeration-truncated-at-1000' },
+    ])
+  })
+
+  it('reports a transcript made only of files it could not carry', async () => {
+    const capture = await captureHarnessTranscript(
+      boxWith([[3 * 1024 * 1024, '/root/.codex/sessions/huge.jsonl']], []),
+      'codex',
+    )
+    expect(capture).toEqual({
+      status: 'unavailable',
+      reason: 'nothing-carried',
+      skipped: [{ path: '/root/.codex/sessions/huge.jsonl', reason: 'file-exceeds-byte-bound' }],
+    })
+  })
+})
+
+describe('harnessTranscriptArtifact refuses a malformed blob', () => {
+  it('throws on an entry that is not a file rather than returning it as a transcript', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const bad = { schemaVersion: 1, harness: 'codex', files: [null], skipped: [] }
+    // Content-addressed like every real blob: the ref is right, the bytes are not a transcript.
+    const ref = contentAddress(bad)
+    await blobs.put(ref, bad)
+    await expect(
+      harnessTranscriptArtifact(
+        {
+          status: 'available',
+          transcriptRef: ref,
+          harness: 'codex',
+          fileCount: 1,
+          totalBytes: 0,
+          skippedCount: 0,
+        },
+        blobs,
+      ),
+    ).rejects.toThrow(/no transcript artifact/u)
   })
 })

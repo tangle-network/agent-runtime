@@ -180,26 +180,58 @@ export function harnessTranscriptUnavailable(
   return unavailable(reason)
 }
 
+interface Enumeration {
+  /** Paths to read, at most MAX_FILES of them. */
+  readonly paths: readonly string[]
+  /** What the enumeration itself left out, named — never folded silently into "no transcript". */
+  readonly omitted: readonly { readonly path: string; readonly reason: string }[]
+}
+
 /**
  * Enumerate candidate transcript paths inside the environment.
  *
- * `find` is given the roots and prints one path per line. A missing root is not an error:
- * a child that never used a harness has no directory for it.
+ * `find` is given the roots and prints one `size<TAB>path` line per file. A missing root is not
+ * an error: a child that never used a harness has no directory for it. A line with no size (an
+ * environment whose `find` lacks `-printf`) is read and bounded after the read, as before.
+ *
+ * Two omissions used to be silent, so `skippedCount` could read 0 on an incomplete capture: a
+ * `-size` filter dropped oversized files before they were ever listed, and `head` cut the listing
+ * at MAX_FILES with nothing saying so. Both are reported now: an oversized file is skipped by its
+ * listed size WITHOUT being read, and a listing that overflows carries one
+ * `enumeration-truncated` entry naming the bound.
  */
 async function enumerate(
   environment: ReadableEnvironment,
   roots: readonly string[],
   signal?: AbortSignal,
-): Promise<readonly string[] | undefined> {
+): Promise<Enumeration | undefined> {
   if (!environment.exec) return undefined
   const quoted = roots.map((r) => `"$HOME/${r}"`).join(' ')
-  const command = `find ${quoted} -type f -size -${Math.floor(MAX_FILE_BYTES / 1024)}k 2>/dev/null | head -${MAX_FILES}`
+  // One past the bound, so an exact overflow is observable rather than indistinguishable from
+  // a listing that happened to be full.
+  const command = `find ${quoted} -type f -printf '%s\\t%p\\n' 2>/dev/null | head -${MAX_FILES + 1}`
   try {
     const result = await environment.exec(command, signal ? { signal } : undefined)
-    return (result.stdout ?? '')
+    const lines = (result.stdout ?? '')
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 0)
+    const omitted: { path: string; reason: string }[] = []
+    const paths: string[] = []
+    for (const line of lines.slice(0, MAX_FILES)) {
+      const tab = line.indexOf('\t')
+      const path = tab === -1 ? line : line.slice(tab + 1)
+      const size = tab === -1 ? undefined : Number(line.slice(0, tab))
+      if (size !== undefined && Number.isFinite(size) && size > MAX_FILE_BYTES) {
+        omitted.push({ path, reason: 'file-exceeds-byte-bound' })
+        continue
+      }
+      paths.push(path)
+    }
+    if (lines.length > MAX_FILES) {
+      omitted.push({ path: roots.join(' '), reason: `enumeration-truncated-at-${MAX_FILES}` })
+    }
+    return { paths, omitted }
   } catch {
     return undefined
   }
@@ -225,12 +257,15 @@ export async function captureHarnessTranscript(
   const roots = HARNESS_ROOTS[harness]
   if (!roots) return unavailable('unknown-harness')
 
-  const paths = await enumerate(environment, roots, signal)
-  if (paths === undefined) return unavailable('enumeration-failed')
-  if (paths.length === 0) return unavailable('no-transcript')
+  const enumerated = await enumerate(environment, roots, signal)
+  if (enumerated === undefined) return unavailable('enumeration-failed')
+  const { paths } = enumerated
+  if (paths.length === 0 && enumerated.omitted.length === 0) return unavailable('no-transcript')
 
   const files: HarnessTranscriptFile[] = []
-  const skipped: { path: string; reason: string }[] = []
+  // Seeded with what the enumeration itself left out, so an incomplete listing is never a
+  // receipt with skippedCount 0.
+  const skipped: { path: string; reason: string }[] = [...enumerated.omitted]
   let total = 0
   for (const path of paths) {
     // Stop on abort rather than attempting every remaining read and failing each: a
@@ -339,6 +374,7 @@ export async function harnessTranscriptArtifact(
   return raw
 }
 
+/** Every entry, not just the arrays: a blob with `files: [null]` is corruption, not a transcript. */
 function isHarnessTranscriptArtifact(value: unknown): value is HarnessTranscriptArtifact {
   if (value === null || typeof value !== 'object') return false
   const artifact = value as Partial<HarnessTranscriptArtifact>
@@ -346,6 +382,22 @@ function isHarnessTranscriptArtifact(value: unknown): value is HarnessTranscript
     artifact.schemaVersion === HARNESS_TRANSCRIPT_SCHEMA_VERSION &&
     typeof artifact.harness === 'string' &&
     Array.isArray(artifact.files) &&
-    Array.isArray(artifact.skipped)
+    artifact.files.every(
+      (file) =>
+        file !== null &&
+        typeof file === 'object' &&
+        typeof file.path === 'string' &&
+        typeof file.content === 'string' &&
+        Number.isSafeInteger(file.bytes) &&
+        file.bytes >= 0,
+    ) &&
+    Array.isArray(artifact.skipped) &&
+    artifact.skipped.every(
+      (entry) =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        typeof entry.path === 'string' &&
+        typeof entry.reason === 'string',
+    )
   )
 }
