@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.227.0
+
+The Runtime cohort moves to agent-eval 0.182.0 and agent-knowledge 17.0.1. agent-eval 0.182.0 retires the legacy loops supervisor-run reader; the Runtime uses none of it and only its peer range changes: `@tangle-network/agent-eval` is now `>=0.182.0 <0.183.0` (was `>=0.181.0 <0.182.0`), and the workspace catalog admits `agent-knowledge ^17.0.1`, which peers on eval 0.182.
+
+What a consumer does differently: install agent-eval 0.182.x beside this Runtime. A workspace still on agent-eval 0.181.x fails peer resolution against this release, and a workspace on this Runtime's predecessor fails against agent-knowledge 17.0.1, which is why every strict-peer install of a 0.226.x tarball has failed since 17.0.1 was published on 2026-09-15.
+
 ## 0.226.0
 
 The root agent's provider stream is now retained. Every `progress` event the root's executor emits — `text_delta`, `reasoning_delta`, `tool_call`, `tool_result`, `interaction`, `child_task` — is appended as it arrives to `<runDir>/root-stream.jsonl`, one JSON line per event with `{seq, at, attempt, event}`. Lines are written synchronously before the next event is drained and fsynced at drive-attempt boundaries and on close, so a root that dies keeps every line already written. The reader tolerates a torn final line.
