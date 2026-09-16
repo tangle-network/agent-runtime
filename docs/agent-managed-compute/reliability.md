@@ -203,7 +203,7 @@ Provider conformance tests belong in the shared provider test package.
 
 Remote coordination MCP requires:
 
-- an expiring bearer token scoped to one run and actor,
+- a bearer token scoped to one live run and actor,
 - an audience bound to the MCP endpoint,
 - expiration and key rotation,
 - a maximum request size,
@@ -215,11 +215,13 @@ Remote coordination MCP requires:
 
 The default remains loopback-only.
 Set `coordination.authentication` to `true` to mint an ephemeral credential.
-Credentials expire after 15 minutes by default. A caller may set `authentication.ttlMs` to a longer finite lifetime with a safely representable expiry.
-There is no independent 24-hour cutoff. Long-lived bearer credentials increase exposure; use narrow grants, protected storage, and revocable signing keys.
+By default, credentials remain valid while their scope is live, within its original absolute deadline.
+Closing the listener or aborting the scope rejects its credentials immediately.
+Set `authentication.ttlMs` to require an additional finite expiry.
+Long-lived bearer credentials increase exposure; use narrow grants, protected storage, and revocable signing keys.
 Runtime does not renew credentials automatically or refresh credentials inside a retained environment.
-Configure `ttlMs` to cover the manager invocation and expected coordinator downtime.
-Run deadlines do not extend credential lifetime.
+If specified, `ttlMs` must cover the manager invocation and expected coordinator downtime.
+Neither key rotation nor coordinator restart extends the original scope deadline.
 Set `coordination.publicUrl` to the caller-owned reachable endpoint or an actor-aware endpoint resolver.
 The resolver can return a promise and receives the bound port, run identity, actor identity, and manager signal.
 Runtime awaits resolution before admitting the manager, while the listener refuses requests.
@@ -239,7 +241,7 @@ Omitting `coordination.publicUrl` preserves local-only startup without this netw
 
 For same-host coordinator restart, configure `authentication.signingKeys` with an active key ID and a secret key map.
 Keep the public URL, run ID, actor ID, tool grants, and verification key stable until the retained credential expires.
-Stable keys support resumed coordination only before the original credential expires.
+Stable keys support resumed coordination within the original scope deadline and any explicit credential expiry.
 After expiry, the retained session can reattach, but its coordination requests receive HTTP 401.
 A new active key can mint credentials while previous keys verify existing credentials.
 Remove a verification key to revoke its credentials across coordinator restarts.
@@ -250,6 +252,10 @@ Provider managers require `capabilities.create.runtimeAttachments.mcp` and an au
 Runtime passes the MCP server through `CreateAgentEnvironmentInput.runtimeAttachments`, preserving the canonical profile.
 Credential headers remain runtime-only and must not appear in receipts or journals.
 Retained manager recovery uses the original admitted backend input and validates its intent before reconnecting.
+Deliberate re-prompts retain the manager's environment and conversation, with a fresh execution and turn identity.
+Retrying an interrupted turn retains its original identities and does not create replacement work.
+The scope's existing `retainedAtSettlement` policy releases or preserves the environment after all manager turns.
+An unconfirmed release remains explicit in the journal and final result.
 
 The HTTP adapter bounds request bytes, body and action deadlines, concurrent work, and request rates.
 A timed-out action keeps its admission slot until execution settles.

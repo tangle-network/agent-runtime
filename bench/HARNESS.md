@@ -109,18 +109,22 @@ Same-session continuation does not prove a barrier before every native request, 
 Offline fake-sandbox tests prove the managed contract and correction consumption only.
 They establish no live learning gain or provider session restoration.
 
-### Retained strategy driver
+### Retained strategy fixture
 
 ```bash
 cd bench
 pnpm tsx src/swe-self-improve.mts
 ```
 
-This driver uses `runStrategyEvolution` with SWE-bench tasks and a frozen holdout.
+This fixture uses `runStrategyEvolution` with SWE-bench tasks and a frozen holdout.
 It does not exercise `improve`, and it deletes its temporary run directory on exit.
 It therefore cannot provide retained improvement or lineage evidence.
 Use `examples/improve` for the maintained offline API fixture.
 Use the consuming labs for registered learning campaigns with retained execution and comparison evidence.
+
+The former `swe-arena`, `quant-arena`, and rollout-ledger campaign drivers were removed from this package.
+They had no public exports or maintained package command, duplicated lab orchestration, and depended on the retired `.loops` run layout.
+Historical campaign evidence belongs in its owning lab; new benchmark code here must satisfy the admission rule below.
 
 ### Offline diagnostics
 

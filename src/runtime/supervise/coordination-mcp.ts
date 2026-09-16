@@ -105,7 +105,7 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 export interface CoordinationAuthentication {
-  /** Explicit finite credential lifetime; defaults to 15 minutes. Longer runs must configure it. */
+  /** Explicit finite lifetime. Omission binds the credential to the live scope and its deadline. */
   readonly ttlMs?: number
   /** Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart. */
   readonly signingKeys?: {
@@ -328,14 +328,16 @@ export async function serveCoordinationMcp(
   const rotateCredential = () => {
     if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
     if (closed) throw new ConfigError('coordination server is closed')
-    const expiresAt = Date.now() + (auth?.ttlMs ?? 900_000)
-    if (!Number.isSafeInteger(expiresAt)) {
+    const deadline = opts.scope.budget.deadlineMs
+    const expiresAt =
+      auth?.ttlMs === undefined ? (deadline > 0 ? deadline : undefined) : Date.now() + auth.ttlMs
+    if (expiresAt !== undefined && !Number.isSafeInteger(expiresAt)) {
       throw new ConfigError('coordination credential expiry must remain a safe integer')
     }
     for (const [credential, expiry] of revoked) {
       if (expiry <= Date.now()) revoked.delete(credential)
     }
-    if (token) revoked.set(token.toString(), credentialExpiresAt!)
+    if (token) revoked.set(token.toString(), credentialExpiresAt ?? Number.POSITIVE_INFINITY)
     credentialExpiresAt = expiresAt
     const nonce = randomBytes(32).toString('base64url')
     let text = nonce
@@ -347,7 +349,7 @@ export async function serveCoordinationMcp(
           actor: identity.actorId,
           audience: credentialAudience,
           grants: grantDigest,
-          expires: credentialExpiresAt,
+          expires: credentialExpiresAt ?? null,
           nonce,
         }),
       ).toString('base64url')
@@ -360,11 +362,18 @@ export async function serveCoordinationMcp(
     headers = Object.freeze({ Authorization: `Bearer ${text}` })
   }
   const validCredential = (supplied: Buffer): boolean => {
-    if (closed || revoked.has(supplied.toString())) return false
+    const deadline = opts.scope.budget.deadlineMs
+    if (
+      closed ||
+      opts.scope.signal.aborted ||
+      (deadline > 0 && Date.now() >= deadline) ||
+      revoked.has(supplied.toString())
+    )
+      return false
     if (!signingKeys)
       return (
         token !== undefined &&
-        Date.now() < credentialExpiresAt! &&
+        (credentialExpiresAt === undefined || Date.now() < credentialExpiresAt) &&
         supplied.length === token.length &&
         timingSafeEqual(supplied, token)
       )
@@ -379,14 +388,16 @@ export async function serveCoordinationMcp(
       const expected = createHmac('sha256', signingKeys.keys[claims.key]!).update(payload).digest()
       const signature = Buffer.from(parts[1]!, 'base64url')
       return (
+        // Revocation keys use the wire token; alternate encodings must not alias it.
+        signature.toString('base64url') === parts[1] &&
         signature.length === expected.length &&
         timingSafeEqual(signature, expected) &&
         claims.run === identity.runId &&
         claims.actor === identity.actorId &&
         claims.audience === credentialAudience &&
         claims.grants === grantDigest &&
-        Number.isSafeInteger(claims.expires) &&
-        claims.expires > Date.now()
+        ((claims.expires === null && auth?.ttlMs === undefined) ||
+          (Number.isSafeInteger(claims.expires) && claims.expires > Date.now()))
       )
     } catch {
       return false

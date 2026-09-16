@@ -222,6 +222,8 @@ export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Prom
 /** Environment, turn, and optional identity needed to replay one retained start. @stable */
 export interface RetainedRunStartMaterial {
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
+  /** Reuse an environment whose retained ownership key is verified instead of creating one. */
+  readonly existingEnvironmentId?: string
   readonly turn: RetainedRunTurnInput
   /**
    * Explicit dispatch coordinates. When omitted, the runtime mints

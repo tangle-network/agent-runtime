@@ -96,6 +96,7 @@ import type { PeerMailLimits } from './peer-mail'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
 import {
+  bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerTask,
   scopeRetainedOwnerContext,
@@ -792,6 +793,12 @@ function driveHarnessFromBackend(
   }) => {
     const retainedOwner =
       boundBackend.backend === 'provider' ? scopeRetainedOwnerContext(scope) : undefined
+    if (retainedOwner && boundBackend.backend === 'provider') {
+      bindScopeRetainedOwnerProvider(
+        scope,
+        resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry),
+      )
+    }
     const originalTask = retainedOwner ? await prepareScopeRetainedOwnerTask(scope, task) : task
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
@@ -1366,7 +1373,9 @@ function driveHarnessFromBackend(
         }
       }
       try {
-        await teardownOnce(completed ? DEFAULT_SUCCESSFUL_SHUTDOWN_MS : 'brutalKill')
+        if (!retainedOwner?.preserveEnvironment || retainedOwner.admissions.length === 0) {
+          await teardownOnce(completed ? DEFAULT_SUCCESSFUL_SHUTDOWN_MS : 'brutalKill')
+        }
       } catch (error) {
         if (!failed) {
           failed = true
