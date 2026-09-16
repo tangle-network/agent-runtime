@@ -2027,7 +2027,17 @@ export type SupervisedResult<Out> =
        *  `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it. */
       error?: never
     } & (
-      | { reason: 'all-children-down' | 'budget-exhausted' | 'aborted' }
+      | {
+          /**
+           * `no-children-spawned`: the root ran to completion under budget, selected nothing, and
+           * never spawned a child. Until this arm existed that run settled `all-children-down`
+           * with `downCount: 0`, which reads as a fleet failure to anyone who did not open the
+           * journal; fifteen sandbox-placed directors settled that way in one week while the
+           * actual fault was that the root never recursed. `all-children-down` now asserts what
+           * its name says: at least one child was spawned and none delivered.
+           */
+          reason: 'all-children-down' | 'no-children-spawned' | 'budget-exhausted' | 'aborted'
+        }
       | {
           reason: 'cancelled'
           readonly source: string

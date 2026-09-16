@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.236.0
+
+A root that ran to completion under budget, selected nothing, and **never spawned a child** now settles `no-winner` with reason `no-children-spawned`. It used to settle `all-children-down` with `downCount: 0`, which reads as a fleet failure to anyone who did not open the journal. Fifteen sandbox-placed directors settled that way in one week while the actual fault was that the root never recursed, and every reader went looking at the fleet.
+
+`all-children-down` now asserts what its name says: at least one child was spawned and none delivered. A consumer that switched on the reason and treated the old value as "the fleet lost everything" should add the new arm; a consumer that only counted `no-winner` is unaffected.
+
 ## 0.235.1
 
 `classifyRetainedPendingCause` recognises agent-provider-tangle's typed bound refusal

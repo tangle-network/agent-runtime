@@ -1266,7 +1266,7 @@
       "SuperviseRegistryTable": "type cc1468cd50c1",
       "SuperviseSurfaceOptions": "type 8a7daaf98896",
       "SuperviseSurfaceResult": "type 2c378dbc3193",
-      "SupervisedResult": "type e23388c4e1ca",
+      "SupervisedResult": "type dbcee198286a",
       "Supervisor": "type 7d9aff9cd744",
       "SupervisorAgentDeps": "type 763549b3d5d6",
       "SupervisorCleanupReceipt": "type d862eb60266d",
@@ -1629,7 +1629,7 @@
       "streamAgentTurn": "value d21f23205538",
       "structuralRollout": "value fc852ab503f9",
       "sumSandboxUsage": "value 368f5c1a5123",
-      "supervise": "value 0f64939f8d20",
+      "supervise": "value 836593222350",
       "superviseDispatch": "value 8f93690a9eb5",
       "superviseSurface": "value 730f753cfb58",
       "supervisorAgent": "value 880407b0dab3",
@@ -1983,7 +1983,7 @@
       "loadAgentImprovementProposalFixture": "value 2f33e49d4be9",
       "loadAgentProfileImprovementFixture": "value 3bf4543ae6f7",
       "runGraphWithTestBrain": "value 5d9fea087acc",
-      "superviseWithTestBrain": "value 837346617a33",
+      "superviseWithTestBrain": "value 0209bbc24c4d",
       "supervisorAgentWithTestBrain": "value 5c814f8dd593"
     },
     "./tool-loop": {
