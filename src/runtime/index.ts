@@ -17,22 +17,6 @@ export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-netw
 // One-stop import: portable profile plus Sandbox execution types Runtime consumers need.
 export type { AgentProfile } from '@tangle-network/agent-interface'
 export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-// Two substrates for the same "recursive agent decision" atom, both exported here (per
-// docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
-// combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
-// the round-synchronous `runAgentRounds` kernel = the path most benches still drive, with a
-// caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
-// Recursive execution atom (the keystone): the open `Executor` runtime, the
-// budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
-// journal. Substrate types come from `./supervise/types`; the journal + blob store
-// impls live in `../durable/spawn-journal`.
-//
-// Both pairs are exported: the in-memory stores (tests / scratch / a run that need not
-// outlive its process) AND the file-backed stores that make a run RESUMABLE. Without the
-// durable pair on the public surface a consumer cannot resume at all — and the one that
-// tried wrote its own half-working copy, whose `loadTree` never read the file back. The
-// replay readers ship with them, because a durable journal you cannot fold back into a
-// tree is only a log.
 export {
   contentAddress,
   FileResultBlobStore,
@@ -279,6 +263,27 @@ export {
   type McpEnvironmentOptions,
   sanitizeMcpToolSchema,
 } from './mcp-environment'
+// Two substrates for the same "recursive agent decision" atom, both exported here (per
+// docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
+// combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
+// the round-synchronous `runAgentRounds` kernel = the path most benches still drive, with a
+// caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
+// Recursive execution atom (the keystone): the open `Executor` runtime, the
+// budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
+// journal. Substrate types come from `./supervise/types`; the journal + blob store
+// impls live in `../durable/spawn-journal`.
+//
+// Both pairs are exported: the in-memory stores (tests / scratch / a run that need not
+// outlive its process) AND the file-backed stores that make a run RESUMABLE. Without the
+// durable pair on the public surface a consumer cannot resume at all — and the one that
+// tried wrote its own half-working copy, whose `loadTree` never read the file back. The
+// replay readers ship with them, because a durable journal you cannot fold back into a
+// tree is only a log.
+export type {
+  NativeSessionArtifact,
+  NativeSessionEvidence,
+  NativeSessionFile,
+} from './native-session-evidence'
 export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).

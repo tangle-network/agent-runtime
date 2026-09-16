@@ -59,7 +59,10 @@ describe('retained external supervisor recovery', () => {
           ...session,
           result: async () => ({
             ...(await session.result()),
-            usage: { inputTokens: 5, outputTokens: 5 },
+            usage:
+              sessionOptions?.controlRef?.executionId === turns[1]?.executionId
+                ? { inputTokens: 5, outputTokens: 5 }
+                : { inputTokens: 0, outputTokens: 0 },
           }),
         }
       },

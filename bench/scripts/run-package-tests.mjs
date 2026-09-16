@@ -86,8 +86,8 @@ async function main() {
   if (tests.length === 0) throw new Error('no package tests found under src/')
 
   // Two test runtimes coexist under src/: node:test files run under `node --test`;
-  // vitest files (the swe-arena suite) crash there (`vitest` APIs need the vitest
-  // worker), so partition by the framework each file actually imports.
+  // Vitest files need the Vitest worker, so partition by the framework each file
+  // actually imports.
   const nodeTests = []
   const vitestTests = []
   for (const file of tests) {

@@ -4106,6 +4106,19 @@ Read a part's text from `part.text`; a retained frame's `delta` is only that fra
 
 How many streamed part updates the archive left out because a later frame superseded them.
 
+##### nativeSession?
+
+> `optional` **nativeSession?**: [`NativeSessionEvidence`](#nativesessionevidence)
+
+**`Experimental`**
+
+The child's own harness transcript, read before the environment was destroyed.
+
+`events` above is the provider's stream and `trace` on the settlement is the supervisor's
+tool spans; neither carries the harness's session files, which used to die with the
+environment. Always present on the settled path: an environment that cannot be read says
+so with a `reason` rather than being silently absent. #1214.
+
 ***
 
 ### ProviderExecutorOptions
@@ -4975,6 +4988,48 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 ###### Returns
 
 [`AgenticTool`](#agentictool)[]
+
+***
+
+### NativeSessionFile
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+##### content
+
+> `readonly` **content**: `string`
+
+***
+
+### NativeSessionArtifact
+
+#### Properties
+
+##### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+##### harness
+
+> `readonly` **harness**: `string`
+
+##### files
+
+> `readonly` **files**: readonly [`NativeSessionFile`](#nativesessionfile)[]
+
+##### skipped
+
+> `readonly` **skipped**: readonly `object`[]
+
+Paths found but not read, with why — a gap named is a gap an operator can act on.
 
 ***
 
@@ -26424,6 +26479,46 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 
 ***
 
+### NativeSessionEvidence
+
+> **NativeSessionEvidence** = \{ `status`: `"available"`; `artifact`: [`NativeSessionArtifact`](#nativesessionartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"`; \}
+
+#### Union Members
+
+##### Type Literal
+
+\{ `status`: `"available"`; `artifact`: [`NativeSessionArtifact`](#nativesessionartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \}
+
+###### status
+
+> `readonly` **status**: `"available"`
+
+###### artifact
+
+> `readonly` **artifact**: [`NativeSessionArtifact`](#nativesessionartifact)
+
+###### fileCount
+
+> `readonly` **fileCount**: `number`
+
+###### totalBytes
+
+> `readonly` **totalBytes**: `number`
+
+###### skippedCount
+
+> `readonly` **skippedCount**: `number`
+
+Non-zero when some transcript was found but deliberately not carried.
+
+***
+
+##### Type Literal
+
+\{ `status`: `"unavailable"`; `reason`: `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"`; \}
+
+***
+
 ### ObservationAnalysis
 
 > **ObservationAnalysis** = (`input`, `context`) => `Promise`\<`Pick`\<[`Observation`](#observation), `"findings"` \| `"report"` \| `"usage"`\>\>
@@ -27769,7 +27864,7 @@ Why Runtime cannot provide structured tool-call evidence for one settled executi
 
 ### WorkerTraceEvidence
 
-> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
+> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; `nativeSession?`: [`NativeSessionEvidence`](#nativesessionevidence); \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
 
 Durable proof of a worker's structured tool trace, or the exact reason it is unavailable.
 
@@ -27777,7 +27872,7 @@ Durable proof of a worker's structured tool trace, or the exact reason it is una
 
 ##### Type Literal
 
-\{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \}
+\{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; `nativeSession?`: [`NativeSessionEvidence`](#nativesessionevidence); \}
 
 ###### status
 
@@ -27792,6 +27887,18 @@ Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
 ###### spanCount
 
 > `readonly` **spanCount**: `number`
+
+###### nativeSession?
+
+> `readonly` `optional` **nativeSession?**: [`NativeSessionEvidence`](#nativesessionevidence)
+
+The child's OWN harness transcript, read out of its environment before destroy.
+
+`traceRef` above points at the supervisor's tool spans: toolName, args, status,
+callId, with startedAt === endedAt. It carries no assistant text, no reasoning and
+no tool results, so `status: 'available'` on this object never meant the child's
+session survived — it was destroyed with the environment. This says whether it did.
+Absent on a settlement recorded before the capture existed.
 
 ***
 
