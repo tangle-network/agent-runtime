@@ -1041,6 +1041,12 @@ Recorded by Runtime on the `agent.child` payload: `'pending'` at a retained chil
  fold overwrites in observed order; that event's `settledAt` is the original settlement, so
  `settledAt` and `timing` do not move.
 
+##### retainedPendingCause?
+
+> `readonly` `optional` **retainedPendingCause?**: [`RetainedPendingCause`](runtime.md#retainedpendingcause-1)
+
+Why a retained child has no accepted result; see `RetainedPendingCause`.
+
 ##### releasedAt?
 
 > `readonly` `optional` **releasedAt?**: `number`

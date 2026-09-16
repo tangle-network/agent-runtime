@@ -144,6 +144,7 @@ export async function healReleasedSlots(
         ...(floor.outRef ? { outRef: floor.outRef } : {}),
         ...(floor.providerModel ? { providerModel: floor.providerModel } : {}),
         ...(floor.harnessTranscript ? { harnessTranscript: floor.harnessTranscript } : {}),
+        ...(floor.retainedPendingCause ? { retainedPendingCause: floor.retainedPendingCause } : {}),
       }
       await opts.journal.appendEvent(
         tree.root,

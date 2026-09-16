@@ -52,11 +52,15 @@ export function settlementFields(
   budgetViolation?: BudgetViolation
   trace: DownSettlement['trace']
   harnessTranscript?: DownSettlement['harnessTranscript']
+  retainedPendingCause?: DownSettlement['retainedPendingCause']
 } {
   return {
     spent: subject.spent,
     infra: settlement.infra,
     reason: settlement.reason,
+    ...(settlement.retainedPendingCause === undefined
+      ? {}
+      : { retainedPendingCause: settlement.retainedPendingCause }),
     ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
     ...(subject.budgetViolation ? { budgetViolation: subject.budgetViolation } : {}),
@@ -149,6 +153,9 @@ export function releasedChildPayload(
     childId: subject.id,
     status: 'down',
     retainedExecution: 'released',
+    ...(settlement.retainedPendingCause === undefined
+      ? {}
+      : { retainedPendingCause: settlement.retainedPendingCause }),
     releasedAt,
     ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
     reason: settlement.reason,

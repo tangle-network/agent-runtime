@@ -74,6 +74,7 @@ import {
   assertEventBinding,
   awaitAbortable,
   exactSession,
+  RetainedRunProviderContractError,
   sameControlCoordinates,
 } from './retained-run-binding'
 import {
@@ -1423,8 +1424,16 @@ async function providerExecutionSource(
               break
             }
             if (next.done) break
-            // A received event for another execution must never be accepted as evidence.
-            assertEventBinding(next.value, handle.controlRef)
+            // A received event for another execution must never be accepted as evidence — and
+            // it is the PROVIDER's contract that was broken, so it must classify as such (#1204).
+            try {
+              assertEventBinding(next.value, handle.controlRef)
+            } catch (error) {
+              throw new RetainedRunProviderContractError(
+                error instanceof Error ? error.message : 'provider event bound to another run',
+                { code: 'RETAINED_EVENT_BINDING_INVALID', cause: error },
+              )
+            }
             if (next.value.id !== undefined) lastReplayPosition = next.value.id
             if (isTerminalEnvironmentEvent(next.value)) sawTerminal = true
             yield next.value
@@ -1501,7 +1510,8 @@ async function providerExecutionSource(
     }
     return { environment, events: events(), retained: true }
   } catch (error) {
-    if (admitted) throw new RetainedExecutionPendingError(error)
+    // Before `events()` is ever iterated, so a refused request still means refused: admission.
+    if (admitted) throw new RetainedExecutionPendingError(error, 'admission')
     throw error
   }
 }

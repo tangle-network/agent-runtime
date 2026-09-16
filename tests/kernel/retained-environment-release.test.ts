@@ -73,6 +73,9 @@ function retainedProvider(directory: string) {
   const stateFile = join(directory, 'provider.json')
   const state = {
     resultLost: true,
+    /** What the lost read throws: a plain Error is exhibit 4's shape, unobservable by design. */
+    resultError: () => new Error('provider result read lost'),
+    foreignEvent: false,
     observe: undefined as ((signal: AbortSignal | undefined) => Promise<void>) | undefined,
     destroyFailure: undefined as Error | undefined,
     destroys: 0,
@@ -87,10 +90,15 @@ function retainedProvider(directory: string) {
           ...session,
           async *events(eventOptions) {
             if (state.observe) await state.observe(eventOptions?.signal)
+            if (state.foreignEvent) {
+              // An event bound to another run: the runtime's own identity check must refuse it
+              // as a contract violation, not as an unobservable execution (#1204).
+              yield { type: 'message.part.updated', data: { delta: 'x', runId: 'another-run' } }
+            }
             yield* session.events(eventOptions)
           },
           result: async () => {
-            if (state.resultLost) throw new Error('provider result read lost')
+            if (state.resultLost) throw state.resultError()
             return {
               ...(await session.result()),
               usage: { inputTokens: 3, outputTokens: 2 },
@@ -237,6 +245,9 @@ describe('retained environments at root settlement', () => {
     expect(live?.kind).toBe('down')
     if (live?.kind !== 'down') return
     expect(live.retainedExecution).toBe('pending')
+    // A lost read on a plain Error is exhibit 4 of #1204: the execution may have run and nothing
+    // local can say, so the refusal keeps its name — as a VALUE, not only in the reason text.
+    expect(live.retainedPendingCause).toBe('unobservable')
     expect(live.harnessTranscript).toBeDefined()
     expect(live.reason).toContain('reconciliation')
     // The release closed the slot: exactly one terminal record, the settlement the driver
@@ -250,6 +261,7 @@ describe('retained environments at root settlement', () => {
         status: 'down',
         id: 'release:s0',
         retainedExecution: 'released',
+        retainedPendingCause: 'unobservable',
         infra: true,
         reason: live.reason,
         spent: expect.objectContaining({ tokensKnown: false, usdKnown: false }),
@@ -287,33 +299,130 @@ describe('retained environments at root settlement', () => {
     expect(result.tree.nodes.find((node) => node.id === 'release:s0')).toMatchObject({
       status: 'failed',
       retainedExecution: 'released',
+      retainedPendingCause: 'unobservable',
     })
     expect(await replaySpawnTree(context.journal, context.blobs, 'release')).toMatchObject([
       {
         kind: 'down',
         retainedExecution: 'released',
+        retainedPendingCause: 'unobservable',
         settledAt: live.settledAt,
         seq: 0,
         harnessTranscript: live.harnessTranscript,
       },
     ])
     expect(
-      materializeTreeView(events).nodes.find((node) => node.id === 'release:s0')?.retainedExecution,
-    ).toBe('released')
+      materializeTreeView(events).nodes.find((node) => node.id === 'release:s0'),
+    ).toMatchObject({ retainedExecution: 'released', retainedPendingCause: 'unobservable' })
     // Two `agent.child` events for one node: the settlement (pending, with the driver's metering
     // if any) and the release (released, no metering, the release instant beside the settlement).
     const payloads = childPayloads(hookEvents, 'release:s0')
     expect(payloads.map((entry) => entry.stepIndex)).toEqual([0, 0])
     expect(payloads.map((entry) => entry.payload)).toMatchObject([
-      { status: 'down', retainedExecution: 'pending', settledAt: live.settledAt },
+      {
+        status: 'down',
+        retainedExecution: 'pending',
+        retainedPendingCause: 'unobservable',
+        settledAt: live.settledAt,
+      },
       {
         status: 'down',
         retainedExecution: 'released',
+        retainedPendingCause: 'unobservable',
         releasedAt: expect.any(Number),
         settledAt: live.settledAt,
       },
     ])
     expect(payloads[1]?.payload).not.toHaveProperty('metered')
+  })
+
+  it('names an event bound to another run a provider contract violation, on the live stream', async () => {
+    const fleet = retainedProvider(directory)
+    fleet.state.foreignEvent = true
+    const context = createInMemoryRunContext()
+    let live: Settled<unknown> | undefined
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      { ...context, runId: 'foreign', budget: { maxIterations: 4, maxTokens: 4000 } },
+    )
+    expect(result.kind).toBe('winner')
+    expect(live?.kind).toBe('down')
+    if (live?.kind !== 'down') return
+    expect(live.retainedExecution).toBe('pending')
+    expect(live.retainedPendingCause).toBe('provider-contract')
+    expect(live.reason).toMatch(/provider contract violation; nothing to reconcile/u)
+    expect(live.reason).toContain('provider returned an event for another retained run')
+    const events = (await context.journal.loadTree('foreign')) ?? []
+    expect(terminalRecords(events, 'foreign:s0')).toMatchObject([
+      { retainedExecution: 'released', retainedPendingCause: 'provider-contract' },
+    ])
+  })
+
+  it('names a lost transport as such on every surface, never as the safety refusal', async () => {
+    // Exhibit 2 of #1204: the gateway answered the result read with an HTML 502. The Sandbox
+    // SDK throws ServerError{status: 502}; the runtime wraps the failed read; the classifier
+    // looks through the wrapper. Nothing needs reconciling; the transport failed.
+    const fleet = retainedProvider(directory)
+    fleet.state.resultError = () =>
+      Object.assign(new Error('<!DOCTYPE html> tangle.tools | 502: Bad gateway'), {
+        name: 'ServerError',
+        code: 'SERVER_ERROR',
+        status: 502,
+      })
+    const context = createInMemoryRunContext()
+    const hookEvents: RuntimeHookEvent[] = []
+    let live: Settled<unknown> | undefined
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'contract',
+        budget: { maxIterations: 4, maxTokens: 4000 },
+        retainedAtSettlement: 'release',
+        hooks: { onEvent: (event) => void hookEvents.push(event) },
+      },
+    )
+    expect(result.kind).toBe('winner')
+    expect(live?.kind).toBe('down')
+    if (live?.kind !== 'down') return
+    expect(live.retainedExecution).toBe('pending')
+    expect(live.retainedPendingCause).toBe('transport')
+    expect(live.reason).toMatch(/lost its transport; status in doubt/u)
+    expect(live.reason).not.toMatch(/requires reconciliation/u)
+    const events = (await context.journal.loadTree('contract')) ?? []
+    expect(events.find((event) => event.kind === 'reconciled')).toMatchObject({
+      retainedPendingCause: 'transport',
+    })
+    expect(terminalRecords(events, 'contract:s0')).toMatchObject([
+      { retainedExecution: 'released', retainedPendingCause: 'transport' },
+    ])
+    expect(result.tree.nodes.find((node) => node.id === 'contract:s0')).toMatchObject({
+      retainedPendingCause: 'transport',
+    })
+    expect(await replaySpawnTree(context.journal, context.blobs, 'contract')).toMatchObject([
+      { retainedExecution: 'released', retainedPendingCause: 'transport' },
+    ])
+    expect(childPayloads(hookEvents, 'contract:s0').map((entry) => entry.payload)).toMatchObject([
+      { retainedExecution: 'pending', retainedPendingCause: 'transport' },
+      { retainedExecution: 'released', retainedPendingCause: 'transport' },
+    ])
+    // The released bucket counts it the same either way: the cause says what to do, not whether
+    // the fleet lost the child.
+    expect(result.fleetYield.releasedUnrecovered).toBe(1)
   })
 
   it('does not trip an armed intensity breaker with the released record', async () => {

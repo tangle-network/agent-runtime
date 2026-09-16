@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.234.0` and `@tangle-network/agent-eval@0.182.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.235.0` and `@tangle-network/agent-eval@0.182.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -423,7 +423,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 956 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 957 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1160,6 +1160,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 956 exports.
 | `RetainedInteractiveAdmission` | type | Durable records for one exact native coding-agent process. |
 | `RetainedInteractiveAdmissionHook` | type | Persist each exact interactive record before the runtime proceeds. |
 | `RetainedInteractiveEnvironmentInput` | type | Environment and exact AgentProfile used to start one native coding-agent process. |
+| `RetainedPendingCause` | type | Why a retained execution has no accepted terminal result, classified where the cause is still |
 | `RetainedRunAdmission` | type | One detached-run admission record the runtime persists before creation or dispatch proceeds. |
 | `RetainedRunAdmissionHook` | type | Awaited durability hook for retained admission records. |
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |

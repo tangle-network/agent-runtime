@@ -5,6 +5,7 @@ import type {
   ProfileMaterializationReceipt,
   ProviderModelExecutionEvidence,
   RetainedExecutionState,
+  RetainedPendingCause,
   Spend,
   SpendChannel,
   SpendGap,
@@ -193,6 +194,8 @@ export interface PursuitNodeProjection {
    *  fold overwrites in observed order; that event's `settledAt` is the original settlement, so
    *  `settledAt` and `timing` do not move. */
   readonly retainedExecution?: RetainedExecutionState
+  /** Why a retained child has no accepted result; see `RetainedPendingCause`. */
+  readonly retainedPendingCause?: RetainedPendingCause
   /** When the release sweep closed a retained node's slot; absent unless `'released'`. */
   readonly releasedAt?: number
   /** Each channel on which the settled spend exceeded the node's reservation. The status is the
@@ -279,6 +282,7 @@ type MutableNode = {
   reason?: string
   infra?: boolean
   retainedExecution?: RetainedExecutionState
+  retainedPendingCause?: RetainedPendingCause
   releasedAt?: number
   budgetViolation?: BudgetViolation
   wait?: unknown
@@ -536,6 +540,15 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   if (infra !== undefined) node.infra = infra
   const retained = stringField(payload, 'retainedExecution')
   if (retained === 'pending' || retained === 'released') node.retainedExecution = retained
+  const cause = stringField(payload, 'retainedPendingCause')
+  if (
+    cause === 'unobservable' ||
+    cause === 'provider-contract' ||
+    cause === 'request-rejected' ||
+    cause === 'transport' ||
+    cause === 'nested-recovery'
+  )
+    node.retainedPendingCause = cause
   const releasedAt = numberField(payload, 'releasedAt')
   if (releasedAt !== undefined) node.releasedAt = releasedAt
   const budgetViolation = budgetViolationField(payload)

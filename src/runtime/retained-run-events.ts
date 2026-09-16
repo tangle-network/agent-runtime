@@ -20,6 +20,24 @@ import {
 import type { RetainedRunEventOptions } from './retained-run-types'
 import { extractTransportEventIdentity, parseCanonicalTransportEvent } from './sandbox-events'
 
+/** The runtime's own contract checks inside the stream loop, so the catch can tell a broken
+ *  answer (a verdict) from a read the provider's iterator failed (a wrapper). */
+const runtimeChecks = new WeakSet<Error>()
+function contractCheckFailed(message: string): never {
+  const error = new Error(message)
+  runtimeChecks.add(error)
+  throw error
+}
+/** Run one of the runtime's own checks; whatever it throws is a verdict, not a failed read. */
+function verdict<T>(check: () => T): T {
+  try {
+    return check()
+  } catch (error) {
+    if (error instanceof Error) runtimeChecks.add(error)
+    throw error
+  }
+}
+
 export async function* retainedRunEvents(
   session: AgentSession,
   controlRef: AgentExactRunControlRef,
@@ -52,14 +70,14 @@ export async function* retainedRunEvents(
       const source = next.value
       const identity = extractTransportEventIdentity(source)
       const sourceCursor = identity.cursor ?? identity.eventId
-      assertEventBinding(source, controlRef)
+      verdict(() => assertEventBinding(source, controlRef))
       if (sourceCursor === after?.cursor) continue
       const event = canonicalEvent(source)
       if (!event) continue
-      assertCanonicalEventBinding(controlRef, event)
+      verdict(() => assertCanonicalEventBinding(controlRef, event))
       if (firstAfterEvent && after !== undefined) {
         if (identity.sequence !== undefined && identity.sequence <= after.sequence) {
-          throw new Error(
+          contractCheckFailed(
             'provider replay did not prove that the first event follows the requested cursor',
           )
         }
@@ -67,28 +85,30 @@ export async function* retainedRunEvents(
       }
       const eventId = identity.eventId ?? identity.cursor
       if (!eventId) {
-        throw new Error('replayable canonical event has no stable provider event id or cursor')
+        contractCheckFailed('replayable canonical event has no stable provider event id or cursor')
       }
       assertStableText(eventId, 'provider event id')
-      if (seen.has(eventId)) throw new Error(`provider replay repeated event id "${eventId}"`)
+      if (seen.has(eventId)) contractCheckFailed(`provider replay repeated event id "${eventId}"`)
       seen.add(eventId)
       const sourceSequence = identity.sequence
       const sequence = sourceSequence ?? nextSequence
       if (sequence <= lastSequence) {
-        throw new Error(
+        contractCheckFailed(
           `provider event sequence is not monotonic: ${sequence} follows ${lastSequence}`,
         )
       }
       const occurredAt = identity.occurredAt
-      const envelope = RuntimeEventEnvelopeSchema.parse({
-        runId: controlRef.runId,
-        eventId,
-        sequence,
-        cursor: identity.cursor ?? eventId,
-        ...(occurredAt === undefined ? {} : { occurredAt }),
-        receivedAt: new Date(now()).toISOString(),
-        event,
-      })
+      const envelope = verdict(() =>
+        RuntimeEventEnvelopeSchema.parse({
+          runId: controlRef.runId,
+          eventId,
+          sequence,
+          cursor: identity.cursor ?? eventId,
+          ...(occurredAt === undefined ? {} : { occurredAt }),
+          receivedAt: new Date(now()).toISOString(),
+          event,
+        }),
+      )
       yield envelope
       lastSequence = sequence
       nextSequence = sequence + 1
@@ -103,9 +123,16 @@ export async function* retainedRunEvents(
       throw abortError(options.signal.reason)
     }
     if (error instanceof RetainedRunProviderContractError) throw error
+    // Two facts share this catch: the runtime's own checks above threw (the provider's answer
+    // broke its contract), or the provider's iterator threw (the READ failed). Name each so a
+    // settlement can tell them apart (#1204); the read is a wrapper, the check is a verdict.
+    const fromProvider = error instanceof Error && !runtimeChecks.has(error)
     throw new RetainedRunProviderContractError(
       error instanceof Error ? error.message : 'provider retained event stream failed',
-      { code: 'RETAINED_EVENT_STREAM_INVALID', cause: error },
+      {
+        code: fromProvider ? 'RETAINED_EVENT_STREAM_READ_FAILED' : 'RETAINED_EVENT_STREAM_INVALID',
+        cause: error,
+      },
     )
   } finally {
     if (!options?.signal?.aborted) await iterator.return?.()

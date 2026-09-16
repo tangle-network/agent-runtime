@@ -93,6 +93,7 @@ import {
   type RetainedChildRecovery,
   RetainedExecutionPendingError,
   type RetainedExecutorContext,
+  type RetainedPendingCause,
   retainedExecutorSeamKey,
 } from './retained-executor'
 import {
@@ -389,6 +390,7 @@ interface LiveChild {
   settledSeq?: number
   /** Mirrors the journal's statement about a retained execution so `makeTreeView` reports it. */
   retainedExecution?: RetainedExecutionState
+  retainedPendingCause?: RetainedPendingCause
   /** Resolves with the terminal settlement WITHOUT a `seq` — `next()` stamps the seq. */
   readonly settled: Promise<PreSeqSettled>
   /** Synchronous mirror of `settled`'s value once it has resolved (else `undefined`). */
@@ -480,6 +482,8 @@ export type PreSeqSettled =
        *  the `settled` record it cannot write — otherwise every journal reader charges the ceiling
        *  the pool just refunded. */
       reconciled?: Spend
+      /** Why the retained execution is pending, as a value (#1204). Present iff `reconciled` is. */
+      retainedPendingCause?: RetainedPendingCause
     }
 
 /**
@@ -2704,6 +2708,7 @@ async function finalizeSettlement<Out>(
     // `recordCancellation` only assigns before `executorDone`.
     else {
       child.retainedExecution = 'pending'
+      child.retainedPendingCause = settlement.retainedPendingCause
       if (settlement.reconciled !== undefined)
         await appendReconciledFloor(
           args.journal,
@@ -2726,7 +2731,14 @@ async function finalizeSettlement<Out>(
     // The in-memory down and the first `agent.child` are the only surfaces that exist while the
     // slot is open, so they are where `'pending'` lives; the journal states the same fact as the
     // `reconciled` record and replay never yields it.
-    const retainedExecution = retainedPending ? { retainedExecution: 'pending' as const } : {}
+    const retainedExecution = retainedPending
+      ? {
+          retainedExecution: 'pending' as const,
+          ...(settlement.retainedPendingCause === undefined
+            ? {}
+            : { retainedPendingCause: settlement.retainedPendingCause }),
+        }
+      : {}
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -3249,6 +3261,13 @@ async function runChild<C>(
           await persistTranscriptOnce(),
         ),
         reconciled: live.spent,
+        // Classified HERE, from the typed cause, before `errMessage` flattens it to text: a
+        // provider that broke its contract and an execution nobody can observe both arrive on
+        // this branch, and an operator must act differently on each (#1204). `recoveryPending`
+        // without a RetainedExecutionPendingError is an admission that never got a result — by
+        // definition unobservable.
+        retainedPendingCause:
+          err instanceof RetainedExecutionPendingError ? err.pendingCause : 'unobservable',
       }
     }
     // A thrown executor has also finished its own work — only the down-record persistence
@@ -3391,6 +3410,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     ...(c.providerModel ? { providerModel: c.providerModel } : {}),
     ...(c.budgetViolation ? { budgetViolation: c.budgetViolation } : {}),
     ...(c.retainedExecution ? { retainedExecution: c.retainedExecution } : {}),
+    ...(c.retainedPendingCause ? { retainedPendingCause: c.retainedPendingCause } : {}),
   }))
   return {
     root,
