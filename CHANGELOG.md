@@ -2,6 +2,14 @@
 
 ## 0.237.1
 
+File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
+Observer restart verifies its complete digest chain while retaining only the last record.
+Root-stream receipts hash and count the same raw-byte prefix, including an uncommitted tail in the hash.
+Spawn, coordination, conversation, corpus and discovery readers share the same committed-record parser.
+Corrupt committed lines, truncated snapshots and non-parse failures remain explicit errors; torn final writes retain their existing semantics.
+Public array-returning methods still retain their selected history, and individual records remain subject to Node limits.
+No execution policy, limits, credential behavior or durable wire format changes.
+
 **A refused environment create fails closed instead of retrying forever.** A provider SDK throws its own error classes, so a `create` the platform refused arrived at the driver's classifier as neither a `BackendTransportError` nor an `AgentEvalError` and took the foreign-accident default: retry. `classifyDriverFailure` now reads a plain HTTP status off any thrown `Error` and applies the split the transport branch already promises — 408, 429 and 5xx are the upstream having a bad moment, any other 4xx is a request that will fail identically forever.
 
 Measured 2026-09-16 on discovery-lab: a Tangle Sandbox create refused `HTTP 400 {"code":"CONFIG_ERROR"}`, for a key whose budget was fully reserved by an existing box, retried 14-22 times per node. Eleven of twelve roots showed a durable admission intent and no other event for 25 minutes, with healthy coordination servers and no error anywhere for an operator to read.

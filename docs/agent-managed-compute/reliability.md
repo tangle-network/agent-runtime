@@ -33,6 +33,12 @@ Healthy appends do not reload prior events; cold reads validate each record once
 File replacement, truncation, changed metadata, or a failed write invalidates the append index.
 Recovery validates the actual retained bytes before accepting another append.
 The index is not a second durable record or a cross-process ownership fence.
+File-backed journal readers process a fixed file prefix one JSONL record at a time, rather than allocating the entire history as a string.
+Observer restart verifies the complete digest chain while retaining only its last record.
+Root-stream receipt hashing and event counting inspect the same raw-byte prefix, including any uncommitted tail in the hash.
+A malformed committed record or a short snapshot read remains an error; only malformed unterminated tail records are ignored.
+Public methods that return history arrays still retain their selected records in memory, and individual records remain subject to Node limits.
+This removes the whole-file string limit; it is not constant-memory arbitrary replay or distributed snapshot isolation.
 Observer records detach their inputs before queued I/O, so later hook mutations cannot rewrite the evidence being saved.
 Completed director invocations reset the consecutive transport-failure counter even when the pursuit remains incomplete.
 The failure-attempt, deadline, cancellation, and resource bounds still apply.

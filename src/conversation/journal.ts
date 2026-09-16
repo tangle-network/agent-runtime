@@ -15,12 +15,7 @@
  * @stable
  */
 
-import {
-  isNoEntError,
-  parseCommittedJsonLines,
-  prepareJsonlAppend,
-  writeAllBytes,
-} from '../durable/jsonl-file'
+import { prepareJsonlAppend, readCommittedJsonLines, writeAllBytes } from '../durable/jsonl-file'
 import type { ConversationTurn, HaltReason } from './types'
 
 export interface ConversationJournalEntry {
@@ -133,16 +128,10 @@ export class FileConversationJournal implements ConversationJournal {
   constructor(private readonly path: string) {}
 
   async loadRun(runId: string): Promise<ConversationJournalEntry | undefined> {
-    const fs = await import('node:fs/promises')
-    let text: string
-    try {
-      text = await fs.readFile(this.path, 'utf8')
-    } catch (err) {
-      if (isNoEntError(err)) return undefined
-      throw err
-    }
     let entry: ConversationJournalEntry | undefined
-    for (const record of parseCommittedJsonLines<JournalRecord>(text, this.path)) {
+    for await (const record of readCommittedJsonLines<JournalRecord>(this.path, {
+      allowMissing: true,
+    })) {
       if (record.runId !== runId) continue
       if (record.kind === 'begin') {
         entry = { runId, startedAt: record.startedAt, turns: [] }

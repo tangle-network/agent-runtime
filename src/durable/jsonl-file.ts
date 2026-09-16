@@ -1,24 +1,84 @@
 import type { FileHandle } from 'node:fs/promises'
 
-/** Parse an append-only JSONL file without treating a torn final write as committed data.
- * A malformed newline-terminated or non-final record is corruption and fails loud. */
+/** Parse in-memory evidence with the same commit boundary as streamed journal reads. */
 export function parseCommittedJsonLines<T>(text: string, source: string): T[] {
   const lines = text.split('\n')
-  const finalIndex = lines.length - 1
   const records: T[] = []
-
   for (const [index, line] of lines.entries()) {
-    if (line.length === 0) continue
-    try {
-      records.push(JSON.parse(line) as T)
-    } catch (cause) {
-      const isInvalidUnterminatedTail = index === finalIndex && !text.endsWith('\n')
-      if (isInvalidUnterminatedTail) break
-      throw new Error(`${source}: malformed JSONL record at line ${index + 1}`, { cause })
-    }
+    const record = parseRecord<T>(line, source, index + 1, index < lines.length - 1)
+    if (record !== undefined) records.push(record.value)
   }
-
   return records
+}
+
+/** Read a fixed file prefix one record at a time, never allocating the whole journal as a string.
+ * A reader cannot chase concurrent appends forever. Missing files are empty only when requested;
+ * corruption, short reads, and other I/O errors remain failures. Closing the iterator closes the fd. */
+export async function* readCommittedJsonLines<T>(
+  path: string,
+  options: { allowMissing?: boolean; onBytes?: (bytes: Uint8Array) => void } = {},
+): AsyncGenerator<T> {
+  const fs = await import('node:fs/promises')
+  let handle: FileHandle
+  try {
+    handle = await fs.open(path, 'r')
+  } catch (error) {
+    if (options.allowMissing && isNoEntError(error)) return
+    throw error
+  }
+  try {
+    const { size } = await handle.stat()
+    if (size === 0) return
+    const { StringDecoder } = await import('node:string_decoder')
+    const decoder = new StringDecoder('utf8')
+    const stream = handle.createReadStream({ autoClose: false, end: size - 1 })
+    const fragments: string[] = []
+    let lineNumber = 1
+    try {
+      for await (const chunk of stream) {
+        options.onBytes?.(chunk as Buffer)
+        const text = decoder.write(chunk as Buffer)
+        let start = 0
+        let end = text.indexOf('\n', start)
+        while (end !== -1) {
+          fragments.push(text.slice(start, end))
+          const record = parseRecord<T>(fragments.join(''), path, lineNumber++, true)
+          fragments.length = 0
+          if (record !== undefined) yield record.value
+          start = end + 1
+          end = text.indexOf('\n', start)
+        }
+        if (start < text.length) fragments.push(text.slice(start))
+      }
+      if (stream.bytesRead !== size) {
+        throw new Error(`${path}: journal changed while reading its committed prefix`)
+      }
+      fragments.push(decoder.end())
+      const record = parseRecord<T>(fragments.join(''), path, lineNumber, false)
+      if (record !== undefined) yield record.value
+    } finally {
+      stream.destroy()
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+/** An invalid unterminated tail may be a torn write; other parse failures are not evidence of one. */
+function parseRecord<T>(
+  line: string,
+  source: string,
+  lineNumber: number,
+  terminated: boolean,
+): { value: T } | undefined {
+  if (line.length === 0) return undefined
+  try {
+    return { value: JSON.parse(line) as T }
+  } catch (cause) {
+    if (!(cause instanceof SyntaxError)) throw cause
+    if (!terminated) return undefined
+    throw new Error(`${source}: malformed JSONL record at line ${lineNumber}`, { cause })
+  }
 }
 
 /** FileHandle.write may legally make a short write. Loop until every byte is appended. */

@@ -53,8 +53,8 @@ import { addSpend, cloneSpend, zeroSpend } from '../runtime/util'
 import { contentAddress } from './content-address'
 import {
   isNoEntError,
-  parseCommittedJsonLines,
   prepareJsonlAppend,
+  readCommittedJsonLines,
   writeAllBytes,
 } from './jsonl-file'
 
@@ -282,18 +282,12 @@ export class FileSpawnJournal implements SpawnJournal {
   constructor(private readonly path: string) {}
 
   async loadTree(root: NodeId): Promise<SpawnEvent[] | undefined> {
-    const fs = await import('node:fs/promises')
-    let text: string
-    try {
-      text = await fs.readFile(this.path, 'utf8')
-    } catch (err) {
-      if (isNoEntError(err)) return undefined
-      throw err
-    }
     let begun = false
     const events: SpawnEvent[] = []
     const index = new SpawnEventIndex(root)
-    for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
+    for await (const record of readCommittedJsonLines<SpawnJournalRecord>(this.path, {
+      allowMissing: true,
+    })) {
       if (record.root !== root) continue
       if (record.kind === 'begin') {
         begun = true
@@ -345,17 +339,12 @@ export class FileSpawnJournal implements SpawnJournal {
   }
 
   private async validationIndex() {
-    const fs = await import('node:fs/promises')
     const stamp = await this.fileStamp()
     if (this.appendIndex && this.appendIndex.stamp === stamp) return this.appendIndex
     this.appendIndex = undefined
     const trees = new Map<NodeId, { begunAt: string; index: SpawnEventIndex }>()
     if (stamp !== undefined) {
-      const text = await fs.readFile(this.path, 'utf8')
-      if ((await this.fileStamp()) !== stamp) {
-        throw new Error('spawn journal changed while rebuilding its append index')
-      }
-      for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
+      for await (const record of readCommittedJsonLines<SpawnJournalRecord>(this.path)) {
         if (record.kind === 'begin') {
           if (!trees.has(record.root)) {
             trees.set(record.root, { begunAt: record.at, index: new SpawnEventIndex(record.root) })
@@ -371,6 +360,9 @@ export class FileSpawnJournal implements SpawnJournal {
           tree.index.add(record.event)
         }
       }
+    }
+    if ((await this.fileStamp()) !== stamp) {
+      throw new Error('spawn journal changed while rebuilding its append index')
     }
     this.appendIndex = { stamp, trees }
     return this.appendIndex
