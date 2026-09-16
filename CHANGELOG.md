@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.235.1
+
+`classifyRetainedPendingCause` recognises agent-provider-tangle's typed bound refusal
+(`JsonBoundError`, `code: 'JSON_BOUND_VIOLATION'`, provider 1.5.0) and files it with the schema
+violations: a rejected request at admission, a provider contract violation after. That closes
+#1204's exhibit 6, which 0.235.0 could only leave on `'unobservable'` while the provider threw
+a plain `Error`. Exhibit 3 (an event without a stable id) is delivered rather than thrown since
+provider 1.4.0 and no longer reaches this path; the doc says so instead of calling it uncovered.
+
 ## 0.235.0
 
 **A retained child's settlement says WHY it is pending, as a value (#1204).** One reason string —
