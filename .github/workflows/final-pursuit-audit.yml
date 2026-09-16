@@ -1,0 +1,38 @@
+name: Final pursuit audit preparation
+on:
+  push:
+    branches: [audit/long-pursuit-final-20260916]
+    paths: [.github/workflows/final-pursuit-audit.yml]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Prepare exact source and dependencies
+        run: |
+          pnpm install --frozen-lockfile && pnpm peers check
+          out="$RUNNER_TEMP/final-pursuit"
+          mkdir -p "$out"
+          git archive --format=tar.gz HEAD > "$out/source.tar.gz"
+          git rev-parse HEAD > "$out/revision.txt"
+          tar -czf "$out/dependencies.tar.gz" node_modules bench/node_modules
+          node --version > "$out/node-version.txt"
+          pnpm --version > "$out/pnpm-version.txt"
+          (cd "$out" && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-pursuit-workspace
+          path: ${{ runner.temp }}/final-pursuit/
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
