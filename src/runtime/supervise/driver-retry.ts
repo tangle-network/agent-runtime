@@ -513,6 +513,9 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       continue
     }
 
+    // A completed invocation ends the transport-failure streak, even while the pursuit's
+    // independent completion check remains unmet. Successful continuation is not a failure.
+    consecutiveBarren = 0
     const durationMs = now() - startedAt
     const after = run.progress()
     const progressed = madeProgress(before, after)
