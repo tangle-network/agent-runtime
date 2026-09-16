@@ -1022,7 +1022,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-16)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-17)
 
 ##### runtime
 
@@ -4106,19 +4106,6 @@ Read a part's text from `part.text`; a retained frame's `delta` is only that fra
 
 How many streamed part updates the archive left out because a later frame superseded them.
 
-##### nativeSession?
-
-> `optional` **nativeSession?**: [`NativeSessionEvidence`](#nativesessionevidence)
-
-**`Experimental`**
-
-The child's own harness transcript, read before the environment was destroyed.
-
-`events` above is the provider's stream and `trace` on the settlement is the supervisor's
-tool spans; neither carries the harness's session files, which used to die with the
-environment. Always present on the settled path: an environment that cannot be read says
-so with a `reason` rather than being silently absent. #1214.
-
 ***
 
 ### ProviderExecutorOptions
@@ -4235,6 +4222,62 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 ###### Returns
 
 `AgentTurnInput`
+
+***
+
+### HarnessTranscriptFile
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+##### content
+
+> `readonly` **content**: `string`
+
+***
+
+### HarnessTranscriptArtifact
+
+#### Properties
+
+##### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+##### harness
+
+> `readonly` **harness**: `string`
+
+##### files
+
+> `readonly` **files**: readonly [`HarnessTranscriptFile`](#harnesstranscriptfile)[]
+
+##### skipped
+
+> `readonly` **skipped**: readonly `object`[]
+
+Paths found but not read, with why — a gap named is a gap an operator can act on.
+
+***
+
+### HarnessTranscriptUnavailable
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: `"unavailable"`
+
+##### reason
+
+> `readonly` **reason**: [`HarnessTranscriptUnavailableReason`](#harnesstranscriptunavailablereason)
 
 ***
 
@@ -4988,48 +5031,6 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 ###### Returns
 
 [`AgenticTool`](#agentictool)[]
-
-***
-
-### NativeSessionFile
-
-#### Properties
-
-##### path
-
-> `readonly` **path**: `string`
-
-##### bytes
-
-> `readonly` **bytes**: `number`
-
-##### content
-
-> `readonly` **content**: `string`
-
-***
-
-### NativeSessionArtifact
-
-#### Properties
-
-##### schemaVersion
-
-> `readonly` **schemaVersion**: `1`
-
-##### harness
-
-> `readonly` **harness**: `string`
-
-##### files
-
-> `readonly` **files**: readonly [`NativeSessionFile`](#nativesessionfile)[]
-
-##### skipped
-
-> `readonly` **skipped**: readonly `object`[]
-
-Paths found but not read, with why — a gap named is a gap an operator can act on.
 
 ***
 
@@ -6532,6 +6533,16 @@ Provider model evidence for every inference attempt owned by this node.
 > **trace**: [`WorkerTraceEvidence`](#workertraceevidence)
 
 Structured tool evidence captured before this settlement was journaled.
+
+###### harnessTranscript?
+
+> `optional` **harnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+Whether the child's OWN harness transcript survived its environment, or why it did not.
+ A SIBLING of `trace`, not a field inside it: `trace` carries the supervisor's tool spans
+ (toolName, args, status, callId, startedAt === endedAt) and nothing the child said, and a
+ child with zero tool spans has an UNAVAILABLE trace — so a receipt nested inside the
+ available arm could never describe exactly the children that need it most (#1244).
 
 ###### budgetViolation?
 
@@ -21009,6 +21020,24 @@ executors omit it (returns `undefined`).
 
 [`Spend`](#spend) \| `undefined`
 
+##### harnessTranscript()?
+
+> `optional` **harnessTranscript**(): [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
+The child's OWN harness transcript, read out of its environment while that environment was
+still live. Read on settle, valid after `execute` resolves OR throws — the throw half is the
+point: a child that drops produces no result artifact, so before this the only carrier was
+the settled result and a dropped child's reasoning died with its box (#1244).
+
+An executor with no transcript to offer omits the method entirely; the settle path then
+records `executor-exposes-no-transcript` rather than an empty artifact that reads as
+coverage. Never throws. Returns the in-memory capture; the SCOPE persists it under its own
+content ref and settles the receipt, so no executor ever learns about storage.
+
+###### Returns
+
+[`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
 ***
 
 ### ExecutorCancellationRequest
@@ -26332,6 +26361,107 @@ mapper it already uses in the other direction, so a sandbox-shaped provider read
 
 ***
 
+### HarnessTranscriptUnavailableReason
+
+> **HarnessTranscriptUnavailableReason** = `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"` \| `"execution-never-started"` \| `"capture-did-not-run"` \| `"executor-exposes-no-transcript"` \| `"transcript-persistence-failed"`
+
+Why no transcript reached a record, from either the capture or the settle path.
+
+***
+
+### HarnessTranscriptCapture
+
+> **HarnessTranscriptCapture** = \{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+
+What the executor holds in memory between the read and the settle: the files, inline.
+
+Never journaled and never inside a result blob. The scope persists it under its own content
+ref and records the [HarnessTranscriptEvidence](#harnesstranscriptevidence) receipt instead, so the settlement stays
+small and a replay pays nothing for a transcript nobody opens.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \}
+
+###### status
+
+> `readonly` **status**: `"captured"`
+
+###### artifact
+
+> `readonly` **artifact**: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact)
+
+###### fileCount
+
+> `readonly` **fileCount**: `number`
+
+###### totalBytes
+
+> `readonly` **totalBytes**: `number`
+
+###### skippedCount
+
+> `readonly` **skippedCount**: `number`
+
+Non-zero when some transcript was found but deliberately not carried.
+
+***
+
+[`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+
+***
+
+### HarnessTranscriptEvidence
+
+> **HarnessTranscriptEvidence** = \{ `status`: `"available"`; `transcriptRef`: `string`; `harness`: `string`; `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+
+The durable receipt on a settlement: a content-addressed pointer to a persisted
+[HarnessTranscriptArtifact](#harnesstranscriptartifact), or the exact reason there is none. A SIBLING of the tool-span
+`trace` receipt, never nested inside it — a dropped child has zero tool spans and an
+unavailable trace, and it is precisely the child whose transcript this exists to keep.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `status`: `"available"`; `transcriptRef`: `string`; `harness`: `string`; `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \}
+
+###### status
+
+> `readonly` **status**: `"available"`
+
+###### transcriptRef
+
+> `readonly` **transcriptRef**: `string`
+
+Content-addressed pointer to a persisted `HarnessTranscriptArtifact` in the run's blobs.
+
+###### harness
+
+> `readonly` **harness**: `string`
+
+###### fileCount
+
+> `readonly` **fileCount**: `number`
+
+###### totalBytes
+
+> `readonly` **totalBytes**: `number`
+
+###### skippedCount
+
+> `readonly` **skippedCount**: `number`
+
+Non-zero when some transcript was found but deliberately not carried.
+
+***
+
+[`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+
+***
+
 ### HarvestCorpusOptions
 
 > **HarvestCorpusOptions** = [`ObserveOptions`](#observeoptions) & `object`
@@ -26476,46 +26606,6 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 > **SuperviseOptionsForDispatch** = `Omit`\<[`SuperviseOptions`](#superviseoptions), `"signal"`\>
 
 `supervise` options minus Eval-owned cancellation.
-
-***
-
-### NativeSessionEvidence
-
-> **NativeSessionEvidence** = \{ `status`: `"available"`; `artifact`: [`NativeSessionArtifact`](#nativesessionartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"`; \}
-
-#### Union Members
-
-##### Type Literal
-
-\{ `status`: `"available"`; `artifact`: [`NativeSessionArtifact`](#nativesessionartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \}
-
-###### status
-
-> `readonly` **status**: `"available"`
-
-###### artifact
-
-> `readonly` **artifact**: [`NativeSessionArtifact`](#nativesessionartifact)
-
-###### fileCount
-
-> `readonly` **fileCount**: `number`
-
-###### totalBytes
-
-> `readonly` **totalBytes**: `number`
-
-###### skippedCount
-
-> `readonly` **skippedCount**: `number`
-
-Non-zero when some transcript was found but deliberately not carried.
-
-***
-
-##### Type Literal
-
-\{ `status`: `"unavailable"`; `reason`: `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"`; \}
 
 ***
 
@@ -27864,7 +27954,7 @@ Why Runtime cannot provide structured tool-call evidence for one settled executi
 
 ### WorkerTraceEvidence
 
-> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; `nativeSession?`: [`NativeSessionEvidence`](#nativesessionevidence); \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
+> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
 
 Durable proof of a worker's structured tool trace, or the exact reason it is unavailable.
 
@@ -27872,7 +27962,7 @@ Durable proof of a worker's structured tool trace, or the exact reason it is una
 
 ##### Type Literal
 
-\{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; `nativeSession?`: [`NativeSessionEvidence`](#nativesessionevidence); \}
+\{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \}
 
 ###### status
 
@@ -27887,18 +27977,6 @@ Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
 ###### spanCount
 
 > `readonly` **spanCount**: `number`
-
-###### nativeSession?
-
-> `readonly` `optional` **nativeSession?**: [`NativeSessionEvidence`](#nativesessionevidence)
-
-The child's OWN harness transcript, read out of its environment before destroy.
-
-`traceRef` above points at the supervisor's tool spans: toolName, args, status,
-callId, with startedAt === endedAt. It carries no assistant text, no reasoning and
-no tool results, so `status: 'available'` on this object never meant the child's
-session survived — it was destroyed with the environment. This says whether it did.
-Absent on a settlement recorded before the capture existed.
 
 ***
 
@@ -28350,7 +28428,7 @@ recovery before a replacement can run.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -28366,7 +28444,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -28404,6 +28482,16 @@ Provider model evidence for every inference attempt owned by this node.
 
 Structured tool evidence captured before this settlement was journaled.
 
+###### harnessTranscript?
+
+> `optional` **harnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+Whether the child's OWN harness transcript survived its environment, or why it did not.
+ A SIBLING of `trace`, not a field inside it: `trace` carries the supervisor's tool spans
+ (toolName, args, status, callId, startedAt === endedAt) and nothing the child said, and a
+ child with zero tool spans has an UNAVAILABLE trace — so a receipt nested inside the
+ available arm could never describe exactly the children that need it most (#1244).
+
 ###### budgetViolation?
 
 > `optional` **budgetViolation?**: [`BudgetViolation`](#budgetviolation-3)
@@ -28424,7 +28512,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -28457,6 +28545,15 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 Partial structured tool evidence captured before this failure was journaled.
 
+###### harnessTranscript?
+
+> `optional` **harnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+The child's own harness transcript, read out of its environment at the last moment it
+ was live, or the named reason it could not be. This is the path the capture existed
+ for and never covered: a dropped child produces no result artifact, so before #1244
+ its reasoning was destroyed with its box.
+
 ###### providerModel?
 
 > `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
@@ -28483,7 +28580,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\>; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\>; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -28719,7 +28816,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -28769,6 +28866,14 @@ journals written before this field existed remain replayable.
 > `optional` **trace?**: [`WorkerTraceEvidence`](#workertraceevidence)
 
 Structured tool evidence. Optional only for journals written before trace capture.
+
+###### harnessTranscript?
+
+> `optional` **harnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+Whether this child's harness transcript survived, or the named reason it did not.
+ Absent on journals written before the capture existed — which is not the same fact as
+ a recorded `unavailable`, and is why this stays optional rather than defaulting.
 
 ###### budgetViolation?
 
@@ -31055,6 +31160,56 @@ through an experimental symbol.
 #### Returns
 
 [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+***
+
+### persistHarnessTranscript()
+
+> **persistHarnessTranscript**(`capture`, `blobs`): `Promise`\<[`HarnessTranscriptEvidence`](#harnesstranscriptevidence)\>
+
+Persist a capture under its own content ref and return the receipt a settlement carries.
+
+The scope calls this, not the executor: storage stays out of every provider and destroy site,
+exactly as the tool-span trace is persisted by `captureWorkerTraceEvidence` and not by the
+source that collected it. A capture that is already unavailable passes through untouched.
+
+#### Parameters
+
+##### capture
+
+[`HarnessTranscriptCapture`](#harnesstranscriptcapture)
+
+##### blobs
+
+`Pick`\<[`ResultBlobStore`](#resultblobstore), `"put"`\>
+
+#### Returns
+
+`Promise`\<[`HarnessTranscriptEvidence`](#harnesstranscriptevidence)\>
+
+***
+
+### harnessTranscriptArtifact()
+
+> **harnessTranscriptArtifact**(`evidence`, `blobs`): `Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
+
+Rehydrate the exact persisted transcript a receipt points at, or `undefined` when the receipt
+says there is none. Throws only when the receipt claims a blob the store does not hold — that
+is corruption, not absence, and must not read as "no transcript".
+
+#### Parameters
+
+##### evidence
+
+[`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+##### blobs
+
+`Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+#### Returns
+
+`Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
 
 ***
 

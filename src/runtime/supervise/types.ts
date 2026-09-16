@@ -35,7 +35,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
-import type { HarnessTranscriptEvidence } from '../harness-transcript'
+import type { HarnessTranscriptCapture, HarnessTranscriptEvidence } from '../harness-transcript'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
@@ -247,9 +247,10 @@ export interface Executor<Out> {
    *
    * An executor with no transcript to offer omits the method entirely; the settle path then
    * records `executor-exposes-no-transcript` rather than an empty artifact that reads as
-   * coverage. Never throws.
+   * coverage. Never throws. Returns the in-memory capture; the SCOPE persists it under its own
+   * content ref and settles the receipt, so no executor ever learns about storage.
    */
-  harnessTranscript?(): HarnessTranscriptEvidence | undefined
+  harnessTranscript?(): HarnessTranscriptCapture | undefined
 }
 
 /** Why Runtime cannot provide structured tool-call evidence for one settled execution. */

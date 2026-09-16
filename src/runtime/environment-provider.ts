@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
-  captureHarnessTranscriptEvidence,
-  type HarnessTranscriptEvidence,
+  captureHarnessTranscript,
+  type HarnessTranscriptCapture,
   harnessTranscriptUnavailable,
 } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
@@ -477,15 +477,6 @@ export interface ProviderLeafOut {
   events: AgentEnvironmentEvent[]
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
-  /**
-   * The child's own harness transcript, read before the environment was destroyed.
-   *
-   * `events` above is the provider's stream and `trace` on the settlement is the supervisor's
-   * tool spans; neither carries the harness's session files, which used to die with the
-   * environment. Always present on the settled path: an environment that cannot be read says
-   * so with a `reason` rather than being silently absent. #1214.
-   */
-  harnessTranscript?: HarnessTranscriptEvidence
 }
 
 /**
@@ -661,7 +652,8 @@ function createProviderExecutor(
   // never had a box and keeps this seed, while a child whose box was created and then dropped
   // reports `capture-did-not-run`. Reporting the second as the first would file a child that
   // reasoned for twenty seconds as one that never ran — which is the #1240 population exactly.
-  let harnessTranscript: HarnessTranscriptEvidence = harnessTranscriptUnavailable('execution-never-started')
+  let harnessTranscript: HarnessTranscriptCapture =
+    harnessTranscriptUnavailable('execution-never-started')
   const retention = retainedExecutorContext(ctx)
   // The stream destroys the environment on settle by default, so a later `teardown` would issue a
   // SECOND delete against a resource that is already gone. That second call is what the provider
@@ -783,7 +775,7 @@ function createProviderExecutor(
         onArtifact: (next) => {
           artifact = next
         },
-        onNativeSession: (next) => {
+        onHarnessTranscript: (next) => {
           harnessTranscript = next
         },
         onDestroyed: () => {
@@ -913,7 +905,7 @@ function createProviderExecutor(
       return artifact
     },
     traceSource: (): TraceSource => trace.source,
-    harnessTranscript: (): HarnessTranscriptEvidence | undefined => harnessTranscript,
+    harnessTranscript: (): HarnessTranscriptCapture | undefined => harnessTranscript,
   }
   return attestRuntimeOwnedPendingExecutor(executor, runtime, plannedDeclaration, plannedBinding)
 }
@@ -946,7 +938,7 @@ interface StreamProviderExecutorArgs {
   onArtifact: (artifact: ExecutorResult<unknown>) => void
   /** The harness transcript read out of the live environment, reported on the settled path AND
    *  on the drop path. One channel for both, so a reader never has to know which path ran. */
-  onNativeSession: (evidence: HarnessTranscriptEvidence) => void
+  onHarnessTranscript: (capture: HarnessTranscriptCapture) => void
   /** The environment was destroyed here, so `teardown` must not DELETE it a second time — the
    *  double delete is what produced the 409 that used to fail a completed run. */
   onDestroyed: () => void
@@ -1085,20 +1077,19 @@ async function* streamProviderExecutor(
     //
     // It rides inside the settled result, so supervise blobs it under this child's outRef in
     // its own ResultBlobStore and replay rehydrates it. No destroy site learns about storage.
-    const harnessTranscript = await captureHarnessTranscriptEvidence(
-      environment as Parameters<typeof captureHarnessTranscriptEvidence>[0],
+    const harnessTranscript = await captureHarnessTranscript(
+      environment as Parameters<typeof captureHarnessTranscript>[0],
       args.profile.harness,
       // The run's linked abort, so a cancelled run stops mid-enumeration instead of reading
       // up to MAX_FILES out of an environment that is already being torn down.
       linked,
     )
-    // Same evidence, two readers: it rides inside the result for the settled path (replay
-    // rehydrates it with the blob), and it is reported to the executor so the scope can put it
-    // on the settlement record whether this turn settles or drops.
-    args.onNativeSession(harnessTranscript)
+    // Reported to the executor, NOT spliced into the result. The scope persists it under its
+    // own content ref and settles a receipt, so the result blob every replay rehydrates never
+    // carries the files, and the one channel serves the settled path and the drop path alike.
+    args.onHarnessTranscript(harnessTranscript)
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...resultFromEvents(archive.events(), text),
-      harnessTranscript,
       ...(archive.superseded > 0 ? { supersededPartUpdates: archive.superseded } : {}),
       ...(explicitFailure ? { outcome: outcomeTracker.finish() } : {}),
     }
@@ -1155,9 +1146,9 @@ async function* streamProviderExecutor(
     // `linked` is already aborted when the drop was a cancellation; the capture then names
     // every remaining path `aborted` rather than making doomed reads into a dying box.
     // It never throws, so this cannot convert a stream failure into a teardown failure.
-    args.onNativeSession(
-      await captureHarnessTranscriptEvidence(
-        environment as Parameters<typeof captureHarnessTranscriptEvidence>[0],
+    args.onHarnessTranscript(
+      await captureHarnessTranscript(
+        environment as Parameters<typeof captureHarnessTranscript>[0],
         args.profile.harness,
         linked,
       ),

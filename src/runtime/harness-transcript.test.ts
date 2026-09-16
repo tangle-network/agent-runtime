@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { captureHarnessTranscriptEvidence } from './harness-transcript'
+import { captureHarnessTranscript } from './harness-transcript'
 
 function environment(files: Record<string, string>, opts: { read?: boolean; exec?: boolean } = {}) {
   const listing = Object.keys(files).join('\n')
@@ -18,17 +18,17 @@ function environment(files: Record<string, string>, opts: { read?: boolean; exec
   }
 }
 
-describe('captureHarnessTranscriptEvidence', () => {
+describe('captureHarnessTranscript', () => {
   it('carries the assistant text the tool-span receipt never had', async () => {
-    const evidence = await captureHarnessTranscriptEvidence(
+    const evidence = await captureHarnessTranscript(
       environment({
         '/root/.claude/projects/a/session.jsonl': '{"role":"assistant","text":"the answer"}',
         '/root/.claude/history.jsonl': '{"prompt":"the question"}',
       }),
       'claude-code',
     )
-    expect(evidence.status).toBe('available')
-    if (evidence.status !== 'available') return
+    expect(evidence.status).toBe('captured')
+    if (evidence.status !== 'captured') return
     expect(evidence.fileCount).toBe(2)
     expect(evidence.skippedCount).toBe(0)
     // Inline in the artifact the executor settles with; supervise blobs it under the outRef.
@@ -37,7 +37,7 @@ describe('captureHarnessTranscriptEvidence', () => {
 
   it('never reads a credential that sits inside a session tree', async () => {
     const reads: string[] = []
-    const evidence = await captureHarnessTranscriptEvidence(
+    const evidence = await captureHarnessTranscript(
       {
         exec: async () => ({
           stdout: ['/root/.codex/sessions/rollout.jsonl', '/root/.codex/sessions/auth.json'].join(
@@ -52,8 +52,8 @@ describe('captureHarnessTranscriptEvidence', () => {
       },
       'codex',
     )
-    expect(evidence.status).toBe('available')
-    if (evidence.status !== 'available') return
+    expect(evidence.status).toBe('captured')
+    if (evidence.status !== 'captured') return
     expect(evidence.fileCount).toBe(1)
     expect(evidence.skippedCount).toBe(1)
     // The assertion that matters: the read never happened, not merely that it is absent.
@@ -62,20 +62,20 @@ describe('captureHarnessTranscriptEvidence', () => {
 
   it('reports a missing capability instead of an empty artifact that reads as coverage', async () => {
     // agent-provider-tangle gates read behind capabilities.workspace.read && box.read.
-    expect(await captureHarnessTranscriptEvidence(environment({}, { read: false }), 'codex')).toEqual({
+    expect(await captureHarnessTranscript(environment({}, { read: false }), 'codex')).toEqual({
       status: 'unavailable',
       reason: 'unsupported-environment',
     })
     // read takes one path and offers no listing, so enumeration needs exec.
-    expect(await captureHarnessTranscriptEvidence(environment({}, { exec: false }), 'codex')).toEqual({
+    expect(await captureHarnessTranscript(environment({}, { exec: false }), 'codex')).toEqual({
       status: 'unavailable',
       reason: 'enumeration-failed',
     })
-    expect(await captureHarnessTranscriptEvidence(environment({}), 'no-such-harness')).toEqual({
+    expect(await captureHarnessTranscript(environment({}), 'no-such-harness')).toEqual({
       status: 'unavailable',
       reason: 'unknown-harness',
     })
-    expect(await captureHarnessTranscriptEvidence(environment({}), 'codex')).toEqual({
+    expect(await captureHarnessTranscript(environment({}), 'codex')).toEqual({
       status: 'unavailable',
       reason: 'no-transcript',
     })
@@ -83,11 +83,11 @@ describe('captureHarnessTranscriptEvidence', () => {
 
   it('produces an identical artifact for an identical transcript', async () => {
     const files = { '/root/.codex/sessions/r.jsonl': '{"a":1}' }
-    const first = await captureHarnessTranscriptEvidence(environment(files), 'codex')
-    const second = await captureHarnessTranscriptEvidence(environment(files), 'codex')
-    expect(first.status).toBe('available')
-    expect(second.status).toBe('available')
-    if (first.status !== 'available' || second.status !== 'available') return
+    const first = await captureHarnessTranscript(environment(files), 'codex')
+    const second = await captureHarnessTranscript(environment(files), 'codex')
+    expect(first.status).toBe('captured')
+    expect(second.status).toBe('captured')
+    if (first.status !== 'captured' || second.status !== 'captured') return
     // Keeps supervise's contentRef over the settled result stable across a re-capture.
     expect(first.artifact).toEqual(second.artifact)
   })
@@ -97,7 +97,7 @@ describe('captureHarnessTranscriptEvidence', () => {
     // MAX_FILES out of an environment the `finally` was already tearing down.
     const controller = new AbortController()
     const reads: string[] = []
-    const evidence = await captureHarnessTranscriptEvidence(
+    const evidence = await captureHarnessTranscript(
       {
         exec: async () => ({
           stdout: Array.from({ length: 50 }, (_, i) => `/root/.codex/sessions/r${i}.jsonl`).join(
@@ -116,8 +116,8 @@ describe('captureHarnessTranscriptEvidence', () => {
       controller.signal,
     )
     expect(reads.length).toBe(3)
-    expect(evidence.status).toBe('available')
-    if (evidence.status !== 'available') return
+    expect(evidence.status).toBe('captured')
+    if (evidence.status !== 'captured') return
     // The reads that never happened are named, not silently missing.
     expect(evidence.skippedCount).toBe(47)
   })
@@ -131,7 +131,7 @@ describe('captureHarnessTranscriptEvidence', () => {
       '/root/.codex/sessions/bundle.p12',
       '/root/.codex/sessions/AUTH.JSON',
     ]
-    await captureHarnessTranscriptEvidence(
+    await captureHarnessTranscript(
       {
         exec: async () => ({
           stdout: ['/root/.codex/sessions/r.jsonl', ...denied].join('\n'),

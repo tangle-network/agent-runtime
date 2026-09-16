@@ -2089,8 +2089,8 @@ describe('environment provider adapters', () => {
 
     // The executor threw and produced NO artifact, yet the reasoning survived.
     const evidence = executor.harnessTranscript?.()
-    expect(evidence?.status).toBe('available')
-    if (evidence?.status !== 'available') return
+    expect(evidence?.status).toBe('captured')
+    if (evidence?.status !== 'captured') return
     expect(evidence.artifact.files.map((file) => file.content).join('')).toContain(
       'I proved the corner case',
     )

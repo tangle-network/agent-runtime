@@ -29,6 +29,10 @@
  * credential file inside a session directory. The helper never reads `auth.json`,
  * `.credentials.json`, `credentials`, or a dotenv file.
  */
+import { contentAddress } from '../durable/content-address'
+import { ValidationError } from '../errors'
+import type { ResultBlobStore } from './supervise/types'
+
 /** Where each harness keeps the session files that hold the conversation. */
 const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'claude-code': Object.freeze(['.claude/projects', '.claude/history.jsonl', '.claude/todos']),
@@ -48,9 +52,15 @@ const DENY =
   /(^|\/)(auth\.json|\.credentials\.json|credentials|\.netrc|\.env(\..*)?|secrets?(\.|$)|.*\.(pem|key|p12|pfx)|id_[a-z0-9_]+)$/iu
 
 /**
- * Bounds per file and in total. These are deliberately modest: the artifact rides inside the
- * settled result that supervise blobs under one `outRef`, so an unbounded transcript would
- * bloat every replay of that child, not just the capture.
+ * Bounds per file and in total, PER CHILD. They multiply by fleet width, and the next person
+ * sizing a fleet must find that here: a 132-child pursuit (mech-interp-foundations-astra-20260911f,
+ * the widest retained on one operator host) at the ceiling is 132 x 16 MiB = 2.1 GiB of transcript
+ * for one run (#1248).
+ *
+ * That figure is a DISK number, not a replay number. The artifact is persisted under its own
+ * content ref in the `ResultBlobStore` and the settlement carries only the receipt, so replay and
+ * resume rehydrate a ref, never the files; nothing pays for a transcript until someone opens it.
+ * The bound is enforced exactly, after each read, so a child settles at or under MAX_TOTAL_BYTES.
  */
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_BYTES = 16 * 1024 * 1024
@@ -72,37 +82,71 @@ export interface HarnessTranscriptArtifact {
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
 }
 
-export type HarnessTranscriptEvidence =
+/** Why no transcript reached a record, from either the capture or the settle path. */
+export type HarnessTranscriptUnavailableReason =
+  | 'unsupported-environment'
+  | 'unknown-harness'
+  | 'no-transcript'
+  | 'enumeration-failed'
+  /** No environment was ever created for this child, so there is no transcript and never
+   *  was one. The admission refusal of #1240 is the measured case: a budget pool that
+   *  refuses an unknown dollar cost kills the child before it runs. Distinct from
+   *  `unsupported-environment`, which means a box existed and could not be read. */
+  | 'execution-never-started'
+  /** An environment WAS created and the child ran, but the capture never executed — the
+   *  deadline/abort path closes the stream with `iterator.return()`, which runs the
+   *  generator's `finally` and skips its `catch`. Says only what is known: this child had a
+   *  transcript and nobody read it. Never collapse it into `execution-never-started`; that
+   *  would report a child that reasoned for twenty seconds as one that never ran. */
+  | 'capture-did-not-run'
+  /** This executor has no native transcript to offer at all — a CLI or in-process child
+   *  rather than a sandbox one. An absence by construction, never a failure. */
+  | 'executor-exposes-no-transcript'
+  /** The capture succeeded and the blob write did not. The transcript existed in memory and
+   *  never reached disk; mirrors `trace-persistence-failed` on the tool-span receipt. */
+  | 'transcript-persistence-failed'
+
+export interface HarnessTranscriptUnavailable {
+  readonly status: 'unavailable'
+  readonly reason: HarnessTranscriptUnavailableReason
+}
+
+/**
+ * What the executor holds in memory between the read and the settle: the files, inline.
+ *
+ * Never journaled and never inside a result blob. The scope persists it under its own content
+ * ref and records the {@link HarnessTranscriptEvidence} receipt instead, so the settlement stays
+ * small and a replay pays nothing for a transcript nobody opens.
+ */
+export type HarnessTranscriptCapture =
   | {
-      readonly status: 'available'
+      readonly status: 'captured'
       readonly artifact: HarnessTranscriptArtifact
       readonly fileCount: number
       readonly totalBytes: number
       /** Non-zero when some transcript was found but deliberately not carried. */
       readonly skippedCount: number
     }
+  | HarnessTranscriptUnavailable
+
+/**
+ * The durable receipt on a settlement: a content-addressed pointer to a persisted
+ * {@link HarnessTranscriptArtifact}, or the exact reason there is none. A SIBLING of the tool-span
+ * `trace` receipt, never nested inside it — a dropped child has zero tool spans and an
+ * unavailable trace, and it is precisely the child whose transcript this exists to keep.
+ */
+export type HarnessTranscriptEvidence =
   | {
-      readonly status: 'unavailable'
-      readonly reason:
-        | 'unsupported-environment'
-        | 'unknown-harness'
-        | 'no-transcript'
-        | 'enumeration-failed'
-        /** No environment was ever created for this child, so there is no transcript and never
-         *  was one. The admission refusal of #1240 is the measured case: a budget pool that
-         *  refuses an unknown dollar cost kills the child before it runs. Distinct from
-         *  `unsupported-environment`, which means a box existed and could not be read. */
-        | 'execution-never-started'
-        /** An environment WAS created and the child ran, but the capture never executed — the
-         *  deadline/abort path closes the stream with `iterator.return()`, which runs the
-         *  generator's `finally` and skips its `catch`. Says only what is known: this child had a
-         *  transcript and nobody read it. Never collapse it into `execution-never-started`; that
-         *  would report a child that reasoned for twenty seconds as one that never ran. */
-        | 'capture-did-not-run'
-        /** This executor has no native transcript to offer at all — a CLI or in-process child
-         *  rather than a sandbox one. An absence by construction, never a failure. */
-        | 'executor-exposes-no-transcript'
+      readonly status: 'available'
+      /** Content-addressed pointer to a persisted `HarnessTranscriptArtifact` in the run's blobs. */
+      readonly transcriptRef: string
+      readonly harness: string
+      readonly fileCount: number
+      readonly totalBytes: number
+      /** Non-zero when some transcript was found but deliberately not carried. */
+      readonly skippedCount: number
     }
+  | HarnessTranscriptUnavailable
 
 interface ReadableEnvironment {
   readonly read?: (path: string, options?: { readonly signal?: AbortSignal }) => Promise<string>
@@ -112,12 +156,7 @@ interface ReadableEnvironment {
   ) => Promise<{ readonly stdout?: string; readonly exitCode?: number }>
 }
 
-type HarnessTranscriptUnavailableReason = Extract<
-  HarnessTranscriptEvidence,
-  { status: 'unavailable' }
->['reason']
-
-function unavailable(reason: HarnessTranscriptUnavailableReason): HarnessTranscriptEvidence {
+function unavailable(reason: HarnessTranscriptUnavailableReason): HarnessTranscriptUnavailable {
   return Object.freeze({ status: 'unavailable', reason })
 }
 
@@ -126,7 +165,7 @@ function unavailable(reason: HarnessTranscriptUnavailableReason): HarnessTranscr
  *  a child that never started), which the capture itself never sees. */
 export function harnessTranscriptUnavailable(
   reason: HarnessTranscriptUnavailableReason,
-): HarnessTranscriptEvidence {
+): HarnessTranscriptUnavailable {
   return unavailable(reason)
 }
 
@@ -163,11 +202,11 @@ async function enumerate(
  * must not fail because evidence could not be collected, and every failure mode is a named
  * `reason` the settled receipt carries instead of an empty artifact that reads as coverage.
  */
-export async function captureHarnessTranscriptEvidence(
+export async function captureHarnessTranscript(
   environment: ReadableEnvironment | undefined,
   harness: string | undefined,
   signal?: AbortSignal,
-): Promise<HarnessTranscriptEvidence> {
+): Promise<HarnessTranscriptCapture> {
   if (!environment?.read) return unavailable('unsupported-environment')
   // Narrow `harness` before use: the roots lookup alone does not, and an artifact must
   // name the harness it came from.
@@ -205,6 +244,12 @@ export async function captureHarnessTranscriptEvidence(
         skipped.push({ path, reason: 'file-exceeds-byte-bound' })
         continue
       }
+      // Checked AFTER the read so the ceiling is exact. A pre-read check let one child land at
+      // MAX_TOTAL_BYTES plus one more file, about 18 MB against a stated 16 (#1248).
+      if (total + bytes > MAX_TOTAL_BYTES) {
+        skipped.push({ path, reason: 'total-byte-budget-exhausted' })
+        continue
+      }
       files.push(Object.freeze({ path, bytes, content }))
       total += bytes
     } catch {
@@ -220,10 +265,68 @@ export async function captureHarnessTranscriptEvidence(
     skipped: Object.freeze(skipped),
   })
   return Object.freeze({
-    status: 'available',
+    status: 'captured',
     artifact,
     fileCount: files.length,
     totalBytes: total,
     skippedCount: skipped.length,
   })
+}
+
+/**
+ * Persist a capture under its own content ref and return the receipt a settlement carries.
+ *
+ * The scope calls this, not the executor: storage stays out of every provider and destroy site,
+ * exactly as the tool-span trace is persisted by `captureWorkerTraceEvidence` and not by the
+ * source that collected it. A capture that is already unavailable passes through untouched.
+ */
+export async function persistHarnessTranscript(
+  capture: HarnessTranscriptCapture,
+  blobs: Pick<ResultBlobStore, 'put'>,
+): Promise<HarnessTranscriptEvidence> {
+  if (capture.status !== 'captured') return capture
+  const transcriptRef = contentAddress(capture.artifact)
+  try {
+    await blobs.put(transcriptRef, capture.artifact)
+  } catch {
+    return unavailable('transcript-persistence-failed')
+  }
+  return Object.freeze({
+    status: 'available',
+    transcriptRef,
+    harness: capture.artifact.harness,
+    fileCount: capture.fileCount,
+    totalBytes: capture.totalBytes,
+    skippedCount: capture.skippedCount,
+  })
+}
+
+/**
+ * Rehydrate the exact persisted transcript a receipt points at, or `undefined` when the receipt
+ * says there is none. Throws only when the receipt claims a blob the store does not hold — that
+ * is corruption, not absence, and must not read as "no transcript".
+ */
+export async function harnessTranscriptArtifact(
+  evidence: HarnessTranscriptEvidence,
+  blobs: Pick<ResultBlobStore, 'get'>,
+): Promise<HarnessTranscriptArtifact | undefined> {
+  if (evidence.status !== 'available') return undefined
+  const raw = await blobs.get(evidence.transcriptRef)
+  if (!isHarnessTranscriptArtifact(raw)) {
+    throw new ValidationError(
+      `harnessTranscriptArtifact: blob store has no transcript artifact for '${evidence.transcriptRef}'`,
+    )
+  }
+  return raw
+}
+
+function isHarnessTranscriptArtifact(value: unknown): value is HarnessTranscriptArtifact {
+  if (value === null || typeof value !== 'object') return false
+  const artifact = value as Partial<HarnessTranscriptArtifact>
+  return (
+    artifact.schemaVersion === HARNESS_TRANSCRIPT_SCHEMA_VERSION &&
+    typeof artifact.harness === 'string' &&
+    Array.isArray(artifact.files) &&
+    Array.isArray(artifact.skipped)
+  )
 }

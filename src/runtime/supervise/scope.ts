@@ -30,13 +30,15 @@ import {
   type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import {
-  type HarnessTranscriptEvidence,
-  harnessTranscriptUnavailable,
-} from '../harness-transcript'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
+import {
+  type HarnessTranscriptCapture,
+  type HarnessTranscriptEvidence,
+  harnessTranscriptUnavailable,
+  persistHarnessTranscript,
+} from '../harness-transcript'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
@@ -2596,7 +2598,9 @@ async function finalizeSettlement<Out>(
         ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
         ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
         trace: settlement.trace,
-        ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+        ...(settlement.harnessTranscript
+          ? { harnessTranscript: settlement.harnessTranscript }
+          : {}),
         seq,
         at,
       })
@@ -2882,6 +2886,14 @@ async function runChild<C>(
     traceEvidence ??= await captureWorkerTraceEvidence(live.readTraceSource, blobs, started)
     return traceEvidence
   }
+  // Same shape as the trace: read from the executor once per settle exit, persisted under its
+  // own content ref, and only the receipt travels on the record. Every arm below, done and
+  // down alike, carries it — the arms that lose it are the failure arms (#1244).
+  let transcriptEvidence: HarnessTranscriptEvidence | undefined
+  const persistTranscriptOnce = async (): Promise<HarnessTranscriptEvidence> => {
+    transcriptEvidence ??= await persistHarnessTranscript(readHarnessTranscript(executor), blobs)
+    return transcriptEvidence
+  }
   const teardownOnce = async (grace: number | 'brutalKill' | 'infinity'): Promise<void> => {
     if (teardownStarted) return
     teardownStarted = true
@@ -3003,9 +3015,7 @@ async function runChild<C>(
     // (done, aborted, crash) so the journal always matches what the pool already debited.
     const ownMetered = executor.metered?.()
     const trace = await captureTraceOnce()
-    // Read once per settle exit and carried on EVERY arm below, done and down alike: the
-    // transcript is the child's own reasoning, and the arms that lose it are the failure arms.
-    const childNativeSession = readNativeSession(executor)
+    const childHarnessTranscript = await persistTranscriptOnce()
 
     if (childAbort.signal.aborted && live.acceptedResult === undefined) {
       await teardownOnce(opts.shutdown ?? 'brutalKill')
@@ -3016,7 +3026,7 @@ async function runChild<C>(
         ownMetered,
         runtimeOwnedExecutorProviderEvidence(executor),
         retainedOutputRef,
-        childNativeSession,
+        childHarnessTranscript,
       )
     }
 
@@ -3033,7 +3043,7 @@ async function runChild<C>(
           ownMetered,
           runtimeOwnedExecutorProviderEvidence(executor),
           undefined,
-          childNativeSession,
+          childHarnessTranscript,
         ),
         outRef,
       }
@@ -3046,7 +3056,7 @@ async function runChild<C>(
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
       trace,
-      harnessTranscript: childNativeSession,
+      harnessTranscript: childHarnessTranscript,
       providerModel: runtimeOwnedExecutorProviderEvidence(executor),
       ...(ownMetered ? { metered: ownMetered } : {}),
     }
@@ -3083,7 +3093,7 @@ async function runChild<C>(
               metered,
               runtimeOwnedExecutorProviderEvidence(executor),
               undefined,
-              readNativeSession(executor),
+              await persistTranscriptOnce(),
             ),
             outRef: accepted.outRef,
           }
@@ -3095,7 +3105,7 @@ async function runChild<C>(
           ...(accepted.verdict ? { verdict: accepted.verdict } : {}),
           spent: live.spent,
           trace,
-          harnessTranscript: readNativeSession(executor),
+          harnessTranscript: await persistTranscriptOnce(),
           providerModel: runtimeOwnedExecutorProviderEvidence(executor),
           ...(metered ? { metered } : {}),
         }
@@ -3153,7 +3163,7 @@ async function runChild<C>(
           retainedOutputRef,
           // The #1244 population exactly: 45 of these in one evening, each of which executed and
           // reasoned and left no artifact. This is the only record their transcript can reach.
-          readNativeSession(executor),
+          await persistTranscriptOnce(),
         ),
         reconciled: live.spent,
       }
@@ -3207,7 +3217,7 @@ async function runChild<C>(
       executor.metered?.(),
       providerModel,
       retainedOutputRef,
-      readNativeSession(executor),
+      await persistTranscriptOnce(),
     )
   } finally {
     await closeRetainedWrites()
@@ -3597,7 +3607,9 @@ function downRecord(
  *
  * Mirrors `readInteractiveSession` above: an absence is always a named reason, never `undefined`.
  */
-function readNativeSession(executor: { harnessTranscript?: () => unknown }): HarnessTranscriptEvidence {
+function readHarnessTranscript(executor: {
+  harnessTranscript?: () => unknown
+}): HarnessTranscriptCapture {
   if (!executor.harnessTranscript) {
     return harnessTranscriptUnavailable('executor-exposes-no-transcript')
   }
@@ -3608,9 +3620,9 @@ function readNativeSession(executor: { harnessTranscript?: () => unknown }): Har
     return harnessTranscriptUnavailable('executor-exposes-no-transcript')
   }
   if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
-  const evidence = reported as HarnessTranscriptEvidence
-  if (evidence.status === 'available' && evidence.artifact) return evidence
-  if (evidence.status === 'unavailable' && evidence.reason) return evidence
+  const capture = reported as HarnessTranscriptCapture
+  if (capture.status === 'captured' && capture.artifact) return capture
+  if (capture.status === 'unavailable' && capture.reason) return capture
   return harnessTranscriptUnavailable('executor-exposes-no-transcript')
 }
 
