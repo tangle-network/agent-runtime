@@ -33,6 +33,12 @@ import {
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
+import {
+  type HarnessTranscriptCapture,
+  type HarnessTranscriptEvidence,
+  harnessTranscriptUnavailable,
+  persistHarnessTranscript,
+} from '../harness-transcript'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
@@ -427,6 +433,9 @@ type PreSeqSettled =
       spent: Spend
       providerModel?: import('./types').ProviderModelExecutionEvidence
       trace: WorkerTraceEvidence
+      /** Whether the child's own harness transcript survived its environment. Sibling of `trace`;
+       *  see the `Settled` doc for why it cannot live inside the trace receipt. */
+      harnessTranscript?: HarnessTranscriptEvidence
       /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled as a
        *  `metered` event for this node, NOT reconciled (already debited live via `observe`). */
       metered?: Spend
@@ -437,6 +446,9 @@ type PreSeqSettled =
       infra: boolean
       outRef?: string
       trace: WorkerTraceEvidence
+      /** The dropped child's own harness transcript, or the named reason it is absent. The whole
+       *  point of #1244: this path has no result artifact for a capture to ride in. */
+      harnessTranscript?: HarnessTranscriptEvidence
       providerModel?: import('./types').ProviderModelExecutionEvidence
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
        *  too, so the journal matches the pool (which already debited it via `observe`). */
@@ -1369,6 +1381,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               s.metered,
               s.providerModel,
               s.outRef,
+              // Re-wrapping a record the child already settled: its transcript receipt is
+              // established evidence and a persistence failure here does not unmake it.
+              s.harnessTranscript,
             )
           }
           live.resolved = resolution
@@ -2486,9 +2501,17 @@ async function appendReconciledFloor(
   id: NodeId,
   spent: Spend,
   at: string,
+  harnessTranscript?: HarnessTranscriptEvidence,
 ): Promise<void> {
   const seq = await nextPerNodeSeq(journal, root, 'reconciled', id)
-  await appendAcknowledged(journal, root, { kind: 'reconciled', id, spent, seq, at })
+  await appendAcknowledged(journal, root, {
+    kind: 'reconciled',
+    id,
+    spent,
+    ...(harnessTranscript ? { harnessTranscript } : {}),
+    seq,
+    at,
+  })
 }
 
 /** A release receipt has the same per-child sequence discipline: outside the cursor namespace and
@@ -2587,6 +2610,9 @@ async function finalizeSettlement<Out>(
         ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
         ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
         trace: settlement.trace,
+        ...(settlement.harnessTranscript
+          ? { harnessTranscript: settlement.harnessTranscript }
+          : {}),
         seq,
         at,
       })
@@ -2597,7 +2623,14 @@ async function finalizeSettlement<Out>(
     // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
     // place, outside the cursor namespace, so the slot stays open and the ledgers agree.
     else if (settlement.reconciled !== undefined)
-      await appendReconciledFloor(args.journal, args.root, child.id, settlement.reconciled, at)
+      await appendReconciledFloor(
+        args.journal,
+        args.root,
+        child.id,
+        settlement.reconciled,
+        at,
+        settlement.harnessTranscript,
+      )
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -2629,6 +2662,7 @@ async function finalizeSettlement<Out>(
       ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
       ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
       trace: settlement.trace,
+      ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
       settledAt,
       seq,
     }
@@ -2649,6 +2683,7 @@ async function finalizeSettlement<Out>(
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
     ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
     trace: settlement.trace,
+    ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
     seq,
     at,
   })
@@ -2684,6 +2719,7 @@ async function finalizeSettlement<Out>(
     ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
     ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
     trace: settlement.trace,
+    ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
     settledAt,
     seq,
   }
@@ -2869,6 +2905,14 @@ async function runChild<C>(
     traceEvidence ??= await captureWorkerTraceEvidence(live.readTraceSource, blobs, started)
     return traceEvidence
   }
+  // Same shape as the trace: read from the executor once per settle exit, persisted under its
+  // own content ref, and only the receipt travels on the record. Every arm below, done and
+  // down alike, carries it — the arms that lose it are the failure arms (#1244).
+  let transcriptEvidence: HarnessTranscriptEvidence | undefined
+  const persistTranscriptOnce = async (): Promise<HarnessTranscriptEvidence> => {
+    transcriptEvidence ??= await persistHarnessTranscript(readHarnessTranscript(executor), blobs)
+    return transcriptEvidence
+  }
   const teardownOnce = async (grace: number | 'brutalKill' | 'infinity'): Promise<void> => {
     if (teardownStarted) return
     teardownStarted = true
@@ -2990,6 +3034,7 @@ async function runChild<C>(
     // (done, aborted, crash) so the journal always matches what the pool already debited.
     const ownMetered = executor.metered?.()
     const trace = await captureTraceOnce()
+    const childHarnessTranscript = await persistTranscriptOnce()
 
     if (childAbort.signal.aborted && live.acceptedResult === undefined) {
       await teardownOnce(opts.shutdown ?? 'brutalKill')
@@ -3000,6 +3045,7 @@ async function runChild<C>(
         ownMetered,
         runtimeOwnedExecutorProviderEvidence(executor),
         retainedOutputRef,
+        childHarnessTranscript,
       )
     }
 
@@ -3015,6 +3061,8 @@ async function runChild<C>(
           trace,
           ownMetered,
           runtimeOwnedExecutorProviderEvidence(executor),
+          undefined,
+          childHarnessTranscript,
         ),
         outRef,
       }
@@ -3027,6 +3075,7 @@ async function runChild<C>(
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
       trace,
+      harnessTranscript: childHarnessTranscript,
       providerModel: runtimeOwnedExecutorProviderEvidence(executor),
       ...(ownMetered ? { metered: ownMetered } : {}),
     }
@@ -3062,6 +3111,8 @@ async function runChild<C>(
               trace,
               metered,
               runtimeOwnedExecutorProviderEvidence(executor),
+              undefined,
+              await persistTranscriptOnce(),
             ),
             outRef: accepted.outRef,
           }
@@ -3073,6 +3124,7 @@ async function runChild<C>(
           ...(accepted.verdict ? { verdict: accepted.verdict } : {}),
           spent: live.spent,
           trace,
+          harnessTranscript: await persistTranscriptOnce(),
           providerModel: runtimeOwnedExecutorProviderEvidence(executor),
           ...(metered ? { metered } : {}),
         }
@@ -3128,6 +3180,9 @@ async function runChild<C>(
           executor.metered?.(),
           undefined,
           retainedOutputRef,
+          // The #1244 population exactly: 45 of these in one evening, each of which executed and
+          // reasoned and left no artifact. This is the only record their transcript can reach.
+          await persistTranscriptOnce(),
         ),
         reconciled: live.spent,
       }
@@ -3181,6 +3236,7 @@ async function runChild<C>(
       executor.metered?.(),
       providerModel,
       retainedOutputRef,
+      await persistTranscriptOnce(),
     )
   } finally {
     await closeRetainedWrites()
@@ -3541,16 +3597,52 @@ function downRecord(
   metered?: Spend,
   providerModel?: import('./types').ProviderModelExecutionEvidence,
   outRef?: string,
+  harnessTranscript?: HarnessTranscriptEvidence,
 ): Extract<PreSeqSettled, { kind: 'down' }> {
   return {
     kind: 'down',
     reason,
     infra,
     trace,
+    ...(harnessTranscript ? { harnessTranscript } : {}),
     ...(providerModel ? { providerModel } : {}),
     ...(metered ? { metered } : {}),
     ...(outRef === undefined ? {} : { outRef }),
   }
+}
+
+/**
+ * Read one executor's harness-transcript receipt without letting a broken port escape.
+ *
+ * The three answers this has to keep apart, because #1214 and #1244 are both about an artifact
+ * that reads as coverage without being coverage:
+ *   - `available`                              the transcript survived;
+ *   - a reason the CAPTURE produced            a box existed and could not be read;
+ *   - `executor-exposes-no-transcript`     this runtime has no transcript to offer at all;
+ *   - `execution-never-started`                no environment was ever created (the executor's
+ *                                              own seed, set before `create`);
+ *   - `capture-did-not-run`                    the port answered nothing, so the capture was
+ *                                              skipped rather than attempted and failed.
+ *
+ * Mirrors `readInteractiveSession` above: an absence is always a named reason, never `undefined`.
+ */
+function readHarnessTranscript(executor: {
+  harnessTranscript?: () => unknown
+}): HarnessTranscriptCapture {
+  if (!executor.harnessTranscript) {
+    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+  }
+  let reported: unknown
+  try {
+    reported = executor.harnessTranscript()
+  } catch {
+    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+  }
+  if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
+  const capture = reported as HarnessTranscriptCapture
+  if (capture.status === 'captured' && capture.artifact) return capture
+  if (capture.status === 'unavailable' && capture.reason) return capture
+  return harnessTranscriptUnavailable('executor-exposes-no-transcript')
 }
 
 /** The one place an absent interactive process is spelled, so every refusal reads the same. */

@@ -1163,6 +1163,9 @@ export async function replaySpawnTree(
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
         ...budgetViolationOf(ev),
         trace,
+        // A field the journal holds and replay drops is the #1214 bug again: a reader of the
+        // replayed tree would see no transcript where the record says there is one.
+        ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1194,6 +1197,7 @@ export async function replaySpawnTree(
         : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
       ...budgetViolationOf(ev),
       trace,
+      ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
       ...settlementTime(ev.at),
       seq: ev.seq,
     })

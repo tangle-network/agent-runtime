@@ -19,6 +19,7 @@ import {
   contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  replaySpawnTree,
 } from '../durable/spawn-journal'
 import {
   type AgentEnvironment,
@@ -33,6 +34,7 @@ import {
   providerAsSandboxClient,
   sandboxClientAsProvider,
 } from './environment-provider'
+import { harnessTranscriptArtifact } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 import { retainedCreateMaterial } from './retained-run-intent'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
@@ -2048,6 +2050,171 @@ describe('environment provider adapters', () => {
       usdKnown: false,
       // `usd - usdEstimated` is what names billed money, so the settlement reports none.
       usdEstimated: 0.03,
+    })
+  })
+
+  // #1244. The capture PR (#1243) reads the transcript just before the settled result is built,
+  // so a child whose stream throws never reaches it and its reasoning dies with the box. Measured
+  // 2026-09-15: 45 children in one evening executed, reasoned, and settled `down` with nothing.
+  it('keeps a dropped child transcript that has no result artifact to ride in', async () => {
+    const transcript = '{"role":"assistant","text":"I proved the corner case"}'
+    const provider: AgentEnvironmentProvider = {
+      name: 'dropping-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          exec: async () => ({
+            stdout: '/root/.claude/projects/a/session.jsonl',
+            stderr: '',
+            exitCode: 0,
+          }),
+          read: async () => transcript,
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'message.part.updated', data: { delta: 'working' } }
+            // A platform 502 mid-stream: the exact shape that dropped 38 of 68 children on
+            // capability-per-parameter-cpp-glm-20260915c.
+            throw new Error('Platform key verification unavailable')
+          },
+        }) as AgentEnvironment
+      },
+    }
+    const spec: AgentSpec = {
+      profile: { name: 'worker', harness: 'claude-code' } as AgentProfile,
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = providerAsExecutor(provider)(spec, ctx)
+
+    await expect(
+      collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>),
+    ).rejects.toThrow(/Platform key verification unavailable/u)
+
+    // The executor threw and produced NO artifact, yet the reasoning survived.
+    const evidence = executor.harnessTranscript?.()
+    expect(evidence?.status).toBe('captured')
+    if (evidence?.status !== 'captured') return
+    expect(evidence.artifact.files.map((file) => file.content).join('')).toContain(
+      'I proved the corner case',
+    )
+  })
+
+  // The two absences are different facts and an operator acts differently on each: a child that
+  // never got a box has nothing to recover, a child that ran for twenty seconds does.
+  it('separates a child that never started from one whose transcript went unread', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'refusing-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        throw new Error('budget pool refused unknown dollar cost under maxUsd')
+      },
+    }
+    const spec: AgentSpec = {
+      profile: { name: 'worker', harness: 'claude-code' } as AgentProfile,
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = providerAsExecutor(provider)(spec, ctx)
+
+    await expect(
+      collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>),
+    ).rejects.toThrow(/budget pool refused/u)
+
+    // No environment was ever created (#1240), so this is an absence by construction and must
+    // never be reported as a transcript that merely went unread.
+    expect(executor.harnessTranscript?.()).toEqual({
+      status: 'unavailable',
+      reason: 'execution-never-started',
+    })
+  })
+
+  // End to end, #1244: the drop reaches the journal's settled record as a pointer that resolves.
+  it('journals a dropped child with a transcript pointer that resolves in the run blobs', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'dropping-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          exec: async () => ({
+            stdout: '/root/.claude/projects/a/session.jsonl',
+            stderr: '',
+            exitCode: 0,
+          }),
+          read: async () => '{"role":"assistant","text":"the corner certificate holds"}',
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'message.part.updated', data: { delta: 'working' } }
+            throw new Error('sidecar start failed')
+          },
+        }) as AgentEnvironment
+      },
+    }
+    const journal = new InMemorySpawnJournal()
+    await journal.beginTree('root', new Date(0).toISOString())
+    const blobs = new InMemoryResultBlobStore()
+    const scope = createScope({
+      parentId: 'root',
+      root: 'root',
+      journal,
+      blobs,
+      pool: createBudgetPool({ maxIterations: 2, maxTokens: 1_000 }, 0),
+      executors: createExecutorRegistry(),
+      seams: {},
+      depth: 0,
+      signal: new AbortController().signal,
+    })
+    const profile: AgentProfile = {
+      name: 'dropper',
+      harness: 'claude-code',
+      model: { provider: 'fixture', default: 'fixture/model' },
+    }
+    expect(
+      scope.spawn(
+        Object.assign(
+          { name: 'dropper', act: async () => 'unused' },
+          {
+            executorSpec: {
+              profile,
+              harness: null,
+              executorFactory: createExecutor({ backend: 'provider', provider }),
+            },
+          },
+        ),
+        'task',
+        { label: 'dropper', budget: { maxIterations: 1, maxTokens: 1_000 } },
+      ).ok,
+    ).toBe(true)
+
+    const settled = await scope.next()
+    expect(settled).not.toBeNull()
+    if (settled === null) return
+    expect(settled.kind).toBe('down')
+    if (settled.kind !== 'down') return
+    // No result artifact, no tool spans — and still the receipt is there and resolves.
+    expect(settled.harnessTranscript?.status).toBe('available')
+    if (settled.harnessTranscript?.status !== 'available') return
+    const artifact = await harnessTranscriptArtifact(settled.harnessTranscript, blobs)
+    expect(artifact?.files.map((file) => file.content).join('')).toContain(
+      'the corner certificate holds',
+    )
+    // The durable record carries the same pointer, so replay and Lab read it without the process.
+    const record = (await journal.loadTree('root'))?.find(
+      (event) => event.kind === 'settled' && event.id === settled.handle.id,
+    )
+    expect(record).toMatchObject({
+      status: 'down',
+      harnessTranscript: {
+        status: 'available',
+        transcriptRef: settled.harnessTranscript.transcriptRef,
+      },
+    })
+    // And replay hands the receipt back: a field the journal holds and replay drops would be the
+    // #1214 bug one level down.
+    const replayed = await replaySpawnTree(journal, blobs, 'root')
+    expect(replayed.find((entry) => entry.handle.id === settled.handle.id)).toMatchObject({
+      kind: 'down',
+      harnessTranscript: {
+        status: 'available',
+        transcriptRef: settled.harnessTranscript.transcriptRef,
+      },
     })
   })
 
