@@ -287,6 +287,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
 async function withLiveScope<T>(
   body: (scope: Scope<unknown>) => Promise<T>,
   signal?: AbortSignal,
+  deadlineMs?: number,
 ): Promise<T> {
   const blobs = new InMemoryResultBlobStore()
   let captured: { ok: true; value: T } | { ok: false; error: unknown } | undefined
@@ -310,13 +311,17 @@ async function withLiveScope<T>(
     },
   }
   await createSupervisor<unknown, unknown>().run(root, 'bind', {
-    budget: { maxIterations: 10, maxTokens: 1000 },
+    budget: {
+      maxIterations: 10,
+      maxTokens: 1000,
+      ...(deadlineMs === undefined ? {} : { deadlineMs }),
+    },
     runId: 'bind-gate',
     journal: new InMemorySpawnJournal(),
     blobs,
     executors: createExecutorRegistry(),
     maxDepth: 2,
-    now: () => 0,
+    now: deadlineMs === undefined ? () => 0 : Date.now,
     signal,
   })
   if (!started) throw new Error('the root agent never ran')
@@ -485,32 +490,37 @@ async function withBoundHttp<T>(
   extra: Partial<Parameters<typeof serveCoordinationMcp>[0]>,
   body: (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>) => Promise<T>,
   signal?: AbortSignal,
+  deadlineMs?: number,
 ): Promise<T> {
-  return withLiveScope(async (scope) => {
-    const mcp = await serveCoordinationMcp({
-      scope,
-      blobs: new InMemoryResultBlobStore(),
-      makeWorkerAgent: () => deliveringLeaf('unused', {}),
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-      authentication: true,
-      identity: { runId: 'run-a', actorId: 'actor-a' },
-      toolNames: ['probe'],
-      nodeTools: [
-        {
-          name: 'probe',
-          description: 'Exercise the real HTTP boundary',
-          inputSchema: { type: 'object' },
-          handler: async () => ({ ok: true }),
-        },
-      ],
-      ...extra,
-    })
-    try {
-      return await body(mcp)
-    } finally {
-      await mcp.close()
-    }
-  }, signal)
+  return withLiveScope(
+    async (scope) => {
+      const mcp = await serveCoordinationMcp({
+        scope,
+        blobs: new InMemoryResultBlobStore(),
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker: { maxIterations: 1, maxTokens: 10 },
+        authentication: true,
+        identity: { runId: 'run-a', actorId: 'actor-a' },
+        toolNames: ['probe'],
+        nodeTools: [
+          {
+            name: 'probe',
+            description: 'Exercise the real HTTP boundary',
+            inputSchema: { type: 'object' },
+            handler: async () => ({ ok: true }),
+          },
+        ],
+        ...extra,
+      })
+      try {
+        return await body(mcp)
+      } finally {
+        await mcp.close()
+      }
+    },
+    signal,
+    deadlineMs,
+  )
 }
 
 function postHttp(
@@ -693,6 +703,7 @@ describe('authenticated and bounded coordination HTTP', () => {
     const events: unknown[] = []
     await withBoundHttp(
       {
+        authentication: { ttlMs: 900_000 },
         onAudit: (event) => {
           events.push(event)
         },
@@ -1083,6 +1094,55 @@ describe('coordination credential continuity', () => {
     })
   })
 
+  it('does not revive a revoked signed credential through signature padding', async () => {
+    await withBoundHttp(
+      {
+        authentication: { signingKeys: { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } } },
+        publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+      },
+      async (mcp) => {
+        const original = mcp.headers
+        expect((await postHttp(mcp, original)).status).toBe(200)
+        mcp.rotateCredential()
+        expect((await postHttp(mcp, original)).status).toBe(401)
+        expect(
+          (
+            await postHttp(mcp, {
+              Authorization: `${original.Authorization}=`,
+            })
+          ).status,
+        ).toBe(401)
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+      },
+    )
+  })
+
+  it('resumes scope-bound signed credentials only when the receiver permits that lifetime', async () => {
+    const signingKeys = { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } }
+    const publicUrl = 'https://coordination.example/scope-bound'
+    let original: Readonly<Record<string, string>> = {}
+    await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
+      expect(mcp.credentialExpiresAt).toBeUndefined()
+      original = mcp.headers
+    })
+    for (const ttlMs of [undefined, 900_000]) {
+      await withBoundHttp(
+        {
+          authentication: { signingKeys, ...(ttlMs === undefined ? {} : { ttlMs }) },
+          publicUrl,
+        },
+        async (mcp) => {
+          const response = await fetch(`http://127.0.0.1:${mcp.port}/mcp`, {
+            method: 'POST',
+            headers: { ...original, 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+          })
+          expect(response.status).toBe(ttlMs === undefined ? 200 : 401)
+        },
+      )
+    }
+  })
+
   it('accepts an original credential only for its exact restarted authority and retained verification key', async () => {
     const signingKeys = { activeKeyId: 'original', keys: { original: 'a'.repeat(48) } }
     const proxy = await publicProxy()
@@ -1091,9 +1151,12 @@ describe('coordination credential continuity', () => {
       return `${proxy.url}/manager`
     }
     let original: Readonly<Record<string, string>> = {}
-    await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
-      original = mcp.headers
-    })
+    await withBoundHttp(
+      { authentication: { signingKeys, ttlMs: 900_000 }, publicUrl },
+      async (mcp) => {
+        original = mcp.headers
+      },
+    )
     const request = (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>) =>
       fetch(`http://127.0.0.1:${mcp.port}/mcp`, {
         method: 'POST',
@@ -1415,6 +1478,70 @@ describe('the coordination HTTP boundary keeps its own deadline', () => {
 })
 
 describe('caller-owned long-lived coordination credentials', () => {
+  it('binds default credentials to the original scope deadline without extending it on rotation', async () => {
+    await withBoundHttp(
+      {},
+      async (mcp) => {
+        const expiry = mcp.credentialExpiresAt!
+        expect(expiry).toBeGreaterThan(Date.now() + 3 * 60 * 60 * 1_000)
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(expiry - 1)
+        try {
+          expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+          mcp.rotateCredential()
+          expect(mcp.credentialExpiresAt).toBe(expiry)
+          clock.mockReturnValue(expiry)
+          expect((await postHttp(mcp, mcp.headers)).status).toBe(401)
+        } finally {
+          clock.mockRestore()
+        }
+      },
+      undefined,
+      4 * 60 * 60 * 1_000,
+    )
+  })
+
+  it('revokes scope-bound credentials immediately when the scope is cancelled', async () => {
+    const controller = new AbortController()
+    await withBoundHttp(
+      {},
+      async (mcp) => {
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+        controller.abort('owner cancelled')
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(401)
+      },
+      controller.signal,
+    )
+  })
+
+  it.each([false, true])(
+    'keeps a live manager authenticated beyond three hours (signed=%s)',
+    async (signed) => {
+      await withBoundHttp(
+        signed
+          ? {
+              authentication: {
+                signingKeys: { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } },
+              },
+              publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+            }
+          : {},
+        async (mcp) => {
+          const headers = mcp.headers
+          const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * 60 * 60 * 1_000)
+          try {
+            expect((await postHttp(mcp, headers)).status).toBe(200)
+            expect((await postHttp(mcp)).status).toBe(401)
+            mcp.rotateCredential()
+            expect((await postHttp(mcp, headers)).status).toBe(401)
+            expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+          } finally {
+            clock.mockRestore()
+          }
+        },
+      )
+    },
+  )
+
   it('honors a finite lifetime beyond one day and still enforces its exact expiry', async () => {
     const ttlMs = 30 * 24 * 60 * 60 * 1_000
     await withBoundHttp({ authentication: { ttlMs } }, async (mcp) => {

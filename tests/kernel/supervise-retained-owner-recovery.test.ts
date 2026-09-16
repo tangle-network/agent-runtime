@@ -23,6 +23,307 @@ afterEach(async () => {
 })
 
 describe('retained external supervisor recovery', () => {
+  it('reconstructs a reprompt interrupted after environment admission without a third dispatch', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-crash-'))
+    directories.push(directory)
+    const stateFile = join(directory, 'provider.json')
+    const runDirectory = join(directory, 'run')
+    const context = createFileRunContext(runDirectory)
+    let creates = 0
+    let dispatches = 0
+    let destroys = 0
+    let failed = false
+    let port = 0
+    let token = ''
+    const turns: AgentTurnInput[] = []
+    const environmentIds: string[] = []
+    const provider: AgentEnvironmentProvider = {
+      ...durableRetainedProvider(stateFile),
+      capabilities: async () => ({
+        ...(await durableRetainedProvider(stateFile).capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => {
+        creates++
+        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        const environment = await durableRetainedProvider(stateFile).create(input)
+        return wrap(environment)
+      },
+      get: async (id) => {
+        const environment = await durableRetainedProvider(stateFile).get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      session: (id, sessionOptions) => {
+        const session = environment.session!(id, sessionOptions)
+        return {
+          ...session,
+          result: async () => ({
+            ...(await session.result()),
+            usage:
+              sessionOptions?.controlRef?.executionId === turns[1]?.executionId
+                ? { inputTokens: 5, outputTokens: 5 }
+                : { inputTokens: 0, outputTokens: 0 },
+          }),
+        }
+      },
+      dispatch: async (turn) => {
+        dispatches++
+        turns.push(turn)
+        environmentIds.push(environment.id)
+        const result = await environment.dispatch(turn)
+        if (dispatches === 2) {
+          const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 'resumed-final',
+              method: 'tools/call',
+              params: { name: 'submit_result', arguments: { result: { answer: 'resumed' } } },
+            }),
+          })
+          if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+        }
+        return result
+      },
+      destroy: async () => {
+        destroys++
+        await environment.destroy?.()
+      },
+    })
+    const profile = testAgentProfile('root', {
+      harness: 'codex',
+      tools: runtimeToolDeclarations('submit_result'),
+    })
+    const options = {
+      runDir: runDirectory,
+      runId: 'reprompt-crash-root',
+      backend: { backend: 'provider' as const, provider },
+      driverBackend: { backend: 'provider' as const, provider },
+      budget: { maxIterations: 8, maxTokens: 100 },
+      driverRetry: { enabled: false },
+      repromptOnUnmet: 1,
+      deliverable: {
+        describe: 'resumed answer',
+        check: (v: unknown) => (v as { answer?: string }).answer === 'resumed',
+      },
+      coordination: {
+        authentication: {
+          signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+        },
+        publicUrl: (address: { port: number }) => {
+          port = address.port
+          return 'https://coordination.example/manager'
+        },
+      },
+      journal: {
+        beginTree: context.journal.beginTree.bind(context.journal),
+        loadTree: context.journal.loadTree.bind(context.journal),
+        appendEvent: async (root: string, event: SpawnEvent) => {
+          await context.journal.appendEvent(root, event)
+          if (
+            !failed &&
+            event.kind === 'execution-admitted' &&
+            event.admission.phase === 'environment'
+          ) {
+            const prior = (await context.journal.loadTree(root)) ?? []
+            if (
+              prior.filter(
+                (e) => e.kind === 'execution-admitted' && e.admission.phase === 'environment',
+              ).length === 2
+            ) {
+              failed = true
+              throw new Error('test crash after second environment admission')
+            }
+          }
+        },
+      },
+      blobs: context.blobs,
+    }
+    const interrupted = await supervise(profile, 'answer', options)
+    expect(interrupted).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    const resumeAbort = new AbortController()
+    const resumeTimer = setTimeout(() => resumeAbort.abort(new Error('resume timeout')), 5_000)
+    const result = await supervise(profile, 'answer', {
+      ...options,
+      retainedAtSettlement: 'release',
+      signal: resumeAbort.signal,
+    })
+    clearTimeout(resumeTimer)
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'resumed' } })
+    expect(creates).toBe(1)
+    expect(dispatches).toBe(2)
+    expect(new Set(turns.map((turn) => turn.sessionId)).size).toBe(1)
+    expect(new Set(turns.map((turn) => turn.executionId)).size).toBe(2)
+    expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(2)
+    expect(destroys).toBe(1)
+    const events = (await context.journal.loadTree('reprompt-crash-root')) ?? []
+    const environments = events.filter(
+      (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
+    )
+    expect(environments).toHaveLength(2)
+    const resumed = environments[1]
+    expect(resumed?.kind === 'execution-admitted' ? resumed.admission : undefined).toMatchObject({
+      environmentId: environmentIds[1],
+      sessionId: turns[1]?.sessionId,
+      executionId: turns[1]?.executionId,
+    })
+    expect(
+      events.reduce(
+        (total, event) =>
+          event.kind === 'metered'
+            ? total + event.spend.tokens.input + event.spend.tokens.output
+            : total,
+        0,
+      ),
+    ).toBe(10)
+  })
+
+  it.each(['release', 'keep', 'release-failed'] as const)(
+    're-prompts one retained provider conversation with %s cleanup',
+    async (cleanup) => {
+      const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-'))
+      directories.push(directory)
+      const stateFile = join(directory, 'provider.json')
+      const runDirectory = join(directory, 'run')
+      const context = createFileRunContext(runDirectory)
+      let creates = 0
+      let destroys = 0
+      let coordinationPort = 0
+      let coordinationToken = ''
+      const turns: Array<{
+        environmentId: string
+        sessionId?: string
+        executionId?: string
+        turnId?: string
+      }> = []
+      let reprompt = 0
+      const wrapEnvironment = (environment: AgentEnvironment): AgentEnvironment => ({
+        ...environment,
+        dispatch: async (turn) => {
+          turns.push({
+            environmentId: environment.id,
+            sessionId: turn.sessionId,
+            executionId: turn.executionId,
+            turnId: turn.turnId,
+          })
+          const dispatched = await environment.dispatch(turn)
+          reprompt++
+          if (reprompt === 3) {
+            const response = await fetch(`http://127.0.0.1:${coordinationPort}/manager`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${coordinationToken}`,
+                'content-type': 'application/json',
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'final-submission',
+                method: 'tools/call',
+                params: {
+                  name: 'submit_result',
+                  arguments: { result: { answer: 'final reprompt' } },
+                },
+              }),
+            })
+            if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+          }
+          return dispatched
+        },
+        destroy: async () => {
+          destroys++
+          if (cleanup === 'release-failed') throw new Error('provider cleanup unavailable')
+          await environment.destroy?.()
+        },
+      })
+
+      const provider: AgentEnvironmentProvider = {
+        ...durableRetainedProvider(stateFile),
+        capabilities: async () => ({
+          ...(await durableRetainedProvider(stateFile).capabilities()),
+          create: { runtimeAttachments: { mcp: true } },
+        }),
+        create: async (input) => {
+          creates++
+          coordinationToken ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+          const base = durableRetainedProvider(stateFile)
+          const environment = await base.create(input)
+          return wrapEnvironment(environment)
+        },
+        get: async (id) => {
+          const base = durableRetainedProvider(stateFile)
+          const environment = await base.get!(id)
+          if (!environment) return null
+          return wrapEnvironment(environment)
+        },
+      }
+
+      const result = await supervise(
+        testAgentProfile('root', {
+          harness: 'codex',
+          tools: runtimeToolDeclarations('submit_result'),
+        }),
+        'Produce the answer.',
+        {
+          runDir: runDirectory,
+          journal: context.journal,
+          blobs: context.blobs,
+          runId: 'reprompt-root',
+          backend: { backend: 'provider', provider },
+          driverBackend: { backend: 'provider', provider },
+          budget: { maxIterations: 8, maxTokens: 100 },
+          driverRetry: { enabled: false },
+          repromptOnUnmet: 2,
+          retainedAtSettlement: cleanup === 'keep' ? 'keep' : 'release',
+          deliverable: {
+            describe: 'an answer from the final reprompt',
+            check: (value) => (value as { answer?: unknown }).answer === 'final reprompt',
+          },
+          coordination: {
+            authentication: {
+              signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+            },
+            publicUrl: (address) => {
+              coordinationPort = address.port
+              return `https://coordination.example:${address.port}/manager`
+            },
+          },
+        },
+      )
+
+      expect(creates).toBe(1)
+      expect(result.kind).toBe('winner')
+      expect(result).toMatchObject({ out: { answer: 'final reprompt' } })
+      expect(turns).toHaveLength(3)
+      expect(new Set(turns.map((turn) => turn.environmentId)).size).toBe(1)
+      expect(turns.every((turn) => turn.sessionId !== undefined)).toBe(true)
+      expect(new Set(turns.map((turn) => turn.sessionId)).size).toBe(1)
+      expect(turns.every((turn) => turn.executionId !== undefined)).toBe(true)
+      expect(new Set(turns.map((turn) => turn.executionId)).size).toBe(3)
+      expect(turns.every((turn) => turn.turnId !== undefined)).toBe(true)
+      expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(3)
+      expect(destroys).toBe(cleanup === 'keep' ? 0 : 1)
+      const events = (await context.journal.loadTree('reprompt-root')) ?? []
+      expect(events.filter((event) => event.kind === 'execution-result')).toHaveLength(3)
+      expect(events.filter((event) => event.kind === 'environment-teardown')).toMatchObject(
+        cleanup === 'keep'
+          ? []
+          : [{ destroyed: cleanup === 'release', environmentId: turns[0]?.environmentId }],
+      )
+      if (cleanup === 'release-failed') {
+        expect(result.teardownUnconfirmed).toEqual([
+          { id: 'reprompt-root', label: 'scope owner', runtime: provider.name, status: 'done' },
+        ])
+        expect(events.filter((event) => event.kind === 'teardown-unconfirmed')).toHaveLength(1)
+      } else {
+        expect(result.teardownUnconfirmed).toBeUndefined()
+      }
+    },
+  )
+
   it('keeps historical unclassified root usage incomplete when replay supplies a cache split', async () => {
     const fixture = await setup('metered', false, false, true)
     await fixture.first()
@@ -88,6 +389,10 @@ describe('retained external supervisor recovery', () => {
     await fixture.first()
     const before = await fixture.events()
     expect(before.some((event) => event.kind === 'execution-result')).toBe(true)
+    const provider = durableRetainedProvider(fixture.stateFile)
+    for (const environment of await provider.list!()) {
+      await (await provider.get!(environment.id))?.destroy?.()
+    }
     expect(JSON.parse(await readFile(fixture.stateFile, 'utf8')).environments).toEqual({})
     const bindings = before.filter((event) => event.kind === 'execution-bound')
     await fixture.resume()
@@ -110,10 +415,10 @@ describe('retained external supervisor recovery', () => {
     )
     expect(inputs).toHaveLength(2)
     expect(new Set(inputs.map((event) => event.seq)).size).toBe(2)
-    expect(new Set(intents.map((intent) => intent.idempotencyKey)).size).toBe(2)
-    expect(fixture.creates()).toBe(2)
+    expect(new Set(intents.map((intent) => intent.idempotencyKey)).size).toBe(1)
+    expect(fixture.creates()).toBe(1)
     expect(tokenTotal(events)).toBe(10)
-    // The second drive ran in a NEW environment. Its report must bind as known to the one
+    // The second drive ran in the SAME environment. Its report must bind as known to the one
     // committed materialization. Before the provider stopped writing the environment id into the
     // plan, this second binding was unknown with reason invalid-executor-report: the id moved
     // materializationPlanDigest, the guard refused the receipt, and on the fleet every retry hit

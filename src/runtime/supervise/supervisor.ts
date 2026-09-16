@@ -725,8 +725,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // Whether a later process resumes is the caller's knowledge, not the outcome's, so the
           // policy decides; the unconfirmed set is re-read so a released node is no longer named.
           if (retainedAtSettlement === 'release') {
-            await releaseRetainedEnvironments(openScope)
-            teardownUnconfirmed = openScope.workerCapacity.unconfirmed
+            teardownUnconfirmed = await releaseRetainedEnvironments(openScope)
           }
           // The leak is real and must surface, so it is journaled per node — durable evidence a
           // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping.
