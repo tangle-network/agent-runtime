@@ -864,7 +864,11 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         if (rejection !== undefined) {
           return { ...common, reason: 'driver-failed', error: describeRejection(rejection.error) }
         }
-        // The residual bucket: ran to completion under budget and selected nothing usable.
+        // The residual bucket: ran to completion under budget and selected nothing usable. A root
+        // that never spawned is named as such — `all-children-down` with nothing spawned was the
+        // settle reason on every sandbox-placed director that quietly did its work in bash, and it
+        // sent every reader looking at the fleet instead of at the root.
+        if (fleetYield.spawned === 0) return { ...common, reason: 'no-children-spawned' }
         return { ...common, reason: 'all-children-down' }
       }
     } finally {

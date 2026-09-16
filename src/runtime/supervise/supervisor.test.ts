@@ -263,7 +263,7 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
     expect(result.error.stack).toContain(fault.message)
   })
 
-  it('keeps `all-children-down` and carries no error when the driver returned undefined', async () => {
+  it('settles `no-children-spawned`, not `all-children-down`, when the driver returned undefined without spawning', async () => {
     const supervisor = createSupervisor<unknown, unknown>()
     const result = await supervisor.run(
       driver(async () => undefined),
@@ -273,9 +273,11 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
 
     expect(result.kind).toBe('no-winner')
     if (result.kind !== 'no-winner') return
-    // A driver that ran to completion and selected nothing is an honest empty result: the
-    // existing reason, and nothing to recover from.
-    expect(result.reason).toBe('all-children-down')
+    // A driver that ran to completion, spawned nothing and selected nothing is an honest empty
+    // result — but it is not a fleet failure, and the reason must not say it was.
+    expect(result.reason).toBe('no-children-spawned')
+    expect(result.fleetYield.spawned).toBe(0)
+    expect(result.downCount).toBe(0)
     expect(result.error).toBeUndefined()
     expect('error' in result).toBe(false)
   })

@@ -2568,8 +2568,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     if (result.kind !== 'no-winner') return
     // Tokens are always capped, so ONE unreported turn must not end the run: the manager keeps
     // running, the pool marks the balance a ceiling rather than a measurement, and the terminal
-    // accounting carries the unknown instead of a silent zero.
-    expect(result.reason).toBe('all-children-down')
+    // accounting carries the unknown instead of a silent zero. The manager spawned nothing, so
+    // the settle reason names that rather than a fleet failure.
+    expect(result.reason).toBe('no-children-spawned')
     expect(result.spentTotal).toMatchObject({
       tokens: { input: 0, output: 0 },
       tokensKnown: false,
