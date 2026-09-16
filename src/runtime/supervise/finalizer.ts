@@ -19,6 +19,7 @@
  */
 
 import { ValidationError } from '../../errors'
+import type { DeliverableSpec } from './completion-gate'
 import type { ResultBlobStore, Scope, TreeView } from './types'
 
 /** One settled worker as the finalizer sees it — the ledger row (structural fields only). */
@@ -114,7 +115,11 @@ export const collectDelivered: SupervisorFinalizer = (ctx) => {
  * Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the
  * ledger to structurally delivered children, materialize their outputs, and hand the finalizer a
  * blob reader that throws on any ref outside that set. This is the one call site both driver arms
- * (the in-process tool-loop and the MCP-mounted harness) finalize through.
+ * (the in-process tool-loop and the MCP-mounted harness) finalize through. When a parent declares
+ * a deliverable, its candidate must also pass that check: children may have narrower assignments.
+ * The default selects the highest-scoring child that passes the parent's check; custom finalizers
+ * assemble their candidate before the check. A rejection leaves the parent incomplete; a thrown
+ * oracle surfaces a validation error. Neither changes child validity.
  */
 export async function runFinalizer(
   finalizer: SupervisorFinalizer,
@@ -123,6 +128,7 @@ export async function runFinalizer(
     readonly blobs: ResultBlobStore
     readonly tree: TreeView
     readonly budget: Scope<unknown>['budget']
+    readonly deliverable?: DeliverableSpec
   },
 ): Promise<unknown | undefined> {
   const deliveredRows = args.settled.filter((w) => w.status === 'done' && w.valid === true)
@@ -146,11 +152,31 @@ export async function runFinalizer(
       return args.blobs.get(outRef)
     },
   }
-  return finalizer({
+  const accepted = async (candidate: unknown): Promise<boolean> => {
+    if (candidate === undefined) return false
+    if (args.deliverable === undefined) return true
+    try {
+      return (await args.deliverable.check(candidate)) === true
+    } catch (error) {
+      throw new ValidationError(
+        `finalizer: parent completion check threw: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+  // A high-scoring partial assignment cannot displace a complete portfolio member. Aggregating
+  // finalizers still need every child-valid component, so their inputs must not be filtered here.
+  if (finalizer === bestDelivered && args.deliverable !== undefined) {
+    for (const output of [...delivered].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))) {
+      if (await accepted(output.out)) return output.out
+    }
+    return undefined
+  }
+  const candidate = await finalizer({
     delivered,
     allSettled: args.settled,
     tree: args.tree,
     blobs: guardedBlobs,
     budget: args.budget,
   })
+  return (await accepted(candidate)) ? candidate : undefined
 }

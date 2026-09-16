@@ -127,6 +127,14 @@ A general "loop" primitive is the single most common modelling error in this rep
 
 **The trap** is a single grammar (`defineLoop`, a `runXxxLoop`) spanning all of the above: there can't be one, because some are code and one is a model deciding. No new loop primitive lands without a tiny executable proof, **over real agents**, of the exact substrate join it claims to simplify.
 
+A child can satisfy its own assignment while its parent's objective remains incomplete.
+When the parent declares a `deliverable`, its finalizer's candidate must pass that check before the parent completes.
+The default selects the highest-scoring child that also passes the parent's check.
+Custom finalizers assemble their candidate before the check.
+Child validity and delivery counts remain unchanged.
+An external director can then use `repromptOnUnmet` to continue from a rejected candidate within its existing resource limits.
+A thrown parent check reports a validation error through the existing driver failure record.
+
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
 | Run one product chat turn with streamed events, ordered persistence hooks, and stable execution/turn identity | `handleChatTurn(...)` + `deriveExecutionId(...)`: `/durable`; pass the derived id as both `executionId` and `turnId` on initial dispatch | importing the broad package entry from an edge worker, treating `executionId` alone as dispatch idempotency, or rebuilding framing and persistence ordering in the product |
