@@ -192,3 +192,34 @@ describe('persistHarnessTranscript', () => {
     expect(await harnessTranscriptArtifact(evidence, new InMemoryResultBlobStore())).toBeUndefined()
   })
 })
+
+describe('captureHarnessTranscript bounds and absences', () => {
+  it('names files it found and did not carry instead of reporting no transcript', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const capture = await captureHarnessTranscript(
+      environment({ '/root/.codex/sessions/s.jsonl': '{"text":"was here"}' }),
+      'codex',
+      controller.signal,
+    )
+    // An abort before the reads is not "no transcript": the file existed and nobody read it.
+    expect(capture.status).toBe('unavailable')
+    if (capture.status !== 'unavailable') return
+    expect(capture.reason).toBe('nothing-carried')
+    expect(capture.skipped).toEqual([{ path: '/root/.codex/sessions/s.jsonl', reason: 'aborted' }])
+  })
+
+  it('settles at or under 16 MiB, never 16 MiB plus one more file', async () => {
+    const twoMiB = 'x'.repeat(2 * 1024 * 1024)
+    const files: Record<string, string> = {}
+    for (let i = 0; i < 9; i++) files[`/root/.codex/sessions/${i}.jsonl`] = twoMiB
+    const capture = await captureHarnessTranscript(environment(files), 'codex')
+    expect(capture.status).toBe('captured')
+    if (capture.status !== 'captured') return
+    expect(capture.totalBytes).toBe(16 * 1024 * 1024)
+    expect(capture.fileCount).toBe(8)
+    expect(capture.artifact.skipped).toEqual([
+      { path: '/root/.codex/sessions/8.jsonl', reason: 'total-byte-budget-exhausted' },
+    ])
+  })
+})

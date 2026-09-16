@@ -19,6 +19,7 @@ import {
   contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  replaySpawnTree,
 } from '../durable/spawn-journal'
 import {
   type AgentEnvironment,
@@ -2200,6 +2201,16 @@ describe('environment provider adapters', () => {
     )
     expect(record).toMatchObject({
       status: 'down',
+      harnessTranscript: {
+        status: 'available',
+        transcriptRef: settled.harnessTranscript.transcriptRef,
+      },
+    })
+    // And replay hands the receipt back: a field the journal holds and replay drops would be the
+    // #1214 bug one level down.
+    const replayed = await replaySpawnTree(journal, blobs, 'root')
+    expect(replayed.find((entry) => entry.handle.id === settled.handle.id)).toMatchObject({
+      kind: 'down',
       harnessTranscript: {
         status: 'available',
         transcriptRef: settled.harnessTranscript.transcriptRef,

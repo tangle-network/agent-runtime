@@ -2501,9 +2501,17 @@ async function appendReconciledFloor(
   id: NodeId,
   spent: Spend,
   at: string,
+  harnessTranscript?: HarnessTranscriptEvidence,
 ): Promise<void> {
   const seq = await nextPerNodeSeq(journal, root, 'reconciled', id)
-  await appendAcknowledged(journal, root, { kind: 'reconciled', id, spent, seq, at })
+  await appendAcknowledged(journal, root, {
+    kind: 'reconciled',
+    id,
+    spent,
+    ...(harnessTranscript ? { harnessTranscript } : {}),
+    seq,
+    at,
+  })
 }
 
 /** A release receipt has the same per-child sequence discipline: outside the cursor namespace and
@@ -2615,7 +2623,14 @@ async function finalizeSettlement<Out>(
     // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
     // place, outside the cursor namespace, so the slot stays open and the ledgers agree.
     else if (settlement.reconciled !== undefined)
-      await appendReconciledFloor(args.journal, args.root, child.id, settlement.reconciled, at)
+      await appendReconciledFloor(
+        args.journal,
+        args.root,
+        child.id,
+        settlement.reconciled,
+        at,
+        settlement.harnessTranscript,
+      )
     notifyRuntimeHookEvent(
       args.hooks,
       {

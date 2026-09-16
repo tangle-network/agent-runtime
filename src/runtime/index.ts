@@ -222,6 +222,7 @@ export {
 // replay readers ship with them, because a durable journal you cannot fold back into a
 // tree is only a log.
 export {
+  captureHarnessTranscript,
   type HarnessTranscriptArtifact,
   type HarnessTranscriptCapture,
   type HarnessTranscriptEvidence,

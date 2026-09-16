@@ -1359,6 +1359,9 @@ export type SpawnEvent =
       spent?: Spend
       providerModel?: ProviderModelExecutionEvidence
       trace?: WorkerTraceEvidence
+      /** The child's harness transcript receipt, when the executor could still be read at the
+       *  cancel. The settle path writes it on this record exactly as on `settled`. */
+      harnessTranscript?: HarnessTranscriptEvidence
       outRef?: string
       budgetViolation?: BudgetViolation
       seq: number
@@ -1478,6 +1481,11 @@ export type SpawnEvent =
       kind: 'reconciled'
       id: NodeId
       spent: Spend
+      /** The transcript receipt of a retained-pending child. This record is the ONLY durable home
+       *  it has: the node writes no `settled` record while its slot stays open, and these are the
+       *  #1244 children exactly — dropped mid-run with a live box the capture read. A later
+       *  terminal record for the node carries the same receipt forward. */
+      harnessTranscript?: HarnessTranscriptEvidence
       seq: number
       at: string
     }

@@ -20,9 +20,11 @@
  *     `exec`. An environment with `read` but no `exec` cannot be enumerated and is also
  *     reported, not guessed at.
  *
- * Storage is NOT this module's business. The executor returns the artifact inside the result
- * it already settles with, and supervise puts that under the child's `outRef` in its own
- * `ResultBlobStore`. No destroy site learns about storage, and replay rehydrates it for free.
+ * Storage is NOT the executor's business. The executor holds the in-memory capture and hands it
+ * to the scope through `Executor.harnessTranscript()`; the scope persists it under its own
+ * content ref with `persistHarnessTranscript` and settles the receipt. No provider or destroy
+ * site learns about storage, the result blob never carries the files, and replay rehydrates a
+ * pointer — the bytes are read only by `harnessTranscriptArtifact`, when someone opens them.
  *
  * Credentials are excluded by construction: enumeration lists only the transcript globs
  * for the harness, and any path matching DENY is dropped even if a producer moved a
@@ -99,9 +101,14 @@ export type HarnessTranscriptUnavailableReason =
    *  transcript and nobody read it. Never collapse it into `execution-never-started`; that
    *  would report a child that reasoned for twenty seconds as one that never ran. */
   | 'capture-did-not-run'
-  /** This executor has no native transcript to offer at all — a CLI or in-process child
-   *  rather than a sandbox one. An absence by construction, never a failure. */
+  /** This executor implements no transcript port at all: a CLI, in-process, bridge, or
+   *  sandbox-session executor that has no capture yet. An absence by construction, never a
+   *  failure — and never a claim that the harness wrote nothing. */
   | 'executor-exposes-no-transcript'
+  /** Session files were found and none was carried: every path was refused, over budget,
+   *  unreadable, or skipped by an abort. The `skipped` list beside this reason names each one,
+   *  so "there was a transcript and it was not kept" never reads as "no transcript". */
+  | 'nothing-carried'
   /** The capture succeeded and the blob write did not. The transcript existed in memory and
    *  never reached disk; mirrors `trace-persistence-failed` on the tool-span receipt. */
   | 'transcript-persistence-failed'
@@ -109,6 +116,8 @@ export type HarnessTranscriptUnavailableReason =
 export interface HarnessTranscriptUnavailable {
   readonly status: 'unavailable'
   readonly reason: HarnessTranscriptUnavailableReason
+  /** Present with `nothing-carried`: the paths that existed and why each was not read. */
+  readonly skipped?: readonly { readonly path: string; readonly reason: string }[]
 }
 
 /**
@@ -256,7 +265,15 @@ export async function captureHarnessTranscript(
       skipped.push({ path, reason: 'read-failed' })
     }
   }
-  if (files.length === 0) return unavailable('no-transcript')
+  // Nothing read is two different facts: no session files at all (reported above), or files that
+  // every rule declined — including an abort that skipped them all. The second must name them.
+  if (files.length === 0) {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'nothing-carried',
+      skipped: Object.freeze(skipped),
+    })
+  }
 
   const artifact: HarnessTranscriptArtifact = Object.freeze({
     schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
