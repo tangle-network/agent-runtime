@@ -136,6 +136,15 @@ describe('classifyDriverFailure', () => {
     // and provider-model records; a bridge child that aborts mid-turn rejects with such a value,
     // and reading it as an HTTP refusal stopped the retry that journals its paid usage.
     expect(classifyDriverFailure({ status: 400, kind: 'cancelled' })).toBe('transient')
+
+    // A status behind a throwing getter must not take the classifier down with it.
+    const hostile = new Error('hostile')
+    Object.defineProperty(hostile, 'status', {
+      get() {
+        throw new Error('status getter exploded')
+      },
+    })
+    expect(classifyDriverFailure(hostile)).toBe('transient')
   })
 
   it('settles a profile that cannot materialize after one attempt, with or without a status', () => {

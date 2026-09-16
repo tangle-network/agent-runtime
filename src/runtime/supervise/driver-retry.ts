@@ -54,7 +54,7 @@ import {
   ValidationError,
 } from '../../errors'
 import { sleep } from '../util'
-import { errMessage, errorProperty, errorText } from './error-message'
+import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import type { Scope } from './types'
 
 /** The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this
@@ -303,10 +303,11 @@ function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | un
   // Only a thrown Error is read. `status` is a common field name on ordinary objects — a
   // settlement, a run state, a provider-model record — and treating one of those as an HTTP
   // refusal would silently stop retries that have nothing to do with a rejected request.
+  // `errorHttpStatus` is the same reader the persisted message uses, so a failure is classified
+  // from exactly the status an operator will see quoted back to them.
   if (!(error instanceof Error)) return undefined
-  const status = (error as Error & { readonly status?: unknown }).status
-  if (typeof status !== 'number' || !Number.isInteger(status)) return undefined
-  if (status < 400 || status > 599) return undefined
+  const status = errorHttpStatus(error)
+  if (status === undefined || status < 400) return undefined
   if (status === 408 || status === 429 || status >= 500) return 'transient'
   return 'terminal'
 }
