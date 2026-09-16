@@ -559,6 +559,8 @@ export interface ProviderExecutorOptions {
    * has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
    * files and run commands in the environment it is scoring. Every other supervised hook fires
    * after teardown and can only read the artifact.
+   * `ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
+   * shared validator can apply a root-only contract without applying it to nested managers.
    *
    * The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
    * back to its own settle verdict.

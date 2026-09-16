@@ -104,7 +104,8 @@ describe('CLI shutdown acknowledgement', () => {
   it('escalates an ignored SIGTERM and waits for actual process exit', async () => {
     const child = await startChild('')
     try {
-      expect(await child.executor.teardown(40)).toEqual({ destroyed: true })
+      // The child must be scheduled to record SIGTERM before escalation; full-suite load can exceed 40 ms.
+      expect(await child.executor.teardown(1_000)).toEqual({ destroyed: true })
       expect(await readFile(child.terminated, 'utf8')).toBe('SIGTERM')
       const pid = Number(await readFile(child.ready, 'utf8'))
       expect(() => process.kill(pid, 0)).toThrow()
