@@ -1,5 +1,9 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { RetainedRunAdmission, RetainedRunAdmissionHook } from '../retained-run-types'
+import type {
+  RetainedRunAdmission,
+  RetainedRunAdmissionHook,
+  RetainedRunEnvironmentAdmission,
+} from '../retained-run-types'
 import type {
   AgentSpec,
   ExecutorContext,
@@ -15,6 +19,10 @@ export const retainedExecutorSeamKey = 'runtime.retainedExecutor'
 export interface RetainedExecutorContext {
   /** Stable across recovery; distinct for deliberate later invocations of one owner. */
   readonly executionId?: string
+  /** Prior committed environment admission to reuse for a deliberate later invocation. */
+  readonly priorSession?: RetainedRunEnvironmentAdmission
+  /** Keep the retained provider environment alive across deliberate invocations. */
+  readonly preserveEnvironment?: boolean
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook

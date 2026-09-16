@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.13.2
+
+Allow Sandbox 0.40.x and consume Runtime 0.231.1 through the published dependency ranges.
+
 ## 0.13.1
 
-Allow Sandbox 0.40.x and consume Runtime 0.229.1 through the published dependency ranges.
+Require Knowledge 17.0.2 for validated memory writes, matching the Runtime workspace cohort.
 
 ## 0.13.0
 

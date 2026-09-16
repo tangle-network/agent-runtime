@@ -1,10 +1,25 @@
 # Changelog
 
-## 0.229.1
+## 0.231.1
 
 Allow Sandbox 0.40.x beside Runtime without a consumer dependency override.
 The supported range is now `>=0.36.4 <0.41.0`.
 The existing package checks exercise the oldest supported release and the 0.40 release line.
+
+## 0.231.0
+
+Retained provider directors now reuse their environment and conversation across deliberate re-prompts.
+Each new turn has a distinct execution identity; retries recover the original turn without creating replacement work.
+The existing scope settlement policy releases the environment after all turns or preserves it for recovery.
+Failed cleanup remains visible in the journal and final result.
+
+Authenticated coordination now follows the live scope and its original deadline by default.
+An explicit credential TTL still expires as requested.
+Signed credentials reject noncanonical signature encodings, preserving revocation after key rotation.
+
+Local regressions cover three consecutive turns, interruption during the second turn, cleanup isolation, and authenticated HTTP past three simulated hours.
+These checks do not establish live multi-hour reliability.
+Related system issue: SYS-011 — outcome: mitigates — proof: agent-runtime#1246 and retained owner recovery tests.
 
 ## 0.229.0
 

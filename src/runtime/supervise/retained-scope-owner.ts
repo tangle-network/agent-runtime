@@ -1,7 +1,9 @@
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
-import type { RetainedRunAdmission } from '../retained-run-types'
+import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
+import { runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { executorFailureReason } from './executor-outcome'
 import type { RetainedExecutorContext } from './retained-executor'
@@ -13,6 +15,7 @@ import type {
   Scope,
   SpawnEvent,
   SpawnJournal,
+  UnconfirmedTeardown,
 } from './types'
 
 interface OwnerState {
@@ -22,6 +25,8 @@ interface OwnerState {
   inputSequence?: number
   prepared?: boolean
   acceptedConsumed?: boolean
+  priorSession?: RetainedRunEnvironmentAdmission
+  provider?: AgentEnvironmentProvider
   nextSequence: () => number
   taskRef?: string
   accepted?: ExecutorResult<unknown>
@@ -43,10 +48,26 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   const taskEvent = [...events].reverse().find((event) => event.kind === 'execution-input')
   const start = taskEvent === undefined ? 0 : events.indexOf(taskEvent)
   const attempt = events.slice(start)
+  const beforeInput = taskEvent === undefined ? [] : events.slice(0, start)
+  const priorInput = [...beforeInput].reverse().find((event) => event.kind === 'execution-input')
+  const priorAttempt =
+    priorInput === undefined ? [] : beforeInput.slice(beforeInput.indexOf(priorInput))
   const admissions = attempt.flatMap((event) =>
     event.kind === 'execution-admitted' ? [event.admission] : [],
   )
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
+  const priorResult = [...priorAttempt].reverse().find((event) => event.kind === 'execution-result')
+  const priorSession =
+    priorResult?.kind === 'execution-result'
+      ? priorAttempt
+          .slice(0, priorAttempt.indexOf(priorResult))
+          .reverse()
+          .flatMap((event) =>
+            event.kind === 'execution-admitted' && event.admission.phase === 'environment'
+              ? [event.admission]
+              : [],
+          )[0]
+      : undefined
   let sequence = Math.max(0, ...events.map((event) => ('seq' in event ? event.seq : 0)))
   const state: OwnerState = {
     args,
@@ -56,12 +77,19 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       ? { taskRef: taskEvent.taskRef, inputSequence: taskEvent.seq }
       : {}),
     ...(acceptedRef?.kind === 'execution-result' ? { acceptedRef } : {}),
+    ...(priorSession ? { priorSession } : {}),
     context: {
       get executionId() {
         if (state.inputSequence === undefined)
           throw new ValidationError('retained owner input was not committed')
         return `${args.nodeId}:input:${state.inputSequence}`
       },
+      get priorSession() {
+        return state.priorSession
+      },
+      // The first retained turn must stay alive so a later deliberate invocation can reuse it.
+      // The owning scope releases it once the complete manager scope finishes.
+      preserveEnvironment: true,
       admissions,
       onAdmission: async (admission) => {
         scope.signal.throwIfAborted()
@@ -115,6 +143,84 @@ export function scopeRetainedOwnerContext(
   return owners.get(scope)?.context
 }
 
+/** Bind cleanup before replay can return an already accepted owner result. */
+export function bindScopeRetainedOwnerProvider(
+  scope: Scope<unknown>,
+  provider: AgentEnvironmentProvider,
+): void {
+  const state = owners.get(scope)
+  if (state) state.provider = provider
+}
+
+/** The existing scope settlement barrier releases the owner's environment after all its turns. */
+export async function releaseScopeRetainedOwnerEnvironment(
+  scope: Scope<unknown>,
+): Promise<readonly UnconfirmedTeardown[]> {
+  const state = owners.get(scope)
+  if (!state?.provider) return []
+  const { provider, args } = state
+  const events = (await args.journal.loadTree(args.rootId)) ?? []
+  const released = new Set(
+    events.flatMap((event) =>
+      event.kind === 'environment-teardown' &&
+      event.id === args.nodeId &&
+      event.provider === provider.name &&
+      event.destroyed
+        ? [event.environmentId]
+        : [],
+    ),
+  )
+  const environments = new Set(
+    events.flatMap((event) =>
+      event.id === args.nodeId &&
+      event.kind === 'execution-admitted' &&
+      event.admission.phase === 'environment'
+        ? [event.admission.environmentId]
+        : [],
+    ),
+  )
+  let unconfirmed = false
+  for (const environmentId of environments) {
+    if (released.has(environmentId)) continue
+    let destroyed = false
+    let detail: string | undefined
+    try {
+      await runAbortable(
+        async () => {
+          if (!provider.get) throw new Error('provider cannot reconstruct the retained environment')
+          const environment = await provider.get(environmentId)
+          if (environment === null) return
+          if (environment.id !== environmentId || environment.provider !== provider.name) {
+            throw new Error('provider returned another retained environment')
+          }
+          if (!environment.destroy)
+            throw new Error('provider cannot destroy the retained environment')
+          await environment.destroy()
+        },
+        AbortSignal.timeout(30_000),
+        'retained owner cleanup timed out',
+      )
+      destroyed = true
+    } catch {
+      detail = 'retained owner environment cleanup was not confirmed'
+      unconfirmed = true
+    }
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'environment-teardown',
+      id: args.nodeId,
+      provider: provider.name,
+      environmentId,
+      destroyed,
+      ...(detail === undefined ? {} : { detail }),
+      seq: state.nextSequence(),
+      at: new Date(args.now()).toISOString(),
+    })
+  }
+  return unconfirmed
+    ? [{ id: args.nodeId, label: 'scope owner', runtime: provider.name, status: 'done' }]
+    : []
+}
+
 /** Resume the original backend prompt; rebuilt coordination observations cannot replace it. */
 export async function prepareScopeRetainedOwnerTask(
   scope: Scope<unknown>,
@@ -140,6 +246,10 @@ export async function prepareScopeRetainedOwnerTask(
     if (accepted?.kind === 'execution-result') state.acceptedRef = accepted
   }
   if (state.prepared && state.acceptedRef && state.acceptedConsumed) {
+    const currentEnvironment = [...state.admissions]
+      .reverse()
+      .find((admission) => admission.phase === 'environment')
+    if (currentEnvironment?.phase === 'environment') state.priorSession = currentEnvironment
     delete state.inputSequence
     delete state.taskRef
     delete state.acceptedRef

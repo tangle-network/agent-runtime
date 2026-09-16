@@ -95,6 +95,38 @@ describe('supervised retained provider recovery', () => {
     },
   )
 
+  it('resumes from the last replay position and recovers the terminal receipt after the stream breaks', async () => {
+    // Measured on mech-interp-foundations-pi-20260915k turn 1: a provider refused one frame
+    // mid-stream, the runtime fell back to the exact result, which carries no usage, and a
+    // 926-second turn settled at 0 tokens with tokensKnown false, which the conserved pool
+    // debits as nothing. The receipt was one cursor replay away the whole time.
+    const fixture = await setup('dispatched', false, 1, undefined, undefined, 'transport-resume')
+    const result = await fixture.run(async (scope) => {
+      const child = scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 10 },
+      })
+      expect(child.ok).toBe(true)
+      const settled = await scope.next()
+      expect(settled?.kind).toBe('done')
+      if (settled?.kind === 'done') {
+        // Observation completed on the resumed stream, so the result is not marked partial.
+        expect(JSON.stringify(settled.out)).not.toContain('eventStreamComplete')
+      }
+      return settled?.kind === 'done' ? settled.out : 'unresolved'
+    })
+    expect(result.kind).toBe('winner')
+    expect(fixture.resultReads()).toBe(1)
+    const events = (await fixture.context.journal.loadTree('root')) ?? []
+    expect(
+      events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
+    ).toMatchObject([{ status: 'done', spent: { iterations: 1, tokens: { input: 3, output: 2 } } }])
+    const settledSpend = events.find((event) => event.kind === 'settled' && event.id === 'root:s0')
+    expect(
+      settledSpend && 'spent' in settledSpend ? settledSpend.spent.tokensKnown : false,
+    ).not.toBe(false)
+  })
+
   it('settles a retained execution failure after its event connection is lost', async () => {
     const fixture = await setup(
       'dispatched',
@@ -440,6 +472,7 @@ async function setup(
     | 'transport'
     | 'transport-open'
     | 'transport-partial'
+    | 'transport-resume'
     | 'transport-secret'
     | 'binding',
   resultFailure?: 'unavailable' | 'foreign',
@@ -484,6 +517,28 @@ async function setup(
               }
               if (observationFailure === 'transport' || observationFailure === 'transport-partial')
                 throw new Error('retained event connection lost')
+              if (observationFailure === 'transport-resume') {
+                // The production shape: the live stream delivers one positioned frame and
+                // breaks; the terminal receipt with the usage exists only past the cursor, and
+                // the exact result carries no usage at all. The runtime must resume from the
+                // cursor to see the receipt.
+                if (options?.since === undefined) {
+                  const live = session.events(options)[Symbol.asyncIterator]()
+                  const first = await live.next()
+                  await live.return?.()
+                  if (!first.done) yield first.value
+                  throw new Error('retained event connection lost')
+                }
+                yield* session.events(options)
+                yield {
+                  id: 'event-3',
+                  type: 'done',
+                  data: { usageMode: 'cumulative' },
+                  usage,
+                  usageMode: 'cumulative',
+                }
+                return
+              }
               if (observationFailure === 'binding') {
                 yield {
                   type: 'status',
@@ -499,7 +554,8 @@ async function setup(
             if (resultFailure === 'unavailable') throw new Error('exact result is unavailable')
             return {
               ...(await session.result()),
-              usage,
+              // The Tangle result endpoint carries no usage; only the stream's receipt does.
+              ...(observationFailure === 'transport-resume' ? {} : { usage }),
               ...(failure ? { success: false, error: failure } : {}),
               ...(resultFailure === 'foreign' ? { sessionId: 'foreign-session' } : {}),
             }

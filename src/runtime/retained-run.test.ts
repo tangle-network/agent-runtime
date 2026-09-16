@@ -869,6 +869,216 @@ describe('retained runtime run control', () => {
     })
   })
 
+  it('reuses an existing environment through startRetainedRun with a fresh explicit turn identity', async () => {
+    const identity = { sessionId: 'shared-session', executionId: 'reprompt-execution-2' }
+    const controlRef = {
+      runId: 'reprompt-run-2',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      ...identity,
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: identity.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({
+        text: 'reused',
+        success: true,
+        sessionId: identity.sessionId,
+        metadata: {
+          runId: controlRef.runId,
+          executionId: controlRef.executionId,
+          requestDigest: controlRef.requestDigest,
+        },
+      }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let creates = 0
+    let destroys = 0
+    let dispatched: AgentTurnInput | undefined
+    const provider = providerWithEnvironment({
+      async dispatch(input) {
+        dispatched = input
+        return { id: identity.sessionId, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+      async destroy() {
+        destroys++
+      },
+    })
+    provider.create = async () => {
+      creates++
+      throw new Error('existing-environment start must not create')
+    }
+    provider.list = async () => [
+      {
+        id: 'environment-1',
+        provider: 'test-provider',
+        metadata: { retainedIdempotencyKey: 'shared-environment' },
+      },
+    ]
+    const recorder = recordedAdmissions()
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'shared-environment' },
+      existingEnvironmentId: 'environment-1',
+      turn: { prompt: 'reprompt', turnId: 'reprompt-turn-2' },
+      identity,
+      onAdmission: recorder.onAdmission,
+    })
+
+    expect(creates).toBe(0)
+    expect(destroys).toBe(0)
+    expect(dispatched).toEqual({
+      prompt: 'reprompt',
+      turnId: 'reprompt-turn-2',
+      detach: true,
+      ...identity,
+    })
+    expect(recorder.admissions).toMatchObject([
+      { phase: 'intent', idempotencyKey: 'shared-environment', ...identity },
+      { phase: 'environment', environmentId: 'environment-1', ...identity },
+      { phase: 'dispatched', controlRef },
+    ])
+    await expect(run.result()).resolves.toMatchObject({
+      text: 'reused',
+      sessionId: identity.sessionId,
+    })
+  })
+
+  it('replays an existing-environment intent exactly and rejects changed reuse material', async () => {
+    const identity = { sessionId: 'replay-session', executionId: 'replay-execution' }
+    const controlRef = {
+      runId: 'replay-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      ...identity,
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: identity.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({
+        text: 'replayed',
+        success: true,
+        sessionId: identity.sessionId,
+        metadata: { runId: controlRef.runId, ...identity, requestDigest: controlRef.requestDigest },
+      }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let dispatches = 0
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        dispatches++
+        return { id: identity.sessionId, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+    })
+    provider.list = async () => [
+      {
+        id: 'environment-1',
+        provider: 'test-provider',
+        metadata: { retainedIdempotencyKey: 'replay-environment' },
+      },
+    ]
+    const environment = { profile: { name: 'worker' }, idempotencyKey: 'replay-environment' }
+    const turn = { prompt: 'replay this', turnId: 'replay-turn' }
+    const firstAdmissions: RetainedRunAdmission[] = []
+    const failed = await startRetainedRun({
+      provider,
+      environment,
+      existingEnvironmentId: 'environment-1',
+      turn,
+      identity,
+      onAdmission: async (admission) => {
+        firstAdmissions.push(admission)
+        if (admission.phase === 'intent') throw new Error('coordinator crashed')
+      },
+    }).catch((error: unknown) => error)
+    expect(failed).toBeInstanceOf(RetainedRunAdmissionError)
+    const intent = firstAdmissions[0]
+    if (intent?.phase !== 'intent') throw new Error('expected existing-environment intent')
+
+    await expect(
+      startRetainedRun({
+        provider,
+        environment,
+        existingEnvironmentId: 'changed-environment',
+        turn,
+        identity,
+        intent,
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('retained run intent conflicts with replay material')
+    expect(dispatches).toBe(0)
+
+    const recovered = await startRetainedRun({
+      provider,
+      environment,
+      existingEnvironmentId: 'environment-1',
+      turn,
+      identity,
+      intent,
+      onAdmission: async () => {},
+    })
+    await expect(recovered.result()).resolves.toMatchObject({ text: 'replayed' })
+    expect(dispatches).toBe(1)
+  })
+
+  it('does not destroy an existing environment when its reused dispatch returns another identity', async () => {
+    let destroys = 0
+    const rogueRef = {
+      runId: 'rogue-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'rogue-session',
+      executionId: 'rogue-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const provider = providerWithEnvironment({
+      creation: 'created',
+      async dispatch() {
+        return { id: rogueRef.sessionId, provider: 'test-provider', controlRef: rogueRef }
+      },
+      async destroy() {
+        destroys++
+      },
+    })
+    provider.list = async () => [
+      {
+        id: 'environment-1',
+        provider: 'test-provider',
+        metadata: { retainedIdempotencyKey: 'owned-environment' },
+      },
+    ]
+    const recorder = recordedAdmissions()
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'owned-environment' },
+        existingEnvironmentId: 'environment-1',
+        turn: { prompt: 'go', turnId: 'reuse-mismatch' },
+        identity: { sessionId: 'honest-session', executionId: 'honest-execution' },
+        onAdmission: recorder.onAdmission,
+      }),
+    ).rejects.toBeInstanceOf(RetainedRunDispatchBindingError)
+    expect(destroys).toBe(0)
+    expect(recorder.admissions.map((admission) => admission.phase)).toEqual([
+      'intent',
+      'environment',
+    ])
+  })
+
   it('fails before admission when an existing retained environment is unavailable or unusable', async () => {
     const missing = providerWithEnvironment({})
     missing.get = async () => null
