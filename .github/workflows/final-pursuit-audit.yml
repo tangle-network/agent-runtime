@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 env:
-  BASE_SHA: 9b74ebd1925e32a448756989a8538393e4b73d6f
+  BASE_SHA: 625b7df526761803610c32ef5da54e1eb7b5699f
   REPAIR_BRANCH: fix/stream-long-pursuit-journals
 jobs:
   verify:
@@ -17,13 +17,21 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Apply reviewed patch to the exact current base
+      - name: Apply reviewed repair to the exact current base
         run: |
           base64 --decode .audit/streaming-journals.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/repair.patch"
           echo "c3b9fbe2395a339b4bde64e556d634441189a44d209f218db95c696f691399d0  $RUNNER_TEMP/repair.patch" | sha256sum --check
           git checkout --detach "$BASE_SHA"
           git apply --check "$RUNNER_TEMP/repair.patch"
           git apply "$RUNNER_TEMP/repair.patch"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/durable/observer-journal.ts')
+          s = p.read_text()
+          assert s.count('private records()') == 1
+          assert s.count('this.records()') == 2
+          p.write_text(s.replace('private records()', 'private readExistingUnsafe()').replace('this.records()', 'this.readExistingUnsafe()'))
+          PY
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -32,14 +40,14 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm peers check
       - name: Prepare patch release through maintained scripts
         run: |
-          pnpm run release:prepare 0.235.1
+          pnpm run release:prepare 0.235.2
           python3 - <<'PY'
           from pathlib import Path
           path = Path('CHANGELOG.md')
           text = path.read_text()
           assert text.startswith('# Changelog\n')
           entry = '''
-          ## 0.235.1
+          ## 0.235.2
 
           File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
           Observer restart verifies its complete digest chain while retaining only the last record.
@@ -54,12 +62,13 @@ jobs:
           PY
       - name: Native lint, complete tests, source and example types
         run: |
-          pnpm run lint
-          pnpm test
-          pnpm run typecheck
+          mkdir -p "$RUNNER_TEMP/checks"
+          pnpm run lint 2>&1 | tee "$RUNNER_TEMP/checks/lint.log"
+          pnpm test 2>&1 | tee "$RUNNER_TEMP/checks/tests.log"
+          pnpm run typecheck 2>&1 | tee "$RUNNER_TEMP/checks/typecheck.log"
       - name: Verify published-package surface and docs
         run: |
-          pnpm run verify:package
+          pnpm run verify:package 2>&1 | tee "$RUNNER_TEMP/checks/package.log"
           pnpm run docs:freshness
           git diff --check
       - name: Retain one clean verified product commit
@@ -76,6 +85,7 @@ jobs:
           test -z "$(git status --porcelain)"
           out="$RUNNER_TEMP/verified-repair"
           mkdir -p "$out"
+          cp -R "$RUNNER_TEMP/checks" "$out/checks"
           git rev-parse HEAD > "$out/commit.txt"
           git rev-parse HEAD^{tree} > "$out/tree.txt"
           git rev-parse HEAD^ > "$out/base.txt"
@@ -90,6 +100,20 @@ jobs:
           path: ${{ runner.temp }}/verified-repair/
           retention-days: 7
           if-no-files-found: error
+      - name: Retain failure diagnostics without weakening checks
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/checks"
+          cp package.json tsdown.config.ts "$RUNNER_TEMP/checks/"
+          if test -d dist; then tar -czf "$RUNNER_TEMP/checks/dist.tar.gz" dist; fi
+          git diff --stat > "$RUNNER_TEMP/checks/diff-stat.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: failure()
+        with:
+          name: streaming-repair-diagnostics
+          path: ${{ runner.temp }}/checks/
+          retention-days: 2
+          if-no-files-found: warn
   review-branch:
     needs: verify
     runs-on: ubuntu-latest
@@ -99,7 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 9b74ebd1925e32a448756989a8538393e4b73d6f
+          ref: 625b7df526761803610c32ef5da54e1eb7b5699f
           fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
