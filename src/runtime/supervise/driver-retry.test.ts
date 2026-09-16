@@ -759,3 +759,71 @@ describe('driver admission after asynchronous callbacks', () => {
     expect(script.attempts).toEqual([1])
   })
 })
+
+describe('long-run retry streaks', () => {
+  it('does not accumulate non-consecutive transport failures across completed continuations', async () => {
+    let calls = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => {
+        calls++
+        if (calls % 2 === 1) throw new Error('temporary transport interruption')
+      },
+      progress: () => mark({ contract: calls >= 12 ? 'met' : 'unmet' }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxAttempts: 20, maxConsecutiveFailures: 3 },
+      reprompt: { maxReprompts: 10 },
+      onAttempt: (record) => {
+        records.push(record)
+      },
+      sleep: instantSleep,
+    })
+    expect(calls).toBe(12)
+    expect(records.filter((record) => record.error).map((record) => record.retryInMs)).toEqual([
+      2000, 2000, 2000, 2000, 2000, 2000,
+    ])
+    expect(records.at(-1)?.contract).toBe('met')
+  })
+
+  it('still stops a truly consecutive failure streak after a successful continuation', async () => {
+    let calls = 0
+    await expect(
+      runDriverWithRetry({
+        drive: async () => {
+          calls++
+          if (calls > 1) throw new Error('transport unavailable')
+        },
+        progress: () => mark(),
+        budget: () => budget(),
+        signal: new AbortController().signal,
+        policy: { maxAttempts: 20, maxConsecutiveFailures: 3 },
+        reprompt: { maxReprompts: 10 },
+        sleep: instantSleep,
+      }),
+    ).rejects.toMatchObject({ stop: 'no-progress' })
+    expect(calls).toBe(4)
+  })
+
+  it('does not weaken an explicit total attempt ceiling', async () => {
+    let calls = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => {
+        calls++
+        if (calls % 2 === 1) throw new Error('temporary transport interruption')
+      },
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxAttempts: 4, maxConsecutiveFailures: 3 },
+      reprompt: { maxReprompts: 10 },
+      onAttempt: (record) => {
+        records.push(record)
+      },
+      sleep: instantSleep,
+    })
+    expect(calls).toBe(4)
+    expect(records.at(-1)?.repromptRefusedBy).toBe('max-attempts')
+  })
+})

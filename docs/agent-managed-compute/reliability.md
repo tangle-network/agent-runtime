@@ -28,6 +28,15 @@ Cancellation and cleanup failures preserve accepted output; budget and execution
 
 The built-in provider recovery path supports one-shot, nonsteering execution.
 Retained execution does not create a steering capability the provider lacks.
+Spawn-journal append validation keeps only rebuildable node, admission, and cursor indexes.
+Healthy appends do not reload prior events; cold reads validate each record once.
+File replacement, truncation, changed metadata, or a failed write invalidates the append index.
+Recovery validates the actual retained bytes before accepting another append.
+The index is not a second durable record or a cross-process ownership fence.
+Observer records detach their inputs before queued I/O, so later hook mutations cannot rewrite the evidence being saved.
+Completed director invocations reset the consecutive transport-failure counter even when the pursuit remains incomplete.
+The explicit total-attempt, deadline, cancellation, and resource bounds still apply.
+
 The file run lock protects one local coordinator.
 It does not fence provider mutations from a partitioned coordinator on another machine.
 No deployed or live multi-provider recovery proof is claimed here.
