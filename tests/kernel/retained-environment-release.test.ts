@@ -33,6 +33,8 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { FileObserverJournal } from '../../src/durable/observer-journal'
+import { projectPursuit } from '../../src/durable/observer-projection'
 import {
   closesCursorSlot,
   materializeTreeView,
@@ -40,6 +42,7 @@ import {
 } from '../../src/durable/spawn-journal'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
+import { sumSpendFromEvents } from '../../src/runtime/supervise/recover-executors'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import {
   createFileRunContext,
@@ -50,9 +53,11 @@ import type {
   Agent,
   Executor,
   ExecutorFactory,
+  NodeId,
   Scope,
   Settled,
   SpawnEvent,
+  SpawnJournal,
   SupervisorOpts,
 } from '../../src/runtime/supervise/types'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
@@ -824,6 +829,552 @@ describe('retained environments at root settlement', () => {
     expect(managerTerminal[0]).not.toHaveProperty('retainedExecution')
     // Forest scope: the manager and its grandchild both count, the grandchild as released.
     expect(result.fleetYield).toEqual({
+      spawned: 2,
+      done: 0,
+      down: 2,
+      cancelled: 0,
+      neverSettled: 0,
+      releasedUnrecovered: 1,
+    })
+  })
+})
+
+/**
+ * The process dies between the last `destroyed: true` receipt and the released record: the
+ * journal ends with the receipt, the slot is open, the environment is gone. Everything the release
+ * sweep would have written is captured so the heal can be compared byte-for-byte against it.
+ * Every other journal call forwards to the real file journal with its own `this`, so the stamp
+ * check and the receipt's acknowledgement are untouched.
+ */
+function crashBeforeReleasedRecord(journal: SpawnJournal) {
+  const dropped: SpawnEvent[] = []
+  const proxied = new Proxy(journal, {
+    get(target, property, receiver) {
+      if (property !== 'appendEvent') return Reflect.get(target, property, receiver)
+      return (root: NodeId, event: SpawnEvent) => {
+        if (
+          (event.kind === 'settled' || event.kind === 'cancelled') &&
+          event.retainedExecution === 'released'
+        ) {
+          dropped.push(event)
+          throw new Error('process died before the released record')
+        }
+        return target.appendEvent(root, event)
+      }
+    },
+  })
+  return { journal: proxied, dropped }
+}
+
+/** An ordinary leaf that completes at once, for a settlement after the healed one. */
+function completingWorker(): Agent<unknown, unknown> {
+  const spent = { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }
+  const executor: Executor<unknown> = {
+    runtime: 'router',
+    execute(): AsyncIterable<{ kind: 'tokens'; input: number; output: number }> {
+      return (async function* () {
+        yield { kind: 'tokens' as const, input: 1, output: 1 }
+      })()
+    },
+    teardown: async () => ({ destroyed: true }),
+    resultArtifact: () => ({ out: 'ok', outRef: canonicalCandidateDigest('ok'), spent }),
+  }
+  return Object.assign(
+    { name: 'plain', act: async () => 'unused' },
+    { executorSpec: { profile: testAgentProfile('plain'), harness: null, executor } },
+  )
+}
+
+const reconciledRecords = (events: ReadonlyArray<SpawnEvent>, id: string) =>
+  events.flatMap((event) => (event.kind === 'reconciled' && event.id === id ? [event] : []))
+
+/** A deterministic clock so two runs of the same shape journal the same instants. */
+const fixedClock = () => {
+  let tick = Date.parse('2026-09-15T12:00:00.000Z')
+  return () => (tick += 1000)
+}
+
+/** Two runs of one shape differ only in the attempt ids the root's own binding mints, and a
+ *  replayed handle carries a method; compare the recorded data with the ids pinned. */
+const recorded = (value: unknown) =>
+  JSON.parse(
+    JSON.stringify(value).replace(/"attemptId":"[^"]+"/g, '"attemptId":"<attempt>"'),
+  ) as unknown
+
+describe('a crash between the receipt and the released record heals on the next resume', () => {
+  let directory: string
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), 'retained-heal-'))
+  })
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  const common = (runId: string) =>
+    ({
+      runId,
+      budget: { maxIterations: 4, maxTokens: 40 },
+      rootIdentity: {
+        profileDigest: canonicalCandidateDigest({ name: 'root' }),
+        taskDigest: canonicalCandidateDigest('task'),
+      },
+      retainedAtSettlement: 'release',
+    }) satisfies Partial<SupervisorOpts>
+
+  it('writes the sweep’s own record at the driver’s seq, treats nothing as interrupted, and reports the floor', async () => {
+    const fleet = retainedProvider(directory)
+    const runDirectory = join(directory, 'run')
+    const observerPath = join(directory, 'observer.jsonl')
+    const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
+    await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...createFileRunContext(runDirectory),
+        journal: crashed.journal,
+        ...common('heal'),
+        hooks: new FileObserverJournal(observerPath, 'pursuit:heal').hooks(),
+      },
+    )
+    // The window exactly: the environment is destroyed, the receipt is the last record, the slot
+    // is open, and the reconciled record carries the settlement and the cursor seq beside the floor.
+    expect(fleet.state.destroys).toBe(1)
+    expect(fleet.environments()).toEqual([])
+    expect(crashed.dropped).toHaveLength(1)
+    const before = (await createFileRunContext(runDirectory).journal.loadTree('heal')) ?? []
+    const receipt = releaseReceipts(before)[0]!
+    expect(receipt).toMatchObject({ id: 'heal:s0', destroyed: true })
+    expect(before.at(-1)).toBe(receipt)
+    expect(terminalRecords(before, 'heal:s0')).toEqual([])
+    const reconciled = reconciledRecords(before, 'heal:s0')[0]!
+    expect(reconciled).toMatchObject({
+      settledSeq: 0,
+      infra: true,
+      reason: expect.stringContaining('reconciliation'),
+      trace: expect.anything(),
+      harnessTranscript: expect.anything(),
+    })
+    expect(reconciled).not.toHaveProperty('cancellation')
+
+    fleet.state.resultLost = false
+    const restarted = createFileRunContext(runDirectory)
+    const hookEvents: RuntimeHookEvent[] = []
+    const observer = new FileObserverJournal(observerPath, 'pursuit:heal').hooks()
+    let secondChild: Settled<unknown> | undefined
+    let actError: unknown
+    const resumed = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          try {
+            expect(scope.resume).toBeDefined()
+            // Healed before the root acts: nothing in flight, the node already down and released.
+            expect(scope.view.inFlight).toBe(0)
+            expect(scope.resume?.settled).toMatchObject([
+              { kind: 'down', retainedExecution: 'released', seq: 0 },
+            ])
+            // The resumed cursor starts past the healed seq, so a new settlement never collides.
+            const plain = scope.spawn(completingWorker(), 'plain task', {
+              budget: { maxIterations: 1, maxTokens: 10 },
+            })
+            expect(plain, JSON.stringify(plain)).toMatchObject({ ok: true })
+            secondChild = (await scope.next()) ?? undefined
+          } catch (error) {
+            actError = error
+            throw error
+          }
+          return 'resumed'
+        },
+      },
+      'task',
+      {
+        ...restarted,
+        ...common('heal'),
+        resume: true,
+        recoverExecutor: providerAsExecutor(fleet.provider()),
+        hooks: {
+          onEvent: (event, context) => {
+            hookEvents.push(event)
+            return observer.onEvent?.(event, context)
+          },
+        },
+      },
+    )
+    expect(actError).toBeUndefined()
+    expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
+    if (resumed.kind !== 'winner') return
+    expect(resumed.out).toBe('resumed')
+    expect(secondChild).toMatchObject({ kind: 'done', seq: 1 })
+    // No recovery was attempted against the destroyed environment.
+    expect(fleet.state.destroys).toBe(1)
+    expect(fleet.environments()).toEqual([])
+
+    const events = (await restarted.journal.loadTree('heal')) ?? []
+    const terminal = terminalRecords(events, 'heal:s0')
+    expect(terminal).toEqual([crashed.dropped[0]])
+    expect(events.indexOf(terminal[0]!)).toBeGreaterThan(events.indexOf(receipt))
+    expect(terminal[0]).toMatchObject({
+      kind: 'settled',
+      status: 'down',
+      retainedExecution: 'released',
+      seq: 0,
+      at: reconciled.at,
+      spent: reconciled.spent,
+      harnessTranscript: reconciled.harnessTranscript,
+    })
+    expect(await replaySpawnTree(restarted.journal, restarted.blobs, 'heal')).toMatchObject([
+      {
+        kind: 'down',
+        retainedExecution: 'released',
+        seq: 0,
+        harnessTranscript: reconciled.harnessTranscript,
+      },
+      { kind: 'done', seq: 1 },
+    ])
+    // Every reader agrees: down and released, an unreported floor rather than a never-settled
+    // ceiling, and the same child work the pool committed at the reconcile.
+    expect(resumed.fleetYield).toEqual({
+      spawned: 2,
+      done: 1,
+      down: 1,
+      cancelled: 0,
+      neverSettled: 0,
+      releasedUnrecovered: 1,
+    })
+    expect(resumed.spendGaps).toEqual([
+      expect.objectContaining({ id: 'heal:s0', kind: 'unreported' }),
+    ])
+    expect(resumed.spentTotal.tokensKnown).toBe(false)
+    const retainedOnly = (list: ReadonlyArray<SpawnEvent>) =>
+      list.filter(
+        (event) =>
+          event.id === 'heal:s0' || (event.kind === 'spawned' && event.parent === undefined),
+      )
+    expect(sumSpendFromEvents(retainedOnly(events)).childWork).toEqual(
+      sumSpendFromEvents(retainedOnly(before)).childWork,
+    )
+    // The sweep's `agent.child` on the resumed stream, and the projection that reads it.
+    const released = childPayloads(hookEvents, 'heal:s0')
+    expect(released).toHaveLength(1)
+    expect(released[0]).toMatchObject({
+      stepIndex: 0,
+      payload: {
+        status: 'down',
+        retainedExecution: 'released',
+        settledAt: Date.parse(reconciled.at),
+        releasedAt: Date.parse(receipt.at),
+        spent: reconciled.spent,
+      },
+    })
+    expect(released[0]?.payload).not.toHaveProperty('metered')
+    expect(hookEvents.find((event) => event.id === 'heal:s0:released')?.runId).toBe('heal')
+    const projection = projectPursuit(
+      await new FileObserverJournal(observerPath, 'pursuit:heal').read(),
+    )
+    expect(projection.nodes.find((node) => node.id === 'heal:s0')).toMatchObject({
+      status: 'down',
+      retainedExecution: 'released',
+      releasedAt: Date.parse(receipt.at),
+      spent: expect.objectContaining({ tokens: reconciled.spent.tokens }),
+    })
+    expect(projection.runs[0]?.spendGaps).toEqual([
+      expect.objectContaining({ id: 'heal:s0', kind: 'unreported' }),
+    ])
+  })
+
+  it('replays as the run the sweep completed, and a second resume writes nothing more', async () => {
+    const fleet = retainedProvider(directory)
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(_task, scope) {
+        if (scope.resume !== undefined) return 'resumed'
+        await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+        return 'finished'
+      },
+    }
+    // The control: the same run, uncrashed, on the same clock.
+    const controlDirectory = join(directory, 'control')
+    const control = createFileRunContext(controlDirectory)
+    const controlRun = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...control,
+      ...common('same'),
+      now: fixedClock(),
+    })
+    expect(controlRun.kind, JSON.stringify(controlRun)).toBe('winner')
+    const controlEvents = (await control.journal.loadTree('same')) ?? []
+    expect(terminalRecords(controlEvents, 'same:s0')).toMatchObject([
+      { retainedExecution: 'released' },
+    ])
+
+    const runDirectory = join(directory, 'run')
+    const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
+    await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...createFileRunContext(runDirectory),
+      journal: crashed.journal,
+      ...common('same'),
+      now: fixedClock(),
+    })
+    const crashedEvents = (await createFileRunContext(runDirectory).journal.loadTree('same')) ?? []
+    expect(terminalRecords(crashedEvents, 'same:s0')).toEqual([])
+    expect(recorded(crashedEvents)).toEqual(recorded(controlEvents.slice(0, -1)))
+
+    const restarted = createFileRunContext(runDirectory)
+    const resumed = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...restarted,
+      ...common('same'),
+      resume: true,
+      recoverExecutor: providerAsExecutor(fleet.provider()),
+    })
+    expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
+    const healedEvents = (await restarted.journal.loadTree('same')) ?? []
+    // The resumed process adds only its own root binding; every child record is the control's.
+    const childRecords = (list: ReadonlyArray<SpawnEvent>) =>
+      list.filter((event) => !(event.kind === 'execution-bound' && event.id === 'same'))
+    expect(recorded(childRecords(healedEvents))).toEqual(recorded(childRecords(controlEvents)))
+    expect(recorded(await replaySpawnTree(restarted.journal, restarted.blobs, 'same'))).toEqual(
+      recorded(await replaySpawnTree(control.journal, control.blobs, 'same')),
+    )
+    const childNodes = (list: ReadonlyArray<SpawnEvent>) =>
+      materializeTreeView(list).nodes.filter((node) => node.parent !== undefined)
+    expect(recorded(childNodes(healedEvents))).toEqual(recorded(childNodes(controlEvents)))
+    expect(resumed.fleetYield).toEqual(controlRun.fleetYield)
+
+    const again = createFileRunContext(runDirectory)
+    const hookEvents: RuntimeHookEvent[] = []
+    const second = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...again,
+      ...common('same'),
+      resume: true,
+      recoverExecutor: providerAsExecutor(fleet.provider()),
+      hooks: {
+        onEvent: (event) => {
+          hookEvents.push(event)
+        },
+      },
+    })
+    expect(second.kind, JSON.stringify(second)).toBe('winner')
+    expect(childRecords((await again.journal.loadTree('same')) ?? [])).toEqual(
+      childRecords(healedEvents),
+    )
+    expect(childPayloads(hookEvents, 'same:s0')).toEqual([])
+    expect(fleet.state.destroys).toBe(2)
+  })
+
+  it('keeps the cancelled kind and its source on a healed cancelled child', async () => {
+    const fleet = retainedProvider(directory)
+    const runDirectory = join(directory, 'run')
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(_task, scope) {
+        if (scope.resume === undefined) {
+          await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        }
+        expect(scope.view.inFlight).toBe(0)
+        return 'resumed'
+      },
+    }
+    const abort = new AbortController()
+    fleet.state.observe = async (signal) => {
+      abort.abort(new Error('operator stopped the run'))
+      await new Promise<never>((_resolve, reject) => {
+        const fail = () => reject(signal?.reason ?? new Error('observation aborted'))
+        if (signal === undefined || signal.aborted) fail()
+        else signal.addEventListener('abort', fail, { once: true })
+      })
+    }
+    const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
+    await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...createFileRunContext(runDirectory),
+      journal: crashed.journal,
+      ...common('abort-heal'),
+      signal: abort.signal,
+    })
+    expect(fleet.state.destroys).toBe(1)
+    const before = (await createFileRunContext(runDirectory).journal.loadTree('abort-heal')) ?? []
+    expect(terminalRecords(before, 'abort-heal:s0')).toEqual([])
+    expect(reconciledRecords(before, 'abort-heal:s0')[0]).toMatchObject({
+      settledSeq: 0,
+      cancellation: { source: 'signal' },
+    })
+    expect(crashed.dropped).toMatchObject([{ kind: 'cancelled', source: 'signal' }])
+
+    fleet.state.observe = undefined
+    fleet.state.resultLost = false
+    const restarted = createFileRunContext(runDirectory)
+    const resumed = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...restarted,
+      ...common('abort-heal'),
+      resume: true,
+      recoverExecutor: providerAsExecutor(fleet.provider()),
+    })
+    expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
+    expect(fleet.state.destroys).toBe(1)
+    const events = (await restarted.journal.loadTree('abort-heal')) ?? []
+    expect(terminalRecords(events, 'abort-heal:s0')).toEqual(crashed.dropped)
+    expect(terminalRecords(events, 'abort-heal:s0')).toMatchObject([
+      { kind: 'cancelled', source: 'signal', retainedExecution: 'released', seq: 0 },
+    ])
+    expect(resumed.fleetYield).toEqual({
+      spawned: 1,
+      done: 0,
+      down: 0,
+      cancelled: 1,
+      neverSettled: 0,
+      releasedUnrecovered: 1,
+    })
+  })
+
+  it('leaves a refused release open: the node is still interrupted and the resume recovers it', async () => {
+    const fleet = retainedProvider(directory)
+    fleet.state.destroyFailure = new Error('409 Conflict: environment is still stopping')
+    const runDirectory = join(directory, 'run')
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(_task, scope) {
+        if (scope.resume === undefined) {
+          await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        }
+        // Still interrupted: the resumed process adopts the retained child before the root acts.
+        expect(scope.view.inFlight).toBe(1)
+        const settled = await scope.next()
+        return settled?.kind === 'done' ? 'recovered' : 'lost'
+      },
+    }
+    const first = createFileRunContext(runDirectory)
+    const refused = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...first,
+      ...common('refused-heal'),
+    })
+    expect(refused.kind, JSON.stringify(refused)).toBe('winner')
+    expect(fleet.environments()).toHaveLength(1)
+    const before = (await first.journal.loadTree('refused-heal')) ?? []
+    expect(releaseReceipts(before)).toMatchObject([{ id: 'refused-heal:s0', destroyed: false }])
+    expect(reconciledRecords(before, 'refused-heal:s0')[0]).toMatchObject({ settledSeq: 0 })
+    expect(terminalRecords(before, 'refused-heal:s0')).toEqual([])
+
+    fleet.state.destroyFailure = undefined
+    fleet.state.resultLost = false
+    const restarted = createFileRunContext(runDirectory)
+    const resumed = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      ...restarted,
+      ...common('refused-heal'),
+      resume: true,
+      recoverExecutor: providerAsExecutor(fleet.provider()),
+    })
+    expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
+    if (resumed.kind !== 'winner') return
+    expect(resumed.out).toBe('recovered')
+    const events = (await restarted.journal.loadTree('refused-heal')) ?? []
+    const terminal = terminalRecords(events, 'refused-heal:s0')
+    expect(terminal).toMatchObject([{ kind: 'settled', status: 'done' }])
+    expect(terminal[0]).not.toHaveProperty('retainedExecution')
+    expect(resumed.fleetYield).toEqual({
+      spawned: 1,
+      done: 1,
+      down: 0,
+      cancelled: 0,
+      neverSettled: 0,
+      releasedUnrecovered: 0,
+    })
+  })
+
+  it("heals a nested manager's grandchild in its own tree from the root resume", async () => {
+    const fleet = retainedProvider(directory)
+    const runDirectory = join(directory, 'run')
+    const crashed = crashBeforeReleasedRecord(
+      createFileRunContext(runDirectory, { withDriver: true }).journal,
+    )
+    const managerFor = (journal: SpawnJournal) =>
+      driverChild(
+        testAgentProfile('manager'),
+        {
+          name: 'manager',
+          async act(_task, scope) {
+            const settled = await spawnAndAwait(
+              scope,
+              retainedWorker(providerAsExecutor(fleet.provider())),
+            )
+            expect(settled?.kind).toBe('down')
+            return 'finalized manager'
+          },
+        },
+        journal,
+      )
+    const rootFor = (manager: Agent<unknown, unknown>): Agent<unknown, unknown> => ({
+      name: 'root',
+      async act(_task, scope) {
+        if (scope.resume !== undefined) {
+          expect(scope.view.inFlight).toBe(0)
+          return 'resumed'
+        }
+        expect(
+          scope.spawn(manager, 'manage', { budget: { maxIterations: 2, maxTokens: 20 } }).ok,
+        ).toBe(true)
+        expect((await scope.next())?.kind).toBe('down')
+        return 'finished'
+      },
+    })
+    await createSupervisor<unknown, unknown>().run(rootFor(managerFor(crashed.journal)), 'task', {
+      ...createFileRunContext(runDirectory, { withDriver: true }),
+      journal: crashed.journal,
+      ...common('root'),
+      budget: { maxIterations: 4, maxTokens: 100 },
+    })
+    expect(fleet.environments()).toEqual([])
+    expect(crashed.dropped).toHaveLength(1)
+    const firstContext = createFileRunContext(runDirectory, { withDriver: true })
+    const nestedBefore = (await firstContext.journal.loadTree('root/root:s0')) ?? []
+    expect(releaseReceipts(nestedBefore)).toMatchObject([{ id: 'root:s0:s0', destroyed: true }])
+    expect(terminalRecords(nestedBefore, 'root:s0:s0')).toEqual([])
+    // The manager settled on the ordinary path in the root tree: nothing there to restore.
+    const rootBefore = (await firstContext.journal.loadTree('root')) ?? []
+    expect(terminalRecords(rootBefore, 'root:s0')).toHaveLength(1)
+
+    fleet.state.resultLost = false
+    const restarted = createFileRunContext(runDirectory, { withDriver: true })
+    const hookEvents: RuntimeHookEvent[] = []
+    const resumed = await createSupervisor<unknown, unknown>().run(
+      rootFor(managerFor(restarted.journal)),
+      'task',
+      {
+        ...restarted,
+        ...common('root'),
+        budget: { maxIterations: 4, maxTokens: 100 },
+        resume: true,
+        recoverExecutor: providerAsExecutor(fleet.provider()),
+        hooks: {
+          onEvent: (event) => {
+            hookEvents.push(event)
+          },
+        },
+      },
+    )
+    expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
+    expect(fleet.state.destroys).toBe(1)
+    const nested = (await restarted.journal.loadTree('root/root:s0')) ?? []
+    const nestedTerminal = terminalRecords(nested, 'root:s0:s0')
+    expect(nestedTerminal).toEqual(crashed.dropped)
+    expect(nested.indexOf(nestedTerminal[0]!)).toBeGreaterThan(
+      nested.indexOf(releaseReceipts(nested)[0]!),
+    )
+    // The root tree gains only the resumed root's own binding: no receipt, no second record.
+    const rootAfter = (await restarted.journal.loadTree('root')) ?? []
+    expect(rootAfter.filter(closesCursorSlot)).toEqual(rootBefore.filter(closesCursorSlot))
+    expect(releaseReceipts(rootAfter)).toEqual([])
+    expect(hookEvents.find((event) => event.id === 'root:s0:s0:released')).toMatchObject({
+      runId: 'root/root:s0',
+      parentId: 'root:s0',
+      target: 'agent.child',
+    })
+    expect(resumed.fleetYield).toEqual({
       spawned: 2,
       done: 0,
       down: 2,

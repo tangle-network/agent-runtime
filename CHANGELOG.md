@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.234.0
+
+**A resume heals the 0.233.0 crash window.** The `reconciled` record now carries the settlement
+the driver received (`reason`, `infra`, `trace`, `outRef`, `providerModel`, `harnessTranscript`),
+the withheld overspend, the cancellation source when there was one, and `settledSeq` — the
+cursor seq `next()` stamped on the delivery. It is written through the same field spread as the
+terminal record, so the two cannot disagree.
+
+- A spawned child with no terminal record whose `environment-teardown` receipts after its latest
+  `reconciled` record all read `destroyed: true`, and which name the environment its last
+  admission named, gets its released terminal record on the next resume (`healReleasedSlots`,
+  before interrupted executors are prepared) from the release sweep's own builder, at
+  `settledSeq` and the reconciled `at`: the bytes a completed sweep would have written.
+  `fleetYield` counts it `down` (or `cancelled`, with its `source`) and `releasedUnrecovered`,
+  `spendGaps` names it `unreported` rather than `never-settled`, replay yields it where the driver
+  saw it, and the `agent.child` `:released` event is emitted on the resumed stream. It is never
+  treated as interrupted, and no recovery is attempted against the destroyed environment.
+- A `destroyed: false` receipt, an empty receipt set, a receipt journaled before the latest
+  `reconciled` record, a receipt for an environment the journal never admitted, or a `reconciled`
+  record written before `settledSeq` existed (0.230.0–0.233.1) leaves the slot open exactly as
+  before. Nothing is invented for those journals.
+- A resumed cursor now starts past every open node's `settledSeq`, so a resumed scope can never
+  mint an open node's seq for another settlement; a journal that already closes that seq fails the
+  resume with `RuntimeRunStateError` and writes nothing.
+- The refund at the reconcile is unchanged. `terminalDownEvent`, `settledNodeEvidence` and the
+  release payload move to `supervise/terminal-record.ts`, the one module both the live sweep and
+  the resume heal import.
+
 ## 0.233.1
 
 Support Sandbox 0.41 through the published peer range.

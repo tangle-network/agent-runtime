@@ -100,6 +100,14 @@ import {
   releaseScopeRetainedOwnerEnvironment,
 } from './retained-scope-owner'
 import { detachedSnapshot } from './snapshot'
+import {
+  type DownSettlement,
+  releasedChildPayload,
+  settledNodeEvidence,
+  settlementFields,
+  type TerminalDownSubject,
+  terminalDownEvent,
+} from './terminal-record'
 import { captureWorkerTraceEvidence } from './trace-evidence'
 import type { TraceSource } from './trace-source'
 import { runtimeOwnedNestedDriverTreeRoot } from './tree-key'
@@ -375,7 +383,9 @@ interface LiveChild {
   settledAt?: number
   /** The cursor seq `next()` stamped on this child's settlement. A retained-pending child's
    *  terminal record is written later by the release sweep under THIS seq, so replay yields it
-   *  at the position the driver saw it; the sweep never mints a new `cursorSeq` for it. */
+   *  at the position the driver saw it; the sweep never mints a new `cursorSeq` for it, and
+   *  neither does a resume that heals a crashed sweep — it reads this seq back from the
+   *  reconciled record's `settledSeq`. */
   settledSeq?: number
   /** Mirrors the journal's statement about a retained execution so `makeTreeView` reports it. */
   retainedExecution?: RetainedExecutionState
@@ -436,7 +446,7 @@ interface LiveChild {
 /** A child's terminal settlement before the cursor stamps the monotonic `seq`. A wait-state's
  *  `done` carries a `WaitOutcome` as its `out` and a zero `spent` — waiting is free by type, not
  *  by measurement. */
-type PreSeqSettled =
+export type PreSeqSettled =
   | {
       kind: 'done'
       out: unknown
@@ -2057,9 +2067,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // `cleanupConfirmed` the barrier reads: a `destroyed: false` receipt, an executor throw, an
       // environment-less `[]` answer or a refused `confirmTeardown` leave the slot open, because
       // the environment may still exist and `[].every` would otherwise close it vacuously. A
-      // crash between the receipt and this record leaves the slot open too; nothing below can
-      // run without the executor's confirmation in hand. A manager settled on the ordinary path
-      // already has its record and never passes `recoveryPending`.
+      // crash between the last receipt and this record no longer strands the slot: the
+      // reconciled record carries this settlement and the cursor seq, and `healReleasedSlots`
+      // (recover-executors.ts) writes this same record from it on the next resume, under the
+      // same seq. A manager settled on the ordinary path already has its record and never
+      // passes `recoveryPending`.
       if (
         child.cleanupConfirmed &&
         child.recoveryPending === true &&
@@ -2095,17 +2107,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             timestamp: releasedAt,
             stepIndex: child.settledSeq,
             parentId: args.parentId,
-            payload: {
-              childId: child.id,
-              status: 'down',
-              retainedExecution: 'released',
-              releasedAt,
-              ...(child.resolved.outRef === undefined ? {} : { outRef: child.resolved.outRef }),
-              reason: child.resolved.reason,
-              infra: child.resolved.infra,
-              spent: child.spent,
-              ...settledNodeEvidence(child, { ...child.resolved, metered: undefined }, settledAt),
-            },
+            payload: releasedChildPayload(child, child.resolved, settledAt, releasedAt),
           },
           { signal: args.signal },
         )
@@ -2571,21 +2573,27 @@ async function appendSettlementMetering(
 
 /** An open node's reconciled floor has the same per-child sequence discipline as its metering:
  *  outside the cursor namespace, monotonic per node, so a node reconciled once per process (a
- *  retained failure, a recovery, a second retained failure) keeps its records ordered. */
+ *  retained failure, a recovery, a second retained failure) keeps its records ordered. It carries
+ *  the whole settlement and the cursor seq (`settledSeq`) beside the floor, through the same
+ *  field spread the terminal record uses, so a resume that finds the release sweep died before
+ *  its record can write that record byte-for-byte instead of inventing one. */
 async function appendReconciledFloor(
   journal: SpawnJournal,
   root: NodeId,
-  id: NodeId,
-  spent: Spend,
+  subject: TerminalDownSubject,
+  settlement: DownSettlement,
+  settledSeq: number,
   at: string,
-  harnessTranscript?: HarnessTranscriptEvidence,
 ): Promise<void> {
-  const seq = await nextPerNodeSeq(journal, root, 'reconciled', id)
+  const seq = await nextPerNodeSeq(journal, root, 'reconciled', subject.id)
   await appendAcknowledged(journal, root, {
     kind: 'reconciled',
-    id,
-    spent,
-    ...(harnessTranscript ? { harnessTranscript } : {}),
+    id: subject.id,
+    ...settlementFields(subject, settlement),
+    ...(subject.cancellationReason === undefined
+      ? {}
+      : { cancellation: { source: subject.cancellationReason.source } }),
+    settledSeq,
     seq,
     at,
   })
@@ -2684,20 +2692,35 @@ async function finalizeSettlement<Out>(
     // ceiling the pool refunded: measured 2026-09-11, the reported `childWork` carried 4M per
     // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
     // place, outside the cursor namespace, so the slot stays open and the ledgers agree. The
-    // slot closes in exactly two ways: a resume recovers the execution and settles it on the
-    // ordinary path, or root settlement under `retainedAtSettlement: 'release'` destroys the
+    // slot closes in exactly three ways: a resume recovers the execution and settles it on the
+    // ordinary path; root settlement under `retainedAtSettlement: 'release'` destroys the
     // environment and the release sweep (`retainedReleasers`, above) writes this settlement as
-    // the terminal record with `retainedExecution: 'released'`, under the seq stamped here.
+    // the terminal record with `retainedExecution: 'released'`, under the seq stamped here; or
+    // the next resume's `healReleasedSlots` writes that same record from this reconciled record
+    // and the receipts, when the sweep's process died between them. The reconciled record
+    // therefore carries the settlement and `seq` in full: `spent` is the floor the pool committed
+    // (`live.spent` at the retained branch, the same object `child.spent` holds), the withheld
+    // overspend is `retainedViolation`, and `cancellationReason` is final because
+    // `recordCancellation` only assigns before `executorDone`.
     else {
       child.retainedExecution = 'pending'
       if (settlement.reconciled !== undefined)
         await appendReconciledFloor(
           args.journal,
           args.root,
-          child.id,
-          settlement.reconciled,
+          {
+            id: child.id,
+            spent: settlement.reconciled,
+            ...(child.retainedViolation === undefined
+              ? {}
+              : { budgetViolation: child.retainedViolation }),
+            ...(child.cancellationReason === undefined
+              ? {}
+              : { cancellationReason: child.cancellationReason }),
+          },
+          settlement,
+          seq,
           at,
-          settlement.harnessTranscript,
         )
     }
     // The in-memory down and the first `agent.child` are the only surfaces that exist while the
@@ -2797,77 +2820,6 @@ async function finalizeSettlement<Out>(
     ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
     settledAt,
     seq,
-  }
-}
-
-/**
- * The evidence a settled node carries beyond its status: the receipts that name what actually
- * ran, the own-inference spend the parent tree re-homes as a `metered` event, and the wall-clock
- * window. One builder feeds BOTH terminal paths, so an observer never sees a `down` node
- * described in different terms from a `done` one. Every field is omitted when the fact is
- * absent — an unreported receipt must not read as an empty one. Snapshots are detached because
- * an observer may serialize them after the live child has moved on.
- */
-/** The one builder of a down child's terminal record, for both its writers: the settle path at
- *  the reconcile and the release sweep closing a retained slot later. Two hand-written literals
- *  for one record shape is how a field lands on one path and not the other (#1244 was exactly
- *  that for `harnessTranscript`). `cancelled` keeps its `source` from the child's own
- *  cancellation reason, so a released cancelled child records the same source it settled with. */
-function terminalDownEvent(
-  child: LiveChild,
-  settlement: Extract<PreSeqSettled, { kind: 'down' }>,
-  seq: number,
-  at: string,
-  retainedExecution?: 'released',
-): Extract<SpawnEvent, { kind: 'settled' | 'cancelled' }> {
-  const cancellation = child.cancellationReason
-  return {
-    ...(cancellation === undefined
-      ? { kind: 'settled' as const, status: 'down' as const }
-      : { kind: 'cancelled' as const, source: cancellation.source }),
-    id: child.id,
-    spent: child.spent,
-    infra: settlement.infra,
-    reason: settlement.reason,
-    ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
-    ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
-    ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
-    trace: settlement.trace,
-    ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
-    ...(retainedExecution === undefined ? {} : { retainedExecution }),
-    seq,
-    at,
-  }
-}
-
-function settledNodeEvidence(
-  child: LiveChild,
-  settlement: PreSeqSettled,
-  settledAt: number,
-): Record<string, unknown> {
-  return {
-    runtime: child.runtime,
-    startedAt: child.startedAt,
-    settledAt,
-    ...(settlement.metered ? { metered: detachedSnapshot(settlement.metered, 'metered') } : {}),
-    ...(child.providerModel
-      ? { providerModel: detachedSnapshot(child.providerModel, 'provider model evidence') }
-      : {}),
-    ...(child.materialization
-      ? { materialization: detachedSnapshot(child.materialization, 'materialization receipt') }
-      : {}),
-    ...(child.executionBindings.length > 0
-      ? {
-          executionBindings: detachedSnapshot(
-            [...child.executionBindings],
-            'execution binding receipts',
-          ),
-        }
-      : {}),
-    ...(child.budgetViolation
-      ? { budgetViolation: detachedSnapshot(child.budgetViolation, 'budget violation') }
-      : {}),
-    trace: detachedSnapshot(settlement.trace, 'worker trace evidence'),
   }
 }
 

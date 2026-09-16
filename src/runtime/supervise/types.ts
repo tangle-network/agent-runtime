@@ -1359,8 +1359,13 @@ export type SpawnEvent =
       harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the reconciled spend exceeded the reservation, on either status. */
       budgetViolation?: BudgetViolation
-      /** Written only by the release sweep, on the same tree, after every `environment-teardown`
-       *  receipt for the node reads `destroyed: true` and the executor's own teardown confirmed.
+      /** Written by the release sweep in the settling process, on the same tree, after every
+       *  `environment-teardown` receipt for the node reads `destroyed: true` and the executor's
+       *  own teardown confirmed — or by `healReleasedSlots` on the next resume, when that process
+       *  died between the last `destroyed: true` receipt and this record: the same builder, `seq`
+       *  and `at`, read from the `reconciled` record, so the bytes are identical either way. A
+       *  `destroyed: false` receipt, an empty receipt set, or a `reconciled` record without
+       *  `settledSeq` leaves the slot open.
        *  `spent` is this node's child-work component of the reconcile the pool committed — for
        *  a leaf the streamed floor itself, for a recursive executor its `accounting().reported`
        *  split with the remainder on its `metered` records — never the reservation ceiling.
@@ -1501,11 +1506,15 @@ export type SpawnEvent =
        *  observed, while its cursor slot stays OPEN so a resume can recover the execution. It stands
        *  in for the `settled` record an open node cannot carry: cost readers and a restored pool
        *  charge this floor for the node instead of its declared ceiling, and a later `settled` or
-       *  `cancelled` record for the same node supersedes it. That record has two writers: a
-       *  resumed process's recovered settlement, or the release sweep's terminal record marked
-       *  `retainedExecution: 'released'`. A driver's own inference travels on its
-       *  `metered` record as on every other path, so `reconciled + metered` is what the pool
-       *  committed. Its `seq` lives outside the cursor-uniqueness namespace. */
+       *  `cancelled` record for the same node supersedes it. That record has three writers: a
+       *  resumed process's recovered settlement, the release sweep's terminal record marked
+       *  `retainedExecution: 'released'`, or `healReleasedSlots` on the next resume when the
+       *  process died between the last `environment-teardown` receipt and that record. The last
+       *  two write the same bytes, because both read the settlement from THIS record: it is
+       *  literally the settlement it stands in for, minus the cursor position it cannot hold. A
+       *  driver's own inference travels on its `metered` record as on every other path, so
+       *  `reconciled + metered` is what the pool committed. Its `seq` lives outside the
+       *  cursor-uniqueness namespace; `settledSeq` is the cursor seq. */
       kind: 'reconciled'
       id: NodeId
       spent: Spend
@@ -1514,6 +1523,26 @@ export type SpawnEvent =
        *  #1244 children exactly — dropped mid-run with a live box the capture read. A later
        *  terminal record for the node carries the same receipt forward. */
       harnessTranscript?: HarnessTranscriptEvidence
+      /** The cursor seq `next()` stamped on the delivery this floor stands in for — what
+       *  `finalizeSettlement` holds as `child.settledSeq` and the release sweep writes the
+       *  terminal record under. A resume that heals a crashed sweep reads the seq back from here,
+       *  so a record without it cannot be healed. Optional only so journals written before this
+       *  field existed remain replayable. */
+      settledSeq?: number
+      /** The settlement the driver received, verbatim, as `settled`/`cancelled` carry it. Optional
+       *  only so journals written before these fields existed remain replayable. */
+      reason?: string
+      infra?: boolean
+      trace?: WorkerTraceEvidence
+      outRef?: string
+      providerModel?: ProviderModelExecutionEvidence
+      /** The overspend the RETAINED reconcile returned, which the open-slot surfaces withhold
+       *  (`materializeTreeView` folds only `spent` from this record); journaled so the released
+       *  record carries it without recomputation. */
+      budgetViolation?: BudgetViolation
+      /** Present iff the child had a `RunCancellationReason` when it settled; decides `settled`
+       *  vs `cancelled` and its `source` on the released record. */
+      cancellation?: { readonly source: string }
       seq: number
       at: string
     }
@@ -1541,8 +1570,10 @@ export type SpawnEvent =
        *  in `detail`, and the node is then also journaled as `teardown-unconfirmed`. When every
        *  receipt for a node is `destroyed: true` and the executor confirms teardown, the node's
        *  terminal `settled`/`cancelled` record with `retainedExecution: 'released'` follows on
-       *  the same tree and closes the cursor slot; a `destroyed: false` receipt or an unconfirmed
-       *  teardown leaves the slot open because the environment may still exist.
+       *  the same tree and closes the cursor slot; when the settling process dies between this
+       *  receipt and that record, `healReleasedSlots` writes the same record on the next resume
+       *  from the `reconciled` record. A `destroyed: false` receipt, an empty receipt set, or an
+       *  unconfirmed teardown leaves the slot open because the environment may still exist.
        *  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
        *  per node, outside the cursor-uniqueness namespace. */
       kind: 'environment-teardown'
@@ -1706,7 +1737,9 @@ export interface SupervisorOpts {
    *   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
    *   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
    *   `fleetYield.releasedUnrecovered` counts it; a refused release leaves the slot open and
-   *   the node in `teardownUnconfirmed`.
+   *   the node in `teardownUnconfirmed`. A process that dies between the last `destroyed: true`
+   *   receipt and that record leaves the slot open only until the next resume, whose
+   *   `healReleasedSlots` writes the identical record from the `reconciled` record.
    * - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
    *
    * Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
@@ -1834,7 +1867,10 @@ export interface SpendGap {
  *   that nothing could be released.
  * - `'released'`: root settlement under `retainedAtSettlement: 'release'` destroyed the
  *   environment (executor-confirmed) before any process recovered the execution; this is the
- *   node's terminal record. The pool's own admission fault, if the reconcile raised one, is not
+ *   node's terminal record, written by the release sweep in the settling process or by
+ *   `healReleasedSlots` on the next resume when that process died between the last
+ *   `destroyed: true` receipt and the record (same builder, `seq` and `at`, from the
+ *   `reconciled` record). The pool's own admission fault, if the reconcile raised one, is not
  *   on this record.
  *
  * Absent = an ordinary child. The live `Settled` a driver branched on carried `'pending'` where
