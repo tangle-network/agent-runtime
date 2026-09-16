@@ -116,6 +116,7 @@ import type {
   ExecutorExecutionBinding,
   ExecutorFactory,
   ExecutorMaterialization,
+  ExecutorNodeContext,
   ExecutorResult,
   Runtime,
   Spend,
@@ -558,6 +559,8 @@ export interface ProviderExecutorOptions {
    * has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
    * files and run commands in the environment it is scoring. Every other supervised hook fires
    * after teardown and can only read the artifact.
+   * `ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
+   * shared validator can apply a root-only contract without applying it to nested managers.
    *
    * The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
    * back to its own settle verdict.
@@ -641,6 +644,8 @@ function createProviderExecutor(
   placement?: { id: string; digest: string },
 ): Executor<unknown> {
   const controller = new AbortController()
+  const node =
+    ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
 
   let environment: AgentEnvironment | undefined
   let artifact: ExecutorResult<unknown> | undefined
@@ -665,8 +670,8 @@ function createProviderExecutor(
       'provider placement: profileForCreate cannot change the selected profile',
     )
   }
-  const executionId = retention?.executionId ?? ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
-  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+  const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
+  const attemptId = node?.attemptId ?? newExecutionAttemptId(executionId)
   const trace = createPushTraceSource({ runId: executionId })
   const providerModel = concreteProfileModel(createProfile)
   // The provider owns the model call inside its environment and the create input carries no
@@ -726,6 +731,7 @@ function createProviderExecutor(
         createProfile,
         task,
         signal: linked.signal,
+        ...(node === undefined ? {} : { node }),
         options,
         retention,
         executionId,
@@ -907,6 +913,7 @@ interface StreamProviderExecutorArgs {
   createProfile: AgentProfile
   task: unknown
   signal: AbortSignal
+  node?: ExecutorNodeContext
   options: ProviderExecutorOptions
   retention?: RetainedExecutorContext
   executionId: string
@@ -1085,6 +1092,7 @@ async function* streamProviderExecutor(
     // hook fires after teardown and can only read the artifact.
     const verdict = await args.options.validator?.validate(result, {
       iteration: 0,
+      ...(args.node === undefined ? {} : { node: args.node }),
       box: environmentAsSandboxInstance(environment, {
         requireTerminalEvent: args.options.requireTerminalEvent ?? true,
       }),

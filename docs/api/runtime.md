@@ -4186,6 +4186,8 @@ OPT-IN executable score for this worker, with the SAME contract the sandbox seam
 has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
 files and run commands in the environment it is scoring. Every other supervised hook fires
 after teardown and can only read the artifact.
+`ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
+shared validator can apply a root-only contract without applying it to nested managers.
 
 The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
 back to its own settle verdict.
@@ -17717,6 +17719,8 @@ OPT-IN executable score for this worker, with the SAME contract the sandbox seam
 has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
 files and run commands in the environment it is scoring. Every other supervised hook fires
 after teardown and can only read the artifact.
+`ValidationCtx.node` identifies the supervised node, including its recursion depth, so a
+shared validator can apply a root-only contract without applying it to nested managers.
 
 The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
 back to its own settle verdict.
@@ -21443,6 +21447,12 @@ Kernel-owned context for the concrete supervised node a factory is constructing.
 
 > `readonly` **nodeId**: `string`
 
+##### depth?
+
+> `readonly` `optional` **depth?**: `number`
+
+Recursion depth supplied by Runtime scopes (root = 0). Standalone callers may omit it.
+
 ##### attemptId
 
 > `readonly` **attemptId**: `string`
@@ -24233,6 +24243,13 @@ Iteration index this output came from (0-based).
 Live sandbox for this iteration. Validators that need execution-grounded
 evidence can inspect files or run commands here instead of forcing callers
 to bypass the loop kernel with raw Sandbox SDK orchestration.
+
+##### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+Detached, immutable node identity supplied by supervised provider execution.
+Runtime scopes include depth (root = 0); standalone execution may omit this context.
 
 ##### signal
 
