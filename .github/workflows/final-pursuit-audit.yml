@@ -6,8 +6,9 @@ on:
 permissions:
   contents: read
 env:
-  BASE_SHA: 625b7df526761803610c32ef5da54e1eb7b5699f
+  BASE_SHA: 9973f284a052b3a9be69c95211f959ac3b0ec57f
   REPAIR_BRANCH: fix/stream-long-pursuit-journals
+  EXPECTED_HEAD: 29e34ca95ee2b9169a5080770d72cff74a921dd8
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -17,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Apply reviewed repair to the exact current base
+      - name: Apply reviewed repair to the exact updated base
         run: |
           base64 --decode .audit/streaming-journals.patch.gz.b64 | gzip --decompress > "$RUNNER_TEMP/repair.patch"
           echo "c3b9fbe2395a339b4bde64e556d634441189a44d209f218db95c696f691399d0  $RUNNER_TEMP/repair.patch" | sha256sum --check
@@ -40,14 +41,14 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm peers check
       - name: Prepare patch release through maintained scripts
         run: |
-          pnpm run release:prepare 0.235.2
+          pnpm run release:prepare 0.236.1
           python3 - <<'PY'
           from pathlib import Path
           path = Path('CHANGELOG.md')
           text = path.read_text()
           assert text.startswith('# Changelog\n')
           entry = '''
-          ## 0.235.2
+          ## 0.236.1
 
           File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
           Observer restart verifies its complete digest chain while retaining only the last record.
@@ -123,13 +124,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 625b7df526761803610c32ef5da54e1eb7b5699f
+          ref: 9973f284a052b3a9be69c95211f959ac3b0ec57f
           fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: verified-streaming-repair
           path: ${{ runner.temp }}/verified-repair
-      - name: Push verified Git objects only to a new review branch
+      - name: Update only the existing owned review branch with an exact lease
         run: |
           out="$RUNNER_TEMP/verified-repair"
           (cd "$out" && sha256sum --check SHA256SUMS)
@@ -140,8 +141,4 @@ jobs:
           test "$(git rev-parse "$commit^")" = "$BASE_SHA"
           test "$(git rev-parse "$commit^{tree}")" = "$(cat "$out/tree.txt")"
           if git diff --name-only "$BASE_SHA" "$commit" | grep -E '^(\.github/|\.audit/)'; then exit 1; fi
-          if git ls-remote --exit-code --heads origin "$REPAIR_BRANCH" >/dev/null 2>&1; then
-            echo 'Review branch already exists; refusing to overwrite it.' >&2
-            exit 1
-          fi
-          git push origin "$commit:refs/heads/$REPAIR_BRANCH"
+          git push --force-with-lease="refs/heads/$REPAIR_BRANCH:$EXPECTED_HEAD" origin "$commit:refs/heads/$REPAIR_BRANCH"
