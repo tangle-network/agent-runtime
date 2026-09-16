@@ -1289,6 +1289,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         blobs: opts.blobs,
         tree: runTree(scope),
         budget: scope.budget,
+        ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
       })
     },
   }

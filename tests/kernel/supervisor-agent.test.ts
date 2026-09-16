@@ -1515,6 +1515,161 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     expect(tasks).toHaveLength(1)
   })
 
+  it('EXTERNAL arm: a valid partial child leaves the parent contract unmet and re-enters its director', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const checked: unknown[] = []
+    const progress: unknown[] = []
+    let drives = 0
+    let finalizations = 0
+    const partial = { component: 'database', ready: true }
+    const complete = { answer: 42 }
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'submit_result'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('component', partial),
+        perWorker,
+        driveHarness: async ({ coordinationMcpUrl }) => {
+          drives += 1
+          if (drives === 1) {
+            await jsonRpc(coordinationMcpUrl, 'tools/call', {
+              name: 'spawn_worker',
+              arguments: { profile: testAgentProfile('component'), task: 'build the database' },
+            })
+            await jsonRpc(coordinationMcpUrl, 'tools/call', {
+              name: 'await_event',
+              arguments: {},
+            })
+            return
+          }
+          await jsonRpc(coordinationMcpUrl, 'tools/call', {
+            name: 'submit_result',
+            arguments: { result: complete },
+          })
+        },
+        finalizer: ({ delivered }) => {
+          finalizations += 1
+          expect(delivered).toHaveLength(1)
+          return delivered[0]?.out
+        },
+        deliverable: {
+          check: (out) => {
+            checked.push(out)
+            return JSON.stringify(out) === JSON.stringify(complete)
+          },
+        },
+        repromptOnUnmet: 1,
+        onUnmetContract: (context) => {
+          progress.push(context.progress)
+          return { steer: 'Integrate the database into the complete product.' }
+        },
+      },
+    )
+
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual(complete)
+    expect(drives).toBe(2)
+    expect(finalizations).toBe(1)
+    expect(checked).toEqual([partial, complete])
+    expect(progress).toEqual([expect.objectContaining({ deliveredCount: 1, contract: 'unmet' })])
+    expect(await journal.loadTree('sup')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'settled',
+          id: 'sup:s0',
+          status: 'done',
+          verdict: expect.objectContaining({ valid: true }),
+        }),
+      ]),
+    )
+  })
+
+  it.each([
+    { name: 'partial', out: { component: 'database' }, valid: false },
+    { name: 'complete', out: { answer: 42 }, valid: true },
+    { name: 'throwing check', out: { throw: true }, valid: false },
+    { name: 'aggregate', out: { component: 'database' }, aggregate: true, valid: true },
+  ])('both arms check the parent contract for a $name child candidate', async (scenario) => {
+    for (const harness of ['pi', 'cli-base'] as const) {
+      const blobs = new InMemoryResultBlobStore()
+      const journal = new InMemorySpawnJournal()
+      let checks = 0
+      let finalizations = 0
+      const root = supervisorAgent(
+        testAgentProfile('sup', {
+          harness,
+          tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        }),
+        {
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('component', scenario.out),
+          perWorker,
+          ...(harness === 'pi'
+            ? {
+                driveHarness: async ({ coordinationMcpUrl }: Parameters<DriveHarness>[0]) => {
+                  await jsonRpc(coordinationMcpUrl, 'tools/call', {
+                    name: 'spawn_worker',
+                    arguments: { profile: testAgentProfile('component'), task: 'build component' },
+                  })
+                  await jsonRpc(coordinationMcpUrl, 'tools/call', {
+                    name: 'await_event',
+                    arguments: {},
+                  })
+                },
+              }
+            : {
+                brain: scriptedBrain([
+                  {
+                    toolCalls: [
+                      {
+                        name: 'spawn_worker',
+                        arguments: {
+                          profile: testAgentProfile('component'),
+                          task: 'build component',
+                        },
+                      },
+                    ],
+                  },
+                  { toolCalls: [{ name: 'await_event', arguments: {} }] },
+                  { content: 'done' },
+                ]),
+              }),
+          finalizer: ({ delivered }) => {
+            finalizations += 1
+            return scenario.aggregate ? { answer: 42 } : delivered[0]?.out
+          },
+          deliverable: {
+            check: (out) => {
+              checks += 1
+              if (scenario.name === 'throwing check') throw new Error('oracle unavailable')
+              return JSON.stringify(out) === JSON.stringify({ answer: 42 })
+            },
+          },
+        },
+      )
+
+      const result = await runSupervisor(root, blobs, journal)
+      expect(result.kind, `${harness}: ${scenario.name}`).toBe(
+        scenario.valid ? 'winner' : 'no-winner',
+      )
+      if (scenario.name === 'throwing check' && result.kind === 'no-winner') {
+        expect(result.reason).toBe('driver-failed')
+        if (result.reason === 'driver-failed') {
+          expect(result.error.message).toContain(
+            'parent completion check threw: oracle unavailable',
+          )
+        }
+      }
+      expect(checks).toBe(1)
+      expect(finalizations).toBe(1)
+    }
+  })
+
   it('EXTERNAL arm: a run the coordination server STOPPED is never re-prompted', async () => {
     // The driver called `stop`. That was a decision, and Runtime refuses the re-prompt before the
     // product hook is consulted, so no hook can talk the run past its own stop.
