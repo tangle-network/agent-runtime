@@ -4,16 +4,20 @@ import { join } from 'node:path'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
+  AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
+import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
+const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
+  await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   )
@@ -23,6 +27,8 @@ describe('retained external supervisor recovery', () => {
   it('reconstructs a reprompt interrupted after environment admission without a third dispatch', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-crash-'))
     directories.push(directory)
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
     const stateFile = join(directory, 'provider.json')
     const runDirectory = join(directory, 'run')
     const context = createFileRunContext(runDirectory)
@@ -113,7 +119,8 @@ describe('retained external supervisor recovery', () => {
         },
         publicUrl: (address: { port: number }) => {
           port = address.port
-          return 'https://coordination.example/manager'
+          proxy.forwardTo(port)
+          return `${proxy.url}/manager`
         },
       },
       journal: {
@@ -184,6 +191,8 @@ describe('retained external supervisor recovery', () => {
     async (cleanup) => {
       const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-'))
       directories.push(directory)
+      const proxy = await coordinationProxy()
+      proxies.push(proxy)
       const stateFile = join(directory, 'provider.json')
       const runDirectory = join(directory, 'run')
       const context = createFileRunContext(runDirectory)
@@ -285,7 +294,8 @@ describe('retained external supervisor recovery', () => {
             },
             publicUrl: (address) => {
               coordinationPort = address.port
-              return `https://coordination.example:${address.port}/manager`
+              proxy.forwardTo(coordinationPort)
+              return `${proxy.url}/manager`
             },
           },
         },
@@ -445,6 +455,8 @@ async function setup(
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-'))
   directories.push(directory)
+  const proxy = await coordinationProxy()
+  proxies.push(proxy)
   const stateFile = join(directory, 'provider.json')
   const runDirectory = join(directory, 'run')
   const context = createFileRunContext(runDirectory)
@@ -464,7 +476,7 @@ async function setup(
       method: 'POST',
       headers: {
         Authorization: `Bearer ${originalToken}`,
-        Host: 'coordination.example',
+        Host: new URL(proxy.url).host,
         'content-type': 'application/json',
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
@@ -564,7 +576,8 @@ async function setup(
           },
           publicUrl: (address) => {
             port = address.port
-            return 'https://coordination.example/manager'
+            proxy.forwardTo(port)
+            return `${proxy.url}/manager`
           },
         },
       })

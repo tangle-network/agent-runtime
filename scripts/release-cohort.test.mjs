@@ -1,7 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
+import { rangeAdmits } from './lib/packed-package-test.mjs'
 import {
   assertReleaseCohortArtifacts,
   readReleaseCohort,
@@ -17,6 +19,19 @@ afterEach(() => {
 })
 
 describe('release cohort', () => {
+  it.each(Object.values(readReleaseCohort().packages))(
+    'selects $name@$version within its workspace catalog range',
+    ({ name, version }) => {
+      const { catalog } = parse(
+        readFileSync(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8'),
+      )
+      expect(
+        rangeAdmits(catalog[name], version),
+        `${name}@${version} must be admitted by catalog range ${catalog[name]}`,
+      ).toBe(true)
+    },
+  )
+
   it('reads one exact source identity for every first-party dependency', () => {
     const cohort = readReleaseCohort()
     expect(Object.keys(cohort.packages)).toEqual([
