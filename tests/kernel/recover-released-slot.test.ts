@@ -21,6 +21,10 @@ import { contentAddress, materializeTreeView } from '../../src/durable/spawn-jou
 import { RuntimeRunStateError } from '../../src/errors'
 import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
 import {
+  knownExecutionBindingReceipt,
+  knownMaterializationReceipt,
+} from '../../src/runtime/supervise/materialization'
+import {
   healReleasedSlots,
   prepareScopeResume,
   sumSpendFromEvents,
@@ -440,6 +444,62 @@ describe('healReleasedSlots on resume', () => {
       ),
     ).toBe(0)
     expect(await context.journal.loadTree('r')).toEqual(before)
+  })
+
+  it('settles a recorded result past an open node’s reserved settledSeq, never on it', async () => {
+    // r:s0 is retained-pending with settledSeq 1 and no receipt, so it stays open. r:s1 has a
+    // recorded result. Before the shared floor, the recorded-result branch minted seq 1 (one past
+    // the last CLOSED record) and wrote r:s1's settlement on the seq r:s0 had reserved.
+    const materialized = knownMaterializationReceipt({
+      authoredProfileDigest: identity.profileDigest,
+      runtime: 'router',
+      declaration: {
+        effectiveProfile: profile,
+        backend: 'router',
+        model: { status: 'known', id: 'test/model' },
+        execution: { kind: 'request', id: 'r:s1-execution' },
+        materializer: 'test-router',
+        plan: { kind: 'completion', model: 'test/model' },
+      },
+    })
+    const bound = knownExecutionBindingReceipt(materialized, {
+      attemptId: 'r:s1:attempt:1',
+      binding: { endpoint: 'https://router.example.test', executionId: 'r:s1-execution' },
+      descriptor: { kind: 'router-request', transport: 'http' },
+    })
+    const context = await journaled([
+      root,
+      spawned('r:s0', 0),
+      ...admitted('r:s0', 'env-1'),
+      reconciled('r:s0', 0, floor(7, 3), settlement(1)),
+      spawned('r:s1', 1),
+      ...admitted('r:s1', 'env-2'),
+      { kind: 'materialized', id: 'r:s1', receipt: materialized, seq: 0, at },
+      { kind: 'execution-bound', id: 'r:s1', binding: bound, seq: 0, at },
+      {
+        kind: 'execution-admitted',
+        id: 'r:s1',
+        admission: dispatched('r:s1', 'env-2'),
+        seq: 2,
+        at,
+      },
+      {
+        kind: 'execution-result',
+        id: 'r:s1',
+        outRef: contentAddress('result'),
+        spent: { iterations: 1, tokens: { input: 3, output: 2 }, usd: 0, ms: 1 },
+        seq: 0,
+        at: later,
+      },
+    ])
+    await context.blobs.put(contentAddress('result'), 'result')
+    const restored = await resume(context)
+    const events = (await context.journal.loadTree('r')) ?? []
+    const s1 = terminalRecords(events, 'r:s1')
+    expect(s1).toHaveLength(1)
+    expect(s1[0]?.seq).toBe(2)
+    expect(terminalRecords(events, 'r:s0')).toEqual([])
+    expect(restored.resumeFrom.maxCursorSeq).toBe(2)
   })
 
   it('writes nothing twice: a released record already present is left alone', async () => {

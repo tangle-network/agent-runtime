@@ -312,9 +312,9 @@ export async function prepareInterruptedExecutors(
       factory: prepared?.factory ?? opts.recoverExecutor,
     })
   }
-  let seq =
-    events.reduce((max, event) => (closesCursorSlot(event) ? Math.max(max, event.seq) : max), -1) +
-    1
+  // Past every closed AND reserved seq: an open node's `settledSeq` is where its terminal record
+  // lands, and a recovered result written there would be the collision the heal refuses.
+  let seq = reservedCursorFloor(events) + 1
   for (const { result, fault, budgetViolation } of accepted) {
     signal.throwIfAborted()
     const failureReason = executorFailureReason(result)
@@ -450,6 +450,29 @@ export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean
   return max
 }
 
+/**
+ * The highest cursor seq any record in the journal already owns, closed OR reserved.
+ *
+ * A closed slot owns its seq outright. An open retained node owns the `settledSeq` its
+ * `reconciled` record carries: that is the seq the driver already branched on, and the seq the
+ * heal (or a later release sweep) writes the terminal record under. Every writer that mints a
+ * new cursor seq in a resumed process — the recorded-result settlements below and the resumed
+ * scope's own cursor — must start past BOTH, or a recovered result lands on a seq an open node
+ * has reserved and the heal can only ever collide. One function so no writer can drift.
+ */
+export function reservedCursorFloor(events: SpawnEvent[]): number {
+  return Math.max(
+    maxSeqOf(events, closesCursorSlot),
+    events.reduce(
+      (max, event) =>
+        event.kind === 'reconciled' && event.settledSeq !== undefined
+          ? Math.max(max, event.settledSeq)
+          : max,
+      -1,
+    ),
+  )
+}
+
 /** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled), plus
  *  the reconciled floor of every node still open, plus the declared ceiling of every open node
  *  nothing reconciled; `metered` = driver inference (re-homed up the tree, so a single root-tree
@@ -577,16 +600,7 @@ export async function prepareScopeResume(
       maxSpawnOrdinal: maxSeqOf(prior, (event) => event.kind === 'spawned'),
       // An open node's journaled cursor seq is reserved across processes: the resumed scope must
       // never mint it for another node, or the heal above could only ever collide.
-      maxCursorSeq: Math.max(
-        maxSeqOf(prior, closesCursorSlot),
-        prior.reduce(
-          (max, event) =>
-            event.kind === 'reconciled' && event.settledSeq !== undefined
-              ? Math.max(max, event.settledSeq)
-              : max,
-          -1,
-        ),
-      ),
+      maxCursorSeq: reservedCursorFloor(prior),
       maxWaitOrdinal: maxSeqOf(prior, (event) => event.kind === 'waiting'),
       waits: pendingWaits(prior),
       keys: keyedAssignments(prior, settled),
