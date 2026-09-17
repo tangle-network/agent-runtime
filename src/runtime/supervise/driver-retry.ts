@@ -18,7 +18,9 @@
  *    so retrying re-runs a decision rather than recovering from an accident. They fail immediately.
  *  - TRANSIENT failures are everything foreign: a harness process that exited without a reason, a
  *    stream that cut mid-turn, a 5xx, a socket reset. Those are accidents, and they are exactly
- *    what a retry exists for.
+ *    what a retry exists for. A harness turn that RETURNED a failed outcome is the same accident
+ *    reported as a value rather than thrown, so the drive raises {@link HarnessTurnFailedError}
+ *    and it is classified here like any other failure.
  *
  * The one loop the budget alone cannot bound is a driver that dies INSTANTLY and repeatedly — a
  * dead-on-arrival credential, a harness that refuses to start. Spending nothing, it would retry
@@ -252,6 +254,34 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * A driver's harness turn ran to its terminal result, and that result reported failure.
+ *
+ * A provider executor reports a failed turn as a returned outcome, not a thrown error, so without
+ * this error a failed turn reads as a completed drive and never reaches the retry decision.
+ * Measured 2026-09-17 on a Discovery director placed on tangle-sandbox with the opencode harness:
+ * a 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform
+ * key expired mid-turn. A new turn succeeds in both cases.
+ *
+ * `errorCode` is the provider's machine code when it reported one. The classifier reads the code
+ * and never the text, because the text is written for people and changes without notice.
+ */
+export class HarnessTurnFailedError extends Error {
+  readonly runtime: string
+  readonly errorCode?: string
+
+  constructor(runtime: string, failure: { readonly error: string; readonly errorCode?: string }) {
+    super(
+      `${runtime} harness turn ended with a failed outcome` +
+        (failure.errorCode === undefined ? '' : ` (${failure.errorCode})`) +
+        `: ${failure.error}`,
+    )
+    this.name = 'HarnessTurnFailedError'
+    this.runtime = runtime
+    if (failure.errorCode !== undefined) this.errorCode = failure.errorCode
+  }
+}
+
+/**
  * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
  * anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
  * because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
@@ -264,6 +294,13 @@ export function classifyDriverFailure(
 ): 'transient' | 'terminal' {
   if (signal?.aborted) return 'terminal'
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
+  if (error instanceof HarnessTurnFailedError) {
+    // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
+    // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
+    return error.errorCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.errorCode)
+      ? 'terminal'
+      : 'transient'
+  }
   if (error instanceof BackendTransportError) {
     if (error.upstreamCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.upstreamCode))
       return 'terminal'

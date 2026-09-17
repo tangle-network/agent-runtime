@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.237.1
+## 0.238.0
 
 File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
 Observer restart verifies its complete digest chain while retaining only the last record.
@@ -15,6 +15,12 @@ No execution policy, limits, credential behavior or durable wire format changes.
 Measured 2026-09-16 on discovery-lab: a Tangle Sandbox create refused `HTTP 400 {"code":"CONFIG_ERROR"}`, for a key whose budget was fully reserved by an existing box, retried 14-22 times per node. Eleven of twelve roots showed a durable admission intent and no other event for 25 minutes, with healthy coordination servers and no error anywhere for an operator to read.
 
 Only a thrown `Error` is read: `status` is an ordinary field name on settlements and run-state records, and treating one as an HTTP refusal stops retries that have nothing to do with a rejected request.
+
+**A root harness turn that ends with a failed outcome is retried.** A provider executor reports a failed turn as a result with `outcome: { success: false }`, not as a thrown error. The root drive therefore completed normally, `runDriverWithRetry` never saw a failure, and the retained owner journaled the failed result as its accepted turn. The drive now raises `HarnessTurnFailedError` after the turn's accounting, materialization, and environment handling finish exactly as a successful turn's do, and the retry loop classifies, records, backs off, and bounds it like a thrown failure.
+
+A failure without a machine code is transient. A code the bridge never retries (`parse_error`, `not_configured`, `capability_denied`) is terminal, and a cancelled run stays terminal. The provider's `errorCode` now survives on `ExecutorResult.outcome` and the journaled `execution-result`, where it used to be dropped; the error text is never parsed. The retry runs a new invocation in the retained owner environment, the failed result and its spend stay in the journal, and a resumed run replays a committed failed owner result as the same failure instead of returning on it. With retries disabled or exhausted, such a run now settles `driver-failed` instead of finalizing after the failed turn, as a thrown root failure already did.
+
+Measured 2026-09-17 on a Discovery director on tangle-sandbox with the opencode harness and `driverRetry: { maxAttempts: 30, maxConsecutiveFailures: 12 }`: a 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform key expired mid-turn. In both runs the director never got a second turn; the run waited for its children and settled.
 
 ## 0.237.0
 

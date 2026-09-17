@@ -1131,6 +1131,8 @@ async function* streamProviderExecutor(
             outcome: {
               success: false,
               ...(result.outcome.error ? { error: result.outcome.error } : {}),
+              // The code, not the text, is what a retry policy may branch on.
+              ...(result.outcome.errorCode ? { errorCode: result.outcome.errorCode } : {}),
             },
           }
         : {}),

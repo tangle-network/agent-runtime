@@ -58,6 +58,13 @@ The sections below define distributed requirements beyond this local recovery bo
 
 Executor results carry an optional explicit execution outcome, separate from application output and scoring verdicts.
 A failed provider turn settles its child as `down`, preserving its reason, measured spend, and content-addressed partial artifact.
+The outcome keeps the provider's machine `errorCode` when the provider reports one.
+A root driver turn that ends with a failed outcome is a driver failure under `driverRetry`, with the same bounds as a thrown failure.
+A failure without a code is transient; a code the bridge never retries, such as `capability_denied`, is terminal.
+The failed result and its spend stay in the journal.
+Its environment is handled as a successful turn's: it is not force-killed.
+The retry starts a new invocation, which reuses the retained owner environment.
+A resumed run replays a committed failed owner result as the same failure rather than as a delivered turn.
 Accepted failures keep that status through cancellation races and coordinator recovery.
 Recoverable tool failures inside a completed turn do not fail the child.
 

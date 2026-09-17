@@ -67,14 +67,16 @@ import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
-import type {
-  DriverAttemptRecord,
-  DriverRepromptPolicy,
-  DriverRetryPolicy,
-  OnUnmetContract,
+import {
+  type DriverAttemptRecord,
+  type DriverRepromptPolicy,
+  type DriverRetryPolicy,
+  HarnessTurnFailedError,
+  type OnUnmetContract,
 } from './driver-retry'
 import { errMessage } from './error-message'
 import type { BusRecord } from './event-bus'
+import { executorFailure } from './executor-outcome'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
@@ -786,6 +788,11 @@ function driveHarnessFromBackend(
   const capturedBackend = captureReusableExecutorConfig(backend, 'driveHarnessFromBackend')
   const boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
   const baseFactory = createExecutor(boundBackend)
+  const ownerRuntime =
+    boundBackend.backend === 'provider'
+      ? (boundBackend.runtime ??
+        resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
+      : 'cli'
   let activeExecutor: Executor<unknown> | undefined
   const drive: DriveHarness = async ({
     profile,
@@ -810,6 +817,13 @@ function driveHarnessFromBackend(
     if (acceptedOwner) {
       await restoreScopeOwnerAcceptedExecution(scope)
       consumeScopeRetainedOwnerResult(scope)
+      // A committed turn that failed is replayed as the failure it was, not as a delivered turn.
+      // Its evidence is restored above, so the retry loop's next attempt starts a new invocation
+      // in the same environment instead of this resume ending on the failed result.
+      const replayedFailure = executorFailure(acceptedOwner)
+      if (replayedFailure !== undefined) {
+        throw new HarnessTurnFailedError(ownerRuntime, replayedFailure)
+      }
       // The coordination journal still goes through the normal driver finalizer.
       return
     }
@@ -1082,6 +1096,10 @@ function driveHarnessFromBackend(
     const pending = runtimeOwnedPendingExecutorMaterialization(executor)
     let failed = false
     let failure: unknown
+    // Set when the turn reached its terminal result and that result reported failure. The turn
+    // still COMPLETED: its accounting and materialization are captured and its environment is
+    // released exactly as a successful turn's is. Only after that does it become a driver failure.
+    let turnFailure: HarnessTurnFailedError | undefined
     let ownerMaterializationPublished = false
     const ownerDeclaration = (
       exactDeclaration: ExecutorMaterialization,
@@ -1215,7 +1233,9 @@ function driveHarnessFromBackend(
           }
         }
         await meterPending()
-        const artifact = executor.resultArtifact()
+        // `resultArtifact()` is typed without the envelope outcome; scope's child settlement reads
+        // the same artifact through the same widening.
+        const artifact = executor.resultArtifact() as ExecutorResult<unknown>
         const terminalResources = withBudgetResources(
           { ...artifact.spent, ...resourceTelemetry(observedOwnerSpend, artifact.spent) },
           scope.budget,
@@ -1259,6 +1279,9 @@ function driveHarnessFromBackend(
           )
         }
         terminalAccountingCaptured = true
+        const reported = executorFailure(artifact)
+        if (reported !== undefined)
+          turnFailure = new HarnessTurnFailedError(executor.runtime, reported)
       } else {
         const artifact = await run
         await meterRuntimeOwnedProviderAttempt(
@@ -1268,6 +1291,9 @@ function driveHarnessFromBackend(
           { role: 'driver', runtime: executor.runtime },
         )
         terminalAccountingCaptured = true
+        const reported = executorFailure(artifact)
+        if (reported !== undefined)
+          turnFailure = new HarnessTurnFailedError(executor.runtime, reported)
       }
       if (pending !== undefined && !ownerMaterializationPublished) {
         const acknowledged = runtimeOwnedExecutorMaterialization(executor)
@@ -1391,6 +1417,7 @@ function driveHarnessFromBackend(
       if (activeExecutor === executor) activeExecutor = undefined
     }
     if (failed) throw failure
+    if (turnFailure !== undefined) throw turnFailure
   }
   drive.deliver = (message): boolean => {
     const deliver = activeExecutor?.deliver
@@ -1399,13 +1426,7 @@ function driveHarnessFromBackend(
   }
   drive.traceSource = () => activeExecutor?.traceSource?.()
   drive.progress = () => activeExecutor?.progress?.()
-  return attestRuntimeOwnedScopeOwner(
-    drive,
-    boundBackend.backend === 'provider'
-      ? (boundBackend.runtime ??
-          resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
-      : 'cli',
-  )
+  return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
 }
 
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
