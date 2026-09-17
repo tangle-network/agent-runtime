@@ -281,6 +281,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'extraTools',
   'executeExtraTool',
   'perWorker',
+  'spawnResources',
   'maxLiveWorkers',
   'watchWorkers',
   'stallAfterMs',

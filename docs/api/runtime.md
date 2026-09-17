@@ -59,7 +59,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -77,7 +77,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -131,7 +131,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -149,7 +149,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -1768,6 +1768,36 @@ bytes; throwing refuses delivery.
 
 ***
 
+### StagedBlobRecord
+
+One file a manager staged for a later spawn: what was stored, under which address, and when.
+ Never the content — the journal records that a transfer happened and what it was, and the bytes
+ themselves reach the durable record once, inside the spawned profile.
+
+#### Properties
+
+##### ref
+
+> `readonly` **ref**: `string`
+
+`sha256:<64 lowercase hex>` of the raw bytes — the address a spawn references.
+
+##### name
+
+> `readonly` **name**: `string`
+
+The manager's audit label, normally the file's basename. Never opened or used as a key.
+
+##### byteLength
+
+> `readonly` **byteLength**: `number`
+
+##### stagedAt
+
+> `readonly` **stagedAt**: `number`
+
+***
+
 ### WorkerSpawnContext
 
 Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
@@ -1860,6 +1890,47 @@ a keyed re-spawn would then fail its identity check against the journal.
 The backend-derived worker path mounts it for you (`workerFromBackend`): a bridge worker gets
 it as a Runtime-owned MCP attachment beside its authored profile. A caller-owned
 `makeWorkerAgent` mounts it the way `coordinationMcpUrl` is mounted on a driver.
+
+***
+
+### SpawnResourceBounds
+
+Bounds on the resources a spawn hands a child, whichever transport carried them.
+
+#### Properties
+
+##### maxContentBytes?
+
+> `readonly` `optional` **maxContentBytes?**: `number`
+
+Refuse a resolved resource larger than this, BEFORE the profile reaches the canonical schema.
+Runtime cannot know a provider's payload limits, so the default is no bound.
+
+`agent-provider-tangle` refuses any single create string over 16,384 characters
+(`MAX_STRING_LENGTH`, `tangle-contract-safety.ts`, via `assertBoundedJson` in
+`tangle-create-options.ts`) — tangle-network/agent-sdk#340. Set 16384 for that provider: it
+does not raise the ceiling, it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was
+created into a one-round-trip refusal that names the bound and the issue.
+
+##### maxBlobBytes?
+
+> `readonly` `optional` **maxBlobBytes?**: `number`
+
+Raw bytes in one staged blob. Default 512 KiB (`SPAWN_BLOB_MAX_BYTES`). Raising it above
+ what the coordination server's `maxRequestBytes` can carry once base64-encoded is refused at
+ construction, so a staged file's oversize answer stays the tool's named refusal.
+
+##### maxBlobs?
+
+> `readonly` `optional` **maxBlobs?**: `number`
+
+Blobs one manager may hold at once. Default 256 (`SPAWN_BLOB_MAX_ENTRIES`).
+
+##### maxBlobTotalBytes?
+
+> `readonly` `optional` **maxBlobTotalBytes?**: `number`
+
+Total raw bytes one manager may hold. Default 32 MiB (`SPAWN_BLOB_MAX_TOTAL_BYTES`).
 
 ***
 
@@ -1963,6 +2034,119 @@ Detector panel; omit for the default stuck-loop + error-streak pair.
 
 Raise at most this many findings per worker, so one pathological worker cannot flood the
  driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited.
+
+***
+
+### SpawnBlobLimits
+
+#### Properties
+
+##### maxBlobBytes?
+
+> `readonly` `optional` **maxBlobBytes?**: `number`
+
+##### maxBlobs?
+
+> `readonly` `optional` **maxBlobs?**: `number`
+
+##### maxBlobTotalBytes?
+
+> `readonly` `optional` **maxBlobTotalBytes?**: `number`
+
+***
+
+### SpawnBlobStats
+
+What one manager currently holds, and the ceilings it holds it under. Returned with every
+ staging result so a manager can see it approaching the fence before it hits it.
+
+#### Properties
+
+##### blobs
+
+> `readonly` **blobs**: `number`
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+##### maxBlobs
+
+> `readonly` **maxBlobs**: `number`
+
+##### maxBytes
+
+> `readonly` **maxBytes**: `number`
+
+***
+
+### SpawnBlobStore
+
+#### Methods
+
+##### get()
+
+> **get**(`ref`): `Buffer`\<`ArrayBufferLike`\> \| `undefined`
+
+###### Parameters
+
+###### ref
+
+`string`
+
+###### Returns
+
+`Buffer`\<`ArrayBufferLike`\> \| `undefined`
+
+##### put()
+
+> **put**(`ref`, `bytes`): [`SpawnBlobPutOutcome`](#spawnblobputoutcome)
+
+###### Parameters
+
+###### ref
+
+`string`
+
+###### bytes
+
+`Buffer`
+
+###### Returns
+
+[`SpawnBlobPutOutcome`](#spawnblobputoutcome)
+
+##### drop()
+
+> **drop**(`ref`): `boolean`
+
+###### Parameters
+
+###### ref
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### stats()
+
+> **stats**(): [`SpawnBlobStats`](#spawnblobstats)
+
+###### Returns
+
+[`SpawnBlobStats`](#spawnblobstats)
+
+##### clear()
+
+> **clear**(): `void`
+
+Release every held blob. Called when the manager's coordination server closes.
+
+###### Returns
+
+`void`
 
 ***
 
@@ -13507,6 +13691,17 @@ readonly [`SettledWorker`](mcp.md#settledworker)[]
 
 `boolean`
 
+##### blobStats()
+
+> **blobStats**(): [`SpawnBlobStats`](#spawnblobstats)
+
+What this manager currently holds in staged spawn blobs, and under which ceilings. Read-only
+ and host-side: no coordination verb exposes the store's contents to an agent.
+
+###### Returns
+
+[`SpawnBlobStats`](#spawnblobstats)
+
 ##### mailHistory()
 
 > **mailHistory**(): readonly [`PeerMailEvent`](#peermailevent)[]
@@ -14907,6 +15102,23 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`router`](#router-5)
+
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](#spawnresourcebounds)
+
+Bounds on the resources a spawn hands a child — by `path` (read under the manager's workspace
+root) or by staged `blob` (pushed to the coordination server with `put_blob`).
+
+The one a caller normally sets is `maxContentBytes`: Runtime cannot know a provider's payload
+limits, so there is no default bound, and `agent-provider-tangle` refuses any single create
+string over 16,384 characters (tangle-network/agent-sdk#340). Setting it does NOT raise that
+ceiling; it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was created into a
+one-round-trip refusal naming the bound and the issue.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`spawnResources`](#spawnresources-1)
 
 ##### driveHarness?
 
@@ -19095,6 +19307,19 @@ Pre-journal profile resolution for the spawn pre-flight: the profile a driver au
 
 `AgentProfile`
 
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](#spawnresourcebounds)
+
+Bounds on the resources a spawn hands a child — by `path` (read under the manager's workspace
+root) or by staged `blob` (pushed to the coordination server with `put_blob`).
+
+The one a caller normally sets is `maxContentBytes`: Runtime cannot know a provider's payload
+limits, so there is no default bound, and `agent-provider-tangle` refuses any single create
+string over 16,384 characters (tangle-network/agent-sdk#340). Setting it does NOT raise that
+ceiling; it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was created into a
+one-round-trip refusal naming the bound and the issue.
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-2)
@@ -20528,6 +20753,13 @@ Pre-journal profile resolution for `preflightSpawn`: the authored profile → th
 
 See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
  `path` resolves under. Set only for a manager whose workspace this process can read.
+
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](#spawnresourcebounds)
+
+See `CoordinationToolsOptions.spawnResources`: the bounds on a resource a spawn hands a
+ child by path or by staged blob.
 
 ##### peerMail?
 
@@ -26260,7 +26492,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"blob-staged"`; `blob`: [`StagedBlobRecord`](#stagedblobrecord); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -26365,6 +26597,19 @@ A manager DEFINED a trace analyst (`define_analyst`). Record-only: the manager a
 
 ***
 
+##### Type Literal
+
+\{ `type`: `"blob-staged"`; `blob`: [`StagedBlobRecord`](#stagedblobrecord); \}
+
+A manager STAGED a file's bytes on this coordination server (`put_blob`), so a spawn can
+ mount them byte-exact. Record-only, like `analyst-defined`: the manager already holds the
+ result and its own action does not belong in the inbox it pulls from. It is what makes a
+ DROPPED file visible in autopsy — one row per staged file, against the spawn's own
+ `resourcesFromBlob` receipts. Carries the digest, the label and the byte count, never the
+ bytes.
+
+***
+
 ### MakeWorkerAgent
 
 > **MakeWorkerAgent** = (`profile`, `context?`) => [`Agent`](#agent-2)\<`unknown`, `unknown`\>
@@ -26412,6 +26657,27 @@ The gate `CoordinationToolsOptions.preflightSpawn` installs.
 #### Returns
 
 `Promise`\<[`SpawnRefusal`](#spawnrefusal) \| `undefined`\>
+
+***
+
+### SpawnBlobPutOutcome
+
+> **SpawnBlobPutOutcome** = \{ `ok`: `true`; `stored`: `boolean`; \} \| \{ `ok`: `false`; `error`: `"blob-too-large"` \| `"blob-store-full"`; `reason`: `string`; \}
+
+#### Union Members
+
+##### Type Literal
+
+\{ `ok`: `true`; `stored`: `boolean`; \}
+
+`stored: false` = this exact content was already held. Not an error: the address is the
+ content, so the manager's intent is already satisfied and nothing is rewritten.
+
+***
+
+##### Type Literal
+
+\{ `ok`: `false`; `error`: `"blob-too-large"` \| `"blob-store-full"`; `reason`: `string`; \}
 
 ***
 

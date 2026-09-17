@@ -43,8 +43,10 @@ import {
   type QuestionRecord,
   type SettledWorker,
   type SpawnPreflight,
+  type SpawnResourceBounds,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { SPAWN_BLOB_MAX_BYTES, type SpawnBlobStats } from '../../mcp/tools/spawn-blob-store'
 import { runAbortable } from './abortable'
 import {
   type CoordinationHttpOptions,
@@ -82,6 +84,9 @@ export interface CoordinationMcpHandle {
   history: CoordinationTools['history']
   /** Bus throughput counters for live dashboards. */
   stats: CoordinationTools['stats']
+  /** What this manager currently holds in staged spawn blobs, and under which ceilings. Read-only
+   *  and host-side: no coordination verb exposes the store's contents to an agent. */
+  blobStats(): SpawnBlobStats
   /** Raise a `finding` on the bus from an online detector watching a worker's live pipe. */
   raiseFinding: CoordinationTools['raiseFinding']
   /** Every peer-mail attempt in order, delivered and refused alike. Empty when peer mail is off. */
@@ -90,6 +95,12 @@ export interface CoordinationMcpHandle {
    *  false when peer mail is off or the thread was already stopped. */
   stopMailThread(threadId: string): boolean
   close(): Promise<void>
+}
+
+/** The per-blob bound actually in effect. The construction check below must reason about the same
+ *  number `InMemorySpawnBlobStore` will enforce, or a default-configured server could still 413. */
+function spawnBlobBound(bounds: SpawnResourceBounds | undefined): number {
+  return bounds?.maxBlobBytes ?? SPAWN_BLOB_MAX_BYTES
 }
 
 /** Hosts that reach only this machine, including the IPv4-mapped and bracketed IPv6 spellings a
@@ -285,6 +296,8 @@ export async function serveCoordinationMcp(
     resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
     /** See `CoordinationToolsOptions.spawnResourceRoot`. */
     spawnResourceRoot?: string
+    /** See `CoordinationToolsOptions.spawnResources`. */
+    spawnResources?: SpawnResourceBounds
     /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
      *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
      *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
@@ -293,7 +306,27 @@ export async function serveCoordinationMcp(
 ): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
   assertCoordinationTransport(opts)
-  const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
+  const httpLimits = coordinationHttpLimits(opts)
+  const requestTimeoutMs = httpLimits.requestTimeoutMs
+  // A staged blob arrives base64-encoded inside a JSON-RPC envelope, so the per-blob bound and the
+  // per-request bound are one setting with two names. Checked HERE because this is the only layer
+  // that knows both: the in-process toolbox has no request bound at all. Without it, raising
+  // maxBlobBytes alone would turn put_blob's named refusal into the transport's bare 413 — a
+  // manager reading "413" learns nothing about which file or which bound. 2048 bytes covers the
+  // JSON-RPC envelope, the method, the label and the digest.
+  //
+  // Only when the verb is actually GRANTED. A server that does not serve put_blob can hold any
+  // request bound it likes — several deliberately set a very small one — and failing those at
+  // startup over a capability they never offered would be a bound enforced on nobody's behalf.
+  const stagingGranted = Array.isArray(opts.toolNames) && opts.toolNames.includes('put_blob')
+  const blobEnvelopeBytes = Math.ceil(spawnBlobBound(opts.spawnResources) / 3) * 4 + 2048
+  if (stagingGranted && blobEnvelopeBytes > httpLimits.maxRequestBytes) {
+    throw new ConfigError(
+      `coordination spawnResources.maxBlobBytes needs ${blobEnvelopeBytes} request bytes once ` +
+        `base64-encoded, above this server's maxRequestBytes of ${httpLimits.maxRequestBytes}; ` +
+        'raise maxRequestBytes with it or lower maxBlobBytes',
+    )
+  }
   const responseFenceMs = coordinationResponseFenceMs(requestTimeoutMs)
   if (opts.peerMail && (!isLoopbackHost(host) || opts.publicUrl)) {
     throw new ConfigError(
@@ -433,6 +466,7 @@ export async function serveCoordinationMcp(
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
+    ...(opts.spawnResources ? { spawnResources: opts.spawnResources } : {}),
     ...(opts.peerMail
       ? {
           peerMail:
@@ -605,11 +639,15 @@ export async function serveCoordinationMcp(
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),
+    blobStats: () => coord.blobStore().stats(),
     raiseFinding: (finding) => coord.raiseFinding(finding),
     mailHistory: () => mailbox?.history() ?? [],
     stopMailThread: (threadId) => mailbox?.stopThread(threadId) ?? false,
     close: async () => {
       closed = true
+      // Staged bytes live only as long as the manager that staged them. Released here rather than
+      // left to the closure's own lifetime, because a caller may hold the handle far longer.
+      coord.blobStore().clear()
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
       })

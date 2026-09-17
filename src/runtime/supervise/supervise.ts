@@ -52,6 +52,7 @@ import type {
   EscalateQuestion,
   MakeWorkerAgent,
   SpawnPreflight,
+  SpawnResourceBounds,
   WorkerSpawnContext,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
@@ -885,16 +886,24 @@ function driveHarnessFromBackend(
     let factory = baseFactory
     if (boundBackend.backend === 'provider') {
       const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
+      // The manager's harness reaches coordination through its mounted MCP attachment, whose URL
+      // it never sees. A manager that wants to POST to the same endpoint from its SHELL — which is
+      // how a sandbox manager stages a file's bytes with put_blob without retyping them — needs
+      // the URL as a plain value. The materialized `.pi/mcp.json` carries it, but it carries a
+      // live bearer beside it, so reading that file is not an acceptable way to learn one field.
+      const urlName = 'AGENT_RUNTIME_COORDINATION_URL'
       const authorization = coordinationMcpHeaders?.Authorization
       if (!authorization?.startsWith('Bearer ')) {
         throw new ValidationError(
           'driveHarnessFromBackend: provider coordination requires a bearer credential',
         )
       }
-      if (Object.hasOwn(boundBackend.defaults?.env ?? {}, credentialName)) {
-        throw new ValidationError(
-          'driveHarnessFromBackend: provider defaults contain the reserved coordination credential name',
-        )
+      for (const reserved of [credentialName, urlName]) {
+        if (Object.hasOwn(boundBackend.defaults?.env ?? {}, reserved)) {
+          throw new ValidationError(
+            `driveHarnessFromBackend: provider defaults contain the reserved coordination env name ${reserved}`,
+          )
+        }
       }
       if (
         Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, coordinationMcpAlias)
@@ -912,7 +921,11 @@ function driveHarnessFromBackend(
         ...boundBackend,
         defaults: {
           ...(boundBackend.defaults ?? {}),
-          env: { ...(boundBackend.defaults?.env ?? {}), [credentialName]: authorization.slice(7) },
+          env: {
+            ...(boundBackend.defaults?.env ?? {}),
+            [credentialName]: authorization.slice(7),
+            [urlName]: coordinationMcpUrl,
+          },
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
@@ -1616,6 +1629,17 @@ export interface SuperviseOptions {
    *  sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
    *  canonical profile. Identity-free and synchronous; throw to refuse. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /**
+   * Bounds on the resources a spawn hands a child — by `path` (read under the manager's workspace
+   * root) or by staged `blob` (pushed to the coordination server with `put_blob`).
+   *
+   * The one a caller normally sets is `maxContentBytes`: Runtime cannot know a provider's payload
+   * limits, so there is no default bound, and `agent-provider-tangle` refuses any single create
+   * string over 16,384 characters (tangle-network/agent-sdk#340). Setting it does NOT raise that
+   * ceiling; it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was created into a
+   * one-round-trip refusal naming the bound and the issue.
+   */
+  readonly spawnResources?: SpawnResourceBounds
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -1953,6 +1977,7 @@ const superviseOptionKeys = [
   'runDir',
   'runId',
   'signal',
+  'spawnResources',
   'stallAfterMs',
   'stopRule',
   'watchWorkers',
@@ -3095,6 +3120,12 @@ function superviseInternal(
           ...(options.resolveSpawnProfile
             ? { resolveSpawnProfile: options.resolveSpawnProfile }
             : {}),
+          // Forwarded to every depth, unlike `spawnResourceRoot`. A root is the only node whose
+          // workspace this process might be able to read, so a root is the only node that gets a
+          // path root — but `maxContentBytes` is a property of THIS RUN'S PROVIDER, and a nested
+          // manager spawns through the same one. Withheld here, a sub-director would pay for a
+          // sandbox to learn the bound its parent is refused at in one round trip.
+          ...(options.spawnResources ? { spawnResources: options.spawnResources } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -3253,6 +3284,7 @@ function superviseInternal(
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
       ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
+      ...(options.spawnResources ? { spawnResources: options.spawnResources } : {}),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),

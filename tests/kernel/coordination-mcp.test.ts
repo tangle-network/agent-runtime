@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, request } from 'node:http'
 import { connect, type Socket } from 'node:net'
@@ -7,6 +8,7 @@ import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/age
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
+import type { CoordinationHttpAudit } from '../../src/runtime/supervise/coordination-http'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
   assertCoordinationTransport,
@@ -25,6 +27,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { alignedTableModule } from '../helpers/aligned-table-module'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -1569,4 +1572,325 @@ describe('coordination lifetime validation', () => {
       expect(() => assertCoordinationTransport({ authentication: { ttlMs } })).toThrow(/ttlMs/)
     },
   )
+})
+
+// ── put_blob over the real transport ──────────────────────────────────────────────────────────
+//
+// The only tests that prove both halves of the staging path share ONE credential and ONE URL: the
+// bytes go up over the same authenticated JSON-RPC POST the harness already uses for every tool
+// call, and the spawn that references them comes back through the same listener.
+
+/** The exact envelope the director's bash recipe produces: a printf prologue, `base64 -w0` output,
+ *  and a printf epilogue, concatenated as text. Built by string concatenation, never
+ *  `JSON.stringify`, so the test fails if that shell-assembled shape is not valid JSON. */
+function putBlobEnvelope(name: string, bytes: Buffer): string {
+  const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+  return (
+    '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"put_blob","arguments":' +
+    `{"name":"${name}","sha256":"${digest}","contentBase64":"` +
+    bytes.toString('base64') +
+    '"}}}'
+  )
+}
+
+/** A leaf that checks the file mounted into it and delivers a verdict that says so. The settled
+ *  worker's `valid` is therefore the end-to-end byte assertion, made by the child itself. */
+function checksumLeaf(expected: string, mounted: string): Agent<unknown, unknown> {
+  const matched = mounted === expected
+  const ex: Executor<unknown> = {
+    runtime: 'router',
+    execute() {
+      return (async function* () {
+        yield { kind: 'iteration' } as UsageEvent
+        yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
+      })()
+    },
+    teardown: () => Promise.resolve({ destroyed: true }),
+    resultArtifact: (): ExecutorResult<unknown> => ({
+      outRef: 'w:checker',
+      out: { sha256: mounted },
+      verdict: { valid: matched, score: matched ? 1 : 0 },
+      spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+    }),
+  }
+  const spec: AgentSpec = { profile: testAgentProfile('checker'), harness: null, executor: ex }
+  return { name: 'checker', act: async () => ({ sha256: mounted }), executorSpec: spec } as Agent<
+    unknown,
+    unknown
+  > & { executorSpec: AgentSpec }
+}
+
+/** A raw request, because `fetch` silently drops a caller-set `Host` and the audience check is
+ *  exactly what a forged Host is supposed to fail. */
+function rawPost(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; text: string }> {
+  const target = new URL(url)
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+          ...headers,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = []
+        response.on('data', (chunk: Buffer) => chunks.push(chunk))
+        response.on('end', () =>
+          resolve({ status: response.statusCode ?? 0, text: Buffer.concat(chunks).toString() }),
+        )
+      },
+    )
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
+function toolResult(payload: unknown): Record<string, unknown> {
+  const structured = (payload as { result?: { structuredContent?: Record<string, unknown> } })
+    ?.result?.structuredContent
+  if (!structured) throw new Error(`no structured tool result in ${JSON.stringify(payload)}`)
+  return structured
+}
+
+describe('staging a file with put_blob and mounting it on a child', () => {
+  const blobToolNames = ['put_blob', 'spawn_worker', 'await_event']
+
+  for (const route of ['loopback', 'a funnel-shaped proxy'] as const) {
+    it(`carries the bytes over ${route} and the child mounts them unchanged`, async () => {
+      const authored = alignedTableModule()
+      const authoredSha = createHash('sha256').update(authored).digest('hex')
+      let mountedSha: string | undefined
+      const proxy = route === 'loopback' ? undefined : await publicProxy()
+      await withBoundHttp(
+        {
+          toolNames: blobToolNames,
+          nodeTools: [],
+          // The leaf checks its OWN mounted file, exactly as a research child's sha256 gate does,
+          // and delivers the digest it computed so the assertion reads real delivered evidence.
+          makeWorkerAgent: (profile) => {
+            const mounted = profile.resources?.files?.[0]?.resource as
+              | { content?: string }
+              | undefined
+            mountedSha = createHash('sha256')
+              .update(Buffer.from(mounted?.content ?? '', 'utf8'))
+              .digest('hex')
+            return checksumLeaf(authoredSha, mountedSha)
+          },
+          ...(proxy
+            ? {
+                publicUrl: ({ port }: { port: number }) => {
+                  proxy.forwardTo(port)
+                  return `${proxy.url}/mcp`
+                },
+              }
+            : {}),
+        },
+        async (mcp) => {
+          const staged = toolResult(
+            await (
+              await fetch(mcp.url, {
+                method: 'POST',
+                headers: { ...mcp.headers, 'content-type': 'application/json' },
+                body: putBlobEnvelope('probe.py', authored),
+              })
+            ).json(),
+          )
+          expect(staged).toMatchObject({
+            ref: `sha256:${authoredSha}`,
+            name: 'probe.py',
+            bytes: 6983,
+            stored: true,
+          })
+          expect(mcp.blobStats()).toMatchObject({ blobs: 1, bytes: 6983 })
+
+          const spawned = toolResult(
+            await (
+              await fetch(mcp.url, {
+                method: 'POST',
+                headers: { ...mcp.headers, 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: 2,
+                  method: 'tools/call',
+                  params: {
+                    name: 'spawn_worker',
+                    arguments: {
+                      profile: {
+                        name: 'checker',
+                        resources: {
+                          files: [
+                            {
+                              path: 'probe.py',
+                              resource: { kind: 'inline', name: 'probe', blob: staged.ref },
+                            },
+                          ],
+                        },
+                      },
+                      task: 'check probe.py',
+                    },
+                  },
+                }),
+              })
+            ).json(),
+          )
+          expect(spawned.resourcesFromBlob).toEqual([
+            {
+              at: 'files[0].resource',
+              blob: `sha256:${authoredSha}`,
+              name: 'probe',
+              byteLength: 6983,
+              sha256: authoredSha,
+            },
+          ])
+          await fetch(mcp.url, {
+            method: 'POST',
+            headers: { ...mcp.headers, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 3,
+              method: 'tools/call',
+              params: { name: 'await_event', arguments: {} },
+            }),
+          })
+          await mcp.drainResolved()
+          const settled = mcp.settled()
+          expect(settled).toHaveLength(1)
+          // The child's OWN gate: `valid` is true only because the file it read hashed to the
+          // digest the director staged. This is the assertion that failed in production.
+          expect(settled[0]).toMatchObject({ status: 'done', valid: true })
+          expect(mountedSha).toBe(authoredSha)
+          // The store is the manager's, not the run's: closing the server releases it.
+          await mcp.close()
+          expect(mcp.blobStats()).toMatchObject({ blobs: 0, bytes: 0 })
+        },
+      )
+    })
+  }
+
+  it('applies the whole transport and grant ladder to put_blob', async () => {
+    const bytes = Buffer.from('x'.repeat(64))
+    const body = putBlobEnvelope('p.py', bytes)
+    await withBoundHttp(
+      { toolNames: blobToolNames, nodeTools: [], spawnResources: { maxBlobBytes: 1024 } },
+      async (mcp) => {
+        const post = (headers: Record<string, string>, payload = body, url = mcp.url) =>
+          fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...headers },
+            body: payload,
+          })
+        expect((await post({})).status).toBe(401)
+        expect(
+          (await rawPost(mcp.url, { ...mcp.headers, host: 'evil.example' }, body)).status,
+        ).toBe(403)
+        expect((await post(mcp.headers, body, `${mcp.url}/../other`)).status).toBe(404)
+        expect(
+          (
+            await fetch(mcp.url, {
+              method: 'POST',
+              headers: { ...mcp.headers, 'content-type': 'text/plain' },
+              body,
+            })
+          ).status,
+        ).toBe(415)
+        expect((await post(mcp.headers)).status).toBe(200)
+        const before = mcp.headers
+        mcp.rotateCredential()
+        expect((await post(before)).status).toBe(401)
+        expect((await post(mcp.headers)).status).toBe(200)
+      },
+    )
+    // A body above the request bound never reaches the tool, so the oversize answer is the
+    // transport's — which is exactly why the construction check keeps the two bounds in step.
+    await withBoundHttp(
+      {
+        toolNames: blobToolNames,
+        nodeTools: [],
+        maxRequestBytes: 4096,
+        spawnResources: { maxBlobBytes: 1024 },
+      },
+      async (mcp) => {
+        const huge = putBlobEnvelope('big.py', Buffer.alloc(8192, 0x61))
+        const response = await fetch(mcp.url, {
+          method: 'POST',
+          headers: { ...mcp.headers, 'content-type': 'application/json' },
+          body: huge,
+        })
+        expect(response.status).toBe(413)
+        expect(mcp.blobStats()).toMatchObject({ blobs: 0 })
+      },
+    )
+    // Ungranted, the verb is not served at all: the grant is the profile's toolNames, and the
+    // credential's grant digest is bound to that exact set.
+    await withBoundHttp({ toolNames: ['spawn_worker'], nodeTools: [] }, async (mcp) => {
+      const payload = (await (
+        await fetch(mcp.url, {
+          method: 'POST',
+          headers: { ...mcp.headers, 'content-type': 'application/json' },
+          body,
+        })
+      ).json()) as { error?: { code?: number } }
+      expect(payload.error?.code).toBe(-32601)
+    })
+    // Saturated, a staging call is refused rather than taking the lane reserved for the owner's
+    // stop / observe_agent / read_journal.
+    await withBoundHttp(
+      { toolNames: [...blobToolNames, 'stop'], nodeTools: [], requestsPerMinute: 1 },
+      async (mcp) => {
+        const post = (payload: string) =>
+          fetch(mcp.url, {
+            method: 'POST',
+            headers: { ...mcp.headers, 'content-type': 'application/json' },
+            body: payload,
+          })
+        expect((await post(body)).status).toBe(200)
+        expect((await post(body)).status).toBe(429)
+        expect(
+          (await post(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} })))
+            .status,
+        ).toBe(200)
+      },
+    )
+  })
+
+  it('audits a staging call by name and records nothing else about it', async () => {
+    const events: CoordinationHttpAudit[] = []
+    const bytes = alignedTableModule()
+    await withBoundHttp(
+      {
+        toolNames: ['put_blob'],
+        nodeTools: [],
+        onAudit: (event) => {
+          events.push(event)
+        },
+      },
+      async (mcp) => {
+        await fetch(mcp.url, {
+          method: 'POST',
+          headers: { ...mcp.headers, 'content-type': 'application/json' },
+          body: putBlobEnvelope('aligned.py', bytes),
+        })
+      },
+    )
+    const staging = events.filter((event) => event.action === 'put_blob')
+    expect(staging.length).toBeGreaterThan(0)
+    for (const event of staging) {
+      expect(Object.keys(event).sort()).toEqual(['action', 'actorId', 'outcome', 'runId', 'status'])
+      expect(event.runId).toBe('run-a')
+      expect(event.actorId).toBe('actor-a')
+    }
+    const serialized = JSON.stringify(events)
+    expect(serialized).not.toContain(bytes.toString('base64').slice(0, 32))
+    expect(serialized).not.toContain(createHash('sha256').update(bytes).digest('hex'))
+    expect(serialized).not.toContain('Bearer')
+  })
 })

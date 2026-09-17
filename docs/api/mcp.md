@@ -4081,6 +4081,13 @@ server substitutes the file's bytes as `content` BEFORE the canonical schema see
 profile, so the model's own output never carries them. Omit = a resource by path is refused
 with the reason; see `spawn-resource-paths.ts` for the measurement that motivates it.
 
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](runtime.md#spawnresourcebounds)
+
+Bounds on resources a spawn hands a child by path or by staged blob. See
+ [SpawnResourceBounds](runtime.md#spawnresourcebounds).
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
@@ -4353,6 +4360,17 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 ###### Returns
 
 `Promise`\<`number`\>
+
+##### blobStore()
+
+> **blobStore**(): [`SpawnBlobStore`](runtime.md#spawnblobstore)
+
+The blobs this manager has staged. The server reports its stats and clears it on close; no
+ coordination VERB reads it, so a worker has no way to enumerate or fetch its contents.
+
+###### Returns
+
+[`SpawnBlobStore`](runtime.md#spawnblobstore)
 
 ***
 

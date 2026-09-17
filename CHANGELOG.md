@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**A manager puts a file's BYTES on the coordination server and mounts them on a child, without the model ever retyping them.** A new coordination verb, `put_blob`, takes `{ name, sha256, contentBase64 }` over the same authenticated JSON-RPC POST the harness already uses for every tool call, so a manager stages a file from its own shell with `curl` and `base64`. A spawn then names the content by digest — `{ kind: 'inline', name, blob: 'sha256:<hex>' }` — and the existing pre-parse resolver substitutes the real bytes before the canonical schema, the pre-flight, the budget, or any child environment exists. The model handles 71 characters instead of 7,000 bytes.
+
+Measured 2026-09-17 on a Discovery director inside a Tangle sandbox (opencode harness, glm-5.3), across four runs and roughly fifteen lost children: a brief pinned seven files and the spawn carried two, and of six mounted files the one whose docstring held a column-aligned table arrived two bytes short — 6,983 authored, 6,981 delivered. Splitting that file into parts drifted both parts. Code indentation never drifted; aligned prose did. Children caught it at their own sha256 gate and stopped, which is correct and still wasted the child. `{ kind: 'inline', name, path }` already answered this for a manager whose workspace the runtime can read; the coordination server cannot read a sandbox, so a sandbox manager had no transport but its own output.
+
+Blobs are content-addressed, so a re-stage of identical bytes is the same blob and is answered `stored: false` rather than refused. The store is a `Map` in each manager's own toolbox closure — per manager node, per bus, per listener, per credential — so one run's digest can never satisfy another's reference, and a nested manager gets a store where `spawnResourceRoot` reaches it with nothing. There is deliberately no read, list, or head verb: children hold no coordination credential and nothing serves them the store. Bounds default to 512 KiB per blob, 256 blobs and 32 MiB per manager, and `serveCoordinationMcp` refuses at construction when a raised `maxBlobBytes` could not fit inside `maxRequestBytes` once base64 inflates it — but only when `put_blob` is actually granted.
+
+A spawn returns `resourcesFromBlob`, one receipt per mounted file, and every staging writes one record-only `blob-staged` journal row carrying the digest, the label and the byte count, never the bytes. Both make the measured seven-pinned/two-spawned drop visible without waiting for a child to fail.
+
+**New `SuperviseOptions.spawnResources`.** `maxContentBytes` refuses a resolved resource — by path or by blob — before the profile reaches the schema, naming the bound and `tangle-network/agent-sdk#340`. It does not raise `agent-provider-tangle`'s 16,384-character ceiling on a single create string and must not be described as doing so; it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was created into a one-round-trip refusal. `maxBlobBytes`, `maxBlobs` and `maxBlobTotalBytes` set the staging bounds.
+
+**A provider-backed manager now receives `AGENT_RUNTIME_COORDINATION_URL` beside `AGENT_RUNTIME_COORDINATION_TOKEN`.** The URL previously lived only inside the mounted MCP attachment, and the materialized `.pi/mcp.json` that carries it also carries a live bearer. Both names are reserved: a provider default already holding either one is refused by name, where the credential name alone was refused before.
+
+**`resources.commands` is resolved.** `agentProfileResourcesSchema` has carried `commands` all along while the resolver walked only `tools`, `skills` and `agents`, so a command resource named by path reached the canonical schema unresolved and died as an unrecognized key. Fixed for the path form and the new blob form together.
+
+`resolveSpawnResourcePaths` is renamed `resolveSpawnResources` and takes `{ root?, blobs?, maxContentBytes? }` instead of a bare root; its success result gains `resolvedBlobs`. Neither name appears in `api-surface.json`. This change needs a MINOR bump: it adds exported types (`SpawnBlobStore`, `SpawnBlobStats`, `SpawnBlobLimits`, `SpawnBlobPutOutcome`, `SpawnResourceBounds`, `StagedBlobRecord`), a `CoordinationEvent` member, and a coordination verb, and changes no existing behavior.
+
 ## 0.238.0
 
 File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.

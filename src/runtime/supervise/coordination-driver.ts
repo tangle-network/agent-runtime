@@ -45,6 +45,7 @@ import {
   normalizeAnalyzeOnSettle,
   type SettledWorker,
   type SpawnPreflight,
+  type SpawnResourceBounds,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
@@ -158,6 +159,8 @@ export interface DriverAgentOptions {
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** See `CoordinationToolsOptions.spawnResourceRoot`. */
   readonly spawnResourceRoot?: string
+  /** See `CoordinationToolsOptions.spawnResources`. */
+  readonly spawnResources?: SpawnResourceBounds
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -921,6 +924,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
         ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
+        ...(opts.spawnResources ? { spawnResources: opts.spawnResources } : {}),
         ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),

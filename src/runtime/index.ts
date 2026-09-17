@@ -78,6 +78,15 @@ export {
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   normalizeAnalyzeOnSettle,
 } from './../mcp/tools/coordination'
+// Spawn resources a manager stages as BYTES instead of re-emitting them into a tool call: the
+// `put_blob` verb's store, its per-manager bounds, and the journal record one staging writes.
+export type { SpawnResourceBounds, StagedBlobRecord } from '../mcp/tools/coordination'
+export type {
+  SpawnBlobLimits,
+  SpawnBlobPutOutcome,
+  SpawnBlobStats,
+  SpawnBlobStore,
+} from '../mcp/tools/spawn-blob-store'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
 // Re-exported on the KERNEL entry, not only the package root: a `supervise` caller imports
 // `@tangle-network/agent-runtime/kernel`, so an exporter reachable only from the root is an

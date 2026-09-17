@@ -174,6 +174,12 @@ Pre-journal profile resolution for `preflightSpawn`; see
 
 See `CoordinationToolsOptions.spawnResourceRoot`.
 
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](runtime.md#spawnresourcebounds)
+
+See `CoordinationToolsOptions.spawnResources`.
+
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
@@ -516,7 +522,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`blobs`](runtime.md#blobs-2)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`blobs`](runtime.md#blobs-3)
 
 ##### runId?
 
@@ -762,6 +768,23 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-5)
+
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](runtime.md#spawnresourcebounds)
+
+Bounds on the resources a spawn hands a child — by `path` (read under the manager's workspace
+root) or by staged `blob` (pushed to the coordination server with `put_blob`).
+
+The one a caller normally sets is `maxContentBytes`: Runtime cannot know a provider's payload
+limits, so there is no default bound, and `agent-provider-tangle` refuses any single create
+string over 16,384 characters (tangle-network/agent-sdk#340). Setting it does NOT raise that
+ceiling; it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was created into a
+one-round-trip refusal naming the bound and the issue.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`spawnResources`](runtime.md#spawnresources-1)
 
 ##### driveHarness?
 
@@ -1609,6 +1632,23 @@ Pre-journal profile resolution for the spawn pre-flight: the profile a driver au
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSpawnProfile`](runtime.md#resolvespawnprofile)
 
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](runtime.md#spawnresourcebounds)
+
+Bounds on the resources a spawn hands a child — by `path` (read under the manager's workspace
+root) or by staged `blob` (pushed to the coordination server with `put_blob`).
+
+The one a caller normally sets is `maxContentBytes`: Runtime cannot know a provider's payload
+limits, so there is no default bound, and `agent-provider-tangle` refuses any single create
+string over 16,384 characters (tangle-network/agent-sdk#340). Setting it does NOT raise that
+ceiling; it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was created into a
+one-round-trip refusal naming the bound and the issue.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`spawnResources`](runtime.md#spawnresources-1)
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
@@ -1993,7 +2033,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-6)
 
 ##### runDir?
 
@@ -2238,7 +2278,7 @@ entry; production supervisor surfaces cannot replace profile-derived model execu
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-6)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-7)
 
 ##### makeWorkerAgent
 
@@ -2742,6 +2782,17 @@ See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`spawnResourceRoot`](runtime.md#spawnresourceroot)
+
+##### spawnResources?
+
+> `readonly` `optional` **spawnResources?**: [`SpawnResourceBounds`](runtime.md#spawnresourcebounds)
+
+See `CoordinationToolsOptions.spawnResources`: the bounds on a resource a spawn hands a
+ child by path or by staged blob.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`spawnResources`](runtime.md#spawnresources-2)
 
 ##### peerMail?
 

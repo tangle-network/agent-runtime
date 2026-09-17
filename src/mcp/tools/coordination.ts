@@ -51,7 +51,15 @@ import {
   workerTraceAnalysisStore,
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
-import { resolveSpawnResourcePaths } from './spawn-resource-paths'
+import {
+  decodeSpawnBlobBase64,
+  InMemorySpawnBlobStore,
+  parseSpawnBlobRef,
+  type SpawnBlobStats,
+  type SpawnBlobStore,
+  spawnBlobRef,
+} from './spawn-blob-store'
+import { resolveSpawnResources } from './spawn-resource-paths'
 
 /** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
@@ -702,6 +710,25 @@ export type CoordinationEvent =
    *  run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
    *  owner the durable log stamps beside them. */
   | { readonly type: 'analyst-defined'; readonly analyst: DefinedAnalystRecord }
+  /** A manager STAGED a file's bytes on this coordination server (`put_blob`), so a spawn can
+   *  mount them byte-exact. Record-only, like `analyst-defined`: the manager already holds the
+   *  result and its own action does not belong in the inbox it pulls from. It is what makes a
+   *  DROPPED file visible in autopsy — one row per staged file, against the spawn's own
+   *  `resourcesFromBlob` receipts. Carries the digest, the label and the byte count, never the
+   *  bytes. */
+  | { readonly type: 'blob-staged'; readonly blob: StagedBlobRecord }
+
+/** One file a manager staged for a later spawn: what was stored, under which address, and when.
+ *  Never the content — the journal records that a transfer happened and what it was, and the bytes
+ *  themselves reach the durable record once, inside the spawned profile. */
+export interface StagedBlobRecord {
+  /** `sha256:<64 lowercase hex>` of the raw bytes — the address a spawn references. */
+  readonly ref: string
+  /** The manager's audit label, normally the file's basename. Never opened or used as a key. */
+  readonly name: string
+  readonly byteLength: number
+  readonly stagedAt: number
+}
 
 /** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
  * complete worker profile is prepared for one spawn. */
@@ -888,6 +915,9 @@ export interface CoordinationToolsOptions {
    * with the reason; see `spawn-resource-paths.ts` for the measurement that motivates it.
    */
   readonly spawnResourceRoot?: string
+  /** Bounds on resources a spawn hands a child by path or by staged blob. See
+   *  {@link SpawnResourceBounds}. */
+  readonly spawnResources?: SpawnResourceBounds
   /**
    * OPT-IN parent channel for `ask_parent`. See {@link EscalateQuestion}.
    *
@@ -937,6 +967,29 @@ export interface CoordinationToolsOptions {
    * processes; this option only restores what the manager is allowed to believe it already wrote.
    */
   readonly priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
+}
+
+/** Bounds on the resources a spawn hands a child, whichever transport carried them. */
+export interface SpawnResourceBounds {
+  /**
+   * Refuse a resolved resource larger than this, BEFORE the profile reaches the canonical schema.
+   * Runtime cannot know a provider's payload limits, so the default is no bound.
+   *
+   * `agent-provider-tangle` refuses any single create string over 16,384 characters
+   * (`MAX_STRING_LENGTH`, `tangle-contract-safety.ts`, via `assertBoundedJson` in
+   * `tangle-create-options.ts`) — tangle-network/agent-sdk#340. Set 16384 for that provider: it
+   * does not raise the ceiling, it converts a `JSON_BOUND_VIOLATION` paid for after a sandbox was
+   * created into a one-round-trip refusal that names the bound and the issue.
+   */
+  readonly maxContentBytes?: number
+  /** Raw bytes in one staged blob. Default 512 KiB (`SPAWN_BLOB_MAX_BYTES`). Raising it above
+   *  what the coordination server's `maxRequestBytes` can carry once base64-encoded is refused at
+   *  construction, so a staged file's oversize answer stays the tool's named refusal. */
+  readonly maxBlobBytes?: number
+  /** Blobs one manager may hold at once. Default 256 (`SPAWN_BLOB_MAX_ENTRIES`). */
+  readonly maxBlobs?: number
+  /** Total raw bytes one manager may hold. Default 32 MiB (`SPAWN_BLOB_MAX_TOTAL_BYTES`). */
+  readonly maxBlobTotalBytes?: number
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
@@ -1031,6 +1084,7 @@ export const journalEventKinds = [
   'mail',
   'escalation',
   'analyst-defined',
+  'blob-staged',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 export type JournalEventKind = (typeof journalEventKinds)[number]
@@ -1161,6 +1215,9 @@ export interface CoordinationTools {
    * nobody is left to read a finding, and analysts spend real compute). Returns the count.
    */
   drainResolved(): Promise<number>
+  /** The blobs this manager has staged. The server reports its stats and clears it on close; no
+   *  coordination VERB reads it, so a worker has no way to enumerate or fetch its contents. */
+  blobStore(): SpawnBlobStore
 }
 
 /** The reserved coordination verb names — the complete set `createCoordinationTools` can emit
@@ -1189,6 +1246,7 @@ export const coordinationVerbNames = [
   'list_analysts',
   'run_analyst',
   'define_analyst',
+  'put_blob',
 ] as const
 
 /**
@@ -1335,7 +1393,11 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
       '(`files` entries wrap that as `{ path, resource, executable? }`). An inline `path` is ' +
       'relative to YOUR workspace and is read by the runtime, so use it for any file over a few ' +
       'hundred bytes: content you retype in this call arrives truncated and altered, a path ' +
-      'arrives byte-exact and the result reports its sha256. A child typically gets ' +
+      'arrives byte-exact and the result reports its sha256. ' +
+      'From a sandbox you have no readable workspace root, so use the blob form: stage each file ' +
+      'from bash with put_blob, then write { kind: "inline", name, blob: "sha256:<hex>" }. The ' +
+      'spawn result reports resourcesFromBlob with one receipt per file, so you can diff it ' +
+      'against your own staging list. A child typically gets ' +
       '`files` for seed inputs and `skills` for a procedure it must follow; the canonical ' +
       'AgentProfile schema carries the full form and governs validation.',
     brief: {
@@ -1672,6 +1734,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       throw new Error(`coordination tools: "${field}" must be a non-empty string`)
     return v
   }
+  // A digest is echoed only as a LENGTH until it has passed the hex test: the argument is
+  // untrusted model output and a refusal must not quote it back.
+  const invalidDigest = (supplied: unknown): string =>
+    'sha256 must be "sha256:" followed by 64 lowercase hex characters; you sent a value of ' +
+    `${typeof supplied === 'string' ? supplied.length : 0} characters that is not that form. ` +
+    'Produce it with: sha256:$(sha256sum "$f" | cut -d" " -f1)'
   const obj = (raw: unknown): Record<string, unknown> => {
     if (!raw || typeof raw !== 'object')
       throw new Error('coordination tools: arguments must be an object')
@@ -2342,6 +2410,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (ev.type === 'escalation') return { type: 'escalation', ...ev.escalation }
     // A definition is record-only for the same reason, and carries no `down` leg either.
     if (ev.type === 'analyst-defined') return { type: 'analyst-defined', ...ev.analyst }
+    // A staged blob is record-only too, and the whole record is the evidence: a bare { type } row
+    // would leave an autopsy unable to tell WHICH file was staged.
+    if (ev.type === 'blob-staged') return { type: 'blob-staged', ...ev.blob }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
@@ -2710,6 +2781,121 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     return { analyst: record.kind, digest: record.digest, defined: definedAnalysts.length }
   }
 
+  // ── put_blob ──────────────────────────────────────────────────────────────────
+  //
+  // The bytes of a file, pushed here by the manager itself, so a spawn can mount them without the
+  // model ever re-emitting them. See `spawn-blob-store.ts` for the measured failure this exists to
+  // remove, and `spawn-resource-paths.ts` for what a spawn then writes.
+  //
+  // The store lives in THIS closure, not in `opts.blobs`: `ResultBlobStore` is a run-wide store
+  // addressed over stable-stringified JSON — a different address space and a wider scope. One
+  // store per toolbox is one store per manager node, which is the isolation property, and it costs
+  // no wiring at depth: every manager builds its own `createCoordinationTools`, so a nested
+  // manager gets a store even where `spawnResourceRoot` reaches it with nothing.
+  const blobStore = new InMemorySpawnBlobStore({
+    ...(opts.spawnResources?.maxBlobBytes !== undefined
+      ? { maxBlobBytes: opts.spawnResources.maxBlobBytes }
+      : {}),
+    ...(opts.spawnResources?.maxBlobs !== undefined
+      ? { maxBlobs: opts.spawnResources.maxBlobs }
+      : {}),
+    ...(opts.spawnResources?.maxBlobTotalBytes !== undefined
+      ? { maxBlobTotalBytes: opts.spawnResources.maxBlobTotalBytes }
+      : {}),
+  })
+  const blobFailure = (error: string, reason: string, stats?: SpawnBlobStats) => ({
+    error,
+    reason,
+    ...(stats ? { store: stats } : {}),
+  })
+  // 1..200 characters with no control or invisible formatting character. It is an audit label: it
+  // is never opened, joined onto a directory, or used as a store key, so the only thing it has to
+  // be is safe to print beside a digest in a journal row an operator reads.
+  const auditLabel = (value: string): boolean =>
+    [...value].length >= 1 && [...value].length <= 200 && !/[\p{Cc}\p{Cf}]/u.test(value)
+  const putBlob = async (raw: unknown): Promise<unknown> => {
+    const a = obj(raw)
+    const staging = a.name !== undefined || a.sha256 !== undefined || a.contentBase64 !== undefined
+    if (a.drop !== undefined) {
+      if (staging) {
+        return blobFailure(
+          'invalid-blob-request',
+          'pass either drop, or all of name, sha256 and contentBase64 — not both.',
+        )
+      }
+      const digest = parseSpawnBlobRef(a.drop)
+      if (digest === undefined) return blobFailure('invalid-blob-digest', invalidDigest(a.drop))
+      return { dropped: blobStore.drop(digest), store: blobStore.stats() }
+    }
+    const missing = (['name', 'sha256', 'contentBase64'] as const).filter(
+      (field) => typeof a[field] !== 'string',
+    )
+    if (missing.length > 0) {
+      return blobFailure(
+        'invalid-blob-request',
+        'pass either drop, or all of name, sha256 and contentBase64; this call is missing ' +
+          `${missing.join(', ')}.`,
+      )
+    }
+    // Narrowed by the check above; TypeScript cannot follow a filter over a key list.
+    const label = a.name as string
+    const declared = parseSpawnBlobRef(a.sha256)
+    if (declared === undefined) return blobFailure('invalid-blob-digest', invalidDigest(a.sha256))
+    if (!auditLabel(label)) {
+      return blobFailure(
+        'invalid-blob-name',
+        'name must be 1 to 200 printable characters; it is an audit label, not a path.',
+      )
+    }
+    const bytes = decodeSpawnBlobBase64(a.contentBase64 as string)
+    if (bytes === undefined) {
+      return blobFailure(
+        'invalid-blob-encoding',
+        'contentBase64 must be standard base64 (A-Z a-z 0-9 + / =). Produce it with: ' +
+          'base64 -w0 "$f" (busybox: base64 "$f"). Do not type the file\'s text into this call.',
+      )
+    }
+    const actual = spawnBlobRef(bytes)
+    if (actual !== declared) {
+      return blobFailure(
+        'blob-digest-mismatch',
+        `these ${bytes.length} bytes hash to ${actual}, not the ${declared} you declared; nothing ` +
+          'was stored. Recompute the digest and the base64 from the SAME file in the SAME shell.',
+      )
+    }
+    // A resource is a STRING in the canonical profile, so bytes that are not text cannot become
+    // one. Refusing here, rather than at the spawn, means the manager learns it on the call that
+    // carried the file instead of on the call that would have paid for a child.
+    const content = bytes.toString('utf8')
+    if (!Buffer.from(content, 'utf8').equals(bytes)) {
+      return blobFailure(
+        'blob-not-utf8',
+        `these ${bytes.length} bytes are not valid UTF-8, and a child resource is a string. ` +
+          'Base64-encode the file yourself, stage that text, and have the child decode it.',
+      )
+    }
+    const outcome = blobStore.put(declared, bytes)
+    if (!outcome.ok) return blobFailure(outcome.error, outcome.reason, blobStore.stats())
+    if (outcome.stored) {
+      const record: StagedBlobRecord = Object.freeze({
+        ref: declared,
+        name: label,
+        byteLength: bytes.length,
+        stagedAt: Date.now(),
+      })
+      // Record-only, for the same reason a definition is: the manager already holds this result.
+      // The row is what makes a file the manager MEANT to stage and never referenced findable.
+      await bus.publish({ type: 'blob-staged', blob: record }, { queue: false })
+    }
+    return {
+      ref: declared,
+      name: label,
+      bytes: bytes.length,
+      stored: outcome.stored,
+      store: blobStore.stats(),
+    }
+  }
+
   // A supervised tree exposes one shared capacity reading; a caller-owned legacy scope falls back
   // to this toolbox's direct-child count. The shared reading is what prevents each nested manager
   // from multiplying the same cap independently.
@@ -2968,10 +3154,19 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               freeSlots: freeWorkerSlots(),
             }))(liveWorkerCount()),
           )
-        // A resource named by path is read here, under the manager's workspace root, so the
-        // canonical schema validates the inline resource its bytes make and the journal records
-        // exactly what the child received.
-        const resourcePaths = await resolveSpawnResourcePaths(a.profile, opts.spawnResourceRoot)
+        // A resource named by path (read under the manager's workspace root) or by staged blob
+        // (pushed here with put_blob) is filled in HERE, so the canonical schema validates the
+        // inline resource its bytes make and the journal records exactly what the child received.
+        // Everything below — the schema, continuity, the pre-flight, the budget merge, the spawn —
+        // sees an ordinary inline resource, and a refusal above costs no assignment, no
+        // reservation, no journal row, and no child environment.
+        const resourcePaths = await resolveSpawnResources(a.profile, {
+          ...(opts.spawnResourceRoot !== undefined ? { root: opts.spawnResourceRoot } : {}),
+          blobs: blobStore,
+          ...(opts.spawnResources?.maxContentBytes !== undefined
+            ? { maxContentBytes: opts.spawnResources.maxContentBytes }
+            : {}),
+        })
         if (!resourcePaths.ok) {
           return {
             error: 'invalid-profile' as const,
@@ -3127,6 +3322,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 ...(resourcePaths.resolved.length === 0
                   ? {}
                   : { resourcesFromPath: resourcePaths.resolved }),
+                // One receipt per staged blob this spawn mounted. A manager that staged seven
+                // files and reads back two receipts can see the drop in the same tool result,
+                // without waiting for a child to fail its own checksum gate.
+                ...(resourcePaths.resolvedBlobs.length === 0
+                  ? {}
+                  : { resourcesFromBlob: resourcePaths.resolvedBlobs }),
               }
             : {
                 error: res.reason,
@@ -3651,6 +3852,46 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       // reports back to it, never as a synchronous throw through the server's dispatch.
       handler: async (raw) => readJournal(raw),
     },
+    {
+      name: 'put_blob',
+      description:
+        'Put a file from YOUR workspace onto this coordination server so a spawn can mount it byte-exact. ' +
+        'DO NOT type a file into this call: run it from bash so the bytes never pass through your output. ' +
+        'One file: f=<path>; d=sha256:$(sha256sum "$f" | cut -d" " -f1); ' +
+        '{ printf \'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"put_blob","arguments":{"name":"%s","sha256":"%s","contentBase64":"\' "$(basename "$f")" "$d"; base64 -w0 "$f"; printf \'"}}}\'; } > /tmp/b.json; ' +
+        'curl -sS -X POST "$AGENT_RUNTIME_COORDINATION_URL" -H "authorization: Bearer $AGENT_RUNTIME_COORDINATION_TOKEN" -H "content-type: application/json" --data-binary @/tmp/b.json; ' +
+        'Then reference it in a spawn as { kind: "inline", name: "<name>", blob: "<that sha256: value>" }. ' +
+        'contentBase64 is base64 only; a digest that does not match the bytes is refused and nothing is stored.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description:
+              'Audit label for this file, normally its basename. 1 to 200 printable characters. It is never opened, joined onto a directory, or used as a key.',
+          },
+          sha256: {
+            type: 'string',
+            description:
+              'sha256: followed by 64 lowercase hex characters, of the RAW bytes. Produce it with sha256sum, in the same shell that produced contentBase64.',
+          },
+          contentBase64: {
+            type: 'string',
+            description:
+              'Standard base64 of the raw bytes (whitespace is stripped before decoding). Produce it with base64, never by typing the file out.',
+          },
+          drop: {
+            type: 'string',
+            description:
+              'Release one held blob by its sha256:<hex> address. Mutually exclusive with name, sha256 and contentBase64.',
+          },
+        },
+        additionalProperties: false,
+      },
+      // async so a malformed argument surfaces as a REJECTED tool result the manager can read and
+      // correct, never as a synchronous throw through the server's dispatch.
+      handler: async (raw) => putBlob(raw),
+    },
   ]
 
   if (opts.analysts) {
@@ -3847,6 +4088,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     escalations: () => escalations,
     definedAnalysts: () => definedAnalysts,
     drainResolved,
+    blobStore: () => blobStore,
     abortWorker,
     ...(peerMail ? { peerMail } : {}),
   }

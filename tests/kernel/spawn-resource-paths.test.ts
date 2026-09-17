@@ -6,7 +6,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import {
-  resolveSpawnResourcePaths,
+  resolveSpawnResources,
   SPAWN_RESOURCE_PATH_MAX_BYTES,
 } from '../../src/mcp/tools/spawn-resource-paths'
 import type { ResultBlobStore, Scope, Spend } from '../../src/runtime'
@@ -23,13 +23,13 @@ async function workspace(): Promise<{ root: string; outside: string }> {
   return { root, outside }
 }
 
-describe('resolveSpawnResourcePaths', () => {
+describe('resolveSpawnResources', () => {
   it('reads an inline resource named by path under the root and reports its bytes', async () => {
     const { root } = await workspace()
     // 29,144 characters of base64 is the payload size a director could not retype on 2026-09-12.
     const payload = Buffer.from('x'.repeat(21_852)).toString('base64')
     await writeFile(join(root, 'experiments', 'payload.b64'), payload)
-    const result = await resolveSpawnResourcePaths(
+    const result = await resolveSpawnResources(
       {
         name: 'checker',
         resources: {
@@ -42,7 +42,7 @@ describe('resolveSpawnResourcePaths', () => {
           ],
         },
       },
-      root,
+      { root },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -70,14 +70,14 @@ describe('resolveSpawnResourcePaths', () => {
 
   it('returns the same profile object when nothing names a path', async () => {
     const profile = { name: 'plain', resources: { files: [] } }
-    const result = await resolveSpawnResourcePaths(profile, '/nowhere')
-    expect(result).toEqual({ ok: true, profile, resolved: [] })
+    const result = await resolveSpawnResources(profile, { root: '/nowhere' })
+    expect(result).toEqual({ ok: true, profile, resolved: [], resolvedBlobs: [] })
   })
 
   it('refuses a path when the manager has no readable workspace root', async () => {
-    const result = await resolveSpawnResourcePaths(
+    const result = await resolveSpawnResources(
       { resources: { skills: [{ kind: 'inline', name: 's', path: 'skill.md' }] } },
-      undefined,
+      {},
     )
     expect(result).toMatchObject({ ok: false, at: 'skills[0]' })
     if (result.ok) return
@@ -93,9 +93,9 @@ describe('resolveSpawnResourcePaths', () => {
       ['../outside/secret', 'leaves the workspace root'],
       ['link', 'resolves outside the workspace root'],
     ] as const) {
-      const result = await resolveSpawnResourcePaths(
+      const result = await resolveSpawnResources(
         { resources: { files: [{ path: 'f', resource: { kind: 'inline', name: 'f', path } }] } },
-        root,
+        { root },
       )
       expect(result.ok, path).toBe(false)
       if (result.ok) continue
@@ -113,9 +113,9 @@ describe('resolveSpawnResourcePaths', () => {
       ['big.txt', `at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`],
       ['binary.bin', 'not valid UTF-8'],
     ] as const) {
-      const result = await resolveSpawnResourcePaths(
+      const result = await resolveSpawnResources(
         { resources: { tools: [{ kind: 'inline', name: 't', path }] } },
-        root,
+        { root },
       )
       expect(result.ok, path).toBe(false)
       if (result.ok) continue
@@ -124,19 +124,60 @@ describe('resolveSpawnResourcePaths', () => {
   })
 })
 
-describe('resolveSpawnResourcePaths failures the runtime process cannot read past', () => {
+describe('resolveSpawnResources applies the provider bound to the path arm too', () => {
+  it('refuses a file over maxContentBytes and names the upstream issue', async () => {
+    const { root } = await workspace()
+    await writeFile(join(root, 'big.py'), 'y'.repeat(20_000))
+    const result = await resolveSpawnResources(
+      {
+        resources: {
+          files: [{ path: 'b', resource: { kind: 'inline', name: 'b', path: 'big.py' } }],
+        },
+      },
+      { root, maxContentBytes: 16_384 },
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toContain('20000 bytes')
+    expect(result.reason).toContain('16384 bytes')
+    expect(result.reason).toContain('tangle-network/agent-sdk#340')
+  })
+
+  it('resolves a command resource by path — the list the walk used to skip', async () => {
+    // `agentProfileResourcesSchema` has carried `commands` all along while this resolver looped
+    // only tools/skills/agents, so a command by path reached the canonical schema unresolved and
+    // died as an unrecognized key. The gap predates the blob transport and is fixed for both.
+    const { root } = await workspace()
+    await writeFile(join(root, 'review.md'), '# review\n')
+    const result = await resolveSpawnResources(
+      { resources: { commands: [{ kind: 'inline', name: 'review', path: 'review.md' }] } },
+      { root },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.resolved.map((entry) => entry.at)).toEqual(['commands[0]'])
+    const profile = result.profile as { resources: { commands: unknown[] } }
+    expect(profile.resources.commands[0]).toEqual({
+      kind: 'inline',
+      name: 'review',
+      content: '# review\n',
+    })
+  })
+})
+
+describe('resolveSpawnResources failures the runtime process cannot read past', () => {
   it('turns an unreadable file into the typed refusal instead of a thrown tool failure', async () => {
     if (process.getuid?.() === 0) return // root reads everything; the permission bit means nothing
     const { root } = await workspace()
     await writeFile(join(root, 'locked.txt'), 'x')
     await chmod(join(root, 'locked.txt'), 0o000)
-    const result = await resolveSpawnResourcePaths(
+    const result = await resolveSpawnResources(
       {
         resources: {
           files: [{ path: 'f', resource: { kind: 'inline', name: 'f', path: 'locked.txt' } }],
         },
       },
-      root,
+      { root },
     )
     expect(result).toMatchObject({ ok: false, at: 'files[0].resource' })
     if (result.ok) return
