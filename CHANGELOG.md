@@ -16,6 +16,12 @@ Measured 2026-09-16 on discovery-lab: a Tangle Sandbox create refused `HTTP 400 
 
 Only a thrown `Error` is read: `status` is an ordinary field name on settlements and run-state records, and treating one as an HTTP refusal stops retries that have nothing to do with a rejected request.
 
+**A root harness turn that ends with a failed outcome is retried.** A provider executor reports a failed turn as a result with `outcome: { success: false }`, not as a thrown error. The root drive therefore completed normally, `runDriverWithRetry` never saw a failure, and the retained owner journaled the failed result as its accepted turn. The drive now raises `HarnessTurnFailedError` after the turn's accounting, materialization, and environment handling finish exactly as a successful turn's do, and the retry loop classifies, records, backs off, and bounds it like a thrown failure.
+
+A failure without a machine code is transient. A code the bridge never retries (`parse_error`, `not_configured`, `capability_denied`) is terminal, and a cancelled run stays terminal. The provider's `errorCode` now survives on `ExecutorResult.outcome` and the journaled `execution-result`, where it used to be dropped; the error text is never parsed. The retry runs a new invocation in the retained owner environment, the failed result and its spend stay in the journal, and a resumed run replays a committed failed owner result as the same failure instead of returning on it. With retries disabled or exhausted, such a run now settles `driver-failed` instead of finalizing after the failed turn, as a thrown root failure already did.
+
+Measured 2026-09-17 on a Discovery director on tangle-sandbox with the opencode harness and `driverRetry: { maxAttempts: 30, maxConsecutiveFailures: 12 }`: a 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform key expired mid-turn. In both runs the director never got a second turn; the run waited for its children and settled.
+
 ## 0.237.0
 
 **A refused spawn says which budget channels ran short and by how much.** A `budget-exhausted` reservation now carries `shortfalls`: every channel that did not fit, each as `{ channel, requested, free }` (`ReservationShortfall`, exported). `scope.spawn` passes them through, and `spawn_worker` returns them with a reason a driver can act on, for example `the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits`.

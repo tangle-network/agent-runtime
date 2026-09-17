@@ -354,8 +354,10 @@ export interface ExecutorAccounting {
 
 /** Terminal artifact of a one-shot `Executor.execute`. */
 export interface ExecutorResult<Out> {
-  /** Explicit execution outcome; application output and scoring verdicts do not determine failure. */
-  outcome?: Pick<AgentTurnResult, 'success' | 'error'>
+  /** Explicit execution outcome; application output and scoring verdicts do not determine failure.
+   *  `errorCode` is the provider's machine code for a failure when it reported one. A retry policy
+   *  reads the code, never the human `error` text. */
+  outcome?: Pick<AgentTurnResult, 'success' | 'error'> & { errorCode?: string }
   outRef: string
   out: Out
   verdict?: DefaultVerdict
@@ -1324,7 +1326,7 @@ export type SpawnEvent =
   | {
       /** Recoverable output committed before releasing its provider environment. */
       kind: 'execution-result'
-      outcome?: Pick<AgentTurnResult, 'success' | 'error'>
+      outcome?: Pick<AgentTurnResult, 'success' | 'error'> & { errorCode?: string }
       id: NodeId
       outRef: string
       spent: Spend

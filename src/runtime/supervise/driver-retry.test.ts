@@ -8,6 +8,7 @@ import {
   type DriverProgressMark,
   type DriverReentry,
   defaultUnmetContractSteer,
+  HarnessTurnFailedError,
   runDriverWithRetry,
 } from './driver-retry'
 import { RetainedExecutionPendingError } from './retained-executor'
@@ -115,6 +116,33 @@ describe('classifyDriverFailure', () => {
       'transient',
     )
     expect(classifyDriverFailure(new SandboxSdkError('timeout', 408, 'TIMEOUT'))).toBe('transient')
+  })
+
+  it('classifies a failed harness outcome by its code and never by its text', () => {
+    // Both measured 2026-09-17 on a tangle-sandbox director: an upstream timeout, and a platform
+    // key that expired mid-turn and was renewed. A new turn succeeds in both cases.
+    const timeout = new HarnessTurnFailedError('tangle-sandbox', {
+      error: 'opencode execution failed: status code 524 (exit code 1)',
+    })
+    const expiredKey = new HarnessTurnFailedError('tangle-sandbox', {
+      error: 'opencode execution failed: Invalid API key (exit code 1)',
+    })
+    expect(classifyDriverFailure(timeout)).toBe('transient')
+    expect(classifyDriverFailure(expiredKey)).toBe('transient')
+    // Text that names a deterministic class is still text; only the machine code decides.
+    expect(
+      classifyDriverFailure(new HarnessTurnFailedError('bridge', { error: 'capability_denied' })),
+    ).toBe('transient')
+    const denied = new HarnessTurnFailedError('bridge', {
+      error: 'the harness may not use this tool',
+      errorCode: 'capability_denied',
+    })
+    expect(classifyDriverFailure(denied)).toBe('terminal')
+    expect(denied.message).toContain('capability_denied')
+    // A turn that failed because the run was cancelled is the cancellation, not an accident.
+    const cancelled = new AbortController()
+    cancelled.abort()
+    expect(classifyDriverFailure(timeout, cancelled.signal)).toBe('terminal')
   })
 
   it('keeps the historical default when a status is absent or is not an HTTP status', () => {
