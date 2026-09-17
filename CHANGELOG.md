@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.237.1
+## 0.238.0
 
 File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.
 Observer restart verifies its complete digest chain while retaining only the last record.
