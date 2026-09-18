@@ -96,6 +96,7 @@ import {
 } from './sandbox-events'
 import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort } from './supervise/abortable'
+import { priceUnreceiptedWork } from './supervise/cost-estimate'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -998,6 +999,9 @@ async function* streamProviderExecutor(
   let sawCostEstimate = false
   let pendingUnpricedWork = false
   let pendingEstimate: number | undefined
+  /** The model id a usage receipt reported, when it reported one. Only a catalog can price a run
+   *  the provider never billed, and only a model id can address a catalog. */
+  let observedModel: string | undefined
   let usdEstimated = 0
   let usd = 0
   let text = ''
@@ -1056,10 +1060,20 @@ async function* streamProviderExecutor(
     // Interim missing prices and catalog estimates may be covered by a later cumulative bill.
     // Only unresolved work becomes unknown at settlement; do not add a quote to that bill.
     if (pendingUnpricedWork) {
-      const estimate = pendingEstimate ?? 0
+      // A provider that reports tokens and no dollars used to settle a bare `$0`, so a sandbox-
+      // rooted run that certainly spent money reported a dollar total of zero with no estimate at
+      // all. The catalog answers what the provider WOULD bill, so the amount rides `usdEstimated`
+      // and `usdKnown` stays false below: a price is not a receipt and must never become one.
+      //
+      // Priced only when NO dollars reached the channel for this execution. `tokens` is the
+      // execution's cumulative total, not the unresolved remainder, so pricing it alongside any
+      // receipt — billed or already marked unknown — would charge the same tokens twice. A
+      // partially billed execution therefore keeps its unresolved part unknown, which is true.
+      const estimated = pendingEstimate ?? (usd === 0 ? catalogPrice() : undefined)
+      const estimate = estimated ?? 0
       sawUnknownCostReceipt = true
       usd += estimate
-      if (pendingEstimate !== undefined) {
+      if (estimated !== undefined) {
         sawCostEstimate = true
         usdEstimated += estimate
       }
@@ -1067,8 +1081,8 @@ async function* streamProviderExecutor(
         kind: 'cost',
         usd: estimate,
         usdKnown: false,
-        ...(pendingEstimate === undefined ? {} : { usdEstimated: estimate }),
-        provenance: pendingEstimate === undefined ? 'uncaptured' : 'catalog-estimate',
+        ...(estimated === undefined ? {} : { usdEstimated: estimate }),
+        provenance: estimated === undefined ? 'uncaptured' : 'catalog-estimate',
       }
     }
     if ((args.options.requireTerminalEvent ?? true) && !terminal) {
@@ -1208,11 +1222,36 @@ async function* streamProviderExecutor(
   }
   if (failed) throw failure
 
+  /**
+   * The catalog price of this execution's whole token total, under the first model id the catalog
+   * knows. Undefined when none prices, so an unpriced model settles with no estimate at all rather
+   * than a zero one — absence says "nothing could be priced", a zero would say "priced at nothing".
+   *
+   * Candidates run most specific first: the id a usage receipt reported, then the turn's own
+   * model, then the profile's. A provider that selected its own default declares no profile model,
+   * so a reported id is then the only one a catalog can match.
+   */
+  function catalogPrice(): number | undefined {
+    for (const model of [observedModel, turn.model, concreteProfileModel(args.createProfile)]) {
+      if (model === undefined) continue
+      const priced = priceUnreceiptedWork({
+        inputTokens: tokens.input,
+        outputTokens: tokens.output,
+        model,
+      })
+      if (priced.usdKnown === false && priced.usdEstimated !== undefined) return priced.usdEstimated
+    }
+    return undefined
+  }
+
   function* creditUsage(
     receipt: ReturnType<typeof usageLedger.observe>,
     event?: SandboxEvent,
   ): Iterable<UsageEvent> {
     if (receipt === undefined) return
+    // A receipt that named no model is stamped with the worker's name, which is not a model id and
+    // prices nothing. Only a different value is evidence of what the provider actually served.
+    if (receipt.model !== (args.profile.name ?? 'agent')) observedModel = receipt.model
     const hasTokens = receipt.tokensIn !== undefined || receipt.tokensOut !== undefined
     if (
       hasTokens &&
