@@ -1,0 +1,148 @@
+diff --git a/src/runtime/supervise/coordination-mcp.ts b/src/runtime/supervise/coordination-mcp.ts
+index c0b5d07..50e085c 100644
+--- a/src/runtime/supervise/coordination-mcp.ts
++++ b/src/runtime/supervise/coordination-mcp.ts
+@@ -121,7 +121,7 @@ export interface CoordinationPublicAddress {
+   readonly port: number
+   readonly runId: string
+   readonly actorId: string
+-  /** Manager cancellation and deadline; pass this to asynchronous endpoint provisioning. */
++  /** Listener lifetime: aborts on close, failed setup, manager cancellation, or deadline. */
+   readonly signal: AbortSignal
+ }
+ 
+@@ -543,6 +543,16 @@ export async function serveCoordinationMcp(
+     })
+   })
+ 
++  const addressLifetime = new AbortController()
++  const abortAddress = () => addressLifetime.abort(opts.scope.signal.reason)
++  opts.scope.signal.addEventListener('abort', abortAddress, { once: true })
++  if (opts.scope.signal.aborted) abortAddress()
++  const releaseAddress = () => {
++    opts.scope.signal.removeEventListener('abort', abortAddress)
++    if (!addressLifetime.signal.aborted)
++      addressLifetime.abort(new Error('coordination listener closed'))
++  }
++
+   const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+   const localUrl = `http://${urlHost}:${port}/mcp`
+   let url: string
+@@ -551,7 +561,7 @@ export async function serveCoordinationMcp(
+     const configured =
+       typeof resolver === 'function'
+         ? await runAbortable(
+-            async () => resolver({ host, port, ...identity, signal: opts.scope.signal }),
++            async () => resolver({ host, port, ...identity, signal: addressLifetime.signal }),
+             opts.scope.signal,
+             'coordination public address resolution aborted',
+           )
+@@ -592,6 +602,7 @@ export async function serveCoordinationMcp(
+       })
+     }
+   } catch (error) {
++    releaseAddress()
+     closed = true
+     await new Promise<void>((resolve) => {
+       server.close(() => resolve())
+@@ -623,6 +634,7 @@ export async function serveCoordinationMcp(
+     mailHistory: () => mailbox?.history() ?? [],
+     stopMailThread: (threadId) => mailbox?.stopThread(threadId) ?? false,
+     close: async () => {
++      releaseAddress()
+       closed = true
+       await new Promise<void>((resolve) => {
+         server.close(() => resolve())
+diff --git a/tests/kernel/coordination-mcp.test.ts b/tests/kernel/coordination-mcp.test.ts
+index 80eff84..5e46dd3 100644
+--- a/tests/kernel/coordination-mcp.test.ts
++++ b/tests/kernel/coordination-mcp.test.ts
+@@ -1644,3 +1644,88 @@ describe('coordination lifetime validation', () => {
+     },
+   )
+ })
++
++describe('public coordination address lifetime', () => {
++  it('releases its registered address on normal close while the manager remains live', async () => {
++    const proxy = await publicProxy()
++    let addressSignal: AbortSignal | undefined
++    const blobs = new InMemoryResultBlobStore()
++    const root: Agent<unknown, unknown> = {
++      name: 'address-owner',
++      async act(_task, scope) {
++        const mcp = await serveCoordinationMcp({
++          scope,
++          blobs,
++          makeWorkerAgent: () => deliveringLeaf('unused', {}),
++          perWorker: { maxIterations: 1, maxTokens: 1000 },
++          authentication: true,
++          toolNames: [],
++          publicUrl: (address) => {
++            addressSignal = address.signal
++            proxy.forwardTo(address.port)
++            return `${proxy.url}/mcp`
++          },
++        })
++        expect(addressSignal?.aborted).toBe(false)
++        await mcp.close()
++        expect(scope.signal.aborted).toBe(false)
++        expect(addressSignal?.aborted).toBe(true)
++        await mcp.close()
++        return { closed: true }
++      },
++    }
++    const result = await createSupervisor().run(
++      root,
++      {},
++      {
++        runId: 'address-close',
++        budget: { maxIterations: 10, maxTokens: 10_000 },
++        journal: new InMemorySpawnJournal(),
++        blobs,
++        executors: createExecutorRegistry(),
++      },
++    )
++    if (!addressSignal) throw new Error(JSON.stringify(result))
++    expect(addressSignal?.aborted).toBe(true)
++  })
++
++  it('releases a registered address when public endpoint setup fails', async () => {
++    const blobs = new InMemoryResultBlobStore()
++    let addressSignal: AbortSignal | undefined
++    const root: Agent<unknown, unknown> = {
++      name: 'invalid-address',
++      async act(_task, scope) {
++        await expect(
++          serveCoordinationMcp({
++            scope,
++            blobs,
++            makeWorkerAgent: () => deliveringLeaf('unused', {}),
++            perWorker: { maxIterations: 1, maxTokens: 1000 },
++            authentication: true,
++            toolNames: [],
++            publicUrl: (address) => {
++              addressSignal = address.signal
++              return 'http://remote.invalid/mcp'
++            },
++          }),
++        ).rejects.toThrow('must use HTTPS')
++        expect(scope.signal.aborted).toBe(false)
++        expect(addressSignal?.aborted).toBe(true)
++        return { refused: true }
++      },
++    }
++    const result = await createSupervisor().run(
++      root,
++      {},
++      {
++        runId: 'address-setup',
++        budget: { maxIterations: 10, maxTokens: 10_000 },
++        journal: new InMemorySpawnJournal(),
++        blobs,
++        executors: createExecutorRegistry(),
++      },
++    )
++    if (!addressSignal) throw new Error(JSON.stringify(result))
++    expect(addressSignal?.aborted).toBe(true)
++  })
++})
