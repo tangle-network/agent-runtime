@@ -101,7 +101,9 @@ describe('tool-loop preparation authority', () => {
     expect(result.toolCalls).toBe(1)
     expect(result.usage).toEqual({ input: 10, output: 2 })
     expect(result.messages.at(-1)).toEqual({
-      role: 'tool', tool_call_id: 'tool-1', content: 'Observed evidence.',
+      role: 'tool',
+      tool_call_id: 'tool-1',
+      content: 'Observed evidence.',
     })
   })
 })
