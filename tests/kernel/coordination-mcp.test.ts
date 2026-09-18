@@ -242,7 +242,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     // to fire before listen; a bind moved after it would leave the first caller with no verbs.
     let boundNames: ReadonlyArray<string> | undefined
     let boundBeforeFirstCall: boolean | undefined
-    const scope = {} as Scope<unknown>
+    const scope = { signal: new AbortController().signal } as Scope<unknown>
     const mcp = await serveCoordinationMcp({
       scope,
       blobs: new InMemoryResultBlobStore(),
@@ -279,7 +279,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
 
   it('serves product-owned node tools beside coordination tools over the same HTTP MCP', async () => {
     const calls: unknown[] = []
-    const scope = {} as Scope<unknown>
+    const scope = { signal: new AbortController().signal } as Scope<unknown>
     const mcp = await serveCoordinationMcp({
       scope,
       blobs: new InMemoryResultBlobStore(),
@@ -325,7 +325,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
   it('refuses a product tool that shadows spawn_worker before opening a listener', async () => {
     await expect(
       serveCoordinationMcp({
-        scope: {} as Scope<unknown>,
+        scope: { signal: new AbortController().signal } as Scope<unknown>,
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
         perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -345,7 +345,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
   it('refuses duplicate explicit tool grants before opening a listener', async () => {
     await expect(
       serveCoordinationMcp({
-        scope: {} as Scope<unknown>,
+        scope: { signal: new AbortController().signal } as Scope<unknown>,
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
         perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -1312,7 +1312,7 @@ async function withMethodTool<T>(
   let calls = 0
   const runs: Array<ReturnType<typeof deferred<unknown>>> = []
   const mcp = await serveCoordinationMcp({
-    scope: {} as Scope<unknown>,
+    scope: { signal: new AbortController().signal } as Scope<unknown>,
     blobs: new InMemoryResultBlobStore(),
     makeWorkerAgent: () => deliveringLeaf('unused', {}),
     perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -1643,4 +1643,89 @@ describe('coordination lifetime validation', () => {
       expect(() => assertCoordinationTransport({ authentication: { ttlMs } })).toThrow(/ttlMs/)
     },
   )
+})
+
+describe('public coordination address lifetime', () => {
+  it('releases its registered address on normal close while the manager remains live', async () => {
+    const proxy = await publicProxy()
+    let addressSignal: AbortSignal | undefined
+    const blobs = new InMemoryResultBlobStore()
+    const root: Agent<unknown, unknown> = {
+      name: 'address-owner',
+      async act(_task, scope) {
+        const mcp = await serveCoordinationMcp({
+          scope,
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('unused', {}),
+          perWorker: { maxIterations: 1, maxTokens: 1000 },
+          authentication: true,
+          toolNames: [],
+          publicUrl: (address) => {
+            addressSignal = address.signal
+            proxy.forwardTo(address.port)
+            return `${proxy.url}/mcp`
+          },
+        })
+        expect(addressSignal?.aborted).toBe(false)
+        await mcp.close()
+        expect(scope.signal.aborted).toBe(false)
+        expect(addressSignal?.aborted).toBe(true)
+        await mcp.close()
+        return { closed: true }
+      },
+    }
+    const result = await createSupervisor().run(
+      root,
+      {},
+      {
+        runId: 'address-close',
+        budget: { maxIterations: 10, maxTokens: 10_000 },
+        journal: new InMemorySpawnJournal(),
+        blobs,
+        executors: createExecutorRegistry(),
+      },
+    )
+    if (!addressSignal) throw new Error(JSON.stringify(result))
+    expect(addressSignal?.aborted).toBe(true)
+  })
+
+  it('releases a registered address when public endpoint setup fails', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    let addressSignal: AbortSignal | undefined
+    const root: Agent<unknown, unknown> = {
+      name: 'invalid-address',
+      async act(_task, scope) {
+        await expect(
+          serveCoordinationMcp({
+            scope,
+            blobs,
+            makeWorkerAgent: () => deliveringLeaf('unused', {}),
+            perWorker: { maxIterations: 1, maxTokens: 1000 },
+            authentication: true,
+            toolNames: [],
+            publicUrl: (address) => {
+              addressSignal = address.signal
+              return 'http://remote.invalid/mcp'
+            },
+          }),
+        ).rejects.toThrow('must use HTTPS')
+        expect(scope.signal.aborted).toBe(false)
+        expect(addressSignal?.aborted).toBe(true)
+        return { refused: true }
+      },
+    }
+    const result = await createSupervisor().run(
+      root,
+      {},
+      {
+        runId: 'address-setup',
+        budget: { maxIterations: 10, maxTokens: 10_000 },
+        journal: new InMemorySpawnJournal(),
+        blobs,
+        executors: createExecutorRegistry(),
+      },
+    )
+    if (!addressSignal) throw new Error(JSON.stringify(result))
+    expect(addressSignal?.aborted).toBe(true)
+  })
 })
