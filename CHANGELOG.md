@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.239.0
+
+**A manager inside a sandbox can hand a child a file by path.** `{ kind: 'inline', name, path }` under a spawn's `profile.resources` resolved only from a host directory, which a manager in a provider environment does not have; it was refused with "pass content, or a github resource". `content` puts the bytes back through the model's own output, and that is a transcription that does not survive size. Measured 2026-09-17 on discovery-lab `mech-interp-foundations-sandbox-a-20260917h`: a sandbox-rooted director emitted 24,008 characters of gzip+base64 across two spawns and got five wrong, destroying three of seven files including its instrument and both drivers. At that rate about 20 KB of mounts all arrive intact roughly 2% of the time, and gzip removes local detectability so one wrong character loses the whole file. Four consecutive runs in that lane lost their research children to this.
+
+The coordination server cannot open a sandbox filesystem, but the provider that created the sandbox serves `read()` on its environment, and the scope already binds that provider. A by-path resource now resolves through a `SpawnResourceReader`: the host directory when the manager has one, else the manager's own environment, reconstructed by id through the bound provider with the same identity check the settlement cleanup uses. The environment id is read at spawn time from the active executor's materialization receipt, which every provider path publishes; the `environment` admission alone is written only on the retained path, and the production Tangle provider declares no `retainedControl`, so a reader over admissions alone would have refused every read on a real sandbox root while passing every retained-fixture test.
+
+Both manager arms carry the fallback with the same precedence — a caller-supplied reader, else a host directory, else the scope's own environment — so a provider-backed root and every nested manager resolve identically. The environment reader refuses an absolute path and a `..` escape before asking the provider, enforces the same 4 MiB bound on what arrives, and names the environment in a refusal so a manager can tell which filesystem was consulted. The refusal text for a manager with no reader at all still contains "no workspace root", which downstream catalogs match on.
+
+`CoordinationToolsOptions`, `DriverAgentOptions`, `SupervisorAgentDeps` and `serveCoordinationMcp` gain an optional `spawnResourceReader`; `environmentReader`, `hostDirectoryReader`, `SpawnResourceReader`, `SpawnResourceBytes` and `SpawnResourceRead` are exported from `./mcp`. No execution policy, limits, credential behavior or durable wire format changes.
+
 ## 0.238.0
 
 File-backed journal reads stream a fixed file prefix instead of allocating the full history as one string.

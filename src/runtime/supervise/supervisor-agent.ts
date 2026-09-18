@@ -34,6 +34,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
+import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { agentHarness } from '../harness-role'
 import { type RouterTransportConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
@@ -577,6 +578,10 @@ export interface SupervisorAgentDeps {
   /** See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
    *  `path` resolves under. Set only for a manager whose workspace this process can read. */
   readonly spawnResourceRoot?: string
+  /** See `CoordinationToolsOptions.spawnResourceReader`: the manager's own environment as the
+   *  source of a by-path resource, for a manager whose workspace is a sandbox this process
+   *  cannot open. */
+  readonly spawnResourceReader?: SpawnResourceReader
   /** OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
    *  beside the coordination MCP and mint each spawn a capability URL on
    *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
@@ -810,6 +815,7 @@ function buildSupervisorAgent(
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
         ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
+        ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
         ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
         ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
@@ -949,6 +955,7 @@ function buildSupervisorAgent(
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
         ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
+        ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
         ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
         ...(priorCoordination?.questions.length
           ? { priorQuestions: priorCoordination.questions }

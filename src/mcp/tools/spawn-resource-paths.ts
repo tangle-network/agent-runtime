@@ -14,21 +14,118 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
  * manager meant to replace. Seven blind-check attempts across two runs delivered no data.
  *
  * `{ kind: 'inline', name, path }` lets the coordination server be the transport: it reads the
- * file under the manager's workspace root, fills `content`, and the profile that reaches the
- * schema, the journal, and the provider is an ordinary inline resource. Nothing downstream
- * changes; the model's output stops carrying the bytes.
+ * file from the manager's workspace, fills `content`, and the profile that reaches the schema,
+ * the journal, and the provider is an ordinary inline resource. Nothing downstream changes; the
+ * model's output stops carrying the bytes.
+ *
+ * Where the bytes come from is a {@link SpawnResourceReader}, and there are two:
+ *  - a HOST DIRECTORY, for a manager whose driver runs on this host (a loopback bridge with a
+ *    `cwd`), read through the descriptor-identity checks below;
+ *  - the manager's OWN EXECUTION ENVIRONMENT, for a manager inside a provider sandbox, read
+ *    through the environment's `read()`. The coordination server cannot see a sandbox filesystem,
+ *    but the provider that created the sandbox can, and it is already in hand.
+ *
+ * The second reader exists because the first one's absence was not a refusal a manager could
+ * work around. Measured 2026-09-17 (discovery-lab `mech-interp-foundations-sandbox-a-20260917h`):
+ * a sandbox-rooted director, refused by path, fell back to emitting its files as content and got
+ * 5 characters wrong in 24,008, destroying 3 of 7 files including its instrument and both
+ * drivers. At that rate 20 KB of mounts all arrive intact about 2% of the time, and gzip makes it
+ * worse by turning one wrong character into total loss. Four consecutive runs in that lane lost
+ * their research children to this. There is no encoding that fixes a transcription channel; the
+ * only fix is a channel with no model in it.
  *
  * Fail-closed rules, each with the reason a manager needs to fix its call:
- *  - no root configured → refused (a nested manager in a remote sandbox has no host directory
- *    the server may read for it)
- *  - absolute path, `..` escape, or a symlink that resolves outside the root → refused; the
- *    workspace root is the only directory a manager may hand out
+ *  - no reader available → refused (neither a host directory nor an environment with `read`)
+ *  - absolute path or `..` escape → refused by both readers; a symlink that resolves outside the
+ *    root → refused by the host reader (the environment reader delegates containment to the
+ *    provider, which serves only the sandbox's own workspace)
  *  - not a regular file → refused
  *  - over {@link SPAWN_RESOURCE_PATH_MAX_BYTES} → refused naming the bound
  *  - bytes that are not valid UTF-8 → refused; `content` is a string, so binary data is encoded
  *    (base64) by the manager first, exactly as it would be for a content resource
  */
 export const SPAWN_RESOURCE_PATH_MAX_BYTES = 4 * 1024 * 1024
+
+/** One successful read: the bytes as a string plus the identity the journal records. */
+export interface SpawnResourceBytes {
+  readonly content: string
+  readonly byteLength: number
+  readonly sha256: string
+}
+
+export type SpawnResourceRead =
+  | ({ readonly ok: true } & SpawnResourceBytes)
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * Where a by-path resource's bytes come from. `describe` names the source in a refusal so a
+ * manager reading "path X does not exist under the workspace root" and "path X: sandbox read
+ * failed" can tell which filesystem was consulted.
+ */
+export interface SpawnResourceReader {
+  readonly describe: string
+  read(path: string): Promise<SpawnResourceRead>
+}
+
+/** The host-directory reader: a manager whose workspace is a directory this process can open. */
+export function hostDirectoryReader(root: string): SpawnResourceReader {
+  return {
+    describe: `workspace root ${root}`,
+    read: (requested) => readUnderRoot(root, requested),
+  }
+}
+
+/**
+ * The environment reader: a manager running inside a provider environment whose `read()` serves
+ * its own workspace. The provider owns containment — it will not serve a path outside the box —
+ * but the relative-path and `..` rules are enforced here too, so the refusal names the rule the
+ * manager broke rather than whatever the provider says about an escape it declined.
+ *
+ * `read()` returns a string, so an environment cannot hand back bytes that are not UTF-8; the
+ * provider has already decoded. The size bound is checked on what arrives.
+ */
+export function environmentReader(environment: {
+  readonly id: string
+  read(path: string): Promise<string>
+}): SpawnResourceReader {
+  return {
+    describe: `environment ${environment.id}`,
+    async read(requested) {
+      if (requested.length === 0) return { ok: false, reason: 'path is empty' }
+      if (isAbsolute(requested)) {
+        return {
+          ok: false,
+          reason: `path must be relative to the manager's workspace, not absolute (${requested})`,
+        }
+      }
+      if (requested.split(/[\\/]/u).includes('..')) {
+        return { ok: false, reason: `path ${requested} leaves the manager's workspace` }
+      }
+      let content: string
+      try {
+        content = await environment.read(requested)
+      } catch (error) {
+        return {
+          ok: false,
+          reason: `path ${requested}: ${describe(error)} (read from environment ${environment.id})`,
+        }
+      }
+      const bytes = Buffer.from(content, 'utf8')
+      if (bytes.length > SPAWN_RESOURCE_PATH_MAX_BYTES) {
+        return {
+          ok: false,
+          reason: `path ${requested} is ${bytes.length} bytes; an inline resource is at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`,
+        }
+      }
+      return {
+        ok: true,
+        content,
+        byteLength: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      }
+    },
+  }
+}
 
 export interface ResolvedSpawnResourcePath {
   /** The `resources` location, e.g. `files[0].resource` or `skills[2]`. */
@@ -66,12 +163,7 @@ function pathInlineRef(value: unknown): PathInlineRef | undefined {
   return { kind: 'inline', name: value.name, path: value.path }
 }
 
-async function readUnderRoot(
-  root: string,
-  requested: string,
-): Promise<
-  { ok: true; content: string; byteLength: number; sha256: string } | { ok: false; reason: string }
-> {
+async function readUnderRoot(root: string, requested: string): Promise<SpawnResourceRead> {
   if (requested.length === 0) return { ok: false, reason: 'path is empty' }
   if (isAbsolute(requested)) {
     return {
@@ -161,12 +253,17 @@ function describe(error: unknown): string {
  * Replace every `{ kind: 'inline', name, path }` under `profile.resources` with the inline
  * resource its bytes make. Returns the profile unchanged (same reference) when nothing names a
  * path, so callers pay nothing on the common case.
+ *
+ * `source` is a host directory (a string, kept for the existing call sites), a
+ * {@link SpawnResourceReader}, or `undefined` when the manager has neither — in which case a path
+ * is refused with the reason and what to do instead.
  */
 export async function resolveSpawnResourcePaths(
   profile: unknown,
-  root: string | undefined,
+  source: string | SpawnResourceReader | undefined,
 ): Promise<ResolveSpawnResourcePathsResult> {
   if (!isRecord(profile) || !isRecord(profile.resources)) return { ok: true, profile, resolved: [] }
+  const reader = typeof source === 'string' ? hostDirectoryReader(source) : source
   const resources = profile.resources
   const resolved: ResolvedSpawnResourcePath[] = []
   let touched = false
@@ -176,13 +273,15 @@ export async function resolveSpawnResourcePaths(
     at: string,
     ref: PathInlineRef,
   ): Promise<{ kind: 'inline'; name: string; content: string } | { error: string }> => {
-    if (root === undefined) {
+    if (reader === undefined) {
       return {
+        // Keep "no workspace root": discovery-lab's failure catalog and its director prompts match
+        // that phrase, and a reworded refusal would silently stop being recognised downstream.
         error:
-          'this manager has no workspace root the coordination server may read, so a resource by path cannot be resolved; pass content, or a github resource',
+          'this manager has no workspace root the coordination server may read (no host directory and no environment with read), so a resource by path cannot be resolved; pass content, or a github resource',
       }
     }
-    const read = await readUnderRoot(root, ref.path)
+    const read = await reader.read(ref.path)
     if (!read.ok) return { error: read.reason }
     resolved.push({ at, path: ref.path, byteLength: read.byteLength, sha256: read.sha256 })
     touched = true

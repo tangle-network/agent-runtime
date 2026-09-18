@@ -2,12 +2,14 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import {
+  bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerTask,
   registerScopeRetainedOwner,
   releaseScopeRetainedOwnerEnvironment,
   scopeRetainedOwnerContext,
+  scopeRetainedOwnerResourceReader,
   scopeRetainedOwnerResult,
 } from '../../src/runtime/supervise/retained-scope-owner'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -170,6 +172,207 @@ describe('retained scope owner input and result', () => {
       )
       expect(scopeRetainedOwnerContext(scope)!.executionId).not.toBe(originalExecution)
       expect(await scopeRetainedOwnerResult(scope)).toBeUndefined()
+    })
+  })
+})
+
+describe('scopeRetainedOwnerResourceReader', () => {
+  // A manager inside a provider sandbox spawning a child with a file by path. The coordination
+  // server cannot open the sandbox filesystem; the provider that created it can. Measured
+  // 2026-09-17 (discovery-lab sandbox-a-20260917h): without this channel the director emitted
+  // its files as content and destroyed 3 of 7, including its instrument and both drivers.
+  function ownerProvider(files: Record<string, string>, environmentId: string) {
+    const reads: string[] = []
+    const provider: AgentEnvironmentProvider = {
+      name: 'owner-provider',
+      capabilities() {
+        throw new Error('not requested')
+      },
+      async create() {
+        throw new Error('not created here')
+      },
+      async get(id) {
+        if (id !== environmentId) return null
+        return {
+          id,
+          provider: 'owner-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield* []
+          },
+          async read(path: string) {
+            reads.push(path)
+            const content = files[path]
+            if (content === undefined) {
+              throw Object.assign(new Error(`ENOENT ${path}`), { code: 'ENOENT' })
+            }
+            return content
+          },
+        }
+      },
+    }
+    return { provider, reads }
+  }
+
+  async function admitted(
+    scope: Scope<unknown>,
+    provider: AgentEnvironmentProvider,
+    environmentId: string,
+  ) {
+    const events: SpawnEvent[] = []
+    registerScopeRetainedOwner(scope, {
+      rootId: 'owner-test',
+      nodeId: 'owner-test',
+      blobs: new InMemoryResultBlobStore(),
+      priorEvents: [],
+      now: () => 0,
+      journal: {
+        loadTree: async () => [...events],
+        beginTree: async () => {},
+        appendEvent: async (_root, event) => {
+          events.push(event)
+        },
+      },
+    })
+    bindScopeRetainedOwnerProvider(scope, provider)
+    await scopeRetainedOwnerContext(scope)!.onAdmission({
+      phase: 'environment',
+      provider: provider.name,
+      environmentId,
+      idempotencyKey: 'k',
+      turnId: 't',
+      sessionId: 's',
+      executionId: 'e',
+    })
+  }
+
+  it('reads a by-path resource from the owner’s own environment, byte-exact', async () => {
+    const instrument =
+      'def battery(model):\n    """Aligned  columns  and trailing space """ \n    return 1e-4\n'
+    const { provider, reads } = ownerProvider({ 'work/instrument.py': instrument }, 'sandbox-1')
+    await inScope(async (scope) => {
+      await admitted(scope, provider, 'sandbox-1')
+      const reader = scopeRetainedOwnerResourceReader(scope)
+      expect(reader).toBeDefined()
+      expect(reader!.describe).toBe('environment sandbox-1')
+      const read = await reader!.read('work/instrument.py')
+      expect(read).toMatchObject({
+        ok: true,
+        content: instrument,
+        byteLength: Buffer.byteLength(instrument),
+      })
+      expect(reads).toEqual(['work/instrument.py'])
+    })
+  })
+
+  it('refuses, naming the missing piece, before the environment is admitted or the provider bound', async () => {
+    const { provider } = ownerProvider({}, 'sandbox-2')
+    await inScope(async (scope) => {
+      registerScopeRetainedOwner(scope, {
+        rootId: 'owner-test',
+        nodeId: 'owner-test',
+        blobs: new InMemoryResultBlobStore(),
+        priorEvents: [],
+        now: () => 0,
+        journal: {
+          loadTree: async () => [],
+          beginTree: async () => {},
+          appendEvent: async () => {},
+        },
+      })
+      const reader = scopeRetainedOwnerResourceReader(scope)!
+      expect(reader.describe).toBe('environment <not yet admitted>')
+      expect(await reader.read('x')).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('provider is not bound'),
+      })
+      bindScopeRetainedOwnerProvider(scope, provider)
+      expect(await reader.read('x')).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('not been admitted'),
+      })
+    })
+  })
+
+  it('refuses, naming the environment, when the provider no longer has it', async () => {
+    // The provider serves only 'sandbox-second'; the owner was admitted on 'sandbox-first'. A
+    // torn-down or lost box reads as gone, and no other box's file is served in its place.
+    const { provider, reads } = ownerProvider({ 'f.txt': 'from the second box' }, 'sandbox-second')
+    await inScope(async (scope) => {
+      await admitted(scope, provider, 'sandbox-first')
+      const reader = scopeRetainedOwnerResourceReader(scope)!
+      expect(await reader.read('f.txt')).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('sandbox-first is gone'),
+      })
+      expect(reads).toEqual([])
+    })
+  })
+
+  it('reads the LIVE environment id from the executor receipt when no admission was ever written', async () => {
+    // The production tangle provider declares no retainedControl, so a real sandbox root never
+    // writes an `environment` admission. The drive harness binds a resolver over the active
+    // executor's materialization receipt instead. A reader that consulted admissions alone
+    // refused every read on production while passing every retained-fixture test.
+    const { provider, reads } = ownerProvider({ 'work/f.py': 'live bytes' }, 'sandbox-live')
+    await inScope(async (scope) => {
+      registerScopeRetainedOwner(scope, {
+        rootId: 'owner-test',
+        nodeId: 'owner-test',
+        blobs: new InMemoryResultBlobStore(),
+        priorEvents: [],
+        now: () => 0,
+        journal: {
+          loadTree: async () => [],
+          beginTree: async () => {},
+          appendEvent: async () => {},
+        },
+      })
+      bindScopeRetainedOwnerProvider(scope, provider)
+      let live: string | undefined
+      bindScopeRetainedOwnerEnvironmentId(scope, () => live)
+      const reader = scopeRetainedOwnerResourceReader(scope)!
+      expect(await reader.read('work/f.py')).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('not been admitted'),
+      })
+      live = 'sandbox-live' // the turn started; the receipt now names the box
+      expect(reader.describe).toBe('environment sandbox-live')
+      expect(await reader.read('work/f.py')).toMatchObject({ ok: true, content: 'live bytes' })
+      expect(reads).toEqual(['work/f.py'])
+    })
+  })
+
+  it('refuses when the provider returns a different environment than the one admitted', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'owner-provider',
+      capabilities() {
+        throw new Error('not requested')
+      },
+      async create() {
+        throw new Error('not created here')
+      },
+      async get() {
+        return {
+          id: 'someone-elses-box',
+          provider: 'owner-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield* []
+          },
+          async read() {
+            return 'secret'
+          },
+        }
+      },
+    }
+    await inScope(async (scope) => {
+      await admitted(scope, provider, 'sandbox-mine')
+      const read = await scopeRetainedOwnerResourceReader(scope)!.read('f')
+      expect(read).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('another environment'),
+      })
     })
   })
 })

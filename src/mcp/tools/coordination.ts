@@ -51,7 +51,7 @@ import {
   workerTraceAnalysisStore,
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
-import { resolveSpawnResourcePaths } from './spawn-resource-paths'
+import { resolveSpawnResourcePaths, type SpawnResourceReader } from './spawn-resource-paths'
 
 /** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
@@ -888,6 +888,14 @@ export interface CoordinationToolsOptions {
    * with the reason; see `spawn-resource-paths.ts` for the measurement that motivates it.
    */
   readonly spawnResourceRoot?: string
+  /**
+   * Where a by-path resource's bytes come from when the manager's workspace is NOT a directory
+   * this process can open: a manager inside a provider sandbox, whose files only the provider can
+   * serve. Built with `environmentReader(environment)` from the manager's own `AgentEnvironment`.
+   * Takes precedence over `spawnResourceRoot` when both are set, because a sandbox manager's files
+   * are on its box, not on this host. Omit and `spawnResourceRoot` applies as before.
+   */
+  readonly spawnResourceReader?: SpawnResourceReader
   /**
    * OPT-IN parent channel for `ask_parent`. See {@link EscalateQuestion}.
    *
@@ -2971,7 +2979,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // A resource named by path is read here, under the manager's workspace root, so the
         // canonical schema validates the inline resource its bytes make and the journal records
         // exactly what the child received.
-        const resourcePaths = await resolveSpawnResourcePaths(a.profile, opts.spawnResourceRoot)
+        const resourcePaths = await resolveSpawnResourcePaths(
+          a.profile,
+          opts.spawnResourceReader ?? opts.spawnResourceRoot,
+        )
         if (!resourcePaths.ok) {
           return {
             error: 'invalid-profile' as const,

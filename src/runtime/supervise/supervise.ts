@@ -104,6 +104,7 @@ import type { PeerMailLimits } from './peer-mail'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
 import {
+  bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerTask,
@@ -811,6 +812,14 @@ function driveHarnessFromBackend(
         scope,
         resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry),
       )
+      // The manager's current box, for a spawn that names a resource by path. Read from the
+      // active executor's receipt at spawn time, not captured: the environment does not exist
+      // yet here, and a retry re-enters `drive` with a fresh executor.
+      bindScopeRetainedOwnerEnvironmentId(scope, () => {
+        if (activeExecutor === undefined) return undefined
+        const execution = runtimeOwnedExecutorMaterialization(activeExecutor)?.execution
+        return execution?.kind === 'environment' ? execution.id : undefined
+      })
     }
     const originalTask = retainedOwner ? await prepareScopeRetainedOwnerTask(scope, task) : task
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
