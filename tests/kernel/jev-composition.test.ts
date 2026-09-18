@@ -1,4 +1,4 @@
-import { CostLedger, type AnalystContext } from '@tangle-network/agent-eval'
+import { type AnalystContext, CostLedger } from '@tangle-network/agent-eval'
 import { AnalystRegistry } from '@tangle-network/agent-eval/analyst'
 import { describe, expect, it } from 'vitest'
 import { shotLoop } from '../../examples/graphs/shot-loop'
@@ -28,30 +28,42 @@ describe('native decision composition without another runtime', () => {
         expect(store).toBeDefined()
         contexts.push(context)
         const answer = { type: 'noul', noul: 0.75 } as const
-        return [{
-          schema_version: '1.0.0',
-          finding_id: `fixture-${context.runId}`,
-          analyst_id: 'verify',
-          produced_at: new Date(0).toISOString(),
-          severity: 'info',
-          area: 'verification',
-          claim: 'Injected native-answer fixture reached the graph reviewer',
-          confidence: answer.noul,
-          evidence_refs: [],
-          derived_from_judge: true,
-          metadata: { fixture: true, nativeAnswer: answer },
-        }]
+        return [
+          {
+            schema_version: '1.0.0',
+            finding_id: `fixture-${context.runId}`,
+            analyst_id: 'verify',
+            produced_at: new Date(0).toISOString(),
+            severity: 'info',
+            area: 'verification',
+            claim: 'Injected native-answer fixture reached the graph reviewer',
+            confidence: answer.noul,
+            evidence_refs: [],
+            derived_from_judge: true,
+            metadata: { fixture: true, nativeAnswer: answer },
+          },
+        ]
       },
     })
     const { graph, opts } = shotLoop()
-    const analysts = analystsFromRegistry(registry, [{
-      id: 'verify', description: 'Native-answer fixture', area: 'verification',
-    }], { runOpts: {
-      signal: controller.signal,
-      costLedger: sharedCostLedger,
-      costPhase: 'graph-review',
-      tags: { policy: 'native-fixture-v1' },
-    } })
+    const analysts = analystsFromRegistry(
+      registry,
+      [
+        {
+          id: 'verify',
+          description: 'Native-answer fixture',
+          area: 'verification',
+        },
+      ],
+      {
+        runOpts: {
+          signal: controller.signal,
+          costLedger: sharedCostLedger,
+          costPhase: 'graph-review',
+          tags: { policy: 'native-fixture-v1' },
+        },
+      },
+    )
     const result = await runGraphWithTestBrain(graph, {
       ...opts,
       runId: 'jev-composition-fixture',
@@ -85,7 +97,10 @@ describe('native decision composition without another runtime', () => {
       compaction: {
         thresholdTokens: 1,
         preserveHead: 2,
-        distill: async () => { order.push('compact'); return 'Retained progress.' },
+        distill: async () => {
+          order.push('compact')
+          return 'Retained progress.'
+        },
       },
       chat: async (messages) => {
         order.push('inference')
@@ -94,10 +109,14 @@ describe('native decision composition without another runtime', () => {
         expect(messages.at(-1)?.content).toContain('Retained progress.')
         const response = { content: 'answer', toolCalls: [], usage: { input: 10, output: 2 } }
         // Awaited caller composition, not RuntimeHooks or a second loop.
-        await Promise.resolve().then(() => { order.push('inspect') })
+        await Promise.resolve().then(() => {
+          order.push('inspect')
+        })
         return response
       },
-      execute: async () => { throw new Error('No tool should execute') },
+      execute: async () => {
+        throw new Error('No tool should execute')
+      },
     })
     expect(order).toEqual(['prepare', 'compact', 'inference', 'inspect'])
     expect(result.final).toBe('answer')
@@ -107,7 +126,9 @@ describe('native decision composition without another runtime', () => {
   it('preserves caller-owned cancellation and inference identity through an explicit brain', async () => {
     const controller = new AbortController()
     const context: ToolLoopCallContext = Object.freeze({
-      signal: controller.signal, callId: 'call-1', correlationId: 'run-1',
+      signal: controller.signal,
+      callId: 'call-1',
+      correlationId: 'run-1',
     })
     let observed: ToolLoopCallContext | undefined
     const transport: ToolLoopChat = async (_messages, _tools, value) => {
