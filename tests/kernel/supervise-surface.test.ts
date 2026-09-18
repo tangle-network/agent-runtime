@@ -52,7 +52,6 @@ describe('superviseSurface trace evidence', () => {
 
     await traced.surface.call(handle, 'read_file', { path: 'tests.ts' })
     await traced.surface.call(handle, 'run_tests', {})
-    await traced.surface.call(handle, 'run_tests', {})
     await expect(traced.surface.call(handle, 'explode', { reason: 'test' })).rejects.toThrow(
       'tool exploded',
     )
@@ -201,16 +200,20 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
     expect(registry.calls[0]?.hasStore).toBe(true)
   })
 
-  it.each(['failed', 'skipped'] as const)('does not report a %s analyst as a clean review', async (status) => {
-    const registry = fakeRegistry()
-    registry.run = async () => ({
-      findings: [],
-      per_analyst: [{ analyst_id: 'failure-mode', status }],
-    }) as never
-    await expect(
-      analystsFromRegistry(registry).run('failure-mode', toolSpansToTraceAnalysisStore([span])),
-    ).rejects.toThrow(`did not complete: ${status}`)
-  })
+  it.each(['failed', 'skipped'] as const)(
+    'does not report a %s analyst as a clean review',
+    async (status) => {
+      const registry = fakeRegistry()
+      registry.run = async () =>
+        ({
+          findings: [],
+          per_analyst: [{ analyst_id: 'failure-mode', status }],
+        }) as never
+      await expect(
+        analystsFromRegistry(registry).run('failure-mode', toolSpansToTraceAnalysisStore([span])),
+      ).rejects.toThrow(`did not complete: ${status}`)
+    },
+  )
 
   it('refuses a missing execution receipt even when there are no findings', async () => {
     const registry = fakeRegistry()
@@ -222,10 +225,11 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
 
   it('preserves a successful review with no findings', async () => {
     const registry = fakeRegistry()
-    registry.run = async () => ({
-      findings: [],
-      per_analyst: [{ analyst_id: 'failure-mode', status: 'ok' }],
-    }) as never
+    registry.run = async () =>
+      ({
+        findings: [],
+        per_analyst: [{ analyst_id: 'failure-mode', status: 'ok' }],
+      }) as never
     await expect(
       analystsFromRegistry(registry).run('failure-mode', toolSpansToTraceAnalysisStore([span])),
     ).resolves.toEqual([])
@@ -315,7 +319,7 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
     expect(seats).toEqual(['anthropic/claude-opus-4'])
 
     // Registered under the id the manager chose, at a version derived from the definition itself —
-    // the same words always compile to the same version, so a finding names the exact text.
+    // the same words always compile to the same version, two different wordings cannot share one.
     const entry = registry.list().find((analyst) => analyst.id === 'handoff-loss')
     expect(entry?.version).toMatch(/^1\.0\.0\+authored\.[0-9a-f]{12}$/)
 
