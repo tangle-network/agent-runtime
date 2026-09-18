@@ -1118,6 +1118,29 @@ Conserved spend so far for this node.
 
 [`NodeSnapshot`](#nodesnapshot).[`spent`](#spent-2)
 
+##### settlementPending?
+
+> `readonly` `optional` **settlementPending?**: `object`
+
+The node's executor has FINISHED and its settlement is queued for the manager to drain with
+`await_event`/`next()`, but `status` still reads as it did while running because the settle
+transition happens at drain time. Present only in that window; absent once drained or while
+the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
+can tell "still working" from "finished, waiting for you to read it".
+
+Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children finished 30 s after
+dispatch; the manager polled `observe_agent` eleven times over 56 minutes, read `running`
+each time, stopped draining because the status said work was in flight, and recorded the
+opposite of the truth about its own experiment. agent-runtime#1279.
+
+###### kind
+
+> `readonly` **kind**: `"done"` \| `"down"`
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`settlementPending`](#settlementpending-1)
+
 ##### providerModel?
 
 > `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
@@ -22526,6 +22549,25 @@ Epoch ms of the spawn journal record; absent when legacy evidence lacks a parsea
 > `readonly` **spent**: [`Spend`](#spend)
 
 Conserved spend so far for this node.
+
+##### settlementPending?
+
+> `readonly` `optional` **settlementPending?**: `object`
+
+The node's executor has FINISHED and its settlement is queued for the manager to drain with
+`await_event`/`next()`, but `status` still reads as it did while running because the settle
+transition happens at drain time. Present only in that window; absent once drained or while
+the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
+can tell "still working" from "finished, waiting for you to read it".
+
+Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children finished 30 s after
+dispatch; the manager polled `observe_agent` eleven times over 56 minutes, read `running`
+each time, stopped draining because the status said work was in flight, and recorded the
+opposite of the truth about its own experiment. agent-runtime#1279.
+
+###### kind
+
+> `readonly` **kind**: `"done"` \| `"down"`
 
 ##### providerModel?
 

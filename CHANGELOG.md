@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.240.0
+
+**`observe_agent` names a finished-but-undrained worker instead of calling it running.** A child's executor finishes, its settlement waits in the manager's inbox, and `status` stays `running` until `await_event` drains it, because the settle transition happens at drain time. A manager polling `observe_agent` therefore could not tell "still working" from "finished, waiting for you to read it". Measured 2026-09-17 (discovery-lab `mech-interp-foundations-sandbox-a-20260917h`): two children finished 30 s after dispatch; the manager polled eleven times over 56 minutes, read `running` each time, stopped draining because the status said work was in flight, and recorded the opposite of the truth about its own experiment.
+
+`NodeSnapshot` gains an optional `settlementPending: { kind: 'done' | 'down' }` — a minor bump because the exported shape changes, though no existing consumer must change: the field is absent everywhere it was absent before. Present only in that window, projected from the scope's already-resolved-but-undelivered state. `observe_agent` returns it with a `hint` naming `await_event` as the call that resolves it, and its description says so. Closes #1279.
+
 ## 0.239.0
 
 **A manager inside a sandbox can hand a child a file by path.** `{ kind: 'inline', name, path }` under a spawn's `profile.resources` resolved only from a host directory, which a manager in a provider environment does not have; it was refused with "pass content, or a github resource". `content` puts the bytes back through the model's own output, and that is a transcription that does not survive size. Measured 2026-09-17 on discovery-lab `mech-interp-foundations-sandbox-a-20260917h`: a sandbox-rooted director emitted 24,008 characters of gzip+base64 across two spawns and got five wrong, destroying three of seven files including its instrument and both drivers. At that rate about 20 KB of mounts all arrive intact roughly 2% of the time, and gzip removes local detectability so one wrong character loses the whole file. Four consecutive runs in that lane lost their research children to this.
