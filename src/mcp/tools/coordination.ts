@@ -3185,9 +3185,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         '(`recentActivity`), what its executor CHANGED about the profile you gave it ' +
         '(`derived` — an MCP config it materialized, an extension it had to add), whether a ' +
         'steer can even reach it (`steerable`), and how many ' +
-        'steers it has not yet read (`pendingMessages`). Returns the settled output artifact ' +
-        'once it exists. Use this BEFORE steer_agent: a steer is only worth sending when the ' +
-        'progress says the worker is on the wrong path or has stopped making any.',
+        'steers it has not yet read (`pendingMessages`). A worker whose executor has FINISHED ' +
+        'but whose settlement you have not yet drained reports `settlementPending` with its ' +
+        'terminal kind; its `status` still reads running until await_event ' +
+        'delivers it, so call await_event, not observe_agent again. The settled output ' +
+        'artifact is returned once drained. Use this BEFORE steer_agent: a steer is only worth ' +
+        'sending when the progress says the worker is on the wrong path or has stopped making any.',
       inputSchema: { type: 'object', properties: { workerId: idArg }, required: ['workerId'] },
       handler: async (raw) => {
         const id = str(obj(raw).workerId, 'workerId')
@@ -3211,11 +3214,21 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         }
         const output = node.outRef ? await opts.blobs.get(node.outRef) : undefined
         const progress = readProgress(id)
+        // Finished-but-undrained is the one state a polling manager cannot otherwise see: the
+        // executor is gone, the settlement sits in the inbox, and `status` still says running.
+        // Say so in the fields the manager reads, and point at the call that resolves it.
+        const pending = node.settlementPending
         return {
           ...projectNodeEvidence(node),
           outRef: node.outRef ?? null,
           output: output ?? null,
           progress: progress ?? null,
+          ...(pending
+            ? {
+                settlementPending: pending,
+                hint: `this worker has finished (${pending.kind}); its settlement is queued — call await_event to receive it, observing again will not change this`,
+              }
+            : {}),
         }
       },
     },

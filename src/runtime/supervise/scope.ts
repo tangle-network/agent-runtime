@@ -3409,6 +3409,11 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
       ? { executionBindings: Object.freeze([...c.executionBindings]) }
       : {}),
     spent: c.spent,
+    // Finished but not yet drained: `resolved` is set the moment the executor's promise settles
+    // (spawn's `.then` above), while `status` flips only inside `next()`. Surface the window.
+    ...(c.resolved !== undefined && !c.delivered
+      ? { settlementPending: { kind: c.resolved.kind } }
+      : {}),
     ...(c.settledAt === undefined ? {} : { settledAt: c.settledAt }),
     ...(c.outRef ? { outRef: c.outRef } : {}),
     ...(c.trace ? { trace: c.trace } : {}),

@@ -163,6 +163,80 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(names).toContain('await_event')
   })
 
+  it('observe_agent over the wire names a finished-but-undrained worker instead of calling it running', async () => {
+    // The state that cost a run. A child finishes; its settlement waits in the inbox; a manager
+    // polling observe_agent reads `running` because the status transition happens at drain time.
+    // Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children done 30 s after
+    // dispatch, eleven observations over 56 minutes, every one said running, and the manager
+    // stopped draining because the status told it work was in flight. agent-runtime#1279.
+    const blobs = new InMemoryResultBlobStore()
+    const seen: Array<Record<string, unknown>> = []
+    const root: Agent<unknown, unknown> = {
+      name: 'poller',
+      async act(_task, scope: Scope<unknown>) {
+        const mcp = await serveCoordinationMcp({
+          scope,
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('quick', { answer: 1 }),
+          perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+          toolNames: ['spawn_worker', 'observe_agent', 'await_event'],
+          authentication: true,
+        })
+        try {
+          const spawned = await jsonRpc(
+            mcp.url,
+            'tools/call',
+            { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
+            mcp.headers,
+          )
+          const workerId = (JSON.parse(spawned.result.content[0].text) as { workerId: string })
+            .workerId
+          // Let the leaf's executor promise settle. Nothing here drains it.
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          const observe = async () =>
+            JSON.parse(
+              (
+                await jsonRpc(
+                  mcp.url,
+                  'tools/call',
+                  { name: 'observe_agent', arguments: { workerId } },
+                  mcp.headers,
+                )
+              ).result.content[0].text,
+            ) as Record<string, unknown>
+          seen.push(await observe())
+          await jsonRpc(
+            mcp.url,
+            'tools/call',
+            { name: 'await_event', arguments: { kinds: ['settled'] } },
+            mcp.headers,
+          )
+          seen.push(await observe())
+          return undefined
+        } finally {
+          await mcp.close()
+        }
+      },
+    }
+    await createSupervisor<unknown, unknown>().run(root, 'poll', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'observe-pending',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+      now: () => 0,
+    })
+    expect(seen).toHaveLength(2)
+    // Before the drain: status has not flipped, but the finished state is named with its kind and
+    // the manager is told which call resolves it, so a poller cannot mistake this for live work.
+    expect(seen[0]).toMatchObject({ status: 'running', settlementPending: { kind: 'done' } })
+    expect(String(seen[0]?.hint)).toContain('await_event')
+    // After the drain: the window is closed, the output is there, nothing is pending.
+    expect(seen[1]).toMatchObject({ status: 'done', output: { answer: 1 } })
+    expect(seen[1]).not.toHaveProperty('settlementPending')
+    expect(seen[1]).not.toHaveProperty('hint')
+  })
+
   it('hands the coordination tools to the caller BEFORE the listener opens', async () => {
     // A node tool bound to `context.verbs` must work on the FIRST request. The hook therefore has
     // to fire before listen; a bind moved after it would leave the first caller with no verbs.
