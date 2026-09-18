@@ -897,16 +897,28 @@ export async function exportEvalRuns(
     return invalid('Invalid eval-runs acknowledgement')
   }
   const { accepted, rejected } = parsed as Record<string, unknown>
-  if (!Number.isSafeInteger(accepted) || (accepted as number) < 0 ||
-    (accepted as number) > count || !Array.isArray(rejected)) {
+  if (
+    !Number.isSafeInteger(accepted) ||
+    (accepted as number) < 0 ||
+    (accepted as number) > count ||
+    !Array.isArray(rejected)
+  ) {
     return invalid('Invalid eval-runs acknowledgement counts')
   }
   const indices = new Set<number>()
   const validated: EvalRunsExportResult['rejected'] = []
   for (const item of rejected) {
-    if (item === null || typeof item !== 'object' || Array.isArray(item) ||
-      !Number.isSafeInteger(item.index) || item.index < 0 || item.index >= count ||
-      indices.has(item.index) || typeof item.reason !== 'string' || !item.reason.trim()) {
+    if (
+      item === null ||
+      typeof item !== 'object' ||
+      Array.isArray(item) ||
+      !Number.isSafeInteger(item.index) ||
+      item.index < 0 ||
+      item.index >= count ||
+      indices.has(item.index) ||
+      typeof item.reason !== 'string' ||
+      !item.reason.trim()
+    ) {
       return invalid('Invalid eval-runs acknowledgement rejection')
     }
     indices.add(item.index)
