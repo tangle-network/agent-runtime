@@ -1,0 +1,100 @@
+name: Coordinator lifetime verification
+on:
+  push:
+    branches: [audit/coordinator-address-lifetime-20260918]
+    paths: [.github/workflows/coordinator-verification.yml]
+permissions:
+  contents: read
+env:
+  BASE: d6104b386c04c7dfdadfd3a12735209ae3097247
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Apply exact repair to clean main
+        run: |
+          cp .audit/coordinator.patch "$RUNNER_TEMP/repair.patch"
+          echo "62d9d3381a6e2bfc3991f342bc97794f406359afd4881165defa8cd3de84fe78  $RUNNER_TEMP/repair.patch" | sha256sum -c
+          git checkout --detach "$BASE"
+          git apply --check "$RUNNER_TEMP/repair.patch"
+          git apply "$RUNNER_TEMP/repair.patch"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Verify and prepare release
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/checks"
+          pnpm install --frozen-lockfile
+          pnpm peers check
+          pnpm run release:prepare 0.241.1
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('CHANGELOG.md')
+          s = p.read_text()
+          assert s.startswith('# Changelog\n')
+          p.write_text('# Changelog\n\n## 0.241.1\n\nCoordination public-address signals now end when their listener closes or setup fails, as well as on manager cancellation. Hosted ingress adapters can retire a route before its local port is reused, without changing authentication, execution policy or agent capabilities.\n' + s[len('# Changelog\n'):])
+          PY
+          pnpm run lint 2>&1 | tee "$RUNNER_TEMP/checks/lint.log"
+          pnpm test 2>&1 | tee "$RUNNER_TEMP/checks/tests.log"
+          pnpm run typecheck 2>&1 | tee "$RUNNER_TEMP/checks/types.log"
+          pnpm run verify:package 2>&1 | tee "$RUNNER_TEMP/checks/package.log"
+          pnpm run docs:freshness
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --name-only | grep -E '^(\.github/|\.audit/)'; then exit 1; fi
+          git commit -m 'fix(coordination): release public routes with their listener lifetime'
+          pnpm run docs:check
+          out="$RUNNER_TEMP/verified"
+          mkdir -p "$out"
+          cp -R "$RUNNER_TEMP/checks" "$out/"
+          git rev-parse HEAD > "$out/commit.txt"
+          git diff --binary "$BASE" HEAD > "$out/repair.patch"
+          git bundle create "$out/verified.bundle" "$BASE..HEAD"
+          (cd "$out" && sha256sum verified.bundle repair.patch > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-coordinator-lifetime
+          path: ${{ runner.temp }}/verified/
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: failure()
+        with:
+          name: coordinator-diagnostics
+          path: ${{ runner.temp }}/checks/
+          retention-days: 2
+  deliver:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d6104b386c04c7dfdadfd3a12735209ae3097247
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: verified-coordinator-lifetime
+          path: ${{ runner.temp }}/verified
+      - name: Deliver verified objects only to a new review branch
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/verified" && sha256sum -c SHA256SUMS
+          cd "$GITHUB_WORKSPACE"
+          git bundle verify "$RUNNER_TEMP/verified/verified.bundle"
+          git fetch "$RUNNER_TEMP/verified/verified.bundle" HEAD
+          commit=$(cat "$RUNNER_TEMP/verified/commit.txt")
+          test "$(git rev-parse FETCH_HEAD)" = "$commit"
+          test "$(git rev-parse "$commit^")" = "$BASE"
+          if git diff --name-only "$BASE" "$commit" | grep -E '^(\.audit/|\.github/)'; then exit 1; fi
+          git push origin "$commit:refs/heads/fix/coordinator-address-lifetime"
