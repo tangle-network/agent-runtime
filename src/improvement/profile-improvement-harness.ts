@@ -17,7 +17,10 @@ import type {
 import type { ReadonlyAgentProfile } from './profile-types'
 import type { ImproveTrainingOptions, ImproveTrainingResult } from './training'
 
-export type ProfileImprovementHarnessTrainOptions = Omit<ImproveTrainingOptions, 'mode' | 'executionRef'>
+export type ProfileImprovementHarnessTrainOptions = Omit<
+  ImproveTrainingOptions,
+  'mode' | 'executionRef'
+>
 
 export interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
   /** Exact baseline profile. It is parsed, detached, and frozen at construction. */
@@ -103,7 +106,9 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
     train(trainOptions: ProfileImprovementHarnessTrainOptions) {
       const validateCandidate = trainOptions.validateCandidate ?? defaultValidator
       return improve(profile, {
-        ...trainOptions, mode: 'training', executionRef,
+        ...trainOptions,
+        mode: 'training',
+        executionRef,
         ...(validateCandidate === undefined ? {} : { validateCandidate }),
       })
     },

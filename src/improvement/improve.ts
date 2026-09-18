@@ -22,12 +22,10 @@ import type {
   ImproveResult,
 } from './improve-types'
 import { runMethodImprovement } from './method-execution'
-import { runProfileTraining, type ImproveTrainingOptions, type ImproveTrainingResult } from './training'
-
-export { createCommandProfileTrainer } from './training'
-export type {
-  CheckpointServingPort, ControlledTrainingCommand, ImproveTrainingOptions, ImproveTrainingResult,
-  ProfileTrainer, ProfileTrainerRequest, TrainingBoundaryResult, TrainingDatasetDocument,
+import {
+  type ImproveTrainingOptions,
+  type ImproveTrainingResult,
+  runProfileTraining,
 } from './training'
 
 export type {
@@ -71,9 +69,23 @@ export type {
   ImproveSkillsOptions,
   ImproveSurface,
 } from './improve-types'
+export type {
+  CheckpointServingPort,
+  ControlledTrainingCommand,
+  ImproveTrainingOptions,
+  ImproveTrainingResult,
+  ProfileTrainer,
+  ProfileTrainerRequest,
+  TrainingBoundaryResult,
+  TrainingDatasetDocument,
+} from './training'
+export { createCommandProfileTrainer } from './training'
 
 /** Train and serve a checkpoint without implying that it improved held-out quality. */
-export function improve(profile: AgentProfile, opts: ImproveTrainingOptions): Promise<ImproveTrainingResult>
+export function improve(
+  profile: AgentProfile,
+  opts: ImproveTrainingOptions,
+): Promise<ImproveTrainingResult>
 /**
  * Optimize one exact profile surface with a complete method.
  */
@@ -110,5 +122,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
     )
   }
-  return runMethodImprovement(immutableCandidateValue(parsedProfile.data), opts as ImproveMethodOptions<TScenario, TArtifact>)
+  return runMethodImprovement(
+    immutableCandidateValue(parsedProfile.data),
+    opts as ImproveMethodOptions<TScenario, TArtifact>,
+  )
 }

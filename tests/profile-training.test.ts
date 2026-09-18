@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm, writeFile, readdir } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { join } from 'node:path'
-import { describe, it } from 'vitest'
+import { setTimeout as sleep } from 'node:timers/promises'
 import {
   type AgentProfile,
   canonicalAgentProfileDigest,
@@ -12,11 +11,12 @@ import {
   sha256Utf8,
   trainedModelIdForArtifact,
 } from '@tangle-network/agent-interface'
+import { describe, it } from 'vitest'
 import { improve } from '../src/improvement/improve'
 import { createProfileImprovementHarness } from '../src/improvement/profile-improvement-harness'
 import {
-  createCommandProfileTrainer,
   type CheckpointServingPort,
+  createCommandProfileTrainer,
   type ImproveTrainingOptions,
   type ProfileTrainer,
   type TrainingDatasetDocument,
@@ -41,7 +41,9 @@ process.stdin.on('end', () => {
 `
 
 const parent = (): AgentProfile => ({
-  name: 'coder', version: '1', harness: 'opencode',
+  name: 'coder',
+  version: '1',
+  harness: 'opencode',
   model: { provider: 'openai-compat', default: 'base-coder' },
   prompt: { instructions: ['Use the tools and build the artifact.'] },
 })
@@ -51,38 +53,71 @@ const serve: CheckpointServingPort = {
     const digest = sha256Bytes(await readFile(input.artifactPath))
     assert.equal(digest, input.artifactDigest)
     assert.equal(input.routerModelId, trainedModelIdForArtifact(digest))
-    return { succeeded: true, value: {
-      artifactDigest: digest, routerModelId: input.routerModelId,
-      evidenceDigest: canonicalCandidateDigest({ fixture: 'independent-serving-port', digest }),
-    } }
+    return {
+      succeeded: true,
+      value: {
+        artifactDigest: digest,
+        routerModelId: input.routerModelId,
+        evidenceDigest: canonicalCandidateDigest({ fixture: 'independent-serving-port', digest }),
+      },
+    }
   },
 }
 
-async function withFixture(run: (options: ImproveTrainingOptions, dir: string) => Promise<void>, script = TRAIN): Promise<void> {
+async function withFixture(
+  run: (options: ImproveTrainingOptions, dir: string) => Promise<void>,
+  script = TRAIN,
+): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'profile-training-test-'))
   try {
     const executable = await realpath(process.execPath)
     const scriptPath = join(dir, 'trainer.cjs')
     await writeFile(scriptPath, script)
     const dataset: TrainingDatasetDocument = {
-      version: 1, format: 'sft', rows: [
-        { task: { benchmark: 'fixture', task: 'train', contentDigest: sha256Utf8('train') }, partition: 'train', data: { x: 1, y: 2 } },
-        { task: { benchmark: 'fixture', task: 'development', contentDigest: sha256Utf8('development') }, partition: 'validation', data: { x: 2, y: 4 } },
+      version: 1,
+      format: 'sft',
+      rows: [
+        {
+          task: { benchmark: 'fixture', task: 'train', contentDigest: sha256Utf8('train') },
+          partition: 'train',
+          data: { x: 1, y: 2 },
+        },
+        {
+          task: {
+            benchmark: 'fixture',
+            task: 'development',
+            contentDigest: sha256Utf8('development'),
+          },
+          partition: 'validation',
+          data: { x: 2, y: 4 },
+        },
       ],
     }
     const bytes = Buffer.from(JSON.stringify(dataset))
     const path = join(dir, 'source-dataset.json')
     await writeFile(path, bytes)
     const trainer = createCommandProfileTrainer({
-      id: 'cpu-test-trainer', executable: { path: executable, digest: sha256Bytes(await readFile(executable)) },
-      args: [scriptPath], inputs: [{ path: scriptPath, digest: sha256Utf8(script) }],
-      environment: {}, maxOutputBytes: 4096,
+      id: 'cpu-test-trainer',
+      executable: { path: executable, digest: sha256Bytes(await readFile(executable)) },
+      args: [scriptPath],
+      inputs: [{ path: scriptPath, digest: sha256Utf8(script) }],
+      environment: {},
+      maxOutputBytes: 4096,
     })
-    await run({
-      mode: 'training', trainer, dataset: { path, digest: sha256Bytes(bytes) },
-      parameters: { epochs: 50, learningRate: 0.1 }, executionRef: sha256Utf8('test-execution'),
-      serving: serve, outputDirectory: join(dir, 'outputs'), timeoutMs: 10_000, maxCheckpointBytes: 4096,
-    }, dir)
+    await run(
+      {
+        mode: 'training',
+        trainer,
+        dataset: { path, digest: sha256Bytes(bytes) },
+        parameters: { epochs: 50, learningRate: 0.1 },
+        executionRef: sha256Utf8('test-execution'),
+        serving: serve,
+        outputDirectory: join(dir, 'outputs'),
+        timeoutMs: 10_000,
+        maxCheckpointBytes: 4096,
+      },
+      dir,
+    )
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -90,7 +125,8 @@ async function withFixture(run: (options: ImproveTrainingOptions, dir: string) =
 
 async function assertNoProfile(outputDirectory: string): Promise<void> {
   const names = await readdir(outputDirectory).catch(() => [])
-  for (const name of names) assert(!((await readdir(join(outputDirectory, name))).includes('profile.json')))
+  for (const name of names)
+    assert(!(await readdir(join(outputDirectory, name))).includes('profile.json'))
 }
 
 describe('checkpoint training through improve', () => {
@@ -104,11 +140,23 @@ describe('checkpoint training through improve', () => {
       assert(learned.weight > 1.99 && learned.weight < 2.01)
       assert.equal(result.receipt.parentProfileDigest, originalDigest)
       assert.equal(result.receipt.dataset.digest, options.dataset.digest)
-      assert.deepEqual(result.receipt.dataset.tasks.map((task) => task.task), ['development', 'train'])
-      assert.deepEqual(result.receipt.trainer, { ...options.trainer.identity, parameters: options.parameters })
-      assert.equal(result.receipt.checkpoint.artifactDigest, sha256Bytes(await readFile(result.artifactPath)))
+      assert.deepEqual(
+        result.receipt.dataset.tasks.map((task) => task.task),
+        ['development', 'train'],
+      )
+      assert.deepEqual(result.receipt.trainer, {
+        ...options.trainer.identity,
+        parameters: options.parameters,
+      })
+      assert.equal(
+        result.receipt.checkpoint.artifactDigest,
+        sha256Bytes(await readFile(result.artifactPath)),
+      )
       assert.equal(result.profile.model?.default, result.receipt.checkpoint.routerModelId)
-      assert.equal(result.profileDigest, canonicalAgentProfileDigest(result.profile as AgentProfile))
+      assert.equal(
+        result.profileDigest,
+        canonicalAgentProfileDigest(result.profile as AgentProfile),
+      )
       assert.deepEqual(JSON.parse(await readFile(result.receiptPath, 'utf8')), result.receipt)
       assert.deepEqual(JSON.parse(await readFile(result.profilePath, 'utf8')), result.profile)
       assert(Object.isFrozen(result.profile.metadata?.training?.receipt))
@@ -121,7 +169,9 @@ describe('checkpoint training through improve', () => {
     const before = process.env.P5_PRIVATE_CANARY
     process.env.P5_PRIVATE_CANARY = 'private-test-value'
     try {
-      await withFixture(async (options) => { assert((await improve(parent(), options)).succeeded) })
+      await withFixture(async (options) => {
+        assert((await improve(parent(), options)).succeeded)
+      })
     } finally {
       if (before === undefined) delete process.env.P5_PRIVATE_CANARY
       else process.env.P5_PRIVATE_CANARY = before
@@ -131,7 +181,13 @@ describe('checkpoint training through improve', () => {
   it('refuses a wrong dataset digest before invoking the trainer', async () => {
     await withFixture(async (options) => {
       let invoked = false
-      options.trainer = { identity: options.trainer.identity, async execute() { invoked = true; return { succeeded: true, value: undefined } } }
+      options.trainer = {
+        identity: options.trainer.identity,
+        async execute() {
+          invoked = true
+          return { succeeded: true, value: undefined }
+        },
+      }
       options.dataset.digest = sha256Utf8('wrong')
       const result = await improve(parent(), options)
       assert(!result.succeeded)
@@ -145,9 +201,24 @@ describe('checkpoint training through improve', () => {
     ['nonzero exit', `process.stdin.resume(); process.stdin.on('end', () => process.exit(7));`],
     ['missing checkpoint', `process.stdin.resume();`],
     ['empty checkpoint', TRAIN.replace('JSON.stringify({ weight })', "''")],
-    ['symlink checkpoint', TRAIN.replace('fs.writeFileSync(r.checkpointPath, JSON.stringify({ weight }));', "fs.symlinkSync(r.datasetPath, r.checkpointPath);")],
-    ['excessive output', `process.stdin.resume(); process.stdin.on('end', () => console.log('x'.repeat(100000)));`],
-    ['modified dataset', TRAIN.replace('let weight = 0;', "fs.chmodSync(r.datasetPath, 0o600); fs.writeFileSync(r.datasetPath, '{}'); let weight = 0;")],
+    [
+      'symlink checkpoint',
+      TRAIN.replace(
+        'fs.writeFileSync(r.checkpointPath, JSON.stringify({ weight }));',
+        'fs.symlinkSync(r.datasetPath, r.checkpointPath);',
+      ),
+    ],
+    [
+      'excessive output',
+      `process.stdin.resume(); process.stdin.on('end', () => console.log('x'.repeat(100000)));`,
+    ],
+    [
+      'modified dataset',
+      TRAIN.replace(
+        'let weight = 0;',
+        "fs.chmodSync(r.datasetPath, 0o600); fs.writeFileSync(r.datasetPath, '{}'); let weight = 0;",
+      ),
+    ],
   ]) {
     it(`refuses ${name} without producing a runnable profile`, async () => {
       await withFixture(async (options) => {
@@ -171,14 +242,20 @@ describe('checkpoint training through improve', () => {
   for (const kind of ['unverified', 'wrong-artifact', 'mutable-route'] as const) {
     it(`refuses ${kind} serving evidence`, async () => {
       await withFixture(async (options) => {
-        options.serving = { async serve(input) {
-          if (kind === 'unverified') return { succeeded: false, reason: 'route not verified' }
-          return { succeeded: true, value: {
-            artifactDigest: kind === 'wrong-artifact' ? sha256Utf8('other') : input.artifactDigest,
-            routerModelId: kind === 'mutable-route' ? 'fine-tune/latest' : input.routerModelId,
-            evidenceDigest: sha256Utf8('evidence'),
-          } }
-        } }
+        options.serving = {
+          async serve(input) {
+            if (kind === 'unverified') return { succeeded: false, reason: 'route not verified' }
+            return {
+              succeeded: true,
+              value: {
+                artifactDigest:
+                  kind === 'wrong-artifact' ? sha256Utf8('other') : input.artifactDigest,
+                routerModelId: kind === 'mutable-route' ? 'fine-tune/latest' : input.routerModelId,
+                evidenceDigest: sha256Utf8('evidence'),
+              },
+            }
+          },
+        }
         const result = await improve(parent(), options)
         assert(!result.succeeded)
         assert.equal(result.stage, 'serving')
@@ -202,27 +279,43 @@ describe('checkpoint training through improve', () => {
   })
 
   it('cancels the command process group including descendants', async () => {
-    await withFixture(async (options, dir) => {
-      const checkpointPath = join(dir, 'cancel-checkpoint')
-      const controller = new AbortController()
-      const pending = options.trainer.execute({
-        version: 1, invocationId: 'cancel-test', datasetPath: options.dataset.path,
-        checkpointPath, parentProfilePath: options.dataset.path,
-        parentProfileDigest: canonicalAgentProfileDigest(parent()), parameters: {}, executionRef: options.executionRef,
-      }, controller.signal)
-      try {
-        let ready = false
-        for (let i = 0; i < 100 && !ready; i++) {
-          ready = await readFile(`${checkpointPath}.ready`).then(() => true, () => false)
-          if (!ready) await sleep(20)
+    await withFixture(
+      async (options, dir) => {
+        const checkpointPath = join(dir, 'cancel-checkpoint')
+        const controller = new AbortController()
+        const pending = options.trainer.execute(
+          {
+            version: 1,
+            invocationId: 'cancel-test',
+            datasetPath: options.dataset.path,
+            checkpointPath,
+            parentProfilePath: options.dataset.path,
+            parentProfileDigest: canonicalAgentProfileDigest(parent()),
+            parameters: {},
+            executionRef: options.executionRef,
+          },
+          controller.signal,
+        )
+        try {
+          let ready = false
+          for (let i = 0; i < 100 && !ready; i++) {
+            ready = await readFile(`${checkpointPath}.ready`).then(
+              () => true,
+              () => false,
+            )
+            if (!ready) await sleep(20)
+          }
+          assert(ready, 'the parent must have actually spawned before cancellation')
+          controller.abort()
+          assert.equal((await pending).succeeded, false)
+          await sleep(700)
+          await assert.rejects(() => readFile(`${checkpointPath}.late`), { code: 'ENOENT' })
+        } finally {
+          controller.abort()
+          await pending
         }
-        assert(ready, 'the parent must have actually spawned before cancellation')
-        controller.abort()
-        assert.equal((await pending).succeeded, false)
-        await sleep(700)
-        await assert.rejects(() => readFile(`${checkpointPath}.late`), { code: 'ENOENT' })
-      } finally { controller.abort(); await pending }
-    }, `
+      },
+      `
 const fs = require('node:fs'), { spawn } = require('node:child_process');
 let input = ''; process.stdin.on('data', b => input += b);
 process.stdin.on('end', () => {
@@ -231,7 +324,8 @@ process.stdin.on('end', () => {
   fs.writeFileSync(r.checkpointPath + '.ready', 'ready');
   setInterval(() => {}, 1000);
 });
-`)
+`,
+    )
   })
 
   it('uses the bound harness parent identity execution reference and validator', async () => {
@@ -239,9 +333,14 @@ process.stdin.on('end', () => {
       const original = parent()
       const validations: boolean[] = []
       const harness = createProfileImprovementHarness({
-        profile: original, executionRef: sha256Utf8('bound-executor'),
-        agent: async () => { throw new Error('training must not execute a benchmark task') },
-        validateCandidate: (input) => { validations.push(input.isBaseline) },
+        profile: original,
+        executionRef: sha256Utf8('bound-executor'),
+        agent: async () => {
+          throw new Error('training must not execute a benchmark task')
+        },
+        validateCandidate: (input) => {
+          validations.push(input.isBaseline)
+        },
       })
       original.name = 'mutated-after-binding'
       const result = await harness.train(options)
@@ -256,7 +355,10 @@ process.stdin.on('end', () => {
     await withFixture(async (options) => {
       const first = await improve(parent(), options)
       assert(first.succeeded)
-      const second = await improve(first.profile as AgentProfile, { ...options, parameters: { epochs: 30, learningRate: 0.1 } })
+      const second = await improve(first.profile as AgentProfile, {
+        ...options,
+        parameters: { epochs: 30, learningRate: 0.1 },
+      })
       assert(second.succeeded, JSON.stringify(second))
       assert.equal(second.receipt.parentProfileDigest, first.profileDigest)
       assert.equal(second.receipt.parentReceiptDigest, canonicalCandidateDigest(first.receipt))
@@ -266,7 +368,9 @@ process.stdin.on('end', () => {
 
   it('refuses training validation overlap before execution', async () => {
     await withFixture(async (options) => {
-      const dataset = JSON.parse(await readFile(options.dataset.path, 'utf8')) as TrainingDatasetDocument
+      const dataset = JSON.parse(
+        await readFile(options.dataset.path, 'utf8'),
+      ) as TrainingDatasetDocument
       dataset.rows[1]!.task = dataset.rows[0]!.task
       const bytes = Buffer.from(JSON.stringify(dataset))
       await writeFile(options.dataset.path, bytes)
@@ -280,7 +384,9 @@ process.stdin.on('end', () => {
 
   it('refuses a candidate rejected by the existing validation hook', async () => {
     await withFixture(async (options) => {
-      options.validateCandidate = ({ isBaseline }) => { if (!isBaseline) throw new Error('candidate refused') }
+      options.validateCandidate = ({ isBaseline }) => {
+        if (!isBaseline) throw new Error('candidate refused')
+      }
       const result = await improve(parent(), options)
       assert(!result.succeeded)
       assert.equal(result.stage, 'profile')

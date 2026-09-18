@@ -102,15 +102,9 @@ export {
   toolBuildPrompt,
 } from './improvement/build-prompts'
 export {
-  createCommandProfileTrainer,
   type CheckpointServingPort,
   type ControlledTrainingCommand,
-  type ImproveTrainingOptions,
-  type ImproveTrainingResult,
-  type ProfileTrainer,
-  type ProfileTrainerRequest,
-  type TrainingBoundaryResult,
-  type TrainingDatasetDocument,
+  createCommandProfileTrainer,
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
   type ImproveCodeBaseOptions,
@@ -150,7 +144,13 @@ export {
   type ImproveScenarioPartitions,
   type ImproveSkillsOptions,
   type ImproveSurface,
+  type ImproveTrainingOptions,
+  type ImproveTrainingResult,
   improve,
+  type ProfileTrainer,
+  type ProfileTrainerRequest,
+  type TrainingBoundaryResult,
+  type TrainingDatasetDocument,
 } from './improvement/improve'
 export type { CandidateGenerator } from './improvement/improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './improvement/mcp-serve-verifier'
