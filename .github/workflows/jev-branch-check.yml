@@ -1,0 +1,85 @@
+name: Jev branch checks (temporary)
+on:
+  push:
+    branches: [feat/jev-decisions]
+    paths: [.jev-edit.json, .github/workflows/jev-branch-check.yml]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/jev-decisions
+      - name: Export tracked source for review
+        run: |
+          python3 - <<'PY'
+          import subprocess, pathlib, zipfile, os
+          with zipfile.ZipFile(os.environ['RUNNER_TEMP'] + '/jev-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for name in subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0'):
+                  p = pathlib.Path(name)
+                  if not name or not p.is_file() or p.is_symlink(): continue
+                  if p.suffix not in {'.ts', '.tsx', '.json', '.md', '.yaml', '.yml', '.mjs'}: continue
+                  if name.startswith(('.github/', 'node_modules/')) or p.stat().st_size > 1000000: continue
+                  archive.write(p, name)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jev-source
+          path: ${{ runner.temp }}/jev-source.zip
+          retention-days: 1
+      - name: Apply exact branch edits
+        id: edits
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, os, subprocess
+          plan_path = pathlib.Path('.jev-edit.json')
+          if not plan_path.exists(): raise SystemExit(0)
+          plan = json.loads(plan_path.read_text()); changed = set()
+          def safe_path(name):
+              p = pathlib.Path(name)
+              if p.is_absolute() or '..' in p.parts or name.startswith('.github/'): raise ValueError('Invalid edit path: ' + name)
+              return p
+          for edit in plan.get('replace', []):
+              p = safe_path(edit['path']); text = p.read_text()
+              if text.count(edit['old']) != 1: raise ValueError('Expected one match: ' + str(p))
+              p.write_text(text.replace(edit['old'], edit['new'], 1)); changed.add(str(p))
+          for name, content in plan.get('files', {}).items():
+              p = safe_path(name)
+              if p.exists(): raise ValueError('Refuse overwrite: ' + name)
+              p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content); changed.add(str(p))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('run=true\n')
+              for key in ('tests', 'typecheck'):
+                  command = plan.get(key, '')
+                  if '\n' in command: raise ValueError('Multiline command refused')
+                  out.write(key + '=' + command + '\n')
+          plan_path.unlink(); changed.add(str(plan_path))
+          subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
+          subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
+          subprocess.run(['git', 'add', '--', *sorted(changed)], check=True)
+          subprocess.run(['git', 'commit', '-m', 'feat: apply reviewed Jev integration edits'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/feat/jev-decisions'], check=True)
+          PY
+      - uses: pnpm/action-setup@v4
+        if: steps.edits.outputs.run == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.edits.outputs.run == 'true'
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        if: steps.edits.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Focused checks
+        if: steps.edits.outputs.tests != ''
+        env:
+          CHECK_COMMAND: ${{ steps.edits.outputs.tests }}
+        run: bash -o pipefail -c "$CHECK_COMMAND"
+      - name: Typecheck
+        if: always() && steps.edits.outputs.typecheck != ''
+        env:
+          CHECK_COMMAND: ${{ steps.edits.outputs.typecheck }}
+        run: bash -o pipefail -c "$CHECK_COMMAND"
