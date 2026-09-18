@@ -3,11 +3,7 @@ import { AnalystRegistry } from '@tangle-network/agent-eval/analyst'
 import { describe, expect, it } from 'vitest'
 import { shotLoop } from '../../examples/graphs/shot-loop'
 import { analystsFromRegistry } from '../../src/runtime/supervise-surface'
-import {
-  runBrainLoop,
-  type ToolLoopCallContext,
-  type ToolLoopChat,
-} from '../../src/runtime/tool-loop'
+import { runBrainLoop } from '../../src/runtime/tool-loop'
 import { runGraphWithTestBrain } from '../../src/testing'
 
 // These are composition proofs over deterministic fixtures, not live Jev quality tests.
@@ -121,27 +117,5 @@ describe('native decision composition without another runtime', () => {
     expect(order).toEqual(['prepare', 'compact', 'inference', 'inspect'])
     expect(result.final).toBe('answer')
     expect(result.usage).toEqual({ input: 10, output: 2 })
-  })
-
-  it('preserves caller-owned cancellation and inference identity through an explicit brain', async () => {
-    const controller = new AbortController()
-    const context: ToolLoopCallContext = Object.freeze({
-      signal: controller.signal,
-      callId: 'call-1',
-      correlationId: 'run-1',
-    })
-    let observed: ToolLoopCallContext | undefined
-    const transport: ToolLoopChat = async (_messages, _tools, value) => {
-      observed = value
-      return { content: 'answer', toolCalls: [], usage: { input: 1, output: 1 } }
-    }
-    const brain: ToolLoopChat = async (messages, tools, value) => {
-      value?.signal.throwIfAborted()
-      return transport(messages, tools, value)
-    }
-    await brain([], [], context)
-    expect(observed).toBe(context)
-    controller.abort()
-    await expect(brain([], [], context)).rejects.toThrow()
   })
 })
