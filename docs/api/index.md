@@ -9693,7 +9693,8 @@ Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must kno
 Ship self-improvement eval-run events to Tangle Intelligence. Unlike the
 best-effort span exporter, this RESOLVES with the ingest verdict (accepted /
 rejected per event) so a consumer's loop can assert its provenance landed.
-Throws only on a missing key or network failure.
+Success requires a complete, valid acknowledgement accepting every event.
+Throws on a missing key, network failure, or unreadable/inconsistent acknowledgement.
 
 #### Parameters
 
