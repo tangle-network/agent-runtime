@@ -52,6 +52,7 @@ import {
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
 import {
+  assertSpawnResourceBound,
   decodeSpawnBlobBase64,
   InMemorySpawnBlobStore,
   parseSpawnBlobRef,
@@ -59,7 +60,7 @@ import {
   type SpawnBlobStore,
   spawnBlobRef,
 } from './spawn-blob-store'
-import { resolveSpawnResources } from './spawn-resource-paths'
+import { overContentBound, resolveSpawnResources } from './spawn-resource-paths'
 
 /** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
@@ -919,6 +920,17 @@ export interface CoordinationToolsOptions {
    *  {@link SpawnResourceBounds}. */
   readonly spawnResources?: SpawnResourceBounds
   /**
+   * The verb names this toolbox's server will actually SERVE, when the caller knows them.
+   *
+   * A descriptor is model-facing instruction text, and this layer builds every descriptor while
+   * `serveCoordinationMcp` decides which ones are served. Without the granted set, `spawn_worker`
+   * has to describe a file transport it cannot know the manager holds: told to stage with
+   * `put_blob` it does not have, a manager gets JSON-RPC -32601, reads the same instruction again
+   * in the resolver's refusal, and burns turns. Passed, the text and the refusals name the grant
+   * as a fact instead of an assumption. Omit and they name it as a condition.
+   */
+  readonly grantedToolNames?: readonly string[]
+  /**
    * OPT-IN parent channel for `ask_parent`. See {@link EscalateQuestion}.
    *
    * Omit and this manager is treated as the TOP of its question chain: `ask_parent` still raises and
@@ -990,6 +1002,14 @@ export interface SpawnResourceBounds {
   readonly maxBlobs?: number
   /** Total raw bytes one manager may hold. Default 32 MiB (`SPAWN_BLOB_MAX_TOTAL_BYTES`). */
   readonly maxBlobTotalBytes?: number
+  /** References ONE spawn may resolve by path or blob. Default 64
+   *  (`SPAWN_RESOURCE_MAX_RESOLVED`). Every other bound here is per item; this one and
+   *  {@link maxTotalContentBytes} are what keep a spawn from naming one small staged blob
+   *  thousands of times and materializing a string for each. */
+  readonly maxResolvedResources?: number
+  /** Total resolved bytes one spawn may hand one child. Default 32 MiB
+   *  (`SPAWN_RESOURCE_MAX_TOTAL_BYTES`). */
+  readonly maxTotalContentBytes?: number
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
@@ -1304,9 +1324,62 @@ const stripKeyCodecArtifacts = (node: unknown): unknown => {
  *  in place of that sub-tree. */
 interface PublishedProfileField {
   readonly name: string
-  readonly description: string
+  /** Static text, or text built from what this server will actually serve. */
+  readonly description: string | ((staging: SpawnStagingGrant) => string)
   readonly brief?: Record<string, unknown>
 }
+
+/** What the published `spawn_worker` text may claim about the staging verb: `granted` names it as
+ *  a fact, `ungranted` says it is not available, `unknown` states the condition. The caller of
+ *  {@link createCoordinationTools} decides which, by passing `grantedToolNames` or not. */
+export type SpawnStagingGrant = 'granted' | 'ungranted' | 'unknown'
+
+/** The one clause in the `resources` description that depends on the grant. */
+function blobFormClause(staging: SpawnStagingGrant): string {
+  if (staging === 'ungranted') {
+    return (
+      'From a sandbox you have no readable workspace root, and this run did not grant you ' +
+      'put_blob, so a file reaches a child here as `content` you keep small, or as a github ' +
+      'resource. '
+    )
+  }
+  const lead =
+    staging === 'granted'
+      ? 'From a sandbox you have no readable workspace root, so use the blob form: stage each ' +
+        'file from bash with put_blob'
+      : 'From a sandbox you have no readable workspace root; if your tools include put_blob, ' +
+        'stage each file from bash with it'
+  return (
+    `${lead}, then write { kind: "inline", name, blob: "sha256:<hex>" }. The spawn result ` +
+    'reports resourcesFromBlob with one receipt per file, so you can diff it against your own ' +
+    'staging list. '
+  )
+}
+
+/**
+ * The bash the `put_blob` description hands a manager, verbatim. It is the effective
+ * implementation: a model runs instruction text literally, so its properties are the tool's.
+ *
+ *  - The BEARER never becomes an argument. `curl -H @file` reads the header from a file written by
+ *    a shell builtin, because an expanded `-H "authorization: Bearer $TOKEN"` puts the live
+ *    credential in `/proc/<pid>/cmdline`, readable by every process in that sandbox — including
+ *    whatever a research child installs. This is the same reason the manager is not allowed to
+ *    read `.pi/mcp.json` to learn the URL (`supervise.ts`).
+ *  - `base64 < "$f" | tr -d '\n'` is the one encoding form that is correct on GNU, busybox and
+ *    macOS. `base64 -w0` is GNU-only, and wrapped base64 pasted into this envelope puts raw
+ *    newlines inside a JSON string, which the server answers with a bare 400 the manager cannot
+ *    read a reason from.
+ *  - `mktemp` and `umask 077`, because a predictable world-readable path holding the staged file
+ *    and the credential outlives the call.
+ */
+const PUT_BLOB_SHELL_RECIPE =
+  ' umask 077; d=sha256:$(sha256sum "$f" | cut -d" " -f1); h=$(mktemp); b=$(mktemp); ' +
+  'printf \'authorization: Bearer %s\\n\' "$AGENT_RUNTIME_COORDINATION_TOKEN" > "$h"; ' +
+  '{ printf \'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"put_blob",' +
+  '"arguments":{"name":"%s","sha256":"%s","contentBase64":"\' "$(basename "$f")" "$d"; ' +
+  'base64 < "$f" | tr -d \'\\n\'; printf \'"}}}\'; } > "$b"; ' +
+  'curl -sS -X POST "$AGENT_RUNTIME_COORDINATION_URL" -H @"$h" -H "content-type: application/json" --data-binary @"$b"; ' +
+  'rm -f "$h" "$b"; '
 
 /** The canonical profile fields a spawning parent actually sets on a child, in the order a reader
  *  needs them, each with the description published alongside it. Everything else stays legal to
@@ -1385,7 +1458,7 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
   },
   {
     name: 'resources',
-    description:
+    description: (staging: SpawnStagingGrant) =>
       'Files, tools, skills, and agents materialized into the child workspace before it starts. ' +
       'Brief form: `{ files?, tools?, skills?, agents? }`, each an array whose entries are ' +
       '`{ kind: "inline", name, content }`, `{ kind: "inline", name, path }`, or ' +
@@ -1394,10 +1467,8 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
       'relative to YOUR workspace and is read by the runtime, so use it for any file over a few ' +
       'hundred bytes: content you retype in this call arrives truncated and altered, a path ' +
       'arrives byte-exact and the result reports its sha256. ' +
-      'From a sandbox you have no readable workspace root, so use the blob form: stage each file ' +
-      'from bash with put_blob, then write { kind: "inline", name, blob: "sha256:<hex>" }. The ' +
-      'spawn result reports resourcesFromBlob with one receipt per file, so you can diff it ' +
-      'against your own staging list. A child typically gets ' +
+      blobFormClause(staging) +
+      'A child typically gets ' +
       '`files` for seed inputs and `skills` for a procedure it must follow; the canonical ' +
       'AgentProfile schema carries the full form and governs validation.',
     brief: {
@@ -1439,13 +1510,16 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
  */
 export function deriveSpawnProfileArg(
   canonicalProperties: Record<string, unknown> | undefined,
+  staging: SpawnStagingGrant = 'unknown',
 ): Record<string, unknown> {
   const published: Array<[string, unknown]> = []
   for (const field of spawnProfileFields) {
     const canonical = canonicalProperties?.[field.name]
     if (canonical === undefined) continue
     const shape = field.brief ?? (stripKeyCodecArtifacts(canonical) as Record<string, unknown>)
-    published.push([field.name, { ...shape, description: field.description }])
+    const description =
+      typeof field.description === 'function' ? field.description(staging) : field.description
+    published.push([field.name, { ...shape, description }])
   }
   return {
     type: 'object',
@@ -1466,7 +1540,8 @@ export function deriveSpawnProfileArg(
  * @internal */
 export const spawnProfileFieldNames: readonly string[] = spawnProfileFields.map((f) => f.name)
 
-let spawnProfileArgCache: Record<string, unknown> | undefined
+let canonicalProfilePropertiesCache: Record<string, unknown> | undefined
+const spawnProfileArgCache = new Map<SpawnStagingGrant, Record<string, unknown>>()
 
 /** The published `profile` shape, computed on FIRST tool-definition access and memoized — not at
  *  module load. The conversion walks the whole canonical profile tree, and the strip walk rebuilds
@@ -1479,18 +1554,23 @@ let spawnProfileArgCache: Record<string, unknown> | undefined
  *  what a spawning parent may pass, not what the runtime ends up holding. `unrepresentable: 'any'`
  *  keeps the conversion total: the canonical schema contains transforms with no JSON Schema form,
  *  and zod's default is to throw on them, which would leave the tool with no published shape. */
-function spawnProfileArg(): Record<string, unknown> {
-  if (!spawnProfileArgCache) {
-    const canonical = agentProfileSchema.toJSONSchema({
-      io: 'input',
-      target: 'draft-07',
-      unrepresentable: 'any',
-    })
-    // Deep-frozen because ONE memoized object is handed to every coordination toolbox in the
-    // process: an unfrozen shared schema lets one consumer's mutation corrupt every later one.
-    spawnProfileArgCache = detachedFrozen(deriveSpawnProfileArg(canonical.properties))
+function spawnProfileArg(staging: SpawnStagingGrant): Record<string, unknown> {
+  const memo = spawnProfileArgCache.get(staging)
+  if (memo) return memo
+  if (!canonicalProfilePropertiesCache) {
+    canonicalProfilePropertiesCache =
+      agentProfileSchema.toJSONSchema({
+        io: 'input',
+        target: 'draft-07',
+        unrepresentable: 'any',
+      }).properties ?? {}
   }
-  return spawnProfileArgCache
+  // Deep-frozen because ONE memoized object is handed to every coordination toolbox in the
+  // process: an unfrozen shared schema lets one consumer's mutation corrupt every later one. One
+  // entry per grant state, because only that one clause differs and the conversion is the cost.
+  const built = detachedFrozen(deriveSpawnProfileArg(canonicalProfilePropertiesCache, staging))
+  spawnProfileArgCache.set(staging, built)
+  return built
 }
 
 const BUDGET_FIELD: Readonly<Record<'tokens' | 'iterations' | 'usd', string>> = {
@@ -2792,6 +2872,19 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // store per toolbox is one store per manager node, which is the isolation property, and it costs
   // no wiring at depth: every manager builds its own `createCoordinationTools`, so a nested
   // manager gets a store even where `spawnResourceRoot` reaches it with nothing.
+  // Every bound this toolbox will apply is judged HERE, at construction, where a caller can still
+  // act on it. `InMemorySpawnBlobStore` already refuses its three; the resolver's are checked with
+  // the same rule so no bound in the group is the one that fails silently at resolve time.
+  assertSpawnResourceBound('maxContentBytes', opts.spawnResources?.maxContentBytes)
+  assertSpawnResourceBound('maxResolvedResources', opts.spawnResources?.maxResolvedResources)
+  assertSpawnResourceBound('maxTotalContentBytes', opts.spawnResources?.maxTotalContentBytes)
+  // What this server will actually serve decides what its text may tell a manager to call.
+  const stagingGrant: SpawnStagingGrant =
+    opts.grantedToolNames === undefined
+      ? 'unknown'
+      : opts.grantedToolNames.includes('put_blob')
+        ? 'granted'
+        : 'ungranted'
   const blobStore = new InMemorySpawnBlobStore({
     ...(opts.spawnResources?.maxBlobBytes !== undefined
       ? { maxBlobBytes: opts.spawnResources.maxBlobBytes }
@@ -2811,8 +2904,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // 1..200 characters with no control or invisible formatting character. It is an audit label: it
   // is never opened, joined onto a directory, or used as a store key, so the only thing it has to
   // be is safe to print beside a digest in a journal row an operator reads.
+  // `\S` because a blank label prints as nothing beside the digest, and this row is what makes a
+  // file the manager staged and never referenced findable in an autopsy.
   const auditLabel = (value: string): boolean =>
-    [...value].length >= 1 && [...value].length <= 200 && !/[\p{Cc}\p{Cf}]/u.test(value)
+    [...value].length >= 1 &&
+    [...value].length <= 200 &&
+    /\S/.test(value) &&
+    !/[\p{Cc}\p{Cf}]/u.test(value)
   const putBlob = async (raw: unknown): Promise<unknown> => {
     const a = obj(raw)
     const staging = a.name !== undefined || a.sha256 !== undefined || a.contentBase64 !== undefined
@@ -2844,7 +2942,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (!auditLabel(label)) {
       return blobFailure(
         'invalid-blob-name',
-        'name must be 1 to 200 printable characters; it is an audit label, not a path.',
+        'name must be 1 to 200 printable characters, at least one of them not whitespace; it is ' +
+          'an audit label, not a path.',
       )
     }
     const bytes = decodeSpawnBlobBase64(a.contentBase64 as string)
@@ -2852,7 +2951,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       return blobFailure(
         'invalid-blob-encoding',
         'contentBase64 must be standard base64 (A-Z a-z 0-9 + / =). Produce it with: ' +
-          'base64 -w0 "$f" (busybox: base64 "$f"). Do not type the file\'s text into this call.',
+          'base64 < "$f" | tr -d \'\\n\' — that one form is right on GNU, busybox and macOS, ' +
+          "where base64 -w0 is GNU-only. Do not type the file's text into this call.",
       )
     }
     const actual = spawnBlobRef(bytes)
@@ -2872,6 +2972,19 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'blob-not-utf8',
         `these ${bytes.length} bytes are not valid UTF-8, and a child resource is a string. ` +
           'Base64-encode the file yourself, stage that text, and have the child decode it.',
+      )
+    }
+    // The provider's ceiling, on the call that carried the file. Same reason as the UTF-8 check
+    // above: a manager that learns it at the spawn has already staged six more and paid a round
+    // trip, and the oversize blob would have charged the store's budget until it was dropped.
+    if (
+      opts.spawnResources?.maxContentBytes !== undefined &&
+      bytes.length > opts.spawnResources.maxContentBytes
+    ) {
+      return blobFailure(
+        'blob-over-content-bound',
+        overContentBound(`${label}`, bytes.length, opts.spawnResources.maxContentBytes),
+        blobStore.stats(),
       )
     }
     const outcome = blobStore.put(declared, bytes)
@@ -3079,7 +3192,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       inputSchema: {
         type: 'object',
         properties: {
-          profile: spawnProfileArg(),
+          profile: spawnProfileArg(stagingGrant),
           task: { description: 'The task the worker should perform.' },
           label: { type: 'string', description: 'Optional trace label.' },
           key: {
@@ -3166,6 +3279,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           ...(opts.spawnResources?.maxContentBytes !== undefined
             ? { maxContentBytes: opts.spawnResources.maxContentBytes }
             : {}),
+          ...(opts.spawnResources?.maxResolvedResources !== undefined
+            ? { maxResolvedResources: opts.spawnResources.maxResolvedResources }
+            : {}),
+          ...(opts.spawnResources?.maxTotalContentBytes !== undefined
+            ? { maxTotalContentBytes: opts.spawnResources.maxTotalContentBytes }
+            : {}),
+          ...(stagingGrant === 'unknown' ? {} : { stagingGranted: stagingGrant === 'granted' }),
         })
         if (!resourcePaths.ok) {
           return {
@@ -3857,10 +3977,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       description:
         'Put a file from YOUR workspace onto this coordination server so a spawn can mount it byte-exact. ' +
         'DO NOT type a file into this call: run it from bash so the bytes never pass through your output. ' +
-        'One file: f=<path>; d=sha256:$(sha256sum "$f" | cut -d" " -f1); ' +
-        '{ printf \'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"put_blob","arguments":{"name":"%s","sha256":"%s","contentBase64":"\' "$(basename "$f")" "$d"; base64 -w0 "$f"; printf \'"}}}\'; } > /tmp/b.json; ' +
-        'curl -sS -X POST "$AGENT_RUNTIME_COORDINATION_URL" -H "authorization: Bearer $AGENT_RUNTIME_COORDINATION_TOKEN" -H "content-type: application/json" --data-binary @/tmp/b.json; ' +
+        `One file: f=<path>;${PUT_BLOB_SHELL_RECIPE}` +
         'Then reference it in a spawn as { kind: "inline", name: "<name>", blob: "<that sha256: value>" }. ' +
+        'Keep the bearer in the header FILE: an expanded -H puts your live credential in the process argument list, which every other process in your sandbox can read. ' +
         'contentBase64 is base64 only; a digest that does not match the bytes is refused and nothing is stored.',
       inputSchema: {
         type: 'object',

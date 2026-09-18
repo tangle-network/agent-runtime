@@ -46,8 +46,28 @@ import { parseSpawnBlobRef, type SpawnBlobStore, spawnBlobRef } from './spawn-bl
  *  - either: over the caller's `maxContentBytes` → refused naming the bound and the upstream issue
  *  - either: bytes that are not valid UTF-8 → refused; `content` is a string, so binary data is
  *    encoded (base64) by the manager first, exactly as it would be for a content resource
+ *  - any: more than {@link SPAWN_RESOURCE_MAX_RESOLVED} references, or more than
+ *    {@link SPAWN_RESOURCE_MAX_TOTAL_BYTES} resolved in total → refused before the string is built
+ *  - typed content over `maxContentBytes` → refused; it is left in place, but it is the transport
+ *    the model falls back to, so the provider's ceiling is measured on it too
  */
 export const SPAWN_RESOURCE_PATH_MAX_BYTES = 4 * 1024 * 1024
+
+/**
+ * References ONE spawn may resolve, and the total resolved bytes across them.
+ *
+ * Every other bound in this path is per item, and the product of count and size had none. One
+ * staged blob can be named any number of times, and each name materializes its own string before
+ * the canonical schema, the pre-flight or any count check runs. Measured 2026-09-17 against the
+ * unbounded resolver: 600 references to one 512 KiB blob cost 258 MiB of heap in 584 ms, and a
+ * reference costs 133 bytes of request body, so roughly 7,800 fit inside the default 1 MiB request
+ * bound — about 3.9 GiB of strings produced from a 0.5 MiB store, in the process that hosts the
+ * run. The bounds are defaults rather than an opt-in: a caller that sets no option is the caller
+ * that most needs them. {@link SpawnResourceSource} lets a deployment lower or raise them.
+ */
+export const SPAWN_RESOURCE_MAX_RESOLVED = 64
+/** Total resolved bytes one spawn may hand one child. Matches the per-manager staging total. */
+export const SPAWN_RESOURCE_MAX_TOTAL_BYTES = 32 * 1024 * 1024
 
 export interface ResolvedSpawnResourcePath {
   /** The `resources` location, e.g. `files[0].resource` or `skills[2]`. */
@@ -84,6 +104,21 @@ export interface SpawnResourceSource {
    * 16,384 characters — tangle-network/agent-sdk#340.
    */
   readonly maxContentBytes?: number
+  /** References one spawn may resolve, by path or by blob. Default
+   *  {@link SPAWN_RESOURCE_MAX_RESOLVED}. */
+  readonly maxResolvedResources?: number
+  /** Total resolved bytes one spawn may carry across every reference. Default
+   *  {@link SPAWN_RESOURCE_MAX_TOTAL_BYTES}. */
+  readonly maxTotalContentBytes?: number
+  /**
+   * Whether this manager's coordination server actually serves `put_blob`.
+   *
+   * A refusal that tells a manager to stage a file burns turns when the verb is not in its grant:
+   * the server answers JSON-RPC -32601 and the manager learns nothing. `true` instructs, `false`
+   * names the missing grant, and `undefined` (the caller does not know the granted set) states the
+   * condition instead of assuming it.
+   */
+  readonly stagingGranted?: boolean
 }
 
 export type ResolveSpawnResourcesResult =
@@ -120,6 +155,15 @@ function pathInlineRef(value: unknown): PathInlineRef | undefined {
   return { kind: 'inline', name: value.name, path: value.path }
 }
 
+/** An inline resource the model TYPED into the call. Not a managed reference — it is left exactly
+ *  as written — but it is the transport a manager falls back to when it ignores `put_blob`, so the
+ *  provider's ceiling has to be measured on it too. */
+function typedInlineContent(value: unknown): { name: string; content: string } | undefined {
+  if (!isRecord(value)) return undefined
+  if (value.kind !== 'inline' || typeof value.content !== 'string') return undefined
+  return { name: typeof value.name === 'string' ? value.name : 'resource', content: value.content }
+}
+
 /** An inline ref that names a staged blob and carries no content. */
 function blobInlineRef(value: unknown): BlobInlineRef | undefined {
   if (!isRecord(value)) return undefined
@@ -145,6 +189,8 @@ function namesBothTransports(value: unknown): boolean {
 async function readUnderRoot(
   root: string,
   requested: string,
+  /** The aggregate fence, asked about the file's size BEFORE it is read into memory. */
+  admit: (byteLength: number) => string | undefined,
 ): Promise<
   { ok: true; content: string; byteLength: number; sha256: string } | { ok: false; reason: string }
 > {
@@ -192,6 +238,8 @@ async function readUnderRoot(
         reason: `path ${requested} is ${info.size} bytes; an inline resource is at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`,
       }
     }
+    const overAggregate = admit(info.size)
+    if (overAggregate !== undefined) return { ok: false, reason: overAggregate }
     const bytes = await handle.readFile()
     if (bytes.length > SPAWN_RESOURCE_PATH_MAX_BYTES) {
       return {
@@ -235,8 +283,15 @@ function describe(error: unknown): string {
 
 /** The provider ceiling, applied to whichever transport produced the bytes. The upstream issue is
  *  named because the fix is not in this repository, and the instruction is what a manager can act
- *  on in the same turn. */
-function overContentBound(subject: string, byteLength: number, maxContentBytes: number): string {
+ *  on in the same turn. Shared with `put_blob`, so a file learns it is too large on the call that
+ *  carried it and again at the spawn, in the same words.
+ *
+ *  @internal */
+export function overContentBound(
+  subject: string,
+  byteLength: number,
+  maxContentBytes: number,
+): string {
   return (
     `${subject} is ${byteLength} bytes; this run's provider refuses any single profile string ` +
     `over ${maxContentBytes} bytes (tangle-network/agent-sdk#340). Split the file, stage each ` +
@@ -262,25 +317,65 @@ export async function resolveSpawnResources(
   let touched = false
   const next: Record<string, unknown> = { ...resources }
 
+  // The aggregate fence. Both counters advance only on a reference that actually resolved, and
+  // both are consulted BEFORE the bytes become a string, so a refused spawn costs the one stat
+  // call it took to decide.
+  const maxResolvedResources = source.maxResolvedResources ?? SPAWN_RESOURCE_MAX_RESOLVED
+  const maxTotalContentBytes = source.maxTotalContentBytes ?? SPAWN_RESOURCE_MAX_TOTAL_BYTES
+  let resolvedCount = 0
+  let resolvedBytes = 0
+  const admitAnother = (): string | undefined =>
+    resolvedCount >= maxResolvedResources
+      ? `this spawn resolves more than ${maxResolvedResources} resources by path or blob; ` +
+        'mount fewer files, or hand the child one archive and have it unpack the parts'
+      : undefined
+  const admitBytes =
+    (subject: string) =>
+    (byteLength: number): string | undefined =>
+      resolvedBytes + byteLength > maxTotalContentBytes
+        ? `${subject} is ${byteLength} bytes, which takes this spawn's resolved resources over ` +
+          `the ${maxTotalContentBytes} bytes one spawn may hand one child ` +
+          `(${resolvedBytes} already resolved); mount fewer or smaller files`
+        : undefined
+
+  /** The staging advice a refusal may give, in the three states of the grant. */
+  const stageAdvice = (lead: string): string => {
+    if (source.stagingGranted === false) {
+      return `${lead}, and this run did not grant you put_blob, so pass content, or a github resource`
+    }
+    const stage =
+      source.stagingGranted === true
+        ? 'stage the file from bash with put_blob'
+        : 'if your tools include put_blob, stage the file from bash with it'
+    return (
+      `${lead}; ${stage} and reference it as ` +
+      '{ kind: "inline", name, blob: "sha256:<hex>" }, or pass content, or a github resource'
+    )
+  }
+
   const fromPath = async (
     at: string,
     ref: PathInlineRef,
   ): Promise<{ kind: 'inline'; name: string; content: string } | { error: string }> => {
     if (source.root === undefined) {
       return {
-        error:
+        error: stageAdvice(
           'this manager has no workspace root the coordination server may read, so a resource by ' +
-          'path cannot be resolved; stage the file from bash with put_blob and reference it as ' +
-          '{ kind: "inline", name, blob: "sha256:<hex>" }, or pass content, or a github resource',
+            'path cannot be resolved',
+        ),
       }
     }
-    const read = await readUnderRoot(source.root, ref.path)
+    const over = admitAnother()
+    if (over !== undefined) return { error: over }
+    const read = await readUnderRoot(source.root, ref.path, admitBytes(`path ${ref.path}`))
     if (!read.ok) return { error: read.reason }
     if (source.maxContentBytes !== undefined && read.byteLength > source.maxContentBytes) {
       return {
         error: overContentBound(`path ${ref.path}`, read.byteLength, source.maxContentBytes),
       }
     }
+    resolvedCount += 1
+    resolvedBytes += read.byteLength
     resolved.push({ at, path: ref.path, byteLength: read.byteLength, sha256: read.sha256 })
     touched = true
     return { kind: 'inline', name: ref.name, content: read.content }
@@ -294,6 +389,8 @@ export async function resolveSpawnResources(
     if (digest === undefined) {
       return { error: 'blob must be "sha256:" followed by 64 lowercase hex characters' }
     }
+    const over = admitAnother()
+    if (over !== undefined) return { error: over }
     if (source.blobs === undefined) {
       return {
         error: `blob ${digest} cannot be resolved: this manager's coordination server holds no blob store`,
@@ -303,8 +400,12 @@ export async function resolveSpawnResources(
     if (bytes === undefined) {
       return {
         error:
-          `blob ${digest} is not held by this manager; stage it from bash with put_blob first ` +
-          '(a coordinator restart empties the store, so re-stage after a resume)',
+          source.stagingGranted === false
+            ? `blob ${digest} is not held by this manager, and this run did not grant you ` +
+              'put_blob, so nothing can be staged here; pass content, or a github resource'
+            : `blob ${digest} is not held by this manager; stage it from bash with put_blob ` +
+              'first (a coordinator restart empties the store, so re-stage after a resume — the ' +
+              'address is the content, so the same file stages to the same reference)',
       }
     }
     // Second, independent verification. The first ran at staging time against the bytes on the
@@ -319,6 +420,8 @@ export async function resolveSpawnResources(
     if (source.maxContentBytes !== undefined && bytes.length > source.maxContentBytes) {
       return { error: overContentBound(`blob ${digest}`, bytes.length, source.maxContentBytes) }
     }
+    const overTotal = admitBytes(`blob ${digest}`)(bytes.length)
+    if (overTotal !== undefined) return { error: overTotal }
     const content = bytes.toString('utf8')
     // Staging already refused non-UTF-8 bytes; a store that returned some anyway would silently
     // deliver replacement characters, so the round trip is asserted here too.
@@ -327,6 +430,8 @@ export async function resolveSpawnResources(
         error: `blob ${digest} is not valid UTF-8; encode binary data (base64) before handing it to a child`,
       }
     }
+    resolvedCount += 1
+    resolvedBytes += bytes.length
     resolvedBlobs.push({
       at,
       blob: digest,
@@ -350,6 +455,23 @@ export async function resolveSpawnResources(
     if (blob !== undefined) return fromBlob(at, blob)
     const path = pathInlineRef(value)
     if (path !== undefined) return await fromPath(at, path)
+    // Typed content resolves to itself, so it is returned untouched and never counted against the
+    // aggregate: those bytes were already paid for in this request's own body, where the server's
+    // `maxRequestBytes` bounded them. The provider ceiling is the one thing still to check —
+    // without it, `maxContentBytes` only fences the two transports that were already safe.
+    const typed = typedInlineContent(value)
+    if (typed !== undefined && source.maxContentBytes !== undefined) {
+      const byteLength = Buffer.byteLength(typed.content, 'utf8')
+      if (byteLength > source.maxContentBytes) {
+        return {
+          error: overContentBound(
+            `the content you typed for ${typed.name}`,
+            byteLength,
+            source.maxContentBytes,
+          ),
+        }
+      }
+    }
     return undefined
   }
 

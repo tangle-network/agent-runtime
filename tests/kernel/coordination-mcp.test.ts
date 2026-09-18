@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, request } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
@@ -1860,6 +1861,79 @@ describe('staging a file with put_blob and mounting it on a child', () => {
         ).toBe(200)
       },
     )
+  })
+
+  it('stages a file with the recipe the tool ships, and keeps the bearer out of every argv', async () => {
+    // The description is the effective implementation: the model runs it literally. So the test
+    // runs the SHIPPED text against a live listener, through a `curl` that records its own argv.
+    // Two properties, both measured rather than asserted from reading: the bytes land byte-exact,
+    // and the live bearer never enters a process argument list (`/proc/<pid>/cmdline` is readable
+    // by everything a research child installs in that sandbox).
+    const dir = await mkdtemp(join(tmpdir(), 'blob-recipe-'))
+    try {
+      const file = join(dir, 'aligned table.py')
+      const authored = alignedTableModule()
+      await writeFile(file, authored)
+      const argvLog = join(dir, 'curl-argv.log')
+      const shimDir = join(dir, 'bin')
+      await mkdir(shimDir)
+      const realCurl = execFileSync('sh', ['-c', 'command -v curl']).toString().trim()
+      await writeFile(
+        join(shimDir, 'curl'),
+        `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a" >> ${JSON.stringify(argvLog)}; done\nexec ${realCurl} "$@"\n`,
+        { mode: 0o755 },
+      )
+
+      let served: ReadonlyArray<{ name: string; description?: string }> = []
+      await withBoundHttp(
+        {
+          toolNames: blobToolNames,
+          nodeTools: [],
+          onCoordinationTools: (tools) => {
+            served = tools
+          },
+        },
+        async (mcp) => {
+          const put = served.find((tool) => tool.name === 'put_blob')
+          if (!put) throw new Error('put_blob is not served')
+          const description = put.description ?? ''
+          // Everything between the file assignment and the sentence that follows the upload.
+          const recipe = /f=<path>;([\s\S]*?)Then reference/.exec(description)?.[1]
+          if (!recipe) throw new Error(`no shell recipe in put_blob description: ${description}`)
+          // `base64 -w0` is GNU-only: busybox has no -w and macOS rejects a file operand.
+          expect(recipe).not.toContain('-w0')
+          const token = (mcp.headers.Authorization ?? '').replace(/^Bearer /, '')
+          expect(token.length).toBeGreaterThan(8)
+          const script = `set -e; f=${JSON.stringify(file)};${recipe}`
+          const out = execFileSync('sh', ['-c', script], {
+            env: {
+              ...process.env,
+              PATH: `${shimDir}:${process.env.PATH ?? ''}`,
+              AGENT_RUNTIME_COORDINATION_URL: mcp.url,
+              AGENT_RUNTIME_COORDINATION_TOKEN: token,
+            },
+          }).toString()
+
+          expect(JSON.parse(out)).toMatchObject({
+            result: {
+              structuredContent: {
+                ref: `sha256:${createHash('sha256').update(authored).digest('hex')}`,
+                name: 'aligned table.py',
+                bytes: authored.length,
+                stored: true,
+              },
+            },
+          })
+          expect(mcp.blobStats()).toMatchObject({ blobs: 1, bytes: authored.length })
+          const argv = await readFile(argvLog, 'utf8')
+          expect(argv).toContain(mcp.url)
+          expect(argv).not.toContain(token)
+          expect(argv).not.toContain('Bearer')
+        },
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('audits a staging call by name and records nothing else about it', async () => {

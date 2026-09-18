@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.239.0
 
 **A manager puts a file's BYTES on the coordination server and mounts them on a child, without the model ever retyping them.** A new coordination verb, `put_blob`, takes `{ name, sha256, contentBase64 }` over the same authenticated JSON-RPC POST the harness already uses for every tool call, so a manager stages a file from its own shell with `curl` and `base64`. A spawn then names the content by digest — `{ kind: 'inline', name, blob: 'sha256:<hex>' }` — and the existing pre-parse resolver substitutes the real bytes before the canonical schema, the pre-flight, the budget, or any child environment exists. The model handles 71 characters instead of 7,000 bytes.
 

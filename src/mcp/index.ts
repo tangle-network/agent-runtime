@@ -194,6 +194,9 @@ export {
   type QuestionUrgency,
   questionEscalationTargets,
   type SettledWorker,
+  type SpawnResourceBounds,
+  type SpawnStagingGrant,
+  type StagedBlobRecord,
   type WorkerSpawnContext,
   type WorkerWatchOptions,
 } from './tools/coordination'
@@ -240,6 +243,12 @@ export {
   type DelegationStatusHandlerOptions,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
+export type {
+  SpawnBlobLimits,
+  SpawnBlobPutOutcome,
+  SpawnBlobStats,
+  SpawnBlobStore,
+} from './tools/spawn-blob-store'
 export type { TraceContext } from './trace-propagation'
 export {
   createPropagatingTraceEmitter,

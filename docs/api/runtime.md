@@ -1932,6 +1932,22 @@ Blobs one manager may hold at once. Default 256 (`SPAWN_BLOB_MAX_ENTRIES`).
 
 Total raw bytes one manager may hold. Default 32 MiB (`SPAWN_BLOB_MAX_TOTAL_BYTES`).
 
+##### maxResolvedResources?
+
+> `readonly` `optional` **maxResolvedResources?**: `number`
+
+References ONE spawn may resolve by path or blob. Default 64
+ (`SPAWN_RESOURCE_MAX_RESOLVED`). Every other bound here is per item; this one and
+ [maxTotalContentBytes](#maxtotalcontentbytes) are what keep a spawn from naming one small staged blob
+ thousands of times and materializing a string for each.
+
+##### maxTotalContentBytes?
+
+> `readonly` `optional` **maxTotalContentBytes?**: `number`
+
+Total resolved bytes one spawn may hand one child. Default 32 MiB
+ (`SPAWN_RESOURCE_MAX_TOTAL_BYTES`).
+
 ***
 
 ### SpawnRefusal

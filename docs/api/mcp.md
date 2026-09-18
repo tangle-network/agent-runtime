@@ -4088,6 +4088,19 @@ with the reason; see `spawn-resource-paths.ts` for the measurement that motivate
 Bounds on resources a spawn hands a child by path or by staged blob. See
  [SpawnResourceBounds](runtime.md#spawnresourcebounds).
 
+##### grantedToolNames?
+
+> `readonly` `optional` **grantedToolNames?**: readonly `string`[]
+
+The verb names this toolbox's server will actually SERVE, when the caller knows them.
+
+A descriptor is model-facing instruction text, and this layer builds every descriptor while
+`serveCoordinationMcp` decides which ones are served. Without the granted set, `spawn_worker`
+has to describe a file transport it cannot know the manager holds: told to stage with
+`put_blob` it does not have, a manager gets JSON-RPC -32601, reads the same instruction again
+in the resolver's refusal, and burns turns. Passed, the text and the refusals name the grant
+as a fact instead of an assumption. Omit and they name it as a condition.
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
@@ -5823,6 +5836,16 @@ after `intervalMs`; `completed` / `failed` settle the record.
 ### AnalystToolGroupName
 
 > **AnalystToolGroupName** = *typeof* [`analystToolGroupNames`](#analysttoolgroupnames)\[`number`\]
+
+***
+
+### SpawnStagingGrant
+
+> **SpawnStagingGrant** = `"granted"` \| `"ungranted"` \| `"unknown"`
+
+What the published `spawn_worker` text may claim about the staging verb: `granted` names it as
+ a fact, `ungranted` says it is not available, `unknown` states the condition. The caller of
+ [createCoordinationTools](#createcoordinationtools) decides which, by passing `grantedToolNames` or not.
 
 ***
 
@@ -8047,6 +8070,18 @@ Re-exports [QuestionEscalationRecord](runtime.md#questionescalationrecord)
 
 ***
 
+### SpawnResourceBounds
+
+Re-exports [SpawnResourceBounds](runtime.md#spawnresourcebounds)
+
+***
+
+### StagedBlobRecord
+
+Re-exports [StagedBlobRecord](runtime.md#stagedblobrecord)
+
+***
+
 ### WorkerSpawnContext
 
 Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
@@ -8056,6 +8091,30 @@ Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
 ### WorkerWatchOptions
 
 Re-exports [WorkerWatchOptions](runtime.md#workerwatchoptions)
+
+***
+
+### SpawnBlobLimits
+
+Re-exports [SpawnBlobLimits](runtime.md#spawnbloblimits)
+
+***
+
+### SpawnBlobPutOutcome
+
+Re-exports [SpawnBlobPutOutcome](runtime.md#spawnblobputoutcome)
+
+***
+
+### SpawnBlobStats
+
+Re-exports [SpawnBlobStats](runtime.md#spawnblobstats)
+
+***
+
+### SpawnBlobStore
+
+Re-exports [SpawnBlobStore](runtime.md#spawnblobstore)
 
 ***
 

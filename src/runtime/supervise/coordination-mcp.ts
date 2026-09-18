@@ -467,6 +467,10 @@ export async function serveCoordinationMcp(
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
     ...(opts.spawnResources ? { spawnResources: opts.spawnResources } : {}),
+    // The grant is known here and nowhere below it, so the descriptors this server serves can
+    // name `put_blob` as a fact rather than telling every manager to call a verb that may not be
+    // in its tool list (which answers -32601, one wasted turn, then another on the refusal).
+    ...(Array.isArray(opts.toolNames) ? { grantedToolNames: opts.toolNames } : {}),
     ...(opts.peerMail
       ? {
           peerMail:

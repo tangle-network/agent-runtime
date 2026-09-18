@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
 import { ConfigError } from '../../src/errors'
 import type { McpToolDescriptor } from '../../src/mcp/server'
-import { createCoordinationTools, type JournalPage } from '../../src/mcp/tools/coordination'
+import {
+  createCoordinationTools,
+  type JournalPage,
+  type SpawnResourceBounds,
+} from '../../src/mcp/tools/coordination'
 import {
   decodeSpawnBlobBase64,
   InMemorySpawnBlobStore,
@@ -13,9 +17,13 @@ import {
   type SpawnBlobStore,
   spawnBlobRef,
 } from '../../src/mcp/tools/spawn-blob-store'
-import { resolveSpawnResources } from '../../src/mcp/tools/spawn-resource-paths'
+import {
+  resolveSpawnResources,
+  SPAWN_RESOURCE_MAX_RESOLVED,
+} from '../../src/mcp/tools/spawn-resource-paths'
 import type { Budget, ResultBlobStore, Scope, Spend } from '../../src/runtime'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
+import { authoredProfileDigest } from '../../src/runtime/supervise/materialization'
 import { alignedTableModule } from '../helpers/aligned-table-module'
 
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
@@ -65,8 +73,9 @@ interface Toolbox {
 }
 
 function toolbox(options?: {
-  spawnResources?: Record<string, number>
+  spawnResources?: SpawnResourceBounds
   spy?: { spawned: number }
+  grantedToolNames?: readonly string[]
 }): Toolbox {
   const received: AgentProfile[] = []
   const tools = createCoordinationTools({
@@ -78,6 +87,7 @@ function toolbox(options?: {
     },
     perWorker: { maxIterations: 1, maxTokens: 10 },
     ...(options?.spawnResources ? { spawnResources: options.spawnResources } : {}),
+    ...(options?.grantedToolNames ? { grantedToolNames: options.grantedToolNames } : {}),
   })
   const put = tools.tools.find((t) => t.name === 'put_blob')
   const spawn = tools.tools.find((t) => t.name === 'spawn_worker')
@@ -221,6 +231,10 @@ describe('put_blob', () => {
       ['bad alphabet', { ...good, contentBase64: '****' }, 'invalid-blob-encoding'],
       ['201-char name', { ...good, name: 'n'.repeat(201) }, 'invalid-blob-name'],
       ['control char name', { ...good, name: controlName }, 'invalid-blob-name'],
+      // A blank label prints as nothing beside the digest, which defeats the one row that makes a
+      // staged-but-never-referenced file findable.
+      ['whitespace-only name', { ...good, name: '  ' }, 'invalid-blob-name'],
+      ['tab and newline name', { ...good, name: '\t\n' }, 'invalid-blob-name'],
       ['drop plus stage', { ...good, drop: good.sha256 }, 'invalid-blob-request'],
       ['no fields at all', {}, 'invalid-blob-request'],
       ['missing contentBase64', { name: good.name, sha256: good.sha256 }, 'invalid-blob-request'],
@@ -297,9 +311,9 @@ describe('put_blob', () => {
     // to produce never happens and the run pays for a sandbox to learn the same thing.
     const box = toolbox({ spawnResources: { maxContentBytes: 16_384 } })
     const big = Buffer.from('y'.repeat(20_000))
-    expect(
-      ((await box.put.handler(stageArgs(big, 'big.py'))) as Record<string, unknown>).stored,
-    ).toBe(true)
+    // Put straight into the store, which is what a blob staged before the bound was set looks
+    // like: the spawn arm must refuse it on its own, not rely on put_blob having caught it.
+    box.tools.blobStore().put(spawnBlobRef(big), big)
     const refused = (await box.spawn.handler({
       profile: blobProfile(spawnBlobRef(big)),
       task: 'go',
@@ -316,6 +330,26 @@ describe('put_blob', () => {
       task: 'go',
     })) as Record<string, unknown>
     expect(admitted.workerId).toBe('w0')
+  })
+
+  it('refuses a file over maxContentBytes on the call that carried it, not one call later', async () => {
+    // Same principle as the UTF-8 check two lines above it in the handler: the manager learns the
+    // file cannot be mounted on the call that carried the file, instead of after staging six more
+    // and paying a spawn round trip. An oversize blob also never charges the store's budget.
+    const box = toolbox({ spawnResources: { maxContentBytes: 16_384 } })
+    const big = Buffer.from('y'.repeat(20_000))
+    const refused = (await box.put.handler(stageArgs(big, 'big.py'))) as Record<string, unknown>
+    expect(refused.error).toBe('blob-over-content-bound')
+    expect(refused.reason).toContain('20000 bytes')
+    expect(refused.reason).toContain('16384 bytes')
+    expect(refused.reason).toContain('tangle-network/agent-sdk#340')
+    expect(box.tools.blobStore().stats()).toMatchObject({ blobs: 0, bytes: 0 })
+    expect(box.tools.history().filter((r) => r.event.type === 'blob-staged')).toHaveLength(0)
+    // Exactly at the bound still stages.
+    const exact = Buffer.from('z'.repeat(16_384))
+    expect(
+      ((await box.put.handler(stageArgs(exact, 'exact.py'))) as Record<string, unknown>).stored,
+    ).toBe(true)
   })
 
   it('drops a held blob and reports an unheld one honestly', async () => {
@@ -490,6 +524,160 @@ describe('the resolver refuses a reference it cannot prove', () => {
   })
 })
 
+// ── The aggregate: one small store must not become gigabytes of heap ──────────────────────────
+
+describe('one spawn cannot amplify a staged blob into unbounded memory', () => {
+  const bytes = Buffer.from('print(1)\n')
+  const ref = spawnBlobRef(bytes)
+  const refs = (count: number) => ({
+    name: 'amplifier',
+    resources: {
+      files: Array.from({ length: count }, (_, i) => ({
+        path: `f${i}.py`,
+        resource: { kind: 'inline', name: `f${i}`, blob: ref },
+      })),
+    },
+  })
+
+  it('refuses more resolved references than one spawn may carry, before any child exists', async () => {
+    const spy = { spawned: 0 }
+    const box = toolbox({ spy })
+    await box.put.handler(stageArgs(bytes))
+    const refused = (await box.spawn.handler({
+      profile: refs(SPAWN_RESOURCE_MAX_RESOLVED + 1),
+      task: 'go',
+    })) as Record<string, string>
+    expect(refused.error).toBe('invalid-profile')
+    expect(refused.reason).toContain(String(SPAWN_RESOURCE_MAX_RESOLVED))
+    expect(spy.spawned).toBe(0)
+    // One under the bound still resolves every reference.
+    const admitted = (await box.spawn.handler({
+      profile: refs(SPAWN_RESOURCE_MAX_RESOLVED),
+      task: 'go',
+    })) as Record<string, unknown>
+    expect(admitted.workerId).toBe('w0')
+    expect((admitted.resourcesFromBlob as unknown[]).length).toBe(SPAWN_RESOURCE_MAX_RESOLVED)
+  })
+
+  it('refuses when the resolved total crosses the byte bound, whatever each reference costs', async () => {
+    const box = toolbox({ spawnResources: { maxTotalContentBytes: bytes.length * 3 } })
+    await box.put.handler(stageArgs(bytes))
+    const ok = (await box.spawn.handler({ profile: refs(3), task: 'go' })) as Record<
+      string,
+      unknown
+    >
+    expect(ok.workerId).toBe('w0')
+    const refused = (await box.spawn.handler({ profile: refs(4), task: 'go' })) as Record<
+      string,
+      string
+    >
+    expect(refused.error).toBe('invalid-profile')
+    expect(refused.reason).toContain(`${bytes.length * 3} bytes`)
+    expect(refused.reason).toContain('files[3].resource')
+  })
+
+  it('bounds the resolver itself, so no caller can opt out by not setting an option', async () => {
+    const store = new InMemorySpawnBlobStore()
+    store.put(ref, bytes)
+    const over = await resolveSpawnResources(refs(SPAWN_RESOURCE_MAX_RESOLVED + 1), {
+      blobs: store,
+    })
+    expect(over.ok).toBe(false)
+    if (over.ok) return
+    expect(over.at).toBe(`files[${SPAWN_RESOURCE_MAX_RESOLVED}].resource`)
+  })
+})
+
+// ── The transport the model falls back to ─────────────────────────────────────────────────────
+
+describe('maxContentBytes covers content the model typed into the call', () => {
+  const typed = (content: string) => ({
+    name: 'typed',
+    resources: {
+      files: [{ path: 'probe.py', resource: { kind: 'inline', name: 'probe', content } }],
+    },
+  })
+
+  it('refuses an oversize typed resource before the profile reaches the provider', async () => {
+    const box = toolbox({ spawnResources: { maxContentBytes: 16_384 } })
+    const refused = (await box.spawn.handler({
+      profile: typed('y'.repeat(20_000)),
+      task: 'go',
+    })) as Record<string, string>
+    expect(refused.error).toBe('invalid-profile')
+    expect(refused.reason).toContain('20000 bytes')
+    expect(refused.reason).toContain('16384 bytes')
+    expect(refused.reason).toContain('tangle-network/agent-sdk#340')
+    const admitted = (await box.spawn.handler({
+      profile: typed('z'.repeat(16_384)),
+      task: 'go',
+    })) as Record<string, unknown>
+    expect(admitted.workerId).toBe('w0')
+  })
+
+  it('leaves a typed resource untouched when no bound is set', async () => {
+    const result = await resolveSpawnResources(typed('hello'), {})
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // Same reference back: nothing was substituted, so the caller pays nothing.
+    expect(result.profile).toBe(result.profile)
+    expect(result.resolved).toEqual([])
+    expect(result.resolvedBlobs).toEqual([])
+  })
+})
+
+// ── The grant is what decides whether put_blob may be named ───────────────────────────────────
+
+describe('a manager is told to stage only when it holds the staging verb', () => {
+  const resourcesText = (box: Toolbox): string => {
+    const profile = (box.spawn.inputSchema as { properties?: Record<string, unknown> }).properties
+      ?.profile as { properties?: Record<string, { description?: string }> }
+    return profile.properties?.resources?.description ?? ''
+  }
+
+  it('names put_blob unconditionally only when the granted set contains it', () => {
+    const granted = resourcesText(toolbox({ grantedToolNames: ['spawn_worker', 'put_blob'] }))
+    expect(granted).toContain('stage each file from bash with put_blob')
+
+    const ungranted = resourcesText(toolbox({ grantedToolNames: ['spawn_worker'] }))
+    expect(ungranted).not.toContain('use the blob form')
+    expect(ungranted).toContain('put_blob')
+    expect(ungranted).toContain('did not grant you put_blob')
+
+    // No granted set declared: the sentence names the condition instead of assuming it.
+    const unknown = resourcesText(toolbox())
+    expect(unknown).toContain('if your tools include put_blob')
+  })
+
+  it('does not send an ungranted manager to a verb it cannot call when a path fails', async () => {
+    const ungranted = toolbox({ grantedToolNames: ['spawn_worker'] })
+    const refused = (await ungranted.spawn.handler({
+      profile: {
+        name: 'p',
+        resources: {
+          files: [{ path: 'a.py', resource: { kind: 'inline', name: 'a', path: 'a.py' } }],
+        },
+      },
+      task: 'go',
+    })) as Record<string, string>
+    expect(refused.error).toBe('invalid-profile')
+    expect(refused.reason).toContain('no workspace root')
+    expect(refused.reason).not.toContain('stage the file from bash with put_blob')
+
+    const unknown = toolbox()
+    const advised = (await unknown.spawn.handler({
+      profile: {
+        name: 'p',
+        resources: {
+          files: [{ path: 'a.py', resource: { kind: 'inline', name: 'a', path: 'a.py' } }],
+        },
+      },
+      task: 'go',
+    })) as Record<string, string>
+    expect(advised.reason).toContain('if your tools include put_blob')
+  })
+})
+
 // ── Ordering: nothing is created before the refusal ───────────────────────────────────────────
 
 describe('an unresolvable blob is refused before a child exists', () => {
@@ -593,6 +781,34 @@ describe('one manager cannot reference a blob another manager staged', () => {
   })
 })
 
+// ── Why a completed key still has to re-stage after a restart ─────────────────────────────────
+
+describe('a keyed assignment is an identity claim over the bytes it mounted', () => {
+  it('gives a different profile identity for a different staged file', async () => {
+    // Why `spawn_worker` resolves a blob reference even under an already-completed key: the key's
+    // recorded `NodeExecutionIdentity` carries `authoredProfileDigest`, which covers the RESOLVED
+    // resource content (scope.ts:746-754 refuses a reuse whose identity differs, `key-conflict`).
+    // Answering a completed key before resolution would return a prior result for a materially
+    // different child. A restarted manager re-stages the same bytes — the address IS the content,
+    // so the digest and the identity come back identical and nothing runs again.
+    const store = new InMemorySpawnBlobStore()
+    const first = Buffer.from('print("a")\n')
+    const second = Buffer.from('print("b")\n')
+    store.put(spawnBlobRef(first), first)
+    store.put(spawnBlobRef(second), second)
+    const resolveFor = async (ref: string) => {
+      const result = await resolveSpawnResources(blobProfile(ref), { blobs: store })
+      if (!result.ok) throw new Error(result.reason)
+      return authoredProfileDigest(result.profile)
+    }
+    const a = await resolveFor(spawnBlobRef(first))
+    const b = await resolveFor(spawnBlobRef(second))
+    expect(a).toBeDefined()
+    expect(a).not.toBe(b)
+    expect(await resolveFor(spawnBlobRef(first))).toBe(a)
+  })
+})
+
 // ── The pure store and its parsers ────────────────────────────────────────────────────────────
 
 describe('spawn blob store primitives', () => {
@@ -624,6 +840,30 @@ describe('spawn blob store primitives', () => {
     expect(() => new InMemorySpawnBlobStore({ maxBlobs: 0 })).toThrow(ConfigError)
     expect(() => new InMemorySpawnBlobStore({ maxBlobBytes: 1.5 })).toThrow(ConfigError)
     expect(() => new InMemorySpawnBlobStore({ maxBlobTotalBytes: -1 })).toThrow(ConfigError)
+  })
+
+  it('validates every spawnResources bound at construction, not at resolve time', () => {
+    // `maxContentBytes: 0` used to refuse every resource while naming a nonsense ceiling, and
+    // `NaN` used to disable the fence silently, because every comparison against NaN is false.
+    for (const bounds of [
+      { maxContentBytes: 0 },
+      { maxContentBytes: Number.NaN },
+      { maxContentBytes: -1 },
+      { maxContentBytes: 1.5 },
+      { maxResolvedResources: 0 },
+      { maxTotalContentBytes: Number.NaN },
+    ] as const) {
+      expect(() => toolbox({ spawnResources: bounds }), JSON.stringify(bounds)).toThrow(ConfigError)
+    }
+    expect(() =>
+      toolbox({
+        spawnResources: {
+          maxContentBytes: 16_384,
+          maxResolvedResources: 8,
+          maxTotalContentBytes: 1024,
+        },
+      }),
+    ).not.toThrow()
   })
 
   it('clears every held blob', () => {

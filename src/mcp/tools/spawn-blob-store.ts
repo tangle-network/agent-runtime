@@ -109,7 +109,24 @@ export function decodeSpawnBlobBase64(value: string): Buffer | undefined {
   return bytes.toString('base64') === compact ? bytes : undefined
 }
 
+/**
+ * Every `spawnResources` bound is a positive safe integer or a construction failure.
+ *
+ * `0` silently refuses every resource while naming a nonsense ceiling, and `NaN` disables the
+ * fence entirely because every comparison against it is false — both are what a computed config
+ * value produces when its own arithmetic went wrong, and both fail OPEN or fail useless at the
+ * moment the bound was supposed to speak. Refusing at construction is the only place the caller
+ * can still act on it.
+ */
+export function assertSpawnResourceBound(name: string, value: number | undefined): void {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new ConfigError(`spawnResources ${name} must be a positive safe integer`)
+  }
+}
+
 function bound(name: string, value: number | undefined, fallback: number): number {
+  assertSpawnResourceBound(name, value)
   const resolved = value ?? fallback
   if (!Number.isSafeInteger(resolved) || resolved <= 0) {
     throw new ConfigError(`spawnResources ${name} must be a positive safe integer`)
