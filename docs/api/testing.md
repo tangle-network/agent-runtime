@@ -174,6 +174,12 @@ Pre-journal profile resolution for `preflightSpawn`; see
 
 See `CoordinationToolsOptions.spawnResourceRoot`.
 
+##### spawnResourceReader?
+
+> `readonly` `optional` **spawnResourceReader?**: [`SpawnResourceReader`](mcp.md#spawnresourcereader-1)
+
+See `CoordinationToolsOptions.spawnResourceReader`.
+
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
@@ -2742,6 +2748,18 @@ See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`spawnResourceRoot`](runtime.md#spawnresourceroot)
+
+##### spawnResourceReader?
+
+> `readonly` `optional` **spawnResourceReader?**: [`SpawnResourceReader`](mcp.md#spawnresourcereader-1)
+
+See `CoordinationToolsOptions.spawnResourceReader`: the manager's own environment as the
+ source of a by-path resource, for a manager whose workspace is a sandbox this process
+ cannot open.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`spawnResourceReader`](runtime.md#spawnresourcereader)
 
 ##### peerMail?
 

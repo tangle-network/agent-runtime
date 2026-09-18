@@ -4081,6 +4081,16 @@ server substitutes the file's bytes as `content` BEFORE the canonical schema see
 profile, so the model's own output never carries them. Omit = a resource by path is refused
 with the reason; see `spawn-resource-paths.ts` for the measurement that motivates it.
 
+##### spawnResourceReader?
+
+> `readonly` `optional` **spawnResourceReader?**: [`SpawnResourceReader`](#spawnresourcereader-1)
+
+Where a by-path resource's bytes come from when the manager's workspace is NOT a directory
+this process can open: a manager inside a provider sandbox, whose files only the provider can
+serve. Built with `environmentReader(environment)` from the manager's own `AgentEnvironment`.
+Takes precedence over `spawnResourceRoot` when both are set, because a sandbox manager's files
+are on its box, not on this host. Omit and `spawnResourceRoot` applies as before.
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
@@ -4517,6 +4527,82 @@ Restrict the run to this subset of models.
 ##### queue
 
 > **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
+
+***
+
+### SpawnResourceBytes
+
+One successful read: the bytes as a string plus the identity the journal records.
+
+#### Properties
+
+##### content
+
+> `readonly` **content**: `string`
+
+##### byteLength
+
+> `readonly` **byteLength**: `number`
+
+##### sha256
+
+> `readonly` **sha256**: `string`
+
+***
+
+### SpawnResourceReader
+
+Where a by-path resource's bytes come from. `describe` names the source in a refusal so a
+manager reading "path X does not exist under the workspace root" and "path X: sandbox read
+failed" can tell which filesystem was consulted.
+
+#### Properties
+
+##### describe
+
+> `readonly` **describe**: `string`
+
+#### Methods
+
+##### read()
+
+> **read**(`path`): `Promise`\<[`SpawnResourceRead`](#spawnresourceread)\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnResourceRead`](#spawnresourceread)\>
+
+***
+
+### ResolvedSpawnResourcePath
+
+#### Properties
+
+##### at
+
+> `readonly` **at**: `string`
+
+The `resources` location, e.g. `files[0].resource` or `skills[2]`.
+
+##### path
+
+> `readonly` **path**: `string`
+
+The path as the manager wrote it.
+
+##### byteLength
+
+> `readonly` **byteLength**: `number`
+
+##### sha256
+
+> `readonly` **sha256**: `string`
 
 ***
 
@@ -5817,6 +5903,18 @@ The synchronous result the `delegate` tool returns to the calling agent: the del
 
 ***
 
+### SpawnResourceRead
+
+> **SpawnResourceRead** = `object` & [`SpawnResourceBytes`](#spawnresourcebytes) \| \{ `ok`: `false`; `reason`: `string`; \}
+
+***
+
+### ResolveSpawnResourcePathsResult
+
+> **ResolveSpawnResourcePathsResult** = \{ `ok`: `true`; `profile`: `unknown`; `resolved`: readonly [`ResolvedSpawnResourcePath`](#resolvedspawnresourcepath)[]; \} \| \{ `ok`: `false`; `at`: `string`; `reason`: `string`; \}
+
+***
+
 ### DelegationProfile
 
 > **DelegationProfile** = *typeof* [`delegationProfiles`](#delegationprofiles)\[`number`\]
@@ -6722,6 +6820,53 @@ JSON Schema for `delegation_status` tool arguments (`taskId` + optional `include
 ##### additionalProperties
 
 > `readonly` **additionalProperties**: `false` = `false`
+
+***
+
+### SPAWN\_RESOURCE\_PATH\_MAX\_BYTES
+
+> `const` **SPAWN\_RESOURCE\_PATH\_MAX\_BYTES**: `number`
+
+Inline resources a manager hands a child by PATH instead of by content.
+
+The canonical profile schema knows two resource kinds, `inline` (a content string) and `github`.
+A manager that wants a child to receive a data file therefore had one way to do it: emit the
+bytes inside its own `spawn` tool call. That is a transcription by a language model, and it does
+not survive size. Measured 2026-09-12 (discovery-lab `mech-interp-foundations-glm2-b-20260912b`):
+a 29,144-character base64 payload on the manager's disk reached three children as 15,928
+characters with 11 substitutions, and a fourth child received the literal placeholder the
+manager meant to replace. Seven blind-check attempts across two runs delivered no data.
+
+`{ kind: 'inline', name, path }` lets the coordination server be the transport: it reads the
+file from the manager's workspace, fills `content`, and the profile that reaches the schema,
+the journal, and the provider is an ordinary inline resource. Nothing downstream changes; the
+model's output stops carrying the bytes.
+
+Where the bytes come from is a [SpawnResourceReader](#spawnresourcereader-1), and there are two:
+ - a HOST DIRECTORY, for a manager whose driver runs on this host (a loopback bridge with a
+   `cwd`), read through the descriptor-identity checks below;
+ - the manager's OWN EXECUTION ENVIRONMENT, for a manager inside a provider sandbox, read
+   through the environment's `read()`. The coordination server cannot see a sandbox filesystem,
+   but the provider that created the sandbox can, and it is already in hand.
+
+The second reader exists because the first one's absence was not a refusal a manager could
+work around. Measured 2026-09-17 (discovery-lab `mech-interp-foundations-sandbox-a-20260917h`):
+a sandbox-rooted director, refused by path, fell back to emitting its files as content and got
+5 characters wrong in 24,008, destroying 3 of 7 files including its instrument and both
+drivers. At that rate 20 KB of mounts all arrive intact about 2% of the time, and gzip makes it
+worse by turning one wrong character into total loss. Four consecutive runs in that lane lost
+their research children to this. There is no encoding that fixes a transcription channel; the
+only fix is a channel with no model in it.
+
+Fail-closed rules, each with the reason a manager needs to fix its call:
+ - no reader available → refused (neither a host directory nor an environment with `read`)
+ - absolute path or `..` escape → refused by both readers; a symlink that resolves outside the
+   root → refused by the host reader (the environment reader delegates containment to the
+   provider, which serves only the sandbox's own workspace)
+ - not a regular file → refused
+ - over [SPAWN\_RESOURCE\_PATH\_MAX\_BYTES](#spawn_resource_path_max_bytes) → refused naming the bound
+ - bytes that are not valid UTF-8 → refused; `content` is a string, so binary data is encoded
+   (base64) by the manager first, exactly as it would be for a content resource
 
 ***
 
@@ -7726,6 +7871,80 @@ Build the MCP tool handler that polls a `DelegationTaskQueue` for task status.
 #### Returns
 
 (`raw`) => `Promise`\<[`DelegationStatusResult`](#delegationstatusresult)\>
+
+***
+
+### hostDirectoryReader()
+
+> **hostDirectoryReader**(`root`): [`SpawnResourceReader`](#spawnresourcereader-1)
+
+The host-directory reader: a manager whose workspace is a directory this process can open.
+
+#### Parameters
+
+##### root
+
+`string`
+
+#### Returns
+
+[`SpawnResourceReader`](#spawnresourcereader-1)
+
+***
+
+### environmentReader()
+
+> **environmentReader**(`environment`): [`SpawnResourceReader`](#spawnresourcereader-1)
+
+The environment reader: a manager running inside a provider environment whose `read()` serves
+its own workspace. The provider owns containment — it will not serve a path outside the box —
+but the relative-path and `..` rules are enforced here too, so the refusal names the rule the
+manager broke rather than whatever the provider says about an escape it declined.
+
+`read()` returns a string, so an environment cannot hand back bytes that are not UTF-8; the
+provider has already decoded. The size bound is checked on what arrives.
+
+#### Parameters
+
+##### environment
+
+###### id
+
+`string`
+
+###### read
+
+#### Returns
+
+[`SpawnResourceReader`](#spawnresourcereader-1)
+
+***
+
+### resolveSpawnResourcePaths()
+
+> **resolveSpawnResourcePaths**(`profile`, `source`): `Promise`\<[`ResolveSpawnResourcePathsResult`](#resolvespawnresourcepathsresult)\>
+
+Replace every `{ kind: 'inline', name, path }` under `profile.resources` with the inline
+resource its bytes make. Returns the profile unchanged (same reference) when nothing names a
+path, so callers pay nothing on the common case.
+
+`source` is a host directory (a string, kept for the existing call sites), a
+[SpawnResourceReader](#spawnresourcereader-1), or `undefined` when the manager has neither — in which case a path
+is refused with the reason and what to do instead.
+
+#### Parameters
+
+##### profile
+
+`unknown`
+
+##### source
+
+`string` \| [`SpawnResourceReader`](#spawnresourcereader-1) \| `undefined`
+
+#### Returns
+
+`Promise`\<[`ResolveSpawnResourcePathsResult`](#resolvespawnresourcepathsresult)\>
 
 ***
 
