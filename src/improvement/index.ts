@@ -2,8 +2,8 @@
  * `@tangle-network/agent-runtime` improvement.
  *
  * The public entry point is `improve()`. Complete agent-eval methods optimize
- * profile surfaces. Runtime owns only code candidates that mutate an isolated
- * git worktree through a pluggable `CandidateGenerator`.
+ * profile surfaces. Runtime owns isolated code candidates and trainer execution
+ * that returns checkpoint receipts, not promotion decisions.
  */
 
 export {
@@ -25,6 +25,15 @@ export {
   toolBuildPrompt,
 } from './build-prompts'
 export {
+  createCommandProfileTrainer,
+  type CheckpointServingPort,
+  type ControlledTrainingCommand,
+  type ImproveTrainingOptions,
+  type ImproveTrainingResult,
+  type ProfileTrainer,
+  type ProfileTrainerRequest,
+  type TrainingBoundaryResult,
+  type TrainingDatasetDocument,
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
   type ImproveCodeBaseOptions,
@@ -86,6 +95,7 @@ export {
   createProfileImprovementHarness,
   type ProfileImprovementHarness,
   type ProfileImprovementHarnessRunOptions,
+  type ProfileImprovementHarnessTrainOptions,
 } from './profile-improvement-harness'
 export type { DeepReadonly, ReadonlyAgentProfile } from './profile-types'
 export {
