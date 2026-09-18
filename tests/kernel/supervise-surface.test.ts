@@ -52,6 +52,7 @@ describe('superviseSurface trace evidence', () => {
 
     await traced.surface.call(handle, 'read_file', { path: 'tests.ts' })
     await traced.surface.call(handle, 'run_tests', {})
+    await traced.surface.call(handle, 'run_tests', {})
     await expect(traced.surface.call(handle, 'explode', { reason: 'test' })).rejects.toThrow(
       'tool exploded',
     )
@@ -319,7 +320,7 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
     expect(seats).toEqual(['anthropic/claude-opus-4'])
 
     // Registered under the id the manager chose, at a version derived from the definition itself —
-    // the same words always compile to the same version, two different wordings cannot share one.
+    // the same words always compile to the same version, so a finding names the exact text.
     const entry = registry.list().find((analyst) => analyst.id === 'handoff-loss')
     expect(entry?.version).toMatch(/^1\.0\.0\+authored\.[0-9a-f]{12}$/)
 
