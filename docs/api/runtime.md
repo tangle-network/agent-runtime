@@ -13617,7 +13617,7 @@ Caller-owned secret keys. Keep prior keys to verify unexpired credentials after 
 
 > `readonly` **signal**: `AbortSignal`
 
-Manager cancellation and deadline; pass this to asynchronous endpoint provisioning.
+Listener lifetime: aborts on close, failed setup, manager cancellation, or deadline.
 
 ***
 

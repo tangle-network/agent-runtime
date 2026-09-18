@@ -121,7 +121,7 @@ export interface CoordinationPublicAddress {
   readonly port: number
   readonly runId: string
   readonly actorId: string
-  /** Manager cancellation and deadline; pass this to asynchronous endpoint provisioning. */
+  /** Listener lifetime: aborts on close, failed setup, manager cancellation, or deadline. */
   readonly signal: AbortSignal
 }
 
@@ -543,6 +543,16 @@ export async function serveCoordinationMcp(
     })
   })
 
+  const addressLifetime = new AbortController()
+  const abortAddress = () => addressLifetime.abort(opts.scope.signal.reason)
+  opts.scope.signal.addEventListener('abort', abortAddress, { once: true })
+  if (opts.scope.signal.aborted) abortAddress()
+  const releaseAddress = () => {
+    opts.scope.signal.removeEventListener('abort', abortAddress)
+    if (!addressLifetime.signal.aborted)
+      addressLifetime.abort(new Error('coordination listener closed'))
+  }
+
   const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
   const localUrl = `http://${urlHost}:${port}/mcp`
   let url: string
@@ -551,7 +561,7 @@ export async function serveCoordinationMcp(
     const configured =
       typeof resolver === 'function'
         ? await runAbortable(
-            async () => resolver({ host, port, ...identity, signal: opts.scope.signal }),
+            async () => resolver({ host, port, ...identity, signal: addressLifetime.signal }),
             opts.scope.signal,
             'coordination public address resolution aborted',
           )
@@ -592,6 +602,7 @@ export async function serveCoordinationMcp(
       })
     }
   } catch (error) {
+    releaseAddress()
     closed = true
     await new Promise<void>((resolve) => {
       server.close(() => resolve())
@@ -623,6 +634,7 @@ export async function serveCoordinationMcp(
     mailHistory: () => mailbox?.history() ?? [],
     stopMailThread: (threadId) => mailbox?.stopThread(threadId) ?? false,
     close: async () => {
+      releaseAddress()
       closed = true
       await new Promise<void>((resolve) => {
         server.close(() => resolve())

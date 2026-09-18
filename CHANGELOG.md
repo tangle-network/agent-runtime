@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.241.1
+
+Coordination public-address signals now end when their listener closes or setup fails, as well as on manager cancellation. Hosted ingress adapters can retire a route before its local port is reused, without changing authentication, execution policy or agent capabilities.
+
 ## 0.241.0
 
 **`exportEvalRuns` no longer invents an accepted count.** When Tangle Intelligence answered with a non-JSON body (a proxy error page, an empty 5xx), the exporter left the parsed acknowledgement empty and reported `accepted: events.length` on any 2xx, so a consumer asserting that its provenance landed could pass on an acknowledgement that never existed. The acknowledgement is now validated against the batch that was sent: `accepted` must be a bounded integer, every rejection must carry a unique in-range index and a nonempty reason, and `accepted + rejected.length` must account for every submitted event. An unreadable, malformed or incomplete acknowledgement throws with the HTTP status; a failed HTTP response that claims accepted events throws; partial acceptance resolves with `ok: false` and the validated rejections. A whitespace-only API key is refused like a missing one. blueprint-agent deletes its duplicate wire types and ingest client and imports this exporter.
