@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.240.0
+
+**`exportEvalRuns` no longer invents an accepted count.** When Tangle Intelligence answered with a non-JSON body (a proxy error page, an empty 5xx), the exporter left the parsed acknowledgement empty and reported `accepted: events.length` on any 2xx, so a consumer asserting that its provenance landed could pass on an acknowledgement that never existed. The acknowledgement is now validated against the batch that was sent: `accepted` must be a bounded integer, every rejection must carry a unique in-range index and a nonempty reason, and `accepted + rejected.length` must account for every submitted event. An unreadable, malformed or incomplete acknowledgement throws with the HTTP status; a failed HTTP response that claims accepted events throws; partial acceptance resolves with `ok: false` and the validated rejections. A whitespace-only API key is refused like a missing one. blueprint-agent deletes its duplicate wire types and ingest client and imports this exporter.
+
 ## 0.239.0
 
 **A manager inside a sandbox can hand a child a file by path.** `{ kind: 'inline', name, path }` under a spawn's `profile.resources` resolved only from a host directory, which a manager in a provider environment does not have; it was refused with "pass content, or a github resource". `content` puts the bytes back through the model's own output, and that is a transcription that does not survive size. Measured 2026-09-17 on discovery-lab `mech-interp-foundations-sandbox-a-20260917h`: a sandbox-rooted director emitted 24,008 characters of gzip+base64 across two spawns and got five wrong, destroying three of seven files including its instrument and both drivers. At that rate about 20 KB of mounts all arrive intact roughly 2% of the time, and gzip removes local detectability so one wrong character loses the whole file. Four consecutive runs in that lane lost their research children to this.
