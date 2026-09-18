@@ -47,6 +47,7 @@ import {
   type SpawnPreflight,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { ToolSpec } from '../router-client'
 import {
   runBrainLoop,
@@ -71,6 +72,7 @@ import { createInbox, type Inbox } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import { addResourceSpend, withBudgetResources } from './resources'
+import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 import { applyRunCancellation } from './run-cancellation'
 import {
   claimWorkerSteerDelivery,
@@ -158,6 +160,8 @@ export interface DriverAgentOptions {
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** See `CoordinationToolsOptions.spawnResourceRoot`. */
   readonly spawnResourceRoot?: string
+  /** See `CoordinationToolsOptions.spawnResourceReader`. */
+  readonly spawnResourceReader?: SpawnResourceReader
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -905,6 +909,17 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       return inbox.deliver(message)
     },
     async act(task, scope: Scope<unknown>): Promise<unknown> {
+      // The manager's own environment is the source for a by-path spawn resource when no host
+      // directory serves it. Every scope registers a retained owner, so the reader is derivable
+      // here for the root and for a nested manager alike, and it resolves its environment lazily
+      // because the environment is admitted during the first turn, after these tools exist.
+      //
+      // Precedence, in order: a caller-supplied reader; a host directory (a loopback bridge root
+      // has one and no provider environment, so its scope's owner reader would refuse every read);
+      // the scope's own environment. The host root is left in place below as before.
+      const ownerReader =
+        opts.spawnResourceReader ??
+        (opts.spawnResourceRoot === undefined ? scopeRetainedOwnerResourceReader(scope) : undefined)
       const coord = createCoordinationTools({
         scope,
         blobs: opts.blobs,
@@ -921,6 +936,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
         ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
+        ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
         ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),

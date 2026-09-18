@@ -20529,6 +20529,14 @@ Pre-journal profile resolution for `preflightSpawn`: the authored profile → th
 See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
  `path` resolves under. Set only for a manager whose workspace this process can read.
 
+##### spawnResourceReader?
+
+> `readonly` `optional` **spawnResourceReader?**: [`SpawnResourceReader`](mcp.md#spawnresourcereader-1)
+
+See `CoordinationToolsOptions.spawnResourceReader`: the manager's own environment as the
+ source of a by-path resource, for a manager whose workspace is a sandbox this process
+ cannot open.
+
 ##### peerMail?
 
 > `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>; \}

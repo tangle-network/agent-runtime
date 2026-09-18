@@ -45,6 +45,7 @@ import {
   type SpawnPreflight,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { runAbortable } from './abortable'
 import {
   type CoordinationHttpOptions,
@@ -52,6 +53,7 @@ import {
   coordinationHttpLimits,
 } from './coordination-http'
 import { preflightPublicCoordination } from './coordination-preflight'
+import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 import { singleFlightTools } from './single-flight-tools'
 
 export type { CoordinationHttpAudit, CoordinationHttpOptions } from './coordination-http'
@@ -285,6 +287,8 @@ export async function serveCoordinationMcp(
     resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
     /** See `CoordinationToolsOptions.spawnResourceRoot`. */
     spawnResourceRoot?: string
+    /** See `CoordinationToolsOptions.spawnResourceReader`. */
+    spawnResourceReader?: SpawnResourceReader
     /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
      *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
      *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
@@ -405,6 +409,15 @@ export async function serveCoordinationMcp(
   }
   const audiences = new Set<string>()
   const paths = new Set(['/mcp'])
+  // Same precedence as the router arm in coordination-driver: a caller-supplied reader, else a
+  // host directory, else the manager's own environment through its scope's retained owner. A
+  // provider-backed root and every nested manager come through THIS arm, so a fallback wired
+  // only in the driver arm would leave a sandbox director refused by path exactly as before.
+  const ownerReader =
+    opts.spawnResourceReader ??
+    (opts.spawnResourceRoot === undefined
+      ? scopeRetainedOwnerResourceReader(opts.scope)
+      : undefined)
   const coord = createCoordinationTools({
     scope: opts.scope,
     blobs: opts.blobs,
@@ -433,6 +446,7 @@ export async function serveCoordinationMcp(
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
+    ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
     ...(opts.peerMail
       ? {
           peerMail:

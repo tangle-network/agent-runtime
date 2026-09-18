@@ -6,6 +6,8 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import {
+  environmentReader,
+  hostDirectoryReader,
   resolveSpawnResourcePaths,
   SPAWN_RESOURCE_PATH_MAX_BYTES,
 } from '../../src/mcp/tools/spawn-resource-paths'
@@ -124,6 +126,131 @@ describe('resolveSpawnResourcePaths', () => {
   })
 })
 
+describe('resolveSpawnResourcePaths through the manager’s own environment', () => {
+  // A sandbox-rooted manager. The coordination server cannot open its filesystem, but the
+  // provider that created the box serves `read()`, and that is the channel with no model in it.
+  function sandbox(files: Record<string, string>) {
+    const reads: string[] = []
+    return {
+      reads,
+      environment: {
+        id: 'sandbox-7274acc42ded',
+        async read(path: string) {
+          reads.push(path)
+          const content = files[path]
+          if (content === undefined) {
+            throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' })
+          }
+          return content
+        },
+      },
+    }
+  }
+
+  it('hands the child the bytes the manager has on its own box, with a sha256 receipt', async () => {
+    // The instrument run 20260917h's director certified and then lost to its own emission:
+    // 9,752 bytes is fastpath.py's size, above anything a model retypes reliably.
+    const instrument = `${'def battery(model):\n    return 1e-4\n'.repeat(250)}`
+    const { environment, reads } = sandbox({ 'work/instrument.py': instrument })
+    const result = await resolveSpawnResourcePaths(
+      {
+        name: 'producer',
+        resources: {
+          files: [
+            {
+              path: 'instrument.py',
+              resource: { kind: 'inline', name: 'instrument', path: 'work/instrument.py' },
+            },
+          ],
+        },
+      },
+      environmentReader(environment),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const profile = result.profile as { resources: { files: Array<{ resource: unknown }> } }
+    expect(profile.resources.files[0]?.resource).toEqual({
+      kind: 'inline',
+      name: 'instrument',
+      content: instrument,
+    })
+    expect(result.resolved).toEqual([
+      {
+        at: 'files[0].resource',
+        path: 'work/instrument.py',
+        byteLength: Buffer.byteLength(instrument),
+        sha256: sha(instrument),
+      },
+    ])
+    expect(reads).toEqual(['work/instrument.py'])
+  })
+
+  it('refuses an absolute path and a `..` escape before asking the environment', async () => {
+    const { environment, reads } = sandbox({})
+    for (const [path, fragment] of [
+      ['/home/agent/work/x.py', 'not absolute'],
+      ['../other-box/x.py', 'leaves the manager'],
+      ['work/../../x.py', 'leaves the manager'],
+    ] as const) {
+      const result = await resolveSpawnResourcePaths(
+        { resources: { files: [{ path: 'f', resource: { kind: 'inline', name: 'f', path } }] } },
+        environmentReader(environment),
+      )
+      expect(result.ok, path).toBe(false)
+      if (result.ok) continue
+      expect(result.reason, path).toContain(fragment)
+    }
+    expect(reads).toEqual([])
+  })
+
+  it('names the environment when a file is missing, so the manager knows which filesystem was consulted', async () => {
+    const { environment } = sandbox({})
+    const result = await resolveSpawnResourcePaths(
+      { resources: { skills: [{ kind: 'inline', name: 's', path: 'skills/absent.md' }] } },
+      environmentReader(environment),
+    )
+    expect(result).toMatchObject({ ok: false, at: 'skills[0]' })
+    if (result.ok) return
+    expect(result.reason).toContain('does not exist')
+    expect(result.reason).toContain('sandbox-7274acc42ded')
+  })
+
+  it('enforces the same size bound as the host reader on what the environment returns', async () => {
+    const { environment } = sandbox({ 'big.txt': 'a'.repeat(SPAWN_RESOURCE_PATH_MAX_BYTES + 1) })
+    const result = await resolveSpawnResourcePaths(
+      { resources: { tools: [{ kind: 'inline', name: 't', path: 'big.txt' }] } },
+      environmentReader(environment),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toContain(`at most ${SPAWN_RESOURCE_PATH_MAX_BYTES} bytes`)
+  })
+
+  it('a host directory passed as a string and as a reader resolve identically', async () => {
+    const { root } = await workspace()
+    await writeFile(join(root, 'experiments', 'p.txt'), 'same bytes')
+    const profile = {
+      resources: {
+        files: [{ path: 'p', resource: { kind: 'inline', name: 'p', path: 'experiments/p.txt' } }],
+      },
+    }
+    const asString = await resolveSpawnResourcePaths(profile, root)
+    const asReader = await resolveSpawnResourcePaths(profile, hostDirectoryReader(root))
+    expect(asReader).toEqual(asString)
+  })
+
+  it('refuses with a reason naming both absent channels when there is no reader at all', async () => {
+    const result = await resolveSpawnResourcePaths(
+      { resources: { skills: [{ kind: 'inline', name: 's', path: 'skill.md' }] } },
+      undefined,
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toContain('no host directory')
+    expect(result.reason).toContain('no environment with read')
+  })
+})
+
 describe('resolveSpawnResourcePaths failures the runtime process cannot read past', () => {
   it('turns an unreadable file into the typed refusal instead of a thrown tool failure', async () => {
     if (process.getuid?.() === 0) return // root reads everything; the permission bit means nothing
@@ -229,6 +356,102 @@ describe('spawn_worker with an inline resource by path', () => {
       kind: 'inline',
       name: 'payload',
       content: payload,
+    })
+  })
+
+  it('reads from the manager’s environment when no host root serves it, and the environment wins over nothing', async () => {
+    // A sandbox-rooted manager: no spawnResourceRoot, a reader over its own box instead.
+    const instrument = 'x'.repeat(9_752) // fastpath.py's size in the run that motivated this
+    const received: AgentProfile[] = []
+    const reads: string[] = []
+    const tb = createCoordinationTools({
+      scope: mockScope(),
+      blobs,
+      makeWorkerAgent: (profile) => {
+        received.push(profile)
+        return { name: 'w', act: async () => 0 }
+      },
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      spawnResourceReader: environmentReader({
+        id: 'sandbox-7274acc42ded',
+        async read(path) {
+          reads.push(path)
+          if (path === 'work/pinned/fastpath.py') return instrument
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        },
+      }),
+    })
+    const spawn = tb.tools.find((x) => x.name === 'spawn_worker')
+    if (!spawn) throw new Error('no spawn_worker')
+    const result = await spawn.handler({
+      profile: {
+        name: 'producer',
+        harness: 'opencode',
+        model: { provider: 'tangle-router', default: 'claude-sonnet-4-6' },
+        resources: {
+          files: [
+            {
+              path: 'fastpath.py',
+              resource: { kind: 'inline', name: 'fastpath', path: 'work/pinned/fastpath.py' },
+            },
+          ],
+        },
+      },
+      task: 'run the battery',
+      label: 'producer',
+    })
+    expect(result).toMatchObject({
+      workerId: 'w0',
+      resourcesFromPath: [
+        {
+          at: 'files[0].resource',
+          path: 'work/pinned/fastpath.py',
+          byteLength: 9_752,
+          sha256: sha(instrument),
+        },
+      ],
+    })
+    expect(reads).toEqual(['work/pinned/fastpath.py'])
+    expect(received[0]?.resources?.files?.[0]?.resource).toEqual({
+      kind: 'inline',
+      name: 'fastpath',
+      content: instrument,
+    })
+  })
+
+  it('prefers the environment reader over a host root when both are set', async () => {
+    const { root } = await workspace()
+    await writeFile(join(root, 'f.txt'), 'from the host')
+    const received: AgentProfile[] = []
+    const tb = createCoordinationTools({
+      scope: mockScope(),
+      blobs,
+      makeWorkerAgent: (profile) => {
+        received.push(profile)
+        return { name: 'w', act: async () => 0 }
+      },
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      spawnResourceRoot: root,
+      spawnResourceReader: environmentReader({
+        id: 'sandbox-x',
+        read: async () => 'from the sandbox',
+      }),
+    })
+    const spawn = tb.tools.find((x) => x.name === 'spawn_worker')
+    if (!spawn) throw new Error('no spawn_worker')
+    await spawn.handler({
+      profile: {
+        name: 'p',
+        harness: 'opencode',
+        model: { provider: 'tangle-router', default: 'claude-sonnet-4-6' },
+        resources: {
+          files: [{ path: 'f', resource: { kind: 'inline', name: 'f', path: 'f.txt' } }],
+        },
+      },
+      task: 'go',
+    })
+    expect(received[0]?.resources?.files?.[0]?.resource).toMatchObject({
+      content: 'from the sandbox',
     })
   })
 

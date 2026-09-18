@@ -240,6 +240,17 @@ export {
   type DelegationStatusHandlerOptions,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
+export {
+  environmentReader,
+  hostDirectoryReader,
+  type ResolvedSpawnResourcePath,
+  type ResolveSpawnResourcePathsResult,
+  resolveSpawnResourcePaths,
+  SPAWN_RESOURCE_PATH_MAX_BYTES,
+  type SpawnResourceBytes,
+  type SpawnResourceRead,
+  type SpawnResourceReader,
+} from './tools/spawn-resource-paths'
 export type { TraceContext } from './trace-propagation'
 export {
   createPropagatingTraceEmitter,
