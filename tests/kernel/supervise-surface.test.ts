@@ -171,7 +171,10 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
       list: () => DEFAULT_TRACE_ANALYST_KINDS.map((kind) => ({ id: kind.id })),
       run: async (runId, inputs, opts) => {
         calls.push({ runId, only: opts?.only, hasStore: inputs.traceStore !== undefined })
-        return { findings: [finding] } as never
+        return {
+          findings: [finding],
+          per_analyst: [{ analyst_id: opts?.only?.[0], status: 'ok' }],
+        } as never
       },
     }
   }
@@ -196,6 +199,41 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
     expect(registry.calls).toHaveLength(1)
     expect(registry.calls[0]?.only).toEqual(['failure-mode'])
     expect(registry.calls[0]?.hasStore).toBe(true)
+  })
+
+  it.each(['failed', 'skipped'] as const)(
+    'does not report a %s analyst as a clean review',
+    async (status) => {
+      const registry = fakeRegistry()
+      registry.run = async () =>
+        ({
+          findings: [],
+          per_analyst: [{ analyst_id: 'failure-mode', status }],
+        }) as never
+      await expect(
+        analystsFromRegistry(registry).run('failure-mode', toolSpansToTraceAnalysisStore([span])),
+      ).rejects.toThrow(`did not complete: ${status}`)
+    },
+  )
+
+  it('refuses a missing execution receipt even when there are no findings', async () => {
+    const registry = fakeRegistry()
+    registry.run = async () => ({ findings: [], per_analyst: [] }) as never
+    await expect(
+      analystsFromRegistry(registry).run('failure-mode', toolSpansToTraceAnalysisStore([span])),
+    ).rejects.toThrow('missing result')
+  })
+
+  it('preserves a successful review with no findings', async () => {
+    const registry = fakeRegistry()
+    registry.run = async () =>
+      ({
+        findings: [],
+        per_analyst: [{ analyst_id: 'failure-mode', status: 'ok' }],
+      }) as never
+    await expect(
+      analystsFromRegistry(registry).run('failure-mode', toolSpansToTraceAnalysisStore([span])),
+    ).resolves.toEqual([])
   })
 
   it('refuses a kind the registry does not have, at adapt time', () => {

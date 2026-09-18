@@ -162,6 +162,13 @@ export function analystsFromRegistry(
         { traceStore: trace },
         { ...opts?.runOpts, only: [kindId] },
       )
+      // Registry failures are isolated, not successful reviews with zero findings.
+      const summary = result.per_analyst.find((entry) => entry.analyst_id === kindId)
+      if (summary?.status !== 'ok') {
+        throw new ValidationError(
+          `analyst ${JSON.stringify(kindId)} did not complete: ${summary?.status ?? 'missing result'}`,
+        )
+      }
       return result.findings
     },
     ...(authoring === undefined
@@ -218,7 +225,7 @@ export interface AnalystAuthoring {
  *
  * The version is DERIVED from the definition's own canonical digest, never supplied by the manager.
  * That is what makes an invented lens reproducible: the same authored words always compile to the
- * same analyst version, two different wordings can never share one, and a finding's `analyst_id`
+ * same version, two different wordings can never share one, and a finding's `analyst_id`
  * plus version names the exact text that produced it.
  */
 function traceAnalystFromAuthored(definition: AuthoredAnalystDefinition): TraceAnalystDefinition {

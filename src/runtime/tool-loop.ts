@@ -64,7 +64,7 @@ export type ToolLoopChat = (
 export interface ToolLoopHooks {
   /** Run before each inference turn (e.g. flush queued steers into `messages`). */
   beforeTurn?(turn: number, messages: ToolLoopMessageRecord[]): void | Promise<void>
-  /** Return true to stop before the next turn (e.g. pool starved / deadline passed / aborted). */
+  /** Stop predicate, rechecked after awaited preparation before spending on inference. */
   stopBefore?(turn: number): boolean
   /** Each turn's usage, for metering into a conserved budget pool. */
   onUsage?(usage: { input: number; output: number }): void
@@ -206,10 +206,15 @@ export async function runBrainLoop(opts: {
   for (let turn = 1; maxTurns === 0 || turn <= maxTurns; turn += 1) {
     if (opts.hooks?.stopBefore?.(turn)) break
     await opts.hooks?.beforeTurn?.(turn, messages)
+    // Preparation may run a classifier or await a steer while authority changes.
+    if (opts.hooks?.stopBefore?.(turn)) break
     // Close the chapter BEFORE the inference turn that would otherwise re-bill the whole transcript:
     // distill the accumulated middle to a compact note so this and every later turn pay O(working-set),
     // not O(total-history). A clean boundary — the prior turn's tool replies are already folded in.
-    if (opts.compaction) await maybeCompact(messages, opts.compaction, turn)
+    if (opts.compaction) {
+      await maybeCompact(messages, opts.compaction, turn)
+      if (opts.hooks?.stopBefore?.(turn)) break
+    }
     const r = await opts.chat(messages, opts.tools)
     completedTurns = turn
     if (r.usage) {
