@@ -1,12 +1,12 @@
 import type { Scenario } from '@tangle-network/agent-eval/contract'
 import {
-  type AgentProfile,
   agentProfileSchema,
   canonicalAgentProfileDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
+import { assertCandidateValidator } from './candidate-validation'
 import { improve } from './improve'
 import type {
   ImproveCandidateValidator,
@@ -24,7 +24,7 @@ export type ProfileImprovementHarnessTrainOptions = Omit<
 
 export interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
   /** Exact baseline profile. It is parsed, detached, and frozen at construction. */
-  profile: AgentProfile
+  profile: ReadonlyAgentProfile
   /**
    * Immutable identity of the bound executor, models, tools, component mapping,
    * and every closure or external setting that can change measured behavior.
@@ -88,23 +88,23 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
   if (typeof options.agent !== 'function') {
     throw new ConfigError('createProfileImprovementHarness: agent must be a function')
   }
-  if (options.validateCandidate !== undefined && typeof options.validateCandidate !== 'function') {
-    throw new ConfigError(
-      'createProfileImprovementHarness: validateCandidate must be a function when present',
-    )
-  }
+  assertCandidateValidator(options.validateCandidate)
 
   const profile = immutableCandidateValue(parsed.data)
   const executionRef = options.executionRef
   const agent = options.agent
   const defaultValidator = options.validateCandidate
+  const validatorFor = (validator: ImproveCandidateValidator | undefined) => {
+    assertCandidateValidator(validator)
+    return validator ?? defaultValidator
+  }
 
   return Object.freeze({
     profile,
     profileDigest: canonicalAgentProfileDigest(profile),
     executionRef,
     train(trainOptions: ProfileImprovementHarnessTrainOptions) {
-      const validateCandidate = trainOptions.validateCandidate ?? defaultValidator
+      const validateCandidate = validatorFor(trainOptions.validateCandidate)
       return improve(profile, {
         ...trainOptions,
         mode: 'training',
@@ -113,15 +113,7 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
       })
     },
     run(runOptions: ProfileImprovementHarnessRunOptions<TScenario, TArtifact>) {
-      if (
-        runOptions.validateCandidate !== undefined &&
-        typeof runOptions.validateCandidate !== 'function'
-      ) {
-        throw new ConfigError(
-          'ProfileImprovementHarness.run: validateCandidate must be a function when present',
-        )
-      }
-      const validateCandidate = runOptions.validateCandidate ?? defaultValidator
+      const validateCandidate = validatorFor(runOptions.validateCandidate)
       return improve(profile, {
         ...runOptions,
         executionRef,

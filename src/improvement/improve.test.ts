@@ -409,6 +409,24 @@ describe('improve method execution', () => {
     expect(forbiddenCalls).toBe(0)
   })
 
+  it('does not ignore an async validator on a composed optimization leaf', async () => {
+    let executions = 0
+    const leaf = withMethodRuntimeControls(fixedMethod('improved'), {
+      costAttribution: 'optimizer-run',
+      validateCandidate: async () => {},
+    })
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(sequentialOptimizationMethod({ name: 'async-leaf', methods: [leaf] })),
+        agent: async (profile, scenario, context) => {
+          executions++
+          return paidProfile(profile, scenario, context)
+        },
+      }),
+    ).rejects.toThrow(/synchronous/)
+    expect(executions).toBe(0)
+  })
+
   it('runs a complete method without exposing final-test cases and materializes its prompt', async () => {
     let observed: OptimizationMethodInput<TestScenario, TextArtifact> | undefined
     let observedEvaluationRef = ''

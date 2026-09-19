@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.243.0
+
+Training, optimization, and bound harnesses now share candidate-validator admission and invocation. **Migration:** validators must return `undefined` synchronously or throw. Promises and other return values are rejected instead of silently accepting an unchecked candidate; use a block body for side effects. Composed optimizer leaves obey the same rule, while original callbacks remain bound into execution identity.
+
+`improve` and `createProfileImprovementHarness` accept their own frozen profile results directly. Retraining updates small-model, subagent, and mode references to the prior receipted checkpoint, preserving unrelated model choices. Serving evidence is snapshotted before asynchronous checkpoint revalidation.
+
+Training's `timeoutMs` is optional and uses the existing chunked deadline timer when supplied; there is no implicit deadline or seven-day ceiling. Cancellation still stops admission and waiting, without claiming remote cleanup. The command trainer snapshots direct-call requests before asynchronous work, honors caller-selected output budgets, accepts empty pinned configuration files, and streams declared input hashes without a one-gigabyte ceiling. Checkpoints remain bounded and nonempty; dataset bounds, partition checks, receipt identity, and publication ordering are unchanged.
+
+Command training and coding harnesses share one confirmed process-group teardown implementation, allowing graceful final writes before escalation. Existing coding-harness timing policy and import paths are preserved. No new dependency, executor, training algorithm, dataset exporter, scheduler, or deployment client is added.
+
 ## 0.242.0
 
 `improve(profile, { mode: 'training', ... })` and the bound harness's `train` method now produce a checkpoint-backed candidate with an Interface training receipt. The command trainer pins its executable and inputs, supplies only an explicit public environment, and cancels its POSIX process group. Managed trainers and verified serving adapters use the same typed boundary; they own remote job cleanup.

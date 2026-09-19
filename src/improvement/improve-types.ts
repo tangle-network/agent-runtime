@@ -77,6 +77,7 @@ export interface ImproveCandidateValidationInput {
   isBaseline: boolean
 }
 
+/** Accept by returning void synchronously; reject by throwing. Async callbacks are refused. */
 export type ImproveCandidateValidator = (input: ImproveCandidateValidationInput) => void
 
 export type ImproveOptimizationRunOptions<TScenario extends Scenario, TArtifact> = Omit<

@@ -307,6 +307,15 @@ try {
       const harnessTraining: Promise<ImproveTrainingResult> = profileHarness.train(trainingOptions)
       if (trainingResult.succeeded) {
         const trainingReceipt: AgentTrainingReceipt = trainingResult.receipt
+        const { timeoutMs: _timeout, ...withoutDeadline } = trainingOptions
+        const retrained: Promise<ImproveTrainingResult> = improve(trainingResult.profile, withoutDeadline)
+        const rebound = createProfileImprovementHarness({
+          profile: trainingResult.profile,
+          executionRef: trainingOptions.executionRef,
+          agent: async () => 'fixture',
+        })
+        void retrained
+        void rebound
         void trainingReceipt
       }
       void training

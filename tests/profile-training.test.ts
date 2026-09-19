@@ -67,6 +67,7 @@ const serve: CheckpointServingPort = {
 async function withFixture(
   run: (options: ImproveTrainingOptions, dir: string) => Promise<void>,
   script = TRAIN,
+  maxOutputBytes = 4096,
 ): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'profile-training-test-'))
   try {
@@ -102,7 +103,7 @@ async function withFixture(
       args: [scriptPath],
       inputs: [{ path: scriptPath, digest: sha256Utf8(script) }],
       environment: {},
-      maxOutputBytes: 4096,
+      maxOutputBytes,
     })
     await run(
       {
@@ -355,7 +356,7 @@ process.stdin.on('end', () => {
     await withFixture(async (options) => {
       const first = await improve(parent(), options)
       assert(first.succeeded)
-      const second = await improve(first.profile as AgentProfile, {
+      const second = await improve(first.profile, {
         ...options,
         parameters: { epochs: 30, learningRate: 0.1 },
       })
@@ -392,5 +393,80 @@ process.stdin.on('end', () => {
       assert.equal(result.stage, 'profile')
       await assertNoProfile(options.outputDirectory)
     })
+  })
+  it('snapshots a direct command request before asynchronous input verification', async () => {
+    await withFixture(async (options, dir) => {
+      const originalPath = join(dir, 'original-checkpoint')
+      const request = {
+        version: 1 as const,
+        invocationId: 'direct-call',
+        datasetPath: options.dataset.path,
+        checkpointPath: originalPath,
+        parentProfilePath: options.dataset.path,
+        parentProfileDigest: canonicalAgentProfileDigest(parent()),
+        parameters: options.parameters,
+        executionRef: options.executionRef,
+      }
+      const pending = options.trainer.execute(request, new AbortController().signal)
+      request.checkpointPath = join(dir, 'redirected-checkpoint')
+      const result = await pending
+      assert(result.succeeded, JSON.stringify(result))
+      assert((await readFile(originalPath)).length > 0)
+      await assert.rejects(readFile(request.checkpointPath), { code: 'ENOENT' })
+    })
+  })
+
+  it('honors a caller output bound larger than sixteen MiB', async () => {
+    await withFixture(
+      async (options) => {
+        const result = await improve(parent(), options)
+        assert(result.succeeded, JSON.stringify(result))
+      },
+      TRAIN.replace(
+        'let weight = 0;',
+        "process.stdout.write('x'.repeat(17 * 1024 * 1024)); let weight = 0;",
+      ),
+      18 * 1024 * 1024,
+    )
+  })
+
+  it('allows a byte-pinned empty configuration input while still requiring a nonempty checkpoint', async () => {
+    await withFixture(async (options, dir) => {
+      const executable = await realpath(process.execPath)
+      const config = join(dir, 'empty-config')
+      await writeFile(config, '')
+      const trainer = createCommandProfileTrainer({
+        id: 'empty-config-trainer',
+        executable: { path: executable, digest: sha256Bytes(await readFile(executable)) },
+        args: [join(dir, 'trainer.cjs')],
+        inputs: [
+          { path: join(dir, 'trainer.cjs'), digest: sha256Utf8(TRAIN) },
+          { path: config, digest: sha256Utf8('') },
+        ],
+        environment: {},
+        maxOutputBytes: 4096,
+      })
+      const result = await improve(parent(), { ...options, trainer })
+      assert(result.succeeded, JSON.stringify(result))
+    })
+  })
+  it('waits for a descendant to flush during shared process-group cleanup', async () => {
+    await withFixture(
+      async (options) => {
+        const result = await improve(parent(), options)
+        assert(result.succeeded, JSON.stringify(result))
+        assert.equal(await readFile(result.artifactPath, 'utf8'), 'final child checkpoint')
+      },
+      `
+const { spawn } = require('node:child_process');
+let input = ''; process.stdin.on('data', b => input += b);
+process.stdin.on('end', () => {
+  const r = JSON.parse(input);
+  const code = "process.on('SIGTERM', () => { require('node:fs').writeFileSync(process.argv[1], 'final child checkpoint'); process.exit(0); }); process.send('ready'); setInterval(() => {}, 1000);";
+  const child = spawn(process.execPath, ['-e', code, r.checkpointPath], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  child.on('message', () => { child.disconnect(); process.exit(0); });
+});
+`,
+    )
   })
 })

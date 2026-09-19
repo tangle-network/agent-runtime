@@ -24,6 +24,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
+import { assertCandidateValidator, validateProfileCandidate } from './candidate-validation'
 import { copyImproveCost } from './improve-result'
 import type {
   ImproveCandidateValidationInput,
@@ -309,6 +310,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     minimumLift = 0,
     ...comparisonOptions
   } = opts
+  assertCandidateValidator(validateCandidate)
   if (!Number.isFinite(minimumLift) || minimumLift < 0) {
     throw new ConfigError(
       'improve(): minimumLift must be a finite number greater than or equal to 0',
@@ -386,7 +388,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
         value: immutableCandidateValue(prepared.value),
         isBaseline: candidateDigest === baselineSurfaceDigest,
       })
-      validateCandidate?.(validationInput)
+      validateProfileCandidate(validateCandidate, validationInput)
       validatedCandidates.add(candidateDigest)
     }
     return candidate
@@ -414,7 +416,8 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
       if (checked.has(candidateDigest)) return
       const candidate = materializeProfile(rootSurface)
       const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
-      controls?.validateCandidate(
+      validateProfileCandidate(
+        controls?.validateCandidate,
         Object.freeze({
           profile: immutableCandidateValue(candidate),
           surface,
