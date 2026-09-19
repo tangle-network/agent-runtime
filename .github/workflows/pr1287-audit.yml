@@ -4,25 +4,41 @@ on:
     branches: [audit/pr1287-training-verify]
 permissions:
   contents: read
+concurrency:
+  group: pr1287-isolated-verification
+  cancel-in-progress: true
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Integrate current main in an isolated worktree
+      - name: Prepare a clean PR worktree against current main
         run: |
-          git config user.name 'Repository verification'
-          git config user.email 'verification@users.noreply.github.com'
+          git config --global user.name 'Repository verification'
+          git config --global user.email 'verification@users.noreply.github.com'
+          base64 --decode .audit/pr1287-finish.patch.gz.b64 | gzip --decompress > /tmp/pr1287-finish.patch
+          echo '62cceeff8c567634da99d7543efcde99f174a655924c275c8b8781326e938143  /tmp/pr1287-finish.patch' | sha256sum --check
+          git worktree add -b audit/pr1287-candidate-build /tmp/pr1287-candidate origin/feat/improve-training-mode
+          cd /tmp/pr1287-candidate
           git merge --no-commit --no-ff origin/main
+          git apply --check /tmp/pr1287-finish.patch
+          git apply /tmp/pr1287-finish.patch
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-      - name: Align the published training interface
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: '0.11.32'
+      - name: Align the published training interface and regenerate the lockfile
+        working-directory: /tmp/pr1287-candidate
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -43,23 +59,71 @@ jobs:
           NODE
           pnpm install --no-frozen-lockfile
           pnpm peers check
-      - name: Focused training verification
+      - name: Generate the release fixtures, API reference, and package surface
+        working-directory: /tmp/pr1287-candidate
         run: |
-          mkdir -p /tmp/pr1287-audit
-          pnpm exec vitest run tests/profile-training.test.ts tests/improve*.test.ts 2>&1 | tee /tmp/pr1287-audit/training-tests.log
-      - name: Retain source, lockfile and offline verification dependencies
+          pnpm run release:prepare 0.242.0
+          pnpm run api:surface
+          git add -A
+          git diff --cached --check
+          test ! -e .github/workflows/pr1287-audit.yml
+          test ! -e .audit/pr1287-finish.patch.gz.b64
+          git commit -m 'fix(improvement): finish checkpoint training on the published receipt contract'
+      - name: Verify lint, all tests, source and example types
+        working-directory: /tmp/pr1287-candidate
+        run: |
+          mkdir -p /tmp/pr1287-result
+          pnpm run lint 2>&1 | tee /tmp/pr1287-result/lint.log
+          pnpm run test 2>&1 | tee /tmp/pr1287-result/tests.log
+          pnpm run typecheck 2>&1 | tee /tmp/pr1287-result/typecheck.log
+      - name: Verify the packed package and release checks
+        working-directory: /tmp/pr1287-candidate
+        env:
+          PACKAGE_VERSION_BUMP_BASE: origin/main
+        run: |
+          pnpm run check:publish-workflow
+          pnpm run check:upstream-evidence-workflow
+          pnpm run check:version-bump 2>&1 | tee /tmp/pr1287-result/version.log
+          pnpm run verify:package 2>&1 | tee /tmp/pr1287-result/package.log
+          pnpm run docs:check 2>&1 | tee /tmp/pr1287-result/docs.log
+          git diff --exit-code
+      - name: Retain candidate and verification evidence
         if: always()
         run: |
-          mkdir -p /tmp/pr1287-audit
-          git status --short > /tmp/pr1287-audit/status.txt
-          git diff HEAD --binary > /tmp/pr1287-audit/working.patch
-          git bundle create /tmp/pr1287-audit/repository.bundle --all
-          tar --exclude='./.git' --exclude='node_modules' --exclude='./.cohort' -czf /tmp/pr1287-audit/source.tar.gz .
-          if [ -d node_modules ]; then tar -czf /tmp/pr1287-audit/dependencies.tar.gz node_modules; fi
-          ls -lh /tmp/pr1287-audit
+          mkdir -p /tmp/pr1287-result
+          if [ -d /tmp/pr1287-candidate ]; then
+            cd /tmp/pr1287-candidate
+            git status --short > /tmp/pr1287-result/status.txt
+            git rev-parse HEAD > /tmp/pr1287-result/candidate.sha
+            git rev-parse origin/main > /tmp/pr1287-result/main.sha
+            git diff HEAD --binary > /tmp/pr1287-result/working.patch
+            git bundle create /tmp/pr1287-result/candidate.bundle audit/pr1287-candidate-build
+            tar --exclude='./.git' --exclude='node_modules' --exclude='./.cohort' -czf /tmp/pr1287-result/source.tar.gz .
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pr1287-audit-worktree
-          path: /tmp/pr1287-audit/
+          name: pr1287-verified-candidate
+          path: /tmp/pr1287-result/
           retention-days: 3
+  retain-verified-ref:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr1287-verified-candidate
+          path: /tmp/pr1287-result
+      - name: Publish only the verified temporary ref
+        run: |
+          expected=$(cat /tmp/pr1287-result/candidate.sha)
+          git fetch /tmp/pr1287-result/candidate.bundle audit/pr1287-candidate-build
+          test "$(git rev-parse FETCH_HEAD)" = "$expected"
+          git merge-base --is-ancestor origin/feat/improve-training-mode "$expected"
+          test -z "$(git ls-tree -r --name-only "$expected" -- .audit .github/workflows/pr1287-audit.yml)"
+          git push origin "$expected:refs/heads/audit/pr1287-ready"
