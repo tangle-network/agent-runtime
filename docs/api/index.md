@@ -3528,7 +3528,7 @@ Exact materialized profile presented for validation before any candidate run.
 
 ##### profile
 
-> **profile**: `AgentProfile`
+> **profile**: `object`
 
 Exact baseline profile. It is parsed, detached, and frozen at construction.
 
@@ -3917,9 +3917,11 @@ Pins trainer, serving adapter and their private dependencies, just like the boun
 
 > **outputDirectory**: `string`
 
-##### timeoutMs
+##### timeoutMs?
 
-> **timeoutMs**: `number`
+> `optional` **timeoutMs?**: `number`
+
+Optional overall deadline. Omit to rely on caller cancellation; long durations are supported.
 
 ##### maxCheckpointBytes
 
@@ -3982,6 +3984,8 @@ Explicit public environment only. Ambient credentials are never inherited.
 ##### maxOutputBytes
 
 > **maxOutputBytes**: `number`
+
+Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ***
 
@@ -7503,6 +7507,8 @@ Runs one exact materialized profile on one scenario.
 
 > **ImproveCandidateValidator** = (`input`) => `void`
 
+Accept by returning void synchronously; reject by throwing. Async callbacks are refused.
+
 #### Parameters
 
 ##### input
@@ -9002,8 +9008,6 @@ Train and serve a checkpoint without implying that it improved held-out quality.
 
 ###### profile
 
-`AgentProfile`
-
 ###### opts
 
 [`ImproveTrainingOptions`](#improvetrainingoptions)
@@ -9031,8 +9035,6 @@ Optimize one exact profile surface with a complete method.
 ##### Parameters
 
 ###### profile
-
-`AgentProfile`
 
 ###### opts
 

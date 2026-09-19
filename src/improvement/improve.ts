@@ -10,7 +10,7 @@
  */
 
 import type { Scenario } from '@tangle-network/agent-eval/contract'
-import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import { runCodeImprovement } from './code-execution'
@@ -22,6 +22,7 @@ import type {
   ImproveResult,
 } from './improve-types'
 import { runMethodImprovement } from './method-execution'
+import type { ReadonlyAgentProfile } from './profile-types'
 import {
   type ImproveTrainingOptions,
   type ImproveTrainingResult,
@@ -83,14 +84,14 @@ export { createCommandProfileTrainer } from './training'
 
 /** Train and serve a checkpoint without implying that it improved held-out quality. */
 export function improve(
-  profile: AgentProfile,
+  profile: ReadonlyAgentProfile,
   opts: ImproveTrainingOptions,
 ): Promise<ImproveTrainingResult>
 /**
  * Optimize one exact profile surface with a complete method.
  */
 export function improve<TScenario extends Scenario, TArtifact>(
-  profile: AgentProfile,
+  profile: ReadonlyAgentProfile,
   opts: ImproveMethodOptions<TScenario, TArtifact>,
 ): Promise<ImproveMethodResult>
 /**
@@ -100,7 +101,7 @@ export function improve<TScenario extends Scenario, TArtifact>(
   opts: ImproveCodeRunOptions<TScenario, TArtifact>,
 ): Promise<ImproveCodeResult<TScenario, TArtifact>>
 export async function improve<TScenario extends Scenario, TArtifact>(
-  profileOrCode: AgentProfile | ImproveCodeRunOptions<TScenario, TArtifact>,
+  profileOrCode: ReadonlyAgentProfile | ImproveCodeRunOptions<TScenario, TArtifact>,
   opts?: ImproveMethodOptions<TScenario, TArtifact> | ImproveTrainingOptions,
 ): Promise<ImproveResult<TScenario, TArtifact> | ImproveTrainingResult> {
   if (opts === undefined) {
@@ -110,8 +111,12 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     }
     return runCodeImprovement(code)
   }
-  if ('mode' in opts && opts.mode === 'training') {
-    return runProfileTraining(profileOrCode as AgentProfile, opts)
+  if (opts === null || typeof opts !== 'object') {
+    throw new ConfigError('improve(): options must be an object')
+  }
+  if ('mode' in opts) {
+    if (opts.mode !== 'training') throw new ConfigError('improve(): unsupported mode')
+    return runProfileTraining(profileOrCode as ReadonlyAgentProfile, opts)
   }
   if ((opts as { surface?: string }).surface === 'code') {
     throw new ConfigError("improve(): code takes one argument: improve({ surface: 'code', ... })")
@@ -122,8 +127,5 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
     )
   }
-  return runMethodImprovement(
-    immutableCandidateValue(parsedProfile.data),
-    opts as ImproveMethodOptions<TScenario, TArtifact>,
-  )
+  return runMethodImprovement(immutableCandidateValue(parsedProfile.data), opts)
 }

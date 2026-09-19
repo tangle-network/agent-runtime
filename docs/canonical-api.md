@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.242.0.**
+> **Version 0.243.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.182.0 <0.183.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.42.0`.
@@ -292,9 +292,35 @@ artifact-addressed Router model identity. Runtime retains complete receipt ances
 checkpoint bytes after serving and candidate validation, and durably publishes the receipt
 before the runnable profile. Use the existing benchmark and held-out gates to assess that profile.
 
-The controlled command trainer runs without a shell or inherited credentials and cancels its
-POSIX process group. Managed training and serving adapters own their remote jobs and cleanup;
+Pass a returned frozen profile directly into `improve` or a new bound harness; no mutable cast
+or reconstruction is needed. When retraining a checkpoint-backed profile, references to that
+same checkpoint in the small model, subagents, and modes follow the new receipt. Unrelated
+model choices remain unchanged.
+
+Training has no implicit deadline. Omit `timeoutMs` to rely on caller cancellation, or specify a
+positive safe duration; the shared deadline timer supports long jobs without native timer overflow.
+A managed adapter that ignores cancellation may continue working after Runtime stops awaiting it.
+
+The controlled command trainer runs without a shell or inherited credentials. It snapshots the
+request before asynchronous work, streams pinned input hashes (empty configuration files are
+valid), and drains stdout/stderr within the caller's positive `maxOutputBytes` budget. Checkpoints
+must still be nonempty and fit `maxCheckpointBytes`; dataset snapshot bounds remain in force.
+It uses the same confirmed POSIX process-group teardown as the coding harnesses: permit graceful
+shutdown, then escalate if necessary. This is trusted host execution, not an OS sandbox; separately
+detached sessions are outside the owned process group.
+Managed training and serving adapters own their remote jobs and cleanup;
 inspect the failure stage and the training/serving uncertainty flags rather than assuming a
 timeout removed external resources. A cancellation before adapter dispatch starts no job.
 Once profile publication commits, later cancellation does not retract the committed result.
 This is a local execution primitive, not a durable remote-job scheduler or a Router deployment API.
+
+
+### Candidate validation has one acceptance rule
+
+Across training, optimization, composed method leaves, and bound harnesses, `validateCandidate`
+accepts by returning `undefined` synchronously and rejects by throwing. A promise or another
+return value is an error, not an accepted candidate. Use a block body for side effects, rather
+than returning the result of an assertion or array operation. Do asynchronous preparation before
+calling the improvement API; keep measurement and held-out decisions in the existing evaluators.
+The original callback remains part of execution identity, so centralizing its invocation does
+not collapse distinct validator implementations into one cache identity.

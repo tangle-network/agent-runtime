@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.5
+
+Consume Runtime 0.243.0 through the existing workspace dependency. Benchmark APIs and grading behavior are unchanged.
+
 ## 0.13.4
 
 Require Interface `^2.10.0` and consume Runtime 0.242.0 through the published dependency ranges, keeping benchmark consumers on the checkpoint-training receipt contract.

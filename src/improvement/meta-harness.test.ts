@@ -275,4 +275,29 @@ describe('createProfileImprovementHarness', () => {
     })
     expect(() => harness.run({ validateCandidate: null } as never)).toThrow(ConfigError)
   })
+  it('rejects invalid validator overrides consistently on training and optimization', () => {
+    const harness = createProfileImprovementHarness({
+      profile: baselineProfile(),
+      executionRef: canonicalCandidateDigest({ fixture: 'validator-overrides' }),
+      agent: paidProfile,
+      validateCandidate: () => {},
+    })
+    expect(() => harness.run({ validateCandidate: null } as never)).toThrow(ConfigError)
+    expect(() => harness.train({ validateCandidate: null } as never)).toThrow(ConfigError)
+  })
+
+  it('refuses an async validator before optimization or agent execution', async () => {
+    let executions = 0
+    const harness = createProfileImprovementHarness({
+      profile: baselineProfile(),
+      executionRef: canonicalCandidateDigest({ fixture: 'async-validator' }),
+      agent: async (...args: Parameters<typeof paidProfile>) => {
+        executions++
+        return paidProfile(...args)
+      },
+      validateCandidate: async () => {},
+    })
+    await expect(harness.run(runOptions())).rejects.toThrow(/synchronous/)
+    expect(executions).toBe(0)
+  })
 })
