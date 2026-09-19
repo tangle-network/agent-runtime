@@ -1,0 +1,65 @@
+name: PR 1287 isolated verification
+on:
+  push:
+    branches: [audit/pr1287-training-verify]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Integrate current main in an isolated worktree
+        run: |
+          git config user.name 'Repository verification'
+          git config user.email 'verification@users.noreply.github.com'
+          git merge --no-commit --no-ff origin/main
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Align the published training interface
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+            const range = p[section]?.['@tangle-network/agent-interface'];
+            if (range && !range.startsWith('catalog:')) p[section]['@tangle-network/agent-interface'] = '^2.10.0';
+          }
+          fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          const workspace = fs.readFileSync('pnpm-workspace.yaml', 'utf8');
+          const updated = workspace.replace(/('@tangle-network\/agent-interface':\s*)[^\n]+/, "$1'^2.10.0'");
+          if (updated === workspace && !workspace.includes('2.10.0')) throw new Error('interface catalog entry not found');
+          fs.writeFileSync('pnpm-workspace.yaml', updated);
+          const cohort = JSON.parse(fs.readFileSync('release/cohort.json', 'utf8'));
+          cohort.packages.agentInterface.version = '2.10.0';
+          cohort.packages.agentInterface.ref = 'eaefdcd75656c085516c3c0ee44c17a208fa6f09';
+          fs.writeFileSync('release/cohort.json', JSON.stringify(cohort, null, 2) + '\n');
+          NODE
+          pnpm install --no-frozen-lockfile
+          pnpm peers check
+      - name: Focused training verification
+        run: |
+          mkdir -p /tmp/pr1287-audit
+          pnpm exec vitest run tests/profile-training.test.ts tests/improve*.test.ts 2>&1 | tee /tmp/pr1287-audit/training-tests.log
+      - name: Retain source, lockfile and offline verification dependencies
+        if: always()
+        run: |
+          mkdir -p /tmp/pr1287-audit
+          git status --short > /tmp/pr1287-audit/status.txt
+          git diff HEAD --binary > /tmp/pr1287-audit/working.patch
+          git bundle create /tmp/pr1287-audit/repository.bundle --all
+          tar --exclude='./.git' --exclude='node_modules' --exclude='./.cohort' -czf /tmp/pr1287-audit/source.tar.gz .
+          if [ -d node_modules ]; then tar -czf /tmp/pr1287-audit/dependencies.tar.gz node_modules; fi
+          ls -lh /tmp/pr1287-audit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr1287-audit-worktree
+          path: /tmp/pr1287-audit/
+          retention-days: 3
