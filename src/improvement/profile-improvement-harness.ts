@@ -15,6 +15,12 @@ import type {
   ImproveProfileAgent,
 } from './improve-types'
 import type { ReadonlyAgentProfile } from './profile-types'
+import type { ImproveTrainingOptions, ImproveTrainingResult } from './training'
+
+export type ProfileImprovementHarnessTrainOptions = Omit<
+  ImproveTrainingOptions,
+  'mode' | 'executionRef'
+>
 
 export interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
   /** Exact baseline profile. It is parsed, detached, and frozen at construction. */
@@ -54,6 +60,7 @@ export interface ProfileImprovementHarness<TScenario extends Scenario, TArtifact
   readonly profileDigest: Sha256Digest
   /** Exact execution identity bound at construction. */
   readonly executionRef: Sha256Digest
+  train(options: ProfileImprovementHarnessTrainOptions): Promise<ImproveTrainingResult>
   run(
     options: ProfileImprovementHarnessRunOptions<TScenario, TArtifact>,
   ): Promise<ImproveMethodResult>
@@ -96,6 +103,15 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
     profile,
     profileDigest: canonicalAgentProfileDigest(profile),
     executionRef,
+    train(trainOptions: ProfileImprovementHarnessTrainOptions) {
+      const validateCandidate = trainOptions.validateCandidate ?? defaultValidator
+      return improve(profile, {
+        ...trainOptions,
+        mode: 'training',
+        executionRef,
+        ...(validateCandidate === undefined ? {} : { validateCandidate }),
+      })
+    },
     run(runOptions: ProfileImprovementHarnessRunOptions<TScenario, TArtifact>) {
       if (
         runOptions.validateCandidate !== undefined &&

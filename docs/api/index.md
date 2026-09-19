@@ -3595,6 +3595,20 @@ Exact execution identity bound at construction.
 
 #### Methods
 
+##### train()
+
+> **train**(`options`): `Promise`\<[`ImproveTrainingResult`](#improvetrainingresult)\>
+
+###### Parameters
+
+###### options
+
+[`ProfileImprovementHarnessTrainOptions`](#profileimprovementharnesstrainoptions)
+
+###### Returns
+
+`Promise`\<[`ImproveTrainingResult`](#improvetrainingresult)\>
+
 ##### run()
 
 > **run**(`options`): `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
@@ -3716,6 +3730,258 @@ Receipt attribution phase supplied alongside `costLedger`.
 ###### Returns
 
 [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
+
+***
+
+### TrainingDatasetDocument
+
+#### Properties
+
+##### version
+
+> **version**: `1`
+
+##### format
+
+> **format**: `"sft"` \| `"dpo"` \| `"grpo"`
+
+##### rows
+
+> **rows**: `object`[]
+
+Existing Eval export rows, without rewriting their payloads. Include every exposed partition.
+
+###### task
+
+> **task**: `AgentTrainingTask`
+
+###### partition
+
+> **partition**: `"train"` \| `"validation"`
+
+###### data
+
+> **data**: `unknown`
+
+***
+
+### ProfileTrainerRequest
+
+#### Properties
+
+##### version
+
+> **version**: `1`
+
+##### invocationId
+
+> **invocationId**: `string`
+
+##### datasetPath
+
+> **datasetPath**: `string`
+
+##### checkpointPath
+
+> **checkpointPath**: `string`
+
+##### parentProfilePath
+
+> **parentProfilePath**: `string`
+
+##### parentProfileDigest
+
+> **parentProfileDigest**: `` `sha256:${string}` ``
+
+##### parameters
+
+> **parameters**: `Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>
+
+##### executionRef
+
+> **executionRef**: `` `sha256:${string}` ``
+
+***
+
+### ProfileTrainer
+
+Managed adapters use this same port: cancel the job on abort and download one exact checkpoint file.
+
+#### Properties
+
+##### identity
+
+> **identity**: `Omit`\<`AgentTrainingReceipt`\[`"trainer"`\], `"parameters"`\>
+
+#### Methods
+
+##### execute()
+
+> **execute**(`request`, `signal`): `Promise`\<[`TrainingBoundaryResult`](#trainingboundaryresult)\<`void`\>\>
+
+###### Parameters
+
+###### request
+
+`Readonly`\<[`ProfileTrainerRequest`](#profiletrainerrequest)\>
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`TrainingBoundaryResult`](#trainingboundaryresult)\<`void`\>\>
+
+***
+
+### CheckpointServingPort
+
+#### Methods
+
+##### serve()
+
+> **serve**(`input`): `Promise`\<[`TrainingBoundaryResult`](#trainingboundaryresult)\<\{ `routerModelId`: `string`; `artifactDigest`: `` `sha256:${string}` ``; `evidenceDigest`: `` `sha256:${string}` ``; \}\>\>
+
+Verify the immutable Router route independently of the trainer's output.
+
+###### Parameters
+
+###### input
+
+###### artifactPath
+
+`string`
+
+###### artifactDigest
+
+`` `sha256:${string}` ``
+
+###### artifactBytes
+
+`number`
+
+###### routerModelId
+
+`string`
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`TrainingBoundaryResult`](#trainingboundaryresult)\<\{ `routerModelId`: `string`; `artifactDigest`: `` `sha256:${string}` ``; `evidenceDigest`: `` `sha256:${string}` ``; \}\>\>
+
+***
+
+### ImproveTrainingOptions
+
+#### Properties
+
+##### mode
+
+> **mode**: `"training"`
+
+##### trainer
+
+> **trainer**: [`ProfileTrainer`](#profiletrainer)
+
+##### dataset
+
+> **dataset**: `object`
+
+###### path
+
+> **path**: `string`
+
+###### digest
+
+> **digest**: `` `sha256:${string}` ``
+
+##### parameters
+
+> **parameters**: `Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>
+
+##### executionRef
+
+> **executionRef**: `` `sha256:${string}` ``
+
+Pins trainer, serving adapter and their private dependencies, just like the bound profile harness.
+
+##### serving
+
+> **serving**: [`CheckpointServingPort`](#checkpointservingport)
+
+##### outputDirectory
+
+> **outputDirectory**: `string`
+
+##### timeoutMs
+
+> **timeoutMs**: `number`
+
+##### maxCheckpointBytes
+
+> **maxCheckpointBytes**: `number`
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+##### validateCandidate?
+
+> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
+
+***
+
+### ControlledTrainingCommand
+
+#### Properties
+
+##### id
+
+> **id**: `string`
+
+##### executable
+
+> **executable**: `object`
+
+###### path
+
+> **path**: `string`
+
+###### digest
+
+> **digest**: `` `sha256:${string}` ``
+
+##### args
+
+> **args**: `string`[]
+
+##### inputs
+
+> **inputs**: `object`[]
+
+Script/config files used by the command, verified before and after execution.
+
+###### path
+
+> **path**: `string`
+
+###### digest
+
+> **digest**: `` `sha256:${string}` ``
+
+##### environment
+
+> **environment**: `Record`\<`string`, `string`\>
+
+Explicit public environment only. Ambient credentials are never inherited.
+
+##### maxOutputBytes
+
+> **maxOutputBytes**: `number`
 
 ***
 
@@ -7518,6 +7784,12 @@ Official SkillOpt configuration plus bounded Runtime findings context.
 
 ***
 
+### ProfileImprovementHarnessTrainOptions
+
+> **ProfileImprovementHarnessTrainOptions** = `Omit`\<[`ImproveTrainingOptions`](#improvetrainingoptions), `"mode"` \| `"executionRef"`\>
+
+***
+
 ### ProfileImprovementHarnessRunOptions
 
 > **ProfileImprovementHarnessRunOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"executionRef"` \| `"agent"` \| `"validateCandidate"`\> & `object`
@@ -7559,6 +7831,74 @@ Override the harness-level validator for this run.
 > **ReadonlyAgentProfile** = [`DeepReadonly`](#deepreadonly)\<`AgentProfile`\>
 
 Complete immutable profile value used during measured execution.
+
+***
+
+### TrainingBoundaryResult
+
+> **TrainingBoundaryResult**\<`T`\> = \{ `succeeded`: `true`; `value`: `T`; \} \| \{ `succeeded`: `false`; `reason`: `string`; \}
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+***
+
+### ImproveTrainingResult
+
+> **ImproveTrainingResult** = \{ `mode`: `"training"`; `succeeded`: `true`; `profile`: [`ReadonlyAgentProfile`](#readonlyagentprofile); `profileDigest`: `Sha256Digest`; `receipt`: `AgentTrainingReceipt`; `artifactPath`: `string`; `receiptPath`: `string`; `profilePath`: `string`; \} \| \{ `mode`: `"training"`; `succeeded`: `false`; `stage`: `"admission"` \| `"dataset"` \| `"training"` \| `"checkpoint"` \| `"serving"` \| `"profile"` \| `"persistence"`; `reason`: `string`; `outputDirectory?`: `string`; `servingMayExist`: `boolean`; `trainingMayExist`: `boolean`; `cleanupError?`: `string`; \}
+
+#### Union Members
+
+##### Type Literal
+
+\{ `mode`: `"training"`; `succeeded`: `true`; `profile`: [`ReadonlyAgentProfile`](#readonlyagentprofile); `profileDigest`: `Sha256Digest`; `receipt`: `AgentTrainingReceipt`; `artifactPath`: `string`; `receiptPath`: `string`; `profilePath`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `mode`: `"training"`; `succeeded`: `false`; `stage`: `"admission"` \| `"dataset"` \| `"training"` \| `"checkpoint"` \| `"serving"` \| `"profile"` \| `"persistence"`; `reason`: `string`; `outputDirectory?`: `string`; `servingMayExist`: `boolean`; `trainingMayExist`: `boolean`; `cleanupError?`: `string`; \}
+
+###### mode
+
+> **mode**: `"training"`
+
+###### succeeded
+
+> **succeeded**: `false`
+
+###### stage
+
+> **stage**: `"admission"` \| `"dataset"` \| `"training"` \| `"checkpoint"` \| `"serving"` \| `"profile"` \| `"persistence"`
+
+###### reason
+
+> **reason**: `string`
+
+###### outputDirectory?
+
+> `optional` **outputDirectory?**: `string`
+
+Partial artifacts are retained for diagnosis; they are not a runnable profile.
+
+###### servingMayExist
+
+> **servingMayExist**: `boolean`
+
+A serving request began; an interrupted adapter may still own a deployment.
+
+###### trainingMayExist
+
+> **trainingMayExist**: `boolean`
+
+A timed-out managed adapter may still own a remote training job.
+
+###### cleanupError?
+
+> `optional` **cleanupError?**: `string`
 
 ***
 
@@ -8654,6 +8994,26 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 #### Call Signature
 
+> **improve**(`profile`, `opts`): `Promise`\<[`ImproveTrainingResult`](#improvetrainingresult)\>
+
+Train and serve a checkpoint without implying that it improved held-out quality.
+
+##### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### opts
+
+[`ImproveTrainingOptions`](#improvetrainingoptions)
+
+##### Returns
+
+`Promise`\<[`ImproveTrainingResult`](#improvetrainingresult)\>
+
+#### Call Signature
+
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
 
 Optimize one exact profile surface with a complete method.
@@ -8970,6 +9330,24 @@ Persist a detached policy under the profile extension without mutating the input
 #### Returns
 
 `AgentProfile`
+
+***
+
+### createCommandProfileTrainer()
+
+> **createCommandProfileTrainer**(`input`): [`ProfileTrainer`](#profiletrainer)
+
+Execute one pinned command without a shell, in the runtime-owned job directory. POSIX only.
+
+#### Parameters
+
+##### input
+
+[`ControlledTrainingCommand`](#controlledtrainingcommand)
+
+#### Returns
+
+[`ProfileTrainer`](#profiletrainer)
 
 ***
 

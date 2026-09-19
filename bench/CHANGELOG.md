@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.4
+
+Require Interface `^2.10.0` and consume Runtime 0.242.0 through the published dependency ranges, keeping benchmark consumers on the checkpoint-training receipt contract.
+Benchmark execution and grading behavior are unchanged.
+
 ## 0.13.3
 
 Support Sandbox 0.41 and consume Runtime 0.233.1 through the published dependency ranges.

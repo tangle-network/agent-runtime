@@ -3,8 +3,8 @@
  * surface. Runtime extracts and materializes the profile value; agent-eval owns
  * optimization, disjoint data partitions, final-test scoring, and uncertainty.
  *
- * Code is the sole exception. It uses Runtime's isolated git worktrees because
- * checkout ownership and cleanup cannot cross a generic optimizer boundary.
+ * Code owns isolated git worktrees. Training owns checkpoint execution and
+ * serving receipts; unlike optimization, it does not make a promotion decision.
  *
  * @stable
  */
@@ -22,6 +22,11 @@ import type {
   ImproveResult,
 } from './improve-types'
 import { runMethodImprovement } from './method-execution'
+import {
+  type ImproveTrainingOptions,
+  type ImproveTrainingResult,
+  runProfileTraining,
+} from './training'
 
 export type {
   ImproveCandidateValidationInput,
@@ -64,7 +69,23 @@ export type {
   ImproveSkillsOptions,
   ImproveSurface,
 } from './improve-types'
+export type {
+  CheckpointServingPort,
+  ControlledTrainingCommand,
+  ImproveTrainingOptions,
+  ImproveTrainingResult,
+  ProfileTrainer,
+  ProfileTrainerRequest,
+  TrainingBoundaryResult,
+  TrainingDatasetDocument,
+} from './training'
+export { createCommandProfileTrainer } from './training'
 
+/** Train and serve a checkpoint without implying that it improved held-out quality. */
+export function improve(
+  profile: AgentProfile,
+  opts: ImproveTrainingOptions,
+): Promise<ImproveTrainingResult>
 /**
  * Optimize one exact profile surface with a complete method.
  */
@@ -80,14 +101,17 @@ export function improve<TScenario extends Scenario, TArtifact>(
 ): Promise<ImproveCodeResult<TScenario, TArtifact>>
 export async function improve<TScenario extends Scenario, TArtifact>(
   profileOrCode: AgentProfile | ImproveCodeRunOptions<TScenario, TArtifact>,
-  opts?: ImproveMethodOptions<TScenario, TArtifact>,
-): Promise<ImproveResult<TScenario, TArtifact>> {
+  opts?: ImproveMethodOptions<TScenario, TArtifact> | ImproveTrainingOptions,
+): Promise<ImproveResult<TScenario, TArtifact> | ImproveTrainingResult> {
   if (opts === undefined) {
     const code = profileOrCode as ImproveCodeRunOptions<TScenario, TArtifact>
     if (code?.surface !== 'code') {
       throw new ConfigError("improve(): the one-argument form requires { surface: 'code', ... }")
     }
     return runCodeImprovement(code)
+  }
+  if ('mode' in opts && opts.mode === 'training') {
+    return runProfileTraining(profileOrCode as AgentProfile, opts)
   }
   if ((opts as { surface?: string }).surface === 'code') {
     throw new ConfigError("improve(): code takes one argument: improve({ surface: 'code', ... })")
@@ -98,5 +122,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
     )
   }
-  return runMethodImprovement(immutableCandidateValue(parsedProfile.data), opts)
+  return runMethodImprovement(
+    immutableCandidateValue(parsedProfile.data),
+    opts as ImproveMethodOptions<TScenario, TArtifact>,
+  )
 }

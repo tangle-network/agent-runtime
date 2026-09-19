@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.242.0
+
+`improve(profile, { mode: 'training', ... })` and the bound harness's `train` method now produce a checkpoint-backed candidate with an Interface training receipt. The command trainer pins its executable and inputs, supplies only an explicit public environment, and cancels its POSIX process group. Managed trainers and verified serving adapters use the same typed boundary; they own remote job cleanup.
+
+The dataset envelope preserves existing Eval row payloads, inventories every exposed train/validation task, and refuses cross-partition reuse. Runtime verifies checkpoint bytes, artifact-addressed serving identity, and complete receipt ancestry. It reuses the existing cancellation and durable-file primitives: pre-dispatch cancellation starts no adapter, candidate validation cannot silently change checkpoint bytes, and the receipt is durable before profile publication. A late cancellation does not retract a committed profile; failure paths report uncertainty about external jobs.
+
+Requires `@tangle-network/agent-interface` `^2.10.0`, including the exact packed cohort. Training constructs a candidate; evaluation and promotion remain with the existing held-out gates. No GPU scheduler, managed trainer implementation, or Router deployment adapter is added.
+
 ## 0.241.1
 
 Coordination public-address signals now end when their listener closes or setup fails, as well as on manager cancellation. Hosted ingress adapters can retire a route before its local port is reused, without changing authentication, execution policy or agent capabilities.

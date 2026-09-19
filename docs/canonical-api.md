@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.241.1.**
+> **Version 0.242.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.182.0 <0.183.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.42.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.6.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.10.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -193,6 +193,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Optimize text or named components with upstream GEPA | `officialGepa({ recipe, ... })`, passed as `improve(...).method` from root `.` | a local GEPA approximation, prompt mutation loop, or silent fallback when Python is unavailable |
 | Optimize one text surface with Microsoft SkillOpt | `officialSkillOpt({ trainer, optimizer, ... })`, passed as `improve(...).method` from root `.` | Runtime-owned SkillOpt search or a silent local fallback |
 | Improve one profile coordinate | `improve(profile, { surface, executionRef, method, trainScenarios, selectionScenarios, testScenarios, judges, agent, costCeiling })` from root `.`; `executionRef` binds saved work to executable behavior, `agent` receives the exact complete candidate profile, and the total-cost option limits the whole run | an implicit per-surface optimizer, a method that sees final-test cases, an unmeasured profile mutation, or separate optimizer and final-test spend limits |
+| Train model weights and return a receipted candidate | `improve(profile, { mode: 'training', ... })` or `createProfileImprovementHarness(...).train(...)` from root `.`; use `createCommandProfileTrainer` for a pinned local command, or provide a managed trainer and verified serving port | a second optimizer, Runtime-owned GPU deployment, rewritten Eval transcripts, or treating a trained checkpoint as a promotion verdict |
 | Inspect observed optimizer package, model, usage, cost, and resumed-run evidence before proposing a change | `createOptimizationActivationReceipt(result)` from `/intelligence` | reconstructing optimizer evidence from logs or trusting caller-authored metadata |
 | Compare complete optimization methods directly | `compareOptimizationMethods(...)` from `agent-eval/campaign` | comparing one method's training score to another method's final score |
 | Improve repository code | `improve({ surface: 'code', code, scenarios, judge, agent, budget })` from root `.` | passing code through a text optimizer or managing candidate worktrees in product code |
@@ -281,3 +282,19 @@ Rule of thumb: `delegate` = "I don't care how"; `supervise` = "I authored the dr
 | **researcher → engineer** (gather, then build) | `defineStrategy(name, body)`: both agents in one body via `ctx.shot()` + `ctx.critique()` | `src/runtime/strategy.ts:789` |
 | **implement → verify** (build, then a SEPARATE checker gates it: selector ≠ judge) | `verify(spec)` as the `shape` | `src/runtime/personify/combinators.ts:333` |
 | **N-judge panel** (fan judges out, merge verdicts) | `panel(spec)` as the `shape` | `src/runtime/personify/combinators.ts:273` |
+
+### Checkpoint training is candidate construction, not promotion
+
+Training mode consumes a byte-pinned dataset envelope containing existing Eval export rows
+and the identities of every exposed training and validation task. Payloads are not rewritten.
+The trainer writes one bounded checkpoint; the serving port must independently verify its
+artifact-addressed Router model identity. Runtime retains complete receipt ancestry, rechecks
+checkpoint bytes after serving and candidate validation, and durably publishes the receipt
+before the runnable profile. Use the existing benchmark and held-out gates to assess that profile.
+
+The controlled command trainer runs without a shell or inherited credentials and cancels its
+POSIX process group. Managed training and serving adapters own their remote jobs and cleanup;
+inspect the failure stage and the training/serving uncertainty flags rather than assuming a
+timeout removed external resources. A cancellation before adapter dispatch starts no job.
+Once profile publication commits, later cancellation does not retract the committed result.
+This is a local execution primitive, not a durable remote-job scheduler or a Router deployment API.

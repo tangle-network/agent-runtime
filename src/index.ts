@@ -81,8 +81,8 @@ export {
   ValidationError,
 } from './errors'
 // ── Improvement (self-improvement surfaces) ──────────────────────────
-// Complete agent-eval methods optimize profile fields. Runtime owns only
-// isolated code/worktree candidate execution.
+// Complete agent-eval methods optimize profile fields. Runtime owns isolated
+// code/worktree candidates and checkpoint-producing trainer execution.
 export {
   type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorOptions,
@@ -102,6 +102,9 @@ export {
   toolBuildPrompt,
 } from './improvement/build-prompts'
 export {
+  type CheckpointServingPort,
+  type ControlledTrainingCommand,
+  createCommandProfileTrainer,
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
   type ImproveCodeBaseOptions,
@@ -141,7 +144,13 @@ export {
   type ImproveScenarioPartitions,
   type ImproveSkillsOptions,
   type ImproveSurface,
+  type ImproveTrainingOptions,
+  type ImproveTrainingResult,
   improve,
+  type ProfileTrainer,
+  type ProfileTrainerRequest,
+  type TrainingBoundaryResult,
+  type TrainingDatasetDocument,
 } from './improvement/improve'
 export type { CandidateGenerator } from './improvement/improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './improvement/mcp-serve-verifier'
@@ -163,6 +172,7 @@ export {
   createProfileImprovementHarness,
   type ProfileImprovementHarness,
   type ProfileImprovementHarnessRunOptions,
+  type ProfileImprovementHarnessTrainOptions,
 } from './improvement/profile-improvement-harness'
 export type { DeepReadonly, ReadonlyAgentProfile } from './improvement/profile-types'
 export {
