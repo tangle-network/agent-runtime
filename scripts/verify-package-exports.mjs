@@ -214,14 +214,22 @@ try {
         AgentImprovementActivationOutcome,
         AgentImprovementProposal,
         AgentProfile,
+        AgentTrainingReceipt,
         CandidateExecutionEvidence,
         SandboxSizePreset,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
-      import type {
-        ImproveMethodResult,
-        ImprovementProfileCandidatePopulation,
-        ImprovementProfilePopulationCandidateSource,
+      import {
+        createCommandProfileTrainer,
+        createProfileImprovementHarness,
+        improve,
+        type ControlledTrainingCommand,
+        type ImproveTrainingOptions,
+        type ImproveTrainingResult,
+        type ProfileTrainer,
+        type ImproveMethodResult,
+        type ImprovementProfileCandidatePopulation,
+        type ImprovementProfilePopulationCandidateSource,
       } from '@tangle-network/agent-runtime'
       import {
         driverAgent,
@@ -286,6 +294,24 @@ try {
       declare const profileStateResolver: AgentImprovementProfileStateResolver
       declare const profileEvaluation: AgentImprovementEvaluation
       declare const activeProfile: AgentProfile
+      declare const trainingOptions: ImproveTrainingOptions
+      declare const commandOptions: ControlledTrainingCommand
+      declare const trainingResult: ImproveTrainingResult
+      const training: Promise<ImproveTrainingResult> = improve(activeProfile, trainingOptions)
+      const commandTrainer: ProfileTrainer = createCommandProfileTrainer(commandOptions)
+      const profileHarness = createProfileImprovementHarness({
+        profile: activeProfile,
+        executionRef: trainingOptions.executionRef,
+        agent: async () => { throw new Error('type-only fixture') },
+      })
+      const harnessTraining: Promise<ImproveTrainingResult> = profileHarness.train(trainingOptions)
+      if (trainingResult.succeeded) {
+        const trainingReceipt: AgentTrainingReceipt = trainingResult.receipt
+        void trainingReceipt
+      }
+      void training
+      void commandTrainer
+      void harnessTraining
       declare const improvementResult: ImproveMethodResult
       const candidatePopulation: ImprovementProfileCandidatePopulation =
         improvementResult.candidatePopulation
@@ -683,7 +709,7 @@ try {
       '--eval',
       `
         const runtime = await import('@tangle-network/agent-runtime')
-        for (const name of ['improve', 'officialGepa', 'officialSkillOpt']) {
+        for (const name of ['improve', 'officialGepa', 'officialSkillOpt', 'createCommandProfileTrainer', 'createProfileImprovementHarness']) {
           if (typeof runtime[name] !== 'function') throw new Error('missing improvement export ' + name)
         }
         for (const name of [

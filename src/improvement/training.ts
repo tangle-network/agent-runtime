@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, mkdir, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import {
   type AgentProfile,
@@ -27,6 +27,11 @@ import {
   immutableCandidateValue,
   sha256Bytes,
 } from '../candidate-execution/digest'
+import { runAbortable } from '../runtime/supervise/abortable'
+import {
+  publishExclusiveDurableFile,
+  syncDurableDirectory,
+} from '../runtime/supervise/durable-file'
 import type { ImproveCandidateValidator } from './improve-types'
 import type { ReadonlyAgentProfile } from './profile-types'
 
@@ -345,22 +350,6 @@ function datasetIdentity(bytes: Uint8Array): AgentTrainingDatasetIdentity {
   })
 }
 
-async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  let abort: () => void = () => {}
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_, reject) => {
-        abort = () => reject(signal.reason ?? new Error('training cancelled'))
-        signal.addEventListener('abort', abort, { once: true })
-        if (signal.aborted) abort()
-      }),
-    ])
-  } finally {
-    signal.removeEventListener('abort', abort)
-  }
-}
-
 /** Training materializes a candidate; it never emits a ship verdict or changes a live agent. */
 export async function runProfileTraining(
   profile: AgentProfile,
@@ -431,8 +420,10 @@ export async function runProfileTraining(
     const signal = controller.signal
     signal.throwIfAborted()
     await mkdir(outputDirectory, { recursive: true })
-    jobDirectory = await mkdtemp(join(await realpath(outputDirectory), 'training-'))
+    const outputRoot = await realpath(outputDirectory)
+    jobDirectory = await mkdtemp(join(outputRoot, 'training-'))
     await chmod(jobDirectory, 0o700)
+    syncDurableDirectory(outputRoot)
     const datasetPath = join(jobDirectory, 'dataset.json')
     const parentProfilePath = join(jobDirectory, 'parent-profile.json')
     const artifactPath = join(jobDirectory, 'checkpoint.bin')
@@ -455,8 +446,14 @@ export async function runProfileTraining(
       executionRef,
     })
     stage = 'training'
-    trainingMayExist = true
-    const trained = await abortable(execute(request, signal), signal)
+    const trained = await runAbortable(
+      () => {
+        trainingMayExist = true
+        return execute(request, signal)
+      },
+      signal,
+      'training cancelled',
+    )
     signal.throwIfAborted()
     if (trained?.succeeded !== true)
       throw new Error(trained?.reason ?? 'trainer did not report success')
@@ -478,16 +475,19 @@ export async function runProfileTraining(
       await checkpoint.close()
     }
     stage = 'serving'
-    servingMayExist = true
-    const served = await abortable(
-      serve({
-        artifactPath,
-        artifactDigest: artifact.digest,
-        artifactBytes: artifact.bytes,
-        routerModelId: trainedModelIdForArtifact(artifact.digest),
-        signal,
-      }),
+    const served = await runAbortable(
+      () => {
+        servingMayExist = true
+        return serve({
+          artifactPath,
+          artifactDigest: artifact.digest,
+          artifactBytes: artifact.bytes,
+          routerModelId: trainedModelIdForArtifact(artifact.digest),
+          signal,
+        })
+      },
       signal,
+      'checkpoint serving cancelled',
     )
     signal.throwIfAborted()
     if (served?.succeeded !== true)
@@ -519,33 +519,22 @@ export async function runProfileTraining(
       metadata: { ...parent.metadata, training: { receipt, ancestors: ancestry } },
     })
     validate(candidate, false)
+    // The validator is caller code too; publish only the bytes the receipt actually names.
+    if ((await hashFile(artifactPath, maxCheckpointBytes, signal)).digest !== artifact.digest)
+      throw new Error('checkpoint changed during candidate validation')
     stage = 'persistence'
     const receiptPath = join(jobDirectory, 'receipt.json')
     const profilePath = join(jobDirectory, 'profile.json')
     const profileDigest = canonicalAgentProfileDigest(candidate)
-    // Receipt is durable before a runnable profile can be observed.
+    // Reuse the runtime's no-clobber, fsynced publication primitive. Once the
+    // profile is committed, a late cancellation must not retract an observed result.
     for (const [path, value] of [
       [receiptPath, receipt],
-      [`${profilePath}.pending`, candidate],
+      [profilePath, candidate],
     ] as const) {
       signal.throwIfAborted()
-      const file = await open(path, 'wx', 0o400)
-      try {
-        await file.writeFile(JSON.stringify(value))
-        await file.sync()
-      } finally {
-        await file.close()
-      }
-    }
-    const directory = await open(jobDirectory, 'r')
-    try {
-      await directory.sync()
-      signal.throwIfAborted()
-      await rename(`${profilePath}.pending`, profilePath)
-      await directory.sync()
-      signal.throwIfAborted()
-    } finally {
-      await directory.close()
+      if (!publishExclusiveDurableFile(path, JSON.stringify(value), { mode: 0o400 }))
+        throw new Error('training publication path already exists')
     }
     return {
       mode: 'training',
@@ -562,6 +551,7 @@ export async function runProfileTraining(
     if (jobDirectory) {
       try {
         await rm(join(jobDirectory, 'profile.json'), { force: true })
+        syncDurableDirectory(jobDirectory)
       } catch (failure) {
         cleanupError = failure instanceof Error ? failure.message : 'profile cleanup failed'
       }

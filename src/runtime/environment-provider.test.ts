@@ -1,4 +1,4 @@
-import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
+import { estimateCost, HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import {
   type AgentEnvironmentCapabilities,
   type AgentExactRunControlRef,
@@ -227,6 +227,80 @@ describe('environment provider adapters', () => {
       expect(spent.usdEstimated).toBe(expectedEstimate)
     },
   )
+
+  it('prices unreceipted provider work from the catalog instead of settling a bare zero', async () => {
+    const executor = unreceiptedProviderExecutor('glm-5.3')
+    const events = await collect(
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+    const expected = estimateCost(200_000, 20_000, 'glm-5.3')
+    expect(expected).toBeGreaterThan(0)
+    expect(events).toContainEqual({
+      kind: 'cost',
+      usd: expected,
+      usdKnown: false,
+      usdEstimated: expected,
+      provenance: 'catalog-estimate',
+    })
+    const spent = executor.resultArtifact().spent
+    // A price is not a receipt, so the whole amount stays subtractable and no dollar is proven.
+    expect(spent.usdKnown).toBe(false)
+    expect(spent.usd).toBeCloseTo(expected)
+    expect(spent.usd - (spent.usdEstimated ?? 0)).toBe(0)
+  })
+
+  it('settles a model the catalog cannot price with no estimate at all', async () => {
+    const executor = unreceiptedProviderExecutor('model-with-no-catalog-entry')
+    const events = await collect(
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+    expect(events).toContainEqual({
+      kind: 'cost',
+      usd: 0,
+      usdKnown: false,
+      provenance: 'uncaptured',
+    })
+    const spent = executor.resultArtifact().spent
+    expect(spent.usd).toBe(0)
+    expect(spent.usdKnown).toBe(false)
+    // Absence, not a zero estimate: nothing was priced, rather than priced at nothing.
+    expect(spent.usdEstimated).toBeUndefined()
+  })
+
+  it('does not price an execution that already put billed dollars on the channel', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'partly-billed-fixture',
+      capabilities: fakeCapabilities,
+      create: async () =>
+        fakeEnvironment({
+          async *stream() {
+            yield {
+              type: 'llm_call',
+              data: {
+                tokensIn: 100_000,
+                tokensOut: 10_000,
+                costUsd: 0.03,
+                costProvenance: 'billing-receipt',
+              },
+            }
+            yield { type: 'llm_call', data: { tokensIn: 100_000, tokensOut: 10_000 } }
+            yield { type: 'done', data: { finalText: 'result' } }
+          },
+        }),
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'worker', model: { default: 'glm-5.3' } }, harness: null },
+      { signal, seams: {} },
+    )
+    await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+    const spent = executor.resultArtifact().spent
+    // The token total is the whole execution's, not the unbilled remainder, so pricing it here
+    // would charge the first call's 100k prompt tokens a second time.
+    expect(spent.usd).toBeCloseTo(0.03)
+    expect(spent.usdEstimated).toBeUndefined()
+    expect(spent.usdKnown).toBe(false)
+  })
 
   it('joins two independently refined provider snapshots without replacing the other worker', async () => {
     const done: AgentEnvironmentEvent = {
@@ -3748,6 +3822,26 @@ describe('declared provider placements', () => {
     expect(creates).toBe(0)
   })
 })
+
+/** A provider that reports tokens and never a dollar — the sandbox-rooted shape that used to
+ *  settle `usd: 0` with no estimate no matter how much prompt it had processed. */
+function unreceiptedProviderExecutor(model: string) {
+  const provider: AgentEnvironmentProvider = {
+    name: 'unreceipted-fixture',
+    capabilities: fakeCapabilities,
+    create: async () =>
+      fakeEnvironment({
+        async *stream() {
+          yield { type: 'llm_call', data: { tokensIn: 200_000, tokensOut: 20_000 } }
+          yield { type: 'done', data: { finalText: 'result' } }
+        },
+      }),
+  }
+  return providerAsExecutor(provider)(
+    { profile: { name: 'worker', model: { default: model } }, harness: null },
+    { signal: new AbortController().signal, seams: {} },
+  )
+}
 
 function fakeEnvironment(
   overrides: Partial<AgentEnvironment> & Pick<AgentEnvironment, 'stream'>,

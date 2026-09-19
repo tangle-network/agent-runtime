@@ -856,7 +856,8 @@ const DEFAULT_INTELLIGENCE_BASE = 'https://intelligence.tangle.tools'
  * Ship self-improvement eval-run events to Tangle Intelligence. Unlike the
  * best-effort span exporter, this RESOLVES with the ingest verdict (accepted /
  * rejected per event) so a consumer's loop can assert its provenance landed.
- * Throws only on a missing key or network failure.
+ * Success requires a complete, valid acknowledgement accepting every event.
+ * Throws on a missing key, network failure, or unreadable/inconsistent acknowledgement.
  */
 export async function exportEvalRuns(
   events: EvalRunEvent[],
@@ -865,13 +866,14 @@ export async function exportEvalRuns(
   if (events.length === 0) return { ok: true, status: 0, accepted: 0, rejected: [] }
   const apiKey =
     config?.apiKey ?? (typeof process !== 'undefined' ? process.env.TANGLE_API_KEY : undefined)
-  if (!apiKey)
+  if (!apiKey?.trim())
     throw new Error('exportEvalRuns: apiKey required (pass config.apiKey or set TANGLE_API_KEY)')
   const base =
     config?.base ??
     (typeof process !== 'undefined' ? process.env.TANGLE_INTELLIGENCE_URL : undefined) ??
     DEFAULT_INTELLIGENCE_BASE
   const url = `${base.replace(/\/+$/, '')}/v1/ingest/eval-runs`
+  const count = events.length
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -882,16 +884,57 @@ export async function exportEvalRuns(
     },
     body: JSON.stringify({ wireVersion: INTELLIGENCE_WIRE_VERSION, events }),
   })
-  let parsed: { accepted?: number; rejected?: Array<{ index: number; reason: string }> } = {}
+  const invalid = (reason: string): never => {
+    throw new Error(`exportEvalRuns: ${reason} (HTTP ${res.status})`)
+  }
+  let parsed: unknown
   try {
-    parsed = (await res.json()) as typeof parsed
+    parsed = await res.json()
   } catch {
-    // non-JSON body (e.g. 5xx HTML) — leave parsed empty
+    return invalid('Unreadable eval-runs acknowledgement')
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return invalid('Invalid eval-runs acknowledgement')
+  }
+  const { accepted, rejected } = parsed as Record<string, unknown>
+  if (
+    !Number.isSafeInteger(accepted) ||
+    (accepted as number) < 0 ||
+    (accepted as number) > count ||
+    !Array.isArray(rejected)
+  ) {
+    return invalid('Invalid eval-runs acknowledgement counts')
+  }
+  const indices = new Set<number>()
+  const validated: EvalRunsExportResult['rejected'] = []
+  for (const item of rejected) {
+    if (
+      item === null ||
+      typeof item !== 'object' ||
+      Array.isArray(item) ||
+      !Number.isSafeInteger(item.index) ||
+      item.index < 0 ||
+      item.index >= count ||
+      indices.has(item.index) ||
+      typeof item.reason !== 'string' ||
+      !item.reason.trim()
+    ) {
+      return invalid('Invalid eval-runs acknowledgement rejection')
+    }
+    indices.add(item.index)
+    validated.push({ index: item.index, reason: item.reason })
+  }
+  // Every submitted event must be accounted for exactly once, including partial ingest.
+  if ((accepted as number) + validated.length !== count) {
+    return invalid('Incomplete eval-runs acknowledgement')
+  }
+  if (!res.ok && accepted !== 0) {
+    return invalid('Failed HTTP response claimed accepted eval-runs')
   }
   return {
-    ok: res.ok,
+    ok: res.ok && accepted === count && validated.length === 0,
     status: res.status,
-    accepted: parsed.accepted ?? (res.ok ? events.length : 0),
-    rejected: parsed.rejected ?? [],
+    accepted: accepted as number,
+    rejected: validated,
   }
 }

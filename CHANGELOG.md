@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.242.0
+
+`improve(profile, { mode: 'training', ... })` and the bound harness's `train` method now produce a checkpoint-backed candidate with an Interface training receipt. The command trainer pins its executable and inputs, supplies only an explicit public environment, and cancels its POSIX process group. Managed trainers and verified serving adapters use the same typed boundary; they own remote job cleanup.
+
+The dataset envelope preserves existing Eval row payloads, inventories every exposed train/validation task, and refuses cross-partition reuse. Runtime verifies checkpoint bytes, artifact-addressed serving identity, and complete receipt ancestry. It reuses the existing cancellation and durable-file primitives: pre-dispatch cancellation starts no adapter, candidate validation cannot silently change checkpoint bytes, and the receipt is durable before profile publication. A late cancellation does not retract a committed profile; failure paths report uncertainty about external jobs.
+
+Requires `@tangle-network/agent-interface` `^2.10.0`, including the exact packed cohort. Training constructs a candidate; evaluation and promotion remain with the existing held-out gates. No GPU scheduler, managed trainer implementation, or Router deployment adapter is added.
+
+## 0.241.1
+
+Coordination public-address signals now end when their listener closes or setup fails, as well as on manager cancellation. Hosted ingress adapters can retire a route before its local port is reused, without changing authentication, execution policy or agent capabilities.
+
+## 0.241.0
+
+**`exportEvalRuns` no longer invents an accepted count.** When Tangle Intelligence answered with a non-JSON body (a proxy error page, an empty 5xx), the exporter left the parsed acknowledgement empty and reported `accepted: events.length` on any 2xx, so a consumer asserting that its provenance landed could pass on an acknowledgement that never existed. The acknowledgement is now validated against the batch that was sent: `accepted` must be a bounded integer, every rejection must carry a unique in-range index and a nonempty reason, and `accepted + rejected.length` must account for every submitted event. An unreadable, malformed or incomplete acknowledgement throws with the HTTP status; a failed HTTP response that claims accepted events throws; partial acceptance resolves with `ok: false` and the validated rejections. A whitespace-only API key is refused like a missing one. blueprint-agent deletes its duplicate wire types and ingest client and imports this exporter.
+
 ## 0.240.0
 
 **`observe_agent` names a finished-but-undrained worker instead of calling it running.** A child's executor finishes, its settlement waits in the manager's inbox, and `status` stays `running` until `await_event` drains it, because the settle transition happens at drain time. A manager polling `observe_agent` therefore could not tell "still working" from "finished, waiting for you to read it". Measured 2026-09-17 (discovery-lab `mech-interp-foundations-sandbox-a-20260917h`): two children finished 30 s after dispatch; the manager polled eleven times over 56 minutes, read `running` each time, stopped draining because the status said work was in flight, and recorded the opposite of the truth about its own experiment.
