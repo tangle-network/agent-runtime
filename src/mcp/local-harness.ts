@@ -38,6 +38,7 @@ import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'no
 import type { AgentProfile, HarnessType, ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 import { parseCodexUsageRecord } from '../runtime/harness-usage'
+import { processGroupExists, terminateProcessTreeAndConfirm } from '../runtime/process-tree'
 import { concreteProfileModel } from '../runtime/supervise/model-policy'
 import {
   codexSensitiveEnvironmentName,
@@ -47,6 +48,7 @@ import {
   redactCodexHome,
 } from './codex-diagnostics'
 
+export { terminateProcessTreeAndConfirm } from '../runtime/process-tree'
 export type { CodexExecutionFailureDiagnostic } from './codex-diagnostics'
 export { CodexExecutionDiagnosticError } from './codex-diagnostics'
 
@@ -541,9 +543,6 @@ export interface LocalHarnessResult {
 }
 
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024
-const processKillGraceMs = 250
-const processGroupExitConfirmMs = 1_000
-const processGroupExitPollMs = 10
 
 class RollingByteCapture {
   private readonly chunks: Buffer[] = []
@@ -1681,69 +1680,6 @@ function sha256File(path: string): Promise<string> {
     stream.on('data', (chunk) => hash.update(chunk))
     stream.on('end', () => resolveDigest(hash.digest('hex')))
   })
-}
-
-function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (process.platform !== 'win32' && typeof child.pid === 'number') {
-    try {
-      process.kill(-child.pid, signal)
-      return
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return
-    }
-  }
-  try {
-    child.kill(signal)
-  } catch {
-    // The process may have exited between the timer and signal delivery.
-  }
-}
-
-export async function terminateProcessTreeAndConfirm(
-  child: ChildProcess,
-  leaderClosed: () => boolean,
-  context = 'runLocalHarness',
-): Promise<void> {
-  signalProcessTree(child, 'SIGTERM')
-  if (process.platform === 'win32' || typeof child.pid !== 'number') {
-    const graceDeadline = Date.now() + processKillGraceMs
-    while (!leaderClosed() && Date.now() < graceDeadline) {
-      await delayUntilNextProcessCheck(graceDeadline)
-    }
-    if (!leaderClosed()) signalProcessTree(child, 'SIGKILL')
-    return
-  }
-  const processGroupId = child.pid
-  const graceDeadline = Date.now() + processKillGraceMs
-  if (await waitForProcessGroupExit(processGroupId, graceDeadline)) return
-
-  signalProcessTree(child, 'SIGKILL')
-  const killDeadline = Date.now() + processGroupExitConfirmMs
-  if (await waitForProcessGroupExit(processGroupId, killDeadline)) return
-  throw new Error(`${context}: process group ${processGroupId} survived SIGKILL`)
-}
-
-async function waitForProcessGroupExit(processGroupId: number, deadline: number): Promise<boolean> {
-  while (processGroupExists(processGroupId)) {
-    if (Date.now() >= deadline) return false
-    await delayUntilNextProcessCheck(deadline)
-  }
-  return true
-}
-
-async function delayUntilNextProcessCheck(deadline: number): Promise<void> {
-  const delayMs = Math.min(processGroupExitPollMs, Math.max(0, deadline - Date.now()))
-  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
-}
-
-function processGroupExists(processGroupId: number): boolean {
-  try {
-    process.kill(-processGroupId, 0)
-    return true
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return false
-    return true
-  }
 }
 
 /**

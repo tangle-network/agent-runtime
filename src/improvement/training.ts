@@ -2,14 +2,14 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { chmod, mkdir, mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import {
   type AgentProfile,
-  type AgentProfileTraining,
   type AgentTrainingDatasetIdentity,
   type AgentTrainingReceipt,
   type AgentTrainingTask,
   agentProfileEnvironmentSchema,
+  agentProfileTrainingSchema,
   agentTrainingDatasetIdentitySchema,
   agentTrainingParametersSchema,
   agentTrainingReceiptSchema,
@@ -27,11 +27,14 @@ import {
   immutableCandidateValue,
   sha256Bytes,
 } from '../candidate-execution/digest'
-import { runAbortable } from '../runtime/supervise/abortable'
+import { terminateProcessTreeAndConfirm } from '../runtime/process-tree'
+import { linkAbort, runAbortable } from '../runtime/supervise/abortable'
+import { armDeadlineTimer } from '../runtime/supervise/deadline'
 import {
   publishExclusiveDurableFile,
   syncDurableDirectory,
 } from '../runtime/supervise/durable-file'
+import { assertCandidateValidator, validateProfileCandidate } from './candidate-validation'
 import type { ImproveCandidateValidator } from './improve-types'
 import type { ReadonlyAgentProfile } from './profile-types'
 
@@ -92,7 +95,8 @@ export interface ImproveTrainingOptions {
   executionRef: Sha256Digest
   serving: CheckpointServingPort
   outputDirectory: string
-  timeoutMs: number
+  /** Optional overall deadline. Omit to rely on caller cancellation; long durations are supported. */
+  timeoutMs?: number
   maxCheckpointBytes: number
   signal?: AbortSignal
   validateCandidate?: ImproveCandidateValidator
@@ -138,12 +142,12 @@ export interface ControlledTrainingCommand {
   inputs: Array<{ path: string; digest: Sha256Digest }>
   /** Explicit public environment only. Ambient credentials are never inherited. */
   environment: Record<string, string>
+  /** Total stdout + stderr byte budget. Output is drained, not retained in memory. */
   maxOutputBytes: number
 }
 
-function positiveLimit(value: number, maximum: number, label: string): void {
-  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum)
-    throw new Error(`invalid ${label}`)
+function positiveLimit(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`invalid ${label}`)
 }
 
 async function hashFile(
@@ -160,14 +164,15 @@ async function hashFile(
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const before = await file.stat()
-    if (!before.isFile() || before.size <= 0 || before.size > maximum)
-      throw new Error('artifact must be a bounded nonempty regular file')
+    if (!before.isFile() || !Number.isSafeInteger(before.size) || before.size > maximum)
+      throw new Error('artifact must be a bounded regular file')
     const hash = createHash('sha256')
     const chunks: Buffer[] = []
     let bytes = 0
     for await (const chunk of file.createReadStream({ autoClose: false, signal })) {
       bytes += chunk.length
       if (bytes > maximum) throw new Error('artifact exceeded its byte limit')
+      if (bytes > before.size) throw new Error('artifact changed while being hashed')
       hash.update(chunk)
       if (capture) chunks.push(Buffer.from(chunk))
     }
@@ -193,7 +198,7 @@ async function hashFile(
 /** Execute one pinned command without a shell, in the runtime-owned job directory. POSIX only. */
 export function createCommandProfileTrainer(input: ControlledTrainingCommand): ProfileTrainer {
   const command = immutableCandidateValue(input)
-  positiveLimit(command.maxOutputBytes, 16 * 1024 * 1024, 'trainer output limit')
+  positiveLimit(command.maxOutputBytes, 'trainer output limit')
   if (
     !command.id ||
     command.id.trim() !== command.id ||
@@ -229,9 +234,15 @@ export function createCommandProfileTrainer(input: ControlledTrainingCommand): P
       try {
         if (process.platform === 'win32')
           throw new Error('controlled trainers require POSIX process-group cancellation')
+        // Serialize before spawning and before any await: caller mutation cannot redirect the job,
+        // and a malformed request cannot leave a live child behind an early rejected promise.
+        const requestSnapshot = immutableCandidateValue(request)
+        const inputBytes = Buffer.from(canonicalCandidateBytes(requestSnapshot))
         const verifyInputs = async () => {
           for (const file of [command.executable, ...command.inputs]) {
-            if ((await hashFile(file.path, 1024 * 1024 * 1024, signal)).digest !== file.digest) {
+            if (
+              (await hashFile(file.path, Number.MAX_SAFE_INTEGER, signal)).digest !== file.digest
+            ) {
               throw new Error('trainer executable or input digest mismatch')
             }
           }
@@ -240,7 +251,7 @@ export function createCommandProfileTrainer(input: ControlledTrainingCommand): P
         signal.throwIfAborted()
         await new Promise<void>((resolve, reject) => {
           const child = spawn(command.executable.path, command.args, {
-            cwd: join(request.checkpointPath, '..'),
+            cwd: dirname(requestSnapshot.checkpointPath),
             env: command.environment,
             shell: false,
             detached: true,
@@ -248,13 +259,21 @@ export function createCommandProfileTrainer(input: ControlledTrainingCommand): P
           })
           let failure: Error | undefined
           let outputBytes = 0
+          let leaderClosed = false
+          let termination: Promise<void> | undefined
           const stop = () => {
-            if (!child.pid) return
-            try {
-              process.kill(-child.pid, 'SIGKILL')
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') failure ??= error as Error
+            if (!termination) {
+              termination = terminateProcessTreeAndConfirm(
+                child,
+                () => leaderClosed,
+                'createCommandProfileTrainer',
+              )
+              // Teardown can finish before close. Observe its failure in both event orders.
+              void termination.catch((error) => {
+                failure ??= error
+              })
             }
+            return termination
           }
           const abort = () => {
             failure ??= new Error('trainer cancelled')
@@ -281,14 +300,16 @@ export function createCommandProfileTrainer(input: ControlledTrainingCommand): P
           // A successful parent may not leave descendants mutating the checkpoint.
           child.on('exit', stop)
           child.on('close', (code, exitSignal) => {
+            leaderClosed = true
             signal.removeEventListener('abort', abort)
-            stop()
-            if (failure) reject(failure)
-            else if (code !== 0 || exitSignal !== null)
-              reject(new Error(`trainer exited unsuccessfully (${code ?? exitSignal})`))
-            else resolve()
+            void stop().then(() => {
+              if (failure) reject(failure)
+              else if (code !== 0 || exitSignal !== null)
+                reject(new Error(`trainer exited unsuccessfully (${code ?? exitSignal})`))
+              else resolve()
+            }, reject)
           })
-          child.stdin.end(Buffer.from(canonicalCandidateBytes(request)))
+          child.stdin.end(inputBytes)
         })
         await verifyInputs()
         return { succeeded: true, value: undefined }
@@ -352,19 +373,18 @@ function datasetIdentity(bytes: Uint8Array): AgentTrainingDatasetIdentity {
 
 /** Training materializes a candidate; it never emits a ship verdict or changes a live agent. */
 export async function runProfileTraining(
-  profile: AgentProfile,
+  profile: ReadonlyAgentProfile,
   options: ImproveTrainingOptions,
 ): Promise<ImproveTrainingResult> {
   let stage: Extract<ImproveTrainingResult, { succeeded: false }>['stage'] = 'admission'
   let jobDirectory: string | undefined
-  const controller = new AbortController()
-  const inputSignal = options.signal
+  const cancellation = linkAbort(...(options.signal ? [options.signal] : []))
+  const signal = cancellation.signal
   const outputDirectory = options.outputDirectory
   const timeoutMs = options.timeoutMs
   let servingMayExist = false
   let trainingMayExist = false
-  const abort = () => controller.abort(inputSignal?.reason ?? new Error('training cancelled'))
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let clearTimer: (() => void) | undefined
   try {
     if (options.mode !== 'training') throw new Error('training mode is required')
     const parent = snapshotAgentProfile(profile)
@@ -375,8 +395,8 @@ export async function runProfileTraining(
     const parentBytes = Buffer.from(JSON.stringify(parent), 'utf8')
     sha256DigestSchema.parse(options.executionRef)
     sha256DigestSchema.parse(options.dataset.digest)
-    positiveLimit(options.timeoutMs, 7 * 24 * 60 * 60 * 1000, 'training timeout')
-    positiveLimit(options.maxCheckpointBytes, Number.MAX_SAFE_INTEGER, 'checkpoint byte limit')
+    if (timeoutMs !== undefined) positiveLimit(timeoutMs, 'training timeout')
+    positiveLimit(options.maxCheckpointBytes, 'checkpoint byte limit')
     if (
       typeof options.trainer?.execute !== 'function' ||
       typeof options.serving?.serve !== 'function'
@@ -387,8 +407,7 @@ export async function runProfileTraining(
       agentTrainingParametersSchema.parse(options.parameters),
     )
     agentTrainingReceiptSchema.shape.trainer.parse({ ...trainer, parameters })
-    if (options.validateCandidate !== undefined && typeof options.validateCandidate !== 'function')
-      throw new Error('invalid candidate validator')
+    assertCandidateValidator(options.validateCandidate)
     const execute = options.trainer.execute.bind(options.trainer)
     const serve = options.serving.serve.bind(options.serving)
     const executionRef = options.executionRef
@@ -396,29 +415,29 @@ export async function runProfileTraining(
     const sourceDataset = options.dataset.path
     const maxCheckpointBytes = options.maxCheckpointBytes
     const validateCandidate = options.validateCandidate
-    const ancestry: AgentProfileTraining['ancestors'] = parent.metadata?.training
-      ? [parent.metadata.training.receipt, ...parent.metadata.training.ancestors]
-      : []
-    if (ancestry.length > 8) throw new Error('training receipt ancestry limit exceeded')
-    const validate = (candidate: AgentProfile, isBaseline: boolean) => {
-      const result: unknown = validateCandidate?.({
+    // Interface owns both the ancestry bound and the portable receipt shape.
+    const ancestry = agentProfileTrainingSchema.shape.ancestors.parse(
+      parent.metadata?.training
+        ? [parent.metadata.training.receipt, ...parent.metadata.training.ancestors]
+        : [],
+    )
+    const validate = (candidate: AgentProfile, isBaseline: boolean) =>
+      validateProfileCandidate(validateCandidate, {
         profile: candidate,
         surface: 'agent-profile',
         candidateSurface: JSON.stringify(candidate),
         value: candidate,
         isBaseline,
       })
-      if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {})
-        throw new Error('candidate validators must return void synchronously or throw')
-      }
+    if (timeoutMs !== undefined) {
+      clearTimer = armDeadlineTimer(
+        timeoutMs,
+        () => cancellation.abort(new Error('training deadline exceeded')),
+        true,
+      )
     }
-    validate(parent, true)
-    inputSignal?.addEventListener('abort', abort, { once: true })
-    if (inputSignal?.aborted) abort()
-    timer = setTimeout(() => controller.abort(new Error('training deadline exceeded')), timeoutMs)
-    const signal = controller.signal
     signal.throwIfAborted()
+    validate(parent, true)
     await mkdir(outputDirectory, { recursive: true })
     const outputRoot = await realpath(outputDirectory)
     jobDirectory = await mkdtemp(join(outputRoot, 'training-'))
@@ -467,6 +486,7 @@ export async function runProfileTraining(
       throw new Error('trainer changed its pinned inputs')
     }
     const artifact = await hashFile(artifactPath, maxCheckpointBytes, signal)
+    if (artifact.bytes === 0) throw new Error('checkpoint must be nonempty')
     await chmod(artifactPath, 0o400)
     const checkpoint = await open(artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
@@ -494,8 +514,7 @@ export async function runProfileTraining(
       throw new Error(served?.reason ?? 'checkpoint serving is unverified')
     if (served.value.artifactDigest !== artifact.digest)
       throw new Error('Router serving evidence names a different checkpoint')
-    if ((await hashFile(artifactPath, maxCheckpointBytes, signal)).digest !== artifact.digest)
-      throw new Error('checkpoint changed during serving')
+    // Snapshot caller-owned evidence before awaiting another read.
     const receipt = immutableCandidateValue(
       agentTrainingReceiptSchema.parse({
         version: 1,
@@ -512,10 +531,30 @@ export async function runProfileTraining(
         },
       }),
     )
+    if ((await hashFile(artifactPath, maxCheckpointBytes, signal)).digest !== artifact.digest)
+      throw new Error('checkpoint changed during serving')
     stage = 'profile'
+    const previousModel = parent.metadata?.training?.receipt.checkpoint.routerModelId
+    const routerModelId = receipt.checkpoint.routerModelId
+    const rebindModels = <T extends { model?: string }>(entries: Record<string, T>) =>
+      Object.fromEntries(
+        Object.entries(entries).map(([key, value]) => [
+          key,
+          previousModel && value.model === previousModel
+            ? { ...value, model: routerModelId }
+            : value,
+        ]),
+      )
     const candidate = snapshotAgentProfile({
       ...parent,
-      model: { ...parent.model, default: receipt.checkpoint.routerModelId },
+      model: {
+        ...parent.model,
+        default: routerModelId,
+        ...(previousModel && parent.model.small === previousModel ? { small: routerModelId } : {}),
+      },
+      // Only references to the old trained artifact follow the new receipt; other models stay put.
+      ...(parent.subagents && { subagents: rebindModels(parent.subagents) }),
+      ...(parent.modes && { modes: rebindModels(parent.modes) }),
       metadata: { ...parent.metadata, training: { receipt, ancestors: ancestry } },
     })
     validate(candidate, false)
@@ -560,14 +599,19 @@ export async function runProfileTraining(
       mode: 'training',
       succeeded: false,
       stage,
-      reason: error instanceof Error ? error.message : 'training failed',
+      reason:
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'training failed',
       servingMayExist,
       trainingMayExist,
       ...(cleanupError ? { cleanupError } : {}),
       ...(jobDirectory ? { outputDirectory: jobDirectory } : {}),
     }
   } finally {
-    if (timer) clearTimeout(timer)
-    inputSignal?.removeEventListener('abort', abort)
+    clearTimer?.()
+    cancellation.release()
   }
 }
