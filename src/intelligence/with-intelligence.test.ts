@@ -184,12 +184,13 @@ describe('withIntelligence — SAFETY (observe + deliver only, never auto-apply)
 })
 
 /** Pull every span attribute across an OTLP export body into one flat map. */
-function attrsOf(body: unknown): Record<string, unknown> {
+function attrsOf(body: unknown, spanName?: string): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   const resourceSpans = (body as { resourceSpans?: unknown[] })?.resourceSpans ?? []
   for (const rs of resourceSpans) {
     for (const ss of (rs as { scopeSpans?: unknown[] }).scopeSpans ?? []) {
       for (const span of (ss as { spans?: unknown[] }).spans ?? []) {
+        if (spanName !== undefined && (span as { name?: string }).name !== spanName) continue
         for (const a of (span as { attributes?: unknown[] }).attributes ?? []) {
           const attr = a as { key: string; value: Record<string, unknown> }
           const v = attr.value
@@ -206,6 +207,45 @@ function attrsOf(body: unknown): Record<string, unknown> {
 }
 
 describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
+  it('exports unknown call costs and estimates without labeling them as measured zero', async () => {
+    const posts: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        if (init.body) posts.push(JSON.parse(String(init.body)))
+        return new Response('{}', { status: 200 })
+      }),
+    )
+    const agent = withIntelligence(
+      async (_input: null, applied) => {
+        applied.record({
+          runtimeEvents: [
+            { type: 'llm_call', model: 'test', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
+            { type: 'llm_call', model: 'test', tokensIn: 20, estimatedCostUsd: 0.02 },
+          ],
+        })
+        throw new Error('connection lost')
+      },
+      {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        fetchImpl: async () => jsonResponse(COMPOSED),
+      },
+    )
+    await expect(agent(null)).rejects.toThrow('connection lost')
+    await agent.flush()
+    expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+      'tangle.usage.inference_usd': 0.01,
+      'tangle.usage.inference_usd_known': false,
+      'tangle.usage.inference_usd_estimated': 0.02,
+      'tangle.usage.tokens_known': false,
+      'gen_ai.usage.input_tokens': 30,
+      'gen_ai.usage.output_tokens': 5,
+      'tangle.outcome.success': false,
+    })
+  })
+
   it('ships one run span carrying target + usage split + model, best-effort', async () => {
     vi.useFakeTimers()
     try {
@@ -403,6 +443,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['error.type']).toBe('rate_limit')
       expect(attrs['error.message']).toBe('provider exhausted')
       expect(attrs['tangle.duration_ms']).toEqual(expect.any(Number))
+      expect(attrs['tangle.usage.inference_usd_known']).toBe(false)
     } finally {
       vi.useRealTimers()
     }

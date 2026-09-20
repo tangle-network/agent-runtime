@@ -69,7 +69,7 @@ export interface WorkerSteerRequest {
   readonly at: string
   /** Who asked — 'human', a brain label, a tool name. Provenance, not authorization. */
   readonly source: string
-  /** Exact supervised worker node id. */
+  /** Exact supervised node id, including the run id for its root manager. */
   readonly worker: string
   readonly message: string
   readonly interrupt: boolean
@@ -290,6 +290,7 @@ export function workerSteerAcknowledgementFile(eventDir: string, operationId: st
 
 /**
  * Admit one steer exactly once under a caller-owned operation id.
+ * Pass the run id as `worker` to address the root manager through the same durable queue.
  *
  * The per-operation request file is linked into place atomically after its bytes reach disk. A
  * same-body retry returns the winner's request. A changed-body retry fails loud. The NDJSON inbox

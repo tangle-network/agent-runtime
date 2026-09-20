@@ -26,30 +26,28 @@
  */
 
 import { RuntimeRunStateError, ValidationError } from './errors'
+import {
+  addRuntimeUsage,
+  createRuntimeUsageTotals,
+  isUsageAmount,
+  type RuntimeUsageTotals,
+} from './runtime-usage'
 import type { AgentTaskSpec, RuntimeStreamEvent } from './types'
 
 /** @stable */
 export type RuntimeRunStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
 /** @stable */
-export interface RuntimeRunCost {
-  /** Cumulative input tokens across every observed `llm_call` event. */
-  tokensIn: number
-  /** Cumulative output tokens across every observed `llm_call` event. */
-  tokensOut: number
-  /** Sum of `costUsd` from every observed `llm_call` event. */
-  costUsd: number
+export interface RuntimeRunCost extends RuntimeUsageTotals {
   /** Wall time from `startRuntimeRun()` to `complete()` (or `now()` if not yet completed). */
   wallMs: number
-  /** Count of `llm_call` events observed during the run. */
-  llmCalls: number
 }
 
 /** @stable */
 export interface RuntimeRunCompleteInput {
   status: Exclude<RuntimeRunStatus, 'running'>
   resultSummary?: string
-  /** Optional explicit cost override; if omitted, the accumulated ledger is used. */
+  /** Optional subtotal overrides. Existing incomplete-usage flags remain authoritative. */
   cost?: Partial<RuntimeRunCost>
   /** Stable error message when `status === 'failed'`. */
   error?: string
@@ -165,20 +163,11 @@ export function startRuntimeRun(options: RuntimeRunOptions): RuntimeRunHandle {
   let error: string | undefined
   let completionMetadata: Record<string, unknown> | undefined
 
-  const ledger: RuntimeRunCost = {
-    tokensIn: 0,
-    tokensOut: 0,
-    costUsd: 0,
-    wallMs: 0,
-    llmCalls: 0,
-  }
+  const ledger = createRuntimeUsageTotals()
 
   const snapshotCost = (): RuntimeRunCost => ({
-    tokensIn: ledger.tokensIn,
-    tokensOut: ledger.tokensOut,
-    costUsd: ledger.costUsd,
+    ...ledger,
     wallMs: (completedAtMs ?? now()) - startedAtMs,
-    llmCalls: ledger.llmCalls,
   })
 
   const buildRow = (extraMetadata?: Record<string, unknown>): RuntimeRunRow => ({
@@ -208,16 +197,7 @@ export function startRuntimeRun(options: RuntimeRunOptions): RuntimeRunHandle {
     },
     observe(event) {
       if (event.type !== 'llm_call') return
-      ledger.llmCalls += 1
-      if (typeof event.tokensIn === 'number' && Number.isFinite(event.tokensIn)) {
-        ledger.tokensIn += event.tokensIn
-      }
-      if (typeof event.tokensOut === 'number' && Number.isFinite(event.tokensOut)) {
-        ledger.tokensOut += event.tokensOut
-      }
-      if (typeof event.costUsd === 'number' && Number.isFinite(event.costUsd)) {
-        ledger.costUsd += event.costUsd
-      }
+      addRuntimeUsage(ledger, event)
     },
     cost: snapshotCost,
     complete(input) {
@@ -238,18 +218,18 @@ export function startRuntimeRun(options: RuntimeRunOptions): RuntimeRunHandle {
       error = input.error
       completionMetadata = input.metadata
       if (input.cost) {
-        if (typeof input.cost.tokensIn === 'number' && Number.isFinite(input.cost.tokensIn)) {
-          ledger.tokensIn = input.cost.tokensIn
+        for (const key of [
+          'tokensIn',
+          'tokensOut',
+          'costUsd',
+          'llmCalls',
+          'estimatedCostUsd',
+        ] as const) {
+          const value = input.cost[key]
+          if (isUsageAmount(value)) ledger[key] = value
         }
-        if (typeof input.cost.tokensOut === 'number' && Number.isFinite(input.cost.tokensOut)) {
-          ledger.tokensOut = input.cost.tokensOut
-        }
-        if (typeof input.cost.costUsd === 'number' && Number.isFinite(input.cost.costUsd)) {
-          ledger.costUsd = input.cost.costUsd
-        }
-        if (typeof input.cost.llmCalls === 'number' && Number.isFinite(input.cost.llmCalls)) {
-          ledger.llmCalls = input.cost.llmCalls
-        }
+        if (input.cost.tokensKnown === false) ledger.tokensKnown = false
+        if (input.cost.usdKnown === false) ledger.usdKnown = false
       }
     },
     toRow(metadata) {

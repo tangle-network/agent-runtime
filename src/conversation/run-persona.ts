@@ -24,6 +24,11 @@ import type {
 import { createIterableBackend } from '../backends'
 import { createProfileExecutionBackend } from '../runtime/profile-execution-backend'
 import type { ExecutorFactory } from '../runtime/supervise/types'
+import {
+  addRuntimeUsage,
+  createRuntimeUsageTotals,
+  type RuntimeUsageTotals,
+} from '../runtime-usage'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { defineConversation } from './define-conversation'
 import { runConversation } from './run-conversation'
@@ -70,20 +75,11 @@ export interface PersonaConversationResult {
   costUsdKnown?: false
 }
 
-interface UsageCounter {
-  tokensIn: number
-  tokensOut: number
-  costUsd: number
-  sawLlmCall: boolean
-  tokensKnown: boolean
-  usdKnown: boolean
-}
-
 /** Adapt one exact profile + Runtime executor into the conversation stream protocol. */
 function profileRuntimeBackend(
   profile: AgentProfile,
   factory: ExecutorFactory<unknown>,
-  counter?: UsageCounter,
+  counter?: RuntimeUsageTotals,
 ): AgentExecutionBackend {
   const backend = createProfileExecutionBackend({ profile, executor: factory })
   if (!counter) return backend
@@ -92,20 +88,7 @@ function profileRuntimeBackend(
     async *stream(input, context) {
       for await (const event of backend.stream(input, context)) {
         if (event.type === 'llm_call') {
-          counter.sawLlmCall = true
-          counter.tokensIn += event.tokensIn ?? 0
-          counter.tokensOut += event.tokensOut ?? 0
-          counter.costUsd += event.costUsd ?? 0
-          if (
-            event.tokensKnown === false ||
-            event.tokensIn === undefined ||
-            event.tokensOut === undefined
-          ) {
-            counter.tokensKnown = false
-          }
-          if (event.usdKnown === false || event.costUsd === undefined) {
-            counter.usdKnown = false
-          }
+          addRuntimeUsage(counter, event)
         }
         yield event
       }
@@ -145,17 +128,7 @@ function scriptedPersonaBackend(turns: readonly string[]): AgentExecutionBackend
 export async function runPersonaConversation(
   opts: RunPersonaConversationOptions,
 ): Promise<PersonaConversationResult> {
-  const counter: UsageCounter = {
-    tokensIn: 0,
-    tokensOut: 0,
-    costUsd: 0,
-    sawLlmCall: false,
-    // Both flags start true and are lowered by the first unproven reading. They only reach a
-    // result when `sawLlmCall` is true (see the terminal read below), so an unmetered
-    // conversation never publishes them as a measured zero.
-    tokensKnown: true,
-    usdKnown: true,
-  }
+  const counter = createRuntimeUsageTotals()
   const workerName = opts.workerName ?? 'agent'
   const worker = profileRuntimeBackend(
     opts.worker,
@@ -202,10 +175,10 @@ export async function runPersonaConversation(
   // spend, so attributing it to the worker would over-count; report the
   // worker's metered spend (0 if its backend reported none) instead.
   const fallbackCostKnown =
-    !counter.sawLlmCall && opts.persona.kind === 'scripted' && result.spentCreditsCents > 0
+    counter.llmCalls === 0 && opts.persona.kind === 'scripted' && result.spentCreditsCents > 0
   const costUsd = fallbackCostKnown ? result.spentCreditsCents / 100 : counter.costUsd
-  const tokensKnown = counter.sawLlmCall && counter.tokensKnown
-  const costUsdKnown = counter.sawLlmCall ? counter.usdKnown : fallbackCostKnown
+  const tokensKnown = counter.llmCalls > 0 && counter.tokensKnown !== false
+  const costUsdKnown = counter.llmCalls > 0 ? counter.usdKnown !== false : fallbackCostKnown
   return {
     transcript: result.transcript,
     turns: result.turns,

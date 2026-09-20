@@ -86,6 +86,59 @@ function options(
 }
 
 describe('durable external worker steer', () => {
+  it('delivers a durable root steer once at the next router turn', async () => {
+    const rootDir = tempRoot()
+    const runId = 'root-steer'
+    const controlDir = supervisorRunDir(rootDir, runId)
+    const journal = new FileSpawnJournal(join(controlDir, 'spawn-journal.jsonl'))
+    const blobs = new InMemoryResultBlobStore()
+    const script = scriptedBrain([
+      { toolCalls: [{ name: 'list_questions', arguments: {} }] },
+      { content: 'done' },
+    ])
+    let turn = 0
+    let correctedTurns = 0
+    const brain: ToolLoopChat = async (messages, tools, context) => {
+      if (turn++ === 0) {
+        for (let retry = 0; retry < 2; retry++) {
+          writeWorkerSteer(rootDir, runId, runId, {
+            operationId: 'root-correction',
+            message: 'Use the updated source.',
+          })
+        }
+      } else if (
+        messages.some((message) => String(message.content).includes('Use the updated source.'))
+      ) {
+        correctedTurns++
+      }
+      return script(messages, tools, context)
+    }
+    const root = driverAgent(
+      options(
+        brain,
+        () => {
+          throw new Error('no child expected')
+        },
+        blobs,
+        controlDir,
+      ),
+    )
+    await createSupervisor<unknown, unknown>().run(root, 'task', {
+      budget: { maxIterations: 20, maxTokens: 10_000 },
+      runId,
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+    })
+    expect(correctedTurns).toBe(1)
+    expect(readWorkerSteerAcknowledgement(controlDir, 'root-correction')).toMatchObject({
+      worker: runId,
+      effect: 'delivered',
+      detail: 'the root inbox accepted the steer between turns; model consumption is not confirmed',
+    })
+  })
+
   it('admits one operation, delivers it once, and records the manager acknowledgement', async () => {
     const rootDir = tempRoot()
     const runId = 'run-steer'

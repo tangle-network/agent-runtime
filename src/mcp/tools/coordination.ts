@@ -52,6 +52,11 @@ import {
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
 import { resolveSpawnResourcePaths, type SpawnResourceReader } from './spawn-resource-paths'
+import {
+  readWorkerOutput,
+  WORKER_OUTPUT_PAGE_CHARS,
+  workerOutputReadOptions,
+} from './worker-output'
 
 /** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
@@ -2346,7 +2351,17 @@ export function createCoordinationToolsForManager(
   const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
     if (ev.type === 'settled') {
       const { id, status, ...evidence } = ev.worker
-      return { type: 'settled', settled: id, status, ...evidence }
+      return {
+        type: 'settled',
+        settled: id,
+        status,
+        ...evidence,
+        ...(evidence.outRef === undefined
+          ? {}
+          : {
+              outputRead: { tool: 'observe_agent', arguments: { workerId: id } },
+            }),
+      }
     }
     if (ev.type === 'question') return { type: 'question', question: ev.question }
     if (ev.type === 'finding') return { type: 'finding', ...ev.finding }
@@ -3096,6 +3111,11 @@ export function createCoordinationToolsForManager(
             resumed: 'completed' as const,
             status,
             ...evidence,
+            ...(evidence.outRef === undefined
+              ? {}
+              : {
+                  outputRead: { tool: 'observe_agent', arguments: { workerId: id } },
+                }),
             live: liveWorkerCount(),
             freeSlots: freeWorkerSlots(),
           })
@@ -3201,11 +3221,41 @@ export function createCoordinationToolsForManager(
         'but whose settlement you have not yet drained reports `settlementPending` with its ' +
         'terminal kind; its `status` still reads running until await_event ' +
         'delivers it, so call await_event, not observe_agent again. The settled output ' +
-        'artifact is returned once drained. Use this BEFORE steer_agent: a steer is only worth ' +
+        'artifact is returned once drained. Select a field with `outputPath`, for example ["content"] ' +
+        'to read a provider result without its event history. Omit it to read the complete artifact. ' +
+        'Large outputs return a bounded JSON `outputPage`; ' +
+        'repeat with `outputOffset: outputPage.nextOffset` until it is null, concatenate page text, ' +
+        'then parse the JSON. Offsets and limits count UTF-16 characters. The full artifact stays ' +
+        'retained; an outRef is a content address, not a workspace path. Use this BEFORE steer_agent: a steer is only worth ' +
         'sending when the progress says the worker is on the wrong path or has stopped making any.',
-      inputSchema: { type: 'object', properties: { workerId: idArg }, required: ['workerId'] },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workerId: idArg,
+          outputPath: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Own field names from the artifact root; array indices use strings. Default: the complete artifact.',
+          },
+          outputOffset: {
+            type: 'integer',
+            minimum: 0,
+            description: 'Start at this retained JSON character offset; default 0.',
+          },
+          outputLimit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: WORKER_OUTPUT_PAGE_CHARS,
+            description: `Maximum JSON characters per page; default ${WORKER_OUTPUT_PAGE_CHARS}.`,
+          },
+        },
+        required: ['workerId'],
+      },
       handler: async (raw) => {
-        const id = str(obj(raw).workerId, 'workerId')
+        const args = obj(raw)
+        const id = str(args.workerId, 'workerId')
+        const outputRead = workerOutputReadOptions(args)
         const node = opts.scope.view.nodes.find((n) => n.id === id)
         if (!node) {
           // A worker from a PRIOR process of this run: not in the live nursery, but its committed
@@ -3216,15 +3266,13 @@ export function createCoordinationToolsForManager(
               error: 'unknown-worker' as const,
               reason: `no worker of this manager has the id ${JSON.stringify(id)}; spawn_worker returns the ids you may observe`,
             }
-          const output = resumed.outRef ? await opts.blobs.get(resumed.outRef) : undefined
           return {
             ...projectNodeEvidence(resumed, true),
             outRef: resumed.outRef ?? null,
-            output: output ?? null,
+            ...(await readWorkerOutput(opts.blobs, resumed.outRef, outputRead)),
             progress: null,
           }
         }
-        const output = node.outRef ? await opts.blobs.get(node.outRef) : undefined
         const progress = readProgress(id)
         // Finished-but-undrained is the one state a polling manager cannot otherwise see: the
         // executor is gone, the settlement sits in the inbox, and `status` still says running.
@@ -3233,7 +3281,7 @@ export function createCoordinationToolsForManager(
         return {
           ...projectNodeEvidence(node),
           outRef: node.outRef ?? null,
-          output: output ?? null,
+          ...(await readWorkerOutput(opts.blobs, node.outRef, outputRead)),
           progress: progress ?? null,
           ...(pending
             ? {
@@ -3288,7 +3336,8 @@ export function createCoordinationToolsForManager(
       name: 'await_event',
       description:
         'Wait for and pull the next message a worker, sub-driver, or analyst sent up — the unified ' +
-        "inbox. An event is one of: a settled worker output ('settled'), a question needing your " +
+        'inbox. Read a settled artifact with the returned `outputRead` call; the receipt carries its reference, not its bytes. ' +
+        "An event is one of: a settled worker output ('settled'), a question needing your " +
         "answer ('question', from ask_parent / the worker's ask-user), or a trace-analyst finding " +
         "('finding', from analyze-on-settle). Pass kinds:['settled'] for just the next finished " +
         'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +

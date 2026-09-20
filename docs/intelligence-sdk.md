@@ -61,6 +61,17 @@ The client surface:
 The best-effort law: telemetry-export failures are swallowed — a live agent never fails because Intelligence is down — but an error thrown by the agent itself propagates unchanged.
 Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs, outputs, and opted-in runtime payloads pass through the redactor and are exported without content truncation.
 
+Unreported inference cost is unknown, including when an agent fails before reporting usage.
+`UsageSplit.inferenceUsdKnown` and `UsageSplit.intelligenceUsdKnown` mark incomplete subtotals with `false`.
+Exports preserve these flags as `tangle.usage.inference_usd_known` and `tangle.usage.intelligence_usd_known`.
+The OFF tier still guarantees zero Intelligence spend.
+`estimatedInferenceUsd` is exported separately as `tangle.usage.inference_usd_estimated`; it never becomes billed spend.
+Incomplete token totals carry `tokensKnown: false` and `tangle.usage.tokens_known: false`.
+
+Runtime run records and persona conversations use the same normalized event accounting as Intelligence.
+Missing, invalid, or explicitly incomplete measurements remain incomplete after later complete events.
+Run cost overrides replace numeric subtotals without erasing those flags.
+
 ## Two lanes: traces UP, certified artifacts DOWN
 
 Observe sends traces UP to the plane. The delivery half pulls certified artifacts DOWN: the tenant's promoted, gate-certified profile is read from the deployed Intelligence plane and folded into the running agent — so an approved improvement actually reaches production. Pull contract:

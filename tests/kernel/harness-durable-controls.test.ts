@@ -127,10 +127,11 @@ async function runHarness(
   dir: string,
   drive: DriveHarness,
   makeWorkerAgent: MakeWorkerAgent,
-  deps: Partial<SupervisorAgentDeps> = {},
+  options: Partial<SupervisorAgentDeps> & { journal?: FileSpawnJournal } = {},
 ) {
+  const { journal: sharedJournal, ...deps } = options
   const blobs = deps.blobs ?? new InMemoryResultBlobStore()
-  const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
+  const journal = sharedJournal ?? new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
   let failure: { error: unknown } | undefined
   const driveHarness: DriveHarness = async (input) => {
     try {
@@ -140,6 +141,7 @@ async function runHarness(
       throw error
     }
   }
+  if (drive.deliver) driveHarness.deliver = drive.deliver.bind(drive)
   const root = supervisorAgent(
     testAgentProfile('root', {
       harness: 'opencode',
@@ -168,6 +170,42 @@ async function runHarness(
 }
 
 describe('durable worker controls during a native harness invocation', () => {
+  it.each([true, false])(
+    'acknowledges root steering with native inbox support=%s',
+    async (supported) => {
+      const { root, dir } = layout()
+      const deliver = vi.fn(() => true)
+      const drive: DriveHarness = async () => {
+        await exec(process.execPath, [
+          '--import',
+          'tsx',
+          '--input-type=module',
+          '-e',
+          `const { writeWorkerSteer } = await import(process.argv[1]);
+         for (let i = 0; i < 2; i++) writeWorkerSteer(process.argv[2], process.argv[3], process.argv[3], {
+           operationId: 'native-root-steer', message: 'Inspect the latest evidence.', interrupt: true,
+         });`,
+          fileURLToPath(new URL('../../src/runtime/supervise/run-layout.ts', import.meta.url)),
+          root,
+          runId,
+        ])
+        await expect
+          .poll(() => readWorkerSteerAcknowledgement(dir, 'native-root-steer'), { timeout: 2000 })
+          .toMatchObject({ effect: supported ? 'delivered' : 'unsupported', worker: runId })
+      }
+      if (supported) drive.deliver = deliver
+      await runHarness(dir, drive, () => {
+        throw new Error('no child expected')
+      })
+      if (supported)
+        expect(deliver).toHaveBeenCalledExactlyOnceWith({
+          steer: 'Inspect the latest evidence.',
+          interrupt: true,
+        })
+      else expect(deliver).not.toHaveBeenCalled()
+    },
+  )
+
   it('delivers a steer written by another process once before the harness returns', async () => {
     const { root, dir } = layout()
     const worker = controlledLeaf('worker')
@@ -399,7 +437,7 @@ describe('durable worker controls during a native harness invocation', () => {
         await call(coordinationMcpUrl, 'await_event')
       },
       makeWorker,
-      { blobs },
+      { blobs, journal },
     )
     expect(rootWorker.aborted).toHaveBeenCalledTimes(1)
     expect(nestedWorker.aborted).toHaveBeenCalledTimes(1)

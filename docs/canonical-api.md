@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.247.0.**
+> **Version 0.248.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.182.0 <0.183.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.46.0`.
@@ -248,7 +248,17 @@ A delivered steer proves inbox acceptance.
 It does not prove that the worker read or followed the instruction.
 Manager shutdown interrupts pending event capture before delivery and records an uncertain steer outcome as `unknown`.
 The final pass reconciles existing cancellations and expires unseen requests without issuing another abort.
-These worker controls do not add durable steering or answers for the root.
+Pass the run id as the worker id to steer the root through the same durable queue.
+Router roots accept the message between turns; native roots use their declared delivery hook during the invocation.
+An unavailable native inbox returns `unsupported`; a refused delivery returns `refused`.
+These acknowledgements do not prove model consumption, and they do not add durable root question answers.
+
+Settled coordination events include an `outputRead` call for `observe_agent`.
+That tool returns small artifacts directly and large artifacts as bounded JSON pages.
+Use `outputPath: ['content']` to select a provider result without serializing its event history.
+Paths select retained own fields; omitted paths preserve access to the complete artifact.
+Continue with the same path and the returned character offset to reconstruct a large value exactly.
+The blob remains unchanged, and reads remain scoped to workers visible to the manager.
 
 Knowledge improvement jobs carry nondefault `stateScope` into both frozen experiment bundles and prepared execution.
 Knowledge owns scope normalization and hashing, including the selected pages directory and optional research state.

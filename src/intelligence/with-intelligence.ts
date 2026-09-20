@@ -34,6 +34,12 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import {
+  addRuntimeUsage,
+  createRuntimeUsageTotals,
+  isUsageAmount,
+  type RuntimeUsageTotals,
+} from '../runtime-usage'
+import {
   type CertifiedProfile,
   composeCertifiedPrompt,
   createCertifiedPromptSource,
@@ -69,7 +75,7 @@ export interface AppliedIntelligence {
   applyProfile(base: AgentProfile): AgentProfile
   /** Enrich the {@link RunRecord} sent for this call — outcome, usage split,
    *  model/provider, and the loop event stream. Optional; an un-recorded run
-   *  still sends input/output with an inference-only zero usage split. */
+   *  still sends input/output with unknown inference usage. */
   record(report: RunReport): void
 }
 
@@ -103,10 +109,7 @@ export type IntelligenceWrapped<I, O> = ((input: I) => Promise<O>) & {
   flush(): Promise<void>
 }
 
-interface RuntimeEventSummary {
-  inferenceUsd: number
-  inputTokens: number
-  outputTokens: number
+interface RuntimeEventSummary extends RuntimeUsageTotals {
   model?: string
   sessionId?: string
   success?: boolean
@@ -116,14 +119,12 @@ interface RuntimeEventSummary {
 function summarizeRuntimeEvents(
   events: NonNullable<RunReport['runtimeEvents']>,
 ): RuntimeEventSummary {
-  const summary: RuntimeEventSummary = { inferenceUsd: 0, inputTokens: 0, outputTokens: 0 }
+  const summary: RuntimeEventSummary = createRuntimeUsageTotals()
   for (const event of events) {
     if ('session' in event && event.session) summary.sessionId = event.session.id
     if (event.type === 'llm_call') {
       summary.model = event.model
-      summary.inferenceUsd += event.costUsd ?? 0
-      summary.inputTokens += event.tokensIn ?? 0
-      summary.outputTokens += event.tokensOut ?? 0
+      addRuntimeUsage(summary, event)
     } else if (event.type === 'backend_error') {
       summary.success = false
       summary.error = {
@@ -225,9 +226,21 @@ export function withIntelligence<I, O>(
       const error = report.error ?? (caught !== undefined ? runError(caught) : eventSummary.error)
       const tokens =
         report.tokens ??
-        (eventSummary.inputTokens > 0 || eventSummary.outputTokens > 0
-          ? { input: eventSummary.inputTokens, output: eventSummary.outputTokens }
+        (eventSummary.llmCalls > 0
+          ? {
+              input: eventSummary.tokensIn,
+              output: eventSummary.tokensOut,
+              ...(eventSummary.tokensKnown === false ? { tokensKnown: false as const } : {}),
+            }
           : undefined)
+      const reportedCost = report.usage?.inferenceUsd ?? report.costUsd
+      const inferenceKnown =
+        report.usage?.inferenceUsdKnown !== false &&
+        (reportedCost !== undefined
+          ? isUsageAmount(reportedCost)
+          : eventSummary.llmCalls > 0 && eventSummary.usdKnown !== false)
+      const estimatedInferenceUsd =
+        report.usage?.estimatedInferenceUsd ?? eventSummary.estimatedCostUsd
       const profile = report.profile ?? config.profile
       const record: RunRecord = {
         runId,
@@ -242,8 +255,15 @@ export function withIntelligence<I, O>(
             (caught !== undefined ? false : (eventSummary.success ?? error === undefined)),
           ...(report.score !== undefined ? { score: report.score } : {}),
           usage: {
-            inferenceUsd: report.usage?.inferenceUsd ?? report.costUsd ?? eventSummary.inferenceUsd,
+            inferenceUsd: isUsageAmount(reportedCost) ? reportedCost : eventSummary.costUsd,
+            ...(inferenceKnown ? {} : { inferenceUsdKnown: false }),
+            ...(!inferenceKnown && isUsageAmount(estimatedInferenceUsd)
+              ? { estimatedInferenceUsd }
+              : {}),
             intelligenceUsd: report.usage?.intelligenceUsd ?? 0,
+            ...(report.usage?.intelligenceUsdKnown === false
+              ? { intelligenceUsdKnown: false }
+              : {}),
           },
         },
         timing: { startedAt, completedAt, durationMs: completedAt - startedAt },

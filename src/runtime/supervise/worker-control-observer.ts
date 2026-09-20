@@ -9,11 +9,17 @@ export function observeWorkerControls(options: {
   scope: Scope<unknown>
   signal: AbortSignal
   controlScope: 'run' | 'subtree'
+  deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
   onError: (error: unknown) => void
 }): { close(): Promise<void> } {
   const { dir, coord, scope, signal, controlScope, onError } = options
   const deps = { dir, coord, scope, signal, now: Date.now, ownerId: scope.view.root, controlScope }
-  const steers = createSteerAcknowledger(deps)
+  const steers = createSteerAcknowledger({
+    ...deps,
+    ...(controlScope === 'run'
+      ? { root: { deliver: options.deliverRoot, timing: 'during the harness invocation' as const } }
+      : {}),
+  })
   const cancellations = createCancelAcknowledger(deps)
   let active = true
   let timer: ReturnType<typeof setInterval> | undefined

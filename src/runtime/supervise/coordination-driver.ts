@@ -439,6 +439,11 @@ interface SteerAcknowledgerDeps {
   readonly ownerId: string
   /** Stops admission between requests when an external manager's lifetime ends. */
   readonly signal?: AbortSignal
+  /** Present only on the run's root manager; descendants remain owned by their parent. */
+  readonly root?: {
+    readonly deliver?: (message: { steer: string; interrupt: boolean }) => boolean
+    readonly timing: 'between turns' | 'during the harness invocation'
+  }
 }
 
 /**
@@ -470,7 +475,8 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
     async pass(phase): Promise<void> {
       for (const request of readWorkerSteerRequests(deps.dir)) {
         if (phase === 'turn' && deps.signal?.aborted) return
-        if (!directChildId(request.worker)) continue
+        const root = request.worker === deps.ownerId ? deps.root : undefined
+        if (!root && !directChildId(request.worker)) continue
         if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
         if (phase === 'final') {
           writeWorkerSteerAcknowledgement(deps.dir, {
@@ -489,6 +495,25 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
         })
         if (!claimed) continue
         try {
+          if (root) {
+            const delivered = root.deliver?.({
+              steer: request.message,
+              interrupt: request.interrupt,
+            })
+            writeWorkerSteerAcknowledgement(deps.dir, {
+              ...base(request),
+              effect:
+                root.deliver === undefined ? 'unsupported' : delivered ? 'delivered' : 'refused',
+              observedAt: iso(),
+              detail:
+                root.deliver === undefined
+                  ? 'the root harness does not expose a steer inbox'
+                  : delivered
+                    ? `the root inbox accepted the steer ${root.timing}; model consumption is not confirmed`
+                    : 'the root inbox refused the steer',
+            })
+            continue
+          }
           const outcome = await deps.coord.steerWorker(request.worker, request.message, {
             interrupt: request.interrupt,
           })
@@ -1006,6 +1031,14 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               coord,
               now,
               ownerId: scope.view.root,
+              ...((opts.controlScope ?? 'run') === 'run'
+                ? {
+                    root: {
+                      deliver: (message) => inbox.deliver(message),
+                      timing: 'between turns' as const,
+                    },
+                  }
+                : {}),
             })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
