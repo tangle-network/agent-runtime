@@ -285,6 +285,37 @@ describe('healReleasedSlots on resume', () => {
     expect(hooks[0]?.payload).not.toHaveProperty('metered')
   })
 
+  it('heals a floor that carries no `infra` claim, and writes none', async () => {
+    // An executor envelope the runtime could not attribute settles with no `infra` field. The
+    // floor is still complete (cursor seq, reason, trace), so a release that healed everything
+    // else must not be skipped for a claim the record never made; skipping it scheduled a
+    // recovery against an environment the receipt already says is destroyed.
+    const spent = floor(7, 3)
+    const context = await journaled([
+      root,
+      spawned('r:s0', 0),
+      ...admitted('r:s0', 'env-1'),
+      reconciled('r:s0', 0, spent, { settledSeq: 4, reason, trace }),
+      receipt('r:s0', 0, 'env-1'),
+    ])
+    const restored = await resume(context, { recover: true })
+    const events = (await context.journal.loadTree('r')) ?? []
+    const [record] = terminalRecords(events, 'r:s0')
+    expect(record).toMatchObject({
+      kind: 'settled',
+      status: 'down',
+      id: 'r:s0',
+      reason,
+      retainedExecution: 'released',
+      seq: 4,
+    })
+    expect(record).not.toHaveProperty('infra')
+    expect(restored.resumeFrom.recoveries).toEqual([])
+    expect(restored.resumeFrom.settled).toMatchObject([
+      { kind: 'down', retainedExecution: 'released', seq: 4 },
+    ])
+  })
+
   it('keeps the cancelled kind and its source, and carries the withheld overspend', async () => {
     const spent = floor(900, 0)
     const budgetViolation = {

@@ -21,7 +21,7 @@ import {
   BudgetReconcileFault,
   createBudgetPool,
 } from './budget'
-import { executorFailureReason } from './executor-outcome'
+import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
 import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
 import type { ScopeArgs } from './scope'
@@ -68,8 +68,9 @@ function journaledEnvironmentId(owned: ReadonlyArray<SpawnEvent>): string | unde
  *
  * The gate is fail-closed, every clause required, because the heal cannot re-ask the executor
  * to confirm teardown the way the sweep does:
- *  - the latest `reconciled` record carries `settledSeq`, `reason`, `infra` and `trace` (a record
- *    written before those fields existed names no cursor position and is not healed);
+ *  - the latest `reconciled` record carries `settledSeq`, `reason` and `trace` (a record written
+ *    before those fields existed names no cursor position and is not healed; `infra` is carried
+ *    when present and never required, since an unattributable envelope failure has none);
  *  - at least one receipt sits after that record and every such receipt reads `destroyed: true`
  *    (an empty set must not close the slot vacuously, and a receipt from an earlier process
  *    belongs to an earlier settlement);
@@ -107,10 +108,12 @@ export async function healReleasedSlots(
             : latest,
         undefined,
       )
+      // A complete floor names its cursor seq, its reason and its trace. `infra` is not required:
+      // a floor whose envelope failure the runtime could not attribute carries none, and a
+      // release that healed everything else must not be skipped for a claim the record never made.
       if (
         floor?.settledSeq === undefined ||
         floor.reason === undefined ||
-        floor.infra === undefined ||
         floor.trace === undefined
       )
         continue
@@ -139,7 +142,7 @@ export async function healReleasedSlots(
       const settlement = {
         kind: 'down' as const,
         reason: floor.reason,
-        infra: floor.infra,
+        ...(floor.infra === undefined ? {} : { infra: floor.infra }),
         trace: floor.trace,
         ...(floor.outRef ? { outRef: floor.outRef } : {}),
         ...(floor.providerModel ? { providerModel: floor.providerModel } : {}),
@@ -318,15 +321,22 @@ export async function prepareInterruptedExecutors(
   let seq = reservedCursorFloor(events) + 1
   for (const { result, fault, budgetViolation } of accepted) {
     signal.throwIfAborted()
-    const failureReason = executorFailureReason(result)
-    const reason = fault ?? failureReason
+    const failure = executorFailure(result)
+    const reason = fault ?? failure?.error
+    // A reconcile fault is the runtime's own failure; an envelope failure is attributed by the
+    // same vocabulary the live path uses, so a child settled here and one settled live from the
+    // same durable result carry the same label. This site used to stamp `infra: false` for every
+    // envelope failure, which made the label depend on whether the process survived to settle it.
+    const infra =
+      fault !== undefined ? true : failure === undefined ? undefined : executorFailureInfra(failure)
     // Await every admitted write before releasing the run lock, including cancellation races.
     await opts.journal.appendEvent(opts.runId, {
       kind: 'settled',
       id: result.id,
       status: reason === undefined ? 'done' : 'down',
       outRef: result.outRef,
-      ...(reason === undefined ? {} : { infra: fault !== undefined, reason }),
+      ...(reason === undefined ? {} : { reason }),
+      ...(infra === undefined ? {} : { infra }),
       spent: result.spent,
       ...(budgetViolation === undefined ? {} : { budgetViolation }),
       ...(result.verdict ? { verdict: result.verdict } : {}),

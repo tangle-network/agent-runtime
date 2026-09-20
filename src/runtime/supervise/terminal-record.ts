@@ -45,7 +45,7 @@ export function settlementFields(
   settlement: DownSettlement,
 ): {
   spent: Spend
-  infra: boolean
+  infra?: boolean
   reason: string
   outRef?: string
   providerModel?: ProviderModelExecutionEvidence
@@ -56,7 +56,7 @@ export function settlementFields(
 } {
   return {
     spent: subject.spent,
-    infra: settlement.infra,
+    ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
     reason: settlement.reason,
     ...(settlement.retainedPendingCause === undefined
       ? {}
@@ -159,7 +159,7 @@ export function releasedChildPayload(
     releasedAt,
     ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
     reason: settlement.reason,
-    infra: settlement.infra,
+    ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
     spent: subject.spent,
     ...settledNodeEvidence(subject, { ...settlement, metered: undefined }, settledAt),
   }

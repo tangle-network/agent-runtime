@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.247.0
+
+Settle labels now say what the supervisor can prove.
+
+**Migration:** `Settled['infra']` on a `down` record is optional. `true` means the platform ended the child, `false` means the runtime knows the work itself failed (an ordinary thrown result), and absent means the executor's envelope reported a failure the runtime cannot attribute. Readers that switched on `infra === false` should treat an absent flag as unclassified. The no-winner reason union gains `no-result-selected`: the root ran to completion under budget, spawned children, and selected nothing while no child was down when it settled. `all-children-down` is now produced only by a tripped breaker or by every child being down before the root settled; one down child among delivered siblings rides `downCount` and no longer sets the reason.
+
+The two executor-envelope settlement sites stamped `infra: false` unconditionally; on the 2026-09-20 fleet corpus (277 down children across 691 runs) the flag caught 1 of 78 platform losses, with "terminated", the key-verification brownout, provider quota, the event string bound, Bad Gateway and the execution time limit all recorded as failures of the work. `executorFailureInfra` answers `true` for the platform's own codes and lifecycle messages and `undefined` otherwise.
+
+The provider stream loops held every `error` frame as the run's failure whatever the terminal frame said, and never showed the sandbox outcome tracker a terminal success at all; a transport error the harness recovered from settled the child `down` with the transient error as its reason and discarded its artifact (25 finished children on the same corpus). An `error` frame is now superseded by a terminal frame that explicitly reports success, in either order. A failed status or failed terminal frame is never superseded.
+
 ## 0.246.0
 
 Admit Sandbox SDK releases through 0.45 while retaining the existing 0.36.4 floor.

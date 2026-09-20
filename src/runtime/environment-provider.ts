@@ -68,7 +68,7 @@ import type {
   SandboxInstance,
   SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
-import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
+import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { defaultRedactor } from '../redact'
 import {
   assertEventBinding,
@@ -1006,7 +1006,6 @@ async function* streamProviderExecutor(
   let usd = 0
   let text = ''
   let terminal = false
-  let explicitFailure = false
   // The artifact this turn settled with, once it exists. Its presence is what separates "the work
   // finished and the resource would not release" from "the work never finished".
   let settled: ExecutorResult<unknown> | undefined
@@ -1017,7 +1016,7 @@ async function* streamProviderExecutor(
   let failed = false
   try {
     const toolParts = createSandboxToolPartState()
-    const outcomeTracker = createAgentRunOutcomeTracker()
+    const failures = createProviderFailureLedger()
     for await (const event of source.events) {
       archive.append(event)
       text += textFromEnvironmentEvent(event)
@@ -1034,11 +1033,7 @@ async function* streamProviderExecutor(
           args.trace.record(step)
         }
       }
-      const failureEvent = providerFailureEvent(event, sandboxEvent)
-      if (failureEvent) {
-        explicitFailure = true
-        outcomeTracker.observe(failureEvent)
-      }
+      failures.observe(event, sandboxEvent)
       // One projection for every sandbox-shaped stream: the provider event is adapted to the
       // sandbox wire the mappers already read, so live output needs no provider-specific parser.
       for (const progress of sandboxProgressEvents(sandboxEvent, toolParts)) {
@@ -1110,10 +1105,11 @@ async function* streamProviderExecutor(
     // own content ref and settles a receipt, so the result blob every replay rehydrates never
     // carries the files, and the one channel serves the settled path and the drop path alike.
     args.onHarnessTranscript(harnessTranscript)
+    const outcome = failures.finish()
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...resultFromEvents(archive.events(), text),
       ...(archive.superseded > 0 ? { supersededPartUpdates: archive.superseded } : {}),
-      ...(explicitFailure ? { outcome: outcomeTracker.finish() } : {}),
+      ...(outcome ? { outcome } : {}),
     }
     const spent: Spend = {
       iterations: 1,
@@ -1769,16 +1765,11 @@ function environmentAsSandboxInstance(
       let text = ''
       let usage: TokenUsage | undefined
       let terminal = false
-      const outcomeTracker = createAgentRunOutcomeTracker()
-      let explicitFailure = false
+      const failures = createProviderFailureLedger()
       for await (const event of environment.stream(turnInputFromPrompt(message, promptOptions))) {
         events.push(event)
         if (isTerminalEnvironmentEvent(event)) terminal = true
-        const failureEvent = providerFailureEvent(event, sandboxEventFromEnvironmentEvent(event))
-        if (failureEvent) {
-          explicitFailure = true
-          outcomeTracker.observe(failureEvent)
-        }
+        failures.observe(event, sandboxEventFromEnvironmentEvent(event))
         text += textFromEnvironmentEvent(event)
         usage = mergeTokenUsage(usage, event.usage)
       }
@@ -1787,7 +1778,7 @@ function environmentAsSandboxInstance(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
       }
-      const outcome = explicitFailure ? outcomeTracker.finish() : undefined
+      const outcome = failures.finish()
       return {
         response: resultFromEvents(events, text).content,
         success: outcome?.success ?? true,
@@ -2342,6 +2333,80 @@ function providerFailureEvent(
       status: 'failed',
       ...(detail ? { error: detail } : {}),
       ...(errorCode ? { errorCode } : {}),
+    },
+  }
+}
+
+/** The statuses the sandbox outcome tracker itself reads as success, so a frame that would settle
+ *  `success: true` there is the same frame that supersedes a transient error here. */
+const TERMINAL_SUCCESS_STATUSES = new Set(['completed', 'done', 'ok', 'success'])
+
+/**
+ * Whether a frame says, explicitly, that the run succeeded: a raw or normalized
+ * `status: completed` (the same form `isTerminalEnvironmentEvent` reads as terminal), or a
+ * terminal `done`/`result` with `success: true` or a success status on the frame, its outcome,
+ * or its nested result. An empty `done` says nothing and supersedes nothing — the stream that
+ * ends `status: failed` then `done: {}` stays failed.
+ */
+function providerTerminalSuccess(
+  event: AgentEnvironmentEvent,
+  sandboxEvent: SandboxEvent,
+): boolean {
+  if (event.type === 'status' && event.data.status === 'completed') return true
+  if (event.normalized?.type === 'status' && event.normalized.status === 'completed') return true
+  if (sandboxEvent.type !== 'done' && sandboxEvent.type !== 'result') return false
+  const data = sandboxEvent.data
+  if (data.success === true) return true
+  if (data.success === false) return false
+  const outcome = recordValue(data.outcome)
+  const result = recordValue(data.result)
+  return [data.status, outcome?.type, outcome?.status, result?.status].some(
+    (status) => typeof status === 'string' && TERMINAL_SUCCESS_STATUSES.has(status),
+  )
+}
+
+/**
+ * Holds a stream's failure frames until it ends, so the terminal frame decides the outcome.
+ *
+ * The sandbox outcome tracker latches the first `error` frame as the run's error and settles
+ * `failed` on it whatever the terminal frame says; and until this ledger existed the runtime
+ * only ever showed the tracker its failure frames, so a terminal `success: true` was never in
+ * evidence at all. A transport error that the harness recovered from — a stream break the
+ * sidecar re-attached, a tool backend that failed once — therefore settled the whole child
+ * `down` with the transient error as its reason, and the artifact the child had banked was
+ * discarded. On the 2026-09-20 fleet corpus, 25 children that finished their work settled that
+ * way.
+ *
+ * The rule: `error` frames are forgiven when the stream reports success and carries no verdict;
+ * a failed status or a failed terminal frame is the provider's own verdict on the run, and once
+ * one exists every failure frame is evidence again, in order, so the tracker names the first
+ * `error` as it always did. The existing contracts hold unchanged: `status: failed` then
+ * `done: {}` is failed, and the retained Claude tail `completed → failed → error → done` is
+ * failed with the error frame's message. The forgiven frames stay in the event archive the trace
+ * reads; only the outcome stops claiming them.
+ */
+function createProviderFailureLedger(): {
+  observe(event: AgentEnvironmentEvent, sandboxEvent: SandboxEvent): void
+  finish(): AgentRunOutcome | undefined
+} {
+  const failures: SandboxEvent[] = []
+  let verdicts = 0
+  let succeeded = false
+  return {
+    observe(event, sandboxEvent) {
+      const failureEvent = providerFailureEvent(event, sandboxEvent)
+      if (failureEvent) {
+        failures.push(failureEvent)
+        if (failureEvent.type !== 'error') verdicts += 1
+        return
+      }
+      if (providerTerminalSuccess(event, sandboxEvent)) succeeded = true
+    },
+    finish() {
+      if (failures.length === 0 || (verdicts === 0 && succeeded)) return undefined
+      const tracker = createAgentRunOutcomeTracker()
+      for (const frame of failures) tracker.observe(frame)
+      return tracker.finish()
     },
   }
 }

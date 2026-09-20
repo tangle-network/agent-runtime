@@ -987,8 +987,12 @@ export type Settled<Out> =
       /** Retained output evidence, when execution returned an artifact before this failure.
        * Its presence does not make the result successful or eligible for selection. */
       outRef?: string
-      /** True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result. */
-      infra: boolean
+      /** `true` = the platform, not the work, ended this child (excluded from merge `n` /
+       *  equal-k); `false` = the runtime knows the work itself failed (an ordinary thrown result);
+       *  absent = the executor's envelope reported a failure the runtime cannot attribute either
+       *  way. Absent is a stated unknown, never a euphemism for `false`: until 2026-09-20 the
+       *  envelope path stamped `false` unconditionally and caught 1 of 78 platform losses. */
+      infra?: boolean
       /** Partial structured tool evidence captured before this failure was journaled. */
       trace: WorkerTraceEvidence
       /** The child's own harness transcript, read out of its environment at the last moment it
@@ -2007,9 +2011,10 @@ export type SupervisedResult<Out> =
       /**
        * The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
        * the reason is complete on its own and there is no driver rejection to hand back. A tripped
-       * breaker or a real `down` child is `all-children-down`, a cascaded abort is `aborted`, an
+       * breaker or every child down is `all-children-down`, a cascaded abort is `aborted`, an
        * empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
        * BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
+       * One down child among delivered siblings is not a lifecycle cause; it rides `downCount`.
        */
       kind: 'no-winner'
       tree: TreeView
@@ -2051,10 +2056,22 @@ export type SupervisedResult<Out> =
            * never spawned a child. Until this arm existed that run settled `all-children-down`
            * with `downCount: 0`, which reads as a fleet failure to anyone who did not open the
            * journal; fifteen sandbox-placed directors settled that way in one week while the
-           * actual fault was that the root never recursed. `all-children-down` now asserts what
-           * its name says: at least one child was spawned and none delivered.
+           * actual fault was that the root never recursed.
+           *
+           * `no-result-selected`: the root ran to completion under budget, spawned children, and
+           * selected nothing while no child was down when it settled. Until this arm existed that
+           * run also settled `all-children-down`: on the 2026-09-20 fleet corpus, 46 of the 57
+           * runs carrying that reason had zero down children in their own `fleetYield`, and a
+           * reader of the label learned that banking pages was losing. `all-children-down` now
+           * asserts what its name says: the supervisor observed a down child, a tripped breaker,
+           * or every child down, before the root settled.
            */
-          reason: 'all-children-down' | 'no-children-spawned' | 'budget-exhausted' | 'aborted'
+          reason:
+            | 'all-children-down'
+            | 'no-children-spawned'
+            | 'no-result-selected'
+            | 'budget-exhausted'
+            | 'aborted'
         }
       | {
           reason: 'cancelled'
@@ -2065,9 +2082,10 @@ export type SupervisedResult<Out> =
     ))
   | {
       /**
-       * The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
-       * (breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
-       * driver's own rejection is the only thing that does. It is therefore REQUIRED here.
+       * The DRIVER-FAULT arm: `act()` rejected and no lifecycle cause (breaker/abort/budget/every
+       * child down) outranks it — so nothing about the tree explains the failure and the driver's
+       * own rejection is the only thing that does. It is therefore REQUIRED here. One down child
+       * among delivered siblings does not outrank it: that count rides `downCount`.
        * `all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
        * result; this arm is that configuration/authoring fault, named.
        */

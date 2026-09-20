@@ -310,7 +310,10 @@ type NoWinnerReason = (SupervisedResult<unknown> & { kind: 'no-winner' })['reaso
 
 /** The reasons the supervisor can prove from its OWN lifecycle state — everything except the
  *  driver's rejection, which no lifecycle observation can establish. */
-type LifecycleNoWinnerReason = Exclude<NoWinnerReason, 'driver-failed' | 'cancelled'>
+type LifecycleNoWinnerReason = Exclude<
+  NoWinnerReason,
+  'driver-failed' | 'cancelled' | 'no-children-spawned' | 'no-result-selected'
+>
 
 /** A captured `act()` rejection. Wrapped rather than passed bare so `throw undefined` — legal, and
  *  exactly the kind of authoring bug this field exists to surface — is still distinguishable from
@@ -664,10 +667,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // `down` nodes, and reading it afterwards reported a crashed driver's run as
       // `all-children-down` — the tree's state caused by the cleanup, not the cause of the failure.
       let allChildrenDownAtSettle = false
-      // Same reasoning for the breaker's tally: children the barrier kills are `down` settlements
-      // too, so the count read after cleanup can never distinguish "children failed" from "we
-      // stopped them because the driver died".
-      let downCountAtSettle = 0
       try {
         await startScopeRecoveries(openScope)
         const out = await runAbortable(
@@ -691,7 +690,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         closeScopeAdmission(openScope)
         executionAborted = controller.signal.aborted
         allChildrenDownAtSettle = allSpawnedChildrenDown(runTree(openScope))
-        downCountAtSettle = breaker.downCount()
         // A child inherits the root cutoff and can settle the root act on that exact timer turn.
         // If its settlement callback runs before the root timer callback, the finally block clears
         // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
@@ -843,7 +841,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           breaker,
           deadlineExceeded,
           allChildrenDownAtSettle,
-          downCountAtSettle,
         )
         if (controller.signal.reason instanceof RunCancellationReason) {
           const cancellation = controller.signal.reason
@@ -864,12 +861,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         if (rejection !== undefined) {
           return { ...common, reason: 'driver-failed', error: describeRejection(rejection.error) }
         }
-        // The residual bucket: ran to completion under budget and selected nothing usable. A root
-        // that never spawned is named as such — `all-children-down` with nothing spawned was the
-        // settle reason on every sandbox-placed director that quietly did its work in bash, and it
-        // sent every reader looking at the fleet instead of at the root.
+        // The residual bucket: ran to completion under budget and selected nothing usable, with
+        // every lifecycle cause ruled out above — no breaker, no abort, no exhausted pool, and
+        // not every child down when the root settled. A root that never spawned is named as
+        // such: `all-children-down` with nothing spawned was the settle reason on every
+        // sandbox-placed director that quietly did its work in bash, and it sent every reader
+        // looking at the fleet instead of at the root. A root whose children delivered (all of
+        // them, or all but the `downCount` the record carries) and which then selected nothing
+        // is named as such too: this bucket used to settle `all-children-down` as well, and on
+        // the 2026-09-20 fleet corpus 46 of the 57 runs carrying that reason had zero down
+        // children in their own `fleetYield`.
         if (fleetYield.spawned === 0) return { ...common, reason: 'no-children-spawned' }
-        return { ...common, reason: 'all-children-down' }
+        return { ...common, reason: 'no-result-selected' }
       }
     } finally {
       rootLease?.release()
@@ -1186,13 +1189,11 @@ function classifyNoWinner(
   /** Every spawned child was already down when root execution settled — measured BEFORE the join
    *  barrier, so the barrier's own teardown cannot manufacture this cause. */
   allChildrenDownAtSettle: boolean,
-  /** `down` settlements counted at the same instant, for the same reason. */
-  downCountAtSettle: number,
 ): LifecycleNoWinnerReason | undefined {
   // A tripped breaker is the most specific cause (children kept dying), so it outranks
   // the abort it raised. A deadline that won the abort race remains budget exhaustion;
-  // then come caller/handle abort and other exhausted pool channels. Then a real `down`
-  // child, which is what `all-children-down` asserts and which only `downCount > 0` can prove.
+  // then come caller/handle abort and other exhausted pool channels. Then every child down,
+  // which is what `all-children-down` asserts.
   if (breaker.tripped()) return 'all-children-down'
   if (deadlineExceeded) return 'budget-exhausted'
   if (abortedAtSettle) return 'aborted'
@@ -1202,13 +1203,23 @@ function classifyNoWinner(
   // still classifies as budget exhaustion below.
   if (allChildrenDownAtSettle) return 'all-children-down'
   if (poolExhausted(pool, opts)) return 'budget-exhausted'
-  if (downCountAtSettle > 0) return 'all-children-down'
+  // One down child among delivered siblings explains nothing about why the root selected no
+  // result, and it used to settle `all-children-down` here: verified-agency-20260920b spawned 8,
+  // settled 6 done and 2 down to a runtime restart, and carried that reason. The count stays on
+  // the record as `downCount`; the reason is the root's, `no-result-selected` or `driver-failed`.
   return undefined
 }
 
 function allSpawnedChildrenDown(tree: TreeView): boolean {
   const children = tree.nodes.filter((node) => node.id !== tree.root)
-  return children.length > 0 && children.every((node) => node.status === 'failed')
+  // A child whose failure has resolved but which the driver never read off the cursor is down
+  // too: its status flips to `failed` only when a settlement is committed, and a harness root
+  // that ends its turn without draining leaves every such failure pending. Counting only
+  // committed settlements read a fleet where every child had died as the root's own choice.
+  return (
+    children.length > 0 &&
+    children.every((node) => node.status === 'failed' || node.settlementPending?.kind === 'down')
+  )
 }
 
 function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {

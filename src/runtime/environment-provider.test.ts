@@ -3207,6 +3207,160 @@ describe('environment provider adapters', () => {
     expect(turn.sandboxOutcome).toBeUndefined()
   })
 
+  // The transport-error latch. The sandbox tracker settles `failed` on the first `error` frame
+  // whatever the terminal frame says, and the runtime used to show it only its failure frames,
+  // so a stream break the harness recovered from settled the whole child `down` with the
+  // transient error as its reason and its banked artifact discarded (25 children on the
+  // 2026-09-20 fleet corpus). The terminal frame decides: an explicit success supersedes an
+  // `error` frame on either side of it; a failed status or failed terminal frame is the
+  // provider's verdict and stays.
+  it.each([
+    {
+      label: 'an error frame before the terminal success',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer', code: 'ECONNRESET' } },
+        { type: 'done', data: { success: true, finalText: 'banked answer' } },
+      ],
+    },
+    {
+      label: 'an error frame after the terminal success',
+      events: [
+        { type: 'done', data: { success: true, finalText: 'banked answer' } },
+        { type: 'error', data: { error: 'session closed while draining' } },
+      ],
+    },
+    {
+      label: 'an error frame before a completed result status',
+      events: [
+        { type: 'error', data: { error: 'tool backend unavailable' } },
+        { type: 'result', data: { status: 'completed', finalText: 'banked answer' } },
+        { type: 'done', data: {} },
+      ],
+    },
+    {
+      // The form `isTerminalEnvironmentEvent` reads as terminal: a status frame, raw or
+      // normalized, with no `done` carrying `success` at all.
+      label: 'an error frame before a normalized completed status',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer' } },
+        {
+          type: 'vendor.finished',
+          data: { finalText: 'banked answer' },
+          normalized: { type: 'status', status: 'completed' },
+        },
+      ],
+    },
+    {
+      label: 'an error frame before a raw completed status',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer' } },
+        { type: 'status', data: { status: 'completed', finalText: 'banked answer' } },
+      ],
+    },
+  ] satisfies Array<{ label: string; events: AgentEnvironmentEvent[] }>)(
+    'completes the turn when $label reports success',
+    async ({ events }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'recovered-transport-error',
+        capabilities: () => fakeCapabilities(),
+        async create() {
+          return fakeEnvironment({
+            stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+              yield* events
+            },
+          })
+        },
+      }
+
+      const turn = await collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory: createExecutor({ backend: 'provider', provider }),
+            profile: {
+              name: 'recovered-transport-error',
+              harness: 'claude-code',
+              model: { provider: 'fixture', default: 'fixture/model' },
+            },
+          },
+          { prompt: 'complete the task' },
+        ),
+      )
+
+      expect(turn.status).toBe('completed')
+      expect(turn.finalText).toBe('banked answer')
+      expect(turn.sandboxOutcome).toBeUndefined()
+    },
+  )
+
+  it.each([
+    {
+      label: 'an error frame followed by an empty done',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer' } },
+        { type: 'done', data: {} },
+      ],
+      reason: 'stream reset by peer',
+    },
+    {
+      label: 'an error frame followed by a failed terminal',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer' } },
+        { type: 'done', data: { success: false, error: 'Agent execution failed' } },
+      ],
+      reason: 'stream reset by peer',
+    },
+    {
+      label: 'a failed status followed by a successful done',
+      events: [
+        {
+          type: 'status',
+          data: { status: 'failed', detail: 'Execution exceeded its time limit' },
+          normalized: {
+            type: 'status',
+            status: 'failed',
+            detail: 'Execution exceeded its time limit',
+          },
+        },
+        { type: 'done', data: { success: true } },
+      ],
+      reason: 'Execution exceeded its time limit',
+    },
+  ] satisfies Array<{ label: string; events: AgentEnvironmentEvent[]; reason: string }>)(
+    'still fails the turn on $label',
+    async ({ events, reason }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'unrecovered-failure',
+        capabilities: () => fakeCapabilities(),
+        async create() {
+          return fakeEnvironment({
+            stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+              yield* events
+            },
+          })
+        },
+      }
+
+      const turn = await collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory: createExecutor({ backend: 'provider', provider }),
+            profile: {
+              name: 'unrecovered-failure',
+              harness: 'claude-code',
+              model: { provider: 'fixture', default: 'fixture/model' },
+            },
+          },
+          { prompt: 'complete the task' },
+        ),
+      )
+
+      expect(turn.status).toBe('failed')
+      expect(turn.sandboxOutcome).toMatchObject({ success: false, status: 'failed', error: reason })
+    },
+  )
+
   it.each([
     {
       label: 'a nested result failure',

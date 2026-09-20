@@ -381,12 +381,14 @@ describe('an overspent child that did not complete, or whose accounting is at fa
       'task',
       { label: 'failed', budget: { maxIterations: 4, maxTokens: 800_000 } },
     )
-    expect(await scope.next()).toMatchObject({
+    const settled = await scope.next()
+    expect(settled).toMatchObject({
       kind: 'down',
       reason: 'harness reported failure',
-      infra: false,
       budgetViolation: { overspent: [{ channel: 'tokens', reserved: 800_000, spent: 900_000 }] },
     })
+    // The envelope path stamps no `infra` claim for a failure it cannot attribute.
+    expect(settled).not.toHaveProperty('infra')
   })
 
   it('fails closed on unknown dollar cost under a dollar cap even when tokens also overspent', async () => {
