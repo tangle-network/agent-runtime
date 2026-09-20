@@ -21,7 +21,7 @@ import {
   BudgetReconcileFault,
   createBudgetPool,
 } from './budget'
-import { executorFailureReason } from './executor-outcome'
+import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
 import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
 import type { ScopeArgs } from './scope'
@@ -318,15 +318,22 @@ export async function prepareInterruptedExecutors(
   let seq = reservedCursorFloor(events) + 1
   for (const { result, fault, budgetViolation } of accepted) {
     signal.throwIfAborted()
-    const failureReason = executorFailureReason(result)
-    const reason = fault ?? failureReason
+    const failure = executorFailure(result)
+    const reason = fault ?? failure?.error
+    // A reconcile fault is the runtime's own failure; an envelope failure is attributed by the
+    // same vocabulary the live path uses, so a child settled here and one settled live from the
+    // same durable result carry the same label. This site used to stamp `infra: false` for every
+    // envelope failure, which made the label depend on whether the process survived to settle it.
+    const infra =
+      fault !== undefined ? true : failure === undefined ? undefined : executorFailureInfra(failure)
     // Await every admitted write before releasing the run lock, including cancellation races.
     await opts.journal.appendEvent(opts.runId, {
       kind: 'settled',
       id: result.id,
       status: reason === undefined ? 'done' : 'down',
       outRef: result.outRef,
-      ...(reason === undefined ? {} : { infra: fault !== undefined, reason }),
+      ...(reason === undefined ? {} : { reason }),
+      ...(infra === undefined ? {} : { infra }),
       spent: result.spent,
       ...(budgetViolation === undefined ? {} : { budgetViolation }),
       ...(result.verdict ? { verdict: result.verdict } : {}),

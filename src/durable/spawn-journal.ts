@@ -1130,7 +1130,7 @@ export async function replaySpawnTree(
         handle: handleFor(ev.id, 'cancelled'),
         reason: ev.reason,
         ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
-        infra: ev.infra === true,
+        ...(ev.infra === undefined ? {} : { infra: ev.infra }),
         ...(ev.providerModel === undefined
           ? {}
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
@@ -1156,7 +1156,9 @@ export async function replaySpawnTree(
         // pre-field convention and the generic text keeps still-older reasonless journals usable.
         reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
         ...(ev.outRef === undefined ? {} : { outRef: ev.outRef }),
-        infra: ev.infra === true,
+        // Replay carries the record's own claim, absent included: `ev.infra === true` turned an
+        // unattributable failure into a `false` the live run never asserted.
+        ...(ev.infra === undefined ? {} : { infra: ev.infra }),
         ...(ev.providerModel === undefined
           ? {}
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),

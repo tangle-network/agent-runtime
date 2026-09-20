@@ -63,7 +63,7 @@ import {
 import { freeSlots } from './dispatch'
 import { errMessage } from './error-message'
 import { executableAgentSpecSnapshot } from './executable-spec'
-import { executorFailureReason } from './executor-outcome'
+import { executorFailure, executorFailureInfra, executorFailureReason } from './executor-outcome'
 import {
   interactiveAdmissionSeamKey,
   writeWorkerInteractiveAdmission,
@@ -468,7 +468,8 @@ export type PreSeqSettled =
   | {
       kind: 'down'
       reason: string
-      infra: boolean
+      /** See `Settled['infra']`: `true` platform, `false` the work, absent unattributable. */
+      infra?: boolean
       outRef?: string
       trace: WorkerTraceEvidence
       /** The dropped child's own harness transcript, or the named reason it is absent. The whole
@@ -2759,7 +2760,7 @@ async function finalizeSettlement<Out>(
           status: 'down',
           ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
           reason: settlement.reason,
-          infra: settlement.infra,
+          ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
           ...retainedExecution,
           spent: child.spent,
           ...settledNodeEvidence(child, settlement, settledAt),
@@ -2771,7 +2772,7 @@ async function finalizeSettlement<Out>(
       kind: 'down',
       handle,
       reason: settlement.reason,
-      infra: settlement.infra,
+      ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
       ...retainedExecution,
       ...(settlement.outRef === undefined ? {} : { outRef: settlement.outRef }),
       ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
@@ -2871,7 +2872,7 @@ async function finalizeWait<Out>(
       kind: 'down',
       handle,
       reason: settlement.reason,
-      infra: settlement.infra,
+      ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
       trace: settlement.trace,
       settledAt,
       seq,
@@ -3127,13 +3128,14 @@ async function runChild<C>(
 
     // retainOutput derived and persisted the canonical reference before settlement work.
     const outRef = artifact.outRef
-    const failureReason = executorFailureReason(artifact)
-    if (failureReason !== undefined) {
+    const failure = executorFailure(artifact)
+    if (failure !== undefined) {
       await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS).catch(() => undefined)
       return {
         ...downRecord(
-          failureReason,
-          false,
+          failure.error,
+          // The envelope's own vocabulary decides; an unattributable failure carries no claim.
+          executorFailureInfra(failure),
           trace,
           ownMetered,
           runtimeOwnedExecutorProviderEvidence(executor),
@@ -3178,12 +3180,12 @@ async function runChild<C>(
         const trace = await captureTraceOnce()
         await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS).catch(() => undefined)
         const metered = executor.metered?.()
-        const failureReason = executorFailureReason(accepted)
-        if (failureReason !== undefined) {
+        const failure = executorFailure(accepted)
+        if (failure !== undefined) {
           return {
             ...downRecord(
-              failureReason,
-              false,
+              failure.error,
+              executorFailureInfra(failure),
               trace,
               metered,
               runtimeOwnedExecutorProviderEvidence(executor),
@@ -3687,7 +3689,7 @@ function unknownFloor(spend: Spend): Spend {
 
 function downRecord(
   reason: string,
-  infra: boolean,
+  infra: boolean | undefined,
   trace: WorkerTraceEvidence,
   metered?: Spend,
   providerModel?: import('./types').ProviderModelExecutionEvidence,
@@ -3697,7 +3699,8 @@ function downRecord(
   return {
     kind: 'down',
     reason,
-    infra,
+    // Absent when unattributable; the record must not carry a boolean it cannot stand behind.
+    ...(infra === undefined ? {} : { infra }),
     trace,
     ...(harnessTranscript ? { harnessTranscript } : {}),
     ...(providerModel ? { providerModel } : {}),

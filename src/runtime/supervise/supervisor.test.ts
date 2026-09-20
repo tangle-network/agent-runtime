@@ -1,11 +1,24 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+  replaySpawnTree,
+} from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { runDriverWithRetry } from './driver-retry'
 import { RetainedExecutionPendingError } from './retained-executor'
 import { createExecutorRegistry } from './runtime'
 import { createRootHandle, createSupervisor } from './supervisor'
-import type { Agent, Scope, Spend, SupervisorOpts } from './types'
+import type {
+  Agent,
+  AgentSpec,
+  ExecutorResult,
+  Scope,
+  SpawnEvent,
+  Spend,
+  SupervisorOpts,
+} from './types'
 
 /** A supervisor wired to in-memory durability with a frozen clock — no network, no sandbox. The
  *  cases below never spawn a child, which is the exact production shape under test: the driver
@@ -280,6 +293,275 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
     expect(result.downCount).toBe(0)
     expect(result.error).toBeUndefined()
     expect('error' in result).toBe(false)
+  })
+
+  // A leaf whose executor is supplied inline: no provider, no sandbox, one `execute` that
+  // answers with the artifact or the failure envelope the case needs. `harness: null` with an
+  // `executor` routes through the registry's BYO arm.
+  const leafProfile: AgentProfile = {
+    name: 'leaf',
+    harness: 'claude-code',
+    model: { provider: 'fixture', default: 'fixture/model' },
+  }
+  function leaf(
+    name: string,
+    result: Partial<ExecutorResult<unknown>> & Pick<ExecutorResult<unknown>, 'out'>,
+  ): Agent<unknown, unknown> {
+    return {
+      name,
+      act: async () => undefined,
+      executorSpec: {
+        profile: { ...leafProfile, name },
+        harness: null,
+        executor: {
+          runtime: 'router',
+          execute: async () => ({ outRef: `byo:${name}`, spent: spend(1, 1), ...result }),
+          resultArtifact: () => ({ outRef: `byo:${name}`, spent: spend(1, 1), ...result }),
+          teardown: async () => ({ destroyed: true }),
+        },
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+  }
+  const settlements = async (journal: InMemorySpawnJournal, runId: string) =>
+    ((await journal.loadTree(runId)) ?? []).filter(
+      (event): event is Extract<SpawnEvent, { kind: 'settled' }> => event.kind === 'settled',
+    )
+
+  it('settles `no-result-selected`, not `all-children-down`, when every child delivered and the root chose nothing', async () => {
+    const journal = new InMemorySpawnJournal()
+    const result = await createSupervisor<unknown, unknown>().run(
+      driver(async (scope) => {
+        for (const name of ['first', 'second']) {
+          const spawned = scope.spawn(leaf(name, { out: `${name} banked` }), 'task', {
+            label: name,
+            budget: { maxIterations: 2, maxTokens: 100 },
+          })
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        while ((await scope.next()) !== null) {
+          // drain every settlement, then select nothing
+        }
+        return undefined
+      }),
+      'task',
+      supervisorOpts({ journal, runId: 'delivered-but-unselected' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    // The 2026-09-20 corpus: 46 of 57 `all-children-down` runs had zero down children. The
+    // label must name the root's choice, not a fleet failure that did not happen.
+    expect(result.reason).toBe('no-result-selected')
+    expect(result.downCount).toBe(0)
+    expect(result.fleetYield).toMatchObject({ spawned: 2, done: 2, down: 0 })
+    expect((await settlements(journal, 'delivered-but-unselected')).map((s) => s.status)).toEqual([
+      'done',
+      'done',
+    ])
+  })
+
+  it('keeps one down child among delivered siblings on `downCount`, not in the reason', async () => {
+    const restart =
+      'Execution interrupted: the agent runtime restarted before the run produced a terminal event'
+    const journal = new InMemorySpawnJournal()
+    const result = await createSupervisor<unknown, unknown>().run(
+      driver(async (scope) => {
+        const children = [
+          leaf('delivered', { out: 'banked' }),
+          leaf('lost', { out: '', outcome: { success: false, error: restart } }),
+        ]
+        for (const child of children) {
+          const spawned = scope.spawn(child, 'task', {
+            label: child.name,
+            budget: { maxIterations: 2, maxTokens: 100 },
+          })
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        while ((await scope.next()) !== null) {
+          // drain
+        }
+        return undefined
+      }),
+      'task',
+      supervisorOpts({ journal, runId: 'one-down-among-delivered' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    // verified-agency-20260920b: 8 spawned, 6 done, 2 down to a runtime restart, and the run
+    // settled `all-children-down`. The one-down-child rule that produced it is gone.
+    expect(result.reason).toBe('no-result-selected')
+    expect(result.downCount).toBe(1)
+    expect(result.fleetYield).toMatchObject({ spawned: 2, done: 1, down: 1 })
+  })
+
+  it('settles `all-children-down` when every child failed but the root never read the cursor', async () => {
+    // The harness-root shape: a director ends its turn without draining. Each child's failure
+    // has resolved (the tree shows `settlementPending: down`) but no settlement was committed,
+    // so a status-only count read the whole dead fleet as the root's own choice.
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const result = await supervisor.run(
+      driver(async (scope) => {
+        for (const name of ['first', 'second']) {
+          const spawned = scope.spawn(
+            leaf(name, { out: '', outcome: { success: false, error: 'terminated' } }),
+            'task',
+            { label: name, budget: { maxIterations: 2, maxTokens: 100 } },
+          )
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        for (let waited = 0; waited < 2_000; waited += 5) {
+          const children = handle.view().nodes.filter((node) => node.id !== handle.view().root)
+          if (
+            children.length === 2 &&
+            children.every((node) => node.settlementPending !== undefined)
+          ) {
+            return undefined
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5))
+        }
+        throw new Error('children never resolved')
+      }),
+      'task',
+      supervisorOpts({ runId: 'undrained-dead-fleet' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('all-children-down')
+    expect(result.fleetYield).toMatchObject({ spawned: 2, done: 0, down: 2 })
+  })
+
+  it('lets a driver rejection through when one child is down and another delivered', async () => {
+    // verified-agency-20260920b, the hour this was written: the root's sandbox sidecar died to
+    // host capacity (503 SIDECAR_RESTART_FAILED, six identical attempts), the driver threw, and
+    // the run settled `all-children-down` with no error field because two of its eight children
+    // were down and that rule outranked the rejection. The platform death of the root was erased.
+    const fault = new ValidationError(
+      'driver failed after 6 attempts: Sidecar is unhealthy and restart failed: Host capacity',
+    )
+    const result = await createSupervisor<unknown, unknown>().run(
+      driver(async (scope) => {
+        const children = [
+          leaf('delivered', { out: 'banked' }),
+          leaf('lost', { out: '', outcome: { success: false, error: 'terminated' } }),
+        ]
+        for (const child of children) {
+          const spawned = scope.spawn(child, 'task', {
+            label: child.name,
+            budget: { maxIterations: 2, maxTokens: 100 },
+          })
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        while ((await scope.next()) !== null) {
+          // drain
+        }
+        throw fault
+      }),
+      'task',
+      supervisorOpts({ runId: 'root-died-with-one-child-down' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    expect(result.downCount).toBe(1)
+    if (result.reason !== 'driver-failed') return
+    expect(result.error.message).toContain('Host capacity')
+  })
+
+  it('still settles `all-children-down` when every child went down before the root settled', async () => {
+    const result = await createSupervisor<unknown, unknown>().run(
+      driver(async (scope) => {
+        for (const name of ['first', 'second']) {
+          const spawned = scope.spawn(
+            leaf(name, { out: '', outcome: { success: false, error: 'terminated' } }),
+            'task',
+            { label: name, budget: { maxIterations: 2, maxTokens: 100 } },
+          )
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        while ((await scope.next()) !== null) {
+          // drain
+        }
+        return undefined
+      }),
+      'task',
+      supervisorOpts({ runId: 'every-child-down' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('all-children-down')
+    expect(result.downCount).toBe(2)
+    expect(result.fleetYield).toMatchObject({ spawned: 2, done: 0, down: 2 })
+  })
+
+  it('stamps `infra` from the executor envelope: true for the platform vocabulary, absent when unattributable', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    await createSupervisor<unknown, unknown>().run(
+      driver(async (scope) => {
+        const children = [
+          leaf('platform', {
+            out: '',
+            outcome: {
+              success: false,
+              error:
+                'Execution interrupted: the agent runtime restarted before the run produced a terminal event',
+            },
+          }),
+          leaf('quota', {
+            out: '',
+            outcome: {
+              success: false,
+              error: 'the Sandbox interactive status failed',
+              errorCode: 'QUOTA_EXCEEDED',
+            },
+          }),
+          leaf('unattributed', {
+            out: '',
+            outcome: {
+              success: false,
+              error: 'claude-code execution failed: Process exited with code 1',
+            },
+          }),
+        ]
+        for (const child of children) {
+          const spawned = scope.spawn(child, 'task', {
+            label: child.name,
+            budget: { maxIterations: 2, maxTokens: 100 },
+          })
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        while ((await scope.next()) !== null) {
+          // drain
+        }
+        return undefined
+      }),
+      'task',
+      supervisorOpts({ journal, blobs, runId: 'envelope-infra' }),
+    )
+
+    const settled = await settlements(journal, 'envelope-infra')
+    const byLabel = (suffix: string) => settled.find((event) => event.id.endsWith(suffix))
+    // Until 2026-09-20 every one of these carried `infra: false`; the flag caught 1 of 78
+    // platform losses on the fleet corpus.
+    expect(byLabel(':s0')).toMatchObject({ status: 'down', infra: true })
+    expect(byLabel(':s1')).toMatchObject({ status: 'down', infra: true })
+    const unattributed = byLabel(':s2')
+    expect(unattributed).toMatchObject({ status: 'down' })
+    expect(unattributed).not.toHaveProperty('infra')
+
+    // Replay carries the same claims: the absent flag used to come back as `false` here, so a
+    // resumed driver and every tree view saw a verdict the live run never made.
+    const replayed = await replaySpawnTree(journal, blobs, 'envelope-infra')
+    const replayedById = (suffix: string) => replayed.find((s) => s.handle.id.endsWith(suffix))
+    expect(replayedById(':s0')).toMatchObject({ kind: 'down', infra: true })
+    expect(replayedById(':s2')).toMatchObject({ kind: 'down' })
+    expect(replayedById(':s2')).not.toHaveProperty('infra')
   })
 
   it('still reports the budget reason when the driver throws AFTER exhausting the pool', async () => {

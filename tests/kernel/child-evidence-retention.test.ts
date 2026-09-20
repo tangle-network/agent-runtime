@@ -152,7 +152,10 @@ for (const shape of ['promise', 'stream'] as const) {
         budget: { maxIterations: 2, maxTokens: 100 },
       })
       const settled = await scope.next()
-      expect(settled).toMatchObject({ kind: 'down', infra: false, outRef: contentAddress(out) })
+      expect(settled).toMatchObject({ kind: 'down', outRef: contentAddress(out) })
+      // An executor envelope that reports failure attributes nothing: the record carries no
+      // `infra` claim rather than a `false` the runtime cannot stand behind.
+      expect(settled).not.toHaveProperty('infra')
       expect(await blobs.get(contentAddress(out))).toEqual(out)
     })
 
