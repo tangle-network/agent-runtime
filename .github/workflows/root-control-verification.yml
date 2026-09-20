@@ -1,0 +1,25 @@
+name: Root control verification
+on:
+  push:
+    branches: [audit/root-controls-1306-20260920]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e0fc7719b5a2c68b5dbecf4884685866b33a1fdf
+          fetch-depth: 0
+          persist-credentials: false
+      - run: |
+          mkdir -p /tmp/root-control-source
+          git rev-parse HEAD > /tmp/root-control-source/base.sha
+          git bundle create /tmp/root-control-source/main.bundle HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: root-control-source
+          path: /tmp/root-control-source/
+          retention-days: 3
