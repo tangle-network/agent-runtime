@@ -1,4 +1,4 @@
-name: Adaptive delivery source verification
+name: Adaptive delivery verification
 on:
   push:
     branches: [audit/adaptive-delivery-1306]
@@ -7,30 +7,101 @@ permissions:
 defaults:
   run:
     shell: bash
+concurrency:
+  group: adaptive-delivery-audit
+  cancel-in-progress: true
 jobs:
-  capture:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 11c33a27f664cf28ed8c052841ae517bea517d87
           fetch-depth: 0
           persist-credentials: false
+      - name: Restore exact candidate source
+        run: |
+          cp .audit/shared-delivery.patch /tmp/shared-delivery.patch
+          echo '61604c092595eb4ef5b58c4e9c7506b755d86e553e5dabfe048060c0330b5d9e  /tmp/shared-delivery.patch' | sha256sum --check
+          git config --global user.name 'Repository verification'
+          git config --global user.email 'verification@users.noreply.github.com'
+          git worktree add -b audit/delivery-candidate /tmp/delivery-candidate 11c33a27f664cf28ed8c052841ae517bea517d87
+          cd /tmp/delivery-candidate
+          git apply --check /tmp/shared-delivery.patch
+          git apply /tmp/shared-delivery.patch
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-      - run: pnpm install --frozen-lockfile
-      - name: Retain source and installed test dependencies
-        run: |
-          mkdir -p /tmp/delivery-source
-          git rev-parse HEAD > /tmp/delivery-source/base.sha
-          git bundle create /tmp/delivery-source/repository.bundle --all
-          git archive HEAD | gzip > /tmp/delivery-source/source.tar.gz
-          tar -czf /tmp/delivery-source/dependencies.tar.gz node_modules
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          name: runtime-delivery-source
-          path: /tmp/delivery-source/
-          retention-days: 3
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: '0.11.32'
+      - name: Install exact dependencies and regenerate public API
+        working-directory: /tmp/delivery-candidate
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm peers check
+          pnpm run build
+          pnpm run api:surface
+          pnpm run docs:api
+          git add -A
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- .github .audit)"
+          git commit -m 'feat(intelligence): support forced refresh in the shared certified source'
+      - name: Verify source, release, package and documentation contracts
+        working-directory: /tmp/delivery-candidate
+        env:
+          PACKAGE_VERSION_BUMP_BASE: 11c33a27f664cf28ed8c052841ae517bea517d87
+        run: |
+          mkdir -p /tmp/delivery-evidence
+          pnpm run lint 2>&1 | tee /tmp/delivery-evidence/lint.log
+          pnpm run test 2>&1 | tee /tmp/delivery-evidence/tests.log
+          pnpm run typecheck 2>&1 | tee /tmp/delivery-evidence/types.log
+          pnpm run check:version-bump 2>&1 | tee /tmp/delivery-evidence/version.log
+          pnpm run check:publish-workflow
+          pnpm run check:upstream-evidence-workflow
+          pnpm run verify:package 2>&1 | tee /tmp/delivery-evidence/package.log
+          pnpm run docs:check 2>&1 | tee /tmp/delivery-evidence/docs.log
+          test -z "$(git status --porcelain)"
+          pnpm pack --pack-destination /tmp/delivery-evidence
+      - name: Retain candidate and verification evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/delivery-evidence
+          if [ -d /tmp/delivery-candidate ]; then
+            cd /tmp/delivery-candidate
+            git status --short > /tmp/delivery-evidence/status.txt
+            git rev-parse HEAD > /tmp/delivery-evidence/candidate.sha
+            git archive HEAD | gzip > /tmp/delivery-evidence/source.tar.gz
+            git bundle create /tmp/delivery-evidence/candidate.bundle audit/delivery-candidate ^11c33a27f664cf28ed8c052841ae517bea517d87
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: runtime-delivery-verified
+          path: /tmp/delivery-evidence/
+          retention-days: 5
+  deliver:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: runtime-delivery-verified
+          path: /tmp/delivery-evidence
+      - name: Publish only the verified source branch
+        run: |
+          expected=$(cat /tmp/delivery-evidence/candidate.sha)
+          git fetch /tmp/delivery-evidence/candidate.bundle audit/delivery-candidate
+          test "$(git rev-parse FETCH_HEAD)" = "$expected"
+          git merge-base --is-ancestor 11c33a27f664cf28ed8c052841ae517bea517d87 "$expected"
+          test -z "$(git diff --name-only 11c33a27f664cf28ed8c052841ae517bea517d87 "$expected" -- .github .audit)"
+          git push origin "$expected:refs/heads/feat/shared-certified-delivery"
