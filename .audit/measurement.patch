@@ -1,0 +1,278 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index e0dcb39..df53fc1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,8 @@
+ 
+ ## 0.244.0
+ 
++Authored profile measurement is independent of promotion. `measureAuthoredAgentProfileImprovement` returns the sealed experiment, all measurements and verified comparison, including non-promotable outcomes. `proposeAuthoredAgentProfileImprovement` preserves its passing-only contract by delegating to that same implementation. Execution and reporting references are captured before asynchronous measurements. No new optimizer, scoring policy, retry loop or automatic activation is introduced.
++
+ **Migration:** `harness.train(...)` now requires its own `executionRef` for the trainer, serving adapter, and their dependencies. The evaluation identity bound to the harness is no longer substituted into the training receipt. The bound parent profile and validator are unchanged.
+ 
+ Profile optimization and authored/optimized profile promotion refuse final-task content digests already present in either measured profile's declared training receipts, including ancestors and trainer-visible validation data. Baseline exposure is refused before optimizer construction or analyst work; selected-candidate exposure is refused before final measurement. Unrelated task namespaces are not conflated. This checks known exact content digests; it does not certify undeclared or semantically duplicated data as fresh.
+diff --git a/docs/canonical-api.md b/docs/canonical-api.md
+index 130a0d0..66db94d 100644
+--- a/docs/canonical-api.md
++++ b/docs/canonical-api.md
+@@ -195,6 +195,7 @@ A thrown parent check reports a validation error through the existing driver fai
+ | Improve one profile coordinate | `improve(profile, { surface, executionRef, method, trainScenarios, selectionScenarios, testScenarios, judges, agent, costCeiling })` from root `.`; `executionRef` binds saved work to executable behavior, `agent` receives the exact complete candidate profile, and the total-cost option limits the whole run | an implicit per-surface optimizer, a method that sees final-test cases, an unmeasured profile mutation, or separate optimizer and final-test spend limits |
+ | Train model weights and return a receipted candidate | `improve(profile, { mode: 'training', ... })` or `createProfileImprovementHarness(...).train(...)` from root `.`; use `createCommandProfileTrainer` for a pinned local command, or provide a managed trainer and verified serving port | a second optimizer, Runtime-owned GPU deployment, rewritten Eval transcripts, or treating a trained checkpoint as a promotion verdict |
+ | Inspect observed optimizer package, model, usage, cost, and resumed-run evidence before proposing a change | `createOptimizationActivationReceipt(result)` from `/intelligence` | reconstructing optimizer evidence from logs or trusting caller-authored metadata |
++| Measure an authored complete profile and retain negative or inconclusive outcomes | `measureAuthoredAgentProfileImprovement(...)` from `/intelligence`; inspect its canonical `evaluation`, then optionally call `createAgentImprovementProposal` without re-executing | requiring every valid experiment to produce a promotable proposal, or recomputing native costs/statistics from logs |
+ | Compare complete optimization methods directly | `compareOptimizationMethods(...)` from `agent-eval/campaign` | comparing one method's training score to another method's final score |
+ | Improve repository code | `improve({ surface: 'code', code, scenarios, judge, agent, budget })` from root `.` | passing code through a text optimizer or managing candidate worktrees in product code |
+ | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate`: `agent-eval/contract` | a raw `h1>h0` point comparison on the training set |
+diff --git a/src/intelligence/authored-profile-improvement.ts b/src/intelligence/authored-profile-improvement.ts
+index 7d67d53..a958986 100644
+--- a/src/intelligence/authored-profile-improvement.ts
++++ b/src/intelligence/authored-profile-improvement.ts
+@@ -98,13 +98,59 @@ export interface ProposeAuthoredAgentProfileImprovementResult {
+   proposal: AgentImprovementProposal
+ }
+ 
++/** Measurement is useful even when no candidate should be promoted. */
++export type MeasureAuthoredAgentProfileImprovementOptions = Omit<
++  ProposeAuthoredAgentProfileImprovementOptions,
++  'findings' | 'now'
++>
++
++export interface MeasureAuthoredAgentProfileImprovementResult {
++  candidateProfile: AgentProfile
++  candidateLineage: AgentCandidateLineage
++  experiment: AgentProfileImprovementExperiment
++  measurements: AgentProfileImprovementMeasurement[]
++  /** Verified comparison, including non-promotable decisions. Never an activation. */
++  evaluation: AgentProfileImprovementMeasuredComparison
++}
++
+ /**
+- * Put a complete authored/imported profile through the canonical profile
+- * experiment and proposal path without invoking `improve()`.
++ * Preserve the proposal convenience API, but measure through the same primitive
++ * used by research callers that need valid negative or inconclusive results.
+  */
+ export async function proposeAuthoredAgentProfileImprovement(
+   options: ProposeAuthoredAgentProfileImprovementOptions,
+ ): Promise<ProposeAuthoredAgentProfileImprovementResult> {
++  const findings = immutableCandidateValue([
++    ...assertProposalFindings(options.findings ?? [], 'authored profile improvement findings'),
++  ])
++  const { runId, now } = options
++  const { evaluation, ...measured } = await measureAuthoredAgentProfileImprovement(options)
++  const proposal = createAgentImprovementProposal({
++    runId,
++    findings,
++    evaluation,
++    ...(now ? { now } : {}),
++  })
++  return { ...measured, proposal }
++}
++
++/**
++ * Run the native sealed paired measurement without requiring promotion.
++ * Infrastructure failures and invalid evidence still reject; an assessed
++ * non-improvement returns the complete comparison and its measurements.
++ * No optimizer, research topology or new evaluation policy is installed.
++ */
++export async function measureAuthoredAgentProfileImprovement(
++  options: MeasureAuthoredAgentProfileImprovementOptions,
++): Promise<MeasureAuthoredAgentProfileImprovementResult> {
++  const { runId, signal, maxConcurrency } = options
++  signal?.throwIfAborted()
++  // Keep the admitted execution identity/callback and reporting context stable
++  // across asynchronous cells. Callbacks are trusted host code, not isolation.
++  const executionRef = immutableCandidateValue(options.executor.executionRef)
++  const measure = options.executor.measure.bind(options.executor)
++  const candidate =
++    options.candidate === undefined ? undefined : immutableCandidateValue(options.candidate)
+   const source = agentImprovementSourceSchema.parse(options.source)
+   // Validate and seal caller metadata before allocating a cost ledger or
+   // invoking the product-owned executor. Reserved provenance fields and forged
+@@ -117,9 +163,6 @@ export async function proposeAuthoredAgentProfileImprovement(
+   if (Object.hasOwn(inputLineage, 'profileDiffIds')) {
+     throw new Error('authored profile improvement derives candidateLineage.profileDiffIds')
+   }
+-  const findings = immutableCandidateValue([
+-    ...assertProposalFindings(options.findings ?? [], 'authored profile improvement findings'),
+-  ])
+   const costLedger = createProfileImprovementCostLedger(
+     options.budgetUsd,
+     'authored profile improvement',
+@@ -178,7 +221,7 @@ export async function proposeAuthoredAgentProfileImprovement(
+     kind: 'agent-profile-improvement-experiment',
+     digestAlgorithm: 'rfc8785-sha256',
+     source,
+-    executionRef: options.executor.executionRef,
++    executionRef,
+     baseline: { stateDigest: baselineStateDigest },
+     candidate: { stateDigest: candidateStateDigest },
+     change,
+@@ -193,41 +236,35 @@ export async function proposeAuthoredAgentProfileImprovement(
+   const preparation = profilePreparationAccounting(costLedger, preparationStartedAt)
+   const run = await runAgentProfileImprovementExperiment({
+     experiment,
+-    ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
++    ...(maxConcurrency === undefined ? {} : { maxConcurrency }),
+     costLedger,
+-    ...(options.signal ? { signal: options.signal } : {}),
++    ...(signal ? { signal } : {}),
+     execute: async (input) => {
+       const measuredProfile = profilesByStateDigest.get(input.stateDigest)
+       if (!measuredProfile) {
+         throw new Error('authored profile execution requested an unknown profile state')
+       }
+-      return options.executor.measure({ ...input, profile: measuredProfile })
++      return measure({ ...input, profile: measuredProfile })
+     },
+   })
+   const evaluation = verifyAgentProfileImprovementExperimentComparison(
+     measuredComparisonFromAgentProfileImprovementExperiment({
+       experiment,
+       measurements: run.measurements,
+-      runId: options.runId,
+-      ...(options.candidate ? { candidate: options.candidate } : {}),
++      runId,
++      ...(candidate ? { candidate } : {}),
+       generationsExplored: 0,
+       preparation,
+       measurement: run.measurement,
+       metadata,
+     }),
+   )
+-  const proposal = createAgentImprovementProposal({
+-    runId: options.runId,
+-    findings,
+-    evaluation,
+-    ...(options.now ? { now: options.now } : {}),
+-  })
+   return {
+     candidateProfile,
+     candidateLineage,
+     experiment,
+     measurements: run.measurements,
+-    proposal,
++    evaluation,
+   }
+ }
+ 
+diff --git a/src/intelligence/index.ts b/src/intelligence/index.ts
+index 1065f01..7389f3d 100644
+--- a/src/intelligence/index.ts
++++ b/src/intelligence/index.ts
+@@ -82,10 +82,15 @@ export type {
+   AgentProfileCandidateMeasurementExecutor,
+   AuthoredAgentProfileCandidateLineage,
+   AuthoredAgentProfileDiffOptions,
++  MeasureAuthoredAgentProfileImprovementOptions,
++  MeasureAuthoredAgentProfileImprovementResult,
+   ProposeAuthoredAgentProfileImprovementOptions,
+   ProposeAuthoredAgentProfileImprovementResult,
+ } from './authored-profile-improvement'
+-export { proposeAuthoredAgentProfileImprovement } from './authored-profile-improvement'
++export {
++  measureAuthoredAgentProfileImprovement,
++  proposeAuthoredAgentProfileImprovement,
++} from './authored-profile-improvement'
+ export type {
+   CapabilityAuth,
+   CapabilityInterface,
+diff --git a/tests/authored-profile-improvement.test.ts b/tests/authored-profile-improvement.test.ts
+index 9e08f15..f94ef78 100644
+--- a/tests/authored-profile-improvement.test.ts
++++ b/tests/authored-profile-improvement.test.ts
+@@ -8,9 +8,11 @@ import { describe, expect, it } from 'vitest'
+ 
+ import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
+ import {
++  measureAuthoredAgentProfileImprovement,
+   type ProposeAuthoredAgentProfileImprovementOptions,
+   proposeAuthoredAgentProfileImprovement,
+ } from '../src/intelligence/authored-profile-improvement'
++import { createAgentImprovementProposal } from '../src/intelligence/improvement-cycle'
+ import { optimizationActivationReceiptFromMetadata } from '../src/intelligence/optimization-receipt'
+ import { improvementFinding as fixtureFinding } from './helpers/improvement-method-fixture'
+ import {
+@@ -340,3 +342,82 @@ describe('trained profile release admission', () => {
+     expect(observed).toHaveLength(minimumPairedRuns * 2)
+   })
+ })
++
++describe('authored measurement is independent of promotion', () => {
++  it('returns a verified comparison that can be proposed without executing again', async () => {
++    const { options, observed } = setup()
++    const measured = await measureAuthoredAgentProfileImprovement(options)
++    expect(measured.evaluation.decision.outcome).toBe('ship')
++    expect(measured).not.toHaveProperty('proposal')
++    expect(measured.measurements).toHaveLength(minimumPairedRuns)
++    const calls = observed.length
++    const proposal = createAgentImprovementProposal({
++      runId: options.runId,
++      findings: options.findings ?? [],
++      evaluation: measured.evaluation,
++    })
++    expect(proposal.evaluation.experiment.digest).toBe(measured.experiment.digest)
++    expect(observed).toHaveLength(calls)
++  })
++
++  it.each([0.2, 0.8])(
++    'returns a complete non-promotable comparison for score %s',
++    async (candidateScore) => {
++      const { options } = setup()
++      options.executor.measure = async (input) =>
++        createProfileImprovementRunReceipt(input, input.arm === 'baseline' ? 0.8 : candidateScore)
++      const result = await measureAuthoredAgentProfileImprovement(options)
++      expect(result.evaluation.decision.outcome).not.toBe('ship')
++      expect(result.measurements).toHaveLength(minimumPairedRuns)
++      expect(result).not.toHaveProperty('proposal')
++      expect(() =>
++        createAgentImprovementProposal({
++          runId: options.runId,
++          findings: [],
++          evaluation: result.evaluation,
++        }),
++      ).toThrow(/passing experiment/)
++    },
++  )
++
++  it('still rejects an invalid host receipt rather than converting it into a negative research result', async () => {
++    const { options } = setup()
++    options.executor.measure = async (input) => ({
++      ...createProfileImprovementRunReceipt(input, 0.5),
++      digest: canonicalCandidateDigest({ forged: true }),
++    })
++    await expect(measureAuthoredAgentProfileImprovement(options)).rejects.toThrow(/digest/)
++  })
++
++  it('captures the executor and comparison identity before asynchronous measurements', async () => {
++    const { options, observed } = setup()
++    const original = options.executor.measure.bind(options.executor)
++    const originalRunId = options.runId
++    options.maxConcurrency = 1
++    options.executor.measure = async (input) => {
++      options.executor.measure = async () => {
++        throw new Error('replacement executed')
++      }
++      options.runId = 'changed-while-running'
++      return original(input)
++    }
++    const result = await measureAuthoredAgentProfileImprovement(options)
++    expect(result.evaluation.provenance.runId).toBe(originalRunId)
++    expect(observed).toHaveLength(minimumPairedRuns * 2)
++  })
++
++  it('does not invoke the host executor on pre-cancelled or held-out-overlap requests', async () => {
++    const cancelled = setup()
++    cancelled.options.signal = AbortSignal.abort(new Error('cancelled before spending'))
++    await expect(measureAuthoredAgentProfileImprovement(cancelled.options)).rejects.toThrow(
++      /cancelled before spending/,
++    )
++    expect(cancelled.observed).toHaveLength(0)
++    const leaked = setup()
++    leaked.options.developmentScenarios = [leaked.heldOutScenario]
++    await expect(measureAuthoredAgentProfileImprovement(leaked.options)).rejects.toThrow(
++      /reuses development/,
++    )
++    expect(leaked.observed).toHaveLength(0)
++  })
++})

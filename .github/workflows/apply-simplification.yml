@@ -1,0 +1,42 @@
+name: Apply verified measurement extraction
+on:
+  push:
+    branches: [feat/measure-authored-profile]
+    paths: [.github/workflows/apply-simplification.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Apply exact tested source and regenerate maintained documentation
+        run: |
+          set -euo pipefail
+          echo '7eb0d815ad146f592636d67b2fa3260b4f820685b224b67dbb5837996465269f  .audit/measurement.patch' | sha256sum --check
+          git apply --check .audit/measurement.patch
+          git apply --index .audit/measurement.patch
+          pnpm install --frozen-lockfile
+          pnpm run docs:api
+          pnpm run api:surface
+          git add api-surface.json docs/api
+          git rm .audit/measurement.patch .github/workflows/apply-simplification.yml
+          git diff --cached --check
+          git config user.name 'Tangle automation'
+          git config user.email 'automation@tangle.tools'
+          git commit -m 'feat(intelligence): measure authored profiles independently of promotion'
+      - name: Push only the isolated feature branch without rewriting history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$header"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" push origin HEAD:refs/heads/feat/measure-authored-profile
