@@ -1,0 +1,233 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ef362011..91485d79 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,8 @@
+ 
+ ## 0.246.0
+ 
++The shared certified-prompt source accepts `refresh({ force: true })` without duplicating its cache in product adapters. Concurrent compositions join a forced pull; failed pulls retain the existing last-known behavior. The first pull works with an epoch-zero clock, and explicit pull coordinates/transport are captured at construction. Construct a new source to change those options. Prompt delivery does not materialize tools or authorize profile activation.
++
+ Admit Sandbox SDK releases through 0.45 while retaining the existing 0.36.4 floor.
+ The registry compatibility matrix checks 0.36.4 and 0.43.0.
+ The packed-consumer check also accepts a Sandbox archive for verifying workspace SDK releases before publication.
+diff --git a/docs/intelligence-sdk.md b/docs/intelligence-sdk.md
+index 6a4d65e1..f7963f4d 100644
+--- a/docs/intelligence-sdk.md
++++ b/docs/intelligence-sdk.md
+@@ -74,6 +74,10 @@ The base URL reads `TANGLE_INTELLIGENCE_URL`, defaulting to the deployed plane a
+ 
+ - `pullCertified(opts)` — one pull, returning a typed `PullOutcome` (inspect `succeeded` before `value`); it never throws. It deserializes the full composed response — including the typed `agentProfileDiffs` earlier receive paths dropped. A 404 is the normal "nothing promoted yet" signal, carried as `status: 404`; a hung plane is cut by the 10-second default timeout and surfaces as an ordinary failed pull.
+ - `createCertifiedPromptSource(opts)` — the cached, self-refreshing source: pulls at most every 5 minutes (`refreshMs`), coalesces concurrent pulls, and keeps the last-known profile on a failed or 404 pull — a good surface is never wiped by a bad refresh.
++  Use `source.refresh({ force: true })` after a known revision change to bypass the refresh window.
++  Concurrent refreshes and compositions join the same pull; a failed pull keeps last-known guidance.
++  Explicit target, credentials and transport options are captured at construction; create a new source to change them.
++  This source delivers prompt guidance only. It does not materialize tools/files or authorize profile activation.
+ - `composeCertifiedPrompt(base, certified)` — folds the certified prompt surface plus the prompt-folding artifact buckets (`promptFoldTypes`: prompt-surface, skill, instructions) into the base prompt under a marked section. The fold is byte-stable — prompt surface first, then bucket order, then path order — so the same profile renders identically on every call; it returns `base` unchanged when nothing usable is promoted.
+ - `withIntelligence(agent, config)` — the ONE hook that rides both lanes at once:
+ 
+diff --git a/scripts/verify-package-exports.mjs b/scripts/verify-package-exports.mjs
+index cdd83397..f1982bdd 100644
+--- a/scripts/verify-package-exports.mjs
++++ b/scripts/verify-package-exports.mjs
+@@ -267,6 +267,7 @@ try {
+       } from '@tangle-network/agent-runtime/durable'
+       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+       import {
++        createCertifiedPromptSource,
+         createExactProcessCandidateExperimentExecutor,
+         agentImprovementProfileSurfaceDigest,
+         agentImprovementProfileSurfaceInput,
+@@ -286,6 +287,14 @@ try {
+         type VerifyCandidateExecutionEvidenceOptions,
+       } from '@tangle-network/agent-runtime/intelligence'
+ 
++      const promptSource = createCertifiedPromptSource({ target: 'packed-consumer' })
++      const forcedPromptRefresh: Promise<void> = promptSource.refresh({ force: true })
++      const ordinaryPromptRefresh: Promise<void> = promptSource.refresh()
++      // @ts-expect-error Forced refresh is explicit boolean policy, not a truthy string.
++      promptSource.refresh({ force: 'yes' })
++      void forcedPromptRefresh
++      void ordinaryPromptRefresh
++
+       declare const provider: AgentEnvironmentProvider
+       declare const ports: CreateExactProcessCandidateExperimentExecutorOptions['ports']
+       declare const grader: CreateExactProcessCandidateExperimentExecutorOptions['grader']
+@@ -681,6 +690,7 @@ try {
+         const intelligence = await import('@tangle-network/agent-runtime/intelligence')
+         const expectedIntelligence = [
+           'createIntelligenceClient',
++          'createCertifiedPromptSource',
+           'withIntelligence',
+           'pullCertified',
+           'resolveEffort',
+@@ -709,6 +719,21 @@ try {
+         for (const name of expectedIntelligence) {
+           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
+         }
++        let pulls = 0
++        const source = intelligence.createCertifiedPromptSource({
++          target: 'packed-consumer', apiKey: 'fixture', refreshMs: 60000,
++          fetchImpl: async () => new Response(JSON.stringify({
++            target: 'packed-consumer',
++            promptSurface: { surface: 'revision-' + (++pulls), surfaceHash: 'fixture', version: pulls, lift: null },
++            artifacts: {},
++          }), { status: 200 }),
++        })
++        await source.compose('BASE')
++        await source.refresh({ force: true })
++        const composed = await source.compose('BASE')
++        if (pulls !== 2 || !composed.includes('revision-2')) {
++          throw new Error('packed certified source lost forced refresh semantics')
++        }
+         for (const name of [
+           'loadAgentImprovementProposalFixture',
+           'loadAgentProfileImprovementFixture',
+diff --git a/src/intelligence/delivery.test.ts b/src/intelligence/delivery.test.ts
+index 5ad90cfe..f7ea7577 100644
+--- a/src/intelligence/delivery.test.ts
++++ b/src/intelligence/delivery.test.ts
+@@ -461,4 +461,103 @@ describe('createCertifiedPromptSource', () => {
+     expect(fetchImpl).toHaveBeenCalledTimes(1)
+     expect(source.current()).toEqual(CERTIFIED)
+   })
++  it('forces a pull inside the refresh window and starts a new window afterward', async () => {
++    const updated = { ...CERTIFIED, generatedAt: '2026-09-20T00:00:00.000Z' }
++    const fetchImpl = vi
++      .fn()
++      .mockResolvedValueOnce(jsonResponse(CERTIFIED))
++      .mockResolvedValueOnce(jsonResponse(updated)) as unknown as typeof fetch
++    const source = createCertifiedPromptSource({ ...opts, fetchImpl, refreshMs: 60_000 })
++    await source.refresh()
++    await source.refresh()
++    expect(fetchImpl).toHaveBeenCalledTimes(1)
++
++    await source.refresh({ force: true })
++    expect(fetchImpl).toHaveBeenCalledTimes(2)
++    expect(source.current()).toEqual(updated)
++    await source.refresh()
++    expect(fetchImpl).toHaveBeenCalledTimes(2)
++  })
++
++  it('joins a forced refresh before composing a warm cached profile', async () => {
++    let resolvePull: (response: Response) => void = () => {}
++    const updated = {
++      ...CERTIFIED,
++      promptSurface: { ...CERTIFIED.promptSurface!, surface: 'NEW GUIDANCE' },
++    }
++    const fetchImpl = vi
++      .fn()
++      .mockResolvedValueOnce(jsonResponse(CERTIFIED))
++      .mockImplementationOnce(
++        () =>
++          new Promise<Response>((resolve) => {
++            resolvePull = resolve
++          }),
++      ) as unknown as typeof fetch
++    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
++    await source.refresh()
++    const forced = source.refresh({ force: true })
++    const joined = source.refresh({ force: true })
++    let composed = false
++    const pending = source.compose('BASE').then((value) => {
++      composed = true
++      return value
++    })
++    await Promise.resolve()
++    await Promise.resolve()
++    expect(composed).toBe(false)
++    expect(fetchImpl).toHaveBeenCalledTimes(2)
++    resolvePull(jsonResponse(updated))
++    await Promise.all([forced, joined])
++    expect(await pending).toContain('NEW GUIDANCE')
++  })
++
++  it('performs the first pull even when the clock starts inside the refresh interval', async () => {
++    const clock = vi.spyOn(Date, 'now').mockReturnValue(0)
++    try {
++      const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
++      const source = createCertifiedPromptSource({ ...opts, fetchImpl })
++      await source.refresh()
++      expect(fetchImpl).toHaveBeenCalledTimes(1)
++      expect(source.current()).toEqual(CERTIFIED)
++      await source.refresh()
++      expect(fetchImpl).toHaveBeenCalledTimes(1)
++    } finally {
++      clock.mockRestore()
++    }
++  })
++
++  it('binds explicit pull coordinates and transport at construction', async () => {
++    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
++    const replacement = vi.fn(async () =>
++      jsonResponse({ ...CERTIFIED, target: 'other' }),
++    ) as unknown as typeof fetch
++    const configuration = { ...opts, fetchImpl, refreshMs: 0 }
++    const source = createCertifiedPromptSource(configuration)
++    configuration.target = 'other'
++    configuration.apiKey = 'other-key'
++    configuration.baseUrl = 'https://other.test'
++    configuration.fetchImpl = replacement
++    await source.refresh()
++    expect(replacement).not.toHaveBeenCalled()
++    expect(fetchImpl).toHaveBeenCalledWith(
++      'https://plane.test/v1/profiles/support-agent/composed',
++      expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer k' }) }),
++    )
++    expect(source.current()).toEqual(CERTIFIED)
++  })
++
++  it('keeps last-known guidance after a forced failed pull', async () => {
++    const fetchImpl = vi
++      .fn()
++      .mockResolvedValueOnce(jsonResponse(CERTIFIED))
++      .mockResolvedValueOnce(jsonResponse({}, 500)) as unknown as typeof fetch
++    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
++    await source.refresh()
++    await source.refresh({ force: true })
++    expect(fetchImpl).toHaveBeenCalledTimes(2)
++    expect(source.current()).toEqual(CERTIFIED)
++    expect(await source.compose('BASE')).toContain(CERTIFIED.promptSurface!.surface)
++    expect(fetchImpl).toHaveBeenCalledTimes(2)
++  })
+ })
+diff --git a/src/intelligence/delivery.ts b/src/intelligence/delivery.ts
+index f6b690c4..32384b55 100644
+--- a/src/intelligence/delivery.ts
++++ b/src/intelligence/delivery.ts
+@@ -447,8 +447,8 @@ export interface CertifiedPromptSource {
+   compose(base: string): Promise<string>
+   /** The certified profile currently in effect (`null` = none pulled yet). */
+   current(): CertifiedProfile | null
+-  /** Pull now if the refresh window has elapsed; coalesced and fail-closed. */
+-  refresh(): Promise<void>
++  /** Pull after the refresh window, or force a pull now. Both join an in-flight pull. */
++  refresh(options?: { force?: boolean }): Promise<void>
+ }
+ 
+ /** Options for {@link createCertifiedPromptSource} — the pull coordinates plus
+@@ -467,16 +467,19 @@ export interface CertifiedPromptSourceOptions extends PullCertifiedOptions {
+ export function createCertifiedPromptSource(
+   opts: CertifiedPromptSourceOptions,
+ ): CertifiedPromptSource {
+-  const refreshMs = opts.refreshMs ?? defaultRefreshMs
++  // Bind explicit coordinates and transport; later caller mutation must not redirect this cache.
++  const pullOptions = { ...opts }
++  const refreshMs = pullOptions.refreshMs ?? defaultRefreshMs
+   let certified: CertifiedProfile | null = null
+-  let lastPullAt = 0
++  let lastPullAt: number | undefined
+   let inflight: Promise<void> | null = null
+ 
+-  async function refresh(): Promise<void> {
+-    if (Date.now() - lastPullAt < refreshMs) return
++  async function refresh(options?: { force?: boolean }): Promise<void> {
++    // A normal composition also joins a forced refresh instead of returning stale warm guidance.
+     if (inflight) return inflight
++    if (!options?.force && lastPullAt !== undefined && Date.now() - lastPullAt < refreshMs) return
+     inflight = (async () => {
+-      const outcome = await pullCertified(opts)
++      const outcome = await pullCertified(pullOptions)
+       lastPullAt = Date.now()
+       // Only replace the cache on a real pull; a 404/error keeps the last-known
+       // certified profile (or null) — fail-closed, never wipe a good surface.
