@@ -1,0 +1,26 @@
+name: PR 1312 review verification
+on:
+  push:
+    branches: [audit/pr1312-review-finish]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Retain repository refs without executing package code
+        run: |
+          mkdir -p /tmp/pr1312-source
+          git rev-parse origin/main > /tmp/pr1312-source/main.sha
+          git rev-parse origin/codex/adaptive-agents-1306 > /tmp/pr1312-source/pr.sha
+          git bundle create /tmp/pr1312-source/source.bundle --all
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr1312-source
+          path: /tmp/pr1312-source/
+          retention-days: 3
