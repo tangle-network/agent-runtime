@@ -2,6 +2,8 @@
 
 ## 0.247.0
 
+Durable steering now accepts the run root's exact ID through the existing `writeWorkerSteer` operation protocol. Router roots receive at turn boundaries; native roots use the active execution's inbox or report `unsupported`. Atomic claims prevent duplicate delivery after retry or interruption; late requests expire without delivery. No new control schema or MCP authority is introduced. `supervise` also forwards its existing `escalateQuestion` callback to root and nested managers instead of silently dropping it. Durable root answers and an application inbox implementation remain outside this change.
+
 Settle labels now say what the supervisor can prove.
 
 **Migration:** `Settled['infra']` on a `down` record is optional. `true` means the platform ended the child, `false` means the runtime knows the work itself failed (an ordinary thrown result), and absent means the executor's envelope reported a failure the runtime cannot attribute. Readers that switched on `infra === false` should treat an absent flag as unclassified. The no-winner reason union gains `no-result-selected`: the root ran to completion under budget, spawned children, and selected nothing while no child was down when it settled. `all-children-down` is now produced only by a tripped breaker or by every child being down before the root settled; one down child among delivered siblings rides `downCount` and no longer sets the reason.

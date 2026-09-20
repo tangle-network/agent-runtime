@@ -366,15 +366,8 @@ describe('durable worker controls during a native harness invocation', () => {
           task: 'wait',
           label: 'duplicate',
         })
-        await expect
-          .poll(
-            () => ({
-              nestedReady: nestedReady.resolved,
-              rootReady: rootWorker.started.resolved,
-            }),
-            { timeout: 2000 },
-          )
-          .toEqual({ nestedReady: true, rootReady: true })
+        // Admission precedes execution; begin the control deadline only after both workers start.
+        await Promise.all([nestedReady.promise, rootWorker.started.promise])
         cancelWorker(dir, 'duplicate', 'root-label')
         await expect
           .poll(() => readWorkerCancellation(dir, 'root-label'), { timeout: 2000 })
