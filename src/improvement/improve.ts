@@ -29,57 +29,10 @@ import {
   runProfileTraining,
 } from './training'
 
-export type {
-  ImproveCandidateValidationInput,
-  ImproveCandidateValidator,
-  ImproveCodeBaseOptions,
-  ImproveCodeOptions,
-  ImproveCodeResult,
-  ImproveCodeRunOptions,
-  ImproveCost,
-  ImproveCustomCodeGeneratorOptions,
-  ImproveLineage,
-  ImproveMethodContext,
-  ImproveMethodFactory,
-  ImproveMethodLineage,
-  ImproveMethodOptions,
-  ImproveMethodResult,
-  ImproveMethodSource,
-  ImprovementCandidate,
-  ImprovementCodeCandidate,
-  ImprovementMaterializedProfilePopulationCandidate,
-  ImprovementProfileCandidate,
-  ImprovementProfileCandidatePopulation,
-  ImprovementProfileCandidatePopulationAvailable,
-  ImprovementProfileCandidatePopulationUnavailable,
-  ImprovementProfilePopulationArtifactSource,
-  ImprovementProfilePopulationCandidate,
-  ImprovementProfilePopulationCandidateSource,
-  ImprovementProfilePopulationLineage,
-  ImprovementProfilePopulationLineageNode,
-  ImprovementProfilePopulationObservationSource,
-  ImprovementRefusedProfilePopulationCandidate,
-  ImproveOptimizationRunOptions,
-  ImproveOptions,
-  ImproveProfileAgent,
-  ImproveProfileComponents,
-  ImproveProfileSurface,
-  ImproveResult,
-  ImproveRuntimeCodeGeneratorOptions,
-  ImproveScenarioPartitions,
-  ImproveSkillsOptions,
-  ImproveSurface,
-} from './improve-types'
-export type {
-  CheckpointServingPort,
-  ControlledTrainingCommand,
-  ImproveTrainingOptions,
-  ImproveTrainingResult,
-  ProfileTrainer,
-  ProfileTrainerRequest,
-  TrainingBoundaryResult,
-  TrainingDatasetDocument,
-} from './training'
+// The owning modules are the single list of these names; re-exporting them by
+// hand made every new option type a three-file edit.
+export type * from './improve-types'
+export type * from './training'
 export { createCommandProfileTrainer } from './training'
 
 /** Train and serve a checkpoint without implying that it improved held-out quality. */

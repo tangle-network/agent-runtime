@@ -51,6 +51,7 @@ import {
   redigestCandidateBundle,
   replaceCandidateFixtureTask,
 } from './helpers/candidate-execution-fixture'
+import { materializedContextFile } from './helpers/materialized-context'
 
 const TEST_RESOURCES = Object.freeze({ cpu: 2, memoryMb: 2_048, diskMb: 8_192 })
 
@@ -435,7 +436,9 @@ describe('exact process candidate experiment executor', () => {
     const workspaceWrite = writes.find(([path]) => path === '/workspace/task/AGENTS.md')
     const agentWrite = writes.find(([path]) => path === '/workspace/profile/.pi/agent/AGENTS.md')
     expect(Buffer.from(workspaceWrite?.[1] ?? []).toString('utf8')).toBe(workspaceInstructions)
-    expect(Buffer.from(agentWrite?.[1] ?? []).toString('utf8')).toBe(`${agentInstructions}\n`)
+    expect(Buffer.from(agentWrite?.[1] ?? []).toString('utf8')).toBe(
+      materializedContextFile(`${agentInstructions}\n`),
+    )
     expect(writes.some(([path]) => path === '/workspace/task/.pi/agent/AGENTS.md')).toBe(false)
     expect(writes.some(([path]) => path === '/opt/candidate/AGENTS.md')).toBe(false)
 

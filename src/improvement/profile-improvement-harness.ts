@@ -6,7 +6,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
-import { assertCandidateValidator } from './candidate-validation'
+import { assertCandidateValidator, parseExecutionRef } from './candidate-validation'
 import { improve } from './improve'
 import type {
   ImproveCandidateValidator,
@@ -78,18 +78,13 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
       `createProfileImprovementHarness: invalid AgentProfile: ${parsed.error.message}`,
     )
   }
-  if (!/^sha256:[0-9a-f]{64}$/.test(options.executionRef)) {
-    throw new ConfigError(
-      'createProfileImprovementHarness: executionRef must be a lowercase sha256 digest',
-    )
-  }
   if (typeof options.agent !== 'function') {
     throw new ConfigError('createProfileImprovementHarness: agent must be a function')
   }
   assertCandidateValidator(options.validateCandidate)
 
   const profile = immutableCandidateValue(parsed.data)
-  const executionRef = options.executionRef
+  const executionRef = parseExecutionRef(options.executionRef, 'createProfileImprovementHarness')
   const agent = options.agent
   const defaultValidator = options.validateCandidate
   const validatorFor = (validator: ImproveCandidateValidator | undefined) => {

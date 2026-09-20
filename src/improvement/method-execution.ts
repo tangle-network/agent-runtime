@@ -18,20 +18,19 @@ import {
   type AgentProfile,
   applyAgentProfileDiff,
   diffAgentProfiles,
-  canonicalCandidateDigest as interfaceCandidateDigest,
   type Sha256Digest,
-  sha256DigestSchema,
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import {
   assertCandidateValidator,
   assertProfileTrainingIsHeldOut,
+  parseExecutionRef,
   validateProfileCandidate,
 } from './candidate-validation'
 import { copyImproveCost } from './improve-result'
 import type {
-  ImproveCandidateValidationInput,
+  ImproveCandidateValidator,
   ImproveMethodContext,
   ImproveMethodOptions,
   ImproveMethodResult,
@@ -73,20 +72,6 @@ function resolveOptimizationMethod<TScenario extends Scenario, TArtifact>(
     )
   }
   return method
-}
-
-function copyProvenance(
-  provenance: NonNullable<OptimizationMethodComparison['best']['provenance']>,
-): NonNullable<OptimizationMethodComparison['best']['provenance']> {
-  return immutableCandidateValue(provenance)
-}
-
-function validateExecutionRef(value: unknown): Sha256Digest {
-  const parsed = sha256DigestSchema.safeParse(value)
-  if (!parsed.success) {
-    throw new ConfigError('improve(): executionRef must be a lowercase sha256:<64 hex> digest')
-  }
-  return parsed.data
 }
 
 function materializationError(error: unknown): { name: string; message: string } {
@@ -231,7 +216,7 @@ function profileCandidatePopulation(
               reason: 'optimizer-did-not-report-candidate-lineage',
             },
     }
-    const surfaceDigest = interfaceCandidateDigest(entry.value)
+    const surfaceDigest = canonicalCandidateDigest(entry.value)
     let candidateProfile: AgentProfile
     try {
       candidateProfile = materializeProfile(entry.value)
@@ -246,10 +231,10 @@ function profileCandidatePopulation(
       }
     }
 
-    const profileDigest = interfaceCandidateDigest(candidateProfile)
+    const profileDigest = canonicalCandidateDigest(candidateProfile)
     const diffs = diffAgentProfiles(baselineProfile, candidateProfile)
     const reproduced = diffs.reduce(applyAgentProfileDiff, baselineProfile)
-    if (interfaceCandidateDigest(reproduced) !== profileDigest) {
+    if (canonicalCandidateDigest(reproduced) !== profileDigest) {
       throw new ConfigError(
         `improve(): Interface profile diffs do not reproduce optimizer candidate ${entry.candidateDigest}`,
       )
@@ -263,7 +248,7 @@ function profileCandidatePopulation(
       profile: candidateProfile,
       profileDigest,
       diffs,
-      diffDigests: diffs.map(interfaceCandidateDigest),
+      diffDigests: diffs.map(canonicalCandidateDigest),
     }
   })
 
@@ -323,7 +308,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   if (profileComponents && surface !== 'agent-profile') {
     throw new ConfigError("improve(): profileComponents is valid only with surface 'agent-profile'")
   }
-  const executionRef = validateExecutionRef(inputExecutionRef)
+  const executionRef = parseExecutionRef(inputExecutionRef, 'improve()')
   const findings = immutableCandidateValue([
     ...assertProposalFindings(inputFindings, 'improve() method findings'),
   ])
@@ -371,6 +356,23 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   const baselineSurfaceDigest = canonicalCandidateDigest(baselineSurface)
   const heldOutDigests = new Set(scenarioPartitions.finalTest.map((task) => task.scenarioDigest))
   const validatedCandidates = new Set<Sha256Digest>()
+  // Both admission points below hand a validator the same materialized candidate,
+  // so the surface is prepared and the input is shaped in exactly one place.
+  const validateMaterialized = (
+    validator: ImproveCandidateValidator | undefined,
+    candidate: AgentProfile,
+    candidateSurface: MutableSurface,
+    isBaseline: boolean,
+  ): void => {
+    const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
+    validateProfileCandidate(validator, {
+      profile: candidate,
+      surface,
+      candidateSurface,
+      value: immutableCandidateValue(prepared.value),
+      isBaseline,
+    })
+  }
   const materializeProfile = (
     candidateSurface: Parameters<typeof rawMaterializeProfile>[0],
   ): ReturnType<typeof rawMaterializeProfile> => {
@@ -378,15 +380,12 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     const candidateDigest = canonicalCandidateDigest(candidateSurface)
     if (!validatedCandidates.has(candidateDigest)) {
       assertProfileTrainingIsHeldOut(candidate, heldOutDigests)
-      const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
-      const validationInput: ImproveCandidateValidationInput = Object.freeze({
-        profile: candidate,
-        surface,
-        candidateSurface: immutableCandidateValue(candidateSurface),
-        value: immutableCandidateValue(prepared.value),
-        isBaseline: candidateDigest === baselineSurfaceDigest,
-      })
-      validateProfileCandidate(validateCandidate, validationInput)
+      validateMaterialized(
+        validateCandidate,
+        candidate,
+        immutableCandidateValue(candidateSurface),
+        candidateDigest === baselineSurfaceDigest,
+      )
       validatedCandidates.add(candidateDigest)
     }
     return candidate
@@ -420,17 +419,11 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
       const rootSurface = toRoot(value)
       const candidateDigest = canonicalCandidateDigest(rootSurface)
       if (checked.has(candidateDigest)) return
-      const candidate = materializeProfile(rootSurface)
-      const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
-      validateProfileCandidate(
+      validateMaterialized(
         controls?.validateCandidate,
-        Object.freeze({
-          profile: immutableCandidateValue(candidate),
-          surface,
-          candidateSurface: rootSurface,
-          value: immutableCandidateValue(prepared.value),
-          isBaseline: candidateDigest === currentBaselineDigest,
-        }),
+        materializeProfile(rootSurface),
+        rootSurface,
+        candidateDigest === currentBaselineDigest,
       )
       checked.add(candidateDigest)
     }
@@ -527,7 +520,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   return {
     mode: 'method',
     method: method.name,
-    ...(score.provenance ? { provenance: copyProvenance(score.provenance) } : {}),
+    ...(score.provenance ? { provenance: immutableCandidateValue(score.provenance) } : {}),
     candidate,
     decision:
       cost.accountingComplete && score.decision.promote && score.decision.low > minimumLift
