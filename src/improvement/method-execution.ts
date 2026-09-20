@@ -24,7 +24,11 @@ import {
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
-import { assertCandidateValidator, validateProfileCandidate } from './candidate-validation'
+import {
+  assertCandidateValidator,
+  assertProfileTrainingIsHeldOut,
+  validateProfileCandidate,
+} from './candidate-validation'
 import { copyImproveCost } from './improve-result'
 import type {
   ImproveCandidateValidationInput,
@@ -364,15 +368,8 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     profileComponents,
   )
   const runtimeInvocationId = `runtime-optimization:${randomUUID()}`
-  const method = resolveOptimizationMethod(methodSource, {
-    profile,
-    evaluationRef,
-    surface,
-    baselineSurface,
-    baselineValue,
-    findings,
-  })
   const baselineSurfaceDigest = canonicalCandidateDigest(baselineSurface)
+  const heldOutDigests = new Set(scenarioPartitions.finalTest.map((task) => task.scenarioDigest))
   const validatedCandidates = new Set<Sha256Digest>()
   const materializeProfile = (
     candidateSurface: Parameters<typeof rawMaterializeProfile>[0],
@@ -380,6 +377,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     const candidate = rawMaterializeProfile(candidateSurface)
     const candidateDigest = canonicalCandidateDigest(candidateSurface)
     if (!validatedCandidates.has(candidateDigest)) {
+      assertProfileTrainingIsHeldOut(candidate, heldOutDigests)
       const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
       const validationInput: ImproveCandidateValidationInput = Object.freeze({
         profile: candidate,
@@ -394,6 +392,14 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     return candidate
   }
   materializeProfile(baselineSurface)
+  const method = resolveOptimizationMethod(methodSource, {
+    profile,
+    evaluationRef,
+    surface,
+    baselineSurface,
+    baselineValue,
+    findings,
+  })
   const costScope = { evaluationRef, invocationId: runtimeInvocationId }
   const invoke = async (
     current: OptimizationMethod<TScenario, TArtifact>,

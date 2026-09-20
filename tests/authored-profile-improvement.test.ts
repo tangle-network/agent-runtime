@@ -18,6 +18,8 @@ import {
   createProfileImprovementRunReceipt,
 } from './helpers/profile-improvement-fixture'
 
+import { trainedProfile } from './helpers/trained-profile'
+
 const minimumPairedRuns = BOOTSTRAP_GATE_MIN_N
 const { proposal_origin: _fixtureOrigin, ...fixtureAnalystFinding } =
   fixtureFinding as ProposalFinding
@@ -287,5 +289,54 @@ describe('authored profile improvement', { timeout: 30_000 }, () => {
     await expect(proposeAuthoredAgentProfileImprovement(leaked.options)).rejects.toThrow(
       /reuses development scenario/,
     )
+  })
+})
+
+describe('trained profile release admission', () => {
+  for (const arm of ['baseline', 'candidate'] as const) {
+    for (const inherited of [false, true]) {
+      it(`refuses ${arm} training exposure (${inherited ? 'ancestor' : 'current'}) before measurement`, async () => {
+        const { options, observed, heldOutScenario } = setup()
+        const key = arm === 'baseline' ? 'profile' : 'candidateProfile'
+        let profile = trainedProfile(options[key], [
+          {
+            benchmark: 'independently-named-training-export',
+            task: 'renamed-training-task',
+            contentDigest: heldOutScenario.scenarioDigest,
+          },
+        ])
+        if (inherited)
+          profile = trainedProfile(profile, [
+            {
+              benchmark: 'fresh',
+              task: 'fresh',
+              contentDigest: canonicalCandidateDigest('fresh'),
+            },
+          ])
+        options[key] = profile
+        options.source.sourceDigest = options.stateDigest({
+          identity: options.source.sourceIdentity,
+          profile: options.profile,
+        })
+        options.candidateLineage.parentDigests = [options.source.sourceDigest]
+        await expect(proposeAuthoredAgentProfileImprovement(options)).rejects.toThrow(
+          /training exposure/,
+        )
+        expect(observed).toHaveLength(0)
+      })
+    }
+  }
+  it('allows fresh task content even when training task names coincide', async () => {
+    const { options, observed, heldOutScenario } = setup()
+    options.candidateProfile = trainedProfile(options.candidateProfile, [
+      {
+        benchmark: heldOutScenario.kind,
+        task: heldOutScenario.id,
+        contentDigest: canonicalCandidateDigest('fresh'),
+      },
+    ])
+    const result = await proposeAuthoredAgentProfileImprovement(options)
+    expect(result.proposal.evaluation.decision.outcome).toBe('ship')
+    expect(observed).toHaveLength(minimumPairedRuns * 2)
   })
 })

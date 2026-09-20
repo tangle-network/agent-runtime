@@ -74,6 +74,8 @@ import {
   createProfileImprovementRunReceipt,
 } from './helpers/profile-improvement-fixture'
 
+import { trainedProfile } from './helpers/trained-profile'
+
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
@@ -719,6 +721,100 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     ).rejects.toThrow(/would exceed ceiling 6/)
     expect(budgetMeasurements).toBe(0)
   })
+
+  for (const arm of ['baseline', 'selected'] as const) {
+    it(`refuses ${arm} training exposure to the release suite before measurement`, async () => {
+      const template = createProfileImprovementFixture()
+      const { digest: _digest, ...task } = template.evaluation.experiment.benchmark.tasks[0]!
+      const { agent: optimize, executionRef, ...improvement } = improvementOptions()
+      const untrained: AgentProfile = { prompt: { systemPrompt: 'BASELINE' } }
+      const exposure = [{ benchmark: 'export', task: 'alias', contentDigest: task.scenario.digest }]
+      const profile = arm === 'baseline' ? trainedProfile(untrained, exposure) : untrained
+      const candidate = trainedProfile({ prompt: { systemPrompt: 'PROMOTED' } }, exposure)
+      const stateDigest = ({ profile: value }: { identity: string; profile: AgentProfile }) =>
+        canonicalCandidateDigest(value)
+      let analysisCalls = 0
+      let methodCalls = 0
+      let measured = 0
+      await expect(
+        proposeAgentProfileImprovement({
+          runId: `trained-release-${arm}`,
+          budgetUsd: minimumPairedRuns * 2 + 1,
+          source: {
+            kind: 'platform-agent-profile',
+            sourceIdentity: 'profile-support',
+            sourceDigest: stateDigest({ identity: 'profile-support', profile }),
+            sourceRevision: 7,
+          },
+          profile,
+          stateDigest,
+          analysis: {
+            registry: {
+              list: () => [{ id: 'improvement' }],
+              run: async () => {
+                analysisCalls++
+                return {
+                  run_id: 'training-exposure',
+                  correlation_id: 'training-exposure',
+                  started_at: '2026-07-27T00:00:00.000Z',
+                  ended_at: '2026-07-27T00:00:01.000Z',
+                  findings: [finding],
+                  per_analyst: [],
+                  total_cost_usd: 0,
+                  total_cost_provenance: { kind: 'observed' as const, usd: 0 },
+                }
+              },
+            },
+            inputs: {},
+            findingsStore: null,
+          },
+          improvement: {
+            ...improvement,
+            surface: 'agent-profile',
+            method: {
+              name: 'trained-candidate',
+              async optimize() {
+                methodCalls++
+                return {
+                  winnerSurface: JSON.stringify(candidate),
+                  cost: {
+                    totalCostUsd: 0,
+                    costProvenance: { kind: 'observed', usd: 0 },
+                    accountingComplete: true,
+                    incompleteReasons: [],
+                  },
+                }
+              },
+            },
+          },
+          benchmark: {
+            tasks: [task],
+            reps: minimumPairedRuns,
+            seeds: Array.from({ length: minimumPairedRuns }, (_, i) => i + 51) as [
+              number,
+              ...number[],
+            ],
+            policy: template.evaluation.experiment.policy,
+          },
+          executor: {
+            executionRef: {
+              kind: 'agent-profile-improvement-execution-ref',
+              identity: 'test',
+              digest: executionRef,
+            },
+            optimize,
+            measure: async (input) => {
+              measured++
+              return createProfileImprovementRunReceipt(input, input.arm === 'candidate' ? 1 : 0)
+            },
+          },
+        }),
+      ).rejects.toThrow(/training exposure/)
+      expect(measured).toBe(0)
+      expect(analysisCalls).toBe(arm === 'baseline' ? 0 : 1)
+      expect(methodCalls).toBe(arm === 'baseline' ? 0 : 1)
+    })
+  }
 
   it('rejects a profile measurement task previously visible to the optimizer', async () => {
     const template = createProfileImprovementFixture()

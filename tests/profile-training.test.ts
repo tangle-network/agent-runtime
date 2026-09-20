@@ -329,7 +329,7 @@ process.stdin.on('end', () => {
     )
   })
 
-  it('uses the bound harness parent identity execution reference and validator', async () => {
+  it('binds the parent and validator without substituting the training execution identity', async () => {
     await withFixture(async (options) => {
       const original = parent()
       const validations: boolean[] = []
@@ -347,8 +347,26 @@ process.stdin.on('end', () => {
       const result = await harness.train(options)
       assert(result.succeeded, JSON.stringify(result))
       assert.equal(result.receipt.parentProfileDigest, harness.profileDigest)
-      assert.equal(result.receipt.executionRef, harness.executionRef)
+      assert.equal(result.receipt.executionRef, options.executionRef)
+      assert.notEqual(result.receipt.executionRef, harness.executionRef)
       assert.deepEqual(validations, [true, false])
+    })
+  })
+
+  it('does not fall back to the evaluation identity when training identity is missing', async () => {
+    await withFixture(async (options) => {
+      const harness = createProfileImprovementHarness({
+        profile: parent(),
+        executionRef: sha256Utf8('evaluation-only'),
+        agent: async () => {
+          throw new Error('must not execute an evaluation')
+        },
+      })
+      const { executionRef: _trainingRef, ...missingIdentity } = options
+      const result = await harness.train(missingIdentity as never)
+      assert(!result.succeeded)
+      assert.equal(result.stage, 'admission')
+      await assertNoProfile(options.outputDirectory)
     })
   })
 

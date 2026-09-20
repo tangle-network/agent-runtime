@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.244.0
+
+**Migration:** `harness.train(...)` now requires its own `executionRef` for the trainer, serving adapter, and their dependencies. The evaluation identity bound to the harness is no longer substituted into the training receipt. The bound parent profile and validator are unchanged.
+
+Profile optimization and authored/optimized profile promotion refuse final-task content digests already present in either measured profile's declared training receipts, including ancestors and trainer-visible validation data. Baseline exposure is refused before optimizer construction or analyst work; selected-candidate exposure is refused before final measurement. Unrelated task namespaces are not conflated. This checks known exact content digests; it does not certify undeclared or semantically duplicated data as fresh.
+
 ## 0.243.0
 
 Training, optimization, and bound harnesses now share candidate-validator admission and invocation. **Migration:** validators must return `undefined` synchronously or throw. Promises and other return values are rejected instead of silently accepting an unchecked candidate; use a block body for side effects. Composed optimizer leaves obey the same rule, while original callbacks remain bound into execution identity.

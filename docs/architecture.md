@@ -92,7 +92,10 @@ Parents and children resume together through Scope, including reconstructed nest
 Provider managers can recover their original invocation and reuse an accepted result.
 Recovery preserves unresolved work when the provider cannot prove its identity or completion.
 The file run lock coordinates one local owner; this does not implement distributed fencing.
-**This recursive execution tree IS the product.** The three things we own
+**This recursive execution tree is the execution substrate, not the success criterion.**
+The product succeeds when retained learning improves future outcomes under the resource and
+verification conditions in sections 0.5 and 9. More nodes or more machinery do not establish that.
+The three things we own
 are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
 `define_check · run_check`); (2) the **profiles** (markdown — the only customization;
 "Drew" is one); (3) the **orchestrator** (`src/runtime/supervise/` — `Scope` + the
