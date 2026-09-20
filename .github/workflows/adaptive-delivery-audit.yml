@@ -1,0 +1,36 @@
+name: Adaptive delivery source verification
+on:
+  push:
+    branches: [audit/adaptive-delivery-1306]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 11c33a27f664cf28ed8c052841ae517bea517d87
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: Retain source and installed test dependencies
+        run: |
+          mkdir -p /tmp/delivery-source
+          git rev-parse HEAD > /tmp/delivery-source/base.sha
+          git bundle create /tmp/delivery-source/repository.bundle --all
+          git archive HEAD | gzip > /tmp/delivery-source/source.tar.gz
+          tar -czf /tmp/delivery-source/dependencies.tar.gz node_modules
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runtime-delivery-source
+          path: /tmp/delivery-source/
+          retention-days: 3
