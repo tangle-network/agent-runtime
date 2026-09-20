@@ -63,8 +63,8 @@ remaining boilerplate is irreducible.
 
 ## Documentation Placement
 
-To verify an unpublished Sandbox SDK, pass its archive as the fourth argument to `scripts/verify-package-exports.mjs`.
-The first argument selects the Runtime archive; an empty third argument keeps the installed Knowledge release.
+To verify an unpublished Sandbox SDK, pass its archive after the Runtime and Knowledge archive arguments to `scripts/verify-package-exports.mjs`.
+Use an empty Knowledge argument to keep the installed release.
 Registry checks continue to use the published versions in `scripts/lib/dependency-contract.mjs`.
 
 - `CLAUDE.md` / `AGENTS.md`: bootloader and repo-local deltas only.
