@@ -34,7 +34,11 @@ import {
   publishExclusiveDurableFile,
   syncDurableDirectory,
 } from '../runtime/supervise/durable-file'
-import { assertCandidateValidator, validateProfileCandidate } from './candidate-validation'
+import {
+  assertCandidateValidator,
+  parseExecutionRef,
+  validateProfileCandidate,
+} from './candidate-validation'
 import type { ImproveCandidateValidator } from './improve-types'
 import type { ReadonlyAgentProfile } from './profile-types'
 
@@ -393,7 +397,6 @@ export async function runProfileTraining(
     }
     const parentProfileDigest = canonicalAgentProfileDigest(parent)
     const parentBytes = Buffer.from(JSON.stringify(parent), 'utf8')
-    sha256DigestSchema.parse(options.executionRef)
     sha256DigestSchema.parse(options.dataset.digest)
     if (timeoutMs !== undefined) positiveLimit(timeoutMs, 'training timeout')
     positiveLimit(options.maxCheckpointBytes, 'checkpoint byte limit')
@@ -410,7 +413,7 @@ export async function runProfileTraining(
     assertCandidateValidator(options.validateCandidate)
     const execute = options.trainer.execute.bind(options.trainer)
     const serve = options.serving.serve.bind(options.serving)
-    const executionRef = options.executionRef
+    const executionRef = parseExecutionRef(options.executionRef, 'training')
     const expectedDatasetDigest = options.dataset.digest
     const sourceDataset = options.dataset.path
     const maxCheckpointBytes = options.maxCheckpointBytes

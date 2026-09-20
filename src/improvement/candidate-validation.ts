@@ -1,7 +1,16 @@
-import type { Sha256Digest } from '@tangle-network/agent-interface'
+import { type Sha256Digest, sha256DigestSchema } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
 import type { ImproveCandidateValidationInput, ImproveCandidateValidator } from './improve-types'
 import type { ReadonlyAgentProfile } from './profile-types'
+
+/** One spelling of the execution-identity rule for optimization, training, and the harness. */
+export function parseExecutionRef(value: unknown, label: string): Sha256Digest {
+  const parsed = sha256DigestSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new ConfigError(`${label}: executionRef must be a lowercase sha256:<64 hex> digest`)
+  }
+  return parsed.data
+}
 
 /** Validate the callback itself before any optimizer, trainer, or candidate work starts. */
 export function assertCandidateValidator(
