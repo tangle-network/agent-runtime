@@ -31,11 +31,16 @@ jobs:
           expected = 'b058d317b208cf3d33a4235cd05d5a25bebc1bdc5c63a5fb6773cb50df84dde4'
           assert hashlib.sha256(patch).hexdigest() == expected, 'candidate patch differs from tested source'
           pathlib.Path('/tmp/root-controls.patch').write_bytes(patch)
+          followup = pathlib.Path('.audit/root-controls-followup.patch').read_bytes()
+          assert hashlib.sha256(followup).hexdigest() == '9cb140f0b60c59ea2eb59b767477e4c776f7590b3ed91fbd24e1f9c8e5117aeb'
+          pathlib.Path('/tmp/root-controls-followup.patch').write_bytes(followup)
           PY
           git worktree add -b audit/root-candidate /tmp/root-candidate e0fc7719b5a2c68b5dbecf4884685866b33a1fdf
           cd /tmp/root-candidate
           git apply --check /tmp/root-controls.patch
           git apply /tmp/root-controls.patch
+          git apply --check /tmp/root-controls-followup.patch
+          git apply /tmp/root-controls-followup.patch
           git config user.name "$(git show -s --format=%an HEAD)"
           git config user.email "$(git show -s --format=%ae HEAD)"
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
@@ -76,7 +81,7 @@ jobs:
           pnpm run build > /tmp/root-control-evidence/build.log 2>&1
           pnpm run api:surface
           pnpm run docs:api > /tmp/root-control-evidence/generated-docs.log 2>&1
-          git add CHANGELOG.md docs/canonical-api.md docs/api api-surface.json src tests/kernel/root-durable-steer.test.ts tests/kernel/supervise-escalation.test.ts
+          git add CHANGELOG.md docs/canonical-api.md docs/api api-surface.json src tests/kernel/root-durable-steer.test.ts tests/kernel/supervise-escalation.test.ts tests/kernel/harness-durable-controls.test.ts
           git diff --cached --check
           test -z "$(git diff --cached --name-only -- .github .audit)"
           git commit -m 'fix(supervise): deliver durable root corrections and parent questions'
