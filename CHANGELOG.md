@@ -2,6 +2,8 @@
 
 ## 0.244.0
 
+Authored profile measurement is independent of promotion. `measureAuthoredAgentProfileImprovement` returns the sealed experiment, all measurements and verified comparison, including non-promotable outcomes. `proposeAuthoredAgentProfileImprovement` preserves its passing-only contract by delegating to that same implementation. Execution and reporting references are captured before asynchronous measurements. No new optimizer, scoring policy, retry loop or automatic activation is introduced.
+
 **Migration:** `harness.train(...)` now requires its own `executionRef` for the trainer, serving adapter, and their dependencies. The evaluation identity bound to the harness is no longer substituted into the training receipt. The bound parent profile and validator are unchanged.
 
 Profile optimization and authored/optimized profile promotion refuse final-task content digests already present in either measured profile's declared training receipts, including ancestors and trainer-visible validation data. Baseline exposure is refused before optimizer construction or analyst work; selected-candidate exposure is refused before final measurement. Unrelated task namespaces are not conflated. This checks known exact content digests; it does not certify undeclared or semantically duplicated data as fresh.

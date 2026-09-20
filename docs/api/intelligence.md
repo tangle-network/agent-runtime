@@ -536,6 +536,34 @@ Optional identities used to prove authored/imported development work is held out
 
 ***
 
+### MeasureAuthoredAgentProfileImprovementResult
+
+#### Properties
+
+##### candidateProfile
+
+> **candidateProfile**: `AgentProfile`
+
+##### candidateLineage
+
+> **candidateLineage**: `AgentCandidateLineage`
+
+##### experiment
+
+> **experiment**: `AgentProfileImprovementExperiment`
+
+##### measurements
+
+> **measurements**: `AgentProfileImprovementMeasurement`[]
+
+##### evaluation
+
+> **evaluation**: `AgentProfileImprovementMeasuredComparison`
+
+Verified comparison, including non-promotable decisions. Never an activation.
+
+***
+
 ### CredentialRef
 
 A named secret a binding requires — declared, never carried.
@@ -3626,6 +3654,14 @@ Provenance attached while Runtime derives the exact profile diff.
 
 ***
 
+### MeasureAuthoredAgentProfileImprovementOptions
+
+> **MeasureAuthoredAgentProfileImprovementOptions** = `Omit`\<[`ProposeAuthoredAgentProfileImprovementOptions`](#proposeauthoredagentprofileimprovementoptions), `"findings"` \| `"now"`\>
+
+Measurement is useful even when no candidate should be promoted.
+
+***
+
 ### JsonSchema
 
 > **JsonSchema** = `Record`\<`string`, `unknown`\>
@@ -4146,8 +4182,8 @@ Validate and execute one product-owned activation transition.
 
 > **proposeAuthoredAgentProfileImprovement**(`options`): `Promise`\<[`ProposeAuthoredAgentProfileImprovementResult`](#proposeauthoredagentprofileimprovementresult)\>
 
-Put a complete authored/imported profile through the canonical profile
-experiment and proposal path without invoking `improve()`.
+Preserve the proposal convenience API, but measure through the same primitive
+used by research callers that need valid negative or inconclusive results.
 
 #### Parameters
 
@@ -4158,6 +4194,27 @@ experiment and proposal path without invoking `improve()`.
 #### Returns
 
 `Promise`\<[`ProposeAuthoredAgentProfileImprovementResult`](#proposeauthoredagentprofileimprovementresult)\>
+
+***
+
+### measureAuthoredAgentProfileImprovement()
+
+> **measureAuthoredAgentProfileImprovement**(`options`): `Promise`\<[`MeasureAuthoredAgentProfileImprovementResult`](#measureauthoredagentprofileimprovementresult)\>
+
+Run the native sealed paired measurement without requiring promotion.
+Infrastructure failures and invalid evidence still reject; an assessed
+non-improvement returns the complete comparison and its measurements.
+No optimizer, research topology or new evaluation policy is installed.
+
+#### Parameters
+
+##### options
+
+[`MeasureAuthoredAgentProfileImprovementOptions`](#measureauthoredagentprofileimprovementoptions)
+
+#### Returns
+
+`Promise`\<[`MeasureAuthoredAgentProfileImprovementResult`](#measureauthoredagentprofileimprovementresult)\>
 
 ***
 

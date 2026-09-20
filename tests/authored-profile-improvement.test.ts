@@ -8,9 +8,11 @@ import { describe, expect, it } from 'vitest'
 
 import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
 import {
+  measureAuthoredAgentProfileImprovement,
   type ProposeAuthoredAgentProfileImprovementOptions,
   proposeAuthoredAgentProfileImprovement,
 } from '../src/intelligence/authored-profile-improvement'
+import { createAgentImprovementProposal } from '../src/intelligence/improvement-cycle'
 import { optimizationActivationReceiptFromMetadata } from '../src/intelligence/optimization-receipt'
 import { improvementFinding as fixtureFinding } from './helpers/improvement-method-fixture'
 import {
@@ -338,5 +340,84 @@ describe('trained profile release admission', () => {
     const result = await proposeAuthoredAgentProfileImprovement(options)
     expect(result.proposal.evaluation.decision.outcome).toBe('ship')
     expect(observed).toHaveLength(minimumPairedRuns * 2)
+  })
+})
+
+describe('authored measurement is independent of promotion', () => {
+  it('returns a verified comparison that can be proposed without executing again', async () => {
+    const { options, observed } = setup()
+    const measured = await measureAuthoredAgentProfileImprovement(options)
+    expect(measured.evaluation.decision.outcome).toBe('ship')
+    expect(measured).not.toHaveProperty('proposal')
+    expect(measured.measurements).toHaveLength(minimumPairedRuns)
+    const calls = observed.length
+    const proposal = createAgentImprovementProposal({
+      runId: options.runId,
+      findings: options.findings ?? [],
+      evaluation: measured.evaluation,
+    })
+    expect(proposal.evaluation.experiment.digest).toBe(measured.experiment.digest)
+    expect(observed).toHaveLength(calls)
+  })
+
+  it.each([0.2, 0.8])(
+    'returns a complete non-promotable comparison for score %s',
+    async (candidateScore) => {
+      const { options } = setup()
+      options.executor.measure = async (input) =>
+        createProfileImprovementRunReceipt(input, input.arm === 'baseline' ? 0.8 : candidateScore)
+      const result = await measureAuthoredAgentProfileImprovement(options)
+      expect(result.evaluation.decision.outcome).not.toBe('ship')
+      expect(result.measurements).toHaveLength(minimumPairedRuns)
+      expect(result).not.toHaveProperty('proposal')
+      expect(() =>
+        createAgentImprovementProposal({
+          runId: options.runId,
+          findings: [],
+          evaluation: result.evaluation,
+        }),
+      ).toThrow(/passing experiment/)
+    },
+  )
+
+  it('still rejects an invalid host receipt rather than converting it into a negative research result', async () => {
+    const { options } = setup()
+    options.executor.measure = async (input) => ({
+      ...createProfileImprovementRunReceipt(input, 0.5),
+      digest: canonicalCandidateDigest({ forged: true }),
+    })
+    await expect(measureAuthoredAgentProfileImprovement(options)).rejects.toThrow(/digest/)
+  })
+
+  it('captures the executor and comparison identity before asynchronous measurements', async () => {
+    const { options, observed } = setup()
+    const original = options.executor.measure.bind(options.executor)
+    const originalRunId = options.runId
+    options.maxConcurrency = 1
+    options.executor.measure = async (input) => {
+      options.executor.measure = async () => {
+        throw new Error('replacement executed')
+      }
+      options.runId = 'changed-while-running'
+      return original(input)
+    }
+    const result = await measureAuthoredAgentProfileImprovement(options)
+    expect(result.evaluation.provenance.runId).toBe(originalRunId)
+    expect(observed).toHaveLength(minimumPairedRuns * 2)
+  })
+
+  it('does not invoke the host executor on pre-cancelled or held-out-overlap requests', async () => {
+    const cancelled = setup()
+    cancelled.options.signal = AbortSignal.abort(new Error('cancelled before spending'))
+    await expect(measureAuthoredAgentProfileImprovement(cancelled.options)).rejects.toThrow(
+      /cancelled before spending/,
+    )
+    expect(cancelled.observed).toHaveLength(0)
+    const leaked = setup()
+    leaked.options.developmentScenarios = [leaked.heldOutScenario]
+    await expect(measureAuthoredAgentProfileImprovement(leaked.options)).rejects.toThrow(
+      /reuses development/,
+    )
+    expect(leaked.observed).toHaveLength(0)
   })
 })

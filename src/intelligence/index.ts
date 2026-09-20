@@ -82,10 +82,15 @@ export type {
   AgentProfileCandidateMeasurementExecutor,
   AuthoredAgentProfileCandidateLineage,
   AuthoredAgentProfileDiffOptions,
+  MeasureAuthoredAgentProfileImprovementOptions,
+  MeasureAuthoredAgentProfileImprovementResult,
   ProposeAuthoredAgentProfileImprovementOptions,
   ProposeAuthoredAgentProfileImprovementResult,
 } from './authored-profile-improvement'
-export { proposeAuthoredAgentProfileImprovement } from './authored-profile-improvement'
+export {
+  measureAuthoredAgentProfileImprovement,
+  proposeAuthoredAgentProfileImprovement,
+} from './authored-profile-improvement'
 export type {
   CapabilityAuth,
   CapabilityInterface,

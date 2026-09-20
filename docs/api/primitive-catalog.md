@@ -294,7 +294,7 @@ Import from `@tangle-network/agent-runtime/tool-loop` — 12 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 170 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -321,13 +321,14 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 | `isAgentProfileMeasuredSurface` | function | Return whether a surface is eligible for shared profile measurement. |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
+| `measureAuthoredAgentProfileImprovement` | function | Run the native sealed paired measurement without requiring promotion. |
 | `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
 | `optimizationActivationReceiptFromMetadata` | function | Read and verify the optimizer evidence carried by a measured proposal. |
 | `parseCandidateProfileMaterialization` | function | Parse and check every native file hash plus both canonical document digests. |
 | `prepareAgentImprovementProfileActivation` | function | Compare product-owned profiles with an exact measured transition and prepare |
 | `proposeAgentImprovement` | function | Analyze, search, then remeasure the resulting exact candidate before proposing it. |
 | `proposeAgentProfileImprovement` | function | Analyze a product-owned profile, search one profile surface, then run the |
-| `proposeAuthoredAgentProfileImprovement` | function | Put a complete authored/imported profile through the canonical profile |
+| `proposeAuthoredAgentProfileImprovement` | function | Preserve the proposal convenience API, but measure through the same primitive |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
 | `resolveIntelligenceBaseUrl` | function | Resolve the ONE Intelligence base URL — the single knob both the send and |
@@ -418,11 +419,12 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 | `IntelligenceAgent` | type | An agent wrapped by {@link withIntelligence}: receives the input plus the |
 | `IntelligenceWrapped` | type | The wrapped agent — same `(input) => Promise<output>` shape, plus a manual |
 | `JsonSchema` | type | A structural JSON Schema object describing a tool's parameters. |
+| `MeasureAuthoredAgentProfileImprovementOptions` | type | Measurement is useful even when no candidate should be promoted. |
 | `PullOutcome` | type | Typed outcome for the pull — inspect `succeeded` before `value`. A 404 |
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
 | `SubmitAgentImprovementProposalOutcome` | type | Typed result for proposal submission. A successful result contains the |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementProfileReplacement`, `AgentImprovementProfileStateDigestInput`, `AgentImprovementProfileStateResolverInput`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `AgentProfileImprovementActivationTargetPlan`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `OptimizationActivationReceipt`, `OptimizationReceiptCost`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `ProposeAgentProfileImprovementResult`, `ProposeAuthoredAgentProfileImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SealedCandidateActivationTransitionInput`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementActivationTransitionInput`, `AgentImprovementAnalysisOptions`, `AgentImprovementProfileActivationInput`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`, `AgentProfileImprovementActivationOperation`, `AgentProfileMeasuredSurface`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementProfileReplacement`, `AgentImprovementProfileStateDigestInput`, `AgentImprovementProfileStateResolverInput`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `AgentProfileImprovementActivationTargetPlan`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `MeasureAuthoredAgentProfileImprovementResult`, `OptimizationActivationReceipt`, `OptimizationReceiptCost`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `ProposeAgentProfileImprovementResult`, `ProposeAuthoredAgentProfileImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SealedCandidateActivationTransitionInput`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementActivationTransitionInput`, `AgentImprovementAnalysisOptions`, `AgentImprovementProfileActivationInput`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`, `AgentProfileImprovementActivationOperation`, `AgentProfileMeasuredSurface`.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
