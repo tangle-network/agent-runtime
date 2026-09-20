@@ -15,16 +15,31 @@ describe('executorFailureInfra: the envelope path stops stamping `infra: false`'
       undefined,
     ],
     ['opencode execution failed: Bad Gateway: bad gateway (exit code 1)', undefined],
-    ['opencode execution failed: Cannot connect to API: Unable to connect. Is the computer able to access the url?', undefined],
+    [
+      'opencode execution failed: Cannot connect to API: Unable to connect. Is the computer able to access the url?',
+      undefined,
+    ],
     ['Failed to connect to Sandbox API: fetch failed', undefined],
     ['A sandbox lifecycle operation is already in progress', undefined],
     ['Tangle Sandbox event data exceeded its string bound', undefined],
     ['value exceeds its JSON bound', undefined],
-    ['opencode execution failed: No provider served model "kimi-k2" (provider_quota_exceeded)', undefined],
+    [
+      'opencode execution failed: No provider served model "kimi-k2" (provider_quota_exceeded)',
+      undefined,
+    ],
     ['opencode execution failed: Invalid API key (exit code 1)', undefined],
-    ['seat zai-3 is at its box cap (4 live). Raise maxBoxes in config/seats.json, or add a seat', undefined],
-    ['seat zai-2: could not materialize the seat credential in box sandbox-abc (exit 1)', undefined],
-    ['opencode execution failed: OpenCode exited while a model step was still in progress', undefined],
+    [
+      'seat zai-3 is at its box cap (4 live). Raise maxBoxes in config/seats.json, or add a seat',
+      undefined,
+    ],
+    [
+      'seat zai-2: could not materialize the seat credential in box sandbox-abc (exit 1)',
+      undefined,
+    ],
+    [
+      'opencode execution failed: OpenCode exited while a model step was still in progress',
+      undefined,
+    ],
     // The platform's machine codes, whatever the prose says.
     ['the Sandbox interactive status failed', 'QUOTA_EXCEEDED'],
     ['Agent execution failed', 'buffer.overflow'],

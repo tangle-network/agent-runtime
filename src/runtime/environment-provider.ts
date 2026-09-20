@@ -2342,11 +2342,18 @@ function providerFailureEvent(
 const TERMINAL_SUCCESS_STATUSES = new Set(['completed', 'done', 'ok', 'success'])
 
 /**
- * Whether a terminal frame says, explicitly, that the run succeeded: `success: true`, or a
- * success status on the frame, its outcome, or its nested result. An empty `done` says nothing
- * and supersedes nothing — the stream that ends `status: failed` then `done: {}` stays failed.
+ * Whether a frame says, explicitly, that the run succeeded: a raw or normalized
+ * `status: completed` (the same form `isTerminalEnvironmentEvent` reads as terminal), or a
+ * terminal `done`/`result` with `success: true` or a success status on the frame, its outcome,
+ * or its nested result. An empty `done` says nothing and supersedes nothing — the stream that
+ * ends `status: failed` then `done: {}` stays failed.
  */
-function providerTerminalSuccess(sandboxEvent: SandboxEvent): boolean {
+function providerTerminalSuccess(
+  event: AgentEnvironmentEvent,
+  sandboxEvent: SandboxEvent,
+): boolean {
+  if (event.type === 'status' && event.data.status === 'completed') return true
+  if (event.normalized?.type === 'status' && event.normalized.status === 'completed') return true
   if (sandboxEvent.type !== 'done' && sandboxEvent.type !== 'result') return false
   const data = sandboxEvent.data
   if (data.success === true) return true
@@ -2370,34 +2377,35 @@ function providerTerminalSuccess(sandboxEvent: SandboxEvent): boolean {
  * discarded. On the 2026-09-20 fleet corpus, 25 children that finished their work settled that
  * way.
  *
- * The rule: an `error` frame is superseded by a terminal frame that explicitly reports success.
- * A failed status or a failed terminal frame is the provider's own verdict on the run and is
- * never superseded, so the existing contract — `status: failed` then `done: {}` is failed —
- * holds unchanged. The superseded frames stay in the event archive the trace reads; only the
- * outcome stops claiming them.
+ * The rule: `error` frames are forgiven when the stream reports success and carries no verdict;
+ * a failed status or a failed terminal frame is the provider's own verdict on the run, and once
+ * one exists every failure frame is evidence again, in order, so the tracker names the first
+ * `error` as it always did. The existing contracts hold unchanged: `status: failed` then
+ * `done: {}` is failed, and the retained Claude tail `completed → failed → error → done` is
+ * failed with the error frame's message. The forgiven frames stay in the event archive the trace
+ * reads; only the outcome stops claiming them.
  */
 function createProviderFailureLedger(): {
   observe(event: AgentEnvironmentEvent, sandboxEvent: SandboxEvent): void
   finish(): AgentRunOutcome | undefined
 } {
-  const transient: SandboxEvent[] = []
-  const verdicts: SandboxEvent[] = []
-  let recovered = false
+  const failures: SandboxEvent[] = []
+  let verdicts = 0
+  let succeeded = false
   return {
     observe(event, sandboxEvent) {
       const failureEvent = providerFailureEvent(event, sandboxEvent)
       if (failureEvent) {
-        if (failureEvent.type === 'error') transient.push(failureEvent)
-        else verdicts.push(failureEvent)
+        failures.push(failureEvent)
+        if (failureEvent.type !== 'error') verdicts += 1
         return
       }
-      if (providerTerminalSuccess(sandboxEvent)) recovered = true
+      if (providerTerminalSuccess(event, sandboxEvent)) succeeded = true
     },
     finish() {
-      const held = recovered ? verdicts : [...transient, ...verdicts]
-      if (held.length === 0) return undefined
+      if (failures.length === 0 || (verdicts === 0 && succeeded)) return undefined
       const tracker = createAgentRunOutcomeTracker()
-      for (const frame of held) tracker.observe(frame)
+      for (const frame of failures) tracker.observe(frame)
       return tracker.finish()
     },
   }

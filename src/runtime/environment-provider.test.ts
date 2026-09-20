@@ -3237,6 +3237,26 @@ describe('environment provider adapters', () => {
         { type: 'done', data: {} },
       ],
     },
+    {
+      // The form `isTerminalEnvironmentEvent` reads as terminal: a status frame, raw or
+      // normalized, with no `done` carrying `success` at all.
+      label: 'an error frame before a normalized completed status',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer' } },
+        {
+          type: 'vendor.finished',
+          data: { finalText: 'banked answer' },
+          normalized: { type: 'status', status: 'completed' },
+        },
+      ],
+    },
+    {
+      label: 'an error frame before a raw completed status',
+      events: [
+        { type: 'error', data: { error: 'stream reset by peer' } },
+        { type: 'status', data: { status: 'completed', finalText: 'banked answer' } },
+      ],
+    },
   ] satisfies Array<{ label: string; events: AgentEnvironmentEvent[] }>)(
     'completes the turn when $label reports success',
     async ({ events }) => {
@@ -3296,7 +3316,11 @@ describe('environment provider adapters', () => {
         {
           type: 'status',
           data: { status: 'failed', detail: 'Execution exceeded its time limit' },
-          normalized: { type: 'status', status: 'failed', detail: 'Execution exceeded its time limit' },
+          normalized: {
+            type: 'status',
+            status: 'failed',
+            detail: 'Execution exceeded its time limit',
+          },
         },
         { type: 'done', data: { success: true } },
       ],
