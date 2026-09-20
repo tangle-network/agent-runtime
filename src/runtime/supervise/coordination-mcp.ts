@@ -33,7 +33,7 @@ import {
   type ContinuityMode,
   type CoordinationEvent,
   type CoordinationTools,
-  createCoordinationTools,
+  createCoordinationToolsForManager,
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   type DefinedAnalystRecord,
   type EscalateQuestion,
@@ -295,6 +295,14 @@ export async function serveCoordinationMcp(
     onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
   },
 ): Promise<CoordinationMcpHandle> {
+  return (await serveCoordinationMcpForManager(opts)).handle
+}
+
+/** Runtime-only binding: operator controls stay off the public MCP handle and tool grants. */
+export async function serveCoordinationMcpForManager(
+  opts: Parameters<typeof serveCoordinationMcp>[0],
+  lifetime?: AbortSignal,
+): Promise<{ handle: CoordinationMcpHandle; controls: CoordinationTools }> {
   const host = opts.host ?? '127.0.0.1'
   assertCoordinationTransport(opts)
   const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
@@ -418,44 +426,47 @@ export async function serveCoordinationMcp(
     (opts.spawnResourceRoot === undefined
       ? scopeRetainedOwnerResourceReader(opts.scope)
       : undefined)
-  const coord = createCoordinationTools({
-    scope: opts.scope,
-    blobs: opts.blobs,
-    makeWorkerAgent: opts.makeWorkerAgent,
-    ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
-    perWorker: opts.perWorker,
-    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-    ...(opts.onStop ? { onStop: opts.onStop } : {}),
-    ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-    awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
-    ...(opts.analysts ? { analysts: opts.analysts } : {}),
-    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-    ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
-    ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-    ...(opts.replaySettlements ? { replaySettlements: true } : {}),
-    ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
-    ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
-    ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
-    ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
-    ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),
-    ...(opts.priorAnalystDefinitions?.length
-      ? { priorAnalystDefinitions: opts.priorAnalystDefinitions }
-      : {}),
-    ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
-    ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
-    ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
-    ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
-    ...(opts.peerMail
-      ? {
-          peerMail:
-            typeof opts.peerMail === 'object' && opts.peerMail.limits
-              ? { limits: opts.peerMail.limits }
-              : {},
-        }
-      : {}),
-  })
+  const coord = createCoordinationToolsForManager(
+    {
+      scope: opts.scope,
+      blobs: opts.blobs,
+      makeWorkerAgent: opts.makeWorkerAgent,
+      ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
+      perWorker: opts.perWorker,
+      ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+      ...(opts.onStop ? { onStop: opts.onStop } : {}),
+      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+      awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
+      ...(opts.analysts ? { analysts: opts.analysts } : {}),
+      ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+      ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+      ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+      ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
+      ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
+      ...(opts.replaySettlements ? { replaySettlements: true } : {}),
+      ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
+      ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
+      ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
+      ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
+      ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),
+      ...(opts.priorAnalystDefinitions?.length
+        ? { priorAnalystDefinitions: opts.priorAnalystDefinitions }
+        : {}),
+      ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
+      ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
+      ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
+      ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
+      ...(opts.peerMail
+        ? {
+            peerMail:
+              typeof opts.peerMail === 'object' && opts.peerMail.limits
+                ? { limits: opts.peerMail.limits }
+                : {},
+          }
+        : {}),
+    },
+    lifetime,
+  )
   await coord.ready()
   const reservedNames = new Set<string>(coord.tools.map((tool) => tool.name))
   for (const tool of opts.nodeTools ?? []) {
@@ -614,7 +625,7 @@ export async function serveCoordinationMcp(
   const mailbox = coord.peerMail
   const mailListener = mailbox === undefined ? undefined : await servePeerMail(mailbox, host)
 
-  return {
+  const handle: CoordinationMcpHandle = {
     url,
     port,
     get headers() {
@@ -642,6 +653,7 @@ export async function serveCoordinationMcp(
       await mailListener?.close()
     },
   }
+  return { handle, controls: coord }
 }
 
 /**

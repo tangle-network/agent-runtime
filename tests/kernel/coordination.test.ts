@@ -6,6 +6,7 @@ import {
   type CoordinationEvent,
   canonicalFindingEvent,
   createCoordinationTools,
+  createCoordinationToolsForManager,
   deriveSpawnProfileArg,
   spawnProfileFieldNames,
 } from '../../src/mcp/tools/coordination'
@@ -16,6 +17,7 @@ import {
   WORKER_TOOL_TRACE_SCHEMA_VERSION,
   watchTrace,
 } from '../../src/runtime'
+import { runAbortable } from '../../src/runtime/supervise/abortable'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -138,6 +140,56 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
 }
 
 describe('coordination tools', () => {
+  it.each([2, 3, 4, 5, 6, 7])(
+    'does not deliver after manager close wins %i microtasks after persistence resolves',
+    async (ticks) => {
+      const { scope, sent } = mockScope()
+      const lifetime = new AbortController()
+      let release!: () => void
+      let reached!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const attempt = new Promise<void>((resolve) => {
+        reached = resolve
+      })
+      const onEvent = async (event: CoordinationEvent) => {
+        if (event.type === 'delivery-attempt') {
+          reached()
+          await held
+        }
+      }
+      const coord = createCoordinationToolsForManager(
+        {
+          scope,
+          blobs,
+          makeWorkerAgent,
+          perWorker: { maxIterations: 1, maxTokens: 10 },
+          onEvent: async (event) => {
+            await runAbortable(
+              async () => {
+                await onEvent(event)
+              },
+              lifetime.signal,
+              'manager stopped',
+            )
+          },
+        },
+        lifetime.signal,
+      )
+      const result = coord.steerWorker('w0', 'new requirement').catch(() => undefined)
+      await attempt
+      release()
+      for (let tick = 0; tick < ticks; tick++) await Promise.resolve()
+      expect(sent).toEqual([])
+      lifetime.abort()
+      await result
+      // Closing the manager must not abort or replace the worker's original scope.
+      expect(scope.signal.aborted).toBe(false)
+      expect(sent).toEqual([])
+    },
+  )
+
   it('a preflight refusal is a tool result that spawns nothing and is counted in stats', async () => {
     const { scope, spawns } = mockScope()
     const seen: Array<{ name: string | undefined; label: string }> = []
