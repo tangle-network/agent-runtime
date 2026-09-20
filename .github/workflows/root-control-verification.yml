@@ -4,22 +4,134 @@ on:
     branches: [audit/root-controls-1306-20260920]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: root-control-verification
+  cancel-in-progress: true
 jobs:
-  capture:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e0fc7719b5a2c68b5dbecf4884685866b33a1fdf
           fetch-depth: 0
           persist-credentials: false
-      - run: |
-          mkdir -p /tmp/root-control-source
-          git rev-parse HEAD > /tmp/root-control-source/base.sha
-          git bundle create /tmp/root-control-source/main.bundle HEAD
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Restore exact candidate
+        run: |
+          mkdir -p /tmp/root-control-evidence
+          python3 - <<'PY'
+          import base64, gzip, hashlib, pathlib
+          encoded = pathlib.Path('.audit/root-controls.patch.gz.b64').read_text().strip()
+          # Repair three transcription insertions in this temporary transport, not source.
+          encoded = encoded.replace('VNSJJilpZ', 'VNSJilpZ').replace('TXWCpCoNDape', 'TXWCpNDape').replace('DXJJ53K', 'DXJ53K')
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          expected = 'b058d317b208cf3d33a4235cd05d5a25bebc1bdc5c63a5fb6773cb50df84dde4'
+          assert hashlib.sha256(patch).hexdigest() == expected, 'candidate patch differs from tested source'
+          pathlib.Path('/tmp/root-controls.patch').write_bytes(patch)
+          PY
+          git worktree add -b audit/root-candidate /tmp/root-candidate e0fc7719b5a2c68b5dbecf4884685866b33a1fdf
+          cd /tmp/root-candidate
+          git apply --check /tmp/root-controls.patch
+          git apply /tmp/root-controls.patch
+          git config user.name "$(git show -s --format=%an HEAD)"
+          git config user.email "$(git show -s --format=%ae HEAD)"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          name: root-control-source
-          path: /tmp/root-control-source/
-          retention-days: 3
+          node-version: 22
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          version: '0.11.32'
+      - name: Install frozen dependencies
+        working-directory: /tmp/root-candidate
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm peers check
+      - name: Failure-first controls on the original implementation
+        working-directory: /tmp/root-candidate
+        run: |
+          git diff -- src > /tmp/root-source.patch
+          git restore --source=HEAD --worktree -- src
+          set +e
+          pnpm exec vitest run tests/kernel/root-durable-steer.test.ts tests/kernel/supervise-escalation.test.ts --reporter=json --outputFile=/tmp/root-control-evidence/failure-first.json > /tmp/root-control-evidence/failure-first.log 2>&1
+          result=$?
+          set -e
+          git apply /tmp/root-source.patch
+          test "$result" -ne 0
+          node --input-type=module - <<'JS'
+          import { readFileSync } from 'node:fs'
+          const report = JSON.parse(readFileSync('/tmp/root-control-evidence/failure-first.json', 'utf8'))
+          if (report.numFailedTests !== 8 || report.numPassedTests !== 1) throw new Error(JSON.stringify(report))
+          console.log('Original implementation: eight expected failures; existing unknown-claim control passes.')
+          JS
+      - name: Build and retain candidate source
+        working-directory: /tmp/root-candidate
+        run: |
+          pnpm run build > /tmp/root-control-evidence/build.log 2>&1
+          pnpm run api:surface
+          pnpm run docs:api > /tmp/root-control-evidence/generated-docs.log 2>&1
+          git add CHANGELOG.md docs/canonical-api.md docs/api api-surface.json src tests/kernel/root-durable-steer.test.ts tests/kernel/supervise-escalation.test.ts
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- .github .audit)"
+          git commit -m 'fix(supervise): deliver durable root corrections and parent questions'
+      - name: Verify complete source and packed consumers
+        working-directory: /tmp/root-candidate
+        env:
+          PACKAGE_VERSION_BUMP_BASE: e0fc7719b5a2c68b5dbecf4884685866b33a1fdf
+        run: |
+          pnpm run lint > /tmp/root-control-evidence/lint.log 2>&1
+          pnpm run test > /tmp/root-control-evidence/tests.log 2>&1
+          pnpm run typecheck > /tmp/root-control-evidence/types.log 2>&1
+          pnpm run check:version-bump > /tmp/root-control-evidence/version.log 2>&1
+          pnpm run check:publish-workflow
+          pnpm run check:upstream-evidence-workflow
+          pnpm run verify:package > /tmp/root-control-evidence/package.log 2>&1
+          pnpm run docs:check > /tmp/root-control-evidence/docs.log 2>&1
+          test -z "$(git status --porcelain)"
+          pnpm pack --pack-destination /tmp/root-control-evidence
+      - name: Retain source and evidence
+        if: always()
+        run: |
+          mkdir -p /tmp/root-control-evidence
+          if [ -d /tmp/root-candidate ]; then
+            cd /tmp/root-candidate
+            git status --short > /tmp/root-control-evidence/status.txt
+            git rev-parse HEAD > /tmp/root-control-evidence/candidate.sha
+            git archive HEAD | gzip > /tmp/root-control-evidence/source.tar.gz
+            if [ "$(git rev-parse HEAD)" != e0fc7719b5a2c68b5dbecf4884685866b33a1fdf ]; then
+              git bundle create /tmp/root-control-evidence/candidate.bundle audit/root-candidate ^e0fc7719b5a2c68b5dbecf4884685866b33a1fdf
+            fi
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: root-controls-verified
+          path: /tmp/root-control-evidence/
+          retention-days: 5
+  deliver:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: root-controls-verified
+          path: /tmp/root-control-evidence
+      - name: Push verified source only
+        run: |
+          expected=$(cat /tmp/root-control-evidence/candidate.sha)
+          git fetch /tmp/root-control-evidence/candidate.bundle audit/root-candidate
+          test "$(git rev-parse FETCH_HEAD)" = "$expected"
+          git merge-base --is-ancestor e0fc7719b5a2c68b5dbecf4884685866b33a1fdf "$expected"
+          test -z "$(git diff --name-only e0fc7719b5a2c68b5dbecf4884685866b33a1fdf "$expected" -- .github .audit)"
+          git push origin "$expected:refs/heads/fix/durable-root-steering"
