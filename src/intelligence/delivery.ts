@@ -447,8 +447,8 @@ export interface CertifiedPromptSource {
   compose(base: string): Promise<string>
   /** The certified profile currently in effect (`null` = none pulled yet). */
   current(): CertifiedProfile | null
-  /** Pull now if the refresh window has elapsed; coalesced and fail-closed. */
-  refresh(): Promise<void>
+  /** Pull after the refresh window, or force a pull now. Both join an in-flight pull. */
+  refresh(options?: { force?: boolean }): Promise<void>
 }
 
 /** Options for {@link createCertifiedPromptSource} — the pull coordinates plus
@@ -467,16 +467,19 @@ export interface CertifiedPromptSourceOptions extends PullCertifiedOptions {
 export function createCertifiedPromptSource(
   opts: CertifiedPromptSourceOptions,
 ): CertifiedPromptSource {
-  const refreshMs = opts.refreshMs ?? defaultRefreshMs
+  // Bind explicit coordinates and transport; later caller mutation must not redirect this cache.
+  const pullOptions = { ...opts }
+  const refreshMs = pullOptions.refreshMs ?? defaultRefreshMs
   let certified: CertifiedProfile | null = null
-  let lastPullAt = 0
+  let lastPullAt: number | undefined
   let inflight: Promise<void> | null = null
 
-  async function refresh(): Promise<void> {
-    if (Date.now() - lastPullAt < refreshMs) return
+  async function refresh(options?: { force?: boolean }): Promise<void> {
+    // A normal composition also joins a forced refresh instead of returning stale warm guidance.
     if (inflight) return inflight
+    if (!options?.force && lastPullAt !== undefined && Date.now() - lastPullAt < refreshMs) return
     inflight = (async () => {
-      const outcome = await pullCertified(opts)
+      const outcome = await pullCertified(pullOptions)
       lastPullAt = Date.now()
       // Only replace the cache on a real pull; a 404/error keeps the last-known
       // certified profile (or null) — fail-closed, never wipe a good surface.

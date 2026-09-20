@@ -2,6 +2,8 @@
 
 ## 0.246.0
 
+The shared certified-prompt source accepts `refresh({ force: true })` without duplicating its cache in product adapters. Concurrent compositions join a forced pull; failed pulls retain the existing last-known behavior. The first pull works with an epoch-zero clock, and explicit pull coordinates/transport are captured at construction. Construct a new source to change those options. Prompt delivery does not materialize tools or authorize profile activation.
+
 Admit Sandbox SDK releases through 0.45 while retaining the existing 0.36.4 floor.
 The registry compatibility matrix checks 0.36.4 and 0.43.0.
 The packed-consumer check also accepts a Sandbox archive for verifying workspace SDK releases before publication.

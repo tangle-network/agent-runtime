@@ -74,6 +74,10 @@ The base URL reads `TANGLE_INTELLIGENCE_URL`, defaulting to the deployed plane a
 
 - `pullCertified(opts)` — one pull, returning a typed `PullOutcome` (inspect `succeeded` before `value`); it never throws. It deserializes the full composed response — including the typed `agentProfileDiffs` earlier receive paths dropped. A 404 is the normal "nothing promoted yet" signal, carried as `status: 404`; a hung plane is cut by the 10-second default timeout and surfaces as an ordinary failed pull.
 - `createCertifiedPromptSource(opts)` — the cached, self-refreshing source: pulls at most every 5 minutes (`refreshMs`), coalesces concurrent pulls, and keeps the last-known profile on a failed or 404 pull — a good surface is never wiped by a bad refresh.
+  Use `source.refresh({ force: true })` after a known revision change to bypass the refresh window.
+  Concurrent refreshes and compositions join the same pull; a failed pull keeps last-known guidance.
+  Explicit target, credentials and transport options are captured at construction; create a new source to change them.
+  This source delivers prompt guidance only. It does not materialize tools/files or authorize profile activation.
 - `composeCertifiedPrompt(base, certified)` — folds the certified prompt surface plus the prompt-folding artifact buckets (`promptFoldTypes`: prompt-surface, skill, instructions) into the base prompt under a marked section. The fold is byte-stable — prompt surface first, then bucket order, then path order — so the same profile renders identically on every call; it returns `base` unchanged when nothing usable is promoted.
 - `withIntelligence(agent, config)` — the ONE hook that rides both lanes at once:
 
