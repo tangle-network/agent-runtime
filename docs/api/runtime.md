@@ -20573,8 +20573,8 @@ OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` pos
 
 > `readonly` `optional` **controlDir?**: `string`
 
-Durable cancellation directory. Both arms observe run requests; only the router arm
- acknowledges worker-scoped requests. See `DriverAgentOptions.controlDir`.
+Durable control directory. Both arms acknowledge worker requests; external managers observe
+ them throughout the harness invocation. See `DriverAgentOptions.controlDir`.
 
 ##### controlScope?
 

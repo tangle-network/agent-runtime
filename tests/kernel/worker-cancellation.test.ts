@@ -680,9 +680,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     expect(leadDupAbortsAtCancel).toBe(0)
   })
 
-  it('a cancel_requested on the final pass reads unknown with the run-over detail', async () => {
-    // The abort goes out on the post-drain pass, so its settle can never be observed before act
-    // returns. Run end closes the record as `unknown` — not in progress, never a success.
+  it('expires an unseen cancellation at the final pass without issuing a late abort', async () => {
     const dir = runDir()
     const blobs = new InMemoryResultBlobStore()
     const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
@@ -690,7 +688,15 @@ describe('acknowledged worker cancellation (#758)', () => {
     const workerLive = new Promise<void>((resolveGate) => {
       markStarted = resolveGate
     })
-    const makeAgent = (_p: AgentProfile) => hangingLeaf('a', { onStart: () => markStarted?.() })
+    let aborts = 0
+    let abortsAtFinalize = -1
+    const makeAgent = (_p: AgentProfile) =>
+      hangingLeaf('a', {
+        onStart: () => markStarted?.(),
+        onAbort: () => {
+          aborts += 1
+        },
+      })
 
     const script = scriptedBrain([{ toolCalls: spawnCall('a') }, { content: 'stopping' }])
     let call = 0
@@ -698,14 +704,21 @@ describe('acknowledged worker cancellation (#758)', () => {
       const index = call
       call += 1
       if (index === 1) {
-        // Written during the FINAL brain turn: no later turn boundary exists, so the post-drain
-        // pass is the one that applies it.
+        // No subsequent turn can apply this request. Final reconciliation must not issue it.
         await workerLive
         cancelWorker(dir, 'a', 'op-late', { source: 'test' })
       }
       return script(messages, tools, context)
     }
-    const root = driverAgent(driverOpts('root', chat, makeAgent, blobs, { controlDir: dir }))
+    const root = driverAgent(
+      driverOpts('root', chat, makeAgent, blobs, {
+        controlDir: dir,
+        finalizer: () => {
+          abortsAtFinalize = aborts
+          return undefined
+        },
+      }),
+    )
     await createSupervisor<unknown, unknown>().run(root, 'x', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'run-late',
@@ -716,9 +729,10 @@ describe('acknowledged worker cancellation (#758)', () => {
     })
 
     const record = readWorkerCancellation(dir, 'op-late')
-    expect(record?.effect).toBe('unknown')
-    expect(record?.detail).toContain('run ended before termination was observed')
+    expect(record?.effect).toBe('not_live')
+    expect(record?.detail).toContain('run ended before the request was applied')
     expect(record?.terminated).toEqual([])
+    expect(abortsAtFinalize).toBe(0)
   })
 
   it('a descendant dying of its own cause between the request and the abort is not named', async () => {

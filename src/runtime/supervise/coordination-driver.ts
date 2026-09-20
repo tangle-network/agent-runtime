@@ -437,10 +437,12 @@ interface SteerAcknowledgerDeps {
   }
   readonly now: () => number
   readonly ownerId: string
+  /** Stops admission between requests when an external manager's lifetime ends. */
+  readonly signal?: AbortSignal
 }
 
 /**
- * Apply externally admitted steers once from the owning manager's turn loop.
+ * Apply externally admitted steers once through the owning manager's control path.
  *
  * The `unknown` acknowledgement lands before authorization or delivery. A crash after that write
  * can lose this steer, but a restarted manager never delivers it again. This is the same
@@ -467,6 +469,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   return {
     async pass(phase): Promise<void> {
       for (const request of readWorkerSteerRequests(deps.dir)) {
+        if (phase === 'turn' && deps.signal?.aborted) return
         if (!directChildId(request.worker)) continue
         if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
         if (phase === 'final') {
@@ -546,8 +549,8 @@ export function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
 
 /**
  * The worker-cancel ACKNOWLEDGER — the runtime-side half of `run-layout`'s `cancelWorker`
- * contract, run from the coordination driver's turn loop (one cancellation-inbox read per turn,
- * no new process, no poller, no extra lifetime). Every manager with a `controlDir` mounts one;
+ * contract. Router managers check between turns; native managers observe throughout their invocation.
+ * Every manager with a `controlDir` mounts one;
  * OWNERSHIP keeps them from colliding: a request naming a node id is owned by the manager whose
  * own id is that node's parent, and a label/profile-name reference is owned by the `'run'`-scoped
  * (root) manager only — so exactly one acknowledger can ever apply one operation.
@@ -569,7 +572,7 @@ export function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
  * acknowledgement is returned as-is and never re-applied.
  */
 export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
-  /** `'turn'` = a driver turn boundary (the only phase that APPLIES a request); `'final'` = the
+  /** `'turn'` = a live manager control pass (the only phase that APPLIES a request); `'final'` = the
    *  post-drain pass, which only reconciles records the run already wrote. */
   pass(phase: 'turn' | 'final'): void
   finish(): void
@@ -731,7 +734,7 @@ export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
         if (record !== undefined) tracked.set(request.operationId, record)
       }
       if (record === undefined) {
-        apply(request)
+        if (phase === 'turn') apply(request)
         continue
       }
       if (record.effect === 'cancel_requested') reconcile(record)

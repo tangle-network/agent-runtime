@@ -38,13 +38,14 @@ import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { agentHarness } from '../harness-role'
 import { type RouterTransportConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
+import { linkAbort, runAbortable } from './abortable'
 import type { DeliverableSpec } from './completion-gate'
 import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import {
   assertCoordinationTransport,
   type CoordinationTransportOptions,
-  serveCoordinationMcp,
+  serveCoordinationMcpForManager,
 } from './coordination-mcp'
 import {
   type DriverAttemptRecord,
@@ -78,6 +79,7 @@ import {
 } from './stop-rules'
 import type { TraceSource } from './trace-source'
 import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
+import { observeWorkerControls } from './worker-control-observer'
 
 /** Runtime-owned coordination is mounted under this MCP alias. */
 export const coordinationMcpAlias = 'agent-runtime-coordination'
@@ -587,8 +589,8 @@ export interface SupervisorAgentDeps {
    *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
    *  listener, so there is no post office a worker could reach. */
   readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
-  /** Durable cancellation directory. Both arms observe run requests; only the router arm
-   *  acknowledges worker-scoped requests. See `DriverAgentOptions.controlDir`. */
+  /** Durable control directory. Both arms acknowledge worker requests; external managers observe
+   *  them throughout the harness invocation. See `DriverAgentOptions.controlDir`. */
   readonly controlDir?: string
   /** Which cancel requests this manager's acknowledger owns: `'run'` (default; the tree root —
    *  its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
@@ -891,6 +893,7 @@ function buildSupervisorAgent(
           : undefined
       const nodeObserver = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
       const stopController = new AbortController()
+      const coordinationLifetime = linkAbort(scope.signal)
       // PROGRESS-derived stop on this arm. The harness owns its own turn loop, so a worker settle
       // is the evaluation boundary the supervisor has — and it is the same ledger + the same
       // `progressStop` evaluator the router arm consults before each of its inference turns.
@@ -927,49 +930,67 @@ function buildSupervisorAgent(
               if (!stopController.signal.aborted) stopController.abort(decision.reason)
             }
           : nodeObserver
-      const mcp = await serveCoordinationMcp({
-        scope,
-        blobs: deps.blobs,
-        makeWorkerAgent: deps.makeWorkerAgent,
-        ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
-        perWorker: deps.perWorker,
-        ...(coordination ?? {}),
-        ...(context ? { identity: { runId: context.runNamespace, actorId: context.ownerId } } : {}),
-        // Forward the policy so direct server construction and manager preflight enforce the same
-        // authentication and request limits.
-        ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
-        onStop: (reason) => {
-          if (!stopController.signal.aborted) {
-            stopController.abort(reason ?? 'coordination stop')
-          }
+      const { handle: mcp, controls } = await serveCoordinationMcpForManager(
+        {
+          scope,
+          blobs: deps.blobs,
+          makeWorkerAgent: deps.makeWorkerAgent,
+          ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
+          perWorker: deps.perWorker,
+          ...(coordination ?? {}),
+          ...(context
+            ? { identity: { runId: context.runNamespace, actorId: context.ownerId } }
+            : {}),
+          // Forward the policy so direct server construction and manager preflight enforce the same
+          // authentication and request limits.
+          ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+          onStop: (reason) => {
+            if (!stopController.signal.aborted) {
+              stopController.abort(reason ?? 'coordination stop')
+            }
+          },
+          ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
+          ...(deps.analysts ? { analysts: deps.analysts } : {}),
+          ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+          ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
+          ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
+          ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
+          ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
+          // Fence the awaited event transaction itself. Racing only the control poll would leave
+          // its late continuation able to deliver an instruction after the manager stopped.
+          onEvent: async (event, record) => {
+            await runAbortable(
+              async () => {
+                await onEvent?.(event, record)
+              },
+              coordinationLifetime.signal,
+              'supervisor coordination stopped',
+            )
+          },
+          ...(deps.replaySettlements ? { replaySettlements: true } : {}),
+          ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
+          ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
+          ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
+          ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
+          ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
+          ...(priorCoordination?.questions.length
+            ? { priorQuestions: priorCoordination.questions }
+            : {}),
+          ...(priorCoordination?.escalations?.length
+            ? { priorEscalations: priorCoordination.escalations }
+            : {}),
+          ...(priorCoordination?.records.length ? { priorJournal: priorCoordination.records } : {}),
+          ...(priorCoordination?.analystDefinitions?.length
+            ? { priorAnalystDefinitions: priorCoordination.analystDefinitions }
+            : {}),
+          ...(nodeTools?.length ? { nodeTools } : {}),
+          toolNames: runtimeToolNames,
+          onCoordinationTools: (tools) => slot.bind(tools),
         },
-        ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
-        ...(deps.analysts ? { analysts: deps.analysts } : {}),
-        ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
-        ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
-        ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
-        ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
-        ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
-        ...(onEvent ? { onEvent } : {}),
-        ...(deps.replaySettlements ? { replaySettlements: true } : {}),
-        ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
-        ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
-        ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
-        ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
-        ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
-        ...(priorCoordination?.questions.length
-          ? { priorQuestions: priorCoordination.questions }
-          : {}),
-        ...(priorCoordination?.escalations?.length
-          ? { priorEscalations: priorCoordination.escalations }
-          : {}),
-        ...(priorCoordination?.records.length ? { priorJournal: priorCoordination.records } : {}),
-        ...(priorCoordination?.analystDefinitions?.length
-          ? { priorAnalystDefinitions: priorCoordination.analystDefinitions }
-          : {}),
-        ...(nodeTools?.length ? { nodeTools } : {}),
-        toolNames: runtimeToolNames,
-        onCoordinationTools: (tools) => slot.bind(tools),
+        coordinationLifetime.signal,
+      ).catch((error: unknown) => {
+        coordinationLifetime.abort(error)
+        throw error
       })
       ledger = mcp
       const coordinationTools = slot.descriptors()
@@ -977,7 +998,21 @@ function buildSupervisorAgent(
         providerVisibleProfile(stableProfile),
         'supervisorAgent provider-visible profile',
       )
+      let controlObserver: ReturnType<typeof observeWorkerControls> | undefined
       try {
+        if (deps.controlDir !== undefined) {
+          controlObserver = observeWorkerControls({
+            dir: deps.controlDir,
+            coord: controls,
+            scope,
+            signal: coordinationLifetime.signal,
+            controlScope: deps.controlScope ?? 'run',
+            onError: (error) => {
+              coordinationLifetime.abort(error)
+              stopController.abort(error)
+            },
+          })
+        }
         // A restored `submission` record proves this manager's completion check already accepted
         // the value. Return it before starting another harness process.
         const recoveredSubmission = mcp.submittedResult()
@@ -1099,7 +1134,12 @@ function buildSupervisorAgent(
         // harness's own output (Foreman 0/18). Default keep-best.
         return contractDeclared ? candidate : await finalize()
       } finally {
-        await mcp.close()
+        coordinationLifetime.abort(new Error('supervisor manager stopped'))
+        try {
+          await controlObserver?.close()
+        } finally {
+          await mcp.close()
+        }
       }
     },
   }

@@ -1519,6 +1519,14 @@ export function spawnRefusalReason(
 
 /** Build the driver's MCP tools over a live scope. */
 export function createCoordinationTools(opts: CoordinationToolsOptions): CoordinationTools {
+  return createCoordinationToolsForManager(opts)
+}
+
+/** Internal manager binding; its lifetime fences delivery without cancelling the worker scope. */
+export function createCoordinationToolsForManager(
+  opts: CoordinationToolsOptions,
+  lifetime?: AbortSignal,
+): CoordinationTools {
   const deliverable = opts.deliverable
   // An accepted direct result is a terminal fact, not an in-process callback. A durable observer
   // appends the `submission` record before the tool responds, so a fresh manager can restore it
@@ -2292,8 +2300,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     let outcome: DownMessageDeliveryOutcome
     let error: string | undefined
     try {
-      delivered = opts.scope.send(instruction.toWorker, message)
-      outcome = deliveryOutcome(instruction.toWorker, delivered)
+      if (lifetime?.aborted) {
+        outcome = 'scope-stopped'
+      } else {
+        delivered = opts.scope.send(instruction.toWorker, message)
+        outcome = deliveryOutcome(instruction.toWorker, delivered)
+      }
     } catch (cause) {
       outcome = 'runtime-error'
       error = cause instanceof Error ? cause.message : String(cause)
