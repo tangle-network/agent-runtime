@@ -1187,9 +1187,17 @@ The certified profile currently in effect (`null` = none pulled yet).
 
 ##### refresh()
 
-> **refresh**(): `Promise`\<`void`\>
+> **refresh**(`options?`): `Promise`\<`void`\>
 
-Pull now if the refresh window has elapsed; coalesced and fail-closed.
+Pull after the refresh window, or force a pull now. Both join an in-flight pull.
+
+###### Parameters
+
+###### options?
+
+###### force?
+
+`boolean`
 
 ###### Returns
 

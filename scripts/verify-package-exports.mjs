@@ -267,6 +267,7 @@ try {
       } from '@tangle-network/agent-runtime/durable'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
+        createCertifiedPromptSource,
         createExactProcessCandidateExperimentExecutor,
         agentImprovementProfileSurfaceDigest,
         agentImprovementProfileSurfaceInput,
@@ -285,6 +286,14 @@ try {
         type ProfileImprovementActivationTransitionInput,
         type VerifyCandidateExecutionEvidenceOptions,
       } from '@tangle-network/agent-runtime/intelligence'
+
+      const promptSource = createCertifiedPromptSource({ target: 'packed-consumer' })
+      const forcedPromptRefresh: Promise<void> = promptSource.refresh({ force: true })
+      const ordinaryPromptRefresh: Promise<void> = promptSource.refresh()
+      // @ts-expect-error Forced refresh is explicit boolean policy, not a truthy string.
+      promptSource.refresh({ force: 'yes' })
+      void forcedPromptRefresh
+      void ordinaryPromptRefresh
 
       declare const provider: AgentEnvironmentProvider
       declare const ports: CreateExactProcessCandidateExperimentExecutorOptions['ports']
@@ -681,6 +690,7 @@ try {
         const intelligence = await import('@tangle-network/agent-runtime/intelligence')
         const expectedIntelligence = [
           'createIntelligenceClient',
+          'createCertifiedPromptSource',
           'withIntelligence',
           'pullCertified',
           'resolveEffort',
@@ -708,6 +718,21 @@ try {
         ]
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
+        }
+        let pulls = 0
+        const source = intelligence.createCertifiedPromptSource({
+          target: 'packed-consumer', apiKey: 'fixture', refreshMs: 60000,
+          fetchImpl: async () => new Response(JSON.stringify({
+            target: 'packed-consumer',
+            promptSurface: { surface: 'revision-' + (++pulls), surfaceHash: 'fixture', version: pulls, lift: null },
+            artifacts: {},
+          }), { status: 200 }),
+        })
+        await source.compose('BASE')
+        await source.refresh({ force: true })
+        const composed = await source.compose('BASE')
+        if (pulls !== 2 || !composed.includes('revision-2')) {
+          throw new Error('packed certified source lost forced refresh semantics')
         }
         for (const name of [
           'loadAgentImprovementProposalFixture',

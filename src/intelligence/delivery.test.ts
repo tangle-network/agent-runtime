@@ -461,4 +461,103 @@ describe('createCertifiedPromptSource', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(source.current()).toEqual(CERTIFIED)
   })
+  it('forces a pull inside the refresh window and starts a new window afterward', async () => {
+    const updated = { ...CERTIFIED, generatedAt: '2026-09-20T00:00:00.000Z' }
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(CERTIFIED))
+      .mockResolvedValueOnce(jsonResponse(updated)) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl, refreshMs: 60_000 })
+    await source.refresh()
+    await source.refresh()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    await source.refresh({ force: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(source.current()).toEqual(updated)
+    await source.refresh()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('joins a forced refresh before composing a warm cached profile', async () => {
+    let resolvePull: (response: Response) => void = () => {}
+    const updated = {
+      ...CERTIFIED,
+      promptSurface: { ...CERTIFIED.promptSurface!, surface: 'NEW GUIDANCE' },
+    }
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(CERTIFIED))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePull = resolve
+          }),
+      ) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
+    await source.refresh()
+    const forced = source.refresh({ force: true })
+    const joined = source.refresh({ force: true })
+    let composed = false
+    const pending = source.compose('BASE').then((value) => {
+      composed = true
+      return value
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(composed).toBe(false)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    resolvePull(jsonResponse(updated))
+    await Promise.all([forced, joined])
+    expect(await pending).toContain('NEW GUIDANCE')
+  })
+
+  it('performs the first pull even when the clock starts inside the refresh interval', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(0)
+    try {
+      const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
+      const source = createCertifiedPromptSource({ ...opts, fetchImpl })
+      await source.refresh()
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(source.current()).toEqual(CERTIFIED)
+      await source.refresh()
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('binds explicit pull coordinates and transport at construction', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
+    const replacement = vi.fn(async () =>
+      jsonResponse({ ...CERTIFIED, target: 'other' }),
+    ) as unknown as typeof fetch
+    const configuration = { ...opts, fetchImpl, refreshMs: 0 }
+    const source = createCertifiedPromptSource(configuration)
+    configuration.target = 'other'
+    configuration.apiKey = 'other-key'
+    configuration.baseUrl = 'https://other.test'
+    configuration.fetchImpl = replacement
+    await source.refresh()
+    expect(replacement).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://plane.test/v1/profiles/support-agent/composed',
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer k' }) }),
+    )
+    expect(source.current()).toEqual(CERTIFIED)
+  })
+
+  it('keeps last-known guidance after a forced failed pull', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(CERTIFIED))
+      .mockResolvedValueOnce(jsonResponse({}, 500)) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
+    await source.refresh()
+    await source.refresh({ force: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(source.current()).toEqual(CERTIFIED)
+    expect(await source.compose('BASE')).toContain(CERTIFIED.promptSurface!.surface)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
 })
