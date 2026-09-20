@@ -3599,6 +3599,8 @@ Exact execution identity bound at construction.
 
 > **train**(`options`): `Promise`\<[`ImproveTrainingResult`](#improvetrainingresult)\>
 
+Train the bound profile with a separately pinned trainer and serving execution identity.
+
 ###### Parameters
 
 ###### options
@@ -7792,7 +7794,7 @@ Official SkillOpt configuration plus bounded Runtime findings context.
 
 ### ProfileImprovementHarnessTrainOptions
 
-> **ProfileImprovementHarnessTrainOptions** = `Omit`\<[`ImproveTrainingOptions`](#improvetrainingoptions), `"mode"` \| `"executionRef"`\>
+> **ProfileImprovementHarnessTrainOptions** = `Omit`\<[`ImproveTrainingOptions`](#improvetrainingoptions), `"mode"`\>
 
 ***
 

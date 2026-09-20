@@ -23,6 +23,7 @@ import type {
 import { agentImprovementSourceSchema } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { parseExactAgentProfile } from '../candidate-execution/profile'
+import { assertProfileTrainingIsHeldOut } from '../improvement/candidate-validation'
 import {
   type AgentProfileImprovementBenchmark,
   createAgentImprovementProposal,
@@ -169,6 +170,9 @@ export async function proposeAuthoredAgentProfileImprovement(
     'authored profile',
   )
   const benchmark = sealProfileImprovementBenchmark({ ...options.benchmark, policy })
+  const heldOutDigests = new Set(benchmark.tasks.map((task) => task.scenario.digest))
+  assertProfileTrainingIsHeldOut(baselineProfile, heldOutDigests)
+  assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
   assertDirectCandidateReleaseWorkIsFresh(benchmark, candidateLineage, options.developmentScenarios)
   const experiment = sealAgentProfileImprovementExperiment({
     kind: 'agent-profile-improvement-experiment',

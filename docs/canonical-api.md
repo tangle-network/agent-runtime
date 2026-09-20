@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.243.0.**
+> **Version 0.244.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.182.0 <0.183.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.42.0`.
@@ -284,6 +284,19 @@ Rule of thumb: `delegate` = "I don't care how"; `supervise` = "I authored the dr
 | **N-judge panel** (fan judges out, merge verdicts) | `panel(spec)` as the `shape` | `src/runtime/personify/combinators.ts:273` |
 
 ### Checkpoint training is candidate construction, not promotion
+
+The bound harness's `executionRef` identifies evaluation, not the trainer or serving adapter.
+Supply a separate, explicit training `executionRef` to `harness.train(...)`; it is recorded
+unchanged in the training receipt. The harness still binds the parent profile and validator.
+Omitting the training identity is an admission failure, not a fallback to evaluation identity.
+
+Runtime's profile optimization and profile proposal paths reject final measurement when a
+held-out scenario digest occurs in either measured profile's declared training receipts,
+including ancestors and trainer-visible validation rows. Exporters should retain the same
+canonical scenario content digest used by evaluation. This is an exact-digest check, not
+proof against undeclared training, differently encoded duplicates, or semantic contamination.
+Task names in different benchmark namespaces are not treated as interchangeable identities.
+Diagnostic evaluation outside these promotion paths remains the evaluator's responsibility.
 
 Training mode consumes a byte-pinned dataset envelope containing existing Eval export rows
 and the identities of every exposed training and validation task. Payloads are not rewritten.

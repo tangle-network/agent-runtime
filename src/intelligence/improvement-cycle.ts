@@ -89,6 +89,7 @@ import {
   verifiedResourceTextByDigest,
   verifyAgentCandidateBundle,
 } from '../candidate-execution/verify'
+import { assertProfileTrainingIsHeldOut } from '../improvement/candidate-validation'
 import { rethrowAfterCleanup } from '../improvement/cleanup'
 import {
   type ImproveMethodOptions,
@@ -693,6 +694,9 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     throw new Error('profile improvement source digest does not match the measured profile state')
   }
   const policy = profilePolicyWithBudget(options.benchmark.policy, options.budgetUsd)
+  const benchmark = sealProfileImprovementBenchmark({ ...options.benchmark, policy })
+  const heldOutDigests = new Set(benchmark.tasks.map((task) => task.scenario.digest))
+  assertProfileTrainingIsHeldOut(profile, heldOutDigests)
   if (
     options.improvement.costCeiling !== undefined &&
     !numbersApproximatelyEqual(options.improvement.costCeiling, options.budgetUsd)
@@ -741,7 +745,7 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
       if (!step.id) throw new Error('profile improvement change requires an exact diff id')
       return step.id
     })
-    const benchmark = sealProfileImprovementBenchmark({ ...options.benchmark, policy })
+    assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
     assertProfileReleaseWorkIsFresh(benchmark, improvement)
     const experiment = sealAgentProfileImprovementExperiment({
       kind: 'agent-profile-improvement-experiment',

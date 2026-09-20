@@ -305,6 +305,9 @@ try {
         agent: async () => { throw new Error('type-only fixture') },
       })
       const harnessTraining: Promise<ImproveTrainingResult> = profileHarness.train(trainingOptions)
+      const { executionRef: _trainingExecution, ...missingTrainingExecution } = trainingOptions
+      // @ts-expect-error Evaluation identity cannot substitute for the trainer/serving identity.
+      profileHarness.train(missingTrainingExecution)
       if (trainingResult.succeeded) {
         const trainingReceipt: AgentTrainingReceipt = trainingResult.receipt
         const { timeoutMs: _timeout, ...withoutDeadline } = trainingOptions

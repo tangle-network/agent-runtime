@@ -17,10 +17,7 @@ import type {
 import type { ReadonlyAgentProfile } from './profile-types'
 import type { ImproveTrainingOptions, ImproveTrainingResult } from './training'
 
-export type ProfileImprovementHarnessTrainOptions = Omit<
-  ImproveTrainingOptions,
-  'mode' | 'executionRef'
->
+export type ProfileImprovementHarnessTrainOptions = Omit<ImproveTrainingOptions, 'mode'>
 
 export interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
   /** Exact baseline profile. It is parsed, detached, and frozen at construction. */
@@ -60,6 +57,7 @@ export interface ProfileImprovementHarness<TScenario extends Scenario, TArtifact
   readonly profileDigest: Sha256Digest
   /** Exact execution identity bound at construction. */
   readonly executionRef: Sha256Digest
+  /** Train the bound profile with a separately pinned trainer and serving execution identity. */
   train(options: ProfileImprovementHarnessTrainOptions): Promise<ImproveTrainingResult>
   run(
     options: ProfileImprovementHarnessRunOptions<TScenario, TArtifact>,
@@ -108,7 +106,6 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
       return improve(profile, {
         ...trainOptions,
         mode: 'training',
-        executionRef,
         ...(validateCandidate === undefined ? {} : { validateCandidate }),
       })
     },
