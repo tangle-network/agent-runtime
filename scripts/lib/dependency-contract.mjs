@@ -15,13 +15,10 @@ if (sandboxFloor === undefined) {
   throw new Error(`cannot derive Sandbox compatibility version from ${sandboxPeerRange}`)
 }
 
-const sandboxCeilingMatch = /<(\d+)\.(\d+)\.0\b/u.exec(sandboxPeerRange)
-const sandboxCurrentMinor = sandboxCeilingMatch === undefined
-  ? undefined
-  : `${sandboxCeilingMatch[1]}.${Number(sandboxCeilingMatch[2]) - 1}.0`
-
 export { sandboxPeerRange }
+// Registry checks require published artifacts. The peer ceiling also admits
+// workspace SDK releases verified from their packed source before publication.
 export const sandboxCompatibilityVersions = Object.freeze([
   sandboxFloor,
-  ...(sandboxCurrentMinor && sandboxCurrentMinor !== sandboxFloor ? [sandboxCurrentMinor] : []),
+  '0.43.0',
 ])

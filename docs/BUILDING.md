@@ -63,6 +63,10 @@ remaining boilerplate is irreducible.
 
 ## Documentation Placement
 
+To verify an unpublished Sandbox SDK, pass its archive as the fourth argument to `scripts/verify-package-exports.mjs`.
+The first argument selects the Runtime archive; an empty third argument keeps the installed Knowledge release.
+Registry checks continue to use the published versions in `scripts/lib/dependency-contract.mjs`.
+
 - `CLAUDE.md` / `AGENTS.md`: bootloader and repo-local deltas only.
 - `docs/BUILDING.md`: stable build rules.
 - `docs/MAINTAINING.md`: the generated-vs-judgment docs split + the freshness gate.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.246.0
+
+Admit Sandbox SDK releases through 0.45 while retaining the existing 0.36.4 floor.
+The registry compatibility matrix checks 0.36.4 and 0.43.0.
+The packed-consumer check also accepts a Sandbox archive for verifying workspace SDK releases before publication.
+
 ## 0.244.0
 
 **Migration:** `harness.train(...)` now requires its own `executionRef` for the trainer, serving adapter, and their dependencies. The evaluation identity bound to the harness is no longer substituted into the training receipt. The bound parent profile and validator are unchanged.
