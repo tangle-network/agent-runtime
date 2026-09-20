@@ -427,6 +427,8 @@ interface CancelAcknowledgerDeps {
 }
 
 interface SteerAcknowledgerDeps {
+  /** Present only on the run root; nested managers must not claim their parent's child steer. */
+  readonly deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
   readonly dir: string
   readonly coord: {
     steerWorker(
@@ -470,7 +472,8 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
     async pass(phase): Promise<void> {
       for (const request of readWorkerSteerRequests(deps.dir)) {
         if (phase === 'turn' && deps.signal?.aborted) return
-        if (!directChildId(request.worker)) continue
+        const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
+        if (!rootRequest && !directChildId(request.worker)) continue
         if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
         if (phase === 'final') {
           writeWorkerSteerAcknowledgement(deps.dir, {
@@ -489,9 +492,18 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
         })
         if (!claimed) continue
         try {
-          const outcome = await deps.coord.steerWorker(request.worker, request.message, {
-            interrupt: request.interrupt,
-          })
+          let outcome: Pick<DownMessageEvent, 'delivered' | 'outcome'>
+          if (rootRequest) {
+            const delivered = deps.deliverRoot!({
+              steer: request.message,
+              interrupt: request.interrupt,
+            })
+            outcome = { delivered, outcome: delivered ? 'delivered' : 'runtime-has-no-inbox' }
+          } else {
+            outcome = await deps.coord.steerWorker(request.worker, request.message, {
+              interrupt: request.interrupt,
+            })
+          }
           const effect: WorkerSteerAcknowledgement['effect'] = outcome.delivered
             ? 'delivered'
             : outcome.outcome === 'runtime-has-no-inbox'
@@ -505,7 +517,11 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             ...base(request),
             effect,
             observedAt: iso(),
-            detail: steerAcknowledgementDetail(outcome),
+            detail: rootRequest
+              ? outcome.delivered
+                ? 'the root inbox accepted the steer; consumption is not confirmed'
+                : 'the root exposes no accepting inbox at delivery time'
+              : steerAcknowledgementDetail(outcome),
           })
         } catch (error) {
           void error
@@ -530,7 +546,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
  * the SAME outcomes, so `tests/kernel/refusal-reasons.test.ts` holds both maps total over
  * `DownMessageDeliveryOutcome` — a new code cannot land in only one.
  */
-export function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
+export function steerAcknowledgementDetail(outcome: Pick<DownMessageEvent, 'outcome'>): string {
   switch (outcome.outcome) {
     case 'delivered':
       return 'the owning manager delivered the steer to the exact live worker'
@@ -1006,6 +1022,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               coord,
               now,
               ownerId: scope.view.root,
+              signal: scope.signal,
+              ...(opts.controlScope === 'subtree' ? {} : { deliverRoot: inbox.deliver }),
             })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines

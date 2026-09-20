@@ -1007,6 +1007,12 @@ function buildSupervisorAgent(
             scope,
             signal: coordinationLifetime.signal,
             controlScope: deps.controlScope ?? 'run',
+            ...(deps.controlScope === 'subtree'
+              ? {}
+              : {
+                  deliverRoot: (message: { steer: string; interrupt: boolean }) =>
+                    deliver?.(message) ?? false,
+                }),
             onError: (error) => {
               coordinationLifetime.abort(error)
               stopController.abort(error)

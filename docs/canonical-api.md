@@ -248,7 +248,16 @@ A delivered steer proves inbox acceptance.
 It does not prove that the worker read or followed the instruction.
 Manager shutdown interrupts pending event capture before delivery and records an uncertain steer outcome as `unknown`.
 The final pass reconciles existing cancellations and expires unseen requests without issuing another abort.
-These worker controls do not add durable steering or answers for the root.
+To steer the root, pass its run ID as the target: `writeWorkerSteer(root, runId, runId, { operationId, message, interrupt: true })`.
+The same atomic request, claim and acknowledgement protocol handles root and child steers; only the root manager owns root delivery.
+Router roots read durable steers between turns, so a filesystem request does not interrupt an already-running router inference call.
+Native roots forward the requested interrupt flag through their existing inbox; an absent or currently inactive inbox produces `unsupported`, never a fabricated delivery.
+A prior `unknown` claim is not retried, and finalization expires unseen requests as `not_live` without delivering them.
+Filesystem control writers must already have trusted run-directory access. These controls do not expose a new MCP tool or grant worker authority over the root.
+Durable root answers and a file-backed question sink are not provided by this path.
+
+`supervise(profile, task, { escalateQuestion })` forwards its existing `escalateQuestion` callback to both root and nested managers.
+The configured application inbox owns persistence and authorization. Its response controls whether `ask_parent` reports `queued-for-parent` or `no-parent`; no default operator queue is installed.
 
 Knowledge improvement jobs carry nondefault `stateScope` into both frozen experiment bundles and prepared execution.
 Knowledge owns scope normalization and hashing, including the selected pages directory and optional research state.

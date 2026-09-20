@@ -30138,9 +30138,10 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 > **kind**: `"no-winner"`
 
-The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
-(breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
-driver's own rejection is the only thing that does. It is therefore REQUIRED here.
+The DRIVER-FAULT arm: `act()` rejected and no lifecycle cause (breaker/abort/budget/every
+child down) outranks it — so nothing about the tree explains the failure and the driver's
+own rejection is the only thing that does. It is therefore REQUIRED here. One down child
+among delivered siblings does not outrank it: that count rides `downCount`.
 `all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
 result; this arm is that configuration/authoring fault, named.
 
@@ -36028,6 +36029,11 @@ Runtime acknowledgement file for one caller-owned steer operation id.
 **`Stable`**
 
 Admit one steer exactly once under a caller-owned operation id.
+
+Pass `supervisorId` as `worker` to address the root. Router roots consume requests between
+turns; native roots use their existing accepting inbox during execution, or acknowledge
+`unsupported` when none is available. Delivery does not prove model consumption.
+This filesystem API requires trusted write access to the run directory; it adds no MCP grant.
 
 The per-operation request file is linked into place atomically after its bytes reach disk. A
 same-body retry returns the winner's request. A changed-body retry fails loud. The NDJSON inbox
