@@ -36,6 +36,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
 const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
+const suppliedSandboxTarball = process.argv[4] ? resolve(process.argv[4]) : undefined
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -52,6 +53,9 @@ try {
   }
   if (suppliedKnowledgeTarball && !existsSync(suppliedKnowledgeTarball)) {
     throw new Error(`supplied knowledge tarball does not exist: ${suppliedKnowledgeTarball}`)
+  }
+  if (suppliedSandboxTarball && !existsSync(suppliedSandboxTarball)) {
+    throw new Error(`supplied sandbox tarball does not exist: ${suppliedSandboxTarball}`)
   }
   if (!suppliedTarball) {
     run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
@@ -165,6 +169,9 @@ try {
       return [name, requiredPackedDevelopmentDependency(packageJson, name)]
     }),
   )
+  if (suppliedSandboxTarball) {
+    peerDependencies['@tangle-network/sandbox'] = `file:${suppliedSandboxTarball}`
+  }
   const consumerTypeScriptAlias = packageJson.devDependencies?.['typescript-consumer']
   const consumerTypeScriptPrefix = 'npm:typescript@'
   if (

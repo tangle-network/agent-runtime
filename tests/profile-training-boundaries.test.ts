@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { type AgentProfile, sha256Bytes, sha256Utf8 } from '@tangle-network/agent-interface'
@@ -76,7 +76,9 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  root = await mkdtemp(join(tmpdir(), 'training-boundaries-'))
+  // Training resolves its output root before syncing it, so the fixture must
+  // hand it an already-resolved path: on macOS tmpdir() is a symlink.
+  root = await realpath(await mkdtemp(join(tmpdir(), 'training-boundaries-')))
   const controller = new AbortController()
   const profile: AgentProfile = {
     name: 'training-boundary-fixture',

@@ -38,6 +38,7 @@ import {
   candidateSha as sha,
   unchangedTaskOutcomeCapture,
 } from './helpers/candidate-execution-fixture'
+import { materializedContextFile } from './helpers/materialized-context'
 import { makeTempRoot } from './helpers/temp-root'
 
 const scopedKnowledgeRoots: string[] = []
@@ -243,7 +244,11 @@ describe('candidate execution preparation', () => {
         {
           relPath: 'AGENTS.md',
           mode: 0o644,
-          contentSha256: sha256Bytes(Buffer.from(`${agentInstructions}\n`, 'utf8')),
+          // Materialize generates this one from prompt.instructions, so it carries
+          // the marker; the workspace file above is the caller's own resource bytes.
+          contentSha256: sha256Bytes(
+            Buffer.from(materializedContextFile(`${agentInstructions}\n`), 'utf8'),
+          ),
           root: 'agent',
         },
       ]),
@@ -251,7 +256,7 @@ describe('candidate execution preparation', () => {
     expect(prepared.profileActivation.files.filter((file) => file.path === 'AGENTS.md')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ content: workspaceInstructions }),
-        expect.objectContaining({ content: `${agentInstructions}\n` }),
+        expect.objectContaining({ content: materializedContextFile(`${agentInstructions}\n`) }),
       ]),
     )
     expect(prepared.launch.env.PI_CODING_AGENT_DIR).toBe('/workspace/profile/.pi/agent')

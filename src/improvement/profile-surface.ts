@@ -209,7 +209,7 @@ function materializeImprovementProfileCandidate(
     }
     const winnerComponents = immutableCandidateValue({ ...winner.components })
     const applied = profileComponents.apply(profile, winnerComponents)
-    const validated = validateProfileCandidate(applied, surface)
+    const validated = parseMaterializedProfile(applied, surface)
     const materializedComponents = Object.fromEntries(
       validateComponents(profileComponents.read(validated), 'profileComponents.read after apply'),
     )
@@ -280,10 +280,10 @@ function materializeImprovementProfileCandidate(
       break
     }
   }
-  return validateProfileCandidate(candidate, surface)
+  return parseMaterializedProfile(candidate, surface)
 }
 
-function validateProfileCandidate(candidate: unknown, surface: ImproveSurface): AgentProfile {
+function parseMaterializedProfile(candidate: unknown, surface: ImproveSurface): AgentProfile {
   const parsed = agentProfileSchema.safeParse(candidate)
   if (!parsed.success) {
     throw new ConfigError(
