@@ -1,0 +1,47 @@
+name: Submit reviewed Runtime release to the existing publisher
+on:
+  push:
+    branches: [ops/consume-runtime-0247]
+permissions:
+  contents: write
+  actions: write
+jobs:
+  submit:
+    if: github.repository == 'tangle-network/agent-runtime' && github.ref == 'refs/heads/ops/consume-runtime-0247'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const assert = require('node:assert/strict');
+            const {owner, repo} = context.repo;
+            const sha = '4b6fa1ee06eba934b031937ed3c08257c0e4731e';
+            const tag = 'v0.247.0';
+            const main = await github.rest.git.getRef({owner, repo, ref:'heads/main'});
+            assert.equal(main.data.object.sha, sha, 'Main advanced; review the new release source first');
+            const pr = await github.rest.pulls.get({owner, repo, pull_number:1311});
+            assert.equal(pr.data.merged, true);
+            assert.equal(pr.data.merge_commit_sha, sha);
+            const file = await github.rest.repos.getContent({owner, repo, path:'package.json', ref:sha});
+            const manifest = JSON.parse(Buffer.from(file.data.content,'base64').toString());
+            assert.equal(manifest.name, '@tangle-network/agent-runtime');
+            assert.equal(manifest.version, tag.slice(1));
+            let ref;
+            try { ref = (await github.rest.git.getRef({owner, repo, ref:`tags/${tag}`})).data; }
+            catch(error) { if(error.status !== 404) throw error; }
+            if (ref) {
+              const target = ref.object.type === 'tag'
+                ? (await github.rest.git.getTag({owner, repo, tag_sha:ref.object.sha})).data.object.sha
+                : ref.object.sha;
+              assert.equal(target, sha, 'Existing tag has different source; do not replace it');
+            } else {
+              const annotated = await github.rest.git.createTag({owner, repo, tag, message:'Release reviewed Runtime 0.247.0', object:sha, type:'commit'});
+              await github.rest.git.createRef({owner, repo, ref:`refs/tags/${tag}`, sha:annotated.data.sha});
+            }
+            // The normal publisher verifies and packs this exact source, runs all
+            // source, cohort, optimizer and Bench gates, and owns npm credentials.
+            // This maintenance branch never publishes or changes release controls.
+            await github.rest.actions.createWorkflowDispatch({owner, repo, workflow_id:'publish.yml', ref:'main', inputs:{release_tag:tag}});
+            await core.summary.addHeading('Existing Runtime publication requested')
+              .addRaw(`Tag: ${tag}\nSource: ${sha}\nThe publisher result, not this dispatch, determines release success.`).write();
