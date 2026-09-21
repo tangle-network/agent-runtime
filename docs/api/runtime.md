@@ -36031,6 +36031,11 @@ Runtime acknowledgement file for one caller-owned steer operation id.
 Admit one steer exactly once under a caller-owned operation id.
 Pass the run id as `worker` to address the root manager through the same durable queue.
 
+Pass `supervisorId` as `worker` to address the root. Router roots consume requests between
+turns; native roots use their existing accepting inbox during execution, or acknowledge
+`unsupported` when none is available. Delivery does not prove model consumption.
+This filesystem API requires trusted write access to the run directory; it adds no MCP grant.
+
 The per-operation request file is linked into place atomically after its bytes reach disk. A
 same-body retry returns the winner's request. A changed-body retry fails loud. The NDJSON inbox
 and control log are readable projections written only by the admission winner.

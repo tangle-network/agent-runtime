@@ -248,10 +248,16 @@ A delivered steer proves inbox acceptance.
 It does not prove that the worker read or followed the instruction.
 Manager shutdown interrupts pending event capture before delivery and records an uncertain steer outcome as `unknown`.
 The final pass reconciles existing cancellations and expires unseen requests without issuing another abort.
-Pass the run id as the worker id to steer the root through the same durable queue.
-Router roots accept the message between turns; native roots use their declared delivery hook during the invocation.
-An unavailable native inbox returns `unsupported`; a refused delivery returns `refused`.
-These acknowledgements do not prove model consumption, and they do not add durable root question answers.
+To steer the root, pass its run ID as the target: `writeWorkerSteer(root, runId, runId, { operationId, message, interrupt: true })`.
+The same atomic request, claim and acknowledgement protocol handles root and child steers; only the root manager owns root delivery.
+Router roots read durable steers between turns, so a filesystem request does not interrupt an already-running router inference call.
+Native roots forward the requested interrupt flag through their existing inbox; an absent or currently inactive inbox produces `unsupported`, never a fabricated delivery.
+A prior `unknown` claim is not retried, and finalization expires unseen requests as `not_live` without delivering them.
+Filesystem control writers must already have trusted run-directory access. These controls do not expose a new MCP tool or grant worker authority over the root.
+Durable root answers and a file-backed question sink are not provided by this path.
+
+`supervise(profile, task, { escalateQuestion })` forwards its existing `escalateQuestion` callback to both root and nested managers.
+The configured application inbox owns persistence and authorization. Its response controls whether `ask_parent` reports `queued-for-parent` or `no-parent`; no default operator queue is installed.
 
 Settled coordination events include an `outputRead` call for `observe_agent`.
 That tool returns small artifacts directly and large artifacts as bounded JSON pages.
