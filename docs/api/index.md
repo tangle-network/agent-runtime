@@ -1467,6 +1467,12 @@ Absent means every worker call reported complete token usage.
 
 Absent means every worker call reported provider-billed cost, including a known zero.
 
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+Worker-only external estimate, kept separate from observed provider-billed spend.
+
 ***
 
 ### RunPersonaConfig
@@ -5550,25 +5556,11 @@ code should keep emitting ordinary lifecycle events as the base layer.
 
 **`Stable`**
 
+#### Extends
+
+- `RuntimeUsageTotals`
+
 #### Properties
-
-##### tokensIn
-
-> **tokensIn**: `number`
-
-Cumulative input tokens across every observed `llm_call` event.
-
-##### tokensOut
-
-> **tokensOut**: `number`
-
-Cumulative output tokens across every observed `llm_call` event.
-
-##### costUsd
-
-> **costUsd**: `number`
-
-Sum of `costUsd` from every observed `llm_call` event.
 
 ##### wallMs
 
@@ -5576,11 +5568,75 @@ Sum of `costUsd` from every observed `llm_call` event.
 
 Wall time from `startRuntimeRun()` to `complete()` (or `now()` if not yet completed).
 
+##### tokensIn
+
+> **tokensIn**: `number`
+
+Observed input tokens across normalized per-call events.
+
+###### Inherited from
+
+`RuntimeUsageTotals.tokensIn`
+
+##### tokensOut
+
+> **tokensOut**: `number`
+
+Observed output tokens across normalized per-call events.
+
+###### Inherited from
+
+`RuntimeUsageTotals.tokensOut`
+
+##### costUsd
+
+> **costUsd**: `number`
+
+Observed dollar subtotal; incomplete when `usdKnown` is false.
+
+###### Inherited from
+
+`RuntimeUsageTotals.costUsd`
+
 ##### llmCalls
 
 > **llmCalls**: `number`
 
-Count of `llm_call` events observed during the run.
+Number of observed model calls, including unpriced or incompletely metered calls.
+
+###### Inherited from
+
+`RuntimeUsageTotals.llmCalls`
+
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+False when any observed call has incomplete token usage.
+
+###### Inherited from
+
+`RuntimeUsageTotals.tokensKnown`
+
+##### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+False when any observed call lacks complete provider-billed cost.
+
+###### Inherited from
+
+`RuntimeUsageTotals.usdKnown`
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+Sum of reported external estimates; never included in `costUsd` or proof of complete cost.
+
+###### Inherited from
+
+`RuntimeUsageTotals.estimatedCostUsd`
 
 ***
 
@@ -5602,7 +5658,7 @@ Count of `llm_call` events observed during the run.
 
 > `optional` **cost?**: `Partial`\<[`RuntimeRunCost`](#runtimeruncost)\>
 
-Optional explicit cost override; if omitted, the accumulated ledger is used.
+Optional subtotal overrides. Existing incomplete-usage flags remain authoritative.
 
 ##### error?
 

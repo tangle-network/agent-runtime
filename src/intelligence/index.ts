@@ -42,6 +42,7 @@ import {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
+import { mergeReportedUsage, normalizeReportedUsage } from './usage'
 
 export type {
   AgentCandidateProfileActivation as CandidateProfileMaterialization,
@@ -240,10 +241,36 @@ export { withIntelligence } from './with-intelligence'
  * bill. This is a classification on the trace, NOT a budget-pool split.
  */
 export interface UsageSplit {
-  /** Base-stream (model) spend in USD. */
+  /** Observed base-stream spend in USD; a subtotal when `inferenceUsdKnown` is false. */
   inferenceUsd: number
   /** Intelligence-spawn spend in USD. Provably `0` at the OFF tier. */
   intelligenceUsd: number
+  /** False when inference cost is incomplete or unreported. */
+  inferenceUsdKnown?: false
+  /** False when Intelligence cost is incomplete or unreported. */
+  intelligenceUsdKnown?: false
+  /** Reported inference estimate, separate from observed spend and completeness. */
+  estimatedInferenceUsd?: number
+}
+
+function usageAttributes(
+  usage: UsageSplit,
+  intelligenceOff: boolean,
+): Record<string, number | boolean> {
+  const normalized = normalizeReportedUsage(usage, intelligenceOff)
+  return {
+    'tangle.usage.inference_usd': normalized.inferenceUsd,
+    'tangle.usage.intelligence_usd': normalized.intelligenceUsd,
+    ...(normalized.inferenceUsdKnown === false
+      ? { 'tangle.usage.inference_usd_known': false }
+      : {}),
+    ...(normalized.intelligenceUsdKnown === false
+      ? { 'tangle.usage.intelligence_usd_known': false }
+      : {}),
+    ...(normalized.estimatedInferenceUsd !== undefined
+      ? { 'tangle.usage.inference_usd_estimated': normalized.estimatedInferenceUsd }
+      : {}),
+  }
 }
 
 /**
@@ -280,6 +307,8 @@ export interface RunRecord {
     output: number
     cachedInput?: number
     reasoning?: number
+    /** False when the numeric token subtotals are incomplete. */
+    tokensKnown?: false
   }
   error?: { name: string; message: string; code?: string }
   /** Exact proposal → review → execution → receipt linkage for candidate runs. */
@@ -289,8 +318,8 @@ export interface RunRecord {
 /**
  * What an agent reports (via `applied.record`) to enrich the {@link RunRecord}
  * sent for its call. All optional — an un-recorded run still sends input/output
- * with an inference-only zero usage split. `costUsd` without a split is treated
- * as pure inference (the base stream).
+ * with unknown usage, except for the OFF billing guarantee.
+ * `costUsd` supplies inference spend when the split omits it.
  */
 export interface RunReport {
   success?: boolean
@@ -390,10 +419,9 @@ export interface TraceHandle {
   /** Capture the run's output. Exported through the redactor. */
   recordOutput(output: unknown): void
   /**
-   * Capture the run's outcome. `usage` defaults to inference-only
-   * (`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
-   * fills `intelligenceUsd` itself. `costUsd`, when given without a split, is
-   * treated as pure inference.
+   * Capture the run's outcome. Unreported spend is unknown, except for Intelligence at OFF.
+   * `costUsd` supplies inference spend when the split omits it.
+   * Numeric usage updates replace subtotals; explicit incomplete flags remain sticky.
    */
   recordOutcome(outcome: {
     success?: boolean
@@ -588,8 +616,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       const labels: Record<string, string | number | boolean> = {
         project: config.project,
         'tangle.effort.intelligence_off': outcome.intelligenceOff,
-        'tangle.usage.inference_usd': outcome.usage.inferenceUsd,
-        'tangle.usage.intelligence_usd': outcome.usage.intelligenceUsd,
+        ...usageAttributes(outcome.usage, intelligenceOff),
         ...(meta.model ? { 'gen_ai.request.model': meta.model } : {}),
         ...(meta.provider ? { 'provider.name': meta.provider } : {}),
         ...(typeof outcome.success === 'boolean'
@@ -628,15 +655,13 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
     try {
       // Clamp the OFF billing invariant on export — the proof holds even if a
       // caller mis-reports an intelligence split at the OFF tier.
-      const intelligenceUsd = intelligenceOff ? 0 : record.outcome.usage.intelligenceUsd
       const repository =
         record.repository ?? (config.repo ? `${config.repo.owner}/${config.repo.name}` : undefined)
       const labels: Record<string, string | number | boolean> = {
         project: record.project,
         'tangle.target': record.target,
         'tangle.effort.intelligence_off': intelligenceOff,
-        'tangle.usage.inference_usd': record.outcome.usage.inferenceUsd,
-        'tangle.usage.intelligence_usd': intelligenceUsd,
+        ...usageAttributes(record.outcome.usage, intelligenceOff),
         ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
         ...(record.provider ? { 'provider.name': record.provider } : {}),
         ...(record.sessionId
@@ -659,6 +684,9 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           ? {
               'gen_ai.usage.input_tokens': record.tokens.input,
               'gen_ai.usage.output_tokens': record.tokens.output,
+              ...(record.tokens.tokensKnown === false
+                ? { 'tangle.usage.tokens_known': false }
+                : {}),
               ...(record.tokens.cachedInput !== undefined
                 ? { 'gen_ai.usage.cache_read_input_tokens': record.tokens.cachedInput }
                 : {}),
@@ -770,8 +798,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       const runId = meta.runId ?? freshRunId()
       const traceId = meta.traceId ?? freshTraceId()
       let recordedOutput: unknown
-      // Default split: inference-only. At OFF this is provably the whole bill.
-      const usage: UsageSplit = { inferenceUsd: 0, intelligenceUsd: 0 }
+      const usage: Partial<UsageSplit> = {}
       let success: boolean | undefined
       let score: number | undefined
 
@@ -782,17 +809,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         recordOutcome(outcome): void {
           if (typeof outcome.success === 'boolean') success = outcome.success
           if (typeof outcome.score === 'number') score = outcome.score
-          if (outcome.usage) {
-            if (typeof outcome.usage.inferenceUsd === 'number') {
-              usage.inferenceUsd = outcome.usage.inferenceUsd
-            }
-            if (typeof outcome.usage.intelligenceUsd === 'number') {
-              usage.intelligenceUsd = outcome.usage.intelligenceUsd
-            }
-          } else if (typeof outcome.costUsd === 'number') {
-            // A bare cost with no split is pure inference (the base stream).
-            usage.inferenceUsd = outcome.costUsd
-          }
+          mergeReportedUsage(usage, outcome)
         },
       }
 
@@ -801,7 +818,6 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       // We clamp on export rather than trust the caller, so the billing proof
       // holds even if a caller mis-records an outcome at OFF.
       const result = await fn(trace)
-      if (intelligenceOff) usage.intelligenceUsd = 0
 
       const outcome: TraceOutcome = {
         runId,
@@ -811,7 +827,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         intelligenceOff,
         ...(success !== undefined ? { success } : {}),
         ...(score !== undefined ? { score } : {}),
-        usage,
+        usage: normalizeReportedUsage(usage, intelligenceOff),
       }
       exportTrace(meta, outcome, recordedOutput)
       return result

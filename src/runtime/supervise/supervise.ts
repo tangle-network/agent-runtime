@@ -1433,6 +1433,7 @@ function driveHarnessFromBackend(
     if (!deliver) return false
     return deliver.call(activeExecutor, message) !== false
   }
+  drive.deliverReady = (): boolean => activeExecutor !== undefined
   drive.traceSource = () => activeExecutor?.traceSource?.()
   drive.progress = () => activeExecutor?.progress?.()
   return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
@@ -2808,6 +2809,12 @@ function superviseInternal(
     const deliver: unknown = harness.deliver
     if (deliver !== undefined && typeof deliver !== 'function') {
       throw new ValidationError('supervise: driveHarness.deliver must be a function when provided')
+    }
+    const deliverReady: unknown = harness.deliverReady
+    if (deliverReady !== undefined && typeof deliverReady !== 'function') {
+      throw new ValidationError(
+        'supervise: driveHarness.deliverReady must be a function when provided',
+      )
     }
     const claim = harnessClaims.get(harness)
     const conflictingOwner = claim

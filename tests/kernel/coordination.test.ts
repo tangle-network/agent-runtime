@@ -636,6 +636,7 @@ describe('coordination tools', () => {
       score: 1,
       valid: true,
       outRef: 'blob:a',
+      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w0' } },
       spent: zeroSpend(),
       trace: noTrace,
       live: 1,
@@ -760,6 +761,51 @@ describe('coordination tools', () => {
     })
   })
 
+  it('observe_agent bounds a provider archive and keeps reads scoped to its worker', async () => {
+    const { scope } = mockScope()
+    const output = { content: 'A checkable result', events: [{ data: 'x'.repeat(2_000_000) }] }
+    const reads: string[] = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs: {
+        get: async (ref) => {
+          reads.push(ref)
+          return output
+        },
+        put: async () => {},
+      },
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const observe = tool(tb, 'observe_agent')
+    const first = await observe.handler({ workerId: 'w1' })
+    expect(first).toMatchObject({
+      status: 'done',
+      outRef: 'blob:w1',
+      output: null,
+      outputPage: { format: 'json', offset: 0, nextOffset: 16_384 },
+    })
+    expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(32_768)
+    expect(JSON.stringify(first)).toContain('A checkable result')
+    expect(await observe.handler({ workerId: 'w1', outputOffset: 16_384 })).toMatchObject({
+      outputPage: { format: 'json', offset: 16_384, nextOffset: 32_768 },
+    })
+    expect(reads).toEqual(['blob:w1'])
+    expect(await observe.handler({ workerId: 'w1', outputPath: ['content'] })).toMatchObject({
+      output: 'A checkable result',
+    })
+    const end = JSON.stringify(output).length
+    expect(await observe.handler({ workerId: 'w1', outputOffset: end - 10 })).toMatchObject({
+      outputPage: { text: JSON.stringify(output).slice(-10), nextOffset: null, totalChars: end },
+    })
+    expect(
+      await observe.handler({ workerId: 'outside-this-scope', outRef: 'secret' }),
+    ).toMatchObject({
+      error: 'unknown-worker',
+    })
+    expect(reads).toEqual(['blob:w1', 'blob:w1', 'blob:w1'])
+  })
+
   it('await_event(settled) drains settlements into the driver ledger', async () => {
     const { scope } = mockScope()
     const settlements = [
@@ -795,6 +841,7 @@ describe('coordination tools', () => {
       outRef: 'blob:w7',
       spent: zeroSpend(),
       trace: noTrace,
+      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
       freeSlots: null,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
@@ -1329,6 +1376,7 @@ describe('coordination tools', () => {
       outRef: 'blob:w7',
       spent: zeroSpend(),
       trace: availableTrace,
+      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
       freeSlots: null,
     })
     // The analyze-on-settle finding is now queued; the next pull surfaces it.

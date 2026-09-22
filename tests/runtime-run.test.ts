@@ -105,6 +105,97 @@ describe('startRuntimeRun', () => {
     expect(cost.llmCalls).toBe(1)
   })
 
+  it('persists incomplete usage and keeps estimates separate from measured spend', async () => {
+    const rows: RuntimeRunRow[] = []
+    const handle = startRuntimeRun({
+      workspaceId: 'ws-1',
+      taskSpec: task,
+      adapter: {
+        upsert: (row) => {
+          rows.push(row)
+        },
+      },
+      now: () => 0,
+    })
+    handle.observe(llmCall({ tokensIn: 10, tokensOut: 5, costUsd: 0.01 }))
+    handle.observe(llmCall({ tokensIn: 20, estimatedCostUsd: 0.02 }))
+    handle.observe(llmCall({ tokensIn: 4, tokensOut: 2, costUsd: 0.03 }))
+    handle.complete({ status: 'failed', error: 'connection lost' })
+    await handle.persist()
+
+    expect(rows[0]?.cost).toEqual({
+      tokensIn: 34,
+      tokensOut: 7,
+      tokensKnown: false,
+      costUsd: 0.04,
+      usdKnown: false,
+      estimatedCostUsd: 0.02,
+      llmCalls: 3,
+      wallMs: 0,
+    })
+  })
+
+  it('retains estimates when a call also has a billed subtotal', () => {
+    const handle = startRuntimeRun({
+      workspaceId: 'ws-1',
+      taskSpec: task,
+      now: () => 0,
+    })
+    handle.observe(llmCall({ tokensIn: 10, tokensOut: 5, costUsd: 0.01, estimatedCostUsd: 0.011 }))
+    handle.observe(llmCall({ tokensIn: 20, estimatedCostUsd: 0.02 }))
+    handle.observe(llmCall({ tokensIn: 4, tokensOut: 2 }))
+
+    expect(handle.cost()).toMatchObject({
+      costUsd: 0.01,
+      usdKnown: false,
+      estimatedCostUsd: 0.031,
+      llmCalls: 3,
+    })
+  })
+
+  it('retains explicit unknown flags even when every numeric subtotal is present', () => {
+    const handle = startRuntimeRun({ workspaceId: 'ws-1', taskSpec: task })
+    handle.observe(
+      llmCall({
+        tokensIn: 10,
+        tokensOut: 5,
+        costUsd: 0,
+        tokensKnown: false,
+        usdKnown: false,
+        estimatedCostUsd: 0,
+      }),
+    )
+    handle.complete({ status: 'cancelled', cost: { costUsd: 0, tokensIn: 10 } })
+    expect(handle.cost()).toMatchObject({
+      tokensKnown: false,
+      usdKnown: false,
+      estimatedCostUsd: 0,
+    })
+  })
+
+  it('never subtracts malformed usage from the observed subtotal', () => {
+    const handle = startRuntimeRun({ workspaceId: 'ws-1', taskSpec: task })
+    handle.observe(llmCall({ tokensIn: 10, tokensOut: 5, costUsd: 0.01 }))
+    handle.observe(llmCall({ tokensIn: -10, tokensOut: Number.NaN, costUsd: -0.02 }))
+    expect(handle.cost()).toMatchObject({
+      tokensIn: 10,
+      tokensOut: 5,
+      costUsd: 0.01,
+      tokensKnown: false,
+      usdKnown: false,
+    })
+  })
+
+  it('distinguishes a reported zero from missing usage', () => {
+    const known = startRuntimeRun({ workspaceId: 'ws-1', taskSpec: task })
+    known.observe(llmCall({ tokensIn: 0, tokensOut: 0, costUsd: 0 }))
+    expect(known.cost()).not.toHaveProperty('tokensKnown')
+    expect(known.cost()).not.toHaveProperty('usdKnown')
+    const unknown = startRuntimeRun({ workspaceId: 'ws-1', taskSpec: task })
+    unknown.observe(llmCall({}))
+    expect(unknown.cost()).toMatchObject({ tokensKnown: false, usdKnown: false })
+  })
+
   it('completes idempotently with the same status and freezes wallMs at completion', () => {
     let clock = 100
     const handle = startRuntimeRun({

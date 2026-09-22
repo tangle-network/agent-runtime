@@ -58,6 +58,25 @@ function unknownUsageExecutor(): ExecutorFactory<unknown> {
   })
 }
 
+function estimatedUsageExecutor(saw: { calls: number }): ExecutorFactory<unknown> {
+  return createExecutor({
+    backend: 'router',
+    routerBaseUrl: 'https://router.test/v1',
+    routerKey: 'test-key',
+    complete: async (body) => {
+      saw.calls += 1
+      return {
+        model: body.model,
+        choices: [{ message: { content: `estimated-answer-${saw.calls}` }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+        },
+      }
+    },
+  })
+}
+
 const PROFILE = {
   name: 'worker',
   harness: 'cli-base',
@@ -77,6 +96,10 @@ const PERSONA_PROFILE = {
   model: { provider: 'test', default: 'fake-persona' },
   prompt: { systemPrompt: 'PERSONA-PROMPT' },
   metadata: { tag: 'persona' },
+} as AgentProfile
+const ESTIMATED_PROFILE = {
+  ...PROFILE,
+  model: { provider: 'test', default: 'gpt-4o-mini' },
 } as AgentProfile
 
 function fakeCtx(costCeilingUsd?: number): DispatchContext & {
@@ -210,6 +233,22 @@ describe('runPersonaConversation', () => {
       tokensKnown: false,
       costUsdKnown: false,
     })
+  })
+
+  it('retains worker-only estimates separately from the observed subtotal', async () => {
+    const saw = { calls: 0 }
+    const result = await runPersonaConversation({
+      worker: ESTIMATED_PROFILE,
+      persona: { kind: 'scripted', turns: ['q1'] },
+      executorFor: () => estimatedUsageExecutor(saw),
+    })
+
+    expect(saw.calls).toBe(1)
+    expect(result).toMatchObject({
+      costUsd: 0,
+      costUsdKnown: false,
+    })
+    expect(result.estimatedCostUsd).toBeGreaterThan(0)
   })
 })
 

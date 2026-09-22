@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.248.0
+
+Runtime runs, persona conversations, and Intelligence share normalized usage accounting.
+Incomplete receipts remain incomplete after numeric overrides, and estimates remain separate from billed spend.
+Malformed Intelligence overrides preserve valid event measurements and mark incomplete token totals.
+Both reporting entrypoints preserve completeness across updates, and unreported Intelligence spend remains unknown outside OFF.
+
+`observe_agent` supports bounded JSON pages and generic `outputPath` field selection while preserving complete retained artifacts.
+Successive pages share one encoding per manager instead of repeatedly loading and serializing the entire artifact.
+Settlements include an `outputRead` call for retrieving their result.
+
+Durable native root corrections remain pending during startup and retry gaps.
+Custom harnesses can expose `deliverReady()` for asynchronous inbox initialization; existing atomic claims still prevent repeated delivery.
+
 ## 0.247.0
 
 Durable steering now accepts the run root's exact ID through the existing `writeWorkerSteer` operation protocol. Router roots receive at turn boundaries; native roots use the active execution's inbox or report `unsupported`. Atomic claims prevent duplicate delivery after retry or interruption; late requests expire without delivery. No new control schema or MCP authority is introduced. `supervise` also forwards its existing `escalateQuestion` callback to root and nested managers instead of silently dropping it. Durable root answers and an application inbox implementation remain outside this change.

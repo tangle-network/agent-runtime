@@ -127,10 +127,11 @@ async function runHarness(
   dir: string,
   drive: DriveHarness,
   makeWorkerAgent: MakeWorkerAgent,
-  deps: Partial<SupervisorAgentDeps> = {},
+  options: Partial<SupervisorAgentDeps> & { journal?: FileSpawnJournal } = {},
 ) {
+  const { journal: sharedJournal, ...deps } = options
   const blobs = deps.blobs ?? new InMemoryResultBlobStore()
-  const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
+  const journal = sharedJournal ?? new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
   let failure: { error: unknown } | undefined
   const driveHarness: DriveHarness = async (input) => {
     try {
@@ -140,6 +141,8 @@ async function runHarness(
       throw error
     }
   }
+  if (drive.deliver) driveHarness.deliver = drive.deliver.bind(drive)
+  if (drive.deliverReady) driveHarness.deliverReady = drive.deliverReady.bind(drive)
   const root = supervisorAgent(
     testAgentProfile('root', {
       harness: 'opencode',
@@ -392,7 +395,7 @@ describe('durable worker controls during a native harness invocation', () => {
         await call(coordinationMcpUrl, 'await_event')
       },
       makeWorker,
-      { blobs },
+      { blobs, journal },
     )
     expect(rootWorker.aborted).toHaveBeenCalledTimes(1)
     expect(nestedWorker.aborted).toHaveBeenCalledTimes(1)

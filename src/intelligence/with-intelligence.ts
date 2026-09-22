@@ -34,6 +34,12 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import {
+  addRuntimeUsage,
+  createRuntimeUsageTotals,
+  isUsageAmount,
+  type RuntimeUsageTotals,
+} from '../runtime-usage'
+import {
   type CertifiedProfile,
   composeCertifiedPrompt,
   createCertifiedPromptSource,
@@ -44,7 +50,9 @@ import {
   type IntelligenceConfig,
   type RunRecord,
   type RunReport,
+  type UsageSplit,
 } from './index'
+import { mergeReportedUsage, normalizeReportedUsage } from './usage'
 
 /** What the hook hands the agent each run. Additive over the prompt-only
  *  delivery: `composePrompt` folds the certified prompt surface (as before);
@@ -69,7 +77,7 @@ export interface AppliedIntelligence {
   applyProfile(base: AgentProfile): AgentProfile
   /** Enrich the {@link RunRecord} sent for this call — outcome, usage split,
    *  model/provider, and the loop event stream. Optional; an un-recorded run
-   *  still sends input/output with an inference-only zero usage split. */
+   *  still sends input/output with unknown usage, except for the OFF billing guarantee. */
   record(report: RunReport): void
 }
 
@@ -103,10 +111,7 @@ export type IntelligenceWrapped<I, O> = ((input: I) => Promise<O>) & {
   flush(): Promise<void>
 }
 
-interface RuntimeEventSummary {
-  inferenceUsd: number
-  inputTokens: number
-  outputTokens: number
+interface RuntimeEventSummary extends RuntimeUsageTotals {
   model?: string
   sessionId?: string
   success?: boolean
@@ -116,14 +121,12 @@ interface RuntimeEventSummary {
 function summarizeRuntimeEvents(
   events: NonNullable<RunReport['runtimeEvents']>,
 ): RuntimeEventSummary {
-  const summary: RuntimeEventSummary = { inferenceUsd: 0, inputTokens: 0, outputTokens: 0 }
+  const summary: RuntimeEventSummary = createRuntimeUsageTotals()
   for (const event of events) {
     if ('session' in event && event.session) summary.sessionId = event.session.id
     if (event.type === 'llm_call') {
       summary.model = event.model
-      summary.inferenceUsd += event.costUsd ?? 0
-      summary.inputTokens += event.tokensIn ?? 0
-      summary.outputTokens += event.tokensOut ?? 0
+      addRuntimeUsage(summary, event)
     } else if (event.type === 'backend_error') {
       summary.success = false
       summary.error = {
@@ -208,6 +211,7 @@ export function withIntelligence<I, O>(
     const certified = source.current()
     const proposals = currentProposals()
     const report: RunReport = {}
+    const usage: Partial<UsageSplit> = {}
     const applied: AppliedIntelligence = {
       runId,
       traceId,
@@ -216,18 +220,51 @@ export function withIntelligence<I, O>(
       proposals,
       applyProfile: (base: AgentProfile) =>
         proposals.reduce((profile, p) => applyAgentProfileDiff(profile, p.diff), base),
-      record: (r: RunReport) => Object.assign(report, r),
+      record: (r: RunReport) => {
+        const tokens = r.tokens ?? report.tokens
+        const tokensIncomplete =
+          report.tokens?.tokensKnown === false || tokens?.tokensKnown === false
+        mergeReportedUsage(usage, r)
+        Object.assign(report, r, {
+          usage,
+          ...(tokens
+            ? { tokens: { ...tokens, ...(tokensIncomplete ? { tokensKnown: false } : {}) } }
+            : {}),
+        })
+      },
     }
 
     function exportCompleted(output: unknown, caught?: unknown): void {
       const completedAt = Date.now()
       const eventSummary = summarizeRuntimeEvents(report.runtimeEvents ?? [])
       const error = report.error ?? (caught !== undefined ? runError(caught) : eventSummary.error)
-      const tokens =
-        report.tokens ??
-        (eventSummary.inputTokens > 0 || eventSummary.outputTokens > 0
-          ? { input: eventSummary.inputTokens, output: eventSummary.outputTokens }
-          : undefined)
+      const tokens: RunRecord['tokens'] =
+        report.tokens !== undefined || eventSummary.llmCalls > 0
+          ? {
+              input: eventSummary.tokensIn,
+              output: eventSummary.tokensOut,
+              ...(eventSummary.tokensKnown === false || report.tokens?.tokensKnown === false
+                ? { tokensKnown: false }
+                : {}),
+            }
+          : undefined
+      if (tokens && report.tokens) {
+        for (const key of ['input', 'output', 'cachedInput', 'reasoning'] as const) {
+          const value = report.tokens[key]
+          if (isUsageAmount(value) && Number.isSafeInteger(value)) tokens[key] = value
+          else if (value !== undefined || key === 'input' || key === 'output') {
+            tokens.tokensKnown = false
+          }
+        }
+      }
+      const reportedCost = report.usage?.inferenceUsd ?? report.costUsd
+      const inferenceKnown =
+        eventSummary.usdKnown !== false &&
+        report.usage?.inferenceUsdKnown !== false &&
+        (reportedCost !== undefined ? isUsageAmount(reportedCost) : eventSummary.llmCalls > 0)
+      const estimatedInferenceUsd = isUsageAmount(report.usage?.estimatedInferenceUsd)
+        ? report.usage.estimatedInferenceUsd
+        : eventSummary.estimatedCostUsd
       const profile = report.profile ?? config.profile
       const record: RunRecord = {
         runId,
@@ -241,10 +278,15 @@ export function withIntelligence<I, O>(
             report.success ??
             (caught !== undefined ? false : (eventSummary.success ?? error === undefined)),
           ...(report.score !== undefined ? { score: report.score } : {}),
-          usage: {
-            inferenceUsd: report.usage?.inferenceUsd ?? report.costUsd ?? eventSummary.inferenceUsd,
-            intelligenceUsd: report.usage?.intelligenceUsd ?? 0,
-          },
+          usage: normalizeReportedUsage({
+            inferenceUsd: isUsageAmount(reportedCost) ? reportedCost : eventSummary.costUsd,
+            ...(inferenceKnown ? {} : { inferenceUsdKnown: false }),
+            ...(isUsageAmount(estimatedInferenceUsd) ? { estimatedInferenceUsd } : {}),
+            intelligenceUsd: report.usage?.intelligenceUsd,
+            ...(report.usage?.intelligenceUsdKnown === false
+              ? { intelligenceUsdKnown: false }
+              : {}),
+          }),
         },
         timing: { startedAt, completedAt, durationMs: completedAt - startedAt },
         ...((report.model ?? eventSummary.model)

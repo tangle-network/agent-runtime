@@ -69,7 +69,7 @@ export interface WorkerSteerRequest {
   readonly at: string
   /** Who asked — 'human', a brain label, a tool name. Provenance, not authorization. */
   readonly source: string
-  /** Exact supervised worker node id. */
+  /** Exact supervised node id, including the run id for its root manager. */
   readonly worker: string
   readonly message: string
   readonly interrupt: boolean

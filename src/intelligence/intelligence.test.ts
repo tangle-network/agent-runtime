@@ -237,6 +237,8 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     const attrs = attrsOf(calls[0]?.body)
     expect(attrs.project).toBe('support-agent')
     expect(attrs['tangle.outcome.success']).toBe(true)
+    expect(attrs['tangle.usage.inference_usd']).toBe(0.002)
+    expect(attrs).not.toHaveProperty('tangle.usage.inference_usd_known')
     expect(calls[0]?.headers.authorization).toBe(`Bearer ${apiKey}`)
   })
 
@@ -290,6 +292,24 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
 })
 
 describe('billing classification — OFF proves inference-only', () => {
+  it.each(['off', 'standard'] as const)(
+    'reports unreported Intelligence cost honestly at %s',
+    async (effort) => {
+      const { calls } = installFetchSpy('ok')
+      const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl, effort })
+      await client.traceRun({ input: {} }, async (trace) => {
+        trace.recordOutcome({ costUsd: 0.01 })
+        return 'ok'
+      })
+      await client.flush()
+      const attrs = attrsOf(calls[0]?.body)
+      expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
+      expect(attrs['tangle.usage.intelligence_usd_known']).toBe(
+        effort === 'off' ? undefined : false,
+      )
+    },
+  )
+
   it("effort:'off' produces zero intelligence-class usage on the trace", async () => {
     const { calls } = installFetchSpy('ok')
     const client = createIntelligenceClient({
@@ -322,7 +342,54 @@ describe('billing classification — OFF proves inference-only', () => {
     const attrs = attrsOf(calls[0]?.body)
     expect(attrs['tangle.effort.intelligence_off']).toBe(false)
     expect(attrs['tangle.usage.intelligence_usd']).toBe(0.03)
+    expect(attrs).not.toHaveProperty('tangle.usage.intelligence_usd_known')
   })
+
+  it('exports a separate inference estimate beside billed inference usage', async () => {
+    const { calls } = installFetchSpy('ok')
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
+    await client.traceRun({ input: {} }, async (trace) => {
+      trace.recordOutcome({
+        usage: {
+          inferenceUsd: 0.01,
+          estimatedInferenceUsd: 0.02,
+          intelligenceUsd: 0,
+        },
+      })
+      return 'ok'
+    })
+    await client.flush()
+
+    const attrs = attrsOf(calls[0]?.body)
+    expect(attrs).toMatchObject({
+      'tangle.usage.inference_usd': 0.01,
+      'tangle.usage.inference_usd_estimated': 0.02,
+    })
+  })
+
+  it.each(['split', 'bare'] as const)(
+    'keeps explicitly incomplete inference usage after a later %s subtotal',
+    async (kind) => {
+      const { calls } = installFetchSpy('ok')
+      const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
+      await client.traceRun({ input: {} }, async (trace) => {
+        trace.recordOutcome({
+          usage: { inferenceUsd: 0.01, inferenceUsdKnown: false, estimatedInferenceUsd: 0.02 },
+        })
+        trace.recordOutcome(
+          kind === 'split' ? { usage: { inferenceUsd: 0.03 } } : { costUsd: 0.03 },
+        )
+        return 'ok'
+      })
+      await client.flush()
+
+      expect(attrsOf(calls[0]?.body)).toMatchObject({
+        'tangle.usage.inference_usd': 0.03,
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+      })
+    },
+  )
 })
 
 describe('doctor()', () => {

@@ -103,6 +103,65 @@ async function jsonRpc(
 }
 
 describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP → Scope.spawn)', () => {
+  it('reads paginated child content through authenticated HTTP without returning its event archive', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const content = 'Checked result: 🧪\n'.repeat(2000)
+    const output = { content, events: [{ data: 'x'.repeat(2_000_000) }] }
+    let reconstructed: unknown
+    const root: Agent<unknown, unknown> = {
+      name: 'reader',
+      async act(_task, scope) {
+        const mcp = await serveCoordinationMcp({
+          scope,
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('writer', output),
+          perWorker: { maxIterations: 4, maxTokens: 1000 },
+          toolNames: ['spawn_worker', 'await_event', 'observe_agent'],
+          authentication: true,
+        })
+        const call = async (name: string, args: unknown) => {
+          const response = await jsonRpc(
+            mcp.url,
+            'tools/call',
+            { name, arguments: args },
+            mcp.headers,
+          )
+          expect(response.error).toBeUndefined()
+          return JSON.parse(response.result.content[0].text)
+        }
+        try {
+          const { workerId } = await call('spawn_worker', { profile: {}, task: 'check' })
+          const settled = await call('await_event', {})
+          expect(settled.outputRead).toEqual({ tool: 'observe_agent', arguments: { workerId } })
+          const chunks: string[] = []
+          let outputOffset = 0
+          do {
+            const page = await call('observe_agent', {
+              workerId,
+              outputPath: ['content'],
+              outputOffset,
+            })
+            expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(64 * 1024)
+            chunks.push(page.outputPage.text)
+            outputOffset = page.outputPage.nextOffset
+          } while (outputOffset !== null)
+          reconstructed = JSON.parse(chunks.join(''))
+          expect(await blobs.get(settled.outRef)).toEqual(output)
+        } finally {
+          await mcp.close()
+        }
+      },
+    }
+    await createSupervisor<unknown, unknown>().run(root, 'read retained work', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'output-read',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+    })
+    expect(reconstructed).toBe(content)
+  })
+
   it('a real HTTP tools/call spawn_worker lands on Scope.spawn and the worker settles', async () => {
     const blobs = new InMemoryResultBlobStore()
     let observed: { toolsList: unknown; settled: ReadonlyArray<{ valid?: boolean }> } | undefined

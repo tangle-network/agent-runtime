@@ -2336,13 +2336,31 @@ bill. This is a classification on the trace, NOT a budget-pool split.
 
 > **inferenceUsd**: `number`
 
-Base-stream (model) spend in USD.
+Observed base-stream spend in USD; a subtotal when `inferenceUsdKnown` is false.
 
 ##### intelligenceUsd
 
 > **intelligenceUsd**: `number`
 
 Intelligence-spawn spend in USD. Provably `0` at the OFF tier.
+
+##### inferenceUsdKnown?
+
+> `optional` **inferenceUsdKnown?**: `false`
+
+False when inference cost is incomplete or unreported.
+
+##### intelligenceUsdKnown?
+
+> `optional` **intelligenceUsdKnown?**: `false`
+
+False when Intelligence cost is incomplete or unreported.
+
+##### estimatedInferenceUsd?
+
+> `optional` **estimatedInferenceUsd?**: `number`
+
+Reported inference estimate, separate from observed spend and completeness.
 
 ***
 
@@ -2468,6 +2486,12 @@ tree under the same `traceId`.
 
 > `optional` **reasoning?**: `number`
 
+###### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+False when the numeric token subtotals are incomplete.
+
 ##### error?
 
 > `optional` **error?**: `object`
@@ -2496,8 +2520,8 @@ Exact proposal → review → execution → receipt linkage for candidate runs.
 
 What an agent reports (via `applied.record`) to enrich the [RunRecord](#runrecord)
 sent for its call. All optional — an un-recorded run still sends input/output
-with an inference-only zero usage split. `costUsd` without a split is treated
-as pure inference (the base stream).
+with unknown usage, except for the OFF billing guarantee.
+`costUsd` supplies inference spend when the split omits it.
 
 #### Properties
 
@@ -2568,6 +2592,12 @@ as pure inference (the base stream).
 ###### reasoning?
 
 > `optional` **reasoning?**: `number`
+
+###### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+False when the numeric token subtotals are incomplete.
 
 ##### error?
 
@@ -2781,10 +2811,9 @@ Capture the run's output. Exported through the redactor.
 
 > **recordOutcome**(`outcome`): `void`
 
-Capture the run's outcome. `usage` defaults to inference-only
-(`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
-fills `intelligenceUsd` itself. `costUsd`, when given without a split, is
-treated as pure inference.
+Capture the run's outcome. Unreported spend is unknown, except for Intelligence at OFF.
+`costUsd` supplies inference spend when the split omits it.
+Numeric usage updates replace subtotals; explicit incomplete flags remain sticky.
 
 ###### Parameters
 
@@ -3320,7 +3349,7 @@ Fold every proposal into `base` via `applyAgentProfileDiff`, in promotion
 
 Enrich the [RunRecord](#runrecord) sent for this call — outcome, usage split,
  model/provider, and the loop event stream. Optional; an un-recorded run
- still sends input/output with an inference-only zero usage split.
+ still sends input/output with unknown usage, except for the OFF billing guarantee.
 
 ###### Parameters
 

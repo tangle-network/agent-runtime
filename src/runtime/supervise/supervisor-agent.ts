@@ -431,6 +431,9 @@ export interface DriveHarness {
   /** Optional live inbox for the manager session this adapter currently drives. Return `false`
    * when no executor inbox is active instead of claiming a message was delivered. */
   deliver?(message: unknown): boolean
+  /** Optional readiness predicate for the live inbox. Root steers remain durable and unclaimed
+   * until this returns `true`; it is checked only while the harness invocation is active. */
+  deliverReady?(): boolean
   /** Optional live evidence from the harness execution currently being driven. */
   traceSource?(): TraceSource | undefined
   /** Optional live progress from the harness execution currently being driven. */
@@ -866,6 +869,13 @@ function buildSupervisorAgent(
     )
   }
   const deliver = driveHarness.deliver?.bind(driveHarness)
+  const rawDeliverReady = driveHarness.deliverReady
+  if (rawDeliverReady !== undefined && typeof rawDeliverReady !== 'function') {
+    throw new ValidationError(
+      'supervisorAgent: driveHarness.deliverReady must be a function when provided',
+    )
+  }
+  const deliverReady = rawDeliverReady?.bind(driveHarness)
   const externalAgent: Agent<unknown, unknown> = {
     name,
     ...(deliver
@@ -894,6 +904,7 @@ function buildSupervisorAgent(
       const nodeObserver = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
       const stopController = new AbortController()
       const coordinationLifetime = linkAbort(scope.signal)
+      let harnessInvocationActive = false
       // PROGRESS-derived stop on this arm. The harness owns its own turn loop, so a worker settle
       // is the evaluation boundary the supervisor has — and it is the same ledger + the same
       // `progressStop` evaluator the router arm consults before each of its inference turns.
@@ -1012,6 +1023,9 @@ function buildSupervisorAgent(
               : {
                   deliverRoot: (message: { steer: string; interrupt: boolean }) =>
                     deliver?.(message) ?? false,
+                  deliverRootReady: () =>
+                    deliver === undefined ||
+                    (harnessInvocationActive && (deliverReady === undefined || deliverReady())),
                 }),
             onError: (error) => {
               coordinationLifetime.abort(error)
@@ -1071,6 +1085,7 @@ function buildSupervisorAgent(
             scope.signal.throwIfAborted()
             // Every drive after the first is a new execution attempt of the root.
             beginScopeOwnerAttempt(scope, attempt)
+            harnessInvocationActive = true
             try {
               await driveHarness({
                 profile: providerProfile,
@@ -1090,6 +1105,8 @@ function buildSupervisorAgent(
               // cannot erase that completed work — and there is nothing left to retry FOR. Without
               // an accepted submission the backend error propagates into the retry decision.
               if (!mcp.submittedResult() && !mcp.isStopped()) throw error
+            } finally {
+              harnessInvocationActive = false
             }
             // Decide this parent's completion before the retry loop reads progress. Cache the
             // checked candidate so neither the finalizer nor its oracle runs twice on return.

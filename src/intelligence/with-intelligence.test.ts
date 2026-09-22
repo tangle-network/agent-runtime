@@ -184,12 +184,13 @@ describe('withIntelligence — SAFETY (observe + deliver only, never auto-apply)
 })
 
 /** Pull every span attribute across an OTLP export body into one flat map. */
-function attrsOf(body: unknown): Record<string, unknown> {
+function attrsOf(body: unknown, spanName?: string): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   const resourceSpans = (body as { resourceSpans?: unknown[] })?.resourceSpans ?? []
   for (const rs of resourceSpans) {
     for (const ss of (rs as { scopeSpans?: unknown[] }).scopeSpans ?? []) {
       for (const span of (ss as { spans?: unknown[] }).spans ?? []) {
+        if (spanName !== undefined && (span as { name?: string }).name !== spanName) continue
         for (const a of (span as { attributes?: unknown[] }).attributes ?? []) {
           const attr = a as { key: string; value: Record<string, unknown> }
           const v = attr.value
@@ -206,6 +207,293 @@ function attrsOf(body: unknown): Record<string, unknown> {
 }
 
 describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
+  it.each(['off', 'standard'] as const)(
+    'reports unreported Intelligence cost honestly at %s',
+    async (effort) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(async () => 'done', {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        effort,
+        fetchImpl: async () => jsonResponse(COMPOSED),
+      })
+      await agent(null)
+      await agent.flush()
+      const attrs = attrsOf(posts[0], 'tangle.intelligence.run')
+      expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
+      expect(attrs['tangle.usage.intelligence_usd_known']).toBe(
+        effort === 'off' ? undefined : false,
+      )
+    },
+  )
+
+  it.each(['split', 'bare'] as const)(
+    'keeps completeness evidence across repeated records and a later %s subtotal',
+    async (kind) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            usage: {
+              inferenceUsd: 0.01,
+              inferenceUsdKnown: false,
+              intelligenceUsdKnown: false,
+              estimatedInferenceUsd: 0.02,
+            },
+            tokens: { input: 10, output: 5, tokensKnown: false },
+          })
+          applied.record({ usage: { intelligenceUsd: 0.04 } })
+          applied.record({
+            ...(kind === 'split' ? { usage: { inferenceUsd: 0.03 } } : { costUsd: 0.03 }),
+            tokens: { input: 20, output: 9 },
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+        'tangle.usage.inference_usd': 0.03,
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.intelligence_usd': 0.04,
+        'tangle.usage.intelligence_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+        'gen_ai.usage.input_tokens': 20,
+        'gen_ai.usage.output_tokens': 9,
+        'tangle.usage.tokens_known': false,
+      })
+    },
+  )
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5])(
+    'preserves observed tokens when overrides contain invalid counts (%s)',
+    async (invalid) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            tokens: { input: invalid, output: 9, cachedInput: invalid, reasoning: invalid },
+            runtimeEvents: [
+              { type: 'llm_call', model: 'test', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
+            ],
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      const attributes = attrsOf(posts[0], 'tangle.intelligence.run')
+      expect(attributes).toMatchObject({
+        'gen_ai.usage.input_tokens': 10,
+        'gen_ai.usage.output_tokens': 9,
+        'tangle.usage.tokens_known': false,
+      })
+      expect(attributes).not.toHaveProperty('gen_ai.usage.cache_read_input_tokens')
+      expect(attributes).not.toHaveProperty('gen_ai.usage.reasoning_tokens')
+    },
+  )
+
+  it.each([Number.NaN, -0.1, Number.POSITIVE_INFINITY])(
+    'preserves event estimates when the estimate override is invalid (%s)',
+    async (estimatedInferenceUsd) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            usage: { estimatedInferenceUsd },
+            runtimeEvents: [{ type: 'llm_call', model: 'test', estimatedCostUsd: 0.02 }],
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+      })
+    },
+  )
+
+  it.each(['costUsd', 'usage'] as const)(
+    'keeps incomplete event receipts when %s and token totals are overridden',
+    async (costReport) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            ...(costReport === 'costUsd' ? { costUsd: 0.01 } : { usage: { inferenceUsd: 0.01 } }),
+            tokens: { input: 10, output: 5 },
+            runtimeEvents: [
+              { type: 'llm_call', model: 'test', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
+              {
+                type: 'llm_call',
+                model: 'test',
+                tokensIn: 0,
+                tokensOut: 0,
+                costUsd: 0,
+                tokensKnown: false,
+                usdKnown: false,
+                estimatedCostUsd: 0.02,
+              },
+            ],
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+        'tangle.usage.inference_usd': 0.01,
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+        'tangle.usage.tokens_known': false,
+        'gen_ai.usage.input_tokens': 10,
+        'gen_ai.usage.output_tokens': 5,
+      })
+    },
+  )
+
+  it('exports unknown call costs and estimates without labeling them as measured zero', async () => {
+    const posts: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        if (init.body) posts.push(JSON.parse(String(init.body)))
+        return new Response('{}', { status: 200 })
+      }),
+    )
+    const agent = withIntelligence(
+      async (_input: null, applied) => {
+        applied.record({
+          runtimeEvents: [
+            { type: 'llm_call', model: 'test', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
+            { type: 'llm_call', model: 'test', tokensIn: 20, estimatedCostUsd: 0.02 },
+          ],
+        })
+        throw new Error('connection lost')
+      },
+      {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        fetchImpl: async () => jsonResponse(COMPOSED),
+      },
+    )
+    await expect(agent(null)).rejects.toThrow('connection lost')
+    await agent.flush()
+    expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+      'tangle.usage.inference_usd': 0.01,
+      'tangle.usage.inference_usd_known': false,
+      'tangle.usage.inference_usd_estimated': 0.02,
+      'tangle.usage.tokens_known': false,
+      'gen_ai.usage.input_tokens': 30,
+      'gen_ai.usage.output_tokens': 5,
+      'tangle.outcome.success': false,
+    })
+  })
+
+  it('exports an estimate even when a separate billed subtotal is present', async () => {
+    const posts: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        if (init.body) posts.push(JSON.parse(String(init.body)))
+        return new Response('{}', { status: 200 })
+      }),
+    )
+    const agent = withIntelligence(
+      async (_input: null, applied) => {
+        applied.record({
+          runtimeEvents: [
+            {
+              type: 'llm_call',
+              model: 'test',
+              tokensIn: 10,
+              tokensOut: 5,
+              costUsd: 0.01,
+              estimatedCostUsd: 0.02,
+            },
+          ],
+        })
+        return 'done'
+      },
+      {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        fetchImpl: async () => jsonResponse(COMPOSED),
+      },
+    )
+    await agent(null)
+    await agent.flush()
+
+    expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+      'tangle.usage.inference_usd': 0.01,
+      'tangle.usage.inference_usd_estimated': 0.02,
+    })
+  })
+
   it('ships one run span carrying target + usage split + model, best-effort', async () => {
     vi.useFakeTimers()
     try {
@@ -403,6 +691,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['error.type']).toBe('rate_limit')
       expect(attrs['error.message']).toBe('provider exhausted')
       expect(attrs['tangle.duration_ms']).toEqual(expect.any(Number))
+      expect(attrs['tangle.usage.inference_usd_known']).toBe(false)
     } finally {
       vi.useRealTimers()
     }

@@ -17098,7 +17098,7 @@ Who asked — 'human', a brain label, a tool name. Provenance, not authorization
 
 > `readonly` **worker**: `string`
 
-Exact supervised worker node id.
+Exact supervised node id, including the run id for its root manager.
 
 ##### message
 
@@ -20158,6 +20158,17 @@ when no executor inbox is active instead of claiming a message was delivered.
 ###### message
 
 `unknown`
+
+###### Returns
+
+`boolean`
+
+##### deliverReady()?
+
+> `optional` **deliverReady**(): `boolean`
+
+Optional readiness predicate for the live inbox. Root steers remain durable and unclaimed
+until this returns `true`; it is checked only while the harness invocation is active.
 
 ###### Returns
 

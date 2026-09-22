@@ -11,11 +11,17 @@ export function observeWorkerControls(options: {
   controlScope: 'run' | 'subtree'
   /** Root's existing inbox only; omitted for every nested manager. */
   deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
+  /** Root delivery readiness; checked before a durable steer is claimed. */
+  deliverRootReady?: () => boolean
   onError: (error: unknown) => void
 }): { close(): Promise<void> } {
   const { dir, coord, scope, signal, controlScope, onError } = options
   const deps = { dir, coord, scope, signal, now: Date.now, ownerId: scope.view.root, controlScope }
-  const steers = createSteerAcknowledger({ ...deps, deliverRoot: options.deliverRoot })
+  const steers = createSteerAcknowledger({
+    ...deps,
+    deliverRoot: options.deliverRoot,
+    deliverRootReady: options.deliverRootReady,
+  })
   const cancellations = createCancelAcknowledger(deps)
   let active = true
   let timer: ReturnType<typeof setInterval> | undefined
