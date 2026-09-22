@@ -263,12 +263,14 @@ describe('RouterConfig.complete — the injected completion transport', () => {
   })
 
   it('passes initial delay, exponential cap, and jitter to the shared retry primitive', async () => {
+    vi.useFakeTimers()
     vi.spyOn(Math, 'random').mockReturnValue(1)
-    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
-    let calls = 0
+    const startedAt = Date.now()
+    // The sleeper can re-arm an early timer; only request attempts define retry timing.
+    const attemptTimes: number[] = []
     const fetchSpy = vi.fn(async () => {
-      calls += 1
-      if (calls < 3) throw new TypeError('fetch failed')
+      attemptTimes.push(Date.now() - startedAt)
+      if (attemptTimes.length < 3) throw new TypeError('fetch failed')
       return {
         ok: true,
         status: 200,
@@ -277,7 +279,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     })
     vi.stubGlobal('fetch', fetchSpy)
 
-    await routerChatWithUsage(
+    const pending = routerChatWithUsage(
       {
         routerBaseUrl: 'http://router.test/v1',
         routerKey: 'k',
@@ -293,7 +295,12 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       [{ role: 'user', content: 'back off' }],
     )
 
-    expect(timerSpy.mock.calls.map((call) => call[1])).toEqual([12, 18])
+    await vi.advanceTimersByTimeAsync(30)
+    expect(attemptTimes).toEqual([0, 12, 30])
+    await expect(pending).resolves.toMatchObject({
+      content: 'third try',
+      transportAttempts: 3,
+    })
   })
 
   it('cancels pending backoff and never starts another request after caller abort', async () => {

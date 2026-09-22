@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.249.1
+
+Verify retry backoff through request-attempt timing on a controlled clock.
+Shared timer re-arming no longer looks like an extra retry; runtime retry behavior is unchanged.
+
 ## 0.249.0
 
 Require Eval `>=0.183.0 <0.184.0`, matching the tested development dependency.
