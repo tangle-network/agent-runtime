@@ -110,7 +110,11 @@ function capabilities(): AgentEnvironmentCapabilities {
 
 function providerFor(
   stream: (input: AgentTurnInput) => AsyncIterable<AgentEnvironmentEvent>,
-  options: { readonly id?: string; readonly destroy?: () => Promise<void> } = {},
+  options: {
+    readonly id?: string
+    readonly create?: () => void
+    readonly destroy?: () => Promise<void>
+  } = {},
 ): { provider: AgentEnvironmentProvider; environment: AgentEnvironment; destroyed: () => number } {
   let destroyCount = 0
   const environment: AgentEnvironment = {
@@ -127,8 +131,7 @@ function providerFor(
     name: environment.provider,
     capabilities,
     async create() {
-      if (!environment) throw new Error('retained test environment was not created')
-      if (!environment) throw new Error('retained test environment was not created')
+      options.create?.()
       return environment
     },
   }
@@ -237,6 +240,64 @@ describe('provider workspace retention', () => {
     expect(seen?.executionId).toBeTruthy()
     expect(seen?.profile).toBe(profile)
     expect(seen?.signal.aborted).toBe(false)
+    expect(destroyed()).toBe(1)
+  })
+
+  it('refuses executor reuse while a retained source environment is still live', async () => {
+    const artifacts = artifactStore()
+    let creates = 0
+    let failCreate = false
+    const { provider, destroyed } = providerFor(doneStream(), {
+      create: () => {
+        creates += 1
+        if (failCreate) throw new Error('next create failed')
+      },
+    })
+    const executor = providerAsExecutor(provider, {
+      destroyOnSettle: false,
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        capture: (context) => snapshot(artifacts, context.executionId),
+      },
+    })(
+      { profile: testProfile('retention-live-reuse'), harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {},
+      },
+    )
+    for await (const _event of executor.execute(
+      'first',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      // Leave the source live with destroyOnSettle=false.
+    }
+    expect(creates).toBe(1)
+
+    await expect(async () => {
+      for await (const _event of executor.execute(
+        'second',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        // The reuse guard runs before provider.create.
+      }
+    }).rejects.toThrow(/still live/)
+    expect(creates).toBe(1)
+    await expect(executor.teardown('brutalKill')).resolves.toMatchObject({ destroyed: true })
+    expect(destroyed()).toBe(1)
+
+    failCreate = true
+    await expect(async () => {
+      for await (const _event of executor.execute(
+        'third',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        // The provider create fails before a new environment is published.
+      }
+    }).rejects.toThrow('next create failed')
+    expect(creates).toBe(2)
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
     expect(destroyed()).toBe(1)
   })
 

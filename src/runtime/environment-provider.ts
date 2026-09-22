@@ -738,6 +738,17 @@ function createProviderExecutor(
         `providerAsExecutor(${provider.name}): a prior failed execution has no retrievable workspace receipt; source remains preserved and this executor cannot be reused`,
       )
     }
+    if (environment !== undefined && !destroyed) {
+      throw new ValidationError(
+        `providerAsExecutor(${provider.name}): the prior workspace environment is still live; teardown must release it before this executor can be reused`,
+      )
+    }
+    // Do not leave a confirmed-destroyed handle in the next generation. If the new create fails
+    // before onEnvironment runs, a later teardown must not retry deletion of the old source.
+    if (environment !== undefined && destroyed) {
+      environment = undefined
+      workspaceEnvironmentId = undefined
+    }
     workspaceRunActive = true
     workspaceSnapshot = undefined
     workspacePublishedSnapshot = undefined
