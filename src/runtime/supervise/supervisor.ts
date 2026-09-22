@@ -62,6 +62,7 @@ import { prepareScopeResume, type ScopeResumeState, sumSpendFromEvents } from '.
 export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './recover-executors'
 
 import { withBudgetResources } from './resources'
+import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
 import {
   closeScopeAdmission,
   createScope,
@@ -374,6 +375,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       childSettleGraceMs,
       resume,
       retainedAtSettlement: requestedRetainedAtSettlement,
+      ownerWorkspaceRetention,
       now: suppliedNow,
       signal,
       hooks,
@@ -398,6 +400,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(requestedRetainedAtSettlement === undefined
             ? {}
             : { retainedAtSettlement: requestedRetainedAtSettlement }),
+          ...(ownerWorkspaceRetention === undefined ? {} : { ownerWorkspaceRetention }),
           ...(interactiveBindingDir === undefined ? {} : { interactiveBindingDir }),
         },
       },
@@ -592,7 +595,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         journal,
         blobs: opts.blobs,
         executors: opts.executors,
-        seams: {},
+        seams: { [retainedOwnerWorkspaceRetentionSeamKey]: ownerWorkspaceRetention === true },
         depth: 0,
         maxDepth: opts.maxDepth ?? defaultMaxDepth,
         ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),

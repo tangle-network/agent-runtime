@@ -1,9 +1,15 @@
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
+import {
+  contentAddress,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/spawn-journal'
 import {
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
+  bindScopeRetainedOwnerWorkspaceRetention,
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerTask,
   registerScopeRetainedOwner,
@@ -15,6 +21,7 @@ import {
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
+import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
 
 async function inScope(body: (scope: Scope<unknown>) => Promise<void>) {
   let failure: unknown
@@ -122,6 +129,291 @@ describe('retained scope owner input and result', () => {
       { ...foreign, environmentId, destroyed: true },
       { id: 'owner-test', provider: provider.name, environmentId, destroyed: true },
     ])
+  })
+
+  it('preserves a later unreceipted attempt after resumed retention config drifts', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const events: SpawnEvent[] = [
+      {
+        kind: 'execution-input',
+        id: 'owner-test',
+        taskRef: contentAddress('first-task'),
+        workspaceRetention: true,
+        seq: 1,
+        at: new Date(0).toISOString(),
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'environment',
+          provider: 'owner-provider',
+          environmentId: 'first-source',
+          idempotencyKey: 'first-key',
+          turnId: 'first-turn',
+          sessionId: 'first-session',
+          executionId: 'first-execution',
+        },
+        seq: 2,
+        at: new Date(0).toISOString(),
+      },
+      {
+        kind: 'execution-input',
+        id: 'owner-test',
+        taskRef: contentAddress('second-task'),
+        seq: 3,
+        at: new Date(0).toISOString(),
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'environment',
+          provider: 'owner-provider',
+          environmentId: 'second-source',
+          idempotencyKey: 'second-key',
+          turnId: 'second-turn',
+          sessionId: 'second-session',
+          executionId: 'second-execution',
+        },
+        seq: 4,
+        at: new Date(0).toISOString(),
+      },
+    ]
+    let destroys = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'owner-provider',
+      capabilities() {
+        throw new Error('cleanup must not request execution capabilities')
+      },
+      async create() {
+        throw new Error('cleanup must not create an environment')
+      },
+      async get(id) {
+        return {
+          id,
+          provider: 'owner-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield* []
+          },
+          async destroy() {
+            destroys++
+          },
+        }
+      },
+    }
+    await inScope(async (scope) => {
+      registerScopeRetainedOwner(scope, {
+        rootId: 'owner-test',
+        nodeId: 'owner-test',
+        blobs,
+        priorEvents: events,
+        now: () => 0,
+        journal: {
+          loadTree: async () => [...events],
+          beginTree: async () => {},
+          appendEvent: async (_root, event) => {
+            events.push(event)
+          },
+        },
+      })
+      bindScopeRetainedOwnerProvider(scope, provider)
+      bindScopeRetainedOwnerWorkspaceRetention(scope, false)
+      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toHaveLength(1)
+    })
+    expect(destroys).toBe(0)
+    const teardowns = events.filter((event) => event.kind === 'environment-teardown')
+    expect(new Set(teardowns.map((event) => event.environmentId))).toEqual(
+      new Set(['first-source', 'second-source']),
+    )
+    expect(teardowns.every((event) => !event.destroyed)).toBe(true)
+  })
+
+  it('preserves an unmarked legacy source when retention remains configured on resume', async () => {
+    const environmentId = 'legacy-environment-id'
+    const blobs = new InMemoryResultBlobStore()
+    const events: SpawnEvent[] = [
+      {
+        kind: 'execution-input',
+        id: 'owner-test',
+        taskRef: contentAddress('legacy-task'),
+        seq: 1,
+        at: new Date(0).toISOString(),
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'environment',
+          provider: 'owner-provider',
+          environmentId,
+          idempotencyKey: 'legacy-environment-key',
+          turnId: 'legacy-turn',
+          sessionId: 'legacy-session',
+          executionId: 'legacy-execution',
+        },
+        seq: 2,
+        at: new Date(0).toISOString(),
+      },
+    ]
+    let destroys = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'owner-provider',
+      capabilities() {
+        throw new Error('cleanup must not request execution capabilities')
+      },
+      async create() {
+        throw new Error('cleanup must not create an environment')
+      },
+      async get(id) {
+        return {
+          id,
+          provider: 'owner-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield* []
+          },
+          async destroy() {
+            destroys++
+          },
+        }
+      },
+    }
+    await inScope(async (scope) => {
+      registerScopeRetainedOwner(scope, {
+        rootId: 'owner-test',
+        nodeId: 'owner-test',
+        blobs,
+        priorEvents: events,
+        now: () => 0,
+        journal: {
+          loadTree: async () => [...events],
+          beginTree: async () => {},
+          appendEvent: async (_root, event) => {
+            events.push(event)
+          },
+        },
+      })
+      bindScopeRetainedOwnerProvider(scope, provider)
+      bindScopeRetainedOwnerWorkspaceRetention(scope, true)
+
+      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toEqual([
+        { id: 'owner-test', label: 'scope owner', runtime: provider.name, status: 'done' },
+      ])
+    })
+
+    expect(destroys).toBe(0)
+    expect(events.at(-1)).toMatchObject({
+      kind: 'environment-teardown',
+      id: 'owner-test',
+      provider: provider.name,
+      environmentId,
+      destroyed: false,
+      detail: expect.stringContaining('no verified workspace receipt'),
+    })
+  })
+
+  it.each([
+    { name: 'null', invalid: null, destroyed: false },
+    { name: 'empty', invalid: {}, destroyed: false },
+    { name: 'valid', invalid: undefined, destroyed: true },
+  ])('requires a durable owner workspace receipt before deletion ($name)', async (testCase) => {
+    const environmentId = 'receipt-source'
+    const blobs = new InMemoryResultBlobStore()
+    const { outputArtifacts } = createCandidateOutputFixture()
+    const valid = await captureAgentCandidateWorkspaceFiles(
+      [{ path: 'work.txt', mode: 0o644, bytes: new TextEncoder().encode('retained work') }],
+      { artifactPersistence: { executionId: 'owner:input:1', outputArtifacts } },
+    )
+    const output = {
+      workspaceSnapshot: testCase.name === 'valid' ? valid.snapshot : testCase.invalid,
+    }
+    const outRef = contentAddress(output)
+    await blobs.put(outRef, output)
+    const events: SpawnEvent[] = [
+      {
+        kind: 'execution-input',
+        id: 'owner-test',
+        taskRef: contentAddress('task'),
+        workspaceRetention: true,
+        seq: 1,
+        at: new Date(0).toISOString(),
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'environment',
+          provider: 'owner-provider',
+          environmentId,
+          idempotencyKey: 'receipt-key',
+          turnId: 'receipt-turn',
+          sessionId: 'receipt-session',
+          executionId: 'owner:input:1',
+        },
+        seq: 2,
+        at: new Date(0).toISOString(),
+      },
+      {
+        kind: 'execution-result',
+        id: 'owner-test',
+        outRef,
+        spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+        seq: 3,
+        at: new Date(0).toISOString(),
+      },
+    ]
+    let destroys = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'owner-provider',
+      capabilities() {
+        throw new Error('cleanup must not request execution capabilities')
+      },
+      async create() {
+        throw new Error('cleanup must not create an environment')
+      },
+      async get(id) {
+        return {
+          id,
+          provider: 'owner-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield* []
+          },
+          async destroy() {
+            destroys++
+          },
+        }
+      },
+    }
+    await inScope(async (scope) => {
+      registerScopeRetainedOwner(scope, {
+        rootId: 'owner-test',
+        nodeId: 'owner-test',
+        blobs,
+        priorEvents: events,
+        now: () => 0,
+        journal: {
+          loadTree: async () => [...events],
+          beginTree: async () => {},
+          appendEvent: async (_root, event) => {
+            events.push(event)
+          },
+        },
+      })
+      bindScopeRetainedOwnerProvider(scope, provider)
+      bindScopeRetainedOwnerWorkspaceRetention(scope, false)
+      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toHaveLength(
+        testCase.destroyed ? 0 : 1,
+      )
+    })
+    expect(destroys).toBe(testCase.destroyed ? 1 : 0)
+    expect(events.at(-1)).toMatchObject({
+      kind: 'environment-teardown',
+      environmentId,
+      destroyed: testCase.destroyed,
+    })
   })
 
   it('restores original backend input and identity, then allocates a distinct identity for a later drive', async () => {

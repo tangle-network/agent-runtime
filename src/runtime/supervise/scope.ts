@@ -98,8 +98,10 @@ import {
   retainedExecutorSeamKey,
 } from './retained-executor'
 import {
+  bindScopeRetainedOwnerWorkspaceRetention,
   registerScopeRetainedOwner,
   releaseScopeRetainedOwnerEnvironment,
+  retainedOwnerWorkspaceRetentionSeamKey,
 } from './retained-scope-owner'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -2132,6 +2134,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     priorEvents: args.resumeFrom?.events ?? [],
     now,
   })
+  bindScopeRetainedOwnerWorkspaceRetention(
+    scope as Scope<unknown>,
+    args.seams[retainedOwnerWorkspaceRetentionSeamKey] === true,
+  )
   return scope
 }
 

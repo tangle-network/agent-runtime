@@ -868,7 +868,6 @@ function createProviderExecutor(
         if (options.workspaceRetention !== undefined) {
           workspaceSnapshot = undefined
           workspaceCapturePromise = undefined
-          workspaceOutcome = undefined
         }
         workspaceCleanupPromise = undefined
       }

@@ -632,6 +632,56 @@ describe('provider workspace retention', () => {
     expect(destroyed()).toBe(1)
   })
 
+  it('preserves the settled failure outcome across a transient destroy retry', async () => {
+    const artifacts = artifactStore()
+    const outcomes: Array<ProviderWorkspaceRetentionContext['outcome']> = []
+    let destroys = 0
+    const { provider, destroyed } = providerFor(
+      async function* () {
+        yield {
+          type: 'result',
+          data: { finalText: 'failed', success: false, error: 'provider reported failure' },
+        }
+      },
+      {
+        destroy: async () => {
+          destroys += 1
+          if (destroys === 1) throw new Error('transient destroy failure')
+        },
+      },
+    )
+    const executor = providerAsExecutor(provider, {
+      destroyOnSettle: false,
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture(context) {
+          outcomes.push(context.outcome)
+          return await snapshot(artifacts, context.executionId)
+        },
+      },
+    })(
+      { profile: testProfile('retention-failure-outcome-retry'), harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {},
+      },
+    )
+    for await (const _event of executor.execute(
+      'task',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      // Keep cleanup explicit so both capture generations are observable.
+    }
+
+    await expect(executor.teardown('brutalKill')).resolves.toMatchObject({ destroyed: false })
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+    expect(outcomes).toHaveLength(2)
+    expect(outcomes[0]).toMatchObject({ success: false, error: 'provider reported failure' })
+    expect(outcomes[1]).toEqual(outcomes[0])
+    expect(destroyed()).toBe(2)
+  })
+
   it('keeps a retained failed execution alive through teardown and release', async () => {
     const artifacts = artifactStore()
     const provider = pendingRetainedProvider()
