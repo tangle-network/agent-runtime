@@ -4,6 +4,7 @@
 
 Runtime runs, persona conversations, and Intelligence share normalized usage accounting.
 Incomplete receipts remain incomplete after numeric overrides, and estimates remain separate from billed spend.
+Malformed Intelligence overrides preserve valid event measurements and mark incomplete token totals.
 
 `observe_agent` supports bounded JSON pages and generic `outputPath` field selection while preserving complete retained artifacts.
 Successive pages share one encoding per manager instead of repeatedly loading and serializing the entire artifact.

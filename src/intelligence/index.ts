@@ -423,6 +423,7 @@ export interface TraceHandle {
    * (`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
    * fills `intelligenceUsd` itself. `costUsd`, when given without a split, is
    * treated as pure inference.
+   * Numeric usage updates replace subtotals; explicit incomplete flags remain sticky.
    */
   recordOutcome(outcome: {
     success?: boolean
@@ -800,6 +801,8 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       const traceId = meta.traceId ?? freshTraceId()
       let recordedOutput: unknown
       const usage: UsageSplit = { inferenceUsd: 0, inferenceUsdKnown: false, intelligenceUsd: 0 }
+      // Unreported usage can become known; an explicitly incomplete receipt cannot.
+      let inferenceIncomplete = false
       let success: boolean | undefined
       let score: number | undefined
 
@@ -810,23 +813,23 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         recordOutcome(outcome): void {
           if (typeof outcome.success === 'boolean') success = outcome.success
           if (typeof outcome.score === 'number') score = outcome.score
+          if (outcome.usage?.inferenceUsdKnown === false) {
+            inferenceIncomplete = true
+            usage.inferenceUsdKnown = false
+          }
+          const inferenceUsd = outcome.usage ? outcome.usage.inferenceUsd : outcome.costUsd
+          if (isUsageAmount(inferenceUsd)) {
+            usage.inferenceUsd = inferenceUsd
+            if (!inferenceIncomplete) delete usage.inferenceUsdKnown
+          }
           if (outcome.usage) {
-            if (isUsageAmount(outcome.usage.inferenceUsd)) {
-              usage.inferenceUsd = outcome.usage.inferenceUsd
-              delete usage.inferenceUsdKnown
-            }
             if (isUsageAmount(outcome.usage.intelligenceUsd)) {
               usage.intelligenceUsd = outcome.usage.intelligenceUsd
             }
-            if (outcome.usage.inferenceUsdKnown === false) usage.inferenceUsdKnown = false
             if (outcome.usage.intelligenceUsdKnown === false) usage.intelligenceUsdKnown = false
             if (isUsageAmount(outcome.usage.estimatedInferenceUsd)) {
               usage.estimatedInferenceUsd = outcome.usage.estimatedInferenceUsd
             }
-          } else if (isUsageAmount(outcome.costUsd)) {
-            // A bare cost with no split is pure inference (the base stream).
-            usage.inferenceUsd = outcome.costUsd
-            delete usage.inferenceUsdKnown
           }
         },
       }

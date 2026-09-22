@@ -2815,6 +2815,7 @@ Capture the run's outcome. `usage` defaults to inference-only
 (`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
 fills `intelligenceUsd` itself. `costUsd`, when given without a split, is
 treated as pure inference.
+Numeric usage updates replace subtotals; explicit incomplete flags remain sticky.
 
 ###### Parameters
 

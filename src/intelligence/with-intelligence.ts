@@ -224,25 +224,33 @@ export function withIntelligence<I, O>(
       const completedAt = Date.now()
       const eventSummary = summarizeRuntimeEvents(report.runtimeEvents ?? [])
       const error = report.error ?? (caught !== undefined ? runError(caught) : eventSummary.error)
-      const tokenTotals =
-        report.tokens ??
-        (eventSummary.llmCalls > 0
+      const tokens: RunRecord['tokens'] =
+        report.tokens !== undefined || eventSummary.llmCalls > 0
           ? {
               input: eventSummary.tokensIn,
               output: eventSummary.tokensOut,
+              ...(eventSummary.tokensKnown === false || report.tokens?.tokensKnown === false
+                ? { tokensKnown: false }
+                : {}),
             }
-          : undefined)
-      const tokens = tokenTotals && {
-        ...tokenTotals,
-        ...(eventSummary.tokensKnown === false ? { tokensKnown: false as const } : {}),
+          : undefined
+      if (tokens && report.tokens) {
+        for (const key of ['input', 'output', 'cachedInput', 'reasoning'] as const) {
+          const value = report.tokens[key]
+          if (isUsageAmount(value) && Number.isSafeInteger(value)) tokens[key] = value
+          else if (value !== undefined || key === 'input' || key === 'output') {
+            tokens.tokensKnown = false
+          }
+        }
       }
       const reportedCost = report.usage?.inferenceUsd ?? report.costUsd
       const inferenceKnown =
         eventSummary.usdKnown !== false &&
         report.usage?.inferenceUsdKnown !== false &&
         (reportedCost !== undefined ? isUsageAmount(reportedCost) : eventSummary.llmCalls > 0)
-      const estimatedInferenceUsd =
-        report.usage?.estimatedInferenceUsd ?? eventSummary.estimatedCostUsd
+      const estimatedInferenceUsd = isUsageAmount(report.usage?.estimatedInferenceUsd)
+        ? report.usage.estimatedInferenceUsd
+        : eventSummary.estimatedCostUsd
       const profile = report.profile ?? config.profile
       const record: RunRecord = {
         runId,

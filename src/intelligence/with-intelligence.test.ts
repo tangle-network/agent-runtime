@@ -207,6 +207,82 @@ function attrsOf(body: unknown, spanName?: string): Record<string, unknown> {
 }
 
 describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5])(
+    'preserves observed tokens when overrides contain invalid counts (%s)',
+    async (invalid) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            tokens: { input: invalid, output: 9, cachedInput: invalid, reasoning: invalid },
+            runtimeEvents: [
+              { type: 'llm_call', model: 'test', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
+            ],
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      const attributes = attrsOf(posts[0], 'tangle.intelligence.run')
+      expect(attributes).toMatchObject({
+        'gen_ai.usage.input_tokens': 10,
+        'gen_ai.usage.output_tokens': 9,
+        'tangle.usage.tokens_known': false,
+      })
+      expect(attributes).not.toHaveProperty('gen_ai.usage.cache_read_input_tokens')
+      expect(attributes).not.toHaveProperty('gen_ai.usage.reasoning_tokens')
+    },
+  )
+
+  it.each([Number.NaN, -0.1, Number.POSITIVE_INFINITY])(
+    'preserves event estimates when the estimate override is invalid (%s)',
+    async (estimatedInferenceUsd) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            usage: { estimatedInferenceUsd },
+            runtimeEvents: [{ type: 'llm_call', model: 'test', estimatedCostUsd: 0.02 }],
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+      })
+    },
+  )
+
   it.each(['costUsd', 'usage'] as const)(
     'keeps incomplete event receipts when %s and token totals are overridden',
     async (costReport) => {

@@ -237,6 +237,8 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     const attrs = attrsOf(calls[0]?.body)
     expect(attrs.project).toBe('support-agent')
     expect(attrs['tangle.outcome.success']).toBe(true)
+    expect(attrs['tangle.usage.inference_usd']).toBe(0.002)
+    expect(attrs).not.toHaveProperty('tangle.usage.inference_usd_known')
     expect(calls[0]?.headers.authorization).toBe(`Bearer ${apiKey}`)
   })
 
@@ -345,6 +347,30 @@ describe('billing classification — OFF proves inference-only', () => {
       'tangle.usage.inference_usd_estimated': 0.02,
     })
   })
+
+  it.each(['split', 'bare'] as const)(
+    'keeps explicitly incomplete inference usage after a later %s subtotal',
+    async (kind) => {
+      const { calls } = installFetchSpy('ok')
+      const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
+      await client.traceRun({ input: {} }, async (trace) => {
+        trace.recordOutcome({
+          usage: { inferenceUsd: 0.01, inferenceUsdKnown: false, estimatedInferenceUsd: 0.02 },
+        })
+        trace.recordOutcome(
+          kind === 'split' ? { usage: { inferenceUsd: 0.03 } } : { costUsd: 0.03 },
+        )
+        return 'ok'
+      })
+      await client.flush()
+
+      expect(attrsOf(calls[0]?.body)).toMatchObject({
+        'tangle.usage.inference_usd': 0.03,
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+      })
+    },
+  )
 })
 
 describe('doctor()', () => {

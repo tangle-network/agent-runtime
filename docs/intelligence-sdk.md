@@ -72,6 +72,8 @@ Incomplete token totals carry `tokensKnown: false` and `tangle.usage.tokens_know
 Runtime run records and persona conversations use the same normalized event accounting as Intelligence.
 Missing, invalid, or explicitly incomplete measurements remain incomplete after later complete events.
 Numeric overrides in run records and Intelligence replace subtotals without erasing those flags.
+Intelligence ignores malformed token overrides and marks the totals incomplete; invalid estimate overrides preserve valid event estimates.
+Repeated `trace.recordOutcome` calls replace numeric subtotals without clearing explicitly incomplete usage.
 
 ## Two lanes: traces UP, certified artifacts DOWN
 
