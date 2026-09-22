@@ -7,6 +7,7 @@ The root acknowledges and consumes admitted corrections while pursuit records an
 Admit Sandbox SDK 0.46 while retaining the existing 0.36.4 floor.
 The peer range is `>=0.36.4 <0.47.0`, and the compatibility matrix checks 0.36.4, 0.43.0, and 0.46.0.
 The packed-consumer check qualifies the exact Sandbox archive before publication.
+Agent Bench 0.13.8 carries the same catalog range; its benchmark behavior is unchanged.
 
 ## 0.252.1
 
