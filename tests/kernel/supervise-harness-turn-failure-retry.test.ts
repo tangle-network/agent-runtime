@@ -7,10 +7,13 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
+import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
+import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/environment-provider'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
+import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -35,6 +38,8 @@ interface TurnFailure {
   readonly code?: string
   /** The turn submits the deliverable before its terminal result reports the failure. */
   readonly afterSubmit?: boolean
+  /** The provider loses both its event stream and exact result before a terminal receipt exists. */
+  readonly streamFailure?: boolean
 }
 
 interface DriverRetry {
@@ -52,6 +57,7 @@ interface DriverRetry {
 async function harnessFailureFixture(options: {
   readonly runId: string
   readonly failures: (dispatch: number) => TurnFailure | undefined
+  readonly workspaceRetention?: boolean
 }) {
   const directory = await mkdtemp(join(tmpdir(), 'harness-turn-failure-'))
   directories.push(directory)
@@ -77,6 +83,7 @@ async function harnessFailureFixture(options: {
         ...session,
         async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
           yield* session.events!(eventOptions)
+          if (failure?.streamFailure) throw new Error(failure.error)
           if (failure?.code !== undefined) {
             yield {
               id: 'event-error',
@@ -85,11 +92,14 @@ async function harnessFailureFixture(options: {
             }
           }
         },
-        result: async () => ({
-          ...(await session.result()),
-          usage: { inputTokens: 3, outputTokens: 2 },
-          ...(failure === undefined ? {} : { success: false, error: failure.error }),
-        }),
+        result: async () => {
+          if (failure?.streamFailure) throw new Error(failure.error)
+          return {
+            ...(await session.result()),
+            usage: { inputTokens: 3, outputTokens: 2 },
+            ...(failure === undefined ? {} : { success: false, error: failure.error }),
+          }
+        },
       }
     },
     dispatch: async (turn) => {
@@ -138,6 +148,35 @@ async function harnessFailureFixture(options: {
       return environment ? wrap(environment) : null
     },
   }
+  const workspaceRetention: ProviderWorkspaceRetentionPort | undefined =
+    options.workspaceRetention === true
+      ? (() => {
+          const { outputArtifacts } = createCandidateOutputFixture()
+          return {
+            timeoutMs: 5_000,
+            artifacts: outputArtifacts,
+            async capture(context) {
+              return (
+                await captureAgentCandidateWorkspaceFiles(
+                  [
+                    {
+                      path: 'failed-turn.txt',
+                      mode: 0o644,
+                      bytes: Uint8Array.from(Buffer.from('failed turn\n')),
+                    },
+                  ],
+                  {
+                    artifactPersistence: {
+                      executionId: context.executionId,
+                      outputArtifacts,
+                    },
+                  },
+                )
+              ).snapshot
+            },
+          }
+        })()
+      : undefined
 
   const run = async (
     driverRetry: DriverRetry,
@@ -158,8 +197,16 @@ async function harnessFailureFixture(options: {
         journal: context.journal,
         blobs: context.blobs,
         signal: abort.signal,
-        backend: { backend: 'provider', provider },
-        driverBackend: { backend: 'provider', provider },
+        backend: {
+          backend: 'provider',
+          provider,
+          ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
+        },
+        driverBackend: {
+          backend: 'provider',
+          provider,
+          ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
+        },
         budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
         driverRetry: { ...driverRetry, initialBackoffMs: 0, maxBackoffMs: 0 },
         onDriverAttempt: (record) => void attempts.push(record),
@@ -244,6 +291,28 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(events, 'environment-teardown')).toMatchObject([
       { destroyed: true, environmentId: fixture.environmentIds[0] },
     ])
+  })
+
+  it('preserves an unreceipted failed owner source through terminal release', async () => {
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-failure-unreceipted-retention',
+      failures: () => ({ error: 'provider stream failed', streamFailure: true }),
+      workspaceRetention: true,
+    })
+    const { result } = await fixture.run({ enabled: false }, 'release')
+    const events = await fixture.events()
+
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(fixture.destroys()).toBe(0)
+    expect(ofKind(events, 'execution-result')).toHaveLength(0)
+    expect(ofKind(events, 'environment-teardown')).toMatchObject([
+      {
+        destroyed: false,
+        detail: expect.stringContaining('no verified workspace receipt'),
+      },
+    ])
+    expect(ofKind(events, 'teardown-unconfirmed')).toHaveLength(1)
+    expect(result.teardownUnconfirmed).toHaveLength(1)
   })
 
   it('stops with no-progress once failed outcomes exceed maxConsecutiveFailures', async () => {

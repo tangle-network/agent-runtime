@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.252.1
+
+Supervisor cleanup preserves a retained owner environment when its turn has no verified workspace receipt.
+It records unconfirmed teardown instead of deleting the only executable source.
+Cleanup still releases ordinary owner environments, and a retry after a transient destroy failure keeps the original run outcome in the retention context.
+
 ## 0.252.0
 
 Provider executors can retain a portable executable workspace before managed environment deletion.

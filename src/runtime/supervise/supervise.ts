@@ -3375,6 +3375,8 @@ function superviseInternal(
       ...(options.retainedAtSettlement !== undefined
         ? { retainedAtSettlement: options.retainedAtSettlement }
         : {}),
+      ownerWorkspaceRetention:
+        managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),

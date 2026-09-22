@@ -1,3 +1,4 @@
+import { agentCandidateWorkspaceSnapshotEvidenceSchema } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
@@ -28,6 +29,8 @@ interface OwnerState {
   acceptedConsumed?: boolean
   priorSession?: RetainedRunEnvironmentAdmission
   provider?: AgentEnvironmentProvider
+  /** The provider backend captures executable workspace evidence for unsettled owner turns. */
+  workspaceRetention: boolean
   /** The owner's current environment id, from its executor's materialization receipt. Set by the
    *  drive harness; populated on the retained AND non-retained provider paths, where an
    *  `environment` admission exists only on the retained one. */
@@ -46,6 +49,9 @@ interface OwnerRegistration {
   readonly now: () => number
 }
 const owners = new WeakMap<object, OwnerState>()
+
+/** @internal Scope construction carries this private policy to every nested owner scope. */
+export const retainedOwnerWorkspaceRetentionSeamKey = 'runtime.retainedOwnerWorkspaceRetention'
 
 /** The scope owns these writers; provider adapters receive only the restricted context. */
 export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerRegistration): void {
@@ -77,6 +83,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   const state: OwnerState = {
     args,
     admissions,
+    workspaceRetention: false,
     nextSequence: () => ++sequence,
     ...(taskEvent?.kind === 'execution-input'
       ? { taskRef: taskEvent.taskRef, inputSequence: taskEvent.seq }
@@ -155,6 +162,15 @@ export function bindScopeRetainedOwnerProvider(
 ): void {
   const state = owners.get(scope)
   if (state) state.provider = provider
+}
+
+/** Bind the owner cleanup policy selected by its provider executor. */
+export function bindScopeRetainedOwnerWorkspaceRetention(
+  scope: Scope<unknown>,
+  enabled: boolean,
+): void {
+  const state = owners.get(scope)
+  if (state) state.workspaceRetention = enabled
 }
 
 /**
@@ -272,31 +288,49 @@ export async function releaseScopeRetainedOwnerEnvironment(
         : [],
     ),
   )
+  const retentionConfigured =
+    state.workspaceRetention ||
+    events.some(
+      (event) =>
+        event.kind === 'execution-input' &&
+        event.id === args.nodeId &&
+        event.workspaceRetention === true,
+    )
+  const retentionFailures = retentionConfigured
+    ? await ownerWorkspaceRetentionFailures(events, args.nodeId, args.blobs)
+    : new Set<string>()
   let unconfirmed = false
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
     let detail: string | undefined
-    try {
-      await runAbortable(
-        async () => {
-          if (!provider.get) throw new Error('provider cannot reconstruct the retained environment')
-          const environment = await provider.get(environmentId)
-          if (environment === null) return
-          if (environment.id !== environmentId || environment.provider !== provider.name) {
-            throw new Error('provider returned another retained environment')
-          }
-          if (!environment.destroy)
-            throw new Error('provider cannot destroy the retained environment')
-          await environment.destroy()
-        },
-        AbortSignal.timeout(30_000),
-        'retained owner cleanup timed out',
-      )
-      destroyed = true
-    } catch {
-      detail = 'retained owner environment cleanup was not confirmed'
+    if (retentionFailures.has(environmentId)) {
+      detail =
+        'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
       unconfirmed = true
+    } else {
+      try {
+        await runAbortable(
+          async () => {
+            if (!provider.get)
+              throw new Error('provider cannot reconstruct the retained environment')
+            const environment = await provider.get(environmentId)
+            if (environment === null) return
+            if (environment.id !== environmentId || environment.provider !== provider.name) {
+              throw new Error('provider returned another retained environment')
+            }
+            if (!environment.destroy)
+              throw new Error('provider cannot destroy the retained environment')
+            await environment.destroy()
+          },
+          AbortSignal.timeout(30_000),
+          'retained owner cleanup timed out',
+        )
+        destroyed = true
+      } catch {
+        detail = 'retained owner environment cleanup was not confirmed'
+        unconfirmed = true
+      }
     }
     await args.journal.appendEvent(args.rootId, {
       kind: 'environment-teardown',
@@ -312,6 +346,77 @@ export async function releaseScopeRetainedOwnerEnvironment(
   return unconfirmed
     ? [{ id: args.nodeId, label: 'scope owner', runtime: provider.name, status: 'done' }]
     : []
+}
+
+interface OwnerAttempt {
+  readonly environmentIds: Set<string>
+  result?: Extract<SpawnEvent, { kind: 'execution-result' }>
+}
+
+/** Group owner admissions by input and require a verified workspace receipt before deletion. */
+async function ownerWorkspaceRetentionFailures(
+  events: readonly SpawnEvent[],
+  nodeId: NodeId,
+  blobs: ResultBlobStore,
+): Promise<ReadonlySet<string>> {
+  const attempts: OwnerAttempt[] = []
+  let current: OwnerAttempt | undefined
+  const flush = (): void => {
+    if (current !== undefined) attempts.push(current)
+    current = undefined
+  }
+  for (const event of events) {
+    if (!('id' in event) || event.id !== nodeId) continue
+    if (event.kind === 'execution-input') {
+      flush()
+      current = { environmentIds: new Set<string>() }
+    } else if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
+      if (current?.result !== undefined) flush()
+      current ??= { environmentIds: new Set<string>() }
+      current.environmentIds.add(event.admission.environmentId)
+    } else if (event.kind === 'execution-result') {
+      current ??= { environmentIds: new Set<string>() }
+      current.result = event
+    }
+  }
+  flush()
+  const failures = new Set<string>()
+  for (const attempt of attempts) {
+    if (attempt.environmentIds.size === 0) continue
+    // One result receipt cannot prove which source belongs to which environment when a
+    // recovered attempt admitted more than one. Preserve every source until a later run can
+    // establish a one-to-one receipt rather than guessing from a shared result.
+    if (attempt.environmentIds.size > 1) {
+      for (const environmentId of attempt.environmentIds) failures.add(environmentId)
+      continue
+    }
+    const result = attempt.result
+    if (result === undefined) {
+      for (const environmentId of attempt.environmentIds) failures.add(environmentId)
+      continue
+    }
+    let output: unknown | undefined
+    try {
+      output = await blobs.get(result.outRef)
+      if (output === undefined || contentAddress(output) !== result.outRef) throw new Error()
+    } catch {
+      output = undefined
+    }
+    const snapshot =
+      output !== null && typeof output === 'object'
+        ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
+        : undefined
+    if (!hasDurableWorkspaceSnapshot(snapshot)) {
+      for (const environmentId of attempt.environmentIds) failures.add(environmentId)
+    }
+  }
+  return failures
+}
+
+/** A stored result is deletion authority only when it names the durable archive capture wrote. */
+function hasDurableWorkspaceSnapshot(value: unknown): boolean {
+  const parsed = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(value)
+  return parsed.success && 'locator' in parsed.data.manifest && 'locator' in parsed.data.archive
 }
 
 /** Resume the original backend prompt; rebuilt coordination observations cannot replace it. */
@@ -368,6 +473,7 @@ export async function prepareScopeRetainedOwnerTask(
     kind: 'execution-input',
     id: args.nodeId,
     taskRef,
+    ...(state.workspaceRetention ? { workspaceRetention: true } : {}),
     seq: inputSequence,
     at: new Date(args.now()).toISOString(),
   })
