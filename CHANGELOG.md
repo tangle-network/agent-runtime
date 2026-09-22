@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.252.0
+
+Provider executors can retain a portable executable workspace before managed environment deletion.
+Runtime checks the persisted manifest and archive against the captured files, then returns the snapshot with the worker result.
+If capture fails or times out, cleanup leaves the source environment alive and reports unconfirmed teardown.
+An unsettled worker also keeps its source alive because no result exists to expose its captured workspace receipt.
+The same check guards later retained-environment release and refuses reuse while an earlier source is still live.
+Unsupported steerable sessions refuse this option before creating a worker.
+The archive covers declared workspace files. Native in-memory session state requires separate retention and qualification.
+
 ## 0.251.0
 
 `cancelRun` accepts an optional `operator` identity, carried on the cancel request and echoed on the acknowledged cancellation, so a run's audit trail names who cancelled it.

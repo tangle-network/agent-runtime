@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.251.0` and `@tangle-network/agent-eval@0.183.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.252.0` and `@tangle-network/agent-eval@0.183.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -426,7 +426,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 958 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 960 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -943,6 +943,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 958 exports.
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
 | `ProviderPlacement` | interface | Caller-declared execution placement. Matching never changes the authored profile. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
+| `ProviderWorkspaceRetentionContext` | interface | The exact live execution facts supplied to a retention callback. |
+| `ProviderWorkspaceRetentionPort` | interface | The caller-owned boundary used to retain an executable provider workspace. |
 | `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
 | `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
 | `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
