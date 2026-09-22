@@ -4123,6 +4123,26 @@ caller; the durable contract around it lives in `supervise/run-layout`.
 
 \{ `id`: `string`; `label`: `string`; \} \| `undefined`
 
+##### abortWorkerById()
+
+> **abortWorkerById**(`workerId`, `reason?`): \{ `id`: `string`; `label`: `string`; \} \| `undefined`
+
+Abort one live child only when `workerId` exactly matches its Runtime node id.
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+\{ `id`: `string`; `label`: `string`; \} \| `undefined`
+
 ##### drainResolved()
 
 > **drainResolved**(): `Promise`\<`number`\>

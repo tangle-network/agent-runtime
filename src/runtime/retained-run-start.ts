@@ -77,7 +77,7 @@ export async function startRetainedRun(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
@@ -94,6 +94,24 @@ export async function startRetainedRun(
       executionId: identity.executionId,
     },
   })
+  let capabilities: AgentEnvironmentCapabilities
+  try {
+    capabilities = retainedCapabilitiesForEnvironment(
+      options.provider.name,
+      providerCapabilities,
+      environment,
+    )
+  } catch (error) {
+    try {
+      await environment.destroy?.()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'retained run environment published invalid capabilities and could not be destroyed',
+      )
+    }
+    throw error
+  }
   if (!environment.dispatch || !environment.session) {
     try {
       await environment.destroy?.()
@@ -146,7 +164,7 @@ export async function startRetainedRunInEnvironment(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
@@ -159,6 +177,11 @@ export async function startRetainedRunInEnvironment(
   if (environment.id !== options.environment.id || environment.provider !== options.provider.name) {
     throw new Error('provider reconstructed a different retained environment')
   }
+  const capabilities = retainedCapabilitiesForEnvironment(
+    options.provider.name,
+    providerCapabilities,
+    environment,
+  )
   if (!environment.dispatch || !environment.session) {
     throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
@@ -329,12 +352,17 @@ export async function recoverRetainedRun(
   assertStableText(options.environmentId, 'retained environment id')
   assertStableText(options.sessionId, 'retained session id')
   assertStableText(options.executionId, 'retained execution id')
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
   const environment = await options.provider.get(options.environmentId)
   if (!environment) return { outcome: 'not_found' }
+  const capabilities = retainedCapabilitiesForEnvironment(
+    options.provider.name,
+    providerCapabilities,
+    environment,
+  )
   if (!environment.session) return { outcome: 'unverifiable', environment }
   let session: AgentSession
   try {
@@ -379,12 +407,17 @@ export async function reconnectRetainedRun(
       `run provider "${controlRef.provider}" does not match "${options.provider.name}"`,
     )
   }
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
   const environment = await options.provider.get(controlRef.environmentId)
   if (!environment) return null
+  const capabilities = retainedCapabilitiesForEnvironment(
+    options.provider.name,
+    providerCapabilities,
+    environment,
+  )
   const exact = exactSession(environment, controlRef)
   return createRetainedRunHandle(
     environment,
@@ -399,6 +432,33 @@ export async function assertRetainedCapabilities(
   provider: AgentEnvironmentProvider,
 ): Promise<AgentEnvironmentCapabilities> {
   const capabilities = AgentEnvironmentCapabilitiesSchema.parse(await provider.capabilities())
+  assertRetainedCapabilityRequirements(provider.name, capabilities)
+  return capabilities
+}
+
+/**
+ * Select the capability document for one concrete environment.
+ *
+ * Provider capabilities are the admission baseline: they carry the retained-run guarantees
+ * required before an environment exists. When an environment reports a document, that measured
+ * document is authoritative for every operation. An explicit measured omission therefore fails
+ * closed instead of inheriting a provider-level claim.
+ */
+function retainedCapabilitiesForEnvironment(
+  providerName: string,
+  providerCapabilities: AgentEnvironmentCapabilities,
+  environment: AgentEnvironment,
+): AgentEnvironmentCapabilities {
+  if (environment.capabilities === undefined) return providerCapabilities
+  const measured = AgentEnvironmentCapabilitiesSchema.parse(environment.capabilities)
+  assertRetainedCapabilityRequirements(providerName, measured)
+  return measured
+}
+
+function assertRetainedCapabilityRequirements(
+  providerName: string,
+  capabilities: AgentEnvironmentCapabilities,
+): void {
   const retained = capabilities.retainedControl
   if (
     retained?.exactRunIdentity !== true ||
@@ -409,7 +469,6 @@ export async function assertRetainedCapabilities(
     !capabilities.streaming.replay ||
     !capabilities.streaming.turnIdempotency
   ) {
-    throw new Error(`provider "${provider.name}" cannot control a retry-safe retained run`)
+    throw new Error(`provider "${providerName}" cannot control a retry-safe retained run`)
   }
-  return capabilities
 }

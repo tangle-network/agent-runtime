@@ -782,6 +782,50 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 
 > `readonly` **result**: [`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
 
+***
+
+### SupervisorOperationConflictError
+
+A collision between two operations that reuse one id with different request material.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SupervisorOperationConflictError**(`operationId`, `detail`): [`SupervisorOperationConflictError`](#supervisoroperationconflicterror)
+
+###### Parameters
+
+###### operationId
+
+`string`
+
+###### detail
+
+`string`
+
+###### Returns
+
+[`SupervisorOperationConflictError`](#supervisoroperationconflicterror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### code
+
+> `readonly` **code**: `"OPERATION_CONFLICT"`
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
 ## Interfaces
 
 ### SpawnForestTree
@@ -852,7 +896,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-18)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-17)
 
 ##### parent?
 
@@ -6047,6 +6091,12 @@ Reconstructable control of one provider-retained run.
 ##### controlRef
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### capabilities
+
+> `readonly` **capabilities**: `AgentEnvironmentCapabilities`
+
+Capabilities measured from the exact environment that owns this run.
 
 #### Methods
 
@@ -12369,147 +12419,6 @@ In-memory contexts have none: nothing outlives the process.
 
 ***
 
-### WorkerSteerRequest
-
-One durable down-leg request appended to a worker's inbox file.
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-##### at
-
-> `readonly` **at**: `string`
-
-ISO timestamp of the append.
-
-##### source
-
-> `readonly` **source**: `string`
-
-Who asked — 'human', a brain label, a tool name. Provenance, not authorization.
-
-##### worker
-
-> `readonly` **worker**: `string`
-
-The worker LABEL the request targets (already resolved by the caller).
-
-##### message
-
-> `readonly` **message**: `string`
-
-***
-
-### WorkerCancelRequest
-
-One durable worker-scoped cancel request appended to the run's cancellation inbox.
-
-#### Properties
-
-##### operationId
-
-> `readonly` **operationId**: `string`
-
-Caller-minted stable operation identifier — the idempotency key of the whole operation.
-
-##### at
-
-> `readonly` **at**: `string`
-
-ISO timestamp of the append.
-
-##### source
-
-> `readonly` **source**: `string`
-
-Who asked — 'human', a brain label, a tool name. Provenance, not authorization.
-
-##### worker
-
-> `readonly` **worker**: `string`
-
-The worker the request targets: a workerId (node id), a profile name, or a spawn label.
-
-##### reason?
-
-> `readonly` `optional` **reason?**: `string`
-
-***
-
-### WorkerCancellation
-
-The durable acknowledgement state for one worker-scoped cancel operation, keyed by
-`operationId`. The runtime acknowledger is the ONLY writer; `cancelWorker` only reads it.
-
-`effect` reuses the retained-run vocabulary ([RetainedRunEffect](#retainedruneffect)) so the runtime has one
-spelling of the four cancellation states:
- - `'unknown'`          — not yet resolved by the runtime (also what `cancelWorker` returns for
-                          a request no acknowledger has answered). Never a success.
- - `'cancel_requested'` — the runtime issued the worker's abort; termination not yet proven.
- - `'cancelled'`        — the worker reached a terminal `down` state on the settle path.
- - `'not_live'`         — the worker was not live to cancel (already settled, or it settled
-                          `done` despite the abort). Never a success of THIS operation.
-
-#### Properties
-
-##### operationId
-
-> `readonly` **operationId**: `string`
-
-##### worker
-
-> `readonly` **worker**: `string`
-
-The worker reference exactly as requested.
-
-##### effect
-
-> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
-
-##### requestedAt
-
-> `readonly` **requestedAt**: `string`
-
-ISO timestamp of the original request.
-
-##### observedAt
-
-> `readonly` **observedAt**: `string`
-
-ISO timestamp of the runtime's most recent observation of this operation.
-
-##### workerId?
-
-> `readonly` `optional` **workerId?**: `string`
-
-The node id the acknowledger resolved `worker` to, once resolved.
-
-##### reason?
-
-> `readonly` `optional` **reason?**: `string`
-
-The caller's reason, carried verbatim from the request.
-
-##### detail?
-
-> `readonly` `optional` **detail?**: `string`
-
-The runtime's explanation of how it arrived at `effect`.
-
-##### terminated
-
-> `readonly` **terminated**: readonly `string`[]
-
-Every node id this operation PROVED terminated: the requested worker plus each descendant of
-its subtree observed to reach a terminal `down`/`cancelled` journal record at or after
-`requestedAt` (a cancelled lead cascades to its subtree by design — the scope signal chain —
-so the acknowledgement names the set, not one id). Empty until termination is proven.
-
-***
-
 ### RouterSeam
 
 Router/inline transport seam. The profile owns model, prompt, and generation behavior.
@@ -16701,6 +16610,172 @@ The wait ordinal in its parent scope, so a resumed scope continues past it.
 
 ***
 
+### WorkerCancelRequest
+
+One durable request to cancel one exact worker id.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### at
+
+> `readonly` **at**: `string`
+
+##### source
+
+> `readonly` **source**: `string`
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### WorkerCancellation
+
+The durable state of one worker cancellation operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+The exact worker id supplied by the caller.
+
+##### source
+
+> `readonly` **source**: `string`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### requestedAt
+
+> `readonly` **requestedAt**: `string`
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+New records always carry the exact worker id before abort begins.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### detail?
+
+> `readonly` `optional` **detail?**: `string`
+
+##### terminated
+
+> `readonly` **terminated**: readonly `string`[]
+
+##### ownerId?
+
+> `readonly` `optional` **ownerId?**: `string`
+
+The Runtime process that owned the attempt, when written by the current protocol.
+
+***
+
+### WorkerCancellationOptions
+
+#### Properties
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### persistence?
+
+> `readonly` `optional` **persistence?**: [`WorkerControlPersistence`](#workercontrolpersistence)
+
+***
+
+### WorkerControlPersistence
+
+The durable write operations used by worker-control stores. Tests may inject failures here.
+
+#### Properties
+
+##### appendFile
+
+> `readonly` **appendFile**: (`file`, `contents`) => `void`
+
+###### Parameters
+
+###### file
+
+`string`
+
+###### contents
+
+`string`
+
+###### Returns
+
+`void`
+
+##### createFile
+
+> `readonly` **createFile**: (`file`, `contents`) => `boolean`
+
+###### Parameters
+
+###### file
+
+`string`
+
+###### contents
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### replaceFile
+
+> `readonly` **replaceFile**: (`file`, `contents`) => `void`
+
+###### Parameters
+
+###### file
+
+`string`
+
+###### contents
+
+`string`
+
+###### Returns
+
+`void`
+
+***
+
 ### WorkerEvidenceInput
 
 #### Properties
@@ -16736,6 +16811,110 @@ Combined stdout+stderr of the verify/test command (already backend-capped).
 > `readonly` `optional` **reviewerNotes?**: `string`
 
 The worker's own closing commentary, when the backend surfaces one.
+
+***
+
+### WorkerSteerRequest
+
+One durable down-leg request for one exact worker id.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### operationId?
+
+> `readonly` `optional` **operationId?**: `string`
+
+Caller-supplied idempotency key, when this steer must survive a retry.
+
+##### at
+
+> `readonly` **at**: `string`
+
+##### source
+
+> `readonly` **source**: `string`
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+##### message
+
+> `readonly` **message**: `string`
+
+***
+
+### WorkerSteerAcknowledgement
+
+The durable result of one Runtime worker steer.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+##### source
+
+> `readonly` **source**: `string`
+
+##### message
+
+> `readonly` **message**: `string`
+
+##### requestId
+
+> `readonly` **requestId**: `string`
+
+##### requestedAt
+
+> `readonly` **requestedAt**: `string`
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### effect
+
+> `readonly` **effect**: `"unknown"` \| [`DownMessageDeliveryOutcome`](#downmessagedeliveryoutcome)
+
+The attempt was committed, but its final delivery effect is not proven.
+
+##### detail?
+
+> `readonly` `optional` **detail?**: `string`
+
+##### ownerId?
+
+> `readonly` `optional` **ownerId?**: `string`
+
+The Runtime process that owned the attempt, when written by the current protocol.
+
+***
+
+### WorkerSteerOptions
+
+#### Properties
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### operationId?
+
+> `readonly` `optional` **operationId?**: `string`
+
+##### persistence?
+
+> `readonly` `optional` **persistence?**: [`WorkerControlPersistence`](#workercontrolpersistence)
 
 ***
 
@@ -20980,6 +21159,12 @@ than silently polling forever.
 > **WaitRejection** = `"invalid-spec"` \| `"unknown-probe"` \| `"deadline-exceeded"`
 
 Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape.
+
+***
+
+### WorkerSteerEffect
+
+> **WorkerSteerEffect** = [`WorkerSteerAcknowledgement`](#workersteeracknowledgement)\[`"effect"`\]
 
 ***
 
@@ -25452,419 +25637,6 @@ existing consumer writes to disk or resumes unless it asks for this.
 
 ***
 
-### supervisorRunsRoot()
-
-> **supervisorRunsRoot**(`rootDir`): `string`
-
-The root every supervisor run of one workspace lives under.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### supervisorRunDir()
-
-> **supervisorRunDir**(`rootDir`, `id`): `string`
-
-The run directory every artifact of one supervisor run lives under.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-##### id
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### legacySupervisorRunDir()
-
-> **legacySupervisorRunDir**(`rootDir`, `id`): `string`
-
-Where a pre-rename writer put the same run (`<root>/.loops/supervisor/<id>`). Readers that must
-see historical runs check [supervisorRunDir](#supervisorrundir) first and fall back to this; nothing writes
-here anymore.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-##### id
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### legacySupervisorRunsRoot()
-
-> **legacySupervisorRunsRoot**(`rootDir`): `string`
-
-The pre-rename runs root (`<root>/.loops/supervisor`). Only readers that ENUMERATE historical
-runs need this — the per-id form is [legacySupervisorRunDir](#legacysupervisorrundir). Nothing writes here.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### safeWorkerFile()
-
-> **safeWorkerFile**(`label`): `string`
-
-A worker label reduced to a safe filename stem. Empty labels get a stable fallback.
-
-#### Parameters
-
-##### label
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### supervisorWorkersDir()
-
-> **supervisorWorkersDir**(`eventDir`): `string`
-
-The directory holding every per-worker file of one run (inboxes and control-event logs).
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### workerInboxFile()
-
-> **workerInboxFile**(`rootDir`, `supervisorId`, `worker`): `string`
-
-The durable inbox file for one worker of one run.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-##### supervisorId
-
-`string`
-
-##### worker
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### workerInboxFileFromEventDir()
-
-> **workerInboxFileFromEventDir**(`eventDir`, `worker`): `string`
-
-Same, addressed from an already-known run directory (the reader's usual entry point).
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### worker
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### workerControlLogFile()
-
-> **workerControlLogFile**(`eventDir`, `worker`): `string`
-
-The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery
-bookkeeping for steers, plus whatever lifecycle events a writer chooses to append. Distinct from
-the inbox: the inbox is the durable down-leg queue, this is the record of what happened to it.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### worker
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### writeWorkerSteer()
-
-> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `message`, `source?`): `object`
-
-Durably append one steer request to a worker's inbox and log the delivery attempt.
-
-The inbox append is the durable act; the control-event log is best-effort bookkeeping and may
-silently fail without voiding the steer.
-
-#### Parameters
-
-##### rootDir
-
-`string`
-
-##### supervisorId
-
-`string`
-
-##### worker
-
-`string`
-
-##### message
-
-`string`
-
-##### source?
-
-`string` = `'human'`
-
-#### Returns
-
-`object`
-
-##### worker
-
-> **worker**: `string`
-
-##### file
-
-> **file**: `string`
-
-##### request
-
-> **request**: [`WorkerSteerRequest`](#workersteerrequest)
-
-***
-
-### readWorkerSteerRequests()
-
-> **readWorkerSteerRequests**(`eventDir`, `worker`): [`WorkerSteerRequest`](#workersteerrequest)[]
-
-Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### worker
-
-`string`
-
-#### Returns
-
-[`WorkerSteerRequest`](#workersteerrequest)[]
-
-***
-
-### workerCancellationsDir()
-
-> **workerCancellationsDir**(`eventDir`): `string`
-
-The directory holding every cancellation artifact of one run (request inbox + acknowledgements).
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### workerCancelRequestsFile()
-
-> **workerCancelRequestsFile**(`eventDir`): `string`
-
-The durable cancel-request inbox of one run — one NDJSON line per [WorkerCancelRequest](#workercancelrequest).
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### workerCancellationFile()
-
-> **workerCancellationFile**(`eventDir`, `operationId`): `string`
-
-The acknowledgement file for one cancel operation. The filename is a sanitized stem of the
-`operationId`; the record inside carries the exact id, and readers verify it so two distinct
-ids that sanitize to one stem fail loud instead of answering for each other.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### operationId
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### readWorkerCancelRequests()
-
-> **readWorkerCancelRequests**(`eventDir`): [`WorkerCancelRequest`](#workercancelrequest)[]
-
-Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-#### Returns
-
-[`WorkerCancelRequest`](#workercancelrequest)[]
-
-***
-
-### readWorkerCancellation()
-
-> **readWorkerCancellation**(`eventDir`, `operationId`): [`WorkerCancellation`](#workercancellation) \| `undefined`
-
-Read the acknowledgement for one cancel operation. `undefined` when the runtime has not
-answered. A record whose stored `operationId` differs from the requested one is a filename
-collision between two sanitized ids — fail loud rather than return another operation's answer.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### operationId
-
-`string`
-
-#### Returns
-
-[`WorkerCancellation`](#workercancellation) \| `undefined`
-
-***
-
-### cancelWorker()
-
-> **cancelWorker**(`eventDir`, `worker`, `operationId`, `options?`): [`WorkerCancellation`](#workercancellation)
-
-Request the cancellation of ONE worker, idempotently, and return the operation's current
-durable state.
-
-The write half of the acknowledged-cancellation contract (`writeWorkerSteer` is the steer
-analog): append the request to the run's cancellation inbox, where the runtime's acknowledger
-(the coordination driver's turn loop) applies it — aborting exactly that worker's subtree and
-recording what it proved. This function never applies the cancellation itself; writing a
-request file is not an acknowledgement.
-
-Idempotency is a lookup: when an acknowledgement for `operationId` already exists, it is
-returned AS-IS and nothing is appended — repeating one operation can never apply twice. A
-request the runtime has not answered yet returns `effect: 'unknown'` (never a success); call
-again with the same `operationId` — or `readWorkerCancellation` — to read the acknowledged
-result after a reconnect.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### worker
-
-`string`
-
-##### operationId
-
-`string`
-
-##### options?
-
-###### reason?
-
-`string`
-
-###### source?
-
-`string`
-
-#### Returns
-
-[`WorkerCancellation`](#workercancellation)
-
-***
-
 ### createExecutor()
 
 > **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
@@ -26703,6 +26475,360 @@ Structural validation, independent of the run. Returns null when the spec is usa
 
 ***
 
+### cancelWorker()
+
+> **cancelWorker**(`eventDir`, `worker`, `operationId`, `options?`): [`WorkerCancellation`](#workercancellation)
+
+Request cancellation of one exact worker id. This function never aborts the worker.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+##### operationId
+
+`string`
+
+##### options?
+
+[`WorkerCancellationOptions`](#workercancellationoptions) = `{}`
+
+#### Returns
+
+[`WorkerCancellation`](#workercancellation)
+
+***
+
+### readWorkerCancelRequests()
+
+> **readWorkerCancelRequests**(`eventDir`): [`WorkerCancelRequest`](#workercancelrequest)[]
+
+Read every valid cancellation request, including intent records whose inbox append failed.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+[`WorkerCancelRequest`](#workercancelrequest)[]
+
+***
+
+### readWorkerCancellation()
+
+> **readWorkerCancellation**(`eventDir`, `operationId`): [`WorkerCancellation`](#workercancellation) \| `undefined`
+
+Read one durable cancellation acknowledgement.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+[`WorkerCancellation`](#workercancellation) \| `undefined`
+
+***
+
+### supervisorRunsRoot()
+
+> **supervisorRunsRoot**(`rootDir`): `string`
+
+The root every supervisor run of one workspace lives under.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### supervisorRunDir()
+
+> **supervisorRunDir**(`rootDir`, `id`): `string`
+
+The run directory every artifact of one supervisor run lives under.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### legacySupervisorRunDir()
+
+> **legacySupervisorRunDir**(`rootDir`, `id`): `string`
+
+The pre-rename location used by readers for historical supervisor runs.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### legacySupervisorRunsRoot()
+
+> **legacySupervisorRunsRoot**(`rootDir`): `string`
+
+The pre-rename supervisor root. Writers never create this location.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### safeWorkerFile()
+
+> **safeWorkerFile**(`label`): `string`
+
+A worker label reduced to a safe filename stem for legacy display readers.
+
+#### Parameters
+
+##### label
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### supervisorWorkersDir()
+
+> **supervisorWorkersDir**(`eventDir`): `string`
+
+The directory holding every per-worker file of one run.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInboxFile()
+
+> **workerInboxFile**(`rootDir`, `supervisorId`, `workerId`): `string`
+
+The durable inbox file for one exact worker id.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### supervisorId
+
+`string`
+
+##### workerId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInboxFileFromEventDir()
+
+> **workerInboxFileFromEventDir**(`eventDir`, `workerId`): `string`
+
+The durable inbox file addressed from an already-known run directory.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### workerId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerControlLogFile()
+
+> **workerControlLogFile**(`eventDir`, `workerId`): `string`
+
+The per-worker control log for one exact worker id.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### workerId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerSteerAcknowledgementsDir()
+
+> **workerSteerAcknowledgementsDir**(`eventDir`): `string`
+
+The directory containing steer acknowledgements.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerSteerAcknowledgementFile()
+
+> **workerSteerAcknowledgementFile**(`eventDir`, `operationId`): `string`
+
+The durable acknowledgement file for one steer operation.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerCancellationsDir()
+
+> **workerCancellationsDir**(`eventDir`): `string`
+
+The directory holding every cancellation artifact of one run.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerCancelRequestsFile()
+
+> **workerCancelRequestsFile**(`eventDir`): `string`
+
+The durable cancellation request inbox.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerCancellationFile()
+
+> **workerCancellationFile**(`eventDir`, `operationId`): `string`
+
+The acknowledgement file for one cancellation operation.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### composeWorkerEvidence()
 
 > **composeWorkerEvidence**(`input`): `string`
@@ -26780,6 +26906,164 @@ final verdict line — written last — survives into the evidence block
 #### Returns
 
 `string` \| `undefined`
+
+***
+
+### writeWorkerSteer()
+
+#### Call Signature
+
+> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `message`, `source?`, `operationId?`): `object`
+
+Durably enqueue one steer request.
+
+##### Parameters
+
+###### rootDir
+
+`string`
+
+###### supervisorId
+
+`string`
+
+###### worker
+
+`string`
+
+###### message
+
+`string`
+
+###### source?
+
+`string`
+
+###### operationId?
+
+`string`
+
+##### Returns
+
+`object`
+
+###### worker
+
+> **worker**: `string`
+
+###### file
+
+> **file**: `string`
+
+###### request
+
+> **request**: [`WorkerSteerRequest`](#workersteerrequest)
+
+#### Call Signature
+
+> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `message`, `options?`): `object`
+
+Durably enqueue one steer request.
+
+##### Parameters
+
+###### rootDir
+
+`string`
+
+###### supervisorId
+
+`string`
+
+###### worker
+
+`string`
+
+###### message
+
+`string`
+
+###### options?
+
+[`WorkerSteerOptions`](#workersteeroptions)
+
+##### Returns
+
+`object`
+
+###### worker
+
+> **worker**: `string`
+
+###### file
+
+> **file**: `string`
+
+###### request
+
+> **request**: [`WorkerSteerRequest`](#workersteerrequest)
+
+***
+
+### readWorkerSteerRequests()
+
+> **readWorkerSteerRequests**(`eventDir`, `worker`): [`WorkerSteerRequest`](#workersteerrequest)[]
+
+Read every valid steer request for one exact worker id.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+[`WorkerSteerRequest`](#workersteerrequest)[]
+
+***
+
+### readWorkerSteerRequestsForRun()
+
+> **readWorkerSteerRequestsForRun**(`eventDir`): [`WorkerSteerRequest`](#workersteerrequest)[]
+
+Read every valid steer request without using a filename as the worker identity.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+[`WorkerSteerRequest`](#workersteerrequest)[]
+
+***
+
+### readWorkerSteerAcknowledgement()
+
+> **readWorkerSteerAcknowledgement**(`eventDir`, `operationId`): [`WorkerSteerAcknowledgement`](#workersteeracknowledgement) \| `undefined`
+
+Read one steer acknowledgement.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+[`WorkerSteerAcknowledgement`](#workersteeracknowledgement) \| `undefined`
 
 ***
 

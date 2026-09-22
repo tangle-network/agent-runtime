@@ -77,6 +77,9 @@ export async function reattach(
   const handle = await reconnectRetainedRun({ provider, controlRef: dispatched.controlRef })
   if (!handle) throw new Error('the provider no longer retains this environment')
 
+  console.log(
+    `interaction replies: ${handle.capabilities.interactions?.responseIdempotency === true ? 'retry-safe' : 'unavailable'}`,
+  )
   const snapshot = await handle.status({ waitMs: 30_000 })
   console.log(`status: ${snapshot.status ?? 'unknown'} — effect: ${snapshot.effect}`)
 

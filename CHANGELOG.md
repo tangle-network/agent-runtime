@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.136.0
+
+- Make explicit measured environment capabilities authoritative for retained runs and fail closed when the exact environment omits required control guarantees.
+- Route durable nested worker steer and cancellation through one run-wide owner registry with exact target identities.
+- Persist claimed operations as visible `unknown` states across acknowledgement failures and enforce unique process claim ownership.
+- Promote `RetainedRunHandle.capabilities` and `CoordinationTools.abortWorkerById` as required public APIs.
+
 ## 0.135.2
 
 - Publish the 0.135.1 content.

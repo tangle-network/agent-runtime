@@ -13,12 +13,13 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
   supervisorRunsRoot,
   supervisorWorkersDir,
+  workerControlLogFile,
 } from '../runtime/supervise/run-layout'
 
 export interface TopSnapshot {
@@ -370,12 +371,15 @@ function buildSupervisorView(
 
   const workerViews = [...workers.values()]
     .map((worker) => {
-      // Tails are keyed by file stem, which the writer put through `safeWorkerFile`; a label
-      // carrying characters that stem strips would otherwise never find its own events.
+      // Exact worker ids use the writer's collision-safe path. The sanitized keys retain reads
+      // for logs created before exact identity filenames were introduced.
       const tail =
+        workerEventTails.get(workerEventFileStem(stateDir, worker.label)) ??
+        workerEventTails.get(workerEventFileStem(stateDir, worker.id)) ??
         workerEventTails.get(worker.label) ??
         workerEventTails.get(safeWorkerFile(worker.label)) ??
-        workerEventTails.get(worker.id)
+        workerEventTails.get(worker.id) ??
+        workerEventTails.get(safeWorkerFile(worker.id))
       worker.liveTail = tail?.lines ?? []
       if (tail?.cwd) worker.cwd = tail.cwd
       if (tail?.file) worker.eventFile = tail.file
@@ -417,6 +421,10 @@ function buildSupervisorView(
     driverSpend,
     totals,
   }
+}
+
+function workerEventFileStem(stateDir: string, workerId: string): string {
+  return basename(workerControlLogFile(stateDir, workerId), '.ndjson')
 }
 
 /**

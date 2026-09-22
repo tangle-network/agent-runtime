@@ -9,6 +9,7 @@ import {
   safeWorkerFile,
   supervisorRunDir,
   workerControlLogFile,
+  workerInboxFile,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
 import {
@@ -433,7 +434,7 @@ describe('supervisor top model', () => {
     )
 
     const written = writeWorkerSteer(root, 'sup-5-steer', label, 'narrow the diff', 'human')
-    expect(written.file).toBe(join(dir, 'workers', `${safeWorkerFile(label)}.inbox.ndjson`))
+    expect(written.file).toBe(workerInboxFile(root, 'sup-5-steer', label))
     expect(readWorkerSteerRequests(dir, label).map((request) => request.message)).toEqual([
       'narrow the diff',
     ])

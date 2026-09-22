@@ -21,6 +21,7 @@ import type {
   ExecutionBindingReceipt,
   Handle,
   NodeExecutionIdentity,
+  NodeSnapshot,
   ProfileMaterializationReceipt,
   ResultBlobStore,
   Scope,
@@ -478,6 +479,11 @@ export interface CoordinationTools {
    */
   abortWorker(
     ref: string,
+    reason?: string,
+  ): { readonly id: string; readonly label: string } | undefined
+  /** Abort one live child only when `workerId` exactly matches its Runtime node id. */
+  abortWorkerById(
+    workerId: string,
     reason?: string,
   ): { readonly id: string; readonly label: string } | undefined
   /**
@@ -2353,6 +2359,16 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // Per-child abort by stable reference. Resolution order matches the steer destination rule
   // (profile name before label) with the exact workerId first; only LIVE workers resolve, so an
   // already-settled or unknown reference returns `undefined` instead of a false "aborted".
+  const abortLiveWorker = (
+    target: NodeSnapshot,
+    reason?: string,
+  ): { readonly id: string; readonly label: string } | undefined => {
+    const handle = liveHandles.get(target.id)
+    if (handle === undefined) return undefined
+    handle.abort(reason)
+    return { id: target.id, label: target.label }
+  }
+
   const abortWorker = (
     ref: string,
     reason?: string,
@@ -2363,10 +2379,15 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       live.find((node) => profileNameByWorker.get(node.id) === ref) ??
       live.find((node) => node.label === ref)
     if (target === undefined) return undefined
-    const handle = liveHandles.get(target.id)
-    if (handle === undefined) return undefined
-    handle.abort(reason)
-    return { id: target.id, label: target.label }
+    return abortLiveWorker(target, reason)
+  }
+
+  const abortWorkerById = (
+    workerId: string,
+    reason?: string,
+  ): { readonly id: string; readonly label: string } | undefined => {
+    const target = opts.scope.view.nodes.find((node) => isLive(node.status) && node.id === workerId)
+    return target === undefined ? undefined : abortLiveWorker(target, reason)
   }
 
   return {
@@ -2385,6 +2406,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     questions: () => questions,
     drainResolved,
     abortWorker,
+    abortWorkerById,
   }
 }
 

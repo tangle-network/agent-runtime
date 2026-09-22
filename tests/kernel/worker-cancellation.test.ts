@@ -7,13 +7,14 @@
  * durable layout the way an external client would.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FileSpawnJournal, InMemoryResultBlobStore } from '../../src/durable/spawn-journal'
-import type { CoordinationEvent } from '../../src/mcp/tools/coordination'
+import type { CoordinationEvent, CoordinationTools } from '../../src/mcp/tools/coordination'
 import {
   type DriverAgentOptions,
   driverAgent,
@@ -21,9 +22,16 @@ import {
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import {
   cancelWorker,
+  defaultWorkerControlPersistence,
   readWorkerCancellation,
   readWorkerCancelRequests,
+  readWorkerSteerAcknowledgement,
+  SupervisorOperationConflictError,
+  supervisorRunDir,
+  workerCancellationClaimFile,
   workerCancelRequestsFile,
+  workerSteerClaimFile,
+  writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -33,8 +41,13 @@ import type {
   Budget,
   Executor,
   ExecutorResult,
+  Scope,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import { createWorkerControlAuthority } from '../../src/runtime/supervise/worker-control-context'
+import { createWorkerControlDriver } from '../../src/runtime/supervise/worker-control-driver'
+import type { WorkerControlPersistence } from '../../src/runtime/supervise/worker-control-layout'
+import type { WorkerSteerRequest } from '../../src/runtime/supervise/worker-steer-store'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
@@ -98,6 +111,52 @@ function doneLeaf(name: string, out: unknown): Agent<unknown, unknown> {
   }
 }
 
+/** A one-shot worker with the same optional delivery seam used by real harness executors. */
+function steerableLeaf(
+  name: string,
+  hooks: { readonly onStart?: () => void; readonly onSteer: () => void },
+): Agent<unknown, unknown> {
+  const artifact: ExecutorResult<unknown> = {
+    outRef: `w:${name}`,
+    out: { steered: true },
+    verdict: { valid: true, score: 1 },
+    spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+  }
+  let resolveExecution: ((result: ExecutorResult<unknown>) => void) | undefined
+  const executor: Executor<unknown> = {
+    runtime: 'router',
+    execute: (_task, signal) =>
+      new Promise<ExecutorResult<unknown>>((resolve, reject) => {
+        hooks.onStart?.()
+        resolveExecution = resolve
+        if (signal.aborted) reject(new Error('aborted'))
+        else signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      }),
+    deliver: (message) => {
+      if (
+        resolveExecution === undefined ||
+        typeof message !== 'object' ||
+        message === null ||
+        !('steer' in message) ||
+        typeof message.steer !== 'string'
+      ) {
+        return false
+      }
+      hooks.onSteer()
+      const resolve = resolveExecution
+      resolveExecution = undefined
+      resolve(artifact)
+      return true
+    },
+    teardown: () => Promise.resolve({ destroyed: true }),
+    resultArtifact: () => artifact,
+  }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
+  return { name, act: async () => ({}), executorSpec: spec } as Agent<unknown, unknown> & {
+    executorSpec: AgentSpec
+  }
+}
+
 function driverOpts(
   name: string,
   brain: ToolLoopChat,
@@ -117,7 +176,33 @@ function driverOpts(
   }
 }
 
+function directControlDriver(options: {
+  readonly dir: string
+  readonly coord: Pick<CoordinationTools, 'settled' | 'abortWorkerById'>
+  readonly scope: Scope<unknown>
+  readonly now: () => number
+  readonly ownerId?: string
+  readonly persistence?: WorkerControlPersistence
+  readonly deliverSteer: (request: WorkerSteerRequest) => Promise<unknown>
+}): ReturnType<typeof createWorkerControlDriver> {
+  const authority = createWorkerControlAuthority()
+  authority.register({
+    scope: options.scope,
+    coord: options.coord,
+    deliverSteer: options.deliverSteer,
+  })
+  return createWorkerControlDriver({
+    dir: options.dir,
+    authority,
+    now: options.now,
+    ...(options.ownerId === undefined ? {} : { ownerId: options.ownerId }),
+    ...(options.persistence === undefined ? {} : { persistence: options.persistence }),
+  })
+}
+
 const dirs: string[] = []
+const raceChildScript = new URL('../helpers/worker-control-race-child.ts', import.meta.url).pathname
+
 function runDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'worker-cancel-'))
   dirs.push(dir)
@@ -127,12 +212,206 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
+interface ChildExit {
+  readonly code: number | null
+  readonly signal: NodeJS.Signals | null
+  readonly stderr: string
+}
+
+function runControlChild(
+  mode: 'steer' | 'cancel',
+  dir: string,
+  workerId: string,
+  operationId: string,
+  ownerId: string,
+  effectFile: string,
+  readyFile: string,
+  startFile: string,
+): Promise<ChildExit> {
+  return new Promise<ChildExit>((resolveChild, rejectChild) => {
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        raceChildScript,
+        mode,
+        dir,
+        workerId,
+        operationId,
+        ownerId,
+        effectFile,
+        readyFile,
+        startFile,
+      ],
+      { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe'] },
+    )
+    let stderr = ''
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    child.once('error', rejectChild)
+    child.once('close', (code, signal) => resolveChild({ code, signal, stderr }))
+  })
+}
+
+async function runControlRace(
+  mode: 'steer' | 'cancel',
+  dir: string,
+  workerId: string,
+  operationId: string,
+  markerDir: string,
+  owners: ReadonlyArray<string> = ['process-a', 'process-b'],
+): Promise<{ readonly exits: ReadonlyArray<ChildExit>; readonly effectFile: string }> {
+  const effectFile = join(markerDir, `${mode}-effects.ndjson`)
+  const readyFile = join(markerDir, `${mode}-ready.ndjson`)
+  const startFile = join(markerDir, `${mode}-start`)
+  const children = owners.map((ownerId) =>
+    runControlChild(mode, dir, workerId, operationId, ownerId, effectFile, readyFile, startFile),
+  )
+  let waitError: unknown
+  try {
+    await waitForLineCount(readyFile, owners.length)
+  } catch (error) {
+    waitError = error
+  } finally {
+    writeFileSync(startFile, 'go\n', 'utf8')
+  }
+  const exits = await Promise.all(children)
+  if (waitError !== undefined) throw waitError
+  return { exits, effectFile }
+}
+
+async function waitForLineCount(file: string, count: number): Promise<void> {
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    const lines = existsSync(file)
+      ? readFileSync(file, 'utf8')
+          .split('\n')
+          .filter((line) => line.trim().length > 0)
+      : []
+    if (lines.length >= count) return
+    await new Promise<void>((resolveWait) => setTimeout(resolveWait, 10))
+  }
+  throw new Error(`timed out waiting for ${count} child processes in ${file}`)
+}
+
 const spawnCall = (label: string, kind = 'hang'): ScriptedTurn['toolCalls'] => [
   { name: 'spawn_agent', arguments: { profile: { metadata: { kind } }, task: 'go', label } },
 ]
 const awaitTurn: ScriptedTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
 
 describe('acknowledged worker cancellation (#758)', () => {
+  it('consumes an exact-worker steer once and skips it after a driver restart', async () => {
+    const rootDir = runDir()
+    const eventDir = supervisorRunDir(rootDir, 'run-steer')
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new FileSpawnJournal(join(eventDir, 'spawn-journal.jsonl'))
+    const events: CoordinationEvent[] = []
+    let markStarted: (() => void) | undefined
+    const workerStarted = new Promise<void>((resolveGate) => {
+      markStarted = resolveGate
+    })
+    let created = 0
+    const steeredWorkers: string[] = []
+    const makeAgent = (_p: AgentProfile) => {
+      const ordinal = created
+      created += 1
+      if (ordinal === 0) return doneLeaf('same-label-0', { unsteered: true })
+      return steerableLeaf(`same-label-${ordinal}`, {
+        onStart: () => markStarted?.(),
+        onSteer: () => steeredWorkers.push(`run-steer:s${ordinal}`),
+      })
+    }
+    const script = scriptedBrain([
+      { toolCalls: [...(spawnCall('same-label') ?? []), ...(spawnCall('same-label') ?? [])] },
+      { toolCalls: [{ name: 'list_questions', arguments: {} }] },
+      { content: 'stopping' },
+    ])
+    let call = 0
+    const chat: ToolLoopChat = async (messages, tools, context) => {
+      const index = call
+      call += 1
+      if (index === 1) {
+        await workerStarted
+        const first = writeWorkerSteer(
+          rootDir,
+          'run-steer',
+          'run-steer:s1',
+          'focus on the failing test',
+          'test',
+          'steer-once',
+        )
+        expect(
+          writeWorkerSteer(rootDir, 'run-steer', 'run-steer:s1', 'focus on the failing test', {
+            operationId: 'steer-once',
+          }).request,
+        ).toEqual(first.request)
+      }
+      return script(messages, tools, context)
+    }
+    const root = driverAgent(
+      driverOpts('root', chat, makeAgent, blobs, {
+        controlDir: eventDir,
+        onEvent: (event) => events.push(event),
+      }),
+    )
+    await createSupervisor<unknown, unknown>().run(root, 'x', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'run-steer',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+    })
+
+    const acknowledgement = readWorkerSteerAcknowledgement(eventDir, 'steer-once')
+    expect(acknowledgement).toMatchObject({
+      operationId: 'steer-once',
+      worker: 'run-steer:s1',
+      source: 'test',
+      message: 'focus on the failing test',
+      effect: 'delivered',
+    })
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'steer' &&
+          event.down.outcome === 'delivered' &&
+          event.down.toWorker === 'run-steer:s1',
+      ),
+    ).toBe(true)
+    expect(steeredWorkers).toEqual(['run-steer:s1'])
+
+    // A fresh Runtime process recreates the same exact worker ids. It must see the durable
+    // acknowledgement before it can call Scope.send; changing the run id would make this test
+    // pass even if acknowledgement lookup were broken.
+    created = 0
+    const restarted = driverAgent(
+      driverOpts(
+        'restarted-root',
+        scriptedBrain([
+          {
+            toolCalls: [...(spawnCall('same-label') ?? []), ...(spawnCall('same-label') ?? [])],
+          },
+          { content: 'restarted' },
+        ]),
+        makeAgent,
+        blobs,
+        { controlDir: eventDir },
+      ),
+    )
+    await createSupervisor<unknown, unknown>().run(restarted, 'x', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'run-steer',
+      journal: new FileSpawnJournal(join(eventDir, 'restart-journal.jsonl')),
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+    })
+    expect(steeredWorkers).toEqual(['run-steer:s1'])
+  })
+
   it('repeating one operationId applies cancellation once and returns the same record', async () => {
     const dir = runDir()
     const blobs = new InMemoryResultBlobStore()
@@ -164,9 +443,12 @@ describe('acknowledged worker cancellation (#758)', () => {
         // The worker is observably RUNNING before the operation is issued — twice, with one
         // operationId. The second call finds the pending request and appends nothing.
         await workerStarted
-        const first = cancelWorker(dir, 'a', 'op-once', { reason: 'test', source: 'test' })
+        const first = cancelWorker(dir, 'run-once:s0', 'op-once', {
+          reason: 'test',
+          source: 'test',
+        })
         expect(first.effect).toBe('unknown')
-        const second = cancelWorker(dir, 'a', 'op-once')
+        const second = cancelWorker(dir, 'run-once:s0', 'op-once')
         expect(second.requestedAt).toBe(first.requestedAt)
       }
       return script(messages, tools, context)
@@ -184,12 +466,13 @@ describe('acknowledged worker cancellation (#758)', () => {
     const acknowledged = readWorkerCancellation(dir, 'op-once')
     expect(acknowledged?.effect).toBe('cancelled')
     expect(acknowledged?.workerId).toBe('run-once:s0')
+    expect(acknowledged?.source).toBe('test')
     expect(acknowledged?.terminated).toEqual(['run-once:s0'])
     expect(abortCount).toBe(1)
 
     // Repeating the operation AFTER acknowledgement is a pure lookup: the identical record comes
     // back, no new request line lands, and the abort count stays 1.
-    const repeated = cancelWorker(dir, 'a', 'op-once')
+    const repeated = cancelWorker(dir, 'run-once:s0', 'op-once')
     expect(repeated).toEqual(acknowledged)
     const requestLines = readFileSync(workerCancelRequestsFile(dir), 'utf8')
       .split('\n')
@@ -197,6 +480,9 @@ describe('acknowledged worker cancellation (#758)', () => {
     expect(requestLines).toHaveLength(1)
     expect(readWorkerCancelRequests(dir)).toHaveLength(1)
     expect(abortCount).toBe(1)
+    expect(() => cancelWorker(dir, 'run-once:s1', 'op-once')).toThrow(
+      SupervisorOperationConflictError,
+    )
   })
 
   it('cancelling one child leaves siblings running until they settle normally', async () => {
@@ -263,7 +549,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       call += 1
       if (index === 1) {
         await victimStarted
-        cancelWorker(dir, 'victim', 'op-sibling', { source: 'test' })
+        cancelWorker(dir, 'run-sibling:s0', 'op-sibling', { source: 'test' })
       }
       return script(messages, tools, context)
     }
@@ -361,7 +647,10 @@ describe('acknowledged worker cancellation (#758)', () => {
       call += 1
       if (index === 1) {
         await leadWorkersLive
-        cancelWorker(dir, 'lead', 'op-lead', { reason: 'subtree test', source: 'test' })
+        cancelWorker(dir, 'run-lead:s0', 'op-lead', {
+          reason: 'subtree test',
+          source: 'test',
+        })
       }
       return rootScript(messages, tools, context)
     }
@@ -391,7 +680,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
     const makeAgent = (_p: AgentProfile) => hangingLeaf('a')
 
-    cancelWorker(dir, 'a', 'op-reconnect', { source: 'test' })
+    cancelWorker(dir, 'run-reconnect:s0', 'op-reconnect', { source: 'test' })
     const chat = scriptedBrain([{ toolCalls: spawnCall('a') }, awaitTurn, { content: 'stopping' }])
     const root = driverAgent(driverOpts('root', chat, makeAgent, blobs, { controlDir: dir }))
     await createSupervisor<unknown, unknown>().run(root, 'x', {
@@ -406,11 +695,11 @@ describe('acknowledged worker cancellation (#758)', () => {
     // A fresh client holds NOTHING in process — it derives everything from the directory.
     const read = readWorkerCancellation(dir, 'op-reconnect')
     expect(read?.effect).toBe('cancelled')
-    expect(read?.worker).toBe('a')
+    expect(read?.worker).toBe('run-reconnect:s0')
     expect(read?.workerId).toBe('run-reconnect:s0')
     expect(read?.terminated).toEqual(['run-reconnect:s0'])
     // The one-export reconnect path answers identically: repeating the operation is a lookup.
-    expect(cancelWorker(dir, 'a', 'op-reconnect')).toEqual(read)
+    expect(cancelWorker(dir, 'run-reconnect:s0', 'op-reconnect')).toEqual(read)
   })
 
   it('a worker that is already gone acknowledges not_live, and an unknown one stays unknown — never success', async () => {
@@ -420,7 +709,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const makeAgent = (_p: AgentProfile) => doneLeaf('w', { answer: 42 })
 
     // An operation naming a worker that never existed anywhere.
-    cancelWorker(dir, 'ghost', 'op-ghost', { source: 'test' })
+    cancelWorker(dir, 'run-gone:s999', 'op-ghost', { source: 'test' })
 
     const script = scriptedBrain([
       { toolCalls: spawnCall('w', 'worker') },
@@ -433,7 +722,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       const index = call
       call += 1
       // Written only AFTER the worker settled done — the "process already gone" case.
-      if (index === 2) cancelWorker(dir, 'w', 'op-gone', { source: 'test' })
+      if (index === 2) cancelWorker(dir, 'run-gone:s0', 'op-gone', { source: 'test' })
       return script(messages, tools, context)
     }
     const root = driverAgent(driverOpts('root', chat, makeAgent, blobs, { controlDir: dir }))
@@ -449,17 +738,12 @@ describe('acknowledged worker cancellation (#758)', () => {
     const gone = readWorkerCancellation(dir, 'op-gone')
     expect(gone?.effect).toBe('not_live')
     expect(gone?.terminated).toEqual([])
-    // The unknown reference was never answered: the durable layout holds no record and the
-    // operation still reads `unknown` — neither ever reads as success.
+    // An absent exact worker is left pending, so a later spawn with that id can still be cancelled.
     expect(readWorkerCancellation(dir, 'op-ghost')).toBeUndefined()
-    expect(cancelWorker(dir, 'ghost', 'op-ghost').effect).toBe('unknown')
+    expect(cancelWorker(dir, 'run-gone:s999', 'op-ghost').effect).toBe('unknown')
   })
 
-  it('a request naming a nested descendant stays unanswered — cancel its lead instead', async () => {
-    // The acknowledger resolves references against the root manager's DIRECT children only
-    // (`DriverAgentOptions.controlDir`). This pins the boundary: an operation naming a live
-    // nested descendant is neither acknowledged nor applied, across every acknowledger pass
-    // including the post-drain one, and still reads `unknown` after the run — never a success.
+  it('cancels an exact worker in a nested driver scope', async () => {
     const dir = runDir()
     const blobs = new InMemoryResultBlobStore()
     const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
@@ -522,8 +806,98 @@ describe('acknowledged worker cancellation (#758)', () => {
       maxDepth: 4,
     })
 
-    expect(readWorkerCancellation(dir, 'op-deep')).toBeUndefined()
-    expect(cancelWorker(dir, 'run-deep:s0:s0', 'op-deep').effect).toBe('unknown')
+    expect(readWorkerCancellation(dir, 'op-deep')).toMatchObject({
+      worker: 'run-deep:s0:s0',
+      workerId: 'run-deep:s0:s0',
+      effect: 'cancelled',
+      terminated: ['run-deep:s0:s0'],
+    })
+  })
+
+  it('steers an exact worker in a nested driver scope', async () => {
+    const dir = runDir()
+    const eventDir = supervisorRunDir(dir, 'run-deep-steer')
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
+    let markStarted: (() => void) | undefined
+    const descendantLive = new Promise<void>((resolveGate) => {
+      markStarted = resolveGate
+    })
+    let steered = false
+    const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
+      if (p.metadata?.kind === 'lead') {
+        const leadBrain = scriptedBrain([
+          { toolCalls: spawnCall('d1', 'steerable') },
+          awaitTurn,
+          { content: 'lead stopped' },
+        ])
+        return driverChild(
+          testAgentProfile('lead'),
+          driverAgent(driverOpts('lead', leadBrain, makeAgent, blobs)),
+          journal,
+        )
+      }
+      return steerableLeaf('d1', {
+        onStart: () => markStarted?.(),
+        onSteer: () => {
+          steered = true
+        },
+      })
+    }
+
+    const rootScript = scriptedBrain([
+      {
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: {
+              profile: { metadata: { kind: 'lead' } },
+              task: 'go',
+              label: 'lead',
+              budget: { maxTokens: 10_000, maxIterations: 20 },
+            },
+          },
+        ],
+      },
+      { toolCalls: [{ name: 'list_questions', arguments: {} }] },
+      { content: 'stopping' },
+    ])
+    let call = 0
+    const rootChat: ToolLoopChat = async (messages, tools, context) => {
+      const index = call
+      call += 1
+      if (index === 1) {
+        await descendantLive
+        writeWorkerSteer(
+          dir,
+          'run-deep-steer',
+          'run-deep-steer:s0:s0',
+          'focus on the failing test',
+          'test',
+          'op-deep-steer',
+        )
+      }
+      return rootScript(messages, tools, context)
+    }
+
+    const root = driverAgent(
+      driverOpts('root', rootChat, makeAgent, blobs, { controlDir: eventDir }),
+    )
+    await createSupervisor<unknown, unknown>().run(root, 'x', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'run-deep-steer',
+      journal,
+      blobs,
+      executors: withDriverExecutor(createExecutorRegistry()),
+      maxDepth: 4,
+    })
+
+    const acknowledgement = readWorkerSteerAcknowledgement(eventDir, 'op-deep-steer')
+    expect(acknowledgement).toMatchObject({
+      worker: 'run-deep-steer:s0:s0',
+      effect: 'delivered',
+    })
+    expect(steered).toBe(true)
   })
 
   it('the cancelled worker reaches a terminal down state visible on the settle path', async () => {
@@ -533,7 +907,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const makeAgent = (_p: AgentProfile) => hangingLeaf('a')
     const events: CoordinationEvent[] = []
 
-    cancelWorker(dir, 'a', 'op-settle', { source: 'test' })
+    cancelWorker(dir, 'run-settle:s0', 'op-settle', { source: 'test' })
     const chat = scriptedBrain([{ toolCalls: spawnCall('a') }, awaitTurn, { content: 'stopping' }])
     const root = driverAgent(
       driverOpts('root', chat, makeAgent, blobs, {
@@ -565,5 +939,227 @@ describe('acknowledged worker cancellation (#758)', () => {
       tree.some((e) => e.kind === 'settled' && e.id === 'run-settle:s0' && e.status === 'down'),
     ).toBe(true)
     expect(readWorkerCancellation(dir, 'op-settle')?.effect).toBe('cancelled')
+  })
+})
+
+describe('durable worker-control ownership', () => {
+  it('lets exactly one of two Runtime processes deliver one steer', async () => {
+    const root = runDir()
+    const eventDir = supervisorRunDir(root, 'run-race-steer')
+    const workerId = 'run-race-steer:s0'
+    writeWorkerSteer(root, 'run-race-steer', workerId, 'apply the fix', {
+      operationId: 'steer-race',
+    })
+    const race = await runControlRace('steer', eventDir, workerId, 'steer-race', root)
+    for (const exit of race.exits) {
+      expect(exit.code, exit.stderr).toBe(0)
+      expect(exit.signal).toBeNull()
+    }
+    const effects = readFileSync(race.effectFile, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+    expect(effects).toHaveLength(1)
+    expect(readWorkerSteerAcknowledgement(eventDir, 'steer-race')).toMatchObject({
+      worker: workerId,
+      operationId: 'steer-race',
+      effect: 'delivered',
+    })
+  })
+
+  it('lets exactly one of two Runtime processes abort one exact worker', async () => {
+    const eventDir = runDir()
+    const workerId = 'run-race-cancel:s0'
+    cancelWorker(eventDir, workerId, 'cancel-race', { source: 'test' })
+    const race = await runControlRace('cancel', eventDir, workerId, 'cancel-race', eventDir)
+    for (const exit of race.exits) {
+      expect(exit.code, exit.stderr).toBe(0)
+      expect(exit.signal).toBeNull()
+    }
+    const effects = readFileSync(race.effectFile, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+    expect(effects).toHaveLength(1)
+    expect(effects[0]).toMatch(/:unknown$/)
+    expect(readWorkerCancellation(eventDir, 'cancel-race')).toMatchObject({
+      worker: workerId,
+      workerId,
+      effect: 'cancel_requested',
+    })
+  })
+
+  it('keeps two processes exclusive when they receive the same logical ownerId', async () => {
+    const steerRoot = runDir()
+    const steerDir = supervisorRunDir(steerRoot, 'run-same-owner-steer')
+    const steerWorker = 'run-same-owner-steer:s0'
+    writeWorkerSteer(steerRoot, 'run-same-owner-steer', steerWorker, 'apply once', {
+      operationId: 'same-owner-steer',
+    })
+    const steerRace = await runControlRace(
+      'steer',
+      steerDir,
+      steerWorker,
+      'same-owner-steer',
+      steerRoot,
+      ['same-logical-owner', 'same-logical-owner'],
+    )
+    expect(
+      readFileSync(steerRace.effectFile, 'utf8')
+        .split('\n')
+        .filter((line) => line.trim().length > 0),
+    ).toHaveLength(1)
+
+    const cancelDir = runDir()
+    const cancelWorkerId = 'run-same-owner-cancel:s0'
+    cancelWorker(cancelDir, cancelWorkerId, 'same-owner-cancel', { source: 'test' })
+    const cancelRace = await runControlRace(
+      'cancel',
+      cancelDir,
+      cancelWorkerId,
+      'same-owner-cancel',
+      cancelDir,
+      ['same-logical-owner', 'same-logical-owner'],
+    )
+    expect(
+      readFileSync(cancelRace.effectFile, 'utf8')
+        .split('\n')
+        .filter((line) => line.trim().length > 0),
+    ).toHaveLength(1)
+    expect(readWorkerCancellation(cancelDir, 'same-owner-cancel')?.effect).toBe('cancel_requested')
+  })
+
+  it('keeps a claimed operation visible as unknown when the attempt write fails', async () => {
+    const failingPersistence = {
+      ...defaultWorkerControlPersistence,
+      replaceFile: (_file: string, _contents: string): never => {
+        throw new Error('injected write failure')
+      },
+    }
+
+    const steerRoot = runDir()
+    const steerDir = supervisorRunDir(steerRoot, 'run-write-fail-steer')
+    const steerWorker = 'run-write-fail-steer:s0'
+    writeWorkerSteer(steerRoot, 'run-write-fail-steer', steerWorker, 'deliver once', {
+      operationId: 'steer-write-fail',
+    })
+    const steerScope = {
+      view: { nodes: [{ id: steerWorker, status: 'running' }] },
+    } as unknown as Scope<unknown>
+    const steerCoord = { settled: () => [], abortWorkerById: () => undefined }
+    let deliveries = 0
+    await expect(
+      directControlDriver({
+        dir: steerDir,
+        coord: steerCoord,
+        scope: steerScope,
+        now: () => 0,
+        ownerId: 'same-logical-owner',
+        persistence: failingPersistence,
+        deliverSteer: async () => {
+          deliveries += 1
+          return { delivered: true }
+        },
+      }).pass(),
+    ).rejects.toThrow('injected write failure')
+    await directControlDriver({
+      dir: steerDir,
+      coord: steerCoord,
+      scope: steerScope,
+      now: () => 0,
+      ownerId: 'same-logical-owner',
+      deliverSteer: async () => {
+        deliveries += 1
+        return { delivered: true }
+      },
+    }).pass()
+    expect(deliveries).toBe(0)
+    expect(existsSync(workerSteerClaimFile(steerDir, 'steer-write-fail'))).toBe(true)
+    expect(readWorkerSteerAcknowledgement(steerDir, 'steer-write-fail')).toMatchObject({
+      operationId: 'steer-write-fail',
+      worker: steerWorker,
+      effect: 'unknown',
+    })
+
+    const cancelDir = runDir()
+    const cancelWorkerId = 'run-write-fail-cancel:s0'
+    cancelWorker(cancelDir, cancelWorkerId, 'cancel-write-fail', { source: 'test' })
+    const cancelScope = {
+      view: { nodes: [{ id: cancelWorkerId, status: 'running' }] },
+    } as unknown as Scope<unknown>
+    let aborts = 0
+    const cancelCoord = {
+      settled: () => [],
+      abortWorkerById: (id: string) => {
+        aborts += 1
+        return { id, label: 'same-label' }
+      },
+    }
+    await expect(
+      directControlDriver({
+        dir: cancelDir,
+        coord: cancelCoord,
+        scope: cancelScope,
+        now: () => 0,
+        ownerId: 'same-logical-owner',
+        persistence: failingPersistence,
+        deliverSteer: async () => ({ delivered: true }),
+      }).pass(),
+    ).rejects.toThrow('injected write failure')
+    await directControlDriver({
+      dir: cancelDir,
+      coord: cancelCoord,
+      scope: cancelScope,
+      now: () => 0,
+      ownerId: 'same-logical-owner',
+      deliverSteer: async () => ({ delivered: true }),
+    }).pass()
+    expect(aborts).toBe(0)
+    expect(existsSync(workerCancellationClaimFile(cancelDir, 'cancel-write-fail'))).toBe(true)
+    expect(readWorkerCancellation(cancelDir, 'cancel-write-fail')).toMatchObject({
+      operationId: 'cancel-write-fail',
+      worker: cancelWorkerId,
+      effect: 'unknown',
+    })
+  })
+
+  it('does not repeat an abort after the unknown attempt survives an abort crash', async () => {
+    const eventDir = runDir()
+    const workerId = 'run-crash-cancel:s0'
+    cancelWorker(eventDir, workerId, 'cancel-crash', { source: 'test' })
+    const scope = {
+      view: { nodes: [{ id: workerId, status: 'running' }] },
+    } as unknown as Scope<unknown>
+    let aborts = 0
+    const crashingCoord = {
+      settled: () => [],
+      abortWorkerById: () => {
+        aborts += 1
+        throw new Error('simulated process crash after abort boundary')
+      },
+    }
+    await expect(
+      directControlDriver({
+        dir: eventDir,
+        coord: crashingCoord,
+        scope,
+        now: () => 0,
+        ownerId: 'same-logical-owner',
+        deliverSteer: async () => ({ delivered: true }),
+      }).pass(),
+    ).rejects.toThrow('simulated process crash after abort boundary')
+    expect(readWorkerCancellation(eventDir, 'cancel-crash')).toMatchObject({
+      effect: 'unknown',
+      worker: workerId,
+      workerId,
+    })
+
+    await directControlDriver({
+      dir: eventDir,
+      coord: crashingCoord,
+      scope,
+      now: () => 0,
+      ownerId: 'same-logical-owner',
+      deliverSteer: async () => ({ delivered: true }),
+    }).pass()
+    expect(aborts).toBe(1)
   })
 })

@@ -50,9 +50,14 @@ Process B rebuilds control from the persisted ticket.
 
 ```ts
 const handle = await reconnectRetainedRun({ provider, controlRef: dispatched.controlRef })
+const capabilities = handle.capabilities
 const snapshot = await handle.status({ waitMs: 30_000 })
 const result = await handle.result()
 ```
+
+`handle.capabilities` is the capability document measured from the exact retained environment.
+The runtime does not restore optional provider claims that the environment omitted.
+Each read returns a copy, so caller mutation cannot change later control decisions.
 
 Three rules keep a restart safe.
 

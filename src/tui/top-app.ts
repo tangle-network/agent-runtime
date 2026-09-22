@@ -273,10 +273,9 @@ function submitSteerInput(): void {
     return
   }
   try {
-    // The snapshot already carries the worker LABEL the layout keys inboxes by, so this is the
-    // direct durable append with no id-to-label resolution step in between.
-    const written = writeWorkerSteer(state.root, supervisor.id, worker.label, message, 'human')
-    state.notice = `steer queued for ${supervisor.id}/${written.worker}`
+    // The exact Runtime worker id is the routing key. Labels are display-only and may repeat.
+    writeWorkerSteer(state.root, supervisor.id, worker.id, message, 'human')
+    state.notice = `steer queued for ${supervisor.id}/${worker.label}`
   } catch (err) {
     state.notice = `steer failed: ${err instanceof Error ? err.message : String(err)}`
   }

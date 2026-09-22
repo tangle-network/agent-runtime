@@ -13,6 +13,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
+  AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
   AgentTurnInput,
   AgentTurnResult,
@@ -73,6 +74,8 @@ export type NativeContextContinuationExecution = AgentNativeContextContinuationR
 /** Reconstructable control of one provider-retained run. @stable */
 export interface RetainedRunHandle {
   readonly controlRef: AgentExactRunControlRef
+  /** Capabilities measured from the exact environment that owns this run. */
+  readonly capabilities: AgentEnvironmentCapabilities
   status(options?: { waitMs?: number; signal?: AbortSignal }): Promise<RetainedRunSnapshot>
   events(options?: RetainedRunEventOptions): AsyncIterable<RuntimeEventEnvelope>
   result(): Promise<AgentTurnResult>

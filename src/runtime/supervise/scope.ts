@@ -112,6 +112,11 @@ import {
   type WaitRejection,
   type WaitSpec,
 } from './wait'
+import {
+  bindWorkerControlContext,
+  type WorkerControlContext,
+  workerControlContextForScope,
+} from './worker-control-context'
 import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
@@ -146,6 +151,8 @@ export interface ScopeArgs {
   /** @internal Shared counter inherited by nested scopes. Callers set `maxLiveWorkers`; the root
    *  scope creates this state once and passes the same object through its recursion seam. */
   readonly liveWorkerCapacity?: LiveWorkerCapacityState
+  /** @internal Run-wide durable worker-control context inherited by nested scopes. */
+  readonly workerControlContext?: WorkerControlContext
   /** Abort signal for this scope; an abort cascades into every live child's executor. */
   readonly signal: AbortSignal
   /** Injected clock — keeps the journal `at` timestamp deterministic in tests. */
@@ -358,6 +365,7 @@ interface DeferredOwnerSlot {
 function makeNestedScopeSeam(
   args: ScopeArgs,
   liveWorkerCapacity: LiveWorkerCapacityState,
+  workerControlContext: WorkerControlContext | undefined,
   childNodeId: NodeId,
   childBudget: Budget,
   childDeadlineAtMs: number | undefined,
@@ -390,6 +398,7 @@ function makeNestedScopeSeam(
         ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
         liveWorkerCapacity,
         signal,
+        ...(workerControlContext === undefined ? {} : { workerControlContext }),
         ...(args.now ? { now: args.now } : {}),
         ...(args.hooks ? { hooks: args.hooks } : {}),
         // The nested scope resolves the trace context against ITS OWN `parentId` (this driver
@@ -663,6 +672,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           [nestedScopeSeamKey]: makeNestedScopeSeam(
             args,
             liveWorkerCapacity,
+            workerControlContextForScope(scope),
             id,
             opts.budget,
             childDeadlineAtMs,
@@ -1346,6 +1356,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         freeSlots: freeSlots(liveWorkerCapacity.live, liveWorkerCapacity.max),
       }
     },
+  }
+  if (args.workerControlContext !== undefined) {
+    bindWorkerControlContext(scope as Scope<unknown>, args.workerControlContext)
   }
   runtimeOwnedProviderMeters.set(
     scope as Scope<unknown>,

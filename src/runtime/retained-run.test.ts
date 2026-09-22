@@ -9,9 +9,11 @@ import {
   AgentRunCancellationRequestSchema,
   interactionResponseCommandDigest,
   type RuntimeEventEnvelope,
+  type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
+  AgentEnvironmentCapabilities,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
   AgentSession,
@@ -1293,6 +1295,280 @@ describe('retained runtime run control', () => {
     expect(responses).toBe(0)
   })
 
+  it('uses measured environment interaction capabilities for a newly created handle', async () => {
+    const controlRef = {
+      runId: 'measured-create-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'measured-create-session',
+      executionId: 'measured-create-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    let responses = 0
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      async respondToInteraction(command) {
+        responses += 1
+        return {
+          operationId: command.operationId,
+          binding: command.binding,
+          commandDigest: command.commandDigest,
+          status: 'accepted',
+        }
+      },
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    await addMeasuredInteractionCapabilities(provider)
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'measured-create' },
+      turn: { prompt: 'go', turnId: 'measured-create-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    const command = interactionCommand(controlRef, 'measured-create-operation')
+    const firstCapabilities = run.capabilities
+    expect(firstCapabilities.interactions?.responseIdempotency).toBe(true)
+    expect(run.capabilities).not.toBe(firstCapabilities)
+    expect(run.capabilities.interactions).not.toBe(firstCapabilities.interactions)
+    await expect(run.respondToInteraction(command)).resolves.toMatchObject({ status: 'accepted' })
+    expect(responses).toBe(1)
+  })
+
+  it('uses measured environment interaction capabilities after reconnect', async () => {
+    const controlRef = {
+      runId: 'measured-reconnect-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'measured-reconnect-session',
+      executionId: 'measured-reconnect-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    let responses = 0
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      async respondToInteraction(command) {
+        responses += 1
+        return {
+          operationId: command.operationId,
+          binding: command.binding,
+          commandDigest: command.commandDigest,
+          status: 'accepted',
+        }
+      },
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      session: () => session,
+    })
+    await addMeasuredInteractionCapabilities(provider)
+    const run = await reconnectRetainedRun({ provider, controlRef })
+    expect(run).not.toBeNull()
+    expect(run?.capabilities.interactions?.responseIdempotency).toBe(true)
+    const command = interactionCommand(controlRef, 'measured-reconnect-operation')
+    await expect(run?.respondToInteraction(command)).resolves.toMatchObject({ status: 'accepted' })
+    expect(responses).toBe(1)
+  })
+
+  it('does not resurrect optional provider capabilities omitted by the measured environment', async () => {
+    const controlRef = {
+      runId: 'measured-authority-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'measured-authority-session',
+      executionId: 'measured-authority-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    let responses = 0
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      async respondToInteraction(command) {
+        responses += 1
+        return {
+          operationId: command.operationId,
+          binding: command.binding,
+          commandDigest: command.commandDigest,
+          status: 'accepted',
+        }
+      },
+      cancel: async () => {},
+    }
+    const baseProvider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const base = await baseProvider.capabilities()
+    const environment = await baseProvider.get?.('environment-1')
+    if (environment === null || environment === undefined) {
+      throw new Error('test provider did not return its environment')
+    }
+    const measuredEnvironment: AgentEnvironment = {
+      ...environment,
+      // The environment measured every field it supports, and deliberately omitted interactions.
+      capabilities: base,
+    }
+    const provider: AgentEnvironmentProvider = {
+      ...baseProvider,
+      capabilities: async () => ({
+        ...base,
+        interactions: {
+          kinds: ['question'],
+          answerFieldTypes: ['text'],
+          responseScopes: ['interaction'],
+          secretAnswers: false,
+          concurrentRequests: false,
+          replay: true,
+          responseIdempotency: true,
+        },
+      }),
+      create: async () => measuredEnvironment,
+      get: async () => measuredEnvironment,
+    }
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'measured-authority' },
+      turn: { prompt: 'go', turnId: 'measured-authority-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    expect(run.capabilities.interactions).toBeUndefined()
+    await expect(
+      run.respondToInteraction(interactionCommand(controlRef, 'measured-authority-op')),
+    ).rejects.toThrow('does not promise retry-safe interaction responses')
+    expect(responses).toBe(0)
+  })
+
+  it('fails closed when a measured environment omits retained-run control guarantees', async () => {
+    const controlRef = {
+      runId: 'measured-retained-authority-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'measured-retained-authority-session',
+      executionId: 'measured-retained-authority-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let dispatches = 0
+    let destroys = 0
+    const provider = providerWithEnvironment({
+      dispatch: async () => {
+        dispatches += 1
+        return { id: session.id, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+      destroy: async () => {
+        destroys += 1
+      },
+    })
+    const baseline = await provider.capabilities()
+    const { retainedControl, ...measuredCapabilities } = baseline
+    if (retainedControl === undefined) throw new Error('test provider lacks retained controls')
+    const environment = await provider.get?.('environment-1')
+    if (environment === null || environment === undefined) {
+      throw new Error('test provider did not return its environment')
+    }
+    const measuredEnvironment: AgentEnvironment = {
+      ...environment,
+      capabilities: measuredCapabilities,
+    }
+    provider.create = async () => measuredEnvironment
+    provider.get = async () => measuredEnvironment
+
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'measured-retained-authority' },
+        turn: { prompt: 'go', turnId: 'measured-retained-authority-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+        identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+      }),
+    ).rejects.toThrow('cannot control a retry-safe retained run')
+    await expect(
+      startRetainedRunInEnvironment({
+        provider,
+        environment: { id: 'environment-1', idempotencyKey: 'measured-retained-authority' },
+        turn: { prompt: 'go', turnId: 'measured-retained-authority-existing-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+        identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+      }),
+    ).rejects.toThrow('cannot control a retry-safe retained run')
+    await expect(
+      recoverRetainedRun({
+        provider,
+        environmentId: controlRef.environmentId,
+        sessionId: controlRef.sessionId,
+        executionId: controlRef.executionId,
+      }),
+    ).rejects.toThrow('cannot control a retry-safe retained run')
+    await expect(reconnectRetainedRun({ provider, controlRef })).rejects.toThrow(
+      'cannot control a retry-safe retained run',
+    )
+    expect(dispatches).toBe(0)
+    expect(destroys).toBe(1)
+  })
+
+  it('rejects an invalid measured environment capability document before dispatch', async () => {
+    let dispatches = 0
+    let destroys = 0
+    const provider = providerWithEnvironment({
+      capabilities: { interactions: {} } as unknown as AgentEnvironmentCapabilities,
+      dispatch: async () => {
+        dispatches += 1
+        throw new Error('dispatch must not run')
+      },
+      destroy: async () => {
+        destroys += 1
+      },
+    })
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'invalid-measured' },
+        turn: { prompt: 'go', turnId: 'invalid-measured-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).rejects.toThrow()
+    expect(dispatches).toBe(0)
+    expect(destroys).toBe(1)
+  })
+
   it('replays identity stored in data when the transport has no top-level id', async () => {
     const controlRef = {
       runId: 'fallback-run',
@@ -2089,6 +2365,63 @@ async function collectRetainedEvents(events: AsyncIterable<RuntimeEventEnvelope>
   for await (const _event of events) {
     // The first event is expected to fail its retained-run binding check.
   }
+}
+
+function interactionCommand(
+  controlRef: {
+    runId: string
+    provider: string
+    environmentId: string
+    sessionId: string
+    executionId: string
+    requestDigest: Sha256Digest
+  },
+  operationId: string,
+) {
+  const binding = {
+    runId: controlRef.runId,
+    provider: controlRef.provider,
+    environmentId: controlRef.environmentId,
+    sessionId: controlRef.sessionId,
+    executionId: controlRef.executionId,
+    interactionId: 'interaction-1',
+    requestDigest: controlRef.requestDigest,
+  }
+  const response = { id: 'interaction-1', outcome: 'accepted' as const }
+  return {
+    operationId,
+    binding,
+    commandDigest: interactionResponseCommandDigest({ binding, response }),
+    response,
+  }
+}
+
+async function addMeasuredInteractionCapabilities(
+  provider: AgentEnvironmentProvider,
+): Promise<void> {
+  const base = await provider.capabilities()
+  const environment = await provider.get?.('environment-1')
+  if (environment === null || environment === undefined) {
+    throw new Error('test provider did not return its environment')
+  }
+  const environmentCapabilities: AgentEnvironmentCapabilities = {
+    ...base,
+    interactions: {
+      kinds: ['question'],
+      answerFieldTypes: ['text'],
+      responseScopes: ['interaction'],
+      secretAnswers: false,
+      concurrentRequests: false,
+      replay: true,
+      responseIdempotency: true,
+    },
+  }
+  const measuredEnvironment: AgentEnvironment = {
+    ...environment,
+    capabilities: environmentCapabilities,
+  }
+  provider.create = async () => measuredEnvironment
+  provider.get = async () => measuredEnvironment
 }
 
 function providerWithEnvironment(
