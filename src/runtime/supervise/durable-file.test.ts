@@ -184,6 +184,45 @@ describe('durable file helpers', () => {
     )
   })
 
+  it('carries the operator on the queued result and refuses a retry that changes it', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    const queued = cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })
+    expect(queued).toMatchObject({ effect: 'unknown', operator: 'alice' })
+    expect(readRunCancelRequest(root)).toMatchObject({ operationId: 'run-op', operator: 'alice' })
+    // The same operator is a pure lookup; a different or omitted one is another operation.
+    expect(cancelRun(root, 'run-op', { source: 'test', operator: 'alice' }).operator).toBe('alice')
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'bob' })).toThrow(
+      /operator 'alice' != 'bob'/u,
+    )
+    expect(() => cancelRun(root!, 'run-op', { source: 'test' })).toThrow(/operator/u)
+
+    // Once acknowledged, the acknowledgement is compared too, so a changed operator is refused
+    // even when the record is returned as-is for the admitted one.
+    const acknowledged = {
+      operationId: 'run-op',
+      effect: 'cancelled' as const,
+      requestedAt: queued.requestedAt,
+      observedAt: '2026-08-28T00:00:01.000Z',
+      operator: 'alice',
+      detail: 'run aborted',
+    }
+    writeRunCancellation(root, acknowledged)
+    expect(cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })).toEqual(acknowledged)
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'bob' })).toThrow(
+      /operator/u,
+    )
+  })
+
+  it('rejects an operator on a retry after an operator-less request was admitted', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    expect(cancelRun(root, 'run-op', { source: 'test' }).operator).toBeUndefined()
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'alice' })).toThrow(
+      /operator/u,
+    )
+  })
+
   it('rejects explicit run fields after an omitted field was admitted', () => {
     root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
 

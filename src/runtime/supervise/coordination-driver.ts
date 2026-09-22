@@ -782,6 +782,7 @@ export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
           requestedAt: runRequest.at,
           observedAt: iso(),
           ...(runRequest.reason === undefined ? {} : { reason: runRequest.reason }),
+          ...(runRequest.operator === undefined ? {} : { operator: runRequest.operator }),
           detail: 'run ended before the request was applied',
         })
       }

@@ -25,6 +25,27 @@ describe('external run cancellation observation', () => {
     }
   })
 
+  it('echoes the operator on the applied acknowledgement', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
+    const abort = vi.fn()
+    cancelRun(dir, 'attributed', { reason: 'operator', operator: 'alice' })
+    const observer = watchRunCancellation(dir, abort)
+    try {
+      observer.check()
+      expect(abort).toHaveBeenCalledExactlyOnceWith(
+        'operator',
+        expect.objectContaining({ operationId: 'attributed', operator: 'alice' }),
+      )
+      expect(readRunCancellation(dir, 'attributed')).toMatchObject({
+        effect: 'cancel_requested',
+        operator: 'alice',
+      })
+    } finally {
+      observer.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('does not acknowledge a callback that failed to issue cancellation', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
     cancelRun(dir, 'rejected')

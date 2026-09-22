@@ -233,7 +233,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
 
   it('applies a request queued before root startup without entering a turn', async () => {
     const dir = await runDir()
-    cancelRun(dir, 'pre-start', { source: 'operator', deadlineMs: 0 })
+    cancelRun(dir, 'pre-start', { source: 'operator', deadlineMs: 0, operator: 'alice' })
     let turns = 0
     const result = await supervise(rootProfile(), 'stop', {
       budget,
@@ -255,6 +255,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     expect(readRunCancellation(dir, 'pre-start')).toMatchObject({
       effect: 'cancelled',
       path: 'observer',
+      operator: 'alice',
     })
   })
 
@@ -300,11 +301,14 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       ]),
     })
     await live
-    cancelRun(dir, 'unconfirmed-stop', { source: 'operator' })
+    cancelRun(dir, 'unconfirmed-stop', { source: 'operator', operator: 'alice' })
     const result = await pending
     expect(result).toMatchObject({ reason: 'cancelled', source: 'operator' })
     expect(result.teardownUnconfirmed).toHaveLength(1)
-    expect(readRunCancellation(dir, 'unconfirmed-stop')).toMatchObject({ effect: 'unknown' })
+    expect(readRunCancellation(dir, 'unconfirmed-stop')).toMatchObject({
+      effect: 'unknown',
+      operator: 'alice',
+    })
   })
 
   it('a request written after the run ended is never answered as success', async () => {
