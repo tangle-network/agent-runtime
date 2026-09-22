@@ -231,6 +231,33 @@ describe('conserved budget pool', () => {
         ms: 0,
       }),
     ).toThrow(/unknown dollar cost/)
+    // The work already happened: known tokens commit, the ticket closes, and the dollar channel
+    // is exhausted so no later work can start under a fictional remaining balance.
+    expect(pool.readout()).toMatchObject({ tokensLeft: 900, reservedTokens: 0, usdLeft: 0 })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
+  })
+
+  it('records a provider overrun instead of truncating it to the reservation', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, () => 0)
+    const r = pool.reserve({ maxIterations: 2, maxTokens: 80 } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+
+    pool.reconcile(r.ticket, {
+      iterations: 2,
+      tokens: { input: 90, output: 30 },
+      usd: 0,
+      ms: 0,
+    })
+
+    expect(pool.readout()).toMatchObject({ tokensLeft: -20, reservedTokens: 0 })
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
   })
 
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {
@@ -240,7 +267,13 @@ describe('conserved budget pool', () => {
       { kind: 'tokens', input: 2, output: 3 },
       { kind: 'cost', usd: 0.01 },
     ])
-    expect(spend).toEqual({ iterations: 1, tokens: { input: 12, output: 8 }, usd: 0.01, ms: 0 })
+    expect(spend).toEqual({
+      iterations: 1,
+      tokens: { input: 12, output: 8 },
+      usdKnown: true,
+      usd: 0.01,
+      ms: 0,
+    })
   })
 })
 
@@ -328,6 +361,49 @@ describe('reactive scope', () => {
     ).toThrow(/factory boom/)
     expect(pool.readout().tokensLeft).toBe(100_000)
     expect(pool.readout().reservedTokens).toBe(0)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
+  it('an executor that cannot prove teardown settles infra-down, never done', async () => {
+    const { scope, pool } = await beginScope()
+    const executor: Executor<unknown> = {
+      runtime: 'test',
+      async execute() {
+        return {
+          outRef: 'untrusted',
+          out: 'done',
+          verdict: { valid: true, score: 1 },
+          spent: {
+            iterations: 1,
+            tokens: { input: 1, output: 1 },
+            usdKnown: true,
+            usd: 0,
+            ms: 1,
+          },
+        }
+      },
+      teardown: async () => ({ destroyed: false }),
+      resultArtifact() {
+        throw new Error('one-shot executor does not use resultArtifact')
+      },
+    }
+    const agent = {
+      name: 'still-live',
+      act: async () => 'unused',
+      executorSpec: { profile: {} as AgentProfile, harness: null, executor },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+
+    const spawned = scope.spawn(agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'still-live',
+    })
+    expect(spawned.ok).toBe(true)
+    const settled = await scope.next()
+    expect(settled).toMatchObject({
+      kind: 'down',
+      infra: true,
+      reason: 'executor completed but teardown did not prove a terminal state',
+    })
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
 

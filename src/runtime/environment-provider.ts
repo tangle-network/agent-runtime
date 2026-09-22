@@ -374,6 +374,8 @@ async function* streamProviderExecutor(
   const events: AgentEnvironmentEvent[] = []
   const tokens = zeroTokenUsage()
   let usd = 0
+  let sawUsage = false
+  let usdKnown = true
   let text = ''
   let terminal = false
   try {
@@ -381,12 +383,16 @@ async function* streamProviderExecutor(
       events.push(event)
       text += textFromEnvironmentEvent(event)
       const usage = usageFromEnvironmentEvent(event)
+      if (usage.input || usage.output || usage.usd !== undefined) {
+        sawUsage = true
+        if (usage.usd === undefined) usdKnown = false
+      }
       if (usage.input || usage.output) {
         tokens.input += usage.input
         tokens.output += usage.output
         yield { kind: 'tokens', input: usage.input, output: usage.output }
       }
-      if (usage.usd) {
+      if (usage.usd !== undefined && usage.usd > 0) {
         usd += usage.usd
         yield { kind: 'cost', usd: usage.usd }
       }
@@ -402,6 +408,7 @@ async function* streamProviderExecutor(
     const spent: Spend = {
       iterations: 1,
       tokens,
+      usdKnown: sawUsage && usdKnown,
       usd,
       ms: Date.now() - started,
     }
@@ -975,7 +982,7 @@ function isUsageType(type: string): boolean {
 function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {
   input: number
   output: number
-  usd: number
+  usd: number | undefined
 } {
   const usage = event.usage ?? tokenUsageFromData(event.data)
   return {
@@ -984,8 +991,7 @@ function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {
     usd:
       finiteNumber(usage?.cost) ??
       finiteNumber(event.data.costUsd) ??
-      finiteNumber(event.data.totalCostUsd) ??
-      0,
+      finiteNumber(event.data.totalCostUsd),
   }
 }
 

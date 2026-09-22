@@ -182,8 +182,8 @@ export function createWorktreeCliExecutor(
         tokens: usage
           ? { input: usage.inputTokens, output: usage.outputTokens }
           : { input: 0, output: 0 },
+        usdKnown: !usage,
         usd: 0,
-        ...(usage ? { usdKnown: false } : {}),
         ms: Date.now() - started,
       }
       artifact = { outRef: contentAddress(run.result), out: run.result, spent }

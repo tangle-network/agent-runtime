@@ -3,6 +3,7 @@ import {
   type AgentCandidateBundle,
   type AgentCandidateCapturedArtifact,
   type AgentCandidateKnowledge,
+  type AgentProfile,
   agentCandidateKnowledgeSchema,
 } from '@tangle-network/agent-interface'
 import {
@@ -28,7 +29,6 @@ import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/ty
 import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
-import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { Budget, SupervisedResult } from '../runtime/supervise/types'
 import {
   createSupervisedKnowledgeUpdater,
@@ -54,7 +54,7 @@ export interface RunKnowledgeImprovementJobOptions
   >
   allowedModels?: readonly string[]
   runSupervised?: (
-    profile: SupervisorProfile,
+    profile: AgentProfile,
     task: unknown,
     opts: SuperviseOptions,
   ) => Promise<SupervisedResult<unknown>>

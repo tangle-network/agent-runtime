@@ -46,9 +46,9 @@ import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
 const supervisorTask =
   `A worker must produce the exact line "${expectedAnswer}".\n\n` +
   'You are a SUPERVISOR with a "coordination" MCP exposing spawn_agent, await_event, and stop. ' +
-  'Do NOT write the answer yourself. Author a worker profile (a JSON object with a "name" and a ' +
-  `rich "systemPrompt" instructing the worker to emit the exact line "${expectedAnswer}") and call ` +
-  'spawn_agent with { profile, task }. Then call await_event to wait for it to settle, and call ' +
+  'Do NOT write the answer yourself. Author a worker AgentProfile with a "name" and ' +
+  `prompt: { systemPrompt: "..." } instructing it to emit the exact line "${expectedAnswer}", then ` +
+  'call spawn_agent with { profile, task }. Call await_event to wait for it to settle, and call ' +
   'stop once a worker has delivered (valid:true).'
 
 /** One real bridge harness turn, with the coordination MCP mounted so the supervisor can call
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
   }
 
   const result = await createSupervisor<unknown, unknown>().run(supervisor, supervisorTask, {
-    budget: { maxIterations: 100, maxTokens: 2_000_000, maxUsd: 1 },
+    budget: { maxIterations: 100, maxTokens: 2_000_000 },
     runId: 'supervisor-mcp',
     journal: new InMemorySpawnJournal(),
     blobs,

@@ -30,6 +30,12 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  harnessTypeSchema,
+  mergeAgentProfiles,
+} from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
@@ -55,6 +61,7 @@ import {
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
+import { extractLlmCallEvent } from '../sandbox-events'
 import type {
   AgentRunSpec,
   Driver,
@@ -174,7 +181,7 @@ export interface CliWorktreeBridgeSeam {
   bridgeBearer: string
   /** Bridge model/harness id. Defaults to the profile's model hint when omitted. */
   model?: string
-  agentProfile?: Record<string, unknown>
+  agentProfile?: AgentProfile
   timeoutMs?: number
   /** Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`. */
   sessionId?: string
@@ -185,9 +192,9 @@ export interface CliWorktreeBridgeSeam {
  * cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
  * (claude-code / opencode / kimi / pi) behind one HTTP surface; `model` doubles
  * as the harness selector (e.g. `claude-code/sonnet`, `opencode/<provider>/<model>`).
- * `agentProfile` is the bridge-dialect profile (metadata.disallowedTools, mcp)
- * forwarded verbatim per request — how an arm disables native tools or injects
- * a provider search MCP.
+ * `agentProfile` is a canonical profile overlay applied after the spawned
+ * agent's profile and any per-create profile. The complete validated result is
+ * forwarded to cli-bridge for materialization by the selected harness.
  *
  * The executor opens a RESUMABLE cli-bridge session — structurally identical to the
  * sandbox executor's persistent box, just local. `sessionId` is the stable
@@ -198,10 +205,10 @@ export interface CliWorktreeBridgeSeam {
 export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
-  model: string
+  model?: string
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
   cwd?: string
-  agentProfile?: Record<string, unknown>
+  agentProfile?: AgentProfile
   timeoutMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
    *  to a freshly minted per-spawn id so each worker is its own resumable session. */
@@ -247,7 +254,7 @@ function contentRef(prefix: string, value: unknown): string {
 }
 
 function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  return { iterations: 0, tokens: zeroTokenUsage(), usdKnown: true, usd: 0, ms: 0 }
 }
 
 // ── router/inline executor (harness === null) ──────────────────────────────────
@@ -298,6 +305,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       const spent: Spend = {
         iterations: 1,
         tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
+        usdKnown: r.costUsd !== undefined,
         usd: r.costUsd ?? 0,
         ms: Date.now() - started,
       }
@@ -547,8 +555,15 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         }
       }
 
-      const usd = isModelPriced(model) ? estimateCost(tokens.input, tokens.output, model) : 0
-      const spent: Spend = { iterations: turns, tokens, usd, ms: Date.now() - started }
+      const priced = isModelPriced(model)
+      const usd = priced ? estimateCost(tokens.input, tokens.output, model) : 0
+      const spent: Spend = {
+        iterations: turns,
+        tokens,
+        usdKnown: priced,
+        usd,
+        ms: Date.now() - started,
+      }
       const out = { content: lastText } as unknown
       artifact = { outRef: contentRef('router-tools', { model, content: lastText }), out, spent }
       return artifact
@@ -745,9 +760,20 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     const result = await runAgentRounds(loopOptions)
     const out = result.winner?.output ?? { events: [] }
     const verdict = result.winner?.verdict
+    const usdKnown = result.iterations.every((iteration) => {
+      let sawUsage = false
+      for (const event of iteration.events) {
+        const call = extractLlmCallEvent(event, iteration.agentRunName)
+        if (!call) continue
+        sawUsage = true
+        if (call.costUsd === undefined) return false
+      }
+      return sawUsage || (iteration.output === undefined && iteration.events.length === 0)
+    })
     const spent: Spend = {
       iterations: result.iterations.length,
       tokens: { input: result.tokenUsage.input, output: result.tokenUsage.output },
+      usdKnown,
       usd: result.costUsd,
       ms: Date.now() - started,
     }
@@ -929,37 +955,106 @@ function killWithGrace(
  *
  * Reports REAL usage when the bridge surfaces it, never a fabricated cost.
  */
-/** Resolve the bridge wire model for this spawn: a per-create `backend` override
- *  (harness + model) wins over the seam default, encoded as `${harness}/${model}`.
- *  Absent an override the seam `model` is used verbatim. */
-function bridgeCellModel(seamModel: string, ctx: ExecutorContext): string {
-  const create = ctx.seams.createOptions as
-    | { backend?: { type?: string; model?: { model?: string } } }
-    | undefined
-  const backend = create?.backend
+/** Resolve the bridge wire model for this spawn. Per-create matrix overrides win,
+ *  then the canonical profile's harness/model, then the backend fallback. */
+function bridgeWireModel(
+  harness: string | undefined,
+  model: string | undefined,
+  fallback: string | undefined,
+): string | undefined {
+  const requestedHarness = harness === 'cli-base' ? undefined : harness
+  const modelWire = splitBridgeWireModel(model)
+  const fallbackWire = splitBridgeWireModel(fallback)
+
+  if (modelWire) {
+    if (requestedHarness && modelWire.harness !== requestedHarness) {
+      throw new ValidationError(
+        `bridgeExecutor: model ${JSON.stringify(model)} targets harness ${JSON.stringify(modelWire.harness)}, not ${JSON.stringify(requestedHarness)}`,
+      )
+    }
+    return model
+  }
+
+  if (requestedHarness) {
+    if (model) return `${requestedHarness}/${model}`
+    if (!fallback) return undefined
+    if (!fallbackWire) return `${requestedHarness}/${fallback}`
+    if (fallbackWire.harness !== requestedHarness) {
+      throw new ValidationError(
+        `bridgeExecutor: harness ${JSON.stringify(requestedHarness)} has no model; bridge fallback ${JSON.stringify(fallback)} belongs to ${JSON.stringify(fallbackWire.harness)}`,
+      )
+    }
+    return fallback
+  }
+
+  if (!model) return fallback
+  return fallbackWire ? `${fallbackWire.harness}/${model}` : model
+}
+
+function splitBridgeWireModel(
+  value: string | undefined,
+): { harness: string; model: string } | undefined {
+  if (!value) return undefined
+  const split = value.indexOf('/')
+  if (split <= 0 || split === value.length - 1) return undefined
+  const parsed = harnessTypeSchema.safeParse(value.slice(0, split))
+  if (!parsed.success || parsed.data === 'cli-base') return undefined
+  return { harness: parsed.data, model: value.slice(split + 1) }
+}
+
+function bridgeCellModel(
+  seamModel: string | undefined,
+  profile: AgentProfile,
+  ctx: ExecutorContext,
+): string | undefined {
+  const backend = bridgeCreateBackend(ctx)
   const harness = backend?.type
   const model = backend?.model?.model
-  if (!harness && !model) return seamModel
-  const h = harness ?? ''
-  const m = model ?? seamModel
-  if (!h) return m
-  return m.startsWith(`${h}/`) ? m : `${h}/${m}`
+  return bridgeWireModel(harness ?? profile.harness, model ?? profile.model?.default, seamModel)
+}
+
+function bridgeCreateBackend(ctx: ExecutorContext):
+  | {
+      type?: string
+      model?: { model?: string }
+      profile?: unknown
+    }
+  | undefined {
+  const create = ctx.seams.createOptions as
+    | {
+        backend?: {
+          type?: string
+          model?: { model?: string }
+          profile?: unknown
+        }
+      }
+    | undefined
+  return create?.backend
 }
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  const createProfile = bridgeCreateBackend(ctx)?.profile
+  const cellProfile =
+    createProfile === undefined
+      ? undefined
+      : (agentProfileSchema.parse(createProfile) as AgentProfile)
+  const agentProfile = agentProfileSchema.parse(
+    mergeAgentProfiles(mergeAgentProfiles(spec.profile, cellProfile), base.agentProfile),
+  ) as AgentProfile
   // A per-create `backend` override (threaded by `inlineSandboxClient` as
   // `seams.createOptions`) targets the bridge model per cell without a second
   // client: `backend.type` is the harness, `backend.model.model` the model, and
   // the wire id is `${harness}/${model}` (an already-`${harness}/`-prefixed model
   // passes through). This is how ONE bridge `SandboxClient` drives every
   // harness×model cell of a matrix — the seam `model` is the fixed default.
-  const seam = { ...base, model: bridgeCellModel(base.model, ctx) }
-  if (!seam.bridgeUrl || !seam.bridgeBearer || !seam.model) {
+  const model = bridgeCellModel(base.model, agentProfile, ctx)
+  if (!base.bridgeUrl || !base.bridgeBearer || !model) {
     throw new ValidationError(
-      'bridgeExecutor: BridgeSeam.bridgeUrl + bridgeBearer + model required',
+      'bridgeExecutor: bridgeUrl + bridgeBearer and a backend/profile model required',
     )
   }
+  const seam = { ...base, model, agentProfile }
   const maxTurns = seam.maxTurns ?? 200
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
@@ -975,6 +1070,9 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
   const inbox = createInbox()
   let artifact: ExecutorResult<unknown> | undefined
+  // A bridge job outlives its HTTP reader. Retain each server-owned run until
+  // cli-bridge proves it terminal so teardown can cancel the actual process.
+  const activeRuns = new Map<string, ActiveBridgeRun>()
 
   return {
     runtime: 'cli' as Runtime,
@@ -983,20 +1081,26 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       return streamBridgeSession({
         task,
         signal,
-        spec,
+        profile: agentProfile,
         seam,
         sessionId,
         maxTurns,
         inbox,
         controller,
+        activeRuns,
         onArtifact: (a) => {
           artifact = a
         },
       })
     },
-    teardown(_grace): Promise<{ destroyed: boolean }> {
+    async teardown(grace): Promise<{ destroyed: boolean }> {
       controller.abort()
-      return Promise.resolve({ destroyed: true })
+      const remaining = [...activeRuns.values()].filter((run) => !run.terminal)
+      if (remaining.length === 0) return { destroyed: true }
+      const terminal = await Promise.all(
+        remaining.map((run) => cancelBridgeRunToTerminal(seam, run, grace)),
+      )
+      return { destroyed: terminal.every(Boolean) }
     },
     resultArtifact() {
       if (!artifact) {
@@ -1010,13 +1114,21 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 interface StreamBridgeArgs {
   task: unknown
   signal: AbortSignal
-  spec: AgentSpec
-  seam: BridgeSeam
+  profile: AgentProfile
+  seam: BridgeSeam & { model: string; agentProfile: AgentProfile }
   sessionId: string
   maxTurns: number
   inbox: Inbox
   controller: AbortController
+  activeRuns: Map<string, ActiveBridgeRun>
   onArtifact: (a: ExecutorResult<unknown>) => void
+}
+
+interface ActiveBridgeRun {
+  readonly id: string
+  requestDigest?: string
+  lastEventId: number
+  terminal: boolean
 }
 
 /**
@@ -1032,6 +1144,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   const external = mergeAbortSignals(args.signal, args.controller.signal)
   const tokens = zeroTokenUsage()
   let usd = 0
+  let usdKnown = true
   let turns = 0
   let lastText = ''
   const toolCalls: string[] = []
@@ -1039,8 +1152,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
-  const system = args.spec.profile.prompt?.systemPrompt
-
   for (let t = 0; t < args.maxTurns; t += 1) {
     // Drain queued down-messages; on turns > 0 they ARE the prompt (resume content).
     const pending = inbox.drain()
@@ -1052,12 +1163,11 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
 
     // Each turn sends ONLY the new prompt — cli-bridge's session resume replays the
     // harness's own history server-side (opencode `-s`), so re-sending it would
-    // double the conversation. Turn 0 may include the system preamble.
-    const messages: Array<{ role: string; content: string }> = []
-    if (t === 0 && typeof system === 'string' && system.length > 0) {
-      messages.push({ role: 'system', content: system })
-    }
-    messages.push({ role: 'user', content: nextPrompt })
+    // double the conversation. The canonical profile carries the system prompt;
+    // duplicating it as a chat message makes bridge backends apply it twice.
+    const messages: Array<{ role: string; content: string }> = [
+      { role: 'user', content: nextPrompt },
+    ]
     nextPrompt = undefined
 
     // Per-turn signal: external teardown/abort OR a forceful interrupt steer.
@@ -1067,74 +1177,126 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (external.aborted) turnController.abort()
     else external.addEventListener('abort', abortTurn)
     interruptSig.addEventListener('abort', abortTurn, { once: true })
-    const timer = seam.timeoutMs ? setTimeout(abortTurn, seam.timeoutMs) : undefined
+    let timedOut = false
+    const timer = seam.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true
+          abortTurn()
+        }, seam.timeoutMs)
+      : undefined
     const cleanup = () => {
       external.removeEventListener('abort', abortTurn)
       if (timer) clearTimeout(timer)
     }
 
-    let res: BridgeResponse
-    try {
-      res = await bridgeStreamPost(seam.bridgeUrl, {
-        bearer: seam.bridgeBearer,
-        sessionId: args.sessionId,
-        body: {
-          model: seam.model,
-          stream: true,
-          session_id: args.sessionId,
-          ...(seam.cwd ? { cwd: seam.cwd } : {}),
-          ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
-          messages,
-        },
-        signal: turnController.signal,
-      })
-    } catch (e) {
-      cleanup()
-      // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn —
-      // the steer is already queued, so loop back and fold it. Anything else is fatal.
-      const interruptAbort =
-        e instanceof DOMException &&
-        e.name === 'AbortError' &&
-        interruptSig.aborted &&
-        !args.signal.aborted &&
-        !args.controller.signal.aborted
-      if (interruptAbort) continue
-      throw e
+    const activeRun: ActiveBridgeRun = {
+      id: `bridge-run-${randomUUID()}`,
+      lastEventId: 0,
+      terminal: false,
     }
-    if (!res.ok) {
-      cleanup()
-      throw new ValidationError(
-        `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      )
-    }
-    if (!res.body) {
-      cleanup()
-      throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
+    args.activeRuns.set(activeRun.id, activeRun)
+    const requestBody = {
+      model: seam.model,
+      stream: true,
+      run_id: activeRun.id,
+      session_id: args.sessionId,
+      ...(seam.cwd ? { cwd: seam.cwd } : {}),
+      agent_profile: args.profile,
+      ...(args.profile.model?.reasoningEffort
+        ? { effort: args.profile.model.reasoningEffort }
+        : {}),
+      messages,
     }
 
     let turnText = ''
-    try {
-      for await (const chunk of parseSseChatStream(res.body)) {
-        if (chunk.content) {
-          turnText += chunk.content
-        }
-        if (chunk.toolCall) toolCalls.push(chunk.toolCall)
-        if (chunk.usage) {
-          tokens.input += chunk.usage.input
-          tokens.output += chunk.usage.output
-          yield { kind: 'tokens', input: chunk.usage.input, output: chunk.usage.output }
-        }
-        if (typeof chunk.cost === 'number' && chunk.cost > 0) {
+    let turnTokensKnown = false
+    let turnUsdKnown = false
+    let interrupted = false
+    const recordChunk = (chunk: BridgeStreamChunk): UsageEvent[] => {
+      const usageEvents: UsageEvent[] = []
+      if (chunk.content) turnText += chunk.content
+      if (chunk.toolCall) toolCalls.push(chunk.toolCall)
+      if (chunk.usage) {
+        turnTokensKnown = true
+        tokens.input += chunk.usage.input
+        tokens.output += chunk.usage.output
+        usageEvents.push({ kind: 'tokens', input: chunk.usage.input, output: chunk.usage.output })
+      }
+      if (typeof chunk.cost === 'number') {
+        turnUsdKnown = true
+        if (chunk.cost > 0) {
           usd += chunk.cost
-          yield { kind: 'cost', usd: chunk.cost }
+          usageEvents.push({ kind: 'cost', usd: chunk.cost })
         }
+      }
+      return usageEvents
+    }
+    try {
+      for await (const chunk of streamDurableBridgeRun({
+        seam,
+        sessionId: args.sessionId,
+        body: requestBody,
+        signal: turnController.signal,
+        run: activeRun,
+      })) {
+        for (const event of recordChunk(chunk)) yield event
+      }
+    } catch (error) {
+      // A forceful steer detaches this reader, explicitly cancels the old
+      // process, and waits for terminal proof before resuming the session.
+      const interruptAbort =
+        interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
+      if (interruptAbort) {
+        const terminal = await cancelBridgeRunToTerminal(seam, activeRun, 'infinity', external)
+        if (!terminal) {
+          throw new ValidationError(
+            `bridgeExecutor: interrupted run ${activeRun.id} did not reach terminal state`,
+          )
+        }
+        // Cancellation proves the process stopped, not that its final buffered usage reached this
+        // reader. Reattach to the SAME durable run from the exact cursor and drain through [DONE]
+        // before starting the resumed turn, or the cancelled work disappears from accounting.
+        for await (const chunk of streamDurableBridgeRun({
+          seam,
+          sessionId: args.sessionId,
+          body: requestBody,
+          signal: external,
+          run: activeRun,
+        })) {
+          for (const event of recordChunk(chunk)) yield event
+        }
+        interrupted = true
+      } else {
+        // Timeout owns process cancellation; an outer abort is handled by teardown.
+        if (timedOut && !activeRun.terminal) {
+          const terminal = await cancelBridgeRunToTerminal(seam, activeRun, 'brutalKill')
+          if (!terminal) {
+            throw new ValidationError(
+              `bridgeExecutor: timed-out run ${activeRun.id} did not reach terminal state`,
+            )
+          }
+        }
+        throw error
       }
     } finally {
       cleanup()
     }
+    // A buffered response can finish while the signal fires. The forceful
+    // steer still wins and becomes the next turn.
+    if (interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted) {
+      interrupted = true
+    }
     turns += 1
+    if (!turnUsdKnown) usdKnown = false
     yield { kind: 'iteration' }
-    if (turnText) lastText = turnText
+    if (!interrupted && !turnTokensKnown) {
+      throw new ValidationError(
+        `bridgeExecutor: run ${activeRun.id} reached terminal state without token usage`,
+      )
+    }
+    if (!interrupted && turnText) lastText = turnText
+
+    if (interrupted) continue
 
     // Before settling, drain once more — the worker can't finish while a steer it
     // never read is pending (the sandbox/router settle contract). A pending steer
@@ -1145,6 +1307,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   const spent: Spend = {
     iterations: turns,
     tokens,
+    usdKnown,
     usd,
     ms: Date.now() - started,
   }
@@ -1156,11 +1319,110 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   })
 }
 
+const bridgeMaxReconnects = 3
+const bridgeCancelLongPollMs = 30_000
+const bridgeBrutalKillWaitMs = 150
+
+interface StreamDurableBridgeRunArgs {
+  seam: BridgeSeam
+  sessionId: string
+  body: unknown
+  signal: AbortSignal
+  run: ActiveBridgeRun
+}
+
+/** Drain one server-owned bridge run, reconnecting from its last exact event id. */
+async function* streamDurableBridgeRun(
+  args: StreamDurableBridgeRunArgs,
+): AsyncIterable<BridgeStreamChunk> {
+  let reconnects = 0
+  let pendingUpstreamError: ValidationError | undefined
+
+  for (;;) {
+    let response: BridgeResponse
+    try {
+      response = await bridgeStreamPost(args.seam.bridgeUrl, {
+        bearer: args.seam.bridgeBearer,
+        sessionId: args.sessionId,
+        runId: args.run.id,
+        afterEventId: args.run.lastEventId,
+        body: args.body,
+        signal: args.signal,
+      })
+    } catch (error) {
+      if (args.signal.aborted) throw error
+      if (reconnects >= bridgeMaxReconnects) {
+        throw new ValidationError(
+          `bridgeExecutor: run ${args.run.id} disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
+        )
+      }
+      reconnects += 1
+      continue
+    }
+
+    if (!response.ok) {
+      throw new ValidationError(
+        `bridgeExecutor: bridge ${response.status}: ${(await response.text()).slice(0, 300)}`,
+      )
+    }
+    if (!response.body) {
+      throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
+    }
+    assertBridgeResponseIdentity(response, args.run)
+
+    let sawDone = false
+    try {
+      for await (const event of parseSseChatStream(response.body)) {
+        if (event.kind === 'done') {
+          sawDone = true
+          break
+        }
+        const expected = args.run.lastEventId + 1
+        if (event.id !== expected) {
+          throw new ValidationError(
+            `bridgeExecutor: run ${args.run.id} replay gap: expected event ${expected}, received ${event.id}`,
+          )
+        }
+        args.run.lastEventId = event.id
+        if (event.error) pendingUpstreamError = event.error
+        if (event.chunk) yield event.chunk
+      }
+    } catch (error) {
+      if (args.signal.aborted) throw error
+      if (error instanceof ValidationError) throw error
+      if (reconnects >= bridgeMaxReconnects) {
+        throw new ValidationError(
+          `bridgeExecutor: run ${args.run.id} stream disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
+        )
+      }
+      reconnects += 1
+      continue
+    }
+
+    if (sawDone) {
+      args.run.terminal = true
+      if (pendingUpstreamError) throw pendingUpstreamError
+      return
+    }
+    if (pendingUpstreamError) throw pendingUpstreamError
+    if (args.signal.aborted) {
+      throw new DOMException('bridgeExecutor: turn aborted', 'AbortError')
+    }
+    if (reconnects >= bridgeMaxReconnects) {
+      throw new ValidationError(
+        `bridgeExecutor: run ${args.run.id} ended without terminal acknowledgement after ${reconnects + 1} attempts`,
+      )
+    }
+    reconnects += 1
+  }
+}
+
 /** The subset of `Response` `streamBridgeSession` consumes: status gate, an error
  *  body reader, and a web `ReadableStream` the SSE parser drains. */
 interface BridgeResponse {
   ok: boolean
   status: number
+  headers: Readonly<Record<string, string | string[] | undefined>>
   text: () => Promise<string>
   body: ReadableStream<Uint8Array> | null
 }
@@ -1168,6 +1430,8 @@ interface BridgeResponse {
 interface BridgeStreamPostArgs {
   bearer: string
   sessionId: string
+  runId: string
+  afterEventId: number
   body: unknown
   signal: AbortSignal
 }
@@ -1201,6 +1465,8 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
           'content-type': 'application/json',
           authorization: `Bearer ${args.bearer}`,
           'x-session-id': args.sessionId,
+          'x-run-id': args.runId,
+          ...(args.afterEventId > 0 ? { 'last-event-id': String(args.afterEventId) } : {}),
           'content-length': Buffer.byteLength(payload),
         },
         // No header/body idle timeout: a slow bridge is a live bridge; the abort
@@ -1208,12 +1474,15 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
         timeout: 0,
       },
       (res) => {
+        response = res
+        res.once('close', () => args.signal.removeEventListener('abort', onAbort))
         const status = res.statusCode ?? 0
         const ok = status >= 200 && status < 300
         const body = Readable.toWeb(res) as ReadableStream<Uint8Array>
         resolve({
           ok,
           status,
+          headers: res.headers,
           body,
           text: async () => {
             const chunks: Buffer[] = []
@@ -1223,8 +1492,12 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
         })
       },
     )
+    let response: Parameters<typeof Readable.toWeb>[0] | undefined
     const onAbort = (): void => {
       req.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+      if (response && 'destroy' in response && typeof response.destroy === 'function') {
+        response.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+      }
     }
     if (args.signal.aborted) onAbort()
     else args.signal.addEventListener('abort', onAbort, { once: true })
@@ -1232,10 +1505,227 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
       args.signal.removeEventListener('abort', onAbort)
       reject(e)
     })
-    req.on('close', () => args.signal.removeEventListener('abort', onAbort))
+    req.on('close', () => {
+      if (!response) args.signal.removeEventListener('abort', onAbort)
+    })
     req.write(payload)
     req.end()
   })
+}
+
+interface BridgeBufferedResponse {
+  status: number
+  headers: Readonly<Record<string, string | string[] | undefined>>
+  text: string
+}
+
+function bridgeHeader(
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+  name: string,
+): string | undefined {
+  const raw = headers[name.toLowerCase()]
+  if (Array.isArray(raw)) return raw.length === 1 ? raw[0] : undefined
+  return raw
+}
+
+function assertBridgeResponseIdentity(response: BridgeResponse, run: ActiveBridgeRun): void {
+  assertBridgeIdentityHeaders(response.headers, run)
+}
+
+function assertBridgeIdentityHeaders(
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+  run: ActiveBridgeRun,
+): void {
+  const responseRunId = bridgeHeader(headers, 'x-run-id')
+  if (responseRunId !== run.id) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge run identity mismatch: expected ${run.id}, received ${responseRunId ?? 'missing'}`,
+    )
+  }
+  const digest = bridgeHeader(headers, 'x-run-request-digest')
+  if (!digest || !/^sha256:[a-f0-9]{64}$/u.test(digest)) {
+    throw new ValidationError('bridgeExecutor: bridge response omitted a valid request digest')
+  }
+  if (run.requestDigest !== undefined && run.requestDigest !== digest) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge request digest changed for run ${run.id}: expected ${run.requestDigest}, received ${digest}`,
+    )
+  }
+  run.requestDigest = digest
+}
+
+/** Request cancellation and optionally wait for the server-owned job to settle. */
+function bridgeCancelPost(
+  seam: BridgeSeam,
+  run: ActiveBridgeRun,
+  waitMs: number,
+  clientTimeoutMs: number,
+  signal?: AbortSignal,
+): Promise<BridgeBufferedResponse> {
+  const target = new URL(
+    `${seam.bridgeUrl.replace(/\/$/, '')}/v1/runs/${encodeURIComponent(run.id)}/cancel`,
+  )
+  target.searchParams.set('wait_ms', String(waitMs))
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise<BridgeBufferedResponse>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException(`bridgeExecutor: cancel ${run.id} aborted`, 'AbortError'))
+      return
+    }
+    let response: { destroy(error?: Error): void } | undefined
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (operation: () => void): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      operation()
+    }
+    const req = requestFn(
+      target,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${seam.bridgeBearer}`,
+          'x-run-id': run.id,
+          'content-length': '0',
+        },
+        timeout: 0,
+      },
+      (res) => {
+        response = res
+        void (async () => {
+          const chunks: Buffer[] = []
+          for await (const chunk of res) chunks.push(Buffer.from(chunk))
+          finish(() => {
+            resolve({
+              status: res.statusCode ?? 0,
+              headers: res.headers,
+              text: Buffer.concat(chunks).toString('utf8'),
+            })
+          })
+        })().catch((error: unknown) => finish(() => reject(error)))
+      },
+    )
+    const stop = (error: Error): void => {
+      req.destroy(error)
+      response?.destroy(error)
+      finish(() => reject(error))
+    }
+    const onAbort = (): void =>
+      stop(new DOMException(`bridgeExecutor: cancel ${run.id} aborted`, 'AbortError'))
+    timer = setTimeout(
+      () =>
+        stop(
+          new DOMException(
+            `bridgeExecutor: cancel ${run.id} exceeded ${clientTimeoutMs}ms`,
+            'TimeoutError',
+          ),
+        ),
+      Math.max(1, clientTimeoutMs),
+    )
+    signal?.addEventListener('abort', onAbort, { once: true })
+    req.on('error', (error) => finish(() => reject(error)))
+    req.end()
+  })
+}
+
+async function requestBridgeRunCancellation(
+  seam: BridgeSeam,
+  run: ActiveBridgeRun,
+  waitMs: number,
+  clientTimeoutMs: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (run.terminal) return true
+  const response = await bridgeCancelPost(seam, run, waitMs, clientTimeoutMs, signal)
+  if (response.status === 404) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge no longer knows run ${run.id}; terminal state is unproven`,
+    )
+  }
+  if (response.status !== 200 && response.status !== 202) {
+    throw new ValidationError(
+      `bridgeExecutor: cancel ${run.id} returned ${response.status}: ${response.text.slice(0, 300)}`,
+    )
+  }
+  assertBridgeIdentityHeaders(response.headers, run)
+  let parsed: {
+    terminal?: unknown
+    run?: { id?: unknown; requestDigest?: unknown; terminal?: unknown }
+  }
+  try {
+    parsed = JSON.parse(response.text) as typeof parsed
+  } catch {
+    throw new ValidationError(`bridgeExecutor: cancel ${run.id} returned invalid JSON`)
+  }
+  if (
+    parsed.run?.id !== run.id ||
+    parsed.run.requestDigest !== run.requestDigest ||
+    typeof parsed.terminal !== 'boolean' ||
+    typeof parsed.run.terminal !== 'boolean' ||
+    parsed.terminal !== parsed.run.terminal
+  ) {
+    throw new ValidationError(
+      `bridgeExecutor: cancel ${run.id} returned an inconsistent terminal snapshot`,
+    )
+  }
+  if (response.status === 200 && parsed.terminal === true) {
+    run.terminal = true
+    return true
+  }
+  if (response.status === 202 && parsed.terminal === false) return false
+  throw new ValidationError(
+    `bridgeExecutor: cancel ${run.id} status ${response.status} disagreed with terminal=${String(parsed.terminal)}`,
+  )
+}
+
+async function cancelBridgeRunToTerminal(
+  seam: BridgeSeam,
+  run: ActiveBridgeRun,
+  grace: number | 'brutalKill' | 'infinity',
+  stopSignal?: AbortSignal,
+): Promise<boolean> {
+  if (run.terminal) return true
+  const deadline =
+    grace === 'infinity'
+      ? undefined
+      : Date.now() + (grace === 'brutalKill' ? bridgeBrutalKillWaitMs : Math.max(0, grace))
+  let first = true
+  for (;;) {
+    const remaining = deadline === undefined ? bridgeCancelLongPollMs : deadline - Date.now()
+    if (!first && remaining <= 0) return false
+    if (!first && stopSignal?.aborted) return false
+    const waitMs = Math.max(
+      0,
+      Math.min(
+        stopSignal ? 1_000 : bridgeCancelLongPollMs,
+        deadline === undefined ? remaining : Math.max(0, remaining),
+      ),
+    )
+    let terminal: boolean
+    try {
+      terminal = await requestBridgeRunCancellation(
+        seam,
+        run,
+        waitMs,
+        deadline === undefined ? waitMs + 1_000 : Math.max(1, remaining),
+        stopSignal,
+      )
+    } catch (error) {
+      if (stopSignal?.aborted || (deadline !== undefined && Date.now() >= deadline)) return false
+      throw error
+    }
+    if (terminal) return true
+    first = false
+    if (deadline !== undefined && Date.now() >= deadline) return false
+    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 interface BridgeStreamChunk {
@@ -1245,15 +1735,18 @@ interface BridgeStreamChunk {
   cost?: number
 }
 
+type BridgeSseEvent =
+  | { kind: 'event'; id: number; chunk?: BridgeStreamChunk; error?: ValidationError }
+  | { kind: 'done' }
+
 /**
  * Parse cli-bridge's OpenAI-compatible SSE stream into normalized chunks. Each
- * `data:` line is an OpenAI chat-completion chunk (`choices[].delta`); `[DONE]`
- * and SSE comments (`:` keepalives) terminate/skip. Mirrors how `streamSandboxLeaf`
- * folds a box's event stream — same `UsageEvent` currency, different wire shape.
+ * numbered frame advances the durable replay cursor. Unnumbered comments are
+ * transport keepalives; unnumbered data is rejected.
  */
 async function* parseSseChatStream(
   body: ReadableStream<Uint8Array>,
-): AsyncIterable<BridgeStreamChunk> {
+): AsyncIterable<BridgeSseEvent> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
@@ -1262,17 +1755,16 @@ async function* parseSseChatStream(
       const { done, value } = await reader.read()
       if (done) break
       buf += decoder.decode(value, { stream: true })
-      // SSE frames are separated by a blank line; split on it and keep the tail.
-      let sep = buf.indexOf('\n\n')
-      while (sep !== -1) {
-        const frame = buf.slice(0, sep)
-        buf = buf.slice(sep + 2)
-        const chunk = parseSseFrame(frame)
-        if (chunk === 'done') return
-        if (chunk) yield chunk
-        sep = buf.indexOf('\n\n')
+      let separator = /\r?\n\r?\n/u.exec(buf)
+      while (separator) {
+        const frame = buf.slice(0, separator.index)
+        buf = buf.slice(separator.index + separator[0].length)
+        const event = parseSseFrame(frame)
+        if (event) yield event
+        separator = /\r?\n\r?\n/u.exec(buf)
       }
     }
+    buf += decoder.decode()
     // Upstream failures routinely arrive UNTERMINATED: a final `data:` frame
     // with no trailing blank line, or a bare JSON error body with no SSE
     // framing at all (kimi's access_terminated_error). Dropping the tail here
@@ -1280,7 +1772,7 @@ async function* parseSseChatStream(
     // fails the run, but the diagnostic dies with the buffer. Parse the tail so
     // the upstream error message rides the thrown event instead.
     const tail = parseSseStreamTail(buf)
-    if (tail !== undefined && tail !== 'done') yield tail
+    if (tail !== undefined) yield tail
   } finally {
     reader.releaseLock()
   }
@@ -1290,7 +1782,7 @@ async function* parseSseChatStream(
  *  blank line, or a bare (non-SSE) JSON body — the shape bridge upstreams use
  *  for terminal failures. Throws `ValidationError` on an error payload; returns
  *  `undefined` for keepalive noise or non-JSON leftovers. */
-function parseSseStreamTail(buf: string): BridgeStreamChunk | 'done' | undefined {
+function parseSseStreamTail(buf: string): BridgeSseEvent | undefined {
   const tail = buf.trim()
   if (!tail) return undefined
   const framed = parseSseFrame(tail)
@@ -1309,18 +1801,32 @@ function parseSseStreamTail(buf: string): BridgeStreamChunk | 'done' | undefined
   return undefined
 }
 
-/** Parse one SSE frame (possibly multi-line `data:`/comment) into a chunk, `'done'`,
- *  or undefined (comment/keepalive/empty). */
-function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
+/** Parse one frame into a numbered run event, terminal marker, or keepalive. */
+function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   const dataLines: string[] = []
+  let id: number | undefined
   for (const rawLine of frame.split('\n')) {
     const line = rawLine.replace(/\r$/, '')
-    if (!line || line.startsWith(':')) continue // comment / keepalive
+    if (!line || line.startsWith(':')) continue
+    if (line.startsWith('id:')) {
+      const rawId = line.slice('id:'.length).trim()
+      if (!/^[1-9][0-9]*$/u.test(rawId)) {
+        throw new ValidationError(`bridgeExecutor: invalid SSE event id ${JSON.stringify(rawId)}`)
+      }
+      const parsedId = Number(rawId)
+      if (!Number.isSafeInteger(parsedId)) {
+        throw new ValidationError('bridgeExecutor: SSE event id exceeds safe integer range')
+      }
+      id = parsedId
+      continue
+    }
     if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
   }
-  if (dataLines.length === 0) return undefined
+  if (dataLines.length === 0) {
+    return id === undefined ? undefined : { kind: 'event', id }
+  }
   const data = dataLines.join('\n')
-  if (data === '[DONE]') return 'done'
+  if (data === '[DONE]') return { kind: 'done' }
   let parsed: {
     choices?: Array<{
       delta?: {
@@ -1335,14 +1841,19 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
   try {
     parsed = JSON.parse(data)
   } catch {
-    return undefined
+    throw new ValidationError('bridgeExecutor: bridge emitted a non-JSON SSE data frame')
+  }
+  if (id === undefined) {
+    throw new ValidationError('bridgeExecutor: bridge emitted an unnumbered run event')
   }
   if (parsed.error) {
-    // `type` is the upstream's error class (e.g. kimi's access_terminated_error)
-    // — carry it when the payload has no message, never collapse to 'unknown'.
-    throw new ValidationError(
-      `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
-    )
+    return {
+      kind: 'event',
+      id,
+      error: new ValidationError(
+        `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
+      ),
+    }
   }
   const out: BridgeStreamChunk = {}
   const choice = parsed.choices?.[0]
@@ -1355,7 +1866,11 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
     out.usage = { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0 }
   }
   if (typeof u?.cost === 'number') out.cost = u.cost
-  return Object.keys(out).length > 0 ? out : undefined
+  return {
+    kind: 'event',
+    id,
+    ...(Object.keys(out).length > 0 ? { chunk: out } : {}),
+  }
 }
 
 function bridgeWorktreeExecutor(
@@ -1427,9 +1942,7 @@ function bridgeWorktreeExecutor(
             model: resolveBridgeWorktreeModel(spec, bridge),
             cwd: worktree.path,
             sessionId,
-            ...(bridge.agentProfile
-              ? { agentProfile: bridge.agentProfile }
-              : { agentProfile: spec.profile as unknown as Record<string, unknown> }),
+            ...(bridge.agentProfile ? { agentProfile: bridge.agentProfile } : {}),
             ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
             ...(bridge.maxTurns !== undefined ? { maxTurns: bridge.maxTurns } : {}),
           }

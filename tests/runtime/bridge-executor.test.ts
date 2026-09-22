@@ -10,6 +10,7 @@ import { createExecutor, inlineSandboxClient } from '../../src/runtime'
 // live-but-slow bridge. Tests drive that transport by setting `bridgeHttpHandler`.
 let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
 let lastBridgeUrl: URL | null = null
+const testRunDigest = `sha256:${'c'.repeat(64)}`
 
 vi.mock('node:http', async () => {
   const actual = await vi.importActual<typeof import('node:http')>('node:http')
@@ -25,8 +26,16 @@ vi.mock('node:http', async () => {
         end: () => {
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
-          const res = bridgeHttpHandler(payload) as Readable & { statusCode?: number }
+          const res = bridgeHttpHandler(payload) as Readable & {
+            statusCode?: number
+            headers?: Record<string, string>
+          }
           res.statusCode = res.statusCode ?? 200
+          res.headers = {
+            'x-run-id': String(payload.run_id),
+            'x-run-request-digest': testRunDigest,
+            ...res.headers,
+          }
           cb(res)
         },
         on: () => {},
@@ -40,9 +49,9 @@ function sse(content: string, input: number, output: number): Readable {
   const stream = new PassThrough()
   stream.end(
     [
-      `data: ${JSON.stringify({
+      `id: 1\ndata: ${JSON.stringify({
         choices: [{ delta: { content } }],
-        usage: { prompt_tokens: input, completion_tokens: output },
+        usage: { prompt_tokens: input, completion_tokens: output, cost: 0 },
       })}`,
       '',
       'data: [DONE]',
@@ -145,6 +154,26 @@ describe('bridgeExecutor over node:http', () => {
     }
     await runOnce(bridgeClient('kimi-code/kimi-k2.6'), 'go')
     expect(seen[0]?.model).toBe('kimi-code/kimi-k2.6')
+  })
+
+  it('refuses to transplant a fallback model onto a different profile harness', async () => {
+    await expect(
+      runOnce(bridgeClient('claude-code/sonnet'), 'go', {
+        profile: { name: 'worker', harness: 'opencode' },
+      }),
+    ).rejects.toThrow(/fallback .* belongs to "claude-code"/)
+  })
+
+  it('uses an already-routed profile model without prefixing the fallback harness', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    await runOnce(bridgeClient('claude-code/sonnet'), 'go', {
+      profile: { name: 'worker', model: { default: 'opencode/glm-4.6' } },
+    })
+    expect(seen[0]?.model).toBe('opencode/glm-4.6')
   })
 
   it('throws on a non-2xx bridge response', async () => {

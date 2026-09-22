@@ -423,7 +423,13 @@ describe('streamAgentTurn: executor backend', () => {
         return {
           outRef: 'stub-1',
           out: { content: `echo: ${String(task)}` },
-          spent: { iterations: 1, tokens: { input: 11, output: 6 }, usd: 0.005, ms: 1 },
+          spent: {
+            iterations: 1,
+            tokens: { input: 11, output: 6 },
+            usdKnown: true,
+            usd: 0.005,
+            ms: 1,
+          },
         }
       },
       async teardown() {

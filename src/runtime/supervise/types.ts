@@ -147,10 +147,10 @@ export interface Executor<Out> {
   /**
    * A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
    * events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
-   * the done AND the down/crash paths, so a crashed sub-driver's partial inference still re-homes
-   * (the pool already debited it via `observe`; the journal must match). NOT reconciled, so it never
-   * trips the reservation clamp. Read on settle, valid after `execute` resolves OR throws. Leaf
-   * executors omit it (returns `undefined`).
+   * the done AND the down/crash paths, so a crashed sub-driver's partial inference still re-homes.
+   * It is reconciled together with the driver's child-work spend against the driver's reservation,
+   * but remains a separate journal event so reports preserve the driver-inference versus child-work
+   * split. Read on settle, valid after `execute` resolves OR throws. Leaf executors omit it.
    */
   metered?(): Spend | undefined
 }
@@ -180,9 +180,8 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 // ── Executor resolution (OPEN registry, not a switch) ─────────────────────────
 
 /**
- * `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the
- * sandbox SDK's `BackendConfig`, not the portable profile. So an agent is mapped to its
- * executor through this MINIMAL wrapper, never by fabricating a field onto `AgentProfile`.
+ * `AgentProfile.harness` is the agent's portable preference. This wrapper records the executor
+ * choice for one run, which may override that preference (for example in a measured matrix).
  *
  * Resolution (in `runtime.ts`):
  *  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
@@ -236,7 +235,10 @@ export interface ExecutorRegistry {
 
 // ── Budget — the conserved reservation pool ───────────────────────────────────
 
-/** A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. */
+/** A budget envelope on a spawn or the root. Tokens, dollars, and iterations are admission limits:
+ * once observed spend exhausts one, no later work starts. An opaque provider call can report an
+ * overrun only after it finishes; Runtime preserves that overrun rather than truncating it. The
+ * deadline is enforceable during execution through abort/teardown. */
 export interface Budget {
   readonly maxIterations: number
   readonly maxTokens: number
@@ -249,9 +251,9 @@ export interface Budget {
 export interface Spend {
   iterations: number
   tokens: LoopTokenUsage
-  /** Dollar accounting is known unless explicitly false. A false value must not be treated as $0
-   *  when enforcing a dollar-denominated comparison or limit. */
-  usdKnown?: boolean
+  /** Whether `usd` is a complete dollar measurement. Required so an omitted provider cost cannot
+   *  compile as a known $0; unpriced or partially priced work sets this to false. */
+  usdKnown: boolean
   usd: number
   ms: number
 }
@@ -388,12 +390,14 @@ export interface Scope<Out> {
    */
   nextResolved(): Promise<Settled<Out> | null>
   /**
-   * Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
-   * `send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
-   * delivered to a live child whose executor accepts delivery, `false` otherwise (unknown id,
-   * already settled, or an executor with no inbox). The executor drains its inbox between turns;
-   * a leaf that does not implement `deliver` simply cannot be steered mid-flight. In-process this
-   * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
+   * Steer a RUNNING child or an observed descendant out-of-band — deliver a message through the
+   * owning executor's inbox (the driver's `send` verb: next-instruction, interrupt, or resume).
+   * Descendant ids retain their ancestry, so a nested driver routes the same call to that exact
+   * worker rather than broadcasting it to siblings. Returns `true` if the message entered a live
+   * owning child whose executor accepts delivery, `false` otherwise (unknown id, already settled,
+   * or an executor with no inbox). The executor drains its inbox between turns; a leaf that does
+   * not implement `deliver` simply cannot be steered mid-flight. In-process this is a direct call;
+   * the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
    */
   send(nodeId: NodeId, msg: unknown): boolean
   /**
@@ -648,7 +652,7 @@ export interface Supervisor<Task, Out> {
 }
 
 export interface SupervisorOpts {
-  /** The root conserved-pool ceiling (tokens + usd + iterations + deadline). */
+  /** The root reservation limits (tokens + usd + iterations) and hard deadline. */
   readonly budget: Budget
   /** Trace-correlation root + the journal/blob root key. */
   readonly runId: NodeId

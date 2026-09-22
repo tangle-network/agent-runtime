@@ -528,7 +528,7 @@ interface MutableSnapshot {
 }
 
 function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  return { iterations: 0, tokens: zeroTokenUsage(), usdKnown: true, usd: 0, ms: 0 }
 }
 
 /** Add a `metered` spend record onto a node's accumulated spend (per channel). */
@@ -536,8 +536,8 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usdKnown: a.usdKnown && b.usdKnown,
     usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
 }

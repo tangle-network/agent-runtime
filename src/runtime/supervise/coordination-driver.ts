@@ -360,19 +360,18 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         detail: Record<string, unknown>,
       ) => {
         const res = await opts.brain(messages, tools)
-        if (res.usage || res.costUsd !== undefined) {
-          const turnSpend: Spend = {
-            iterations: 0,
-            tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
-            usd: res.costUsd ?? 0,
-            ms: 0,
-          }
-          await scope.meter(turnSpend, {
-            driver: opts.name,
-            toolCalls: (res.toolCalls ?? []).map((c) => c.name),
-            ...detail,
-          })
+        const turnSpend: Spend = {
+          iterations: 0,
+          tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
+          usdKnown: res.costUsd !== undefined,
+          usd: res.costUsd ?? 0,
+          ms: 0,
         }
+        await scope.meter(turnSpend, {
+          driver: opts.name,
+          toolCalls: (res.toolCalls ?? []).map((c) => c.name),
+          ...detail,
+        })
         return res
       }
       const chat: ToolLoopChat = async (messages, tools) => {

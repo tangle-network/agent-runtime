@@ -19,6 +19,7 @@
  * @experimental
  */
 
+import { type AgentProfile, mergeAgentProfiles } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
@@ -26,7 +27,6 @@ import { supervisorInstructions } from './authoring'
 import type { DeliverableSpec } from './completion-gate'
 import type { ExecutorConfig } from './runtime'
 import { supervise } from './supervise'
-import type { SupervisorProfile } from './supervisor-agent'
 import type { Budget, SupervisedResult } from './types'
 
 /** The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
@@ -56,9 +56,8 @@ export interface DelegateOptions<Out = unknown> {
   readonly router?: RouterConfig
   /** Inject the supervisor brain directly (tests / advanced) instead of resolving it from `router`. */
   readonly brain?: ToolLoopChat
-  /** Override the default authoring-supervisor profile (name / extra system-prompt stance). The
-   *  default already carries the authoring skill; override only to add a goal or rename. */
-  readonly supervisor?: Partial<Pick<SupervisorProfile, 'name' | 'systemPrompt'>>
+  /** Overlay the default authoring supervisor with any canonical profile capabilities. */
+  readonly supervisor?: AgentProfile
   /** Restrict the run to this subset of models (forwarded to `supervise()`). */
   readonly allowedModels?: readonly string[]
   readonly runId?: string
@@ -69,14 +68,18 @@ export interface DelegateOptions<Out = unknown> {
  *  AUTHORS a worker profile per sub-task. No worker profile is baked in here. */
 function authoringSupervisorProfile(
   model: string | undefined,
-  override?: Partial<Pick<SupervisorProfile, 'name' | 'systemPrompt'>>,
-): SupervisorProfile {
-  return {
-    name: override?.name ?? 'delegate-supervisor',
-    harness: null,
-    ...(model ? { model } : {}),
-    systemPrompt: override?.systemPrompt ?? supervisorInstructions(),
-  }
+  override?: AgentProfile,
+): AgentProfile {
+  return (
+    mergeAgentProfiles(
+      {
+        name: 'delegate-supervisor',
+        ...(model ? { model: { default: model } } : {}),
+        prompt: { systemPrompt: supervisorInstructions() },
+      },
+      override,
+    ) ?? {}
+  )
 }
 
 /**
@@ -93,13 +96,13 @@ export async function delegate<Out = unknown>(
   if (typeof intent !== 'string' || intent.trim().length === 0) {
     throw new ConfigError('delegate: `intent` must be a non-empty string')
   }
-  if (!opts.brain && !opts.router) {
+  const profile = authoringSupervisorProfile(opts.model, opts.supervisor)
+  const externalSupervisor = profile.harness !== undefined && profile.harness !== 'cli-base'
+  if (!externalSupervisor && !opts.brain && !opts.router) {
     throw new ConfigError(
       'delegate: provide opts.router (the supervisor brain substrate) or opts.brain (tests)',
     )
   }
-
-  const profile = authoringSupervisorProfile(opts.model, opts.supervisor)
 
   return supervise(profile, intent, {
     budget: opts.budget ?? defaultDelegateBudget,

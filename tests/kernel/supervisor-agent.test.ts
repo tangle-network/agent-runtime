@@ -66,7 +66,7 @@ function runSupervisor(
 }
 
 describe('supervisorAgent — the brain is resolved from profile.harness (backend-as-data)', () => {
-  it('ROUTER arm (harness null): the in-process tool-loop drives a worker to delivery', async () => {
+  it('ROUTER arm (harness omitted): the in-process tool-loop drives a worker to delivery', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const worker = deliveringLeaf('w', { answer: 42 })
@@ -74,14 +74,14 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const brain = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
     const root = supervisorAgent(
-      { name: 'root', harness: null, systemPrompt: 'drive the worker' },
+      { name: 'root', prompt: { systemPrompt: 'drive the worker' } },
       { brain, blobs, makeWorkerAgent: () => worker, perWorker, maxTurns: 8 },
     )
     const result = await runSupervisor(root, blobs, journal)
@@ -102,7 +102,11 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
     const root = supervisorAgent(
-      { name: 'sup', harness: 'opencode', systemPrompt: 'delegate, do not solve' },
+      {
+        name: 'sup',
+        harness: 'opencode',
+        prompt: { systemPrompt: 'delegate, do not solve' },
+      },
       { blobs, makeWorkerAgent: () => deliveringLeaf('w', { answer: 7 }), perWorker, driveHarness },
     )
     const result = await runSupervisor(root, blobs, journal)
@@ -123,7 +127,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
       supervisorAgent(
-        { name: 'root', harness: null },
+        { name: 'root' },
         { blobs, makeWorkerAgent: () => deliveringLeaf('w', {}), perWorker },
       ),
     ).toThrow(/router/)

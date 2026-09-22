@@ -510,6 +510,7 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
           spent: {
             iterations: shot.completions,
             tokens: shot.tokens,
+            usdKnown: isModelPriced(opts.model),
             usd: isModelPriced(opts.model)
               ? estimateCost(shot.tokens.input, shot.tokens.output, opts.model)
               : 0,
@@ -545,6 +546,7 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
         spent: {
           iterations: 1,
           tokens,
+          usdKnown: isModelPriced(analystModel),
           usd: isModelPriced(analystModel)
             ? estimateCost(tokens.input, tokens.output, analystModel)
             : 0,
@@ -619,6 +621,8 @@ export interface AgenticRunResult {
   /** The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
    *  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms. */
   usd: number
+  /** Whether `usd` covers every model call. */
+  usdKnown: boolean
   ms: number
   tokens: { input: number; output: number }
 }
@@ -1122,10 +1126,14 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
   }
   // Drivers deliver the strategy outcome; the cost vector is stamped here from `result.spentTotal`
   // (the journal aggregate: settled child work + metered driver inference) + wall clock.
-  const core = result.out.deliverable as Omit<AgenticRunResult & Result, 'usd' | 'ms' | 'tokens'>
+  const core = result.out.deliverable as Omit<
+    AgenticRunResult & Result,
+    'usd' | 'usdKnown' | 'ms' | 'tokens'
+  >
   return {
     ...core,
     usd: result.spentTotal.usd,
+    usdKnown: result.spentTotal.usdKnown,
     tokens: result.spentTotal.tokens,
     ms: Date.now() - started,
   } as AgenticRunResult & Result

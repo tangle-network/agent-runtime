@@ -13,7 +13,8 @@
  * the right home for "supervise over a graded surface". The within-run self-improvement is the analyst
  * (authored content, swap `analysts`); the across-run kind wraps this call in `improve()`.
  */
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
+import { ValidationError } from '../errors'
 import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
 import type { RouterConfig } from './router-client'
 import {
@@ -25,7 +26,6 @@ import {
 } from './strategy'
 import type { DeliverableSpec } from './supervise/completion-gate'
 import { supervise } from './supervise/supervise'
-import type { SupervisorProfile } from './supervise/supervisor-agent'
 import type { Agent, AgentSpec, Budget, Executor, ExecutorResult, Spend } from './supervise/types'
 
 /** What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is
@@ -148,7 +148,13 @@ function surfaceWorkerExecutor(
         summary: `${strategy.name} ${r.shots} shot(s) → ${(100 * r.score).toFixed(0)}% (${r.resolved ? 'resolved' : 'unresolved'})`,
         failing: r.resolved ? [] : cap.failing(),
       }
-      const spent: Spend = { iterations: r.completions, tokens: r.tokens, usd: r.usd, ms: r.ms }
+      const spent: Spend = {
+        iterations: r.completions,
+        tokens: r.tokens,
+        usdKnown: r.usdKnown,
+        usd: r.usd,
+        ms: r.ms,
+      }
       artifact = {
         outRef: `surface-worker:${task.id}:${r.shots}:${r.resolved ? 'ok' : 'no'}`,
         out,
@@ -203,7 +209,7 @@ export interface SuperviseSurfaceResult {
  *  report the deployable outcome + the full conserved spend. This is `supervise()` configured for surfaces
  *  — there is no other entrypoint to learn. */
 export async function superviseSurface(
-  profile: SupervisorProfile,
+  profile: AgentProfile,
   task: AgenticTask,
   opts: SuperviseSurfaceOptions,
 ): Promise<SuperviseSurfaceResult> {
@@ -225,10 +231,16 @@ export async function superviseSurface(
   // Every spawned worker is a BYO executor that runs the surface task; the deliverable is the completion
   // oracle (delivered ⟺ the surface check passed).
   const makeWorkerAgent: MakeWorkerAgent = (rawProfile) => {
-    const p = (rawProfile ?? {}) as { name?: unknown }
-    const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'surface-worker'
+    const parsed = agentProfileSchema.safeParse(rawProfile)
+    if (!parsed.success) {
+      throw new ValidationError(
+        `superviseSurface: invalid worker AgentProfile: ${parsed.error.message}`,
+      )
+    }
+    const workerProfile = parsed.data as AgentProfile
+    const name = workerProfile.name ?? 'surface-worker'
     const spec: AgentSpec = {
-      profile: rawProfile as AgentProfile,
+      profile: workerProfile,
       harness: null,
       executor: surfaceWorkerExecutor(
         opts.surface,

@@ -148,6 +148,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     const started = now()
     const tokens = zeroTokenUsage()
     let usd = 0
+    let usdKnown = true
     let handle: SandboxLineageHandle | undefined
     let nextPrompt: string | undefined = args.taskToPrompt(task)
 
@@ -192,6 +193,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         }
 
         let events: AsyncIterable<SandboxEvent>
+        let turnUsdKnown = false
         try {
           if (!handle) {
             const opened = await lineage.start(spec, prompt, turnController.signal, promptOptions)
@@ -211,9 +213,12 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
               tokens.output += output
               yield { kind: 'tokens', input, output }
             }
-            if (typeof call.costUsd === 'number' && call.costUsd > 0) {
-              usd += call.costUsd
-              yield { kind: 'cost', usd: call.costUsd }
+            if (typeof call.costUsd === 'number') {
+              turnUsdKnown = true
+              if (call.costUsd > 0) {
+                usd += call.costUsd
+                yield { kind: 'cost', usd: call.costUsd }
+              }
             }
           }
         } catch (e) {
@@ -221,12 +226,14 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
           // steer is already queued, so loop back and fold it. Anything else is fatal.
           if (isInterruptAbort(e, interruptSig, signal, args.controller.signal)) {
+            usdKnown = false
             activity.push({ at: now(), kind: 'note', label: 'interrupted', detail: 'replanning' })
             continue
           }
           throw e
         }
         cleanup()
+        if (!turnUsdKnown) usdKnown = false
 
         state.turns += 1
         activity.push({ at: now(), kind: 'turn', label: `turn ${turn}` })
@@ -242,7 +249,13 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       state.teardown = undefined
     }
 
-    const spent: Spend = { iterations: state.turns, tokens, usd, ms: now() - started }
+    const spent: Spend = {
+      iterations: state.turns,
+      tokens,
+      usdKnown,
+      usd,
+      ms: now() - started,
+    }
     const out = {
       content: state.lastText,
       turns: state.turns,

@@ -1,3 +1,4 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the ONE front door so these unit tests prove delegate's CONTRACT — it routes the intent to
@@ -62,14 +63,14 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
 
     expect(superviseSpy).toHaveBeenCalledTimes(1)
     const [profile, task, opts] = superviseSpy.mock.calls[0] as [
-      { name?: string; harness?: unknown; systemPrompt?: string },
+      AgentProfile,
       unknown,
       { backend?: unknown; router?: unknown; budget?: unknown },
     ]
     // A router-brained AUTHORING supervisor: its standing instruction IS the authoring skill, so it
     // writes its own worker profile from the intent — no worker profile is baked into delegate.
-    expect(profile.harness ?? null).toBeNull()
-    expect(profile.systemPrompt).toBe(supervisorInstructions())
+    expect(profile.harness).toBeUndefined()
+    expect(profile.prompt?.systemPrompt).toBe(supervisorInstructions())
     // The intent is handed through verbatim as the task.
     expect(task).toBe('fix the failing auth test')
     // The injected substrate (where workers run + the brain) is forwarded.
@@ -127,26 +128,31 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     })
 
     const [profile, , opts] = superviseSpy.mock.calls[0] as [
-      { model?: string },
+      AgentProfile,
       unknown,
       Record<string, unknown>,
     ]
-    expect(profile.model).toBe('glm-5.2')
+    expect(profile.model?.default).toBe('glm-5.2')
     expect(opts.deliverable).toBe(deliverable)
     expect(opts.budget).toBe(budget)
     expect(opts.allowedModels).toEqual(['glm-5.2', 'deepseek-v4-flash'])
     expect(opts.runId).toBe('run-7')
   })
 
-  it('lets the caller override only the supervisor name/stance', async () => {
+  it('lets the caller overlay the canonical supervisor profile', async () => {
     await delegate('intent', {
       backend,
       router,
-      supervisor: { name: 'my-supervisor', systemPrompt: 'custom stance' },
+      supervisor: {
+        name: 'my-supervisor',
+        prompt: { systemPrompt: 'custom stance' },
+        tools: { search: true },
+      },
     })
-    const [profile] = superviseSpy.mock.calls[0] as [{ name?: string; systemPrompt?: string }]
+    const [profile] = superviseSpy.mock.calls[0] as [AgentProfile]
     expect(profile.name).toBe('my-supervisor')
-    expect(profile.systemPrompt).toBe('custom stance')
+    expect(profile.prompt?.systemPrompt).toBe('custom stance')
+    expect(profile.tools).toEqual({ search: true })
   })
 
   it('fails loud on an empty intent', async () => {
@@ -157,5 +163,33 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
   it('fails loud when neither router nor brain is provided (no supervisor brain)', async () => {
     await expect(delegate('intent', { backend })).rejects.toThrow(/router|brain/)
     expect(superviseSpy).not.toHaveBeenCalled()
+  })
+
+  it('lets an external research leader use the bridge without a router brain', async () => {
+    const bridge = {
+      backend: 'bridge',
+      bridgeUrl: 'http://bridge.test',
+      bridgeBearer: 'secret',
+      model: 'codex/gpt-5.6',
+    } as ExecutorConfig
+
+    await delegate('run the pursuit', {
+      backend: bridge,
+      supervisor: {
+        name: 'research-leader',
+        harness: 'codex',
+        model: { default: 'gpt-5.6' },
+      },
+    })
+
+    expect(superviseSpy).toHaveBeenCalledTimes(1)
+    const [profile, , options] = superviseSpy.mock.calls[0] as [
+      AgentProfile,
+      unknown,
+      Record<string, unknown>,
+    ]
+    expect(profile.harness).toBe('codex')
+    expect(options.backend).toBe(bridge)
+    expect(options.router).toBeUndefined()
   })
 })

@@ -39,7 +39,7 @@ export function scriptedExecutor(scriptFor: (task: unknown) => Script): Executor
           outRef: `mock:${script.out}`,
           out: script.out,
           verdict,
-          spent: { iterations: 1, tokens: script.tokens, usd: 0, ms: 0 },
+          spent: { iterations: 1, tokens: script.tokens, usdKnown: true, usd: 0, ms: 0 },
         }
         yield { kind: 'iteration' }
         yield { kind: 'tokens', input: script.tokens.input, output: script.tokens.output }

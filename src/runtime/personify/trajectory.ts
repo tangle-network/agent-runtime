@@ -277,7 +277,7 @@ function countStatuses(
 // ── Spend arithmetic (single-sourced on `addTokenUsage`) ─────────────────────────
 
 function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  return { iterations: 0, tokens: zeroTokenUsage(), usdKnown: true, usd: 0, ms: 0 }
 }
 
 /** Add a `metered` event's spend onto a node's accumulated ownSpend (per channel). */
@@ -285,8 +285,8 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usdKnown: a.usdKnown && b.usdKnown,
     usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
 }
@@ -295,8 +295,8 @@ function cloneSpend(spend: Spend): Spend {
   return {
     iterations: spend.iterations,
     tokens: { input: spend.tokens.input, output: spend.tokens.output },
+    usdKnown: spend.usdKnown,
     usd: spend.usd,
-    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }
 }

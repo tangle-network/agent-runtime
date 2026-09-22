@@ -1,9 +1,9 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
 import { researcherProfile } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
-import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { Budget, SupervisedResult } from '../runtime/supervise/types'
 
 /** Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. */
@@ -78,7 +78,7 @@ export interface SupervisedKnowledgeUpdateOptions {
   >
   allowedModels?: readonly string[]
   runSupervised?: (
-    profile: SupervisorProfile,
+    profile: AgentProfile,
     task: unknown,
     opts: SuperviseOptions,
   ) => Promise<SupervisedResult<unknown>>
@@ -135,10 +135,10 @@ export async function runSupervisedKnowledgeUpdate(
     ? `${baseInstructions}\n\nEach researcher worker you spawn follows this contract:\n${workerContract}`
     : baseInstructions
 
-  const profile: SupervisorProfile = {
+  const profile: AgentProfile = {
     name: 'knowledge-research-supervisor',
-    model: options.supervisorModel,
-    systemPrompt,
+    ...(options.supervisorModel ? { model: { default: options.supervisorModel } } : {}),
+    prompt: { systemPrompt },
   }
   const run = options.runSupervised ?? supervise
   const task = formatSupervisedKnowledgeTask(options)

@@ -1,3 +1,4 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   createSupervisedKnowledgeUpdater,
@@ -6,7 +7,6 @@ import {
   runSupervisedKnowledgeUpdate,
 } from '../src/knowledge'
 import type { SuperviseOptions } from '../src/runtime/supervise/supervise'
-import type { SupervisorProfile } from '../src/runtime/supervise/supervisor-agent'
 import type { SupervisedResult } from '../src/runtime/supervise/types'
 
 function winner(): SupervisedResult<unknown> {
@@ -47,7 +47,7 @@ describe('knowledge supervisor integration', () => {
   it('runs supervised knowledge updates against the candidate KB root', async () => {
     let captured:
       | {
-          profile: SupervisorProfile
+          profile: AgentProfile
           task: unknown
           opts: SuperviseOptions
         }
@@ -75,7 +75,7 @@ describe('knowledge supervisor integration', () => {
     expect(captured?.task).toContain('Goal: candidate goal')
     expect(captured?.task).toContain('Knowledge base root: /kb/candidate')
     expect(captured?.profile.name).toBe('knowledge-research-supervisor')
-    expect(captured?.profile.systemPrompt).toContain(
+    expect(captured?.profile.prompt?.systemPrompt).toContain(
       'Each researcher worker you spawn follows this contract',
     )
   })

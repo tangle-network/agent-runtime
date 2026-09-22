@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import {
   type AgentImprovementActivationResult,
+  type AgentProfile,
   canonicalCandidateDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -29,7 +30,6 @@ import {
   runKnowledgeImprovementJob,
 } from '../src/knowledge'
 import type { SuperviseOptions } from '../src/runtime/supervise/supervise'
-import type { SupervisorProfile } from '../src/runtime/supervise/supervisor-agent'
 import type { SupervisedResult } from '../src/runtime/supervise/types'
 import {
   candidateBundle,
@@ -153,7 +153,7 @@ describe('runKnowledgeImprovementJob', () => {
         const before = await liveKnowledgeBytes(root)
         let captured:
           | {
-              profile: SupervisorProfile
+              profile: AgentProfile
               task: unknown
               opts: SuperviseOptions
             }
@@ -298,11 +298,7 @@ describe('runKnowledgeImprovementJob', () => {
     async () => {
       await withKb(async (root) => {
         const artifacts = createCandidateOutputFixture().outputArtifacts
-        const update = async (
-          _profile: SupervisorProfile,
-          task: unknown,
-          opts: SuperviseOptions,
-        ) => {
+        const update = async (_profile: AgentProfile, task: unknown, opts: SuperviseOptions) => {
           await writeRuntimeJobPage(rootFromTask(task))
           await expect(opts.deliverable?.check({})).resolves.toBe(true)
           return winner()

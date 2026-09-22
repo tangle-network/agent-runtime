@@ -546,8 +546,20 @@ async function spentFromJournal(
  *  `metered` = driver inference (re-homed up the tree, so a single root-tree pass already
  *  includes every nested driver's inference). */
 function sumSpendFromEvents(events: SpawnEvent[]): { childWork: Spend; driverInference: Spend } {
-  const childWork: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
-  const driverInference: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const childWork: Spend = {
+    iterations: 0,
+    tokens: { input: 0, output: 0 },
+    usdKnown: true,
+    usd: 0,
+    ms: 0,
+  }
+  const driverInference: Spend = {
+    iterations: 0,
+    tokens: { input: 0, output: 0 },
+    usdKnown: true,
+    usd: 0,
+    ms: 0,
+  }
   for (const ev of events) {
     if (ev.kind === 'settled') accumulate(childWork, ev.spent)
     else if (ev.kind === 'metered') accumulate(driverInference, ev.spend)
@@ -571,8 +583,8 @@ function addSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usdKnown: a.usdKnown && b.usdKnown,
     usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
 }
@@ -581,5 +593,12 @@ function addSpend(a: Spend, b: Spend): Spend {
  *  Checks every channel `addSpend` sums — including `ms` — so the gate stays consistent with the
  *  total even though the coordination driver currently stamps `ms: 0`. */
 function isNonEmptySpend(s: Spend): boolean {
-  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
+  return (
+    s.usdKnown === false ||
+    s.iterations > 0 ||
+    s.tokens.input > 0 ||
+    s.tokens.output > 0 ||
+    s.usd > 0 ||
+    s.ms > 0
+  )
 }

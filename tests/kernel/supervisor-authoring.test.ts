@@ -1,11 +1,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import {
-  type AuthoredProfile,
-  asAuthoredProfile,
-  supervisorInstructions,
-} from '../../src/runtime/supervise/authoring'
+import { asAuthoredProfile, supervisorInstructions } from '../../src/runtime/supervise/authoring'
 import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -47,7 +43,7 @@ const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
 describe('supervisor authoring — the supervisor DESIGNS each worker (profile), guided by a skill', () => {
   it('authors a DISTINCT, tailored profile per sub-task, and they flow to the workers', async () => {
-    const authored: AuthoredProfile[] = []
+    const authored: AgentProfile[] = []
     // The scripted supervisor (what a skill-guided LLM would emit): two sub-tasks, two tailored recipes.
     const turns: ScriptedTurn[] = [
       {
@@ -57,8 +53,10 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
             arguments: {
               profile: {
                 name: 'parser',
-                systemPrompt:
-                  'You are a PARSER specialist. Tokenize the expression into numbers, operators and parens; emit a JSON token list. Validate balanced parens.',
+                prompt: {
+                  systemPrompt:
+                    'You are a PARSER specialist. Tokenize the expression into numbers, operators and parens; emit a JSON token list. Validate balanced parens.',
+                },
               },
               task: 'parse the expression',
             },
@@ -72,9 +70,11 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
             arguments: {
               profile: {
                 name: 'evaluator',
-                systemPrompt:
-                  'You are an EVALUATOR specialist. Given a token list, apply operator precedence and compute the numeric result. Return only the number.',
-                model: 'deepseek-chat',
+                prompt: {
+                  systemPrompt:
+                    'You are an EVALUATOR specialist. Given a token list, apply operator precedence and compute the numeric result. Return only the number.',
+                },
+                model: { default: 'deepseek-chat' },
               },
               task: 'evaluate the tokens',
             },
@@ -122,16 +122,18 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
     expect(authored.length).toBe(2)
     expect(authored[0]!.name).toBe('parser')
     expect(authored[1]!.name).toBe('evaluator')
-    expect(authored[0]!.systemPrompt).not.toBe(authored[1]!.systemPrompt)
-    expect(authored[0]!.systemPrompt).toContain('PARSER')
-    expect(authored[1]!.model).toBe('deepseek-chat') // the supervisor also chose the model per sub-task
+    expect(authored[0]!.prompt?.systemPrompt).not.toBe(authored[1]!.prompt?.systemPrompt)
+    expect(authored[0]!.prompt?.systemPrompt).toContain('PARSER')
+    expect(authored[1]!.model?.default).toBe('deepseek-chat') // the supervisor also chose the model per sub-task
   })
 
   it('rejects an empty/placeholder profile (a skill violation the system can catch)', () => {
     expect(asAuthoredProfile({})).toBeNull()
-    expect(asAuthoredProfile({ systemPrompt: '' })).toBeNull()
-    expect(asAuthoredProfile({ systemPrompt: '   ' })).toBeNull()
-    expect(asAuthoredProfile({ name: 'w', systemPrompt: 'real instructions' })?.name).toBe('w')
+    expect(asAuthoredProfile({ prompt: { systemPrompt: '' } })).toBeNull()
+    expect(asAuthoredProfile({ prompt: { systemPrompt: '   ' } })).toBeNull()
+    expect(
+      asAuthoredProfile({ name: 'w', prompt: { systemPrompt: 'real instructions' } })?.name,
+    ).toBe('w')
   })
 
   it('the skill is the supervisor prompt and demands authored (non-empty) profiles', () => {

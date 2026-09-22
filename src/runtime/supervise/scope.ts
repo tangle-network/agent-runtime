@@ -29,7 +29,7 @@ import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
-import type { BudgetPool, ReservationTicket } from './budget'
+import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
 import {
   DEFAULT_STALL_AFTER_MS,
   type ExecutorProgress,
@@ -189,8 +189,8 @@ type PreSeqSettled =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
-      /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled as a
-       *  `metered` event for this node, NOT reconciled (already debited live via `observe`). */
+      /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled
+       *  separately and reconciled with child work against the driver's parent reservation. */
       metered?: Spend
     }
   | {
@@ -198,16 +198,17 @@ type PreSeqSettled =
       reason: string
       infra: boolean
       restartCount: number
-      /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
-       *  too, so the journal matches the pool (which already debited it via `observe`). */
+      /** A CRASHED driver child's partial OWN-inference subtree total — re-homed and reconciled
+       *  on the down path too, so the journal and parent accounting agree. */
       metered?: Spend
     }
 
 /**
  * The recursion seam key. A `Scope` seeds a value of this on each child's
  * `ExecutorContext.seams` so a child whose executor is a DRIVER can mount a NESTED `Scope`
- * over the SAME conserved pool at `depth+1`. A leaf executor never reads it. Single-sourced
- * here so the scope and the driver-executor agree on the seam without a circular import.
+ * over that child's reserved budget at `depth+1`. A leaf executor never reads it.
+ * Single-sourced here so the scope and the driver-executor agree on the seam without a
+ * circular import.
  */
 export const nestedScopeSeamKey = 'nested-scope'
 
@@ -216,31 +217,65 @@ export const nestedScopeSeamKey = 'nested-scope'
  * driver child's own node id (so its children get `${nodeId}:s${ordinal}` ids and its
  * nested journal tree is namespaced under it); `root` is the journal tree key for the
  * nested tree (distinct from the parent's so cursor seqs never collide in the per-tree
- * guard). `depth` is `parent.depth + 1`. The nested scope shares the parent's `pool`
- * (conserved budget across depth), `journal`/`blobs` (one record), and `executors` (a
- * nested child resolves to leaf-or-driver through the same open registry).
+ * guard). `depth` is `parent.depth + 1`. The nested scope uses a child-local pool bounded
+ * by the parent's reservation and shares `journal`/`blobs` and `executors`.
  */
 export interface NestedScopeSeam {
   /** This scope's recursion depth — a nested scope runs at `depth + 1`. */
   readonly depth: number
   /** The runtime recursion-depth ceiling, paired with the conserved pool (R3). */
   readonly maxDepth?: number
+  /** Durable identity of the driver child that owns the nested tree. */
+  readonly childNodeId: NodeId
   /** The journal tree key the parent scope writes to (used to namespace nested trees). */
   readonly journalRoot: NodeId
   /** Mount a nested scope rooted at `nestedRoot`, parented at this driver child's node id. */
   mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown>
 }
 
-function makeNestedScopeSeam(args: ScopeArgs, childNodeId: NodeId): NestedScopeSeam {
+// A descendant-targeted message stays on the existing `Scope.send` → `Executor.deliver` path.
+// The symbol prevents an ordinary user message from being mistaken for Runtime routing metadata;
+// these helpers are internal to the Scope/driver-executor pair and are not package exports.
+const nestedDeliveryMarker = Symbol('agent-runtime:nested-delivery')
+
+interface NestedDelivery {
+  readonly [nestedDeliveryMarker]: true
+  readonly targetNodeId: NodeId
+  readonly message: unknown
+}
+
+export function makeNestedDelivery(targetNodeId: NodeId, message: unknown): unknown {
+  return { [nestedDeliveryMarker]: true, targetNodeId, message } satisfies NestedDelivery
+}
+
+export function readNestedDelivery(value: unknown): NestedDelivery | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const candidate = value as Partial<NestedDelivery>
+  return candidate[nestedDeliveryMarker] === true &&
+    typeof candidate.targetNodeId === 'string' &&
+    'message' in candidate
+    ? (candidate as NestedDelivery)
+    : undefined
+}
+
+function makeNestedScopeSeam(
+  args: ScopeArgs,
+  childNodeId: NodeId,
+  childBudget: Budget,
+): NestedScopeSeam {
+  // A driver owns one child-local pool bounded by the reservation its parent made for it.
+  // Descendants spend from that pool; the parent reconciles the aggregate exactly once.
+  const childPool = createBudgetPool(childBudget, args.now ?? Date.now)
   return {
     depth: args.depth,
     ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
+    childNodeId,
     journalRoot: args.root,
     mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown> {
       return createScope<unknown>({
         parentId: childNodeId,
         root: nestedRoot,
-        pool: args.pool,
+        pool: childPool,
         journal: args.journal,
         blobs: args.blobs,
         executors: args.executors,
@@ -367,10 +402,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const resolved = args.executors.resolve<C>(spec)
     if (!resolved.succeeded) throw new ValidationError(`scope.spawn: ${resolved.error}`)
 
-    // Reserve the child's whole ceiling atomically; fail CLOSED when the pool can't cover
-    // it (never read-then-spawn overcommit, so Σk is conserved by construction).
     const reservation = args.pool.reserve(opts.budget)
     if (!reservation.ok) return { ok: false, reason: reservation.reason }
+    const ticket = reservation.ticket
 
     // Everything between reserve and runChild's hand-off owns the reservation. A SYNCHRONOUS
     // throw here (most likely the executor factory `resolved.value(spec, ctx)`) would otherwise
@@ -390,14 +424,17 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       else args.signal.addEventListener('abort', cascadeAbort, { once: true })
 
       // Seed THIS scope's own keystone deps into the child's `ExecutorContext.seams`, so a
-      // child whose executor is a DRIVER can mount a nested `Scope` at `depth+1` over the
-      // SAME conserved pool + shared journal/blobs/registry (the recursion seam). A leaf
+      // child whose executor is a DRIVER can mount a nested `Scope` at `depth+1` over its
+      // reserved child-local pool plus the shared journal/blobs/registry. A leaf
       // executor ignores it; the parent's sandbox/router seams still pass through for leaves.
       // The mounted nested scope re-seeds the SAME bag for ITS children, so the recursion
       // composes — a driver child of a driver child mounts one level deeper still.
       const ctx: ExecutorContext = {
         signal: childAbort.signal,
-        seams: { ...args.seams, [nestedScopeSeamKey]: makeNestedScopeSeam(args, id) },
+        seams: {
+          ...args.seams,
+          [nestedScopeSeamKey]: makeNestedScopeSeam(args, id, opts.budget),
+        },
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
 
@@ -475,7 +512,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         task,
         opts,
         args.pool,
-        reservation.ticket,
+        ticket,
         args.blobs,
         now,
       )
@@ -490,7 +527,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
 
       return { ok: true, handle, ...(prior ? { prior } : {}) }
     } catch (err) {
-      args.pool.reconcile(reservation.ticket, zeroSpend())
+      args.pool.reconcile(ticket, zeroSpend())
       throw err
     }
   }
@@ -543,10 +580,22 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   }
 
   function send(nodeId: NodeId, msg: unknown): boolean {
-    const child = children.get(nodeId)
+    const direct = children.get(nodeId)
+    if (direct) return deliverToChild(direct, msg)
+
+    // Node ids retain their full ancestry (`root:s0:s1`). Route an observed descendant through
+    // the direct driver child that owns that prefix; each nested scope repeats this same lookup
+    // until the message reaches the exact leaf. This extends the existing send/deliver path rather
+    // than flattening the tree or introducing a second coordination channel.
+    const owner = [...children.values()].find((child) => nodeId.startsWith(`${child.id}:`))
+    if (!owner) return false
+    return deliverToChild(owner, makeNestedDelivery(nodeId, msg))
+  }
+
+  function deliverToChild(child: LiveChild, msg: unknown): boolean {
     // Deliver only to a child that is still LIVE (not yet yielded by the cursor) and whose executor
     // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
-    if (!child || child.delivered || !child.deliver) return false
+    if (child.delivered || !child.deliver) return false
     child.deliver(msg)
     // A delivered steer IS activity: it resets the idle clock so a worker that was about to read
     // as stalled is not immediately re-steered before it can act on the message it just got.
@@ -741,7 +790,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const seq = meterSeq++
     // Debit the driver's own inference against the shared conserved pool (free → committed), so
     // equal-k counts it live and `budget.tokensLeft` reflects it for the in-loop guard.
-    args.pool.observe(spend)
+    let accountingError: unknown
+    try {
+      args.pool.observe(spend)
+    } catch (error) {
+      accountingError = error
+    }
     // Journal it as a `metered` event — the durable TWIN of the pool debit (as `settled` is the
     // twin of `reconcile`), so every journal-based cost reader sums driver inference automatically.
     // Awaited like the settled append (cost-critical), so it has landed before the supervisor's
@@ -768,6 +822,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       },
       { signal: args.signal },
     )
+    // The failed measurement is evidence too. Persist and emit it before failing the run, so an
+    // unknown dollar cost cannot disappear merely because the dollar limit correctly rejected it.
+    if (accountingError !== undefined) throw accountingError
   }
 
   // The replayed committed work, frozen once at construction — a resume-aware `act` reads it
@@ -834,8 +891,8 @@ async function finalizeSettlement<Out>(
       seq,
       at: new Date(now()).toISOString(),
     })
-    // Re-home a crashed driver child's partial inference too (the pool already debited it via
-    // `observe`) — so spentTotal/trajectory never undercount a sub-driver that died mid-run.
+    // Re-home a crashed driver child's partial inference too, so reports never undercount a
+    // sub-driver that died mid-run.
     if (settlement.metered) {
       await args.journal.appendEvent(args.root, {
         kind: 'metered',
@@ -889,8 +946,8 @@ async function finalizeSettlement<Out>(
     at: new Date(now()).toISOString(),
   })
   // Re-home a driver child's OWN-inference subtree total up to THIS (parent) tree as a `metered`
-  // event for the child node — mirroring how `settled.spent` rolls child WORK up. So summing any
-  // sub-tree root yields its true driver-inference cost, NOT reconciled (already pool-debited).
+  // event for the child node — mirroring how `settled.spent` rolls child work up. So summing any
+  // sub-tree root yields its true driver-inference cost without collapsing the two components.
   if (settlement.metered) {
     await args.journal.appendEvent(args.root, {
       kind: 'metered',
@@ -1020,12 +1077,14 @@ async function runChild<C>(
   now: () => number,
 ): Promise<PreSeqSettled> {
   let reconciled = false
+  let ownMetered: Spend | undefined
   const reconcileOnce = (spend: Spend) => {
     if (reconciled) return
     reconciled = true
     // A budgetExempt executor reports zero spend by contract; the reconcile refunds its
-    // whole reservation, keeping it out of the conserved Σk by construction.
-    pool.reconcile(ticket, clampSpend(spend, opts.budget))
+    // whole reservation, keeping it out of the conserved Σk by construction. Never truncate an
+    // overrun after execution: the pool records reality and makes the remaining balance negative.
+    pool.reconcile(ticket, addOptionalSpend(spend, ownMetered))
   }
   try {
     live.status = 'running'
@@ -1036,30 +1095,39 @@ async function runChild<C>(
       // authority), then read the terminal artifact after the stream drains. Each event also
       // republishes the running total + a fresh activity stamp onto the live child, so a
       // concurrent `scope.progress(id)` sees a worker mid-flight rather than a zeroed row.
-      const spend = await foldStream(ran, (running) => {
+      const streamedSpend = await foldStream(ran, (running) => {
         live.spent = running
         live.lastActivityAt = now()
       })
-      live.spent = spend
       artifact = executor.resultArtifact() as ExecutorResult<C>
+      const spend: Spend = {
+        ...streamedSpend,
+        ms: artifact.spent.ms,
+        ...(artifact.spent.usdKnown === false ? { usdKnown: false } : {}),
+      }
+      live.spent = spend
+      ownMetered = executor.metered?.()
       reconcileOnce(spend)
     } else {
       const terminal = await ran
       live.spent = terminal.spent
       artifact = terminal
+      ownMetered = executor.metered?.()
       reconcileOnce(terminal.spent)
     }
     // Executor work is complete; everything below is persistence/teardown. From here `settled`
     // resolves without further executor progress — the non-blocking drain keys on this.
     live.executorDone = true
 
-    // A driver child's OWN-inference subtree total — re-homed by the parent on EVERY settle exit
-    // (done, aborted, crash) so the journal always matches what the pool already debited.
-    const ownMetered = executor.metered?.()
-
     if (childAbort.signal.aborted) {
-      await teardownSafe(executor, opts.shutdown ?? 'brutalKill')
-      return downRecord('aborted before settle', true, ownMetered)
+      const destroyed = await teardownSafe(executor, opts.shutdown ?? 'brutalKill')
+      return downRecord(
+        destroyed
+          ? 'aborted before settle'
+          : 'aborted before settle; executor teardown did not prove a terminal state',
+        true,
+        ownMetered,
+      )
     }
 
     // The durable record is keyed by the canonical content address of the output — the
@@ -1070,7 +1138,14 @@ async function runChild<C>(
     // so a crash never leaves a journaled ref pointing at a missing blob.
     const outRef = contentAddress(artifact.out)
     await blobs.put(outRef, artifact.out)
-    await teardownSafe(executor, opts.shutdown ?? 'infinity')
+    const destroyed = await teardownSafe(executor, opts.shutdown ?? 'infinity')
+    if (!destroyed) {
+      return downRecord(
+        'executor completed but teardown did not prove a terminal state',
+        true,
+        ownMetered,
+      )
+    }
     return {
       kind: 'done',
       out: artifact.out,
@@ -1083,12 +1158,24 @@ async function runChild<C>(
     // A thrown executor has also finished its own work — only the down-record persistence
     // remains, so the non-blocking drain may await this child too.
     live.executorDone = true
+    try {
+      live.spent = executor.resultArtifact().spent
+    } catch {
+      // Executors that cannot expose partial spend keep the usage observed before the throw.
+    }
+    ownMetered = executor.metered?.()
     // Reconcile the (likely partial) spend so the reservation is refunded even on a throw.
     reconcileOnce(live.spent)
-    await teardownSafe(executor, 'brutalKill')
+    const destroyed = await teardownSafe(executor, 'brutalKill')
     const aborted = childAbort.signal.aborted || isAbortError(err)
     // A crashed driver child still re-homes the partial inference it durably metered.
-    return downRecord(errMessage(err), aborted || isInfraError(err), executor.metered?.())
+    return downRecord(
+      destroyed
+        ? errMessage(err)
+        : `${errMessage(err)}; executor teardown did not prove a terminal state`,
+      aborted || isInfraError(err) || !destroyed,
+      ownMetered,
+    )
   }
 }
 
@@ -1181,45 +1268,19 @@ async function foldStream(
     } else {
       iterations += 1
     }
-    onProgress?.({ iterations, tokens: { ...tokens }, usd, ms: 0 })
+    onProgress?.({ iterations, tokens: { ...tokens }, usdKnown: true, usd, ms: 0 })
   }
-  return { iterations, tokens, usd, ms: 0 }
-}
-
-/** Clamp a child's reported spend to its reservation so the pool's fail-loud over-spend
- *  guard never trips on a benign overshoot from an external usage report; the difference
- *  refunds to the pool as if the child stopped at its ceiling. */
-function clampSpend(spend: Spend, budget: Budget): Spend {
-  const totalTokens = spend.tokens.input + spend.tokens.output
-  const tokensOk = totalTokens <= budget.maxTokens
-  const itersOk = spend.iterations <= budget.maxIterations
-  const usdOk = budget.maxUsd === undefined || spend.usd <= budget.maxUsd
-  if (tokensOk && itersOk && usdOk) return spend
-  const ratio = !tokensOk && totalTokens > 0 ? budget.maxTokens / totalTokens : 1
-  return {
-    iterations: Math.min(spend.iterations, budget.maxIterations),
-    tokens:
-      ratio < 1
-        ? {
-            input: Math.floor(spend.tokens.input * ratio),
-            output: Math.floor(spend.tokens.output * ratio),
-          }
-        : spend.tokens,
-    usd: budget.maxUsd === undefined ? spend.usd : Math.min(spend.usd, budget.maxUsd),
-    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
-    ms: spend.ms,
-  }
+  return { iterations, tokens, usdKnown: true, usd, ms: 0 }
 }
 
 async function teardownSafe<C>(
   executor: Executor<C>,
   grace: number | 'brutalKill' | 'infinity',
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await executor.teardown(grace)
+    return (await executor.teardown(grace)).destroyed
   } catch {
-    // Teardown failure is observable through the node staying live; swallow so it never
-    // masks the settlement itself. The supervisor's join barrier reaps on its own grace.
+    return false
   }
 }
 
@@ -1228,7 +1289,21 @@ function downRecord(reason: string, infra: boolean, metered?: Spend): PreSeqSett
 }
 
 function zeroSpend(): Spend {
-  return { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  return { iterations: 0, tokens: { input: 0, output: 0 }, usdKnown: true, usd: 0, ms: 0 }
+}
+
+function addOptionalSpend(spend: Spend, extra: Spend | undefined): Spend {
+  if (!extra) return spend
+  return {
+    iterations: spend.iterations + extra.iterations,
+    tokens: {
+      input: spend.tokens.input + extra.tokens.input,
+      output: spend.tokens.output + extra.tokens.output,
+    },
+    usdKnown: spend.usdKnown && extra.usdKnown,
+    usd: spend.usd + extra.usd,
+    ms: spend.ms + extra.ms,
+  }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

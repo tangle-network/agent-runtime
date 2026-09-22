@@ -45,7 +45,7 @@ function workerLeaf(
         outRef: `w:${name}`,
         out: { worker: name },
         verdict: { valid: true, score: 1 },
-        spent: { iterations: 1, tokens: { ...tokens }, usd: 0, ms: 0 },
+        spent: { iterations: 1, tokens: { ...tokens }, usdKnown: true, usd: 0, ms: 0 },
       }
     },
   }
@@ -63,7 +63,10 @@ function workerLeaf(
 // would loop forever if that turn carried tool calls): scriptedBrain repeats its last entry, so we
 // append an explicit content-only stop as that terminal entry.
 function meteredChat(turns: ScriptedTurn[]): ToolLoopChat {
-  return scriptedBrain([...turns, { content: 'stop' }])
+  return scriptedBrain([
+    ...turns.map((turn) => ({ costUsd: 0, ...turn })),
+    { content: 'stop', costUsd: 0 },
+  ])
 }
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
@@ -131,12 +134,16 @@ describe("driver inference metering — the driver's own tokens count against th
     // root driver → mid sub-driver → worker leaf. The recursive resolver: a 'driver' profile becomes
     // a driverChild wrapping another driverAgent; a 'worker' profile becomes the leaf.
     type P = { kind: 'driver'; name: string; turns: ScriptedTurn[] } | { kind: 'worker' }
-    const driverOf = (name: string, brain: ToolLoopChat): DriverAgentOptions => ({
+    const driverOf = (
+      name: string,
+      brain: ToolLoopChat,
+      budget: Budget = perWorker,
+    ): DriverAgentOptions => ({
       name,
       brain,
       blobs,
       makeWorkerAgent: makeAgent,
-      perWorker,
+      perWorker: budget,
       systemPrompt: 'drive',
       maxTurns: 8,
     })
@@ -176,7 +183,12 @@ describe("driver inference metering — the driver's own tokens count against th
     ])
 
     const result = await createSupervisor<unknown, unknown>().run(
-      driverAgent(driverOf('root', rootChat)),
+      driverAgent(
+        driverOf('root', rootChat, {
+          maxIterations: 8,
+          maxTokens: 2000,
+        }),
+      ),
       'task',
       {
         budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
@@ -197,6 +209,75 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(result.spentBreakdown?.childWork.tokens).toEqual({ input: 10, output: 5 })
     expect(result.spentBreakdown?.driverInference.tokens).toEqual({ input: 270, output: 155 })
     expect(result.spentTotal.tokens).toEqual({ input: 280, output: 160 })
+  })
+
+  it('charges nested child work exactly once and releases it for later admission', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const leaf = workerLeaf('nested-leaf', { input: 6, output: 4 })
+    let afterNested:
+      | {
+          tokensLeft: number
+          reservedTokens: number
+        }
+      | undefined
+    let laterAdmitted = false
+
+    const manager: Agent<unknown, unknown> = {
+      name: 'manager',
+      async act(_task, scope) {
+        const spawned = scope.spawn(leaf, 'nested work', {
+          budget: { maxIterations: 1, maxTokens: 100 },
+          label: 'nested-leaf',
+        })
+        if (!spawned.ok) throw new Error(`nested leaf refused: ${spawned.reason}`)
+        const settled = await scope.next()
+        if (settled?.kind !== 'done') throw new Error('nested leaf did not finish')
+        return settled.out
+      },
+    }
+
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(_task, scope) {
+        const spawned = scope.spawn(driverChild('manager', manager, journal), 'manage', {
+          budget: { maxIterations: 2, maxTokens: 100 },
+          label: 'manager',
+        })
+        if (!spawned.ok) throw new Error(`manager refused: ${spawned.reason}`)
+        const settled = await scope.next()
+        if (settled?.kind !== 'done') throw new Error('manager did not finish')
+
+        afterNested = {
+          tokensLeft: scope.budget.tokensLeft,
+          reservedTokens: scope.budget.reservedTokens,
+        }
+        const later = scope.spawn(workerLeaf('later', { input: 1, output: 0 }), 'later work', {
+          budget: { maxIterations: 1, maxTokens: 235 },
+          label: 'later',
+        })
+        laterAdmitted = later.ok
+        if (!later.ok) throw new Error(`later child refused: ${later.reason}`)
+        const laterSettled = await scope.next()
+        if (laterSettled?.kind !== 'done') throw new Error('later child did not finish')
+        return laterSettled.out
+      },
+    }
+
+    const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      budget: { maxIterations: 10, maxTokens: 250 },
+      runId: 'single-charge',
+      journal,
+      blobs,
+      executors: withDriverExecutor(createExecutorRegistry()),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    expect(result.kind).toBe('winner')
+    expect(afterNested).toEqual({ tokensLeft: 240, reservedTokens: 0 })
+    expect(laterAdmitted).toBe(true)
+    expect(result.spentTotal.tokens).toEqual({ input: 7, output: 4 })
   })
 
   it('re-homes a CRASHED sub-driver partial inference on the down path (pool and journal stay in agreement)', async () => {
@@ -548,12 +629,24 @@ describe('budget pool — observe() debits the conserved pool for the live in-lo
     expect(pool.readout().tokensLeft).toBe(1000)
     expect(pool.readout().usdLeft).toBe(5)
 
-    pool.observe({ iterations: 1, tokens: { input: 100, output: 50 }, usd: 0.5, ms: 0 })
+    pool.observe({
+      iterations: 1,
+      tokens: { input: 100, output: 50 },
+      usdKnown: true,
+      usd: 0.5,
+      ms: 0,
+    })
     expect(pool.readout().tokensLeft).toBe(850) // 1000 - 150
     expect(pool.readout().usdLeft).toBe(4.5)
 
     // A second observe overshoots — free goes negative, the honest exhaustion signal poolStarved reads.
-    pool.observe({ iterations: 1, tokens: { input: 800, output: 200 }, usd: 1, ms: 0 })
+    pool.observe({
+      iterations: 1,
+      tokens: { input: 800, output: 200 },
+      usdKnown: true,
+      usd: 1,
+      ms: 0,
+    })
     expect(pool.readout().tokensLeft).toBe(-150) // 850 - 1000
     expect(pool.readout().usdLeft).toBe(3.5)
     expect(pool.readout().usdCapped).toBe(true)

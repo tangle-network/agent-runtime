@@ -494,7 +494,6 @@ export {
 // The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
 // SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
 export {
-  type AuthoredProfile,
   asAuthoredProfile,
   assessAuthoredProfile,
   authoredWorker,
@@ -694,7 +693,6 @@ export { createSupervisor } from './supervise/supervisor'
 export {
   type DriveHarness,
   type SupervisorAgentDeps,
-  type SupervisorProfile,
   supervisorAgent,
 } from './supervise/supervisor-agent'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an

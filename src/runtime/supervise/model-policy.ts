@@ -4,6 +4,7 @@
  * model at resolve time, so a run that names a model outside the allowed set throws before
  * any compute is spent — never silently swapped or silently allowed.
  */
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
 
 /**
@@ -20,5 +21,20 @@ export function assertModelAllowed(
     throw new ConfigError(
       `model ${JSON.stringify(model)} is not in the allowed set ${JSON.stringify([...allowed])}`,
     )
+  }
+}
+
+/** Apply the model allow-list to every canonical model choice a profile can make. */
+export function assertAgentProfileModelsAllowed(
+  profile: AgentProfile,
+  allowed: readonly string[] | undefined,
+): void {
+  assertModelAllowed(profile.model?.default, allowed)
+  assertModelAllowed(profile.model?.small, allowed)
+  for (const subagent of Object.values(profile.subagents ?? {})) {
+    assertModelAllowed(subagent.model, allowed)
+  }
+  for (const mode of Object.values(profile.modes ?? {})) {
+    assertModelAllowed(mode.model, allowed)
   }
 }

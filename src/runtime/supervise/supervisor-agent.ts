@@ -14,6 +14,11 @@
  * seam (`runFinalizer` over DELIVERED children only — default keep-best, never the driver's own
  * prose).
  */
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  mergeAgentProfiles,
+} from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
@@ -52,24 +57,12 @@ export const defaultSupervisorPrompt = [
   'as soon as the deliverable is met.',
 ].join('\n')
 
-/** The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
- *  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction. */
-export interface SupervisorProfile {
-  readonly name?: string
-  /** null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain. */
-  readonly harness?: string | null
-  /** The router model when the brain is router-driven (falls back to the deps router config). */
-  readonly model?: string
-  /** The standing instructions ("you delegate, you do not solve"). */
-  readonly systemPrompt?: string
-}
-
 /** How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
  *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  *  `task` in its backend (sandbox / cli-bridge) with `coordinationMcpUrl` mounted as an MCP server,
  *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
 export type DriveHarness = (args: {
-  readonly profile: SupervisorProfile
+  readonly profile: AgentProfile
   readonly task: unknown
   readonly scope: Scope<unknown>
   readonly coordinationMcpUrl: string
@@ -138,23 +131,32 @@ export interface SupervisorAgentDeps {
 
 /** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
 export function supervisorAgent(
-  profile: SupervisorProfile,
+  profile: AgentProfile,
   deps: SupervisorAgentDeps,
 ): Agent<unknown, unknown> {
-  const name = profile.name ?? 'supervisor'
-  const systemPrompt = profile.systemPrompt ?? defaultSupervisorPrompt
-  const harness = profile.harness ?? null
+  const effectiveProfile = agentProfileSchema.parse(
+    mergeAgentProfiles({ prompt: { systemPrompt: defaultSupervisorPrompt } }, profile),
+  ) as AgentProfile
+  const name = effectiveProfile.name ?? 'supervisor'
+  const systemPrompt = [
+    effectiveProfile.prompt?.systemPrompt ?? defaultSupervisorPrompt,
+    ...(effectiveProfile.prompt?.instructions ?? []),
+  ].join('\n')
+  const harness =
+    effectiveProfile.harness === undefined || effectiveProfile.harness === 'cli-base'
+      ? null
+      : effectiveProfile.harness
 
   if (harness !== null && deps.compaction) {
     throw new ValidationError(
-      'supervisorAgent: compaction is only supported for router-brained supervisors (profile.harness null)',
+      'supervisorAgent: compaction is only supported for router-brained supervisors (profile.harness omitted or cli-base)',
     )
   }
 
   if (harness === null) {
     // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
     // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
-    const brain = deps.brain ?? routerBrainFromProfile(profile, deps)
+    const brain = deps.brain ?? routerBrainFromProfile(effectiveProfile, deps)
     return driverAgent({
       name,
       brain,
@@ -205,7 +207,12 @@ export function supervisorAgent(
           : {}),
       })
       try {
-        await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })
+        await driveHarness({
+          profile: effectiveProfile,
+          task,
+          scope,
+          coordinationMcpUrl: mcp.url,
+        })
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
         // awaited must still reach the finalize ledger.
         await mcp.drainResolved()
@@ -224,14 +231,11 @@ export function supervisorAgent(
   }
 }
 
-function routerBrainFromProfile(
-  profile: SupervisorProfile,
-  deps: SupervisorAgentDeps,
-): ToolLoopChat {
+function routerBrainFromProfile(profile: AgentProfile, deps: SupervisorAgentDeps): ToolLoopChat {
   if (!deps.router) {
     throw new ValidationError(
-      'supervisorAgent: a router-brained supervisor (harness null) needs deps.router (or deps.brain)',
+      'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router (or deps.brain)',
     )
   }
-  return routerBrain({ ...deps.router, model: profile.model ?? deps.router.model })
+  return routerBrain({ ...deps.router, model: profile.model?.default ?? deps.router.model })
 }

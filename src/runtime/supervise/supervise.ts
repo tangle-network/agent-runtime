@@ -7,7 +7,7 @@
  * `workerFromBackend` derives the worker seam (`makeWorkerAgent`) from a backend config + an optional
  * completion oracle — so "where the workers run" is one data choice, not a hand-rolled factory.
  */
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
@@ -15,15 +15,18 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { RouterConfig } from '../router-client'
+import { resolveSandboxBackendType } from '../sandbox-backend'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
+import { spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { driverChild } from './driver-executor'
 import type { SupervisorFinalizer } from './finalizer'
-import { assertModelAllowed } from './model-policy'
+import { assertAgentProfileModelsAllowed, assertModelAllowed } from './model-policy'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
-import { type DriveHarness, type SupervisorProfile, supervisorAgent } from './supervisor-agent'
+import { type DriveHarness, supervisorAgent } from './supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -31,6 +34,7 @@ import type {
   ExecutorContext,
   ResultBlobStore,
   SpawnJournal,
+  UsageEvent,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
 
@@ -42,11 +46,13 @@ export function workerFromBackend(
   deliverable?: DeliverableSpec<unknown>,
 ): MakeWorkerAgent {
   return (rawProfile) => {
-    const p = (rawProfile ?? {}) as { name?: unknown }
-    const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'worker'
-    // harness:null — createExecutor(backend) carries the harness in its config (the sandbox case-arm
-    // reads config.harness when the spec leaves it null); the BYO executor below resolves the leaf.
-    const spec: AgentSpec = { profile: rawProfile as AgentProfile, harness: null }
+    const parsed = agentProfileSchema.safeParse(rawProfile)
+    if (!parsed.success) {
+      throw new ValidationError(`workerFromBackend: invalid AgentProfile: ${parsed.error.message}`)
+    }
+    const profile = parsed.data as AgentProfile
+    const name = profile.name ?? 'worker'
+    const spec: AgentSpec = { profile, harness: workerSpecHarness(profile, backend) }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
     const built = createExecutor(backend)(spec, ctx)
     const executor = deliverable ? gateOnDeliverable(built, deliverable) : built
@@ -55,6 +61,149 @@ export function workerFromBackend(
       unknown
     > & { executorSpec: AgentSpec }
   }
+}
+
+/** Translate the portable profile choice into the narrower set the sandbox SDK can execute.
+ * An explicit sandbox config is a run-level override; other backends consume the full profile
+ * directly and do not route through `AgentSpec.harness`. */
+function workerSpecHarness(profile: AgentProfile, backend: ExecutorConfig): AgentSpec['harness'] {
+  if (backend.backend !== 'sandbox' || backend.harness !== undefined) return null
+  return resolveSandboxBackendType(profile, undefined)
+}
+
+const coordinationMcpAlias = 'agent-runtime-coordination'
+
+function isExternalSupervisor(profile: AgentProfile): boolean {
+  return profile.harness !== undefined && profile.harness !== 'cli-base'
+}
+
+function isDriverProfile(profile: AgentProfile): boolean {
+  return profile.metadata?.role === 'driver'
+}
+
+/** Drive a local CLI root through the existing bridge executor and charge its reported usage. */
+function bridgeDriveHarness(backend: ExecutorConfig, now: () => number): DriveHarness {
+  if (backend.backend !== 'bridge') {
+    throw new ValidationError(
+      'supervise: automatic external supervisor execution currently requires backend "bridge"; provide driveHarness for another execution environment',
+    )
+  }
+  if (backend.agentProfile?.mcp?.[coordinationMcpAlias] !== undefined) {
+    throw new ValidationError(
+      `supervise: backend profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved`,
+    )
+  }
+  return async ({ profile, task, scope, coordinationMcpUrl }) => {
+    const initialBudget = scope.budget
+    if (
+      initialBudget.tokensLeft <= 0 ||
+      (initialBudget.usdCapped && initialBudget.usdLeft <= 0) ||
+      (initialBudget.deadlineMs > 0 && now() >= initialBudget.deadlineMs)
+    ) {
+      throw new ValidationError('supervise: external supervisor budget exhausted')
+    }
+    if (profile.mcp?.[coordinationMcpAlias] !== undefined) {
+      throw new ValidationError(
+        `supervise: profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved`,
+      )
+    }
+    const effectiveProfile = agentProfileSchema.parse({
+      ...profile,
+      mcp: {
+        ...profile.mcp,
+        [coordinationMcpAlias]: { transport: 'http', url: coordinationMcpUrl },
+      },
+    }) as AgentProfile
+    const spec: AgentSpec = { profile: effectiveProfile, harness: null }
+    const executor = createExecutor(backend)(spec, { signal: scope.signal, seams: {} })
+    let pending: UsageEvent[] = []
+    const hasBudget = (): boolean => {
+      const budget = scope.budget
+      return !(
+        budget.tokensLeft <= 0 ||
+        (budget.usdCapped && budget.usdLeft <= 0) ||
+        (budget.deadlineMs > 0 && now() >= budget.deadlineMs)
+      )
+    }
+    const meterPending = async (): Promise<boolean> => {
+      if (pending.length > 0) {
+        const events = pending
+        pending = []
+        await scope.meter(spendFromUsageEvents(events), {
+          role: 'driver',
+          runtime: executor.runtime,
+        })
+      }
+      return hasBudget()
+    }
+
+    let runError: unknown
+    try {
+      if (executor.budgetExempt) {
+        throw new ValidationError(
+          `supervise: runtime ${JSON.stringify(executor.runtime)} cannot drive a budgeted supervisor because it does not report usage`,
+        )
+      }
+      const run = executor.execute(task, scope.signal)
+      if (isAsyncIterable<UsageEvent>(run)) {
+        let drained = true
+        for await (const event of run) {
+          pending.push(event)
+          if (event.kind === 'iteration' && !(await meterPending())) {
+            drained = false
+            break
+          }
+        }
+        await meterPending()
+        if (drained) {
+          const artifact = executor.resultArtifact()
+          // Tokens, iterations, and known dollars were already metered from the stream. The
+          // artifact is the only place an absent dollar measurement is represented, so carry that
+          // fact separately instead of silently converting it to a known $0.
+          if (artifact.spent.ms > 0 || artifact.spent.usdKnown === false) {
+            await scope.meter({
+              iterations: 0,
+              tokens: { input: 0, output: 0 },
+              usdKnown: artifact.spent.usdKnown,
+              usd: 0,
+              ms: artifact.spent.ms,
+            })
+          }
+        }
+      } else {
+        const artifact = await run
+        await scope.meter(artifact.spent, { role: 'driver', runtime: executor.runtime })
+      }
+    } catch (error) {
+      runError = error
+    } finally {
+      try {
+        await meterPending()
+      } catch (error) {
+        runError ??= error
+      }
+      try {
+        const teardown = await executor.teardown('brutalKill')
+        if (!teardown.destroyed) {
+          runError ??= new ValidationError(
+            'supervise: external supervisor process did not reach a proven terminal state',
+          )
+        }
+      } catch (error) {
+        runError ??= error
+      }
+    }
+    if (runError !== undefined) throw runError
+  }
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    Symbol.asyncIterator in value &&
+    typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === 'function'
+  )
 }
 
 export interface SuperviseOptions {
@@ -183,16 +332,21 @@ function defaultPerWorker(budget: Budget): Budget {
   return {
     maxIterations: budget.maxIterations,
     maxTokens: Math.max(1, Math.floor(budget.maxTokens / 4)),
+    ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd / 4 } : {}),
   }
 }
 
 /** One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. */
-export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
+export function supervise(profile: AgentProfile, task: unknown, opts: SuperviseOptions) {
+  const parsedProfile = agentProfileSchema.parse(profile) as AgentProfile
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
   const backendModel = (opts.backend as { model?: unknown } | undefined)?.model
   assertModelAllowed(opts.router?.model, opts.allowedModels)
-  assertModelAllowed(profile.model, opts.allowedModels)
+  assertAgentProfileModelsAllowed(parsedProfile, opts.allowedModels)
+  if (opts.backend?.backend === 'bridge' && opts.backend.agentProfile) {
+    assertAgentProfileModelsAllowed(opts.backend.agentProfile, opts.allowedModels)
+  }
   assertModelAllowed(
     typeof backendModel === 'string' ? backendModel : undefined,
     opts.allowedModels,
@@ -207,20 +361,67 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   const blobs = opts.blobs ?? ctx.blobs
   const perWorker = opts.perWorker ?? defaultPerWorker(opts.budget)
 
-  let makeWorkerAgent = opts.makeWorkerAgent
-  if (!makeWorkerAgent) {
+  let makeLeafAgent = opts.makeWorkerAgent
+  if (!makeLeafAgent) {
     if (!opts.backend) {
       throw new ValidationError(
         'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
       )
     }
-    makeWorkerAgent = workerFromBackend(opts.backend, opts.deliverable)
+    makeLeafAgent = workerFromBackend(opts.backend, opts.deliverable)
   }
-  const workerFactory = makeWorkerAgent
 
   const runId = opts.runId ?? 'supervise'
+  const journal = opts.journal ?? ctx.journal
   const log = ctx.coordinationLog
   const now = opts.now ?? Date.now
+  const driveHarness =
+    opts.driveHarness ??
+    (opts.backend?.backend === 'bridge' ? bridgeDriveHarness(opts.backend, now) : undefined)
+  if (isExternalSupervisor(parsedProfile) && !driveHarness) {
+    throw new ValidationError(
+      'supervise: an external supervisor needs backend "bridge" or an explicit driveHarness',
+    )
+  }
+
+  let workerFactory: MakeWorkerAgent
+  const supervisorDeps = (root: boolean) => ({
+    blobs,
+    makeWorkerAgent: workerFactory,
+    perWorker,
+    ...(log
+      ? {
+          onEvent: (ev: Parameters<NonNullable<typeof log.append>>[1]) =>
+            log.append(runId, ev, new Date(now()).toISOString()),
+        }
+      : {}),
+    ...(opts.finalizer ? { finalizer: opts.finalizer } : {}),
+    ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+    ...(opts.router ? { router: opts.router } : {}),
+    ...(root && opts.brain ? { brain: opts.brain } : {}),
+    ...(driveHarness ? { driveHarness } : {}),
+    ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
+    ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
+    ...(opts.analysts ? { analysts: opts.analysts } : {}),
+    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+    ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
+    ...(opts.onProgressStop ? { onProgressStop: opts.onProgressStop } : {}),
+    ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
+    ...(opts.compaction ? { compaction: opts.compaction } : {}),
+  })
+  workerFactory = (rawProfile) => {
+    const workerProfile = agentProfileSchema.parse(rawProfile) as AgentProfile
+    // A dynamically authored model cannot be checked at run construction because it does not
+    // exist yet. Check it at the spawn boundary, before its executor is created or spends compute.
+    assertAgentProfileModelsAllowed(workerProfile, opts.allowedModels)
+    if (isDriverProfile(workerProfile)) {
+      const nested = supervisorAgent(workerProfile, supervisorDeps(false))
+      return driverChild(workerProfile.name ?? 'supervisor', nested, journal)
+    }
+    return makeLeafAgent(workerProfile)
+  }
 
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
   // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
@@ -231,36 +432,18 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     // keeps the coordination context the spawn journal does not record.
     const priorCoordination = log ? await log.load(runId) : undefined
 
-    const agent = supervisorAgent(profile, {
-      blobs,
-      makeWorkerAgent: workerFactory,
-      perWorker,
-      ...(log ? { onEvent: (ev) => log.append(runId, ev, new Date(now()).toISOString()) } : {}),
+    const agent = supervisorAgent(parsedProfile, {
+      ...supervisorDeps(true),
       ...(priorCoordination &&
       (priorCoordination.questions.length > 0 || priorCoordination.findings.length > 0)
         ? { priorCoordination }
         : {}),
-      ...(opts.finalizer ? { finalizer: opts.finalizer } : {}),
-      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-      ...(opts.router ? { router: opts.router } : {}),
-      ...(opts.brain ? { brain: opts.brain } : {}),
-      ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),
-      ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
-      ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
-      ...(opts.analysts ? { analysts: opts.analysts } : {}),
-      ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-      ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-      ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-      ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
-      ...(opts.onProgressStop ? { onProgressStop: opts.onProgressStop } : {}),
-      ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
-      ...(opts.compaction ? { compaction: opts.compaction } : {}),
     })
 
     return createSupervisor<unknown, unknown>().run(agent, task, {
       budget: opts.budget,
       runId,
-      journal: opts.journal ?? ctx.journal,
+      journal,
       blobs,
       executors: ctx.executors,
       maxDepth: opts.maxDepth ?? 8,

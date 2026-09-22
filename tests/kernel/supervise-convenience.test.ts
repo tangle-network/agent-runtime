@@ -45,14 +45,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const brain = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
     const result = await supervise(
-      { name: 'root', harness: null, systemPrompt: 'drive the worker' },
+      { name: 'root', prompt: { systemPrompt: 'drive the worker' } },
       'solve it',
       { budget, makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }), brain },
     )
@@ -66,7 +66,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -79,7 +79,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
       }
 
-      const first = await supervise({ name: 'root', harness: null }, 'solve it', {
+      const first = await supervise({ name: 'root' }, 'solve it', {
         ...opts,
         brain: script(),
       })
@@ -97,7 +97,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       // A second `supervise()` against the SAME runDir + runId takes the resume path. Without the
       // `resume` flag threaded through, this would fail loud in `beginTree` ("already begun at …,
       // refusing to overwrite") because the wall-clock `at` differs between the two calls.
-      const second = await supervise({ name: 'root', harness: null }, 'solve it', {
+      const second = await supervise({ name: 'root' }, 'solve it', {
         ...opts,
         brain: script(),
       })
@@ -119,15 +119,32 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(w.executorSpec.executor).toBeDefined()
   })
 
+  it('workerFromBackend preserves an authored sandbox harness choice', () => {
+    const make = workerFromBackend({
+      backend: 'sandbox',
+      sandboxClient: { create: async () => ({}) },
+    } as unknown as ExecutorConfig)
+    const w = make({ name: 'w', harness: 'codex' }) as Agent<unknown, unknown> & {
+      executorSpec: AgentSpec
+    }
+    expect(w.executorSpec.harness).toBe('codex')
+  })
+
+  it('workerFromBackend refuses a profile harness the sandbox SDK cannot execute', () => {
+    const make = workerFromBackend({
+      backend: 'sandbox',
+      sandboxClient: { create: async () => ({}) },
+    } as unknown as ExecutorConfig)
+    expect(() => make({ name: 'w', harness: 'gemini' })).toThrow(/gemini.*not supported.*sandbox/)
+  })
+
   it('fails loud with neither backend nor makeWorkerAgent', () => {
-    expect(() => supervise({ name: 'r', harness: null }, 't', { budget })).toThrow(
-      /backend|makeWorkerAgent/,
-    )
+    expect(() => supervise({ name: 'r' }, 't', { budget })).toThrow(/backend|makeWorkerAgent/)
   })
 
   it('allowedModels rejects a profile model outside the allowed set', () => {
     expect(() =>
-      supervise({ name: 'r', harness: null, model: 'gpt-4.1' }, 't', {
+      supervise({ name: 'r', model: { default: 'gpt-4.1' } }, 't', {
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         allowedModels: ['deepseek-v4-flash'],
@@ -137,7 +154,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
   it('allowedModels rejects a router model outside the allowed set', () => {
     expect(() =>
-      supervise({ name: 'r', harness: null }, 't', {
+      supervise({ name: 'r' }, 't', {
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         router: { routerBaseUrl: 'http://localhost', routerKey: 'k', model: 'gpt-4.1' },
@@ -148,7 +165,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
   it('allowedModels rejects a backend model outside the allowed set', () => {
     expect(() =>
-      supervise({ name: 'r', harness: null }, 't', {
+      supervise({ name: 'r' }, 't', {
         budget,
         backend: {
           backend: 'router-tools',
@@ -161,24 +178,51 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     ).toThrow(/gpt-4\.1.*not in the allowed set/)
   })
 
+  it('allowedModels rejects a dynamically authored worker model before creating its executor', async () => {
+    let workerFactoryCalls = 0
+    const brain = scriptedBrain([
+      {
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: {
+              profile: { name: 'worker', model: { default: 'gpt-4.1' } },
+              task: 'go',
+            },
+          },
+        ],
+      },
+      { content: 'stop after the refused spawn' },
+    ])
+
+    const result = await supervise({ name: 'root' }, 't', {
+      budget,
+      brain,
+      makeWorkerAgent: () => {
+        workerFactoryCalls += 1
+        return deliveringLeaf('w', {})
+      },
+      allowedModels: ['deepseek-v4-flash'],
+    })
+
+    expect(workerFactoryCalls).toBe(0)
+    expect(result.kind).toBe('no-winner')
+  })
+
   it('allowedModels passes when every configured model is in the set', async () => {
     const brain = scriptedBrain([{ content: 'done' }])
-    const result = await supervise(
-      { name: 'root', harness: null, model: 'deepseek-v4-flash' },
-      't',
-      {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', { answer: 1 }),
-        brain,
-        allowedModels: ['deepseek-v4-flash'],
-      },
-    )
+    const result = await supervise({ name: 'root', model: { default: 'deepseek-v4-flash' } }, 't', {
+      budget,
+      makeWorkerAgent: () => deliveringLeaf('w', { answer: 1 }),
+      brain,
+      allowedModels: ['deepseek-v4-flash'],
+    })
     expect(result.kind).toBeDefined()
   })
 
   it('allowedModels unset is unrestricted (any model passes)', async () => {
     const brain = scriptedBrain([{ content: 'done' }])
-    const result = await supervise({ name: 'root', harness: null, model: 'anything' }, 't', {
+    const result = await supervise({ name: 'root', model: { default: 'anything' } }, 't', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('w', { answer: 1 }),
       brain,

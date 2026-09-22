@@ -116,7 +116,10 @@ One supervisor spawns and steers workers toward a goal. Where the workers run (a
 import { supervise } from '@tangle-network/agent-runtime/kernel'
 
 const result = await supervise(
-  { name: 'supervisor', harness: null, systemPrompt: 'Delegate to workers; do not solve the task yourself.' },
+  {
+    name: 'supervisor',
+    prompt: { systemPrompt: 'Delegate to workers; do not solve the task yourself.' },
+  },
   'Implement the feature and make the tests pass.',
   { budget, router, backend }, // backend = where workers run: router-tools | sandbox+harness | bridge
 )

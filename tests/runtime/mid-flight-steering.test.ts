@@ -210,7 +210,7 @@ async function runSupervisedSteer(steerable: boolean) {
   const harness = createFakeHarness()
   const record: BrainRecord = {}
   const result = await supervise(
-    { name: 'root', harness: null, systemPrompt: 'drive one coder and correct it' },
+    { name: 'root', prompt: { systemPrompt: 'drive one coder and correct it' } },
     'change the right module',
     {
       budget,

@@ -175,6 +175,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const started = Date.now()
   const tokens = { input: 0, output: 0 }
   let usd = 0
+  let usdKnown = true
 
   const proc = spawnPi(seam)
   state.proc = proc
@@ -239,6 +240,9 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
       // Drain what pi has emitted so far, projecting usage + activity.
       while (events.length > 0) {
         const ev = events.shift() as PiEvent
+        if (ev.type === 'turn_end' && readUsage(ev.message)?.usd === undefined) {
+          usdKnown = false
+        }
         for (const usage of projectPiEvent(ev, args, tokens)) {
           if (usage.kind === 'cost') usd += usage.usd
           yield usage
@@ -282,7 +286,13 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     await killPi(proc, 2_000).catch(() => ({ destroyed: false }))
   }
 
-  const spent: Spend = { iterations: state.turns, tokens, usd, ms: Date.now() - started }
+  const spent: Spend = {
+    iterations: state.turns,
+    tokens,
+    usdKnown,
+    usd,
+    ms: Date.now() - started,
+  }
   state.artifact = {
     outRef: `pi:${hash(state.lastText)}`,
     out: { content: state.lastText, turns: state.turns },
@@ -346,7 +356,7 @@ function projectPiEvent(
       tokens.output += usage.output
       out.push({ kind: 'tokens', input: usage.input, output: usage.output })
     }
-    if (usage?.usd) out.push({ kind: 'cost', usd: usage.usd })
+    if (usage?.usd !== undefined && usage.usd > 0) out.push({ kind: 'cost', usd: usage.usd })
     const text = readText(ev.message)
     if (text) args.state.lastText = text
     if (ev.type === 'turn_end') {
@@ -360,7 +370,9 @@ function projectPiEvent(
 
 /** pi's assistant message carries provider usage when the provider reported it. Absent, nothing
  *  is fabricated — the turn still counts as an iteration with zero tokens. */
-function readUsage(message: unknown): { input: number; output: number; usd: number } | undefined {
+function readUsage(
+  message: unknown,
+): { input: number; output: number; usd: number | undefined } | undefined {
   if (!message || typeof message !== 'object') return undefined
   const usage = (message as { usage?: unknown }).usage
   if (!usage || typeof usage !== 'object') return undefined
@@ -371,8 +383,8 @@ function readUsage(message: unknown): { input: number; output: number; usd: numb
   const usd =
     num(costRaw) ??
     (costRaw && typeof costRaw === 'object'
-      ? (num((costRaw as Record<string, unknown>).totalCost) ?? 0)
-      : 0)
+      ? num((costRaw as Record<string, unknown>).totalCost)
+      : undefined)
   return { input, output, usd }
 }
 

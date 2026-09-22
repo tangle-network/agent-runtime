@@ -65,8 +65,9 @@ describe('supervisor-loop example — supervise() on the scripted brain (offline
     const result = await supervise(
       {
         name: 'supervisor',
-        harness: null,
-        systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
+        prompt: {
+          systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
+        },
       },
       demoGoal,
       {

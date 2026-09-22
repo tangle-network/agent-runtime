@@ -6,8 +6,9 @@
  * A spawned child resolves through the open registry to an `Executor`; the built-in
  * executors (router/inline, sandbox, cli) are LEAVES — `execute(task, signal)` runs the
  * work and settles. This executor is the recursive case: on `execute`, it mounts a NESTED
- * `Scope` (the scope hands it the mount via the `nested-scope` seam) over the SAME
- * conserved pool + shared journal/blobs + the same open registry, one `depth` deeper, then
+ * `Scope` (the scope hands it the mount via the `nested-scope` seam) over a child-local
+ * pool bounded by the parent's reservation, with shared journal/blobs + the same open registry,
+ * one `depth` deeper, then
  * runs the wrapped driver `Agent.act(task, nestedScope)`. The driver spawns its own
  * children into that nested scope; each resolves to EITHER a leaf executor (a worker child)
  * OR this same driver-executor (a driver child) — recursively. So a driver spawns a driver
@@ -15,10 +16,10 @@
  *
  * Why this preserves every keystone invariant (the scope owns the sharing; this executor
  * only runs the driver over what the scope mounts):
- *  - Conserved budget: the nested scope reserves from the SAME `BudgetPool` the root owns
- *    (the scope mounts it over `args.pool`), so `Σk` is conserved ACROSS depth by
- *    construction — a deep tree cannot overspend the root ceiling (reserve-on-spawn fails
- *    closed at any depth).
+ *  - Conserved budget: the parent reserves the driver's ceiling atomically, and the nested scope
+ *    allocates only within that child-local ceiling. On settle the parent reconciles the nested
+ *    aggregate once. One opaque provider call may report an overrun after it completes; that real
+ *    overrun is retained and blocks later admissions.
  *  - Journal: the nested scope writes to its OWN tree key (`${journalRoot}/${nodeId}`) so
  *    its cursor `seq`s never collide with the parent's in the per-tree uniqueness guard,
  *    while every nested tree shares the one `SpawnJournal` — the whole recursion is one
@@ -39,7 +40,8 @@
  */
 
 import { ValidationError } from '../../errors'
-import { type NestedScopeSeam, nestedScopeSeamKey } from './scope'
+import type { ActivityNote, ExecutorProgress } from './progress'
+import { type NestedScopeSeam, nestedScopeSeamKey, readNestedDelivery } from './scope'
 import type {
   Agent,
   AgentSpec,
@@ -48,6 +50,7 @@ import type {
   ExecutorFactory,
   ExecutorRegistry,
   ExecutorResult,
+  NodeId,
   Scope,
   SpawnEvent,
   SpawnJournal,
@@ -114,7 +117,7 @@ export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
  * The recursive driver-executor factory. `withDriverExecutor` routes a child marked
  * `role: 'driver'` here; any other child resolves to a leaf built-in. On `execute`, it
  * reads the `nested-scope` seam the SCOPE seeded, mounts a nested `Scope` one `depth`
- * deeper over the shared pool/journal/blobs/registry, runs the driver
+ * deeper over the child-local pool and shared journal/blobs/registry, runs the driver
  * `Agent.act(task, nestedScope)`, and reports the conserved spend summed off the nested
  * tree's settled events — so the parent scope's reconcile rolls the whole sub-tree's spend
  * into the conserved total.
@@ -138,27 +141,119 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
   // on BOTH the success AND crash paths (metered events are durable in the nested tree regardless),
   // so a sub-driver that crashes mid-run still re-homes its partial inference — pool + journal agree.
   let meteredSpend: Spend | undefined
+  // The executor owns one nested scope for its lifetime. Exposing that SAME scope through the
+  // existing Executor progress/delivery verbs lets the parent observe and steer the active subtree
+  // without a second registry or message path.
+  let nestedScope: Scope<unknown> | undefined
+  let nestedAbort: AbortController | undefined
+  const pendingDownMessages: Array<{
+    message: unknown
+    targetNodeId?: NodeId
+    ambiguous?: true
+  }> = []
+  const bindUntargetedMessage = (pending: {
+    message: unknown
+    targetNodeId?: NodeId
+    ambiguous?: true
+  }): void => {
+    if (!nestedScope || pending.targetNodeId || pending.ambiguous) return
+    const candidates = nestedScope.view.nodes.filter(
+      (node) => isLiveStatus(node.status) && nestedScope?.progress(node.id)?.steerable === true,
+    )
+    if (candidates.length === 1) pending.targetNodeId = candidates[0]?.id
+    else if (candidates.length > 1) pending.ambiguous = true
+  }
+  const flushDownMessages = (): void => {
+    if (!nestedScope || pendingDownMessages.length === 0) return
+    for (let index = 0; index < pendingDownMessages.length; ) {
+      const pending = pendingDownMessages[index] as {
+        message: unknown
+        targetNodeId?: NodeId
+        ambiguous?: true
+      }
+      // Bind an unaddressed correction at most once. If two children were viable when it arrived,
+      // it remains ambiguous forever rather than drifting to whichever unrelated sibling survives.
+      bindUntargetedMessage(pending)
+      const accepted =
+        pending.targetNodeId !== undefined &&
+        nestedScope.send(pending.targetNodeId, pending.message)
+      if (accepted) pendingDownMessages.splice(index, 1)
+      else index += 1
+    }
+  }
 
   return {
     runtime: driverRuntime,
+    deliver(msg): void {
+      // A Scope routing an observed descendant id carries that id in private Runtime metadata;
+      // direct messages remain compatible for the common one-active-child case. Retain either
+      // form across the small interval between spawning this driver and mounting its nested scope.
+      const targeted = readNestedDelivery(msg)
+      const pending = targeted
+        ? { message: targeted.message, targetNodeId: targeted.targetNodeId }
+        : { message: msg }
+      pendingDownMessages.push(pending)
+      if (!targeted) bindUntargetedMessage(pending)
+      flushDownMessages()
+    },
+    progress(): ExecutorProgress {
+      return nestedScopeProgress(nestedScope, pendingDownMessages.length)
+    },
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       // The nested tree key namespaces this driver's children inside the ONE shared
       // journal, so its cursor seqs never collide with the parent's per-tree guard.
-      const nestedRoot = nestedTreeKey(seam, journal)
+      const nestedRoot = nestedTreeKey(seam)
       await journal.beginTree(nestedRoot, new Date(0).toISOString())
 
-      const nestedScope: Scope<unknown> = seam.mount(nestedRoot, signal)
+      const controller = new AbortController()
+      nestedAbort = controller
+      const cascadeParentAbort = () => controller.abort(signal.reason)
+      if (signal.aborted) cascadeParentAbort()
+      else signal.addEventListener('abort', cascadeParentAbort, { once: true })
 
       try {
-        // Run the driver. Its `act` spawns children into the nested scope and reacts via
-        // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
-        const out = await driver.act(task, nestedScope)
+        nestedScope = seam.mount(nestedRoot, controller.signal)
+        flushDownMessages()
 
-        // Read the nested tree's events ONCE. Two roll-ups, kept separate so the conserved invariant
-        // is not double-charged:
-        //  - `spent` = settled child WORK → reconciled against THIS driver's reservation (as before).
-        //  - `metered` = the nested subtree's driver INFERENCE → re-homed by the parent scope as a
-        //    `metered` event, NOT reconciled (already pool-debited live via `observe`).
+        // Preserve the driver's own error while enforcing structured ownership: whether act
+        // returns or throws, every child it admitted is settled before this executor can settle.
+        let actFailed = false
+        let actError: unknown
+        let out: unknown
+        try {
+          const acting = driver.act(task, nestedScope)
+          // An async `act` runs synchronously through its first await. Most drivers spawn their first
+          // wave there, so a correction queued during mount can now reach it.
+          flushDownMessages()
+          out = await acting
+          flushDownMessages()
+        } catch (error) {
+          actFailed = true
+          actError = error
+        }
+
+        try {
+          await closeNestedScope(
+            nestedScope,
+            controller,
+            'nested driver finished before all descendants settled',
+          )
+        } catch (error) {
+          if (!actFailed) {
+            actFailed = true
+            actError = error
+          }
+        }
+
+        if (actFailed) throw actError
+        if (pendingDownMessages.length > 0) {
+          throw new ValidationError(
+            `driverExecutor: nested driver finished with ${pendingDownMessages.length} unread parent message(s)`,
+          )
+        }
+
+        // Read the nested tree's events once. Child work and driver inference remain separate for
+        // reporting; the parent reconciles their sum once against this driver's reservation.
         const events = await loadTreeEvents(journal, nestedRoot)
         const settled = events.filter(isSettled)
         meteredSpend = nonZeroOrUndef(sumMetered(events))
@@ -176,22 +271,36 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
         }
         return artifact
       } catch (err) {
-        // Crash mid-run: the nested tree still holds the durable `metered` events the sub-driver
-        // already wrote (pool already debited them). Cache them so the parent's down-path re-home
-        // lands the partial inference and the two ledgers stay in agreement. A missing tree must
-        // not mask the original error.
-        meteredSpend = await safeSumMetered(journal, nestedRoot)
+        // Crash mid-run: expose both parts of the partial subtree before rethrowing. The parent
+        // records child work on its down settlement and re-homes driver inference separately;
+        // both are reconciled once by the parent against this driver's reservation.
+        try {
+          const events = await loadTreeEvents(journal, nestedRoot)
+          meteredSpend = nonZeroOrUndef(sumMetered(events))
+          artifact = {
+            outRef: `${driverRuntime}:${nestedRoot}:down`,
+            out: { failed: true },
+            spent: sumSpend(events.filter(isSettled)),
+          }
+        } catch {
+          meteredSpend = undefined
+        }
         throw err
+      } finally {
+        signal.removeEventListener('abort', cascadeParentAbort)
       }
     },
     metered(): Spend | undefined {
       return meteredSpend
     },
-    teardown(): Promise<{ destroyed: boolean }> {
-      // The nested scope's live children are torn down by the driver's own `act` discipline
-      // (it drains to settlement) and by the parent's abort cascade through `signal`; there
-      // is no separate box/process to reap here.
-      return Promise.resolve({ destroyed: true })
+    async teardown(): Promise<{ destroyed: boolean }> {
+      if (!nestedScope || !nestedAbort) return { destroyed: true }
+      try {
+        await closeNestedScope(nestedScope, nestedAbort, 'driver executor teardown')
+        return { destroyed: true }
+      } catch {
+        return { destroyed: false }
+      }
     },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
@@ -224,23 +333,89 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
-/** Mint a unique nested-tree key under the parent's journal root. Uses the parent's
- *  `journalRoot` + a per-journal monotonic ordinal so two sibling driver trees never
- *  collide their keys (each driver child mints exactly one nested tree). */
-function nestedTreeKey(seam: NestedScopeSeam, journal: SpawnJournal): string {
-  return `${seam.journalRoot}/d${nextNestOrdinal(journal)}`
+/** A nested tree is the durable child that owns it, not the process that happened to execute it.
+ *  Child ids already include the full parent chain and resume past journaled ordinals, so this is
+ *  stable for one child and unique across siblings and coordinator restarts. */
+function nestedTreeKey(seam: NestedScopeSeam): string {
+  return `${seam.journalRoot}/${seam.childNodeId}`
 }
 
-/** Per-journal monotonic nest counter — keyed on the journal instance so a single run's
- *  nested-tree keys are unique without a shared module global. */
-const nestCounters = new WeakMap<SpawnJournal, { n: number }>()
-function nextNestOrdinal(journal: SpawnJournal): number {
-  let c = nestCounters.get(journal)
-  if (!c) {
-    c = { n: 0 }
-    nestCounters.set(journal, c)
+/** Fold the existing child progress reads into the parent-visible driver row. This is a projection
+ *  of the live nested Scope, not a second tree: every id, status, activity note, and pending-message
+ *  count comes from the same objects the nested driver's coordination tools use. */
+function nestedScopeProgress(
+  scope: Scope<unknown> | undefined,
+  pendingFromParent: number,
+): ExecutorProgress {
+  if (!scope) return { pendingMessages: pendingFromParent, note: 'mounting nested scope' }
+  const nodes = scope.view.nodes
+  let turns = 0
+  let pendingMessages = 0
+  const recentActivity: ActivityNote[] = []
+  for (const node of nodes) {
+    const progress = scope.progress(node.id)
+    turns += progress?.turns ?? node.spent.iterations
+    pendingMessages += progress?.pendingMessages ?? 0
+    if (progress?.recentActivity.length) {
+      for (const activity of progress.recentActivity) {
+        recentActivity.push({
+          ...activity,
+          label: `${node.label}: ${activity.label}`,
+          detail: activity.detail ? `${node.id} — ${activity.detail}` : node.id,
+        })
+      }
+      continue
+    }
+    recentActivity.push({
+      at: progress?.lastActivityAt ?? 0,
+      kind: 'note',
+      label: node.label,
+      detail: `${node.id} — ${node.status}`,
+    })
   }
-  return c.n++
+  recentActivity.sort((a, b) => a.at - b.at)
+  const live = nodes.filter((node) => isLiveStatus(node.status))
+  const roster = nodes.map((node) => `${node.label} (${node.status})`).join(', ')
+  return {
+    turns,
+    pendingMessages: pendingFromParent + pendingMessages,
+    recentActivity: recentActivity.slice(-12),
+    note: `${live.length} nested worker${live.length === 1 ? '' : 's'} live / ${nodes.length} total${
+      roster ? ` — ${roster}` : ''
+    }`,
+  }
+}
+
+function isLiveStatus(status: string): boolean {
+  return status !== 'done' && status !== 'failed' && status !== 'cancelled'
+}
+
+/**
+ * Close one driver-owned scope before its executor settles. First commit children whose executors
+ * already finished, then abort the remaining live work and drain every resulting settlement.
+ * The nested journal is therefore complete before the parent snapshots spend and refunds anything.
+ */
+async function closeNestedScope(
+  scope: Scope<unknown>,
+  controller: AbortController,
+  reason: string,
+): Promise<void> {
+  for (
+    let settled = await scope.nextResolved();
+    settled !== null;
+    settled = await scope.nextResolved()
+  ) {
+    // `nextResolved` performs the journal commit; no second ledger is needed here.
+  }
+
+  const view = scope.view
+  if ((view.inFlight > 0 || view.waiting > 0) && !controller.signal.aborted) {
+    controller.abort(reason)
+  }
+
+  for (let settled = await scope.next(); settled !== null; settled = await scope.next()) {
+    // Pull to null so abort, teardown, reconciliation, and the nested `settled` record all finish.
+  }
 }
 
 /** The nested tree's full event list — the one evidence the spend, verdict, AND driver-inference
@@ -262,7 +437,13 @@ function isSettled(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'settled' 
 /** Sum the conserved spend over the nested tree's settled events — the honest per-channel
  *  roll-up of the whole sub-tree's child WORK. */
 function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
-  const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const total: Spend = {
+    iterations: 0,
+    tokens: { input: 0, output: 0 },
+    usdKnown: true,
+    usd: 0,
+    ms: 0,
+  }
   for (const ev of settled) {
     total.iterations += ev.spent.iterations
     total.tokens.input += ev.spent.tokens.input
@@ -275,10 +456,16 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
 }
 
 /** Sum the nested tree's `metered` events — the sub-tree's whole driver INFERENCE (this driver's
- *  own turns + any sub-driver inference already re-homed into this tree). Re-homed up to the parent
- *  as one `metered` event; never reconciled (already pool-debited live via `observe`). */
+ *  own turns + any sub-driver inference already re-homed into this tree). It is re-homed to the
+ *  parent as one event and reconciled with child work against the driver's reservation. */
 function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
-  const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const total: Spend = {
+    iterations: 0,
+    tokens: { input: 0, output: 0 },
+    usdKnown: true,
+    usd: 0,
+    ms: 0,
+  }
   for (const ev of events) {
     if (ev.kind !== 'metered') continue
     total.iterations += ev.spend.iterations
@@ -292,26 +479,20 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
 }
 
 function isNonZeroSpend(s: Spend): boolean {
-  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
+  return (
+    s.usdKnown === false ||
+    s.iterations > 0 ||
+    s.tokens.input > 0 ||
+    s.tokens.output > 0 ||
+    s.usd > 0 ||
+    s.ms > 0
+  )
 }
 
 /** A spend, or `undefined` when it is all-zero — so `metered()` returns undefined for a driver
  *  whose sub-tree did no inference (and the parent journals no empty `metered` event). */
 function nonZeroOrUndef(s: Spend): Spend | undefined {
   return isNonZeroSpend(s) ? s : undefined
-}
-
-/** Sum the nested tree's metered events, tolerating a missing tree (a crash before `beginTree`
- *  landed) — never throw here, or it would mask the original `act` error on the crash path. */
-async function safeSumMetered(
-  journal: SpawnJournal,
-  nestedRoot: string,
-): Promise<Spend | undefined> {
-  try {
-    return nonZeroOrUndef(sumMetered(await loadTreeEvents(journal, nestedRoot)))
-  } catch {
-    return undefined
-  }
 }
 
 /** Derive the driver child's delivery verdict from its DIRECT children's settlements:
