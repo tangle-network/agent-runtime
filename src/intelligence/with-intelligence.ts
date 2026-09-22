@@ -224,21 +224,23 @@ export function withIntelligence<I, O>(
       const completedAt = Date.now()
       const eventSummary = summarizeRuntimeEvents(report.runtimeEvents ?? [])
       const error = report.error ?? (caught !== undefined ? runError(caught) : eventSummary.error)
-      const tokens =
+      const tokenTotals =
         report.tokens ??
         (eventSummary.llmCalls > 0
           ? {
               input: eventSummary.tokensIn,
               output: eventSummary.tokensOut,
-              ...(eventSummary.tokensKnown === false ? { tokensKnown: false as const } : {}),
             }
           : undefined)
+      const tokens = tokenTotals && {
+        ...tokenTotals,
+        ...(eventSummary.tokensKnown === false ? { tokensKnown: false as const } : {}),
+      }
       const reportedCost = report.usage?.inferenceUsd ?? report.costUsd
       const inferenceKnown =
+        eventSummary.usdKnown !== false &&
         report.usage?.inferenceUsdKnown !== false &&
-        (reportedCost !== undefined
-          ? isUsageAmount(reportedCost)
-          : eventSummary.llmCalls > 0 && eventSummary.usdKnown !== false)
+        (reportedCost !== undefined ? isUsageAmount(reportedCost) : eventSummary.llmCalls > 0)
       const estimatedInferenceUsd =
         report.usage?.estimatedInferenceUsd ?? eventSummary.estimatedCostUsd
       const profile = report.profile ?? config.profile
@@ -257,9 +259,7 @@ export function withIntelligence<I, O>(
           usage: {
             inferenceUsd: isUsageAmount(reportedCost) ? reportedCost : eventSummary.costUsd,
             ...(inferenceKnown ? {} : { inferenceUsdKnown: false }),
-            ...(!inferenceKnown && isUsageAmount(estimatedInferenceUsd)
-              ? { estimatedInferenceUsd }
-              : {}),
+            ...(isUsageAmount(estimatedInferenceUsd) ? { estimatedInferenceUsd } : {}),
             intelligenceUsd: report.usage?.intelligenceUsd ?? 0,
             ...(report.usage?.intelligenceUsdKnown === false
               ? { intelligenceUsdKnown: false }

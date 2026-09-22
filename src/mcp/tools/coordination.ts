@@ -53,7 +53,7 @@ import {
 import type { McpToolDescriptor } from '../server'
 import { resolveSpawnResourcePaths, type SpawnResourceReader } from './spawn-resource-paths'
 import {
-  readWorkerOutput,
+  createWorkerOutputReader,
   WORKER_OUTPUT_PAGE_CHARS,
   workerOutputReadOptions,
 } from './worker-output'
@@ -1533,6 +1533,10 @@ export function createCoordinationToolsForManager(
   lifetime?: AbortSignal,
 ): CoordinationTools {
   const deliverable = opts.deliverable
+  // The manager owns one bounded reader so adjacent/concurrent pages share the immutable
+  // content-addressed selection without allowing a caller-supplied blob reference to bypass the
+  // worker lookup below.
+  const readWorkerOutput = createWorkerOutputReader(opts.blobs)
   // An accepted direct result is a terminal fact, not an in-process callback. A durable observer
   // appends the `submission` record before the tool responds, so a fresh manager can restore it
   // after a crash in the response-to-driver window.
@@ -3269,7 +3273,7 @@ export function createCoordinationToolsForManager(
           return {
             ...projectNodeEvidence(resumed, true),
             outRef: resumed.outRef ?? null,
-            ...(await readWorkerOutput(opts.blobs, resumed.outRef, outputRead)),
+            ...(await readWorkerOutput(resumed.outRef, outputRead)),
             progress: null,
           }
         }
@@ -3281,7 +3285,7 @@ export function createCoordinationToolsForManager(
         return {
           ...projectNodeEvidence(node),
           outRef: node.outRef ?? null,
-          ...(await readWorkerOutput(opts.blobs, node.outRef, outputRead)),
+          ...(await readWorkerOutput(node.outRef, outputRead)),
           progress: progress ?? null,
           ...(pending
             ? {

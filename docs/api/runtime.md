@@ -20163,6 +20163,17 @@ when no executor inbox is active instead of claiming a message was delivered.
 
 `boolean`
 
+##### deliverReady()?
+
+> `optional` **deliverReady**(): `boolean`
+
+Optional readiness predicate for the live inbox. Root steers remain durable and unclaimed
+until this returns `true`; it is checked only while the harness invocation is active.
+
+###### Returns
+
+`boolean`
+
 ##### traceSource()?
 
 > `optional` **traceSource**(): [`TraceSource`](#tracesource-2) \| `undefined`
@@ -36029,7 +36040,6 @@ Runtime acknowledgement file for one caller-owned steer operation id.
 **`Stable`**
 
 Admit one steer exactly once under a caller-owned operation id.
-Pass the run id as `worker` to address the root manager through the same durable queue.
 
 Pass `supervisorId` as `worker` to address the root. Router roots consume requests between
 turns; native roots use their existing accepting inbox during execution, or acknowledge

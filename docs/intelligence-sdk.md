@@ -66,11 +66,12 @@ Unreported inference cost is unknown, including when an agent fails before repor
 Exports preserve these flags as `tangle.usage.inference_usd_known` and `tangle.usage.intelligence_usd_known`.
 The OFF tier still guarantees zero Intelligence spend.
 `estimatedInferenceUsd` is exported separately as `tangle.usage.inference_usd_estimated`; it never becomes billed spend.
+Estimates remain available alongside billed subtotals, but their presence does not establish complete cost coverage.
 Incomplete token totals carry `tokensKnown: false` and `tangle.usage.tokens_known: false`.
 
 Runtime run records and persona conversations use the same normalized event accounting as Intelligence.
 Missing, invalid, or explicitly incomplete measurements remain incomplete after later complete events.
-Run cost overrides replace numeric subtotals without erasing those flags.
+Numeric overrides in run records and Intelligence replace subtotals without erasing those flags.
 
 ## Two lanes: traces UP, certified artifacts DOWN
 

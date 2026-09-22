@@ -103,6 +103,112 @@ describe('durable root steering through the existing operation protocol', () => 
     expect(readWorkerSteerAcknowledgement(runDir, 'native-root')?.effect).toBe('delivered')
   })
 
+  it('keeps a queued root steer pending until the native inbox is ready', async () => {
+    const { runDir, options, write } = fixture()
+    let invocationStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      invocationStarted = resolve
+    })
+    let releaseReady!: () => void
+    let ready = false
+    const readyPromise = new Promise<void>((resolve) => {
+      releaseReady = () => {
+        ready = true
+        resolve()
+      }
+    })
+    const received: unknown[] = []
+    const driveHarness: DriveHarness = Object.assign(
+      async () => {
+        invocationStarted()
+        await readyPromise
+        await acknowledged(runDir, 'delayed-root')
+      },
+      {
+        deliver: (message: unknown) => {
+          received.push(message)
+          return true
+        },
+        deliverReady: () => ready,
+      },
+    )
+
+    write('delayed-root')
+    const run = supervise(
+      testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
+      'research',
+      { ...options, driveHarness },
+    )
+    try {
+      await started
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      expect(readWorkerSteerAcknowledgement(runDir, 'delayed-root')).toBeUndefined()
+
+      releaseReady()
+      await expect
+        .poll(() => readWorkerSteerAcknowledgement(runDir, 'delayed-root'))
+        .toMatchObject({ effect: 'delivered' })
+    } finally {
+      releaseReady()
+      await run
+    }
+    expect(received).toEqual([{ steer: 'use the corrected evidence', interrupt: true }])
+  })
+
+  it('keeps a root steer pending across a driver retry gap', async () => {
+    const { runDir, options, write } = fixture()
+    let attempt = 0
+    let releaseAttemptGap!: () => void
+    const attemptGap = new Promise<void>((resolve) => {
+      releaseAttemptGap = resolve
+    })
+    let gapStarted!: () => void
+    const gap = new Promise<void>((resolve) => {
+      gapStarted = resolve
+    })
+    const received: unknown[] = []
+    const driveHarness: DriveHarness = Object.assign(
+      async () => {
+        attempt += 1
+        if (attempt === 1) throw new Error('transient startup failure')
+        await acknowledged(runDir, 'retry-gap-root')
+      },
+      {
+        deliver: (message: unknown) => {
+          received.push(message)
+          return true
+        },
+        deliverReady: () => attempt >= 2,
+      },
+    )
+
+    const run = supervise(
+      testAgentProfile('root', { tools: runtimeToolDeclarations('ask_parent') }),
+      'research',
+      {
+        ...options,
+        driveHarness,
+        driverRetry: { maxAttempts: 2, initialBackoffMs: 0, maxBackoffMs: 0 },
+        onDriverAttempt: async (record) => {
+          if (record.attempt !== 1) return
+          write('retry-gap-root')
+          gapStarted()
+          await attemptGap
+        },
+      },
+    )
+    await gap
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      expect(readWorkerSteerAcknowledgement(runDir, 'retry-gap-root')).toBeUndefined()
+    } finally {
+      releaseAttemptGap()
+      await run
+    }
+    expect(received).toEqual([{ steer: 'use the corrected evidence', interrupt: true }])
+    expect(readWorkerSteerAcknowledgement(runDir, 'retry-gap-root')?.effect).toBe('delivered')
+  })
+
   it('returns unsupported when a native root has no accepting inbox', async () => {
     const { runDir, options, write } = fixture()
     await supervise(

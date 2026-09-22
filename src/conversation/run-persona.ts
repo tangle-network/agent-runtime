@@ -73,6 +73,8 @@ export interface PersonaConversationResult {
   tokensKnown?: false
   /** Absent means every worker call reported provider-billed cost, including a known zero. */
   costUsdKnown?: false
+  /** Worker-only external estimate, kept separate from observed provider-billed spend. */
+  estimatedCostUsd?: number
 }
 
 /** Adapt one exact profile + Runtime executor into the conversation stream protocol. */
@@ -188,6 +190,9 @@ export async function runPersonaConversation(
     tokensOut: counter.tokensOut,
     ...(tokensKnown ? {} : { tokensKnown: false }),
     ...(costUsdKnown ? {} : { costUsdKnown: false }),
+    ...(counter.estimatedCostUsd !== undefined
+      ? { estimatedCostUsd: counter.estimatedCostUsd }
+      : {}),
   }
 }
 
@@ -249,6 +254,10 @@ export function runPersonaDispatch<TScenario extends Scenario, TArtifact>(
         inputTokens: result.tokensIn,
         outputTokens: result.tokensOut,
         ...(result.tokensKnown === false ? { usageUnknown: true } : {}),
+        // Eval's estimatedCostUsd is a whole paid-call estimate. A persona conversation can
+        // contain billed, estimated, and unreported worker calls, so a partial estimate cannot
+        // safely be promoted to the campaign's whole-call receipt. Keep the result estimate for
+        // callers that can preserve per-call provenance and leave the campaign cost unknown.
         ...(result.costUsdKnown === false
           ? { costUnknown: true }
           : { actualCostUsd: result.costUsd }),

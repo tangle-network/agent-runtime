@@ -249,7 +249,7 @@ export interface UsageSplit {
   inferenceUsdKnown?: false
   /** False when Intelligence cost is incomplete or unreported. */
   intelligenceUsdKnown?: false
-  /** Estimate for unpriced inference, separate from observed spend. */
+  /** Reported inference estimate, separate from observed spend and completeness. */
   estimatedInferenceUsd?: number
 }
 
@@ -267,7 +267,7 @@ function usageAttributes(
       intelligenceOff || !isUsageAmount(usage.intelligenceUsd) ? 0 : usage.intelligenceUsd,
     ...(!inferenceKnown ? { 'tangle.usage.inference_usd_known': false } : {}),
     ...(!intelligenceKnown ? { 'tangle.usage.intelligence_usd_known': false } : {}),
-    ...(!inferenceKnown && isUsageAmount(usage.estimatedInferenceUsd)
+    ...(isUsageAmount(usage.estimatedInferenceUsd)
       ? { 'tangle.usage.inference_usd_estimated': usage.estimatedInferenceUsd }
       : {}),
   }

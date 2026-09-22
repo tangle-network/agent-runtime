@@ -429,6 +429,8 @@ interface CancelAcknowledgerDeps {
 interface SteerAcknowledgerDeps {
   /** Present only on the run root; nested managers must not claim their parent's child steer. */
   readonly deliverRoot?: (message: { steer: string; interrupt: boolean }) => boolean
+  /** Root delivery is not claimable until the current harness invocation exposes its inbox. */
+  readonly deliverRootReady?: () => boolean
   readonly dir: string
   readonly coord: {
     steerWorker(
@@ -482,6 +484,9 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             observedAt: iso(),
             detail: 'run ended before the steer was applied',
           })
+          continue
+        }
+        if (rootRequest && deps.deliverRootReady !== undefined && !deps.deliverRootReady()) {
           continue
         }
         const claimed = claimWorkerSteerDelivery(deps.dir, {

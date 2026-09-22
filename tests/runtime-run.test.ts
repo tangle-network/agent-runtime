@@ -135,6 +135,24 @@ describe('startRuntimeRun', () => {
     })
   })
 
+  it('retains estimates when a call also has a billed subtotal', () => {
+    const handle = startRuntimeRun({
+      workspaceId: 'ws-1',
+      taskSpec: task,
+      now: () => 0,
+    })
+    handle.observe(llmCall({ tokensIn: 10, tokensOut: 5, costUsd: 0.01, estimatedCostUsd: 0.011 }))
+    handle.observe(llmCall({ tokensIn: 20, estimatedCostUsd: 0.02 }))
+    handle.observe(llmCall({ tokensIn: 4, tokensOut: 2 }))
+
+    expect(handle.cost()).toMatchObject({
+      costUsd: 0.01,
+      usdKnown: false,
+      estimatedCostUsd: 0.031,
+      llmCalls: 3,
+    })
+  })
+
   it('retains explicit unknown flags even when every numeric subtotal is present', () => {
     const handle = startRuntimeRun({ workspaceId: 'ws-1', taskSpec: task })
     handle.observe(

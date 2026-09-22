@@ -251,7 +251,9 @@ The final pass reconciles existing cancellations and expires unseen requests wit
 To steer the root, pass its run ID as the target: `writeWorkerSteer(root, runId, runId, { operationId, message, interrupt: true })`.
 The same atomic request, claim and acknowledgement protocol handles root and child steers; only the root manager owns root delivery.
 Router roots read durable steers between turns, so a filesystem request does not interrupt an already-running router inference call.
-Native roots forward the requested interrupt flag through their existing inbox; an absent or currently inactive inbox produces `unsupported`, never a fabricated delivery.
+Native roots leave steers pending during startup and between retries.
+Adapters with asynchronous inbox initialization expose `DriveHarness.deliverReady()` so pending requests remain unclaimed until the inbox is ready.
+Native roots forward the requested interrupt flag through their existing inbox; an absent or refusing active inbox produces `unsupported`.
 A prior `unknown` claim is not retried, and finalization expires unseen requests as `not_live` without delivering them.
 Filesystem control writers must already have trusted run-directory access. These controls do not expose a new MCP tool or grant worker authority over the root.
 Durable root answers and a file-backed question sink are not provided by this path.
@@ -264,6 +266,8 @@ That tool returns small artifacts directly and large artifacts as bounded JSON p
 Use `outputPath: ['content']` to select a provider result without serializing its event history.
 Paths select retained own fields; omitted paths preserve access to the complete artifact.
 Continue with the same path and the returned character offset to reconstruct a large value exactly.
+Successive pages reuse one encoding of the selected artifact.
+Changing the selection or finishing its final page releases that encoding.
 The blob remains unchanged, and reads remain scoped to workers visible to the manager.
 
 Knowledge improvement jobs carry nondefault `stateScope` into both frozen experiment bundles and prepared execution.

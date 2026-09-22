@@ -323,6 +323,28 @@ describe('billing classification — OFF proves inference-only', () => {
     expect(attrs['tangle.effort.intelligence_off']).toBe(false)
     expect(attrs['tangle.usage.intelligence_usd']).toBe(0.03)
   })
+
+  it('exports a separate inference estimate beside billed inference usage', async () => {
+    const { calls } = installFetchSpy('ok')
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
+    await client.traceRun({ input: {} }, async (trace) => {
+      trace.recordOutcome({
+        usage: {
+          inferenceUsd: 0.01,
+          estimatedInferenceUsd: 0.02,
+          intelligenceUsd: 0,
+        },
+      })
+      return 'ok'
+    })
+    await client.flush()
+
+    const attrs = attrsOf(calls[0]?.body)
+    expect(attrs).toMatchObject({
+      'tangle.usage.inference_usd': 0.01,
+      'tangle.usage.inference_usd_estimated': 0.02,
+    })
+  })
 })
 
 describe('doctor()', () => {

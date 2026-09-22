@@ -2360,7 +2360,7 @@ False when Intelligence cost is incomplete or unreported.
 
 > `optional` **estimatedInferenceUsd?**: `number`
 
-Estimate for unpriced inference, separate from observed spend.
+Reported inference estimate, separate from observed spend and completeness.
 
 ***
 

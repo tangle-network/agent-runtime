@@ -787,6 +787,10 @@ describe('coordination tools', () => {
     })
     expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(32_768)
     expect(JSON.stringify(first)).toContain('A checkable result')
+    expect(await observe.handler({ workerId: 'w1', outputOffset: 16_384 })).toMatchObject({
+      outputPage: { format: 'json', offset: 16_384, nextOffset: 32_768 },
+    })
+    expect(reads).toEqual(['blob:w1'])
     expect(await observe.handler({ workerId: 'w1', outputPath: ['content'] })).toMatchObject({
       output: 'A checkable result',
     })

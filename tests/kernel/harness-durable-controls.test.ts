@@ -141,6 +141,8 @@ async function runHarness(
       throw error
     }
   }
+  if (drive.deliver) driveHarness.deliver = drive.deliver.bind(drive)
+  if (drive.deliverReady) driveHarness.deliverReady = drive.deliverReady.bind(drive)
   const root = supervisorAgent(
     testAgentProfile('root', {
       harness: 'opencode',

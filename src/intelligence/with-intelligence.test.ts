@@ -207,6 +207,58 @@ function attrsOf(body: unknown, spanName?: string): Record<string, unknown> {
 }
 
 describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
+  it.each(['costUsd', 'usage'] as const)(
+    'keeps incomplete event receipts when %s and token totals are overridden',
+    async (costReport) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            ...(costReport === 'costUsd' ? { costUsd: 0.01 } : { usage: { inferenceUsd: 0.01 } }),
+            tokens: { input: 10, output: 5 },
+            runtimeEvents: [
+              { type: 'llm_call', model: 'test', tokensIn: 10, tokensOut: 5, costUsd: 0.01 },
+              {
+                type: 'llm_call',
+                model: 'test',
+                tokensIn: 0,
+                tokensOut: 0,
+                costUsd: 0,
+                tokensKnown: false,
+                usdKnown: false,
+                estimatedCostUsd: 0.02,
+              },
+            ],
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+        'tangle.usage.inference_usd': 0.01,
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+        'tangle.usage.tokens_known': false,
+        'gen_ai.usage.input_tokens': 10,
+        'gen_ai.usage.output_tokens': 5,
+      })
+    },
+  )
+
   it('exports unknown call costs and estimates without labeling them as measured zero', async () => {
     const posts: unknown[] = []
     vi.stubGlobal(
@@ -243,6 +295,47 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       'gen_ai.usage.input_tokens': 30,
       'gen_ai.usage.output_tokens': 5,
       'tangle.outcome.success': false,
+    })
+  })
+
+  it('exports an estimate even when a separate billed subtotal is present', async () => {
+    const posts: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        if (init.body) posts.push(JSON.parse(String(init.body)))
+        return new Response('{}', { status: 200 })
+      }),
+    )
+    const agent = withIntelligence(
+      async (_input: null, applied) => {
+        applied.record({
+          runtimeEvents: [
+            {
+              type: 'llm_call',
+              model: 'test',
+              tokensIn: 10,
+              tokensOut: 5,
+              costUsd: 0.01,
+              estimatedCostUsd: 0.02,
+            },
+          ],
+        })
+        return 'done'
+      },
+      {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        fetchImpl: async () => jsonResponse(COMPOSED),
+      },
+    )
+    await agent(null)
+    await agent.flush()
+
+    expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+      'tangle.usage.inference_usd': 0.01,
+      'tangle.usage.inference_usd_estimated': 0.02,
     })
   })
 

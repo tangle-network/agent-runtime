@@ -14,7 +14,7 @@ export interface RuntimeUsageTotals {
   tokensKnown?: false
   /** False when any observed call lacks complete provider-billed cost. */
   usdKnown?: false
-  /** Estimates for unpriced work; never included in `costUsd`. */
+  /** Sum of reported external estimates; never included in `costUsd` or proof of complete cost. */
   estimatedCostUsd?: number
 }
 
@@ -40,10 +40,7 @@ export function addRuntimeUsage(
   }
   if (event.tokensKnown === false) totals.tokensKnown = false
   if (event.usdKnown === false) totals.usdKnown = false
-  if (
-    (event.usdKnown === false || !isUsageAmount(event.costUsd)) &&
-    isUsageAmount(event.estimatedCostUsd)
-  ) {
+  if (isUsageAmount(event.estimatedCostUsd)) {
     totals.estimatedCostUsd = (totals.estimatedCostUsd ?? 0) + event.estimatedCostUsd
   }
 }

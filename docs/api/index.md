@@ -1467,6 +1467,12 @@ Absent means every worker call reported complete token usage.
 
 Absent means every worker call reported provider-billed cost, including a known zero.
 
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+Worker-only external estimate, kept separate from observed provider-billed spend.
+
 ***
 
 ### RunPersonaConfig
@@ -5626,7 +5632,7 @@ False when any observed call lacks complete provider-billed cost.
 
 > `optional` **estimatedCostUsd?**: `number`
 
-Estimates for unpriced work; never included in `costUsd`.
+Sum of reported external estimates; never included in `costUsd` or proof of complete cost.
 
 ###### Inherited from
 
