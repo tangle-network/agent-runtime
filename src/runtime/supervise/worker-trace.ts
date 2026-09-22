@@ -65,8 +65,11 @@
  *   - `provider`      NO — `AgentEnvironmentProvider` has no environment field on its port.
  */
 
-import { type TraceContext, traceContextToEnv } from '../../mcp/trace-propagation'
+import { traceContextToEnv } from '../../mcp/trace-propagation'
 import type { ExecutorConfig } from './runtime'
+import type { TraceContext, WorkerTraceSeamCarrier } from './worker-trace-types'
+
+export type { TraceContext, WorkerTraceResolver, WorkerTraceSeamCarrier } from './worker-trace-types'
 
 /**
  * The census above, as a value the compiler checks. `satisfies` against every `ExecutorConfig`
@@ -86,8 +89,6 @@ export const WORKER_TRACE_PROPAGATION = {
   provider: false,
 } as const satisfies Record<ExecutorConfig['backend'], boolean>
 
-export type { TraceContext }
-
 /**
  * Seam key the `Scope` seeds a {@link TraceContext} under on each child's `ExecutorContext.seams`.
  * Single-sourced here so the scope and every backend agree on it without a circular import — the
@@ -100,17 +101,6 @@ export const workerTraceSeamKey = 'worker-trace'
  * this run records no spans, so nothing is stamped. Supplied by
  * `SupervisorSpanRecorder.workerTrace` and threaded to the scope as `SupervisorOpts.workerTrace`.
  */
-export type WorkerTraceResolver = (spawningNodeId: string) => TraceContext | undefined
-
-/**
- * What the two readers below need off an `ExecutorContext` — its seam bag, and nothing else.
- * Structural (not an `ExecutorContext` import) so this module stays free of the keystone type
- * surface, and exported because it is part of a public signature.
- */
-export interface WorkerTraceSeamCarrier {
-  readonly seams: Readonly<Record<string, unknown>>
-}
-
 /**
  * Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no
  * spans. Fails CLOSED on a malformed seam value (returns `undefined`) rather than stamping a

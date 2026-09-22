@@ -51,7 +51,8 @@
  *      REPRO_MODEL=glm-5.2 (shared repro instrument — strong author, default = SUPERVISOR_MODEL),
  *      REASONING_EFFORT=enabled (SYMMETRIC thinking budget on the worker; 'off' disables),
  *      SUPERVISOR_MAX_TOKENS=12000, MAX_TOKENS=12000, K=4, REPAIRS=2,
- *      TEMP=0.8, INNER_TURNS=40, TURN_CAP=12, DEADLINE_MS=1800000, JUDGE_TIMEOUT_MS=2400000,
+ *      SAMPLE_TEMP=0.8 (or TEMPERATURE), INNER_TURNS=40, TURN_CAP=12,
+ *      DEADLINE_MS=1800000, JUDGE_TIMEOUT_MS=2400000,
  *      CONC=2 (hard max 2 — zai discipline), REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000,
  *      SEED=0x5eed, IDS=comma-list (default: the 23-instance Stage-0 fingerprint set),
  *      STREAM_N=max instances this run, STREAM_DIR=state dir (ledger/events/kb),
@@ -69,6 +70,7 @@ import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '
 import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
+import { resolveModelTemperature } from './swe-structural-policy'
 import {
   APPLY_SENTINEL,
   assertNoHiddenLeak,
@@ -127,14 +129,9 @@ const SUPERVISOR_MAX_TOKENS = Number(process.env.SUPERVISOR_MAX_TOKENS ?? 12_000
 const REPRO_MODEL = process.env.REPRO_MODEL ?? SUPERVISOR_MODEL
 const K = Number(process.env.K ?? 4)
 const REPAIRS = Number(process.env.REPAIRS ?? 2)
-// NOT `TEMP`: Node's os.tmpdir() honors the TEMP env var as the temp DIRECTORY, so setting
-// TEMP=0.8 made mkdtemp build a relative path "0.8/swe-repro-…" and every docker -v mount was
-// rejected as an invalid volume name. Sampling temperature reads SAMPLE_TEMP (TEMP still accepted
-// only if it parses as a number < 2, so a stray TEMP=/some/dir never leaks in as a temperature).
-const TEMP = (() => {
-  const s = process.env.SAMPLE_TEMP ?? (process.env.TEMP && Number(process.env.TEMP) < 2 ? process.env.TEMP : undefined)
-  return Number(s ?? 0.8)
-})()
+// Node owns TEMP as the temporary-directory root. Sampling uses SAMPLE_TEMP, with the common
+// TEMPERATURE setting as its fallback, and rejects a relative operating-system temp root.
+const TEMP = resolveModelTemperature(process.env, { variable: 'SAMPLE_TEMP' })
 const INNER_TURNS = Number(process.env.INNER_TURNS ?? 40)
 const TURN_CAP = Number(process.env.TURN_CAP ?? 12)
 const DEADLINE_MS = Number(process.env.DEADLINE_MS ?? 1_800_000)

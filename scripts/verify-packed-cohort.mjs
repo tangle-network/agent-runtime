@@ -1,25 +1,20 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  readlinkSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import {
-  assertPublishableDependencySpecs,
+  archiveFileSpec,
+  assertArchiveResolution,
+  assertSamePackageFiles,
+  collectTargetDependencies,
+} from './lib/packed-cohort-archive.mjs'
+import { buildAndPack } from './lib/packed-cohort-build.mjs'
+import { assertCohortPackageContracts } from './lib/packed-cohort-metadata.mjs'
+import { createCommandRunner, primaryCheckoutFor } from './lib/packed-cohort-process.mjs'
+import {
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
@@ -32,6 +27,7 @@ const PACKAGES = {
 }
 const PACKAGE_NAMES = Object.values(PACKAGES)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const primaryCheckout = primaryCheckoutFor(repoRoot)
 const args = process.argv.slice(2)
 if (args[0] === '--') args.shift()
 const { values } = parseArgs({
@@ -68,13 +64,13 @@ if (values.help) {
 
 const sourceRepos = {
   [PACKAGES.agentInterface]: resolve(
-    values['agent-interface-repo'] ?? join(repoRoot, '..', 'agent-sdk'),
+    values['agent-interface-repo'] ?? join(dirname(primaryCheckout), 'agent-sdk'),
   ),
   [PACKAGES.agentEval]: resolve(
-    values['agent-eval-repo'] ?? join(repoRoot, '..', 'agent-eval'),
+    values['agent-eval-repo'] ?? join(dirname(primaryCheckout), 'agent-eval'),
   ),
   [PACKAGES.agentKnowledge]: resolve(
-    values['agent-knowledge-repo'] ?? join(repoRoot, '..', 'agent-knowledge'),
+    values['agent-knowledge-repo'] ?? join(dirname(primaryCheckout), 'agent-knowledge'),
   ),
   [PACKAGES.agentRuntime]: resolve(values['agent-runtime-repo'] ?? repoRoot),
 }
@@ -83,13 +79,10 @@ const artifactsDir = join(tempRoot, 'artifacts')
 const packageManagerBin = join(tempRoot, 'bin')
 mkdirSync(artifactsDir, { recursive: true })
 mkdirSync(packageManagerBin, { recursive: true })
+const { captured } = createCommandRunner(packageManagerBin)
 
 try {
-  captured(
-    'corepack',
-    ['enable', '--install-directory', packageManagerBin, 'pnpm'],
-    repoRoot,
-  )
+  captured('corepack', ['enable', '--install-directory', packageManagerBin, 'pnpm'], repoRoot)
   const artifacts = []
   const artifactsByIdentity = new Map()
 
@@ -98,6 +91,9 @@ try {
     sourceRepo: sourceRepos[PACKAGES.agentInterface],
     packageDirectory: 'packages/agent-interface',
     localPackages: [],
+    tempRoot,
+    artifactsDir,
+    captured,
   })
   registerArtifact(agentInterface)
   artifacts.push(agentInterface)
@@ -106,6 +102,9 @@ try {
     packageName: PACKAGES.agentEval,
     sourceRepo: sourceRepos[PACKAGES.agentEval],
     localPackages: [agentInterface],
+    tempRoot,
+    artifactsDir,
+    captured,
   })
   registerArtifact(agentEval)
   artifacts.push(agentEval)
@@ -114,6 +113,9 @@ try {
     packageName: PACKAGES.agentKnowledge,
     sourceRepo: sourceRepos[PACKAGES.agentKnowledge],
     localPackages: [agentInterface, agentEval],
+    tempRoot,
+    artifactsDir,
+    captured,
   })
   registerArtifact(agentKnowledge)
   artifacts.push(agentKnowledge)
@@ -122,6 +124,9 @@ try {
     packageName: PACKAGES.agentRuntime,
     sourceRepo: sourceRepos[PACKAGES.agentRuntime],
     localPackages: [agentInterface, agentEval, agentKnowledge],
+    tempRoot,
+    artifactsDir,
+    captured,
   })
   registerArtifact(agentRuntime)
   artifacts.push(agentRuntime)
@@ -170,131 +175,6 @@ try {
   }
 }
 
-function buildAndPack({
-  packageName,
-  sourceRepo,
-  packageDirectory = '.',
-  localPackages = [],
-}) {
-  assertCleanGitCheckout(sourceRepo, packageName)
-  const sourceCommit = captured('git', ['rev-parse', 'HEAD'], sourceRepo).trim()
-  const buildRoot = join(tempRoot, 'build', packageName.replace('@tangle-network/', ''))
-  mkdirSync(buildRoot, { recursive: true })
-  const sourceArchive = join(tempRoot, `${packageName.replace('@tangle-network/', '')}.tar`)
-  captured('git', ['archive', '--format=tar', '--output', sourceArchive, sourceCommit], sourceRepo)
-  captured('tar', ['-xf', sourceArchive, '-C', buildRoot], sourceRepo)
-
-  const buildDir = resolve(buildRoot, packageDirectory)
-  if (buildDir !== buildRoot && !buildDir.startsWith(`${buildRoot}${sep}`)) {
-    throw new Error(`${packageName} package directory escapes its source archive`)
-  }
-  const packagePath = join(buildDir, 'package.json')
-  if (!existsSync(packagePath)) {
-    throw new Error(`${packageName} has no package.json at ${packageDirectory}`)
-  }
-  const packageText = readFileSync(packagePath, 'utf8')
-  const packageJson = JSON.parse(packageText)
-  if (packageJson.name !== packageName) {
-    throw new Error(`${sourceRepo} contains ${packageJson.name}, expected ${packageName}`)
-  }
-
-  if (localPackages.length > 0) {
-    const overrides = {
-      ...(packageJson.pnpm?.overrides ?? {}),
-      ...Object.fromEntries(
-        localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
-      ),
-    }
-    const workspaceRoot = findPnpmWorkspaceRoot(buildDir, buildRoot)
-    if (workspaceRoot) {
-      captured(
-        'corepack',
-        [
-          'pnpm',
-          'config',
-          'set',
-          '--location=project',
-          '--json',
-          'overrides',
-          JSON.stringify(overrides),
-        ],
-        workspaceRoot,
-      )
-    } else {
-      packageJson.pnpm = { ...(packageJson.pnpm ?? {}), overrides }
-      writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
-    }
-  }
-
-  captured(
-    'corepack',
-    ['pnpm', 'install', '--no-frozen-lockfile', '--ignore-scripts'],
-    buildDir,
-    {
-      HUSKY: '0',
-    },
-  )
-  assertArchiveDependencies(buildDir, localPackages, `${packageName} build`)
-  captured('corepack', ['pnpm', 'run', 'build'], buildDir)
-
-  writeFileSync(packagePath, packageText)
-  const before = new Set(readdirSync(artifactsDir))
-  if (packageText.includes('catalog:')) {
-    captured(
-      'corepack',
-      ['pnpm', 'pack', '--pack-destination', artifactsDir],
-      buildDir,
-      { npm_config_ignore_scripts: 'true' },
-    )
-  } else {
-    captured(
-      'npm',
-      ['pack', '--ignore-scripts', '--json', '--pack-destination', artifactsDir],
-      buildDir,
-    )
-  }
-  const created = readdirSync(artifactsDir).filter(
-    (name) => name.endsWith('.tgz') && !before.has(name),
-  )
-  if (created.length !== 1) {
-    throw new Error(`${packageName} produced ${created.length} archives, expected exactly one`)
-  }
-
-  const archivePath = join(artifactsDir, created[0])
-  const extractedDir = join(tempRoot, 'extracted', packageName.replace('@tangle-network/', ''))
-  mkdirSync(extractedDir, { recursive: true })
-  captured('tar', ['-xzf', archivePath, '-C', extractedDir], buildDir)
-  const extractedPackageDir = join(extractedDir, 'package')
-  const packedPackageJson = JSON.parse(
-    readFileSync(join(extractedPackageDir, 'package.json'), 'utf8'),
-  )
-  if (packedPackageJson.name !== packageName || packedPackageJson.version !== packageJson.version) {
-    throw new Error(
-      `${packageName} archive identity changed: ${packedPackageJson.name}@${packedPackageJson.version}`,
-    )
-  }
-  assertPublishableDependencySpecs(packedPackageJson)
-
-  return {
-    name: packageName,
-    version: packedPackageJson.version,
-    sourceCommit,
-    sha256: sha256File(archivePath),
-    path: archivePath,
-    extractedPackageDir,
-    packageJson: packedPackageJson,
-  }
-}
-
-function findPnpmWorkspaceRoot(startDirectory, sourceRoot) {
-  let directory = startDirectory
-  while (true) {
-    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return directory
-    if (directory === sourceRoot) return undefined
-    directory = dirname(directory)
-  }
-}
-
 function verifyConsumer(artifacts) {
   const appDir = join(tempRoot, 'consumer')
   mkdirSync(appDir, { recursive: true })
@@ -310,14 +190,8 @@ function verifyConsumer(artifacts) {
       ([name]) => !byName.has(name),
     ),
   )
-  const typescriptVersion = requiredPackedDevelopmentDependency(
-    runtime.packageJson,
-    'typescript',
-  )
-  const nodeTypesVersion = requiredPackedDevelopmentDependency(
-    runtime.packageJson,
-    '@types/node',
-  )
+  const typescriptVersion = requiredPackedDevelopmentDependency(runtime.packageJson, 'typescript')
+  const nodeTypesVersion = requiredPackedDevelopmentDependency(runtime.packageJson, '@types/node')
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -372,7 +246,7 @@ function verifyConsumer(artifacts) {
   const dependencyTree = JSON.parse(
     captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], appDir),
   )
-  const resolved = collectTargetDependencies(dependencyTree)
+  const resolved = collectTargetDependencies(dependencyTree, PACKAGE_NAMES)
   for (const artifact of artifacts) {
     const occurrences = resolved.get(artifact.name) ?? []
     if (occurrences.length === 0) {
@@ -391,12 +265,8 @@ function verifyConsumer(artifacts) {
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
   captured('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
-  const proposalOutput = captured(process.execPath, ['dist/consumer.js'], appDir)
-    .trim()
-    .split('\n')
-  const proposalReport = proposalOutput.find((line) =>
-    line.startsWith('PACKED_COHORT_PROPOSAL='),
-  )
+  const proposalOutput = captured(process.execPath, ['dist/consumer.js'], appDir).trim().split('\n')
+  const proposalReport = proposalOutput.find((line) => line.startsWith('PACKED_COHORT_PROPOSAL='))
   if (!proposalReport) {
     throw new Error(`packed proposal produced no report:\n${proposalOutput.join('\n')}`)
   }
@@ -432,178 +302,4 @@ function verifyPublicImports(appDir, artifacts) {
   }
   if (imported < artifacts.length) throw new Error(`only ${imported} public imports were exercised`)
   return imported
-}
-
-function assertArchiveDependencies(directory, artifacts, context) {
-  if (artifacts.length === 0) return
-  const dependencyTree = JSON.parse(
-    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], directory),
-  )
-  const resolved = collectTargetDependencies(dependencyTree)
-  for (const artifact of artifacts) {
-    const occurrences = resolved.get(artifact.name) ?? []
-    if (occurrences.length === 0) {
-      throw new Error(`${context} did not resolve ${artifact.name}`)
-    }
-    for (const occurrence of occurrences) {
-      assertArchiveResolution(artifact, occurrence, context)
-    }
-  }
-}
-
-function assertArchiveResolution(artifact, occurrence, context) {
-  if (occurrence.version !== artifact.version) {
-    throw new Error(
-      `${context} resolved ${artifact.name}@${occurrence.version}, expected ${artifact.version}`,
-    )
-  }
-  if (
-    typeof occurrence.resolved !== 'string' ||
-    occurrence.resolved.startsWith('http:') ||
-    occurrence.resolved.startsWith('https:') ||
-    !occurrence.resolved.includes(basename(artifact.path))
-  ) {
-    throw new Error(
-      `${context} did not resolve ${artifact.name}@${artifact.version} from ${basename(artifact.path)}: ${String(occurrence.resolved)}`,
-    )
-  }
-}
-
-function collectTargetDependencies(dependencyTree) {
-  const targets = new Map(PACKAGE_NAMES.map((name) => [name, []]))
-  const visit = (node) => {
-    if (!node || typeof node !== 'object') return
-    for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-      for (const [name, dependency] of Object.entries(node[section] ?? {})) {
-        if (targets.has(name)) targets.get(name).push(dependency)
-        visit(dependency)
-      }
-    }
-  }
-  for (const root of dependencyTree) visit(root)
-  return targets
-}
-
-function assertSamePackageFiles(artifact, installedPath) {
-  if (typeof installedPath !== 'string' || !existsSync(installedPath)) {
-    throw new Error(`${artifact.name} has no installed package path: ${String(installedPath)}`)
-  }
-  const expected = packageFileManifest(artifact.extractedPackageDir)
-  const actual = packageFileManifest(realpathSync(installedPath))
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(
-      `${artifact.name}@${artifact.version} installed files differ from archive ${artifact.sha256}`,
-    )
-  }
-}
-
-function packageFileManifest(root) {
-  const entries = []
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name === 'node_modules') continue
-      const path = join(directory, entry.name)
-      const relativePath = relative(root, path).split(sep).join('/')
-      if (entry.isDirectory()) {
-        visit(path)
-      } else if (entry.isSymbolicLink()) {
-        entries.push([relativePath, `link:${readlinkSync(path)}`])
-      } else if (entry.isFile()) {
-        entries.push([relativePath, sha256File(path)])
-      } else {
-        throw new Error(`unsupported package file at ${path}`)
-      }
-    }
-  }
-  visit(root)
-  return entries.sort(([left], [right]) => left.localeCompare(right))
-}
-
-function assertCohortPackageContracts({
-  agentInterface,
-  agentEval,
-  agentKnowledge,
-  agentRuntime,
-}) {
-  assertExactDependency(agentEval, agentInterface)
-  assertExactDependency(agentKnowledge, agentInterface)
-  assertExactDependency(agentKnowledge, agentEval)
-  assertExactDependency(agentRuntime, agentKnowledge)
-  assertRequiredPeer(agentRuntime, agentInterface)
-  assertRequiredPeer(agentRuntime, agentEval)
-}
-
-function assertExactDependency(owner, dependency) {
-  const declared = owner.packageJson.dependencies?.[dependency.name]
-  if (declared !== dependency.version) {
-    throw new Error(
-      `${owner.name} requires ${dependency.name}@${declared}, packed ${dependency.version}`,
-    )
-  }
-}
-
-function assertRequiredPeer(owner, dependency) {
-  if (!owner.packageJson.peerDependencies?.[dependency.name]) {
-    throw new Error(`${owner.name} must declare ${dependency.name} as a required peer`)
-  }
-  if (owner.packageJson.peerDependenciesMeta?.[dependency.name]?.optional) {
-    throw new Error(`${owner.name} cannot make ${dependency.name} optional`)
-  }
-}
-
-function assertCleanGitCheckout(sourceRepo, packageName) {
-  if (!existsSync(join(sourceRepo, '.git'))) {
-    throw new Error(`${packageName} source is not a Git checkout: ${sourceRepo}`)
-  }
-  const changes = captured(
-    'git',
-    ['status', '--porcelain=v1', '--untracked-files=no'],
-    sourceRepo,
-  ).trim()
-  if (changes) {
-    throw new Error(`${packageName} source has tracked changes:\n${changes}`)
-  }
-}
-
-function archiveFileSpec(from, archivePath) {
-  const path = relative(from, archivePath).split(sep).join('/')
-  return `file:${path.startsWith('.') ? path : `./${path}`}`
-}
-
-function sha256File(path) {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
-}
-
-function captured(command, args, cwd, extraEnv = {}) {
-  return run(command, args, cwd, extraEnv, 'pipe')
-}
-
-function run(command, args, cwd, extraEnv, stdio) {
-  const env = {
-    ...process.env,
-    PATH: `${packageManagerBin}${delimiter}${process.env.PATH ?? ''}`,
-    ...extraEnv,
-  }
-  delete env.FORCE_COLOR
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: 'utf8',
-    env,
-    stdio,
-    timeout: 15 * 60_000,
-    maxBuffer: 32 * 1024 * 1024,
-  })
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      [
-        `command failed: ${command} ${args.join(' ')}`,
-        result.error?.message,
-        typeof result.stdout === 'string' ? result.stdout.trim() : '',
-        typeof result.stderr === 'string' ? result.stderr.trim() : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    )
-  }
-  return typeof result.stdout === 'string' ? result.stdout : ''
 }

@@ -13,27 +13,26 @@
  * no fork (those degrade gracefully via the optional `SandboxClient` methods).
  */
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
+import type {
+  AgentSpec,
+  Executor,
+  ExecutorFactory,
+  ExecutorResult,
+  UsageEvent,
+} from './supervise/types'
+import { abortableAsyncIterable, awaitAbortable } from './turn-timeout'
 import type { SandboxClient } from './types'
 
 function isAsyncIterable(v: unknown): v is AsyncIterable<unknown> {
   return typeof v === 'object' && v !== null && Symbol.asyncIterator in v
 }
 
-/** Drive a (possibly streaming) executor to its terminal artifact. */
-async function settle(
-  exec: Executor<unknown>,
-  task: unknown,
-  signal: AbortSignal,
-): Promise<ExecutorResult<unknown>> {
-  const r = exec.execute(task, signal)
-  if (isAsyncIterable(r)) {
-    for await (const _ of r) {
-      // streaming executors meter as they run; the artifact is read after drain.
-    }
-    return exec.resultArtifact()
-  }
-  return r
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return
+  const reason = signal.reason
+  throw reason instanceof Error
+    ? reason
+    : new Error(reason === undefined ? 'prompt aborted' : String(reason))
 }
 
 /**
@@ -71,9 +70,33 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
             else callerSignal.addEventListener('abort', onAbort, { once: true })
           }
           const spec: AgentSpec = { profile: { name: id }, harness: null }
-          const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
+          let exec: Executor<unknown> | undefined
           try {
-            const artifact = await settle(exec, message, controller.signal)
+            exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
+            const run = exec.execute(message, controller.signal)
+            let artifact: ExecutorResult<unknown>
+            if (isAsyncIterable(run)) {
+              for await (const event of abortableAsyncIterable(
+                run as AsyncIterable<UsageEvent>,
+                controller.signal,
+              )) {
+                if (event.kind !== 'runtime_event') continue
+                const { type, ...data } = event.event
+                yield {
+                  type,
+                  data,
+                  ...(event.eventId === undefined ? {} : { id: event.eventId }),
+                  ...(event.cursor === undefined ? {} : { cursor: event.cursor }),
+                  ...(event.sequence === undefined ? {} : { sequence: event.sequence }),
+                  ...(event.occurredAt === undefined ? {} : { occurredAt: event.occurredAt }),
+                } as unknown as SandboxEvent
+              }
+              throwIfAborted(controller.signal)
+              artifact = exec.resultArtifact()
+            } else {
+              artifact = await awaitAbortable(run, controller.signal)
+            }
+            throwIfAborted(controller.signal)
             const out = artifact.out as { content?: string } | undefined
             // Speak the runtime's metering protocol: `extractLlmCallEvent` reads
             // flat `llm_call` events, not the nested result payload — without
@@ -100,7 +123,16 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
             } as unknown as SandboxEvent
           } finally {
             callerSignal?.removeEventListener('abort', onAbort)
-            await exec.teardown('brutalKill').catch(() => {})
+            if (exec) {
+              try {
+                await awaitAbortable(
+                  Promise.resolve().then(() => exec?.teardown('brutalKill')),
+                  controller.signal,
+                )
+              } catch {
+                // Teardown cannot replace the turn's result or abort reason.
+              }
+            }
           }
         },
         async delete(): Promise<void> {},

@@ -312,6 +312,7 @@ describe('mid-flight steering — a supervisor observes a live worker and change
         backend: backend(harness, true),
         brain: missingMessageAuthorityBrain(harness, record),
         runDir,
+        controlCapabilityToken: 'mid-flight-control-secret',
         runId: 'message-authority-refusal',
         authorizeSpawn: (input) => ({ profile: input.profile }),
       })

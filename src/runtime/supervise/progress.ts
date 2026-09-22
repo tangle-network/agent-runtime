@@ -22,92 +22,26 @@
  * @experimental
  */
 
-import type { NodeStatus } from './types'
+import type {
+  ActivityLog,
+  ActivityNote,
+  ExecutorProgress,
+  ScopeProgressInput,
+  WorkerProgress,
+} from './progress-types'
+
+export type {
+  ActivityLog,
+  ActivityNote,
+  ExecutorProgress,
+  ScopeProgressInput,
+  WorkerProgress,
+} from './progress-types'
 
 /** How long a worker may produce no metered activity before a `progress()` read calls it stalled.
  *  Deliberately generous: a coding harness routinely spends minutes inside one tool call, and a
  *  false stall that provokes a steer is worse than a late one. */
 export const DEFAULT_STALL_AFTER_MS = 180_000
-
-/** The most recent activity the executor can name — one tool call, one turn, or a free-form note.
- *  `label` is the tool/file/turn name; `detail` is a short, already-truncated descriptor (a path,
- *  a command head) that a driver can read without pulling the whole transcript. */
-export interface ActivityNote {
-  readonly at: number
-  readonly kind: 'turn' | 'tool' | 'note'
-  readonly label: string
-  readonly status?: 'ok' | 'error'
-  readonly detail?: string
-}
-
-/** What an executor OPTIONALLY adds to the scope-derived progress (`Executor.progress()`). Every
- *  field is optional: an executor that knows only its own turn count reports only that. */
-export interface ExecutorProgress {
-  /** The executor's own turn/step count when it is more meaningful than metered iterations. */
-  readonly turns?: number
-  /** Steers/answers delivered but not yet folded into the worker's conversation. */
-  readonly pendingMessages?: number
-  /** Newest-last window of what the worker has been doing. */
-  readonly recentActivity?: ReadonlyArray<ActivityNote>
-  /**
-   * What the executor CHANGED about what the caller declared, one short line each — an MCP config
-   * it materialized, an extension it had to add for the caller's own servers to mount at all.
-   *
-   * Deliberately NOT part of `recentActivity`: that is a bounded newest-last ring, so a derived
-   * change made before the first turn is evicted by turn 13 and gone by the time anyone looks. And
-   * deliberately not only on the settled artifact: a run that fails on turn 40 never produces one,
-   * yet "what was this worker actually given?" is exactly the question a failure raises. This
-   * channel is append-only and readable at any moment, including from a run that never finishes.
-   */
-  readonly derived?: ReadonlyArray<string>
-  /** A one-line human-readable state ("turn 3, running tests"). */
-  readonly note?: string
-}
-
-/** The full live view of one worker, as `observe_agent` returns it mid-flight. */
-export interface WorkerProgress {
-  readonly id: string
-  readonly status: NodeStatus
-  /** True while the node is neither done, failed, nor cancelled — i.e. a steer could still land. */
-  readonly live: boolean
-  /** True when this worker's executor exposes an inbox (`Executor.deliver`) — i.e. `steer_agent`
-   *  can actually reach it. False means a steer would be recorded and dropped. */
-  readonly steerable: boolean
-  readonly startedAt: number
-  /** Epoch ms of the last metered usage event or executor-reported activity. */
-  readonly lastActivityAt: number
-  readonly idleMs: number
-  readonly stalled: boolean
-  readonly stallAfterMs: number
-  /** Metered iterations so far (the executor's own count when it reports one). */
-  readonly turns: number
-  readonly tokens: { readonly input: number; readonly output: number }
-  /** False when observed `tokens` is only a known subtotal, not a complete total — the worker did
-   *  work whose token count its provider never reported. The twin of `usdKnown`, carried for the
-   *  same reason: a driver reading this over `observe_agent` would otherwise read the subtotal as
-   *  the measurement and conclude a busy worker was cheap. */
-  readonly tokensKnown?: boolean
-  readonly usd: number
-  /** False when observed dollar spend is only a known subtotal, not a complete total. */
-  readonly usdKnown?: boolean
-  /** Steers delivered but not yet read by the worker. */
-  readonly pendingMessages: number
-  /** Newest-last window of tool/turn activity; empty when the executor exposes none. */
-  readonly recentActivity: ReadonlyArray<ActivityNote>
-  /** What the executor changed about the caller's declaration; absent when it changed nothing.
-   *  Unlike `recentActivity` this is never evicted, so it still answers on a failed run. */
-  readonly derived?: ReadonlyArray<string>
-  readonly note?: string
-}
-
-/** A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. */
-export interface ActivityLog {
-  push(note: ActivityNote): void
-  /** Newest-last, at most `limit` entries. */
-  read(): ReadonlyArray<ActivityNote>
-  last(): ActivityNote | undefined
-  size(): number
-}
 
 /** A short, already-truncated descriptor of a tool call's target — the file/command a driver
  *  needs to tell "editing the right module" from "re-reading the same file for the fifth time",
@@ -137,20 +71,6 @@ export function createActivityLog(limit = 12): ActivityLog {
     last: () => notes[notes.length - 1],
     size: () => notes.length,
   }
-}
-
-/** The scope-side facts about a child, independent of whether its executor cooperates. */
-export interface ScopeProgressInput {
-  readonly id: string
-  readonly status: NodeStatus
-  readonly steerable: boolean
-  readonly startedAt: number
-  readonly lastActivityAt: number
-  readonly turns: number
-  readonly tokens: { readonly input: number; readonly output: number }
-  readonly tokensKnown?: boolean
-  readonly usd: number
-  readonly usdKnown?: boolean
 }
 
 /** Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the

@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Braid W2 contract corrections
+
+Sandbox 0.17 adapters now preserve exact execution selectors, control references, profile data, receipts, and provider event cursors when the installed contract returns them, and downgrade retained/context-transfer capability before dispatch when it does not.
+Retained-run reconnect, result, event, interaction, continuation, and cancellation paths now bind to the complete run and execution identity.
+Cancellation returns an operation-idempotent acknowledgement with reason, effect, and an unknown-safe status snapshot.
+Dead-owner supervisor takeover publishes `unknown` and rejects effects until the new live supervisor explicitly rebinds.
+
+## 0.123.0
+
+### Retained runs, portable context, and durable supervisor control
+
+Runtime now exposes a provider-neutral retained-run client for starting or reconnecting to an execution, replaying canonical events, reading status and result, answering interactions, cancelling explicitly, and continuing a native provider session only when the provider proves the exact accepted turn boundary.
+The public event envelope preserves run identity, event identity, sequence, cursor, occurrence time, and the complete canonical interface event instead of flattening away provider-independent semantics.
+
+Portable context transfer is now a separate, side-effect-free plan and execution flow.
+The accepted plan digest is bound to execution, the resulting receipt must describe the complete transferred context, and native same-session continuation cannot be confused with a fresh transfer.
+
+Supervisor watch, steer, and cancel operations now share typed in-process and durable-file controls.
+Durable controls validate root identity and snapshot state, survive a separate control process, and clean up route resources when initialization fails.
+
+Cross-process candidate recovery now reads a terminal publication before its required staged predecessor, preserving publication order when another process finishes between the two reads.
+
+The tested package cohort moves to `@tangle-network/agent-eval@0.142.0`, `@tangle-network/agent-interface@0.42.0`, `@tangle-network/agent-knowledge@7.0.5`, `@tangle-network/agent-profile-materialize@0.10.1`, and `@tangle-network/sandbox@0.17.0`.
+
+Packed cohort verification now resolves sibling repositories from the primary checkout when it runs inside a linked worktree.
+
 ## 0.122.0
 
 ### Agent graphs: loops as data, edges you can audit

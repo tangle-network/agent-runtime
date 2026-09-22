@@ -39,7 +39,7 @@
  *      OUT=/path/swe-stage1-system.jsonl node_modules/.bin/tsx bench/src/swe-structural.mts'
  *
  * Env: ARM=system|solo (required), ZAI_API_KEY (required), ZAI_BASE, MODEL=glm-5.2,
- *      MAX_TOKENS=12000, K=4, REPAIRS=2, TEMP=0.8 (system attempts+repairs), SOLO_TEMP=0.7,
+ *      MAX_TOKENS=12000, K=4, REPAIRS=2, TEMPERATURE=0.8 (system attempts+repairs), SOLO_TEMP=0.7,
  *      INNER_TURNS=40, CONC=2, REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000, IDS=comma-list,
  *      OUT=jsonl path, REPRO_MANIFEST=json path (system), SKIP_JUDGE=1 (Phase A only),
  *      PRICE_IN/PRICE_OUT (USD per Mtok for the cost table; defaults are the assumed zai list rate).
@@ -53,6 +53,7 @@ import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '
 import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
+import { resolveModelTemperature } from './swe-structural-policy'
 import {
   APPLY_SENTINEL,
   assertNoHiddenLeak,
@@ -78,7 +79,7 @@ const MODEL = process.env.MODEL ?? 'glm-5.2'
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 12_000)
 const K = Number(process.env.K ?? 4)
 const REPAIRS = Number(process.env.REPAIRS ?? 2)
-const TEMP = Number(process.env.TEMP ?? 0.8)
+const TEMP = resolveModelTemperature(process.env)
 const SOLO_TEMP = Number(process.env.SOLO_TEMP ?? 0.7)
 const INNER_TURNS = Number(process.env.INNER_TURNS ?? 40)
 const CONC = Math.max(1, Math.min(4, Number(process.env.CONC ?? 2)))

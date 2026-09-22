@@ -396,3 +396,10 @@ export function mapSandboxEvent(
 
   return extractLlmCallEvent(event, opts.agentRunName ?? 'agent')
 }
+
+export {
+  extractTransportEventIdentity,
+  mapSandboxCanonicalEvent,
+  parseCanonicalTransportEvent,
+  type TransportEventIdentity,
+} from './sandbox-transport-events'

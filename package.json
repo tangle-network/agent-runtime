@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.122.0",
+  "version": "0.123.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -127,6 +127,7 @@
     "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts",
     "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
     "check:skills": "node scripts/check-skills.mjs",
+    "check:release-scripts": "node scripts/check-release-script-format.mjs",
     "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
     "check:version-bump": "node scripts/check-version-bump.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
@@ -135,7 +136,7 @@
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
     "verify:cohort": "node scripts/verify-packed-cohort.mjs",
-    "verify:package": "pnpm run verify:static-imports && pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run verify:edge-tool-loop",
+    "verify:package": "pnpm run verify:static-imports && pnpm run check:release-scripts && pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run verify:edge-tool-loop",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
@@ -169,9 +170,9 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.140.1 <0.141.0",
-    "@tangle-network/agent-interface": ">=0.40.0 <0.41.0",
-    "@tangle-network/sandbox": ">=0.16.0 <0.17.0",
+    "@tangle-network/agent-eval": ">=0.142.1 <0.143.0",
+    "@tangle-network/agent-interface": ">=0.43.0 <0.44.0",
+    "@tangle-network/sandbox": ">=0.17.0 <0.18.0",
     "playwright": "^1.40.0"
   },
   "peerDependenciesMeta": {
@@ -186,6 +187,7 @@
     "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-profile-materialize": "catalog:",
     "@tangle-network/agent-trace-contract": "catalog:",
+    "fs-ext-extra-prebuilt": "2.2.10",
     "tar-stream": "3.2.0"
   }
 }

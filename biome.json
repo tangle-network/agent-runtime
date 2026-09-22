@@ -1,7 +1,17 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
   "files": {
-    "includes": ["src/**", "tests/**", "examples/**/*.ts", "examples/**/*.tsx"],
+    "includes": [
+      "src/**",
+      "tests/**",
+      "examples/**/*.ts",
+      "examples/**/*.tsx",
+      "scripts/verify-packed-cohort.mjs",
+      "scripts/lib/packed-cohort-archive.mjs",
+      "scripts/lib/packed-cohort-build.mjs",
+      "scripts/lib/packed-cohort-metadata.mjs",
+      "scripts/lib/packed-cohort-process.mjs"
+    ],
     "ignoreUnknown": true
   },
   "formatter": {

@@ -78,6 +78,34 @@ function failingLeaf(name: string, reason: string): Agent<unknown, unknown> {
 }
 
 describe('supervise — the one-call convenience (defaults blobs/perWorker/journal/executors)', () => {
+  it('keeps runDir durability without enabling unauthenticated file controls', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'supervise-no-control-token-'))
+    try {
+      const result = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+        budget,
+        runDir: dir,
+        makeWorkerAgent: () => deliveringLeaf('worker', { answer: 42 }),
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ]),
+      })
+
+      expect(result.kind).toBe('winner')
+      await expect(readFile(join(dir, 'spawn-journal.jsonl'), 'utf8')).resolves.toContain('settled')
+      await expect(readFile(join(dir, 'control', 'snapshot.json'), 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('runs a supervisor to delivery from just profile + task + worker seam + brain + budget', async () => {
     const brain = scriptedBrain([
       {
@@ -248,6 +276,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
         runId: 'durable-run',
         runDir: dir,
+        controlCapabilityToken: 'durable-control-secret',
       }
 
       const first = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
@@ -315,6 +344,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         makeWorkerAgent: () => deliveringLeaf('worker', { answer: 42 }),
         runId: 'observer-retry',
         runDir: dir,
+        controlCapabilityToken: 'observer-control-secret',
         onCoordinationEvent,
       }
       const first = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {

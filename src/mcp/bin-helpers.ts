@@ -7,7 +7,7 @@
  * @experimental
  */
 
-import type { SandboxClient } from '../runtime'
+import type { SandboxClient } from '../runtime/types'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,

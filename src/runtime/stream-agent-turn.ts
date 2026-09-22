@@ -60,112 +60,32 @@ import type {
   RuntimeStreamEvent,
 } from '../types'
 import { inlineSandboxClient } from './inline-sandbox-client'
-import { createSandboxToolPartState, mapSandboxEvent, mapSandboxToolEvent } from './sandbox-events'
-import type { ExecutorFactory } from './supervise/types'
+import {
+  createSandboxToolPartState,
+  mapSandboxCanonicalEvent,
+  mapSandboxEvent,
+  mapSandboxToolEvent,
+} from './sandbox-events'
+import { projectedEventWithIdentity } from './stream-agent-turn-projection'
+import type {
+  AgentTurnBackend,
+  AgentTurnUsage,
+  CollectedAgentTurn,
+  StreamAgentTurnOptions,
+} from './stream-agent-turn-types'
+import {
+  abortableAsyncIterable,
+  awaitAbortable,
+  deriveTurnSignal,
+  throwIfAborted,
+} from './turn-timeout'
 
-/**
- * The execution substrate one turn runs on — a closed discriminated union over
- * the three stream surfaces the runtime already owns.
- *
- * @experimental
- */
-export type AgentTurnBackend =
-  | {
-      /** A live sandbox box: the turn is one `box.streamPrompt(prompt)` call. */
-      kind: 'box'
-      box: SandboxInstance
-      /**
-       * Per-turn `PromptOptions` forwarded verbatim to `streamPrompt`
-       * (`sessionId`, `turnId`, `model`, `backend` profile, `timeoutMs`, …).
-       * The turn's derived abort signal (caller `signal` + `timeoutMs`
-       * deadline) is always installed as `signal` — pass cancellation through
-       * `StreamAgentTurnOptions`, not here.
-       */
-      options?: Omit<PromptOptions, 'signal'>
-      /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
-      agentRunName?: string
-    }
-  | {
-      /**
-       * A one-shot `Executor` (cli-bridge / router / BYO): the factory is
-       * instantiated fresh for the turn via `inlineSandboxClient`, run once on
-       * the prompt, and torn down — the same per-spawn lifecycle the supervise
-       * runtime gives it.
-       */
-      kind: 'executor'
-      factory: ExecutorFactory<unknown>
-      /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
-      agentRunName?: string
-    }
-  | {
-      /**
-       * An in-process `AgentExecutionBackend` (`resolveAgentBackend` output or
-       * any custom backend): the turn is one `backend.stream()` call.
-       */
-      kind: 'chat'
-      backend: AgentExecutionBackend
-    }
-
-/** @experimental */
-export interface StreamAgentTurnOptions {
-  /** Caller-initiated cancellation. Terminates the stream with `final.status: 'aborted'`. */
-  signal?: AbortSignal
-  /**
-   * Wall-clock deadline for the whole turn in ms. An expired deadline aborts
-   * the backend and terminates the stream with `final.status: 'failed'`
-   * (a blown deadline is a turn failure, not a caller cancellation).
-   */
-  timeoutMs?: number
-  /**
-   * Opt-in tool-part projection for box and executor backends: sandbox tool
-   * parts additionally surface in-stream as
-   * `tool_call` / `tool_result` events (`mapSandboxToolEvent`), so a consumer
-   * rendering tool activity needs no bespoke sandbox-event parser. Default
-   * off — the stream vocabulary existing consumers see is unchanged. No-op
-   * for the `chat` kind (its backend emits `RuntimeStreamEvent`s directly,
-   * tool events included when the backend produces them).
-   */
-  preserveToolParts?: boolean
-  /**
-   * Raw-event tap for box-kind backends: called (and awaited) with every
-   * unmapped `SandboxEvent` BEFORE it is projected, so a consumer can read
-   * parts the chat-UX projection drops (part ids, step markers, custom
-   * backend events) without forking the mapper. Purely observational — it
-   * cannot alter the mapped stream. Never called for the `chat` kind, which
-   * has no sandbox events.
-   */
-  onRawEvent?: (event: SandboxEvent) => void | Promise<void>
-}
-
-/**
- * Metered usage of one turn, summed over every cost-bearing event the backend
- * emitted. `input`/`output` are token counts (0 when the backend reported
- * none — the honest sum, never a fabricated estimate). `costUsd`/`model` are
- * present only when the backend actually reported them.
- *
- * @experimental
- */
-export interface AgentTurnUsage {
-  input: number
-  output: number
-  costUsd?: number
-  model?: string
-}
-
-/**
- * A drained turn: the terminal summary plus every event the stream yielded.
- * `status`/`error` mirror the terminal `final` event so a failed or aborted
- * turn stays inspectable without re-scanning `events`.
- *
- * @experimental
- */
-export interface CollectedAgentTurn {
-  finalText: string
-  usage: AgentTurnUsage
-  events: RuntimeStreamEvent[]
-  status: AgentTaskStatus
-  error?: BackendErrorDetail
-}
+export type {
+  AgentTurnBackend,
+  AgentTurnUsage,
+  CollectedAgentTurn,
+  StreamAgentTurnOptions,
+} from './stream-agent-turn-types'
 
 /** Mutable per-turn accumulator threaded through the backend adapters. */
 interface TurnAccumulator {
@@ -203,6 +123,7 @@ export async function* streamAgentTurn(
 
   let session: RuntimeSession | undefined
   try {
+    throwIfAborted(deadline.signal)
     session = await startTurnSession(backend, task, prompt, deadline.signal, label)
     yield { type: 'backend_start', task, session, backend: label, timestamp: nowIso() }
 
@@ -222,10 +143,11 @@ export async function* streamAgentTurn(
                 ? { options: backend.options }
                 : {}),
               preserveToolParts: opts.preserveToolParts === true,
+              preserveCanonicalEvents: opts.preserveCanonicalEvents !== false,
               ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
             },
           )
-    for await (const event of inner) {
+    for await (const event of abortableAsyncIterable(inner, deadline.signal)) {
       yield event
       throwIfAborted(deadline.signal)
     }
@@ -308,9 +230,14 @@ async function startTurnSession(
   label: string,
 ): Promise<RuntimeSession> {
   if (backend.kind === 'chat' && backend.backend.start) {
-    return backend.backend.start(
-      { task, message: prompt },
-      { task, knowledge: emptyReadiness(task), signal },
+    return awaitAbortable(
+      Promise.resolve(
+        backend.backend.start(
+          { task, message: prompt },
+          { task, knowledge: emptyReadiness(task), signal },
+        ),
+      ),
+      signal,
     )
   }
   return newRuntimeSession(label)
@@ -323,6 +250,8 @@ interface BoxTurnConfig {
   options?: Omit<PromptOptions, 'signal'>
   /** Project tool parts to `tool_call`/`tool_result` (see `mapSandboxToolEvent`). */
   preserveToolParts: boolean
+  /** Preserve strict canonical interface events. */
+  preserveCanonicalEvents: boolean
   /** Awaited raw-event tap, before projection. */
   onRawEvent?: (event: SandboxEvent) => void | Promise<void>
 }
@@ -347,12 +276,18 @@ async function* driveBoxTurn(
   const callOptions: PromptOptions = { ...(cfg.options ?? {}), signal }
   const stream = box.streamPrompt(prompt, callOptions)
   const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
-  for await (const event of stream) {
+  for await (const event of abortableAsyncIterable(stream, signal)) {
     if (cfg.onRawEvent) await cfg.onRawEvent(event)
     const terminalText = terminalTextFromSandboxEvent(event)
     if (terminalText !== undefined) acc.terminalText = terminalText
+    if (cfg.preserveCanonicalEvents) {
+      const canonical = mapSandboxCanonicalEvent(event)
+      if (canonical) yield canonical
+    }
     if (toolParts) {
-      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) yield toolEvent
+      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) {
+        yield projectedEventWithIdentity(toolEvent, event)
+      }
     }
     const mapped = mapSandboxEvent(event, { agentRunName })
     if (!mapped) continue
@@ -360,7 +295,7 @@ async function* driveBoxTurn(
     // event carried none — a run label, not a reported model. Exclude it from
     // the terminal usage so `usage.model` is never a fabricated value.
     foldEvent(mapped, acc, agentRunName)
-    yield mapped
+    yield projectedEventWithIdentity(mapped, event)
   }
 }
 
@@ -376,7 +311,8 @@ async function* driveChatTurn(
 ): AsyncGenerator<RuntimeStreamEvent> {
   const input = { task, message: prompt }
   const context = { task, knowledge: emptyReadiness(task), session, signal }
-  for await (const raw of backend.stream(input, context)) {
+  const stream = abortableAsyncIterable(backend.stream(input, context), signal)
+  for await (const raw of stream) {
     const event = normalizeBackendStreamEvent(raw, task, session)
     foldEvent(event, acc)
     yield event
@@ -450,46 +386,4 @@ function emptyReadiness(task: AgentTaskSpec) {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-function throwIfAborted(signal: AbortSignal): void {
-  if (!signal.aborted) return
-  throw signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason))
-}
-
-/**
- * Derive the turn's effective abort signal: fires when EITHER the caller's
- * signal aborts OR the `timeoutMs` deadline elapses. `dispose()` clears the
- * timer so a finished turn never leaks a pending timeout. `timeoutMs <= 0`
- * disables the deadline. Node-portable (no `AbortSignal.any`, which needs
- * >=20.3 — the package floor is >=20).
- */
-function deriveTurnSignal(
-  callerSignal: AbortSignal | undefined,
-  timeoutMs: number,
-): { signal: AbortSignal; dispose: () => void } {
-  const controller = new AbortController()
-  const timer =
-    timeoutMs > 0
-      ? setTimeout(
-          () => controller.abort(new Error(`agent turn timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        )
-      : undefined
-  if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
-    ;(timer as { unref: () => void }).unref()
-  }
-  const onCallerAbort = () =>
-    controller.abort(callerSignal?.reason ?? new Error('agent turn aborted'))
-  if (callerSignal) {
-    if (callerSignal.aborted) onCallerAbort()
-    else callerSignal.addEventListener('abort', onCallerAbort, { once: true })
-  }
-  return {
-    signal: controller.signal,
-    dispose: () => {
-      if (timer) clearTimeout(timer)
-      callerSignal?.removeEventListener('abort', onCallerAbort)
-    },
-  }
 }

@@ -10,33 +10,69 @@
 
 import { randomUUID } from 'node:crypto'
 import type { TraceAnalysisStore } from '@tangle-network/agent-eval'
-import {
-  type AgentProfile,
-  agentProfileSchema,
-  canonicalCandidateDigest,
-} from '@tangle-network/agent-interface'
+import { agentProfileSchema, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
-  AgentExecutionRef,
   Budget,
-  ExecutionBindingReceipt,
-  NodeExecutionIdentity,
-  ProfileMaterializationReceipt,
   ResultBlobStore,
   Scope,
   Settled,
   Spend,
-  Agent as SuperviseAgent,
-  WorkerTraceEvidence,
-} from '../../runtime'
+} from '../../runtime/supervise/types'
 import { assertValidBudget } from '../../runtime/supervise/budget'
 import { WORKER_TOKEN_FLOOR, workerTokenFloor } from '../../runtime/supervise/budget-floor'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
-import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
+import { watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
 import { workerTraceAnalysisStore } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
+import type {
+  AnalystFindingEvent,
+  AnalystRegistry,
+  AnalyzeOnSettleRoute,
+  AuthorizeDownMessage,
+  ContinuationInstruction,
+  CoordinationEvent,
+  DownMessageDeliveryAttempt,
+  DownMessageDeliveryOutcome,
+  DownMessageEvent,
+  MakeWorkerAgent,
+  Question,
+  QuestionDecision,
+  QuestionPolicy,
+  QuestionRecord,
+  QuestionUrgency,
+  SettledWorker,
+  WorkerSpawnContext,
+  WorkerWatchOptions,
+} from './coordination-types'
+export type {
+  AnalystFindingEvent,
+  AnalystRegistry,
+  AnalyzeOnSettleRoute,
+  AuthorizeDownMessage,
+  ContinuationInstruction,
+  CoordinationEvent,
+  DownMessageDeliveryAttempt,
+  DownMessageDeliveryOutcome,
+  DownMessageEvent,
+  MakeWorkerAgent,
+  Question,
+  QuestionDecision,
+  QuestionPolicy,
+  QuestionRecord,
+  QuestionUrgency,
+  SettledWorker,
+  WorkerSpawnContext,
+  WorkerWatchOptions,
+} from './coordination-types'
+export type {
+  AuthorizedDownMessage,
+  DownMessageAuthorizationInput,
+  QuestionLevel,
+  QuestionOption,
+} from './coordination-types'
 
 // The floors a root must know BEFORE it authors a child budget, generated from the measured
 // census so a newly measured harness appears in the published schema without a prose edit.
@@ -52,6 +88,8 @@ const measuredFloorSentence =
       'minimum is refused (`error: "below-runtime-floor"`). Measured floors (input tokens): ' +
       measuredFloors.map(([harness, floor]) => `${harness}=${floor}`).join(', ') +
       '. Unmeasured harnesses have no floor and are admitted.'
+
+type QuestionInput = Omit<Question, 'id'> & { readonly id?: string }
 
 /**
  * The actionable fact behind a `below-runtime-floor` refusal: the floor for the harness the
@@ -76,79 +114,7 @@ function belowFloorHint(harness: string | undefined): string {
   )
 }
 
-/** A worker the driver has drained via `await_event`. */
-export interface SettledWorker {
-  readonly id: string
-  readonly status: 'done' | 'down'
-  /** Stable manager-scoped assignment, including deterministic unkeyed siblings. */
-  readonly assignmentId?: string
-  /** Exact profile/task/candidate identity authorized for this node. */
-  readonly identity?: NodeExecutionIdentity
-  /** Stable effective execution plan, or an explicit unknown receipt. */
-  readonly materialization?: ProfileMaterializationReceipt
-  /** Backend bindings for each attempt, in durable oldest-first order. */
-  readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
-  /** Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown. */
-  readonly spent?: Spend
-  readonly score?: number
-  readonly valid?: boolean
-  readonly outRef?: string
-  readonly reason?: string
-  /** Structured tool-call evidence, never the worker's final prose. */
-  readonly trace: WorkerTraceEvidence
-  /** True when projected from a prior process of the same durable run. */
-  readonly resumed?: boolean
-  /** Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
-   *  to answer "how long since anything landed?" without inventing a timestamp at read time. */
-  readonly settledAt?: number
-}
-
-export type QuestionLevel = 'worker' | 'driver' | 'loop'
-export type QuestionUrgency = 'continue-without' | 'blocks-step' | 'blocks-run'
-
-export interface QuestionOption {
-  readonly label: string
-  readonly tradeoff: string
-}
-
-export interface Question {
-  readonly id: string
-  readonly from: string
-  readonly level: QuestionLevel
-  readonly question: string
-  readonly reason: string
-  readonly urgency: QuestionUrgency
-  readonly options?: ReadonlyArray<QuestionOption>
-}
-
-export type QuestionDecision =
-  | { readonly kind: 'answer'; readonly answer: string; readonly by: string }
-  | { readonly kind: 'defer'; readonly reason: string }
-  | { readonly kind: 'escalate'; readonly to: 'parent' | 'user' | string; readonly reason: string }
-
-export interface QuestionRecord extends Question {
-  readonly status: 'open' | 'answered' | 'deferred' | 'escalated'
-  readonly decision?: QuestionDecision
-  readonly openedAt: number
-}
-
-type QuestionInput = Omit<Question, 'id'> & { readonly id?: string }
-export type QuestionPolicy = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
-
-export interface AnalystRegistry {
-  readonly kinds: ReadonlyArray<{ id: string; description: string; area: string }>
-  readonly run: (kindId: string, trace: TraceAnalysisStore) => Promise<unknown>
-}
-
 /** A trace-analyst result re-entered as a message on the bus (the `finding` event kind). */
-export interface AnalystFindingEvent {
-  readonly fromWorker: string
-  readonly analyst: string
-  /** The analyst's result. ABSENT when the analyst returned `undefined` (no findings); any other
-   *  value is canonicalized to finite RFC 8785 JSON at publish (`canonicalFindingEvent`), so
-   *  digesting subscribers (the coordination-event id) never throw on analyst-shaped data. */
-  readonly findings?: unknown
-}
 
 /** Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst
  *  output, the digest a subscriber computes (RFC 8785) throws on ANY `undefined` value — nested
@@ -183,140 +149,12 @@ export function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFind
  * graph expressed at the coordination layer; the finding is ALWAYS also published on the bus
  * (the audit trail), routing adds delivery, never replaces the record.
  */
-export interface AnalyzeOnSettleRoute {
-  /** The analyst lens id (resolved against the `analysts` registry). */
-  readonly kind: string
-  /** Deliver the findings to this live worker, named by its PROFILE NAME (the stable node
-   *  identity a graph pins) or its spawn label. Omit = the driver (bus only). Delivery goes
-   *  through the same authorization + steer machinery a driver-authored steer uses and is
-   *  recorded as a `steer` event carrying `analyst`, so a routed delivery is observable and a
-   *  failed one (`delivered: false`) is a recorded outcome, never a silent drop. */
-  readonly to?: string
-  /** Standing instruction wrapped around the findings on a routed delivery — what the recipient
-   *  should DO with the analysis. Omit = the bare findings JSON. */
-  readonly directive?: string
-  /** Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
-   *  every settled `done` worker. */
-  readonly over?: ReadonlyArray<string>
-}
-
 /** Normalize the two spellings of an analyst-on-settle entry to the route form. */
 export function normalizeAnalyzeOnSettle(
   entry: string | AnalyzeOnSettleRoute,
 ): AnalyzeOnSettleRoute {
   return typeof entry === 'string' ? { kind: entry } : entry
 }
-
-/** The exact result of one parent→child delivery attempt. */
-export type DownMessageDeliveryOutcome =
-  | 'delivered'
-  | 'unknown-worker'
-  | 'already-settled'
-  | 'runtime-has-no-inbox'
-  | 'scope-stopped'
-  | 'runtime-error'
-
-/** A durable marker written after authorization and immediately before Runtime calls `Scope.send`.
- * If a process dies with this marker but no matching outcome, delivery is unknown and is never
- * replayed automatically. */
-export interface DownMessageDeliveryAttempt {
-  readonly receiptId: string
-  readonly kind: 'steer' | 'answer'
-  readonly toWorker: string
-  readonly instructionDigest: string
-  readonly interrupt: boolean
-  readonly questionId?: string
-}
-
-/** A parent→child delivery result (the down-leg): recorded for observability, never pulled back by
- * the parent. `receiptId` and `instructionDigest` link it to the pre-delivery authorization receipt
- * and attempt marker. */
-export interface DownMessageEvent {
-  readonly receiptId: string
-  readonly toWorker: string
-  readonly instruction: string
-  readonly instructionDigest: string
-  readonly delivered: boolean
-  readonly outcome: DownMessageDeliveryOutcome
-  readonly error?: string
-}
-
-/** Durable authorization receipt written before a continuation reaches a worker. */
-export interface ContinuationInstruction {
-  readonly receiptId: string
-  readonly kind: 'steer' | 'answer'
-  readonly toWorker: string
-  readonly instruction: string
-  readonly instructionDigest: string
-  readonly workerIdentity?: NodeExecutionIdentity
-  readonly interrupt: boolean
-  readonly questionId?: string
-}
-
-/** Detached continuation bytes and exact worker identity presented to product authorization before
- * Runtime records or delivers a steer/answer. */
-export interface DownMessageAuthorizationInput {
-  readonly kind: 'steer' | 'answer'
-  readonly workerId: string
-  readonly workerIdentity: NodeExecutionIdentity
-  readonly instruction: string
-  readonly interrupt: boolean
-  readonly questionId?: string
-}
-
-/** Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed
- * bytes; throwing refuses delivery. */
-export interface AuthorizedDownMessage {
-  readonly instruction: string
-}
-
-/** Product decision over an exact continuation before it is durably recorded or delivered. */
-export type AuthorizeDownMessage = (input: DownMessageAuthorizationInput) => AuthorizedDownMessage
-
-/** Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
- *  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
- *  as evidence. DOWN (parent→child): steer / answer — record-only (history + subscribers), routed
- *  to the child inbox. Receipts are never auto-delivered on restart. New kinds are additive. */
-export type CoordinationEvent =
-  | { readonly type: 'question'; readonly question: QuestionRecord }
-  | { readonly type: 'settled'; readonly worker: SettledWorker }
-  | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
-  | {
-      readonly type: 'steer'
-      readonly down: DownMessageEvent
-      /** Present when this steer DELIVERED an analyst's routed findings (an analyzes-edge
-       *  traversal), naming the lens — absent on an ordinary driver-authored steer. */
-      readonly analyst?: string
-    }
-  | { readonly type: 'answer'; readonly down: DownMessageEvent; readonly questionId: string }
-  | { readonly type: 'instruction'; readonly instruction: ContinuationInstruction }
-  | { readonly type: 'delivery-attempt'; readonly attempt: DownMessageDeliveryAttempt }
-
-/** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
- * complete worker profile is prepared for one spawn. */
-export interface WorkerSpawnContext {
-  /** Stable assignment identity within this manager. A semantic key wins; otherwise Runtime mints
-   * the manager's deterministic pre-factory spawn ordinal so identical unkeyed siblings stay
-   * isolated and can recover by issuing the same assignments in the same order. */
-  readonly assignmentId: string
-  /** Trusted concrete manager node authorizing this spawn. Never accepted from model arguments. */
-  readonly parentNodeId: string
-  /** The exact allocation this node receives after the tool's optional override is merged. */
-  readonly budget: Budget
-  /** Detached, deeply immutable task bytes from this spawn request. */
-  readonly task: unknown
-  /** Exact trace label selected for this spawn. */
-  readonly label: string
-  /** Semantic restart key, when the manager supplied one. */
-  readonly key?: string
-  /** Trusted candidate/campaign attribution attached by product authorization. */
-  readonly execution?: AgentExecutionRef
-}
-
-export type MakeWorkerAgent = (
-  profile: AgentProfile,
-  context?: WorkerSpawnContext,
-) => SuperviseAgent<unknown, unknown>
 
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
@@ -397,14 +235,6 @@ export interface CoordinationToolsOptions {
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
-export interface WorkerWatchOptions {
-  /** Detector panel; omit for the default stuck-loop + error-streak pair. */
-  readonly detectors?: WatchTraceOptions['detectors']
-  /** Raise at most this many findings per worker, so one pathological worker cannot flood the
-   *  driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited. */
-  readonly maxFindingsPerWorker?: number
-}
-
 /** Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote
  *  MCP client request timeout so the call returns a `pending` liveness snapshot instead of erroring;
  *  the supervisor re-polls until the worker settles. */

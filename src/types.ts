@@ -17,23 +17,30 @@ import type {
   ControlStep,
   DataAcquisitionPlan,
   KnowledgeReadinessReport,
-  KnowledgeRequirement,
   RunRecord,
   TraceStore,
   UserQuestion,
 } from '@tangle-network/agent-eval'
+import type {
+  AgentRunControlRef,
+  InteractionAcknowledgement,
+  InteractionResponseCommand,
+} from '@tangle-network/agent-interface'
+import type {
+  AgentTaskSpec,
+  AgentTaskStatus,
+  RuntimeSession,
+} from './runtime-contracts'
+import type { RuntimeStreamEvent } from './runtime-stream-types'
 
-/** @stable */
-export interface AgentTaskSpec {
-  id: string
-  intent: string
-  /** Domain is metadata, not an architectural boundary: tax, legal, gtm, creative, blueprint, redteam, etc. */
-  domain?: string
-  inputs?: Record<string, unknown>
-  requiredKnowledge?: KnowledgeRequirement[]
-  budget?: Partial<ControlBudget>
-  metadata?: Record<string, unknown>
-}
+export type {
+  AgentTaskSpec,
+  AgentTaskStatus,
+  BackendErrorDetail,
+  KnowledgeReadinessDecision,
+  RuntimeSession,
+} from './runtime-contracts'
+export type { RuntimeStreamEvent } from './runtime-stream-types'
 
 /** @stable */
 export interface AgentKnowledgeProvider {
@@ -142,9 +149,6 @@ export interface AgentAdapter<
 }
 
 /** @stable */
-export type AgentTaskStatus = 'completed' | 'blocked' | 'failed' | 'aborted'
-
-/** @stable */
 export type AgentRuntimeEvent<
   TState = unknown,
   TAction = unknown,
@@ -192,36 +196,6 @@ export type AgentRuntimeEventSink<
   TActionResult = unknown,
   TEval extends ControlEvalResult = ControlEvalResult,
 > = (event: AgentRuntimeEvent<TState, TAction, TActionResult, TEval>) => Promise<void> | void
-
-/**
- *
- * Typed transport / backend failure detail. Carried on `backend_error` and
- * `final` events when the backend's stream throws or the upstream HTTP call
- * returns a non-success status. Lets consumers (a) distinguish "stream
- * completed with no text" from "stream never reached the model" and
- * (b) reconstruct the precise upstream signal (status + truncated body) when
- * building a `RunRecord.error`.
- *
- * `body` is truncated to 2 KiB by the backend so an HTML error page from a
- * misconfigured proxy never bloats event payloads or logs. Consumers needing
- * the full body should inspect the underlying `BackendTransportError.body`
- * via a custom `mapEvent` or backend wrapper.
- *
- * @stable
- */
-export interface BackendErrorDetail {
-  /**
-   * `'transport'` — upstream HTTP / network failure with optional status code.
-   * `'backend'` — the backend's `stream()` generator threw for a non-transport
-   * reason (e.g. a custom adapter error, sandbox crash).
-   */
-  kind: 'transport' | 'backend'
-  message: string
-  /** Upstream HTTP status when known. `0` for connection / abort errors. */
-  status?: number
-  /** Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed. */
-  body?: string
-}
 
 /**
  *
@@ -275,187 +249,6 @@ export type OpenAIChatResponseFormat =
   | { type: 'text' }
   | { type: 'json_object' }
   | { type: 'json_schema'; json_schema: Record<string, unknown> }
-
-/** @stable */
-export type RuntimeStreamEvent =
-  | { type: 'task_start'; task: AgentTaskSpec; timestamp: string }
-  | { type: 'readiness_start'; task: AgentTaskSpec; timestamp: string }
-  | {
-      type: 'readiness_end'
-      task: AgentTaskSpec
-      knowledge: KnowledgeReadinessReport
-      decision: KnowledgeReadinessDecision
-      timestamp: string
-    }
-  | {
-      type: 'questions_start'
-      task: AgentTaskSpec
-      questions: UserQuestion[]
-      timestamp: string
-    }
-  | {
-      type: 'questions_end'
-      task: AgentTaskSpec
-      questions: UserQuestion[]
-      userAnswers: Record<string, string>
-      timestamp: string
-    }
-  | {
-      type: 'acquisition_start'
-      task: AgentTaskSpec
-      acquisitionPlans: DataAcquisitionPlan[]
-      timestamp: string
-    }
-  | {
-      type: 'acquisition_end'
-      task: AgentTaskSpec
-      acquisitionPlans: DataAcquisitionPlan[]
-      acquiredEvidenceIds: string[]
-      timestamp: string
-    }
-  | { type: 'session_created'; task: AgentTaskSpec; session: RuntimeSession; timestamp: string }
-  | { type: 'session_resumed'; task: AgentTaskSpec; session: RuntimeSession; timestamp: string }
-  | {
-      type: 'backend_start'
-      task: AgentTaskSpec
-      session: RuntimeSession
-      backend: string
-      timestamp: string
-    }
-  | {
-      type: 'text_delta'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      text: string
-      timestamp?: string
-    }
-  | {
-      type: 'reasoning_delta'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      text: string
-      timestamp?: string
-    }
-  | {
-      type: 'tool_call'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      toolName: string
-      toolCallId?: string
-      args?: unknown
-      timestamp?: string
-    }
-  | {
-      type: 'tool_result'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      toolName: string
-      toolCallId?: string
-      result?: unknown
-      timestamp?: string
-    }
-  | {
-      type: 'llm_call'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      model: string
-      tokensIn?: number
-      tokensOut?: number
-      costUsd?: number
-      latencyMs?: number
-      finishReason?: string
-      timestamp?: string
-    }
-  | {
-      type: 'artifact'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      artifactId: string
-      name?: string
-      mimeType?: string
-      uri?: string
-      content?: string
-      metadata?: Record<string, unknown>
-      timestamp?: string
-    }
-  | {
-      type: 'proposal_created'
-      task?: AgentTaskSpec
-      session?: RuntimeSession
-      proposalId: string
-      title: string
-      status?: 'pending' | 'approved' | 'rejected'
-      // Proposal body — the assessable deliverable. Same role as `content` on
-      // the `artifact` variant; produced-state grading correctness-checks it.
-      // Optional: a title-only filing carries none.
-      content?: string
-      timestamp?: string
-    }
-  | {
-      type: 'backend_error'
-      task: AgentTaskSpec
-      session?: RuntimeSession
-      backend: string
-      message: string
-      recoverable: boolean
-      /**
-       * Typed transport diagnostic. Present when the upstream returned a
-       * non-success HTTP status or every retry attempt threw. Consumers MUST
-       * surface this onto their `RunRecord.error` — silently treating a
-       * `backend_error` as "no output" hides credit exhaustion, auth failure,
-       * and upstream outages from operators.
-       *  - `kind: 'transport'` — HTTP / network failure with optional `status`
-       *    + truncated response `body`.
-       *  - `kind: 'backend'` — the backend's `stream()` generator threw for a
-       *    reason that isn't a recognized transport failure.
-       */
-      error?: BackendErrorDetail
-      timestamp: string
-    }
-  | {
-      type: 'backend_end'
-      task: AgentTaskSpec
-      session: RuntimeSession
-      backend: string
-      timestamp: string
-    }
-  | {
-      type: 'task_end'
-      task: AgentTaskSpec
-      status: AgentTaskStatus
-      reason: string
-      timestamp: string
-    }
-  | {
-      type: 'final'
-      task: AgentTaskSpec
-      session?: RuntimeSession
-      status: AgentTaskStatus
-      reason: string
-      text?: string
-      metadata?: Record<string, unknown>
-      /**
-       * Typed terminal-error diagnostic. Mirrors the `backend_error.error`
-       * shape so a consumer that only listens for `final` still receives a
-       * loud, structured failure when the backend never produced output. Only
-       * set when `status !== 'completed'`. Consumers building a `RunRecord`
-       * MUST map this to `RunRecord.error` rather than recording silent
-       * `error: null` with empty `finalText`.
-       */
-      error?: BackendErrorDetail
-      timestamp: string
-    }
-
-/** @stable */
-export interface RuntimeSession {
-  id: string
-  backend: string
-  status: 'active' | 'completed' | 'failed' | 'aborted'
-  resumeToken?: string
-  createdAt: string
-  updatedAt: string
-  metadata?: Record<string, unknown>
-}
 
 /** @stable */
 export interface RuntimeSessionStore {
@@ -518,6 +311,23 @@ export interface AgentExecutionBackend<TInput extends AgentBackendInput = AgentB
     context: Omit<AgentBackendContext, 'session'>,
   ): Promise<RuntimeSession> | RuntimeSession
   stream(input: TInput, context: AgentBackendContext): AsyncIterable<RuntimeStreamEvent>
+  /** Replay a retained run after an exclusive event cursor. */
+  replay?(
+    controlRef: AgentRunControlRef,
+    options?: { after?: string; signal?: AbortSignal },
+  ): AsyncIterable<RuntimeStreamEvent>
+  /** Read retained-run status without starting or resuming work. */
+  status?(
+    controlRef: AgentRunControlRef,
+    options?: { waitMs?: number; signal?: AbortSignal },
+  ): Promise<RuntimeSession | null> | RuntimeSession | null
+  /** Submit one exactly-bound interaction response. */
+  respondToInteraction?(
+    command: InteractionResponseCommand,
+    options?: { signal?: AbortSignal },
+  ): Promise<InteractionAcknowledgement>
+  /** Explicitly cancel one retained run by its exact provider coordinates. */
+  cancel?(controlRef: AgentRunControlRef, options?: { signal?: AbortSignal }): Promise<void>
   stop?(session: RuntimeSession, reason: string): Promise<void> | void
 }
 
@@ -569,16 +379,4 @@ export interface AgentTaskRunResult<
   acquiredEvidenceIds: string[]
   control: ControlRunResult<TState, TAction, TActionResult, TEval>
   runRecords: RunRecord[]
-}
-
-/** @stable */
-export interface KnowledgeReadinessDecision {
-  passed: boolean
-  status: 'ready' | 'blocked' | 'caveat'
-  reason: string
-  readinessScore: number
-  recommendedAction: KnowledgeReadinessReport['recommendedAction']
-  severity: KnowledgeReadinessReport['severity']
-  blockingGapIds: string[]
-  nonBlockingGapIds: string[]
 }

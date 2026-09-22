@@ -3,7 +3,11 @@ import { isAbsolute } from 'node:path'
 
 /** Docker bind mounts and mkdtemp parents must never inherit a relative operating-system temp root. */
 export function absoluteSweTempDir(): string {
-  const dir = tmpdir()
+  return validateSweTempDir(tmpdir())
+}
+
+/** Validate one operating-system temp root independently of the host's environment variables. */
+export function validateSweTempDir(dir: string): string {
   if (!isAbsolute(dir)) {
     throw new Error(
       `SWE temporary directory must be absolute, got "${dir}"; ` +

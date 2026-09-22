@@ -101,6 +101,7 @@ describe('nested supervisor coordination durability', () => {
       budget: { maxIterations: 16, maxTokens: 10_000 },
       perWorker: { maxIterations: 4, maxTokens: 1_000 },
       runDir,
+      controlCapabilityToken: 'nested-coordination-control-secret',
       runId: 'nested-owner-run',
       driveHarness,
       driveHarnessMaterialization: fullProfileMaterialization,

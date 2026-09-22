@@ -43,7 +43,7 @@
  * @experimental
  */
 
-import type { SandboxClient } from '../runtime'
+import type { SandboxClient } from '../runtime/types'
 import { delegateEnabled, resolveDelegateSupervisor } from './delegate-supervisor-provisioning'
 import { FileDelegationStore } from './delegation-store'
 import { createMcpServer } from './server'

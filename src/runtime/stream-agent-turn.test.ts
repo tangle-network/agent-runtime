@@ -7,17 +7,25 @@
  * paths. No network, no credentials.
  */
 
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
-import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
+import type { Executor, ExecutorFactory, ExecutorResult, UsageEvent } from './supervise/types'
 
 function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'final' } {
   const final = events.at(-1)
   if (final?.type !== 'final') throw new Error('no terminal final event')
   return final
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
 }
 
 describe('streamAgentTurn: box backend', () => {
@@ -145,6 +153,33 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
+  })
+
+  it('timeoutMs closes a prompt iterator that ignores abort', async () => {
+    let closed = 0
+    const box = {
+      id: 'ignores-abort',
+      streamPrompt(): AsyncIterableIterator<SandboxEvent> {
+        const iterator = {
+          next: () => new Promise<IteratorResult<SandboxEvent>>(() => {}),
+          return: async () => {
+            closed += 1
+            return { done: true, value: undefined }
+          },
+          [Symbol.asyncIterator]() {
+            return this
+          },
+        } as AsyncIterableIterator<SandboxEvent>
+        return iterator
+      },
+    } as unknown as SandboxInstance
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'box', box }, 'hang', { timeoutMs: 25 }),
+    )
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+    expect(closed).toBe(1)
   })
 })
 
@@ -468,6 +503,48 @@ describe('streamAgentTurn: executor backend', () => {
     expect(turn.error?.message).toBe('caller cancelled')
     expect(toreDown).toBe(1)
   })
+
+  it('does not wait for a non-cooperative executor teardown after timeout', async () => {
+    const entered = deferred()
+    const teardownStarted = deferred()
+    let closed = 0
+    const factory: ExecutorFactory<unknown> = () => ({
+      runtime: 'inline',
+      execute(): AsyncIterable<UsageEvent> {
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => {
+                entered.resolve()
+                return new Promise<IteratorResult<UsageEvent>>(() => {})
+              },
+              return: async () => {
+                closed += 1
+                return { done: true, value: undefined }
+              },
+            }
+          },
+        }
+      },
+      async teardown() {
+        teardownStarted.resolve()
+        return new Promise<never>(() => {})
+      },
+      resultArtifact(): ExecutorResult<unknown> {
+        throw new Error('one-shot executor: resultArtifact unused')
+      },
+    })
+
+    const turnPromise = collectAgentTurn(
+      streamAgentTurn({ kind: 'executor', factory }, 'hang', { timeoutMs: 25 }),
+    )
+    await entered.promise
+    const turn = await turnPromise
+    await teardownStarted.promise
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+    expect(closed).toBe(1)
+  })
 })
 
 describe('streamAgentTurn: chat backend', () => {
@@ -549,6 +626,40 @@ describe('streamAgentTurn: chat backend', () => {
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
+  })
+
+  it('closes a non-cooperative chat iterator when the turn times out', async () => {
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let closed = 0
+    const backend: AgentExecutionBackend = {
+      kind: 'non-cooperative-chat',
+      stream() {
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => {
+                entered()
+                return new Promise<IteratorResult<RuntimeStreamEvent>>(() => {})
+              },
+              return: async () => {
+                closed += 1
+                return { done: true, value: undefined }
+              },
+            }
+          },
+        }
+      },
+    }
+    const turnPromise = collectAgentTurn(
+      streamAgentTurn({ kind: 'chat', backend }, 'slow', { timeoutMs: 25 }),
+    )
+    await started
+    const turn = await turnPromise
+    expect(turn.status).toBe('failed')
+    expect(closed).toBe(1)
   })
 })
 

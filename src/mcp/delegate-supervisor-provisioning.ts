@@ -18,7 +18,7 @@
 import type { BackendType } from '@tangle-network/sandbox'
 import { ConfigError } from '../errors'
 import { type RouterEnv, resolveRouterBaseUrl } from '../model-resolution.js'
-import type { SandboxClient } from '../runtime'
+import type { SandboxClient } from '../runtime/types'
 import type { RouterConfig } from '../runtime/router-client'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { DelegateHandlerOptions } from './tools/delegate'

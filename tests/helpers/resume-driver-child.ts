@@ -153,6 +153,7 @@ const result = await supervise({ name: 'root', harness: 'cli-base' }, 'five assi
   brain,
   runId,
   runDir: dir,
+  controlCapabilityToken: 'resume-driver-control-secret',
   now: () => (phase === '2' ? 2_000 : 1_000),
 })
 

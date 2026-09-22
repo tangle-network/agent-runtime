@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
+import type { LoopSandboxPlacement, SandboxClient } from '../runtime/types'
 import type { DelegationExecutor } from './executor'
 import { DEFAULT_LOCAL_HARNESS, type LocalHarness } from './local-harness'
 import type { GitRunner, WorktreeHandle } from './worktree'

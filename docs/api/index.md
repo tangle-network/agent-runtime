@@ -1891,7 +1891,7 @@ and retry policy from becoming part of the portable candidate contract.
 
 ###### reason
 
-`"completed"` \| `"failed"` \| `"timeout"` \| `"replayed"` \| `"preparation-failed"` \| `"abandoned"`
+`"completed"` \| `"replayed"` \| `"failed"` \| `"timeout"` \| `"preparation-failed"` \| `"abandoned"`
 
 ###### Returns
 
@@ -2348,7 +2348,7 @@ different preparation, even when both reservations report the same digest.
 
 ###### reason
 
-`"completed"` \| `"failed"` \| `"timeout"` \| `"replayed"` \| `"preparation-failed"` \| `"abandoned"`
+`"completed"` \| `"replayed"` \| `"failed"` \| `"timeout"` \| `"preparation-failed"` \| `"abandoned"`
 
 ###### Returns
 
@@ -2561,7 +2561,7 @@ pair and must never close a different preparation.
 
 ###### reason
 
-`"completed"` \| `"failed"` \| `"timeout"` \| `"replayed"` \| `"preparation-failed"` \| `"abandoned"`
+`"completed"` \| `"replayed"` \| `"failed"` \| `"timeout"` \| `"preparation-failed"` \| `"abandoned"`
 
 ###### Returns
 
@@ -6923,8 +6923,6 @@ Shutdown cleanly.
 
 ### RuntimeEventOtelOptions
 
-**`Stable`**
-
 #### Extends
 
 - [`RuntimeTelemetryOptions`](#runtimetelemetryoptions)
@@ -6951,9 +6949,6 @@ Final customer redactor applied after the schema-aware runtime sanitizer.
 
 > `optional` **includeInputs?**: `boolean`
 
-Include raw task inputs. Off by default because task inputs often contain
-customer facts, credentials, source text, or internal IDs.
-
 ###### Inherited from
 
 [`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeInputs`](#includeinputs-1)
@@ -6961,8 +6956,6 @@ customer facts, credentials, source text, or internal IDs.
 ##### includeRequirementDescriptions?
 
 > `optional` **includeRequirementDescriptions?**: `boolean`
-
-Include requirement descriptions. Secret requirements are always redacted.
 
 ###### Inherited from
 
@@ -6972,8 +6965,6 @@ Include requirement descriptions. Secret requirements are always redacted.
 
 > `optional` **includeEvidenceIds?**: `boolean`
 
-Include evidence IDs. Off by default; counts are safer for shared reports.
-
 ###### Inherited from
 
 [`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeEvidenceIds`](#includeevidenceids-1)
@@ -6981,8 +6972,6 @@ Include evidence IDs. Off by default; counts are safer for shared reports.
 ##### includeUserAnswers?
 
 > `optional` **includeUserAnswers?**: `boolean`
-
-Include user answers from question preflight. Off by default.
 
 ###### Inherited from
 
@@ -6992,8 +6981,6 @@ Include user answers from question preflight. Off by default.
 
 > `optional` **includeControlPayloads?**: `boolean`
 
-Include action payloads and action results for control steps. Off by default.
-
 ###### Inherited from
 
 [`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeControlPayloads`](#includecontrolpayloads-1)
@@ -7002,8 +6989,6 @@ Include action payloads and action results for control steps. Off by default.
 
 > `optional` **includeMetadata?**: `boolean`
 
-Include task metadata. Off by default because metadata may carry IDs or policy internals.
-
 ###### Inherited from
 
 [`RuntimeTelemetryOptions`](#runtimetelemetryoptions).[`includeMetadata`](#includemetadata-1)
@@ -7011,8 +6996,6 @@ Include task metadata. Off by default because metadata may carry IDs or policy i
 ##### includeEvalDetails?
 
 > `optional` **includeEvalDetails?**: `boolean`
-
-Include eval detail/evidence strings. Off by default because validators may echo private input.
 
 ###### Inherited from
 
@@ -7369,6 +7352,116 @@ no seam is a caller bug, not a silent fallback.
 
 ***
 
+### RuntimeStreamEventEnvelope
+
+**`Stable`**
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### eventId
+
+> `readonly` **eventId**: `string`
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+##### cursor?
+
+> `readonly` `optional` **cursor?**: `string`
+
+##### occurredAt?
+
+> `readonly` `optional` **occurredAt?**: `string`
+
+##### receivedAt
+
+> `readonly` **receivedAt**: `string`
+
+##### event
+
+> `readonly` **event**: [`RuntimeStreamEvent`](#runtimestreamevent)
+
+***
+
+### RuntimeEventIdentity
+
+**`Stable`**
+
+Source identity known before an event enters the runtime journal.
+
+#### Properties
+
+##### eventId?
+
+> `readonly` `optional` **eventId?**: `string`
+
+##### sequence?
+
+> `readonly` `optional` **sequence?**: `number`
+
+##### cursor?
+
+> `readonly` `optional` **cursor?**: `string`
+
+##### occurredAt?
+
+> `readonly` `optional` **occurredAt?**: `string`
+
+##### receivedAt?
+
+> `readonly` `optional` **receivedAt?**: `string`
+
+***
+
+### EnvelopeRuntimeEventsOptions
+
+**`Stable`**
+
+Options for adding identity to a runtime event stream.
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### startSequence?
+
+> `readonly` `optional` **startSequence?**: `number`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+##### identity?
+
+> `readonly` `optional` **identity?**: (`event`, `sequence`) => [`RuntimeEventIdentity`](#runtimeeventidentity) \| `undefined`
+
+###### Parameters
+
+###### event
+
+[`RuntimeStreamEvent`](#runtimestreamevent)
+
+###### sequence
+
+`number`
+
+###### Returns
+
+[`RuntimeEventIdentity`](#runtimeeventidentity) \| `undefined`
+
+***
+
 ### RuntimeHookEvent
 
 #### Type Parameters
@@ -7644,7 +7737,7 @@ Count of `llm_call` events observed during the run.
 
 ##### status
 
-> **status**: `"completed"` \| `"failed"` \| `"cancelled"`
+> **status**: `"completed"` \| `"cancelled"` \| `"failed"`
 
 ##### resultSummary?
 
@@ -7926,6 +8019,959 @@ the same row on retry).
 
 ***
 
+### PortableContextPartDecisionInput
+
+**`Stable`**
+
+One explicit decision for a source part that is not already portable.
+
+#### Properties
+
+##### messageId
+
+> `readonly` **messageId**: `string`
+
+##### partIndex
+
+> `readonly` **partIndex**: `number`
+
+##### part
+
+> `readonly` **part**: `unknown`
+
+***
+
+### PlanPortableContextOptions
+
+**`Stable`**
+
+Pure planning policy. No provider or execution object is available here.
+
+#### Properties
+
+##### decidePart?
+
+> `readonly` `optional` **decidePart?**: (`input`) => `PortableContextPartPlan`
+
+###### Parameters
+
+###### input
+
+[`PortableContextPartDecisionInput`](#portablecontextpartdecisioninput)
+
+###### Returns
+
+`PortableContextPartPlan`
+
+##### estimateTokens?
+
+> `readonly` `optional` **estimateTokens?**: (`context`) => `number`
+
+###### Parameters
+
+###### context
+
+`PortableConversationContext`
+
+###### Returns
+
+`number`
+
+***
+
+### PortableContextTransferExecution
+
+**`Stable`**
+
+Result and retained handle after destination admission.
+
+#### Properties
+
+##### result
+
+> `readonly` **result**: \{ \} \| \{ \} \| \{ \} \| \{ \}
+
+##### run?
+
+> `readonly` `optional` **run?**: [`RetainedRunHandle`](#retainedrunhandle)
+
+***
+
+### ExecutePortableContextTransferOptions
+
+**`Stable`**
+
+Inputs for one fresh-session context transfer.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environment
+
+> `readonly` **environment**: `Omit`\<`CreateAgentEnvironmentInput`, `"idempotencyKey"`\>
+
+##### request
+
+> `readonly` **request**: `object`
+
+##### turn
+
+> `readonly` **turn**: `Omit`\<`AgentTurnInput`, `"contextTransfer"` \| `"controlRef"` \| `"detach"` \| `"executionId"` \| `"lastEventId"` \| `"nativeContinuation"` \| `"sessionId"` \| `"turnId"`\>
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### RetainedRunReplayPoint
+
+**`Stable`**
+
+Cursor plus runtime sequence needed to continue one ordered replay.
+
+#### Properties
+
+##### cursor
+
+> `readonly` **cursor**: `string`
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+***
+
+### RetainedRunEventOptions
+
+**`Stable`**
+
+Options for replaying canonical events strictly after a saved point.
+
+#### Properties
+
+##### after?
+
+> `readonly` `optional` **after?**: [`RetainedRunReplayPoint`](#retainedrunreplaypoint)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedRunSnapshot
+
+**`Stable`**
+
+Stable status snapshot for a retained run.
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentRunControlRef`
+
+##### status
+
+> `readonly` **status**: `AgentSessionStatus` \| `null`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `string`
+
+***
+
+### RetainedRunCancellation
+
+**`Stable`**
+
+Durable acknowledgement state for one retained control operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+##### status
+
+> `readonly` **status**: `"conflict"` \| `"accepted"` \| `"replayed"` \| `"unknown"`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### snapshot
+
+> `readonly` **snapshot**: [`RetainedRunSnapshot`](#retainedrunsnapshot)
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `string`
+
+***
+
+### RetainedRunCancelOptions
+
+**`Stable`**
+
+Options for an idempotent retained cancellation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedRunHandle
+
+**`Stable`**
+
+Reconstructable control of one provider-retained run.
+
+#### Properties
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentRunControlRef`
+
+#### Methods
+
+##### status()
+
+> **status**(`options?`): `Promise`\<[`RetainedRunSnapshot`](#retainedrunsnapshot)\>
+
+###### Parameters
+
+###### options?
+
+###### waitMs?
+
+`number`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RetainedRunSnapshot`](#retainedrunsnapshot)\>
+
+##### events()
+
+> **events**(`options?`): `AsyncIterable`\<`RuntimeEventEnvelope`\>
+
+###### Parameters
+
+###### options?
+
+[`RetainedRunEventOptions`](#retainedruneventoptions)
+
+###### Returns
+
+`AsyncIterable`\<`RuntimeEventEnvelope`\>
+
+##### result()
+
+> **result**(): `Promise`\<`AgentTurnResult`\>
+
+###### Returns
+
+`Promise`\<`AgentTurnResult`\>
+
+##### respondToInteraction()
+
+> **respondToInteraction**(`command`, `options?`): `Promise`\<\{ \}\>
+
+###### Parameters
+
+###### command
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \}\>
+
+##### contextBoundary()
+
+> **contextBoundary**(`options?`): `Promise`\<\{ \} \| `null`\>
+
+###### Parameters
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \} \| `null`\>
+
+##### continueNative()
+
+> **continueNative**(`request`, `turn`): `Promise`\<\{ \} \| \{ \}\>
+
+###### Parameters
+
+###### request
+
+`NativeContextContinuationRequest`
+
+###### turn
+
+[`NativeContextContinuationInput`](#nativecontextcontinuationinput)
+
+###### Returns
+
+`Promise`\<\{ \} \| \{ \}\>
+
+##### cancel()
+
+> **cancel**(`options`): `Promise`\<[`RetainedRunCancellation`](#retainedruncancellation)\>
+
+###### Parameters
+
+###### options
+
+[`RetainedRunCancelOptions`](#retainedruncanceloptions)
+
+###### Returns
+
+`Promise`\<[`RetainedRunCancellation`](#retainedruncancellation)\>
+
+***
+
+### StartRetainedRunOptions
+
+**`Stable`**
+
+A retained start is retry-safe only when environment and turn keys are explicit.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environment
+
+> `readonly` **environment**: `CreateAgentEnvironmentInput` & `object`
+
+###### Type Declaration
+
+###### idempotencyKey
+
+> **idempotencyKey**: `string`
+
+##### turn
+
+> `readonly` **turn**: `AgentTurnInput` & `object`
+
+###### Type Declaration
+
+###### turnId
+
+> **turnId**: `string`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### ReconnectRetainedRunOptions
+
+**`Stable`**
+
+Inputs sufficient to rebuild a control client in a new process.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentRunControlRef`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### SupervisorControlSnapshot
+
+**`Stable`**
+
+Runtime-owned supervisor snapshot.
+
+#### Properties
+
+##### version
+
+> `readonly` **version**: `1`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### revision
+
+> `readonly` **revision**: `number`
+
+##### status
+
+> `readonly` **status**: [`SupervisorControlStatus`](#supervisorcontrolstatus)
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### tree
+
+> `readonly` **tree**: [`TreeView`](runtime.md#treeview)
+
+***
+
+### SupervisorControlAcknowledgement
+
+**`Stable`**
+
+Durable result of one steer or cancel operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### commandDigest
+
+> `readonly` **commandDigest**: `string`
+
+##### target
+
+> `readonly` **target**: [`SupervisorControlTarget`](#supervisorcontroltarget)
+
+##### status
+
+> `readonly` **status**: `"conflict"` \| `"accepted"` \| `"unknown"` \| `"rejected"`
+
+##### effect
+
+> `readonly` **effect**: [`SupervisorControlEffect`](#supervisorcontroleffect)
+
+##### acknowledgedAt
+
+> `readonly` **acknowledgedAt**: `string`
+
+##### snapshotRevision?
+
+> `readonly` `optional` **snapshotRevision?**: `number`
+
+##### message?
+
+> `readonly` `optional` **message?**: `string`
+
+***
+
+### SupervisorControlEffectRequest
+
+**`Stable`**
+
+Stable identity and payload passed to the live effect boundary.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### commandDigest
+
+> `readonly` **commandDigest**: `string`
+
+##### source
+
+> `readonly` **source**: `string`
+
+##### target
+
+> `readonly` **target**: [`SupervisorControlTarget`](#supervisorcontroltarget)
+
+##### kind
+
+> `readonly` **kind**: `"steer"` \| `"cancel"`
+
+##### message?
+
+> `readonly` `optional` **message?**: `unknown`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### SupervisorControlEffectResult
+
+**`Stable`**
+
+Result returned by the live effect boundary.
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: `"accepted"` \| `"unknown"` \| `"rejected"`
+
+##### effect
+
+> `readonly` **effect**: [`SupervisorControlEffect`](#supervisorcontroleffect)
+
+##### message?
+
+> `readonly` `optional` **message?**: `string`
+
+***
+
+### SupervisorSteerInput
+
+**`Stable`**
+
+Input for a typed worker steer.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### workerId
+
+> `readonly` **workerId**: `string`
+
+##### message
+
+> `readonly` **message**: `unknown`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+***
+
+### SupervisorCancelInput
+
+**`Stable`**
+
+Input for a typed worker or root cancellation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+***
+
+### SupervisorWatchOptions
+
+**`Stable`**
+
+Options for watching snapshot revisions.
+
+#### Properties
+
+##### afterRevision?
+
+> `readonly` `optional` **afterRevision?**: `number`
+
+##### pollMs?
+
+> `readonly` `optional` **pollMs?**: `number`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### SupervisorControlClient
+
+**`Stable`**
+
+One watch/steer/cancel contract for in-process and reconnectable clients.
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+#### Methods
+
+##### snapshot()
+
+> **snapshot**(): `Promise`\<[`SupervisorControlSnapshot`](#supervisorcontrolsnapshot) \| `null`\>
+
+###### Returns
+
+`Promise`\<[`SupervisorControlSnapshot`](#supervisorcontrolsnapshot) \| `null`\>
+
+##### watch()
+
+> **watch**(`options?`): `AsyncIterable`\<[`SupervisorControlSnapshot`](#supervisorcontrolsnapshot)\>
+
+###### Parameters
+
+###### options?
+
+[`SupervisorWatchOptions`](#supervisorwatchoptions)
+
+###### Returns
+
+`AsyncIterable`\<[`SupervisorControlSnapshot`](#supervisorcontrolsnapshot)\>
+
+##### steer()
+
+> **steer**(`input`): `Promise`\<[`SupervisorControlAcknowledgement`](#supervisorcontrolacknowledgement)\>
+
+###### Parameters
+
+###### input
+
+[`SupervisorSteerInput`](#supervisorsteerinput)
+
+###### Returns
+
+`Promise`\<[`SupervisorControlAcknowledgement`](#supervisorcontrolacknowledgement)\>
+
+##### cancel()
+
+> **cancel**(`input`): `Promise`\<[`SupervisorControlAcknowledgement`](#supervisorcontrolacknowledgement)\>
+
+###### Parameters
+
+###### input
+
+[`SupervisorCancelInput`](#supervisorcancelinput)
+
+###### Returns
+
+`Promise`\<[`SupervisorControlAcknowledgement`](#supervisorcontrolacknowledgement)\>
+
+***
+
+### SupervisorControlClientOptions
+
+**`Stable`**
+
+Options for a reconnectable control client. The capability is supplied out of band.
+
+#### Properties
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+##### pollMs?
+
+> `readonly` `optional` **pollMs?**: `number`
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+##### capabilityToken?
+
+> `readonly` `optional` **capabilityToken?**: `string`
+
+Per-run secret capability returned by the owning route.
+
+***
+
+### SupervisorControlFiles
+
+**`Stable`**
+
+Files used by the reconnectable route.
+
+#### Properties
+
+##### directory
+
+> `readonly` **directory**: `string`
+
+##### owner
+
+> `readonly` **owner**: `string`
+
+##### capability
+
+> `readonly` **capability**: `string`
+
+##### commands
+
+> `readonly` **commands**: `string`
+
+##### acknowledgements
+
+> `readonly` **acknowledgements**: `string`
+
+##### effects
+
+> `readonly` **effects**: `string`
+
+##### snapshot
+
+> `readonly` **snapshot**: `string`
+
+***
+
+### SupervisorControlRouteOptions
+
+**`Stable`**
+
+Live callbacks consumed by the durable command reader.
+
+#### Properties
+
+##### runDir
+
+> `readonly` **runDir**: `string`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### capabilityToken?
+
+> `readonly` `optional` **capabilityToken?**: `string`
+
+Secret returned by the first route owner and supplied again after a process restart.
+Runtime persists only its digest; the application is responsible for protected storage.
+
+##### snapshot
+
+> `readonly` **snapshot**: () => [`TreeView`](runtime.md#treeview)
+
+###### Returns
+
+[`TreeView`](runtime.md#treeview)
+
+##### effectReceiver?
+
+> `readonly` `optional` **effectReceiver?**: [`SupervisorControlEffectReceiver`](#supervisorcontroleffectreceiver)
+
+##### steer?
+
+> `readonly` `optional` **steer?**: (`workerId`, `message`) => `boolean`
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### message
+
+`unknown`
+
+###### Returns
+
+`boolean`
+
+##### cancelWorker?
+
+> `readonly` `optional` **cancelWorker?**: (`workerId`, `reason?`) => `boolean`
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### cancelSupervisor?
+
+> `readonly` `optional` **cancelSupervisor?**: (`reason?`) => `boolean`
+
+###### Parameters
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### pollMs?
+
+> `readonly` `optional` **pollMs?**: `number`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### SupervisorControlRoute
+
+**`Stable`**
+
+Running durable route owned by one supervisor process.
+
+#### Properties
+
+##### capabilityToken
+
+> `readonly` **capabilityToken**: `string`
+
+Per-run capability that must be delivered out of band to command clients.
+
+#### Methods
+
+##### refresh()
+
+> **refresh**(): `void`
+
+###### Returns
+
+`void`
+
+##### rebind()
+
+> **rebind**(): `void`
+
+Rebind a route taken over from a dead supervisor after live ownership is proven.
+
+###### Returns
+
+`void`
+
+##### close()
+
+> **close**(`status`): `void`
+
+###### Parameters
+
+###### status
+
+`"completed"` \| `"cancelled"` \| `"failed"`
+
+###### Returns
+
+`void`
+
+***
+
 ### FinalizeContext
 
 What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled`
@@ -7958,19 +9004,6 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ### Executor
 
-The leaf runtime — ONE open interface, not a closed union. `execute` returns a
-`Promise<ExecutorResult>` for one-shot executors OR an `AsyncIterable<UsageEvent>` for
-streaming ones; a streaming executor reports incremental normalized usage as it runs
-(the budget pool reconciles against it) and exposes its terminal artifact via
-`resultArtifact()`. Both shapes normalize usage to `UsageEvent` so the conserved pool
-meters every runtime identically.
-
-Built-in implementations (in `runtime.ts`, NOT variants here): router/inline (a direct
-Router/HTTP inference call, no box), sandbox (COMPOSES `runAgentRounds` as a leaf, forwarding
-PR #150's optional `lineage` passthrough — does NOT reinvent checkpoint/fork), cli
-(Halo/RLM subprocess; `budgetExempt`, refused by budgeted supervision). A user's
-own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
-
 #### Type Parameters
 
 ##### Out
@@ -7981,28 +9014,17 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-4)
-
-Stable runtime tag for traces + the equal-k exemption check.
+> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-5)
 
 ##### budgetExempt?
 
 > `readonly` `optional` **budgetExempt?**: `boolean`
-
-When true, this executor cannot report the usage a conserved pool would need (for example, a
-subscription CLI with no token receipt). `Executor` can still be used directly, but `Scope`
-refuses it before `execute` so unknown compute can never appear as measured zero in a
-supervised or equal-resource run. A metered executor MUST report usage.
 
 #### Methods
 
 ##### execute()
 
 > **execute**(`task`, `signal`): `Promise`\<[`ExecutorResult`](runtime.md#executorresult)\<`Out`\>\> \| `AsyncIterable`\<[`UsageEvent`](runtime.md#usageevent), `any`, `any`\>
-
-One-shot → resolves a `ExecutorResult`; streaming → yields incremental `UsageEvent`s and
-the terminal artifact is read from `resultArtifact()` after the stream drains.
-`signal` is the spawn-scoped abort (chains the acquire lifecycle for sandbox).
 
 ###### Parameters
 
@@ -8022,12 +9044,6 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 
 > `optional` **deliver**(`msg`): `boolean` \| `void`
 
-Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
-verb). A streaming executor drains pending messages between turns and folds them into the next
-step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
-this; `Scope.send` then returns `false` for it. Never throws — an inbox that rejects a malformed
-message returns `false`, and that refusal propagates to the caller.
-
 ###### Parameters
 
 ###### msg
@@ -8042,17 +9058,6 @@ message returns `false`, and that refusal propagates to the caller.
 
 > `optional` **progress**(): [`ExecutorProgress`](runtime.md#executorprogress) \| `undefined`
 
-Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
-cheaply while `execute` is still streaming. The scope already derives activity timing,
-turns, and spend from the metered usage stream for EVERY executor; this adds only what
-the executor alone knows — the harness's tool/file activity, its own turn count, and how
-many delivered steers it has not yet folded in. Never throws; a read that cannot be
-answered returns `undefined`.
-
-This is the observe half of steering: `deliver` lets a driver correct a worker, and this
-is the evidence it corrects FROM. An executor that implements neither cannot be supervised
-mid-flight — it can only be waited on.
-
 ###### Returns
 
 [`ExecutorProgress`](runtime.md#executorprogress) \| `undefined`
@@ -8061,12 +9066,6 @@ mid-flight — it can only be waited on.
 
 > `optional` **traceSource**(): [`TraceSource`](runtime.md#tracesource-1) \| `undefined`
 
-Optional live tool-call trace for the ONLINE detectors (`watchTrace`). An executor that
-can see its worker's tool calls exposes them here, so a supervisor can run the streaming
-repeated-action / error-streak panel over a RUNNING worker and raise a `finding` the
-moment it loops, instead of discovering it at settle. Omitted = no online detection for
-this runtime (the settle-time analyzers still work).
-
 ###### Returns
 
 [`TraceSource`](runtime.md#tracesource-1) \| `undefined`
@@ -8074,9 +9073,6 @@ this runtime (the settle-time analyzers still work).
 ##### teardown()
 
 > **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; \}\>
-
-Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
-(`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
 
 ###### Parameters
 
@@ -8091,9 +9087,6 @@ Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 ##### resultArtifact()
 
 > **resultArtifact**(): `object`
-
-The replay source (B1): the content-addressed `outRef` + the materialized output the
-driver branched on, its verdict, and the conserved spend. Read once, after settle.
 
 ###### Returns
 
@@ -8119,13 +9112,6 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 
 > `optional` **accounting**(): [`ExecutorAccounting`](runtime.md#executoraccounting) \| `undefined`
 
-Optional accounting split for recursive executors.
-`reported` is the child-work spend written on this node's settlement; `reservation` is the
-whole amount reconciled against this node's parent reservation.
-They differ when a driver owns a nested allocation: its child work and own inference consume
-that allocation together, while the journal keeps those two categories separate.
-Valid after `execute` resolves or throws; ordinary leaf executors omit it.
-
 ###### Returns
 
 [`ExecutorAccounting`](runtime.md#executoraccounting) \| `undefined`
@@ -8134,13 +9120,6 @@ Valid after `execute` resolves or throws; ordinary leaf executors omit it.
 
 > `optional` **metered**(): [`Spend`](#spend) \| `undefined`
 
-A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
-events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
-the done AND the down/crash paths, so a crashed sub-driver's partial inference still re-homes
-(the pool already debited it via `observe`; the journal must match). NOT reconciled, so it never
-trips the reservation clamp. Read on settle, valid after `execute` resolves OR throws. Leaf
-executors omit it (returns `undefined`).
-
 ###### Returns
 
 [`Spend`](#spend) \| `undefined`
@@ -8148,17 +9127,6 @@ executors omit it (returns `undefined`).
 ***
 
 ### AgentSpec
-
-`AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
-one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
-an executor directly, without changing the profile's behavioral identity.
-
-Resolution (in `runtime.ts`):
- - `executorFactory` present → BYO: build it after admission with the live context.
- - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
- - `harness === null`        → router/inline: a direct Router call, no box.
- - `harness` is a `BackendType` → sandbox: compose `runAgentRounds` against `profile` on that backend.
-Fail loud on an unresolvable spec (no executor and an unknown harness).
 
 #### Properties
 
@@ -8170,44 +9138,27 @@ Fail loud on an unresolvable spec (no executor and an unknown harness).
 
 > `readonly` **harness**: `BackendType` \| `null`
 
-`null` selects router/inline; a `BackendType` selects the sandboxed harness.
-
 ##### execution?
 
 > `readonly` `optional` **execution?**: [`AgentExecutionRef`](runtime.md#agentexecutionref)
-
-Trusted candidate/campaign attribution supplied by the caller. Profile/task digests are
- computed by Scope from the exact values it executes and cannot be supplied here.
 
 ##### executorFactory?
 
 > `readonly` `optional` **executorFactory?**: [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
-Per-spawn factory carrying caller configuration. Constructed only after admission, with the
- real child signal and nested-scope context.
-
 ##### executor?
 
 > `readonly` `optional` **executor?**: [`Executor`](#executor-2)\<`unknown`\>
 
-Bring-your-own executor: when set, overrides harness-based resolution entirely.
-
 ***
 
 ### ExecutorRegistry
-
-The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
-registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
-register more runtimes by name. NOT a closed switch — registration is the extension
-point, mirroring the open `Executor` interface.
 
 #### Methods
 
 ##### register()
 
 > **register**\<`Out`\>(`runtime`, `factory`): `void`
-
-Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### Type Parameters
 
@@ -8219,7 +9170,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### runtime
 
-[`Runtime`](runtime.md#runtime-4)
+[`Runtime`](runtime.md#runtime-5)
 
 ###### factory
 
@@ -8232,11 +9183,6 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 ##### resolve()
 
 > **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](runtime.md#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
-
-Resolve a spec to a factory. Precedence: a BYO `spec.executorFactory` → `spec.executor` →
-`harness === null` → the `'router'` factory; else a registered
-factory for the harness-derived runtime. Returns a typed outcome — the caller
-inspects `succeeded` before `value` (no silent fallback).
 
 ###### Type Parameters
 
@@ -8257,8 +9203,6 @@ inspects `succeeded` before `value` (no silent fallback).
 ***
 
 ### Budget
-
-A budget envelope on a spawn or the root. All ceilings; the pool reserves against them.
 
 #### Properties
 
@@ -8282,9 +9226,6 @@ A budget envelope on a spawn or the root. All ceilings; the pool reserves agains
 
 ### Spend
 
-Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd
- are separate channels (never folded).
-
 #### Properties
 
 ##### iterations
@@ -8299,18 +9240,9 @@ Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and 
 
 > `optional` **tokensKnown?**: `boolean`
 
-Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
- an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
- not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
- turn whose provider reported no usage is recorded with this flag rather than omitted, because
- omitting it makes the turn look free.
-
 ##### usdKnown?
 
 > `optional` **usdKnown?**: `boolean`
-
-Dollar accounting is known unless explicitly false. A false value must not be treated as $0
- when enforcing a dollar-denominated comparison or limit.
 
 ##### usd
 
@@ -8324,11 +9256,6 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 ### Scope
 
-The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves
-budget atomically from the shared pool and fails closed when the pool cannot cover it.
-`next()` waits for one settlement from this scope's live set; `view` reads live state,
-not the replay log.
-
 #### Type Parameters
 
 ##### Out
@@ -8341,57 +9268,27 @@ not the replay log.
 
 > `readonly` **signal**: `AbortSignal`
 
-This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
- is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
- it to break promptly (the conserved pool + driver-stop are the other bounds). A nested
- scope carries its own signal, chained off its driver child's abort.
-
 ##### resume?
 
 > `readonly` `optional` **resume?**: [`ResumedWork`](runtime.md#resumedwork)\<`Out`\>
-
-Prior committed work, present ONLY on a resumed run (`undefined` on a fresh run, which is
-every run that did not pass `SupervisorOpts.resume`). The supervisor `loadTree`s the journal
-first; when a non-empty tree exists it rehydrates the already-settled children (via
-`replaySpawnTree`) and hands them here so a resume-aware `act` re-uses them instead of
-re-spawning committed work. A resume-blind driver simply ignores it and re-spawns — correct
-but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
-maxima, so any NEW spawn appends without colliding with a journaled event.
 
 ##### view
 
 > `readonly` **view**: [`TreeView`](runtime.md#treeview)
 
-The live tree — reads the in-memory nursery, not the journal.
-
 ##### budget
 
 > `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Conserved-pool readouts (post-reservation).
-
 ##### workerCapacity
 
 > `readonly` **workerCapacity**: `Readonly`\<\{ `live`: `number`; `freeSlots`: `number` \| `null`; \}\>
-
-One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
- the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
 
 #### Methods
 
 ##### spawn()
 
 > **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<`C`\>; `prior?`: [`SpawnPrior`](runtime.md#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](runtime.md#spawnrejection); \}
-
-Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
-lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
-Reserves `opts.budget` from the conserved pool atomically; refunds the unspent remainder on
-settle. Returns a typed outcome — fail-closed on an exhausted pool, an exceeded depth ceiling, a
-full worker allocation, or a still-live duplicate `key` (the caller inspects `ok` before
-`handle`). A KEYED spawn whose key already settled `done` invokes the factory only far enough to
-prepare and authorize the exact profile/task identity, then compares that identity with the
-journal. On a match it spends nothing, constructs no executor, reserves no budget, and runs no
-work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ###### Type Parameters
 
@@ -8421,9 +9318,6 @@ work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 > **next**(): `Promise`\<[`Settled`](#settled)\<`Out`\> \| `null`\>
 
-ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
- `null` when the live set is empty.
-
 ###### Returns
 
 `Promise`\<[`Settled`](#settled)\<`Out`\> \| `null`\>
@@ -8432,11 +9326,6 @@ ray.wait n=1 over this scope's in-memory live set; resolves as each child settle
 
 > **nextResolved**(): `Promise`\<[`Settled`](#settled)\<`Out`\> \| `null`\>
 
-Non-blocking twin of `next()`: deliver an ALREADY-settled, undelivered child, or `null`
-when none is ready — never awaits a live child. The driver's post-loop drain reads this so
-a child that settled while the driver was busy (or after it stopped pulling) still reaches
-the finalize ledger instead of being silently lost.
-
 ###### Returns
 
 `Promise`\<[`Settled`](#settled)\<`Out`\> \| `null`\>
@@ -8444,13 +9333,6 @@ the finalize ledger instead of being silently lost.
 ##### send()
 
 > **send**(`nodeId`, `msg`): `boolean`
-
-Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
-`send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
-delivered to a live child whose executor accepts delivery, `false` otherwise (unknown id,
-already settled, or an executor with no inbox). The executor drains its inbox between turns;
-a leaf that does not implement `deliver` simply cannot be steered mid-flight. In-process this
-is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
 
 ###### Parameters
 
@@ -8466,27 +9348,27 @@ is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an M
 
 `boolean`
 
+##### cancel()
+
+> **cancel**(`nodeId`, `reason?`): `boolean`
+
+###### Parameters
+
+###### nodeId
+
+`string`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`boolean`
+
 ##### wait()
 
 > **wait**(`spec`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<[`WaitOutcome`](runtime.md#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](runtime.md#waitrejection); \}
-
-Arm a WAIT-STATE node: a first-class tree node that waits on wall-clock time (`timer`) or on
-a named external predicate (`poll`) and settles through THIS scope's `next()` cursor like any
-other child — but holds no executor, no sandbox, and no conserved budget. Waiting costs zero
-tokens and zero dollars by construction.
-
-It is journaled (`waiting` → `woken`) with its ABSOLUTE deadline, so a run that dies mid-wait
-resumes still waiting: the supervisor surfaces the un-woken waits on `Scope.resume.waits`, and
-re-arming the same `label` adopts the recorded node id and original instant instead of
-restarting the countdown.
-
-Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `poll` naming a
-predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
-the pool's hard wall-clock ceiling — a wait never extends a budget guard).
-
-NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 15s fence makes
-the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
-and nothing about it survives a restart. See `supervise/wait.ts`.
 
 ###### Parameters
 
@@ -8496,7 +9378,9 @@ and nothing about it survives a restart. See `supervise/wait.ts`.
 
 ###### opts
 
-[`WaitOpts`](runtime.md#waitopts)
+###### label
+
+`string`
 
 ###### Returns
 
@@ -8505,15 +9389,6 @@ and nothing about it survives a restart. See `supervise/wait.ts`.
 ##### progress()
 
 > **progress**(`nodeId`, `opts?`): [`WorkerProgress`](runtime.md#workerprogress) \| `undefined`
-
-The LIVE read-model of one child, valid WHILE it runs: last-activity timestamp, idle time,
-a derived `stalled` flag, tokens/turns spent so far, whether a steer can even reach it
-(`steerable`), and whatever tool activity its executor exposes. `undefined` for an unknown
-id. This is the counterpart to `send`: a driver that can steer but cannot observe has
-nothing to steer on, which is precisely why steering went unused.
-
-Pull-based and side-effect free — reading it starts no timer and spends nothing. `now` and
-`stallAfterMs` are injectable so a caller (and a test) controls what counts as stalled.
 
 ###### Parameters
 
@@ -8539,9 +9414,6 @@ Pull-based and side-effect free — reading it starts no timer and spends nothin
 
 > **traceSource**(`nodeId`): [`TraceSource`](runtime.md#tracesource-1) \| `undefined`
 
-The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
- for running the online detector panel over a RUNNING worker. `undefined` otherwise.
-
 ###### Parameters
 
 ###### nodeId
@@ -8555,16 +9427,6 @@ The live tool-call trace of one child when its executor exposes one (`Executor.t
 ##### meter()
 
 > **meter**(`spend`, `detail?`): `Promise`\<`void`\>
-
-Meter the driver's OWN compute against the conserved pool — its inference turns, which are
-real tokens/usd but not a spawned child (no reserve/reconcile). A direct `free → committed`
-debit, so equal-k counts the driver's tokens AND the in-loop budget guard (`budget.tokensLeft`)
-halts a driver that thinks the pool dry. `detail` rides an `agent.turn` trace event for live
-observability (turn index, tool calls, cumulative spend). It also journals a `metered` event —
-the durable twin of the pool debit (as `settled` is the twin of `reconcile`) — so every
-journal-based cost reader (`spentFromJournal`, `trajectoryReport`) sums driver inference
-automatically. A leaf never calls this; a driver meters each chat turn and awaits it (the
-metered event is cost-critical, so it lands before the join-barrier roll-up).
 
 ###### Parameters
 
@@ -8583,10 +9445,6 @@ metered event is cost-critical, so it lands before the join-barrier roll-up).
 ***
 
 ### Supervisor
-
-Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
-and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
-live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 #### Type Parameters
 
@@ -8830,8 +9688,6 @@ Domain-free run provenance for auditability: the mount manifest recorded
 
 ### RuntimeTelemetryOptions
 
-**`Stable`**
-
 #### Extended by
 
 - [`RuntimeEventOtelOptions`](#runtimeeventoteloptions)
@@ -8842,50 +9698,33 @@ Domain-free run provenance for auditability: the mount manifest recorded
 
 > `optional` **includeInputs?**: `boolean`
 
-Include raw task inputs. Off by default because task inputs often contain
-customer facts, credentials, source text, or internal IDs.
-
 ##### includeRequirementDescriptions?
 
 > `optional` **includeRequirementDescriptions?**: `boolean`
-
-Include requirement descriptions. Secret requirements are always redacted.
 
 ##### includeEvidenceIds?
 
 > `optional` **includeEvidenceIds?**: `boolean`
 
-Include evidence IDs. Off by default; counts are safer for shared reports.
-
 ##### includeUserAnswers?
 
 > `optional` **includeUserAnswers?**: `boolean`
-
-Include user answers from question preflight. Off by default.
 
 ##### includeControlPayloads?
 
 > `optional` **includeControlPayloads?**: `boolean`
 
-Include action payloads and action results for control steps. Off by default.
-
 ##### includeMetadata?
 
 > `optional` **includeMetadata?**: `boolean`
-
-Include task metadata. Off by default because metadata may carry IDs or policy internals.
 
 ##### includeEvalDetails?
 
 > `optional` **includeEvalDetails?**: `boolean`
 
-Include eval detail/evidence strings. Off by default because validators may echo private input.
-
 ***
 
 ### SanitizedKnowledgeRequirement
-
-**`Stable`**
 
 #### Properties
 
@@ -8945,8 +9784,6 @@ Include eval detail/evidence strings. Off by default because validators may echo
 
 ### SanitizedKnowledgeReadinessReport
 
-**`Stable`**
-
 #### Properties
 
 ##### taskId
@@ -8991,6 +9828,60 @@ Include eval detail/evidence strings. Off by default because validators may echo
 
 ***
 
+### RuntimeStreamEventSummary
+
+#### Properties
+
+##### eventCount
+
+> **eventCount**: `number`
+
+##### eventCountsByType
+
+> **eventCountsByType**: `Record`\<`string`, `number`\>
+
+##### firstSessionId?
+
+> `optional` **firstSessionId?**: `string`
+
+##### finalStatus?
+
+> `optional` **finalStatus?**: [`AgentTaskStatus`](#agenttaskstatus)
+
+##### finalReason?
+
+> `optional` **finalReason?**: `string`
+
+##### finalText
+
+> **finalText**: `string`
+
+***
+
+### RuntimeStreamEventCollector
+
+#### Properties
+
+##### onEvent
+
+> **onEvent**: [`RuntimeStreamEventSink`](#runtimestreameventsink)
+
+##### events
+
+> **events**: `Record`\<`string`, `unknown`\>[]
+
+#### Methods
+
+##### summary()
+
+> **summary**(): [`RuntimeStreamEventSummary`](#runtimestreameventsummary)
+
+###### Returns
+
+[`RuntimeStreamEventSummary`](#runtimestreameventsummary)
+
+***
+
 ### RuntimeEventCollector
 
 **`Stable`**
@@ -9032,78 +9923,6 @@ Include eval detail/evidence strings. Off by default because validators may echo
 ##### events
 
 > **events**: `Record`\<`string`, `unknown`\>[]
-
-***
-
-### RuntimeStreamEventSummary
-
-**`Stable`**
-
-#### Properties
-
-##### eventCount
-
-> **eventCount**: `number`
-
-Total count of sanitized events collected.
-
-##### eventCountsByType
-
-> **eventCountsByType**: `Record`\<`string`, `number`\>
-
-Count of events per `type`. Useful for log-line summaries.
-
-##### firstSessionId?
-
-> `optional` **firstSessionId?**: `string`
-
-First session id observed in a `session_created` / `session_resumed` event, if any.
-
-##### finalStatus?
-
-> `optional` **finalStatus?**: [`AgentTaskStatus`](#agenttaskstatus)
-
-Last `final` event's status, if a final event was observed.
-
-##### finalReason?
-
-> `optional` **finalReason?**: `string`
-
-Last `final` event's reason, if a final event was observed.
-
-##### finalText
-
-> **finalText**: `string`
-
-Concatenated `text_delta.text` across the stream, even when payloads are redacted.
-
-***
-
-### RuntimeStreamEventCollector
-
-**`Stable`**
-
-#### Properties
-
-##### onEvent
-
-> **onEvent**: [`RuntimeStreamEventSink`](#runtimestreameventsink)
-
-##### events
-
-> **events**: `Record`\<`string`, `unknown`\>[]
-
-#### Methods
-
-##### summary()
-
-> **summary**(): [`RuntimeStreamEventSummary`](#runtimestreameventsummary)
-
-Snapshot of a small streaming-flavored summary derived from collected events.
-
-###### Returns
-
-[`RuntimeStreamEventSummary`](#runtimestreameventsummary)
 
 ***
 
@@ -9641,6 +10460,12 @@ keeping the backend transport thin lets domain repos own MCP plumbing.
 
 > `optional` **resumeToken?**: `string`
 
+##### controlRef?
+
+> `optional` **controlRef?**: `AgentRunControlRef`
+
+Stable provider coordinates when this session controls a retained run.
+
 ##### createdAt
 
 > **createdAt**: `string`
@@ -9886,6 +10711,100 @@ the outbound request; backends that don't issue HTTP may ignore them.
 ###### Returns
 
 `AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
+
+##### replay()?
+
+> `optional` **replay**(`controlRef`, `options?`): `AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
+
+Replay a retained run after an exclusive event cursor.
+
+###### Parameters
+
+###### controlRef
+
+`AgentRunControlRef`
+
+###### options?
+
+###### after?
+
+`string`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
+
+##### status()?
+
+> `optional` **status**(`controlRef`, `options?`): [`RuntimeSession`](#runtimesession) \| `Promise`\<[`RuntimeSession`](#runtimesession) \| `null`\> \| `null`
+
+Read retained-run status without starting or resuming work.
+
+###### Parameters
+
+###### controlRef
+
+`AgentRunControlRef`
+
+###### options?
+
+###### waitMs?
+
+`number`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+[`RuntimeSession`](#runtimesession) \| `Promise`\<[`RuntimeSession`](#runtimesession) \| `null`\> \| `null`
+
+##### respondToInteraction()?
+
+> `optional` **respondToInteraction**(`command`, `options?`): `Promise`\<\{ \}\>
+
+Submit one exactly-bound interaction response.
+
+###### Parameters
+
+###### command
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \}\>
+
+##### cancel()?
+
+> `optional` **cancel**(`controlRef`, `options?`): `Promise`\<`void`\>
+
+Explicitly cancel one retained run by its exact provider coordinates.
+
+###### Parameters
+
+###### controlRef
+
+`AgentRunControlRef`
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ##### stop()?
 
@@ -11301,436 +12220,11 @@ loop or product harness that is running the profile.
 
 ***
 
-### SupervisorFinalizer
-
-> **SupervisorFinalizer** = (`ctx`) => `Promise`\<`unknown` \| `undefined`\> \| `unknown` \| `undefined`
-
-The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out.
-
-#### Parameters
-
-##### ctx
-
-[`FinalizeContext`](#finalizecontext)
-
-#### Returns
-
-`Promise`\<`unknown` \| `undefined`\> \| `unknown` \| `undefined`
-
-***
-
-### WorkerTraceUnavailableReason
-
-> **WorkerTraceUnavailableReason** = `"execution-did-not-start"` \| `"executor-did-not-expose-trace-source"` \| `"trace-source-unavailable"` \| `"no-tool-spans-captured"` \| `"invalid-tool-spans"` \| `"trace-collection-failed"` \| `"trace-persistence-failed"` \| `"legacy-settlement-without-trace-evidence"` \| `"not-an-executor"`
-
-Why Runtime cannot provide structured tool-call evidence for one settled execution.
-
-***
-
-### WorkerTraceEvidence
-
-> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
-
-Durable proof of a worker's structured tool trace, or the exact reason it is unavailable.
-
-#### Union Members
-
-##### Type Literal
-
-\{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \}
-
-###### status
-
-> `readonly` **status**: `"available"`
-
-###### traceRef
-
-> `readonly` **traceRef**: `string`
-
-Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
-
-###### spanCount
-
-> `readonly` **spanCount**: `number`
-
-***
-
-##### Type Literal
-
-\{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
-
-***
-
-### Settled
-
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
-
-A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
-`next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
-in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
-
-#### Type Parameters
-
-##### Out
-
-`Out`
-
-#### Union Members
-
-##### Type Literal
-
-\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
-
-###### kind
-
-> **kind**: `"done"`
-
-###### handle
-
-> **handle**: [`Handle`](runtime.md#handle-2)\<`Out`\>
-
-###### out
-
-> **out**: `Out`
-
-###### outRef
-
-> **outRef**: `string`
-
-###### verdict?
-
-> `optional` **verdict?**: `DefaultVerdict`
-
-###### spent
-
-> **spent**: [`Spend`](#spend)
-
-###### trace
-
-> **trace**: [`WorkerTraceEvidence`](#workertraceevidence)
-
-Structured tool evidence captured before this settlement was journaled.
-
-###### settledAt?
-
-> `optional` **settledAt?**: `number`
-
-Epoch ms parsed from the durable settlement record when available.
-
-###### seq
-
-> **seq**: `number`
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
-
-###### kind
-
-> **kind**: `"down"`
-
-###### handle
-
-> **handle**: [`Handle`](runtime.md#handle-2)\<`Out`\>
-
-###### reason
-
-> **reason**: `string`
-
-###### infra
-
-> **infra**: `boolean`
-
-True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result.
-
-###### restartCount
-
-> **restartCount**: `number`
-
-###### trace
-
-> **trace**: [`WorkerTraceEvidence`](#workertraceevidence)
-
-Partial structured tool evidence captured before this failure was journaled.
-
-###### settledAt?
-
-> `optional` **settledAt?**: `number`
-
-Epoch ms parsed from the durable settlement/cancellation record when available.
-
-###### seq
-
-> **seq**: `number`
-
-***
-
-### SupervisedResult
-
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
-
-Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
-
-#### Type Parameters
-
-##### Out
-
-`Out`
-
-#### Union Members
-
-##### Type Literal
-
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
-
-###### kind
-
-> **kind**: `"winner"`
-
-###### out
-
-> **out**: `Out`
-
-###### outRef
-
-> **outRef**: `string`
-
-###### verdict?
-
-> `optional` **verdict?**: `DefaultVerdict`
-
-###### tree
-
-> **tree**: [`TreeView`](runtime.md#treeview)
-
-###### spentTotal
-
-> **spentTotal**: [`Spend`](#spend)
-
-###### spentBreakdown?
-
-> `optional` **spentBreakdown?**: `object`
-
-Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
- `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
- `driverInference + childWork === spentTotal`. Present whenever any driver metered.
-
-###### spentBreakdown.driverInference
-
-> **driverInference**: [`Spend`](#spend)
-
-###### spentBreakdown.childWork
-
-> **childWork**: [`Spend`](#spend)
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \}
-
-###### kind
-
-> **kind**: `"no-winner"`
-
-The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
-the reason is complete on its own and there is no driver rejection to hand back. A tripped
-breaker or a real `down` child is `all-children-down`, a cascaded abort is `aborted`, an
-empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
-BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
-
-###### reason
-
-> **reason**: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`
-
-###### tree
-
-> **tree**: [`TreeView`](runtime.md#treeview)
-
-###### downCount
-
-> **downCount**: `number`
-
-###### spentTotal
-
-> **spentTotal**: [`Spend`](#spend)
-
-The conserved spend incurred before the run failed — real cost is paid even when no
- worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads.
-
-###### error?
-
-> `optional` **error?**: `never`
-
-Never present on a lifecycle arm — the discriminant, not prose, is what makes
- `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it.
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
-
-###### kind
-
-> **kind**: `"no-winner"`
-
-The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
-(breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
-driver's own rejection is the only thing that does. It is therefore REQUIRED here.
-`all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
-result; this arm is that configuration/authoring fault, named.
-
-###### reason
-
-> **reason**: `"driver-failed"`
-
-###### tree
-
-> **tree**: [`TreeView`](runtime.md#treeview)
-
-###### downCount
-
-> **downCount**: `number`
-
-###### spentTotal
-
-> **spentTotal**: [`Spend`](#spend)
-
-The conserved spend incurred before the run failed — real cost is paid even when no
- worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads.
-
-###### error
-
-> **error**: [`NoWinnerError`](runtime.md#nowinnererror)
-
-The driver's own rejection, carried across the typed no-winner boundary so the failure is
- recoverable by the caller. A non-`Error` rejection is normalized, never dropped.
-
-***
-
-### RuntimeStreamEventSink
-
-> **RuntimeStreamEventSink** = (`event`) => `void`
-
-**`Stable`**
-
-#### Parameters
-
-##### event
-
-[`RuntimeStreamEvent`](#runtimestreamevent)
-
-#### Returns
-
-`void`
-
-***
-
-### AgentTaskStatus
-
-> **AgentTaskStatus** = `"completed"` \| `"blocked"` \| `"failed"` \| `"aborted"`
-
-**`Stable`**
-
-***
-
-### AgentRuntimeEvent
-
-> **AgentRuntimeEvent**\<`TState`, `TAction`, `TActionResult`, `TEval`\> = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; \} \| \{ `type`: `"control_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; \} \| \{ `type`: `"control_step"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `step`: `ControlStep`\<`TState`, `TAction`, `TActionResult`, `TEval`\>; \} \| \{ `type`: `"control_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `control`: `ControlRunResult`\<`TState`, `TAction`, `TActionResult`, `TEval`\>; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; \}
-
-**`Stable`**
-
-#### Type Parameters
-
-##### TState
-
-`TState` = `unknown`
-
-##### TAction
-
-`TAction` = `unknown`
-
-##### TActionResult
-
-`TActionResult` = `unknown`
-
-##### TEval
-
-`TEval` *extends* `ControlEvalResult` = `ControlEvalResult`
-
-***
-
-### AgentRuntimeEventSink
-
-> **AgentRuntimeEventSink**\<`TState`, `TAction`, `TActionResult`, `TEval`\> = (`event`) => `Promise`\<`void`\> \| `void`
-
-**`Stable`**
-
-#### Type Parameters
-
-##### TState
-
-`TState` = `unknown`
-
-##### TAction
-
-`TAction` = `unknown`
-
-##### TActionResult
-
-`TActionResult` = `unknown`
-
-##### TEval
-
-`TEval` *extends* `ControlEvalResult` = `ControlEvalResult`
-
-#### Parameters
-
-##### event
-
-[`AgentRuntimeEvent`](#agentruntimeevent)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
-
-#### Returns
-
-`Promise`\<`void`\> \| `void`
-
-***
-
-### OpenAIChatToolChoice
-
-> **OpenAIChatToolChoice** = `"auto"` \| `"none"` \| `"required"` \| \{ `type`: `"function"`; `function`: \{ `name`: `string`; \}; \}
-
-**`Stable`**
-
-`tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI
-spec: `'auto'` (default — model decides), `'none'` (disable tool calling
-for this turn), `'required'` (force a tool call), or a specific function
-pin `{ type: 'function', function: { name } }`.
-
-***
-
-### OpenAIChatResponseFormat
-
-> **OpenAIChatResponseFormat** = \{ `type`: `"text"`; \} \| \{ `type`: `"json_object"`; \} \| \{ `type`: `"json_schema"`; `json_schema`: `Record`\<`string`, `unknown`\>; \}
-
-**`Stable`**
-
-`response_format` parameter for OpenAI-compatible chat endpoints. Use
-`json_object` when the caller needs syntactically valid JSON, or
-`json_schema` when the upstream provider supports schema-constrained JSON.
-
-***
-
 ### RuntimeStreamEvent
 
-> **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+> **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"canonical_event"`; `event`: `StreamEvent`; `eventId?`: `string`; `cursor?`: `string`; `sequence?`: `number`; `occurredAt?`: `string`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
-**`Stable`**
+Stable events emitted by the task-stream runtime.
 
 #### Union Members
 
@@ -11838,49 +12332,51 @@ pin `{ type: 'function', function: { name } }`.
 
 ##### Type Literal
 
-\{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+\{ `type`: `"canonical_event"`; `event`: `StreamEvent`; `eventId?`: `string`; `cursor?`: `string`; `sequence?`: `number`; `occurredAt?`: `string`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `timestamp?`: `string`; \}
 
 ###### type
 
-> **type**: `"backend_error"`
+> **type**: `"canonical_event"`
 
-###### task
+Strict provider-independent event carried alongside legacy projections.
 
-> **task**: [`AgentTaskSpec`](#agenttaskspec)
+###### event
+
+> **event**: `StreamEvent`
+
+###### eventId?
+
+> `optional` **eventId?**: `string`
+
+###### cursor?
+
+> `optional` **cursor?**: `string`
+
+###### sequence?
+
+> `optional` **sequence?**: `number`
+
+###### occurredAt?
+
+> `optional` **occurredAt?**: `string`
+
+###### task?
+
+> `optional` **task?**: [`AgentTaskSpec`](#agenttaskspec)
 
 ###### session?
 
 > `optional` **session?**: [`RuntimeSession`](#runtimesession)
 
-###### backend
+###### timestamp?
 
-> **backend**: `string`
+> `optional` **timestamp?**: `string`
 
-###### message
+***
 
-> **message**: `string`
+##### Type Literal
 
-###### recoverable
-
-> **recoverable**: `boolean`
-
-###### error?
-
-> `optional` **error?**: [`BackendErrorDetail`](#backenderrordetail)
-
-Typed transport diagnostic. Present when the upstream returned a
-non-success HTTP status or every retry attempt threw. Consumers MUST
-surface this onto their `RunRecord.error` — silently treating a
-`backend_error` as "no output" hides credit exhaustion, auth failure,
-and upstream outages from operators.
- - `kind: 'transport'` — HTTP / network failure with optional `status`
-   + truncated response `body`.
- - `kind: 'backend'` — the backend's `stream()` generator threw for a
-   reason that isn't a recognized transport failure.
-
-###### timestamp
-
-> **timestamp**: `string`
+\{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
 ***
 
@@ -11900,48 +12396,250 @@ and upstream outages from operators.
 
 \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
-###### type
+***
 
-> **type**: `"final"`
+### RetainedRunEffect
 
-###### task
+> **RetainedRunEffect** = `"cancel_requested"` \| `"cancelled"` \| `"not_live"` \| `"unknown"`
 
-> **task**: [`AgentTaskSpec`](#agenttaskspec)
+**`Stable`**
 
-###### session?
+Effect recorded for one retained control operation.
 
-> `optional` **session?**: [`RuntimeSession`](#runtimesession)
+***
 
-###### status
+### NativeContextContinuationInput
 
-> **status**: [`AgentTaskStatus`](#agenttaskstatus)
+> **NativeContextContinuationInput** = `NativeContextContinuationTurn` & `Omit`\<`AgentNativeContextContinuationOptions`, `"turn"`\>
 
-###### reason
+**`Stable`**
 
-> **reason**: `string`
+Runtime controls plus the exact user turn bound into a continuation request.
 
-###### text?
+***
 
-> `optional` **text?**: `string`
+### NativeContextContinuationExecution
 
-###### metadata?
+> **NativeContextContinuationExecution** = `AgentNativeContextContinuationResult`
 
-> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+**`Stable`**
 
-###### error?
+Result of one verified same-session continuation.
 
-> `optional` **error?**: [`BackendErrorDetail`](#backenderrordetail)
+***
 
-Typed terminal-error diagnostic. Mirrors the `backend_error.error`
-shape so a consumer that only listens for `final` still receives a
-loud, structured failure when the backend never produced output. Only
-set when `status !== 'completed'`. Consumers building a `RunRecord`
-MUST map this to `RunRecord.error` rather than recording silent
-`error: null` with empty `finalText`.
+### SupervisorControlStatus
 
-###### timestamp
+> **SupervisorControlStatus** = `"starting"` \| `"running"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"unknown"`
 
-> **timestamp**: `string`
+**`Stable`**
+
+Terminal and live states observable through supervisor control.
+
+***
+
+### SupervisorControlTarget
+
+> **SupervisorControlTarget** = \{ `kind`: `"supervisor"`; `runId`: `string`; \} \| \{ `kind`: `"worker"`; `runId`: `string`; `workerId`: `string`; \}
+
+**`Stable`**
+
+Stable target of one control operation.
+
+***
+
+### SupervisorControlEffect
+
+> **SupervisorControlEffect** = `"delivered"` \| `"cancel_requested"` \| `"cancelled"` \| `"not_live"` \| `"unknown"`
+
+**`Stable`**
+
+Acknowledged control effect.
+
+***
+
+### SupervisorControlEffectReceiver
+
+> **SupervisorControlEffectReceiver** = (`request`) => [`SupervisorControlEffectResult`](#supervisorcontroleffectresult)
+
+**`Stable`**
+
+Idempotent boundary for applying one supervisor control effect.
+
+#### Parameters
+
+##### request
+
+[`SupervisorControlEffectRequest`](#supervisorcontroleffectrequest)
+
+#### Returns
+
+[`SupervisorControlEffectResult`](#supervisorcontroleffectresult)
+
+***
+
+### SupervisorFinalizer
+
+> **SupervisorFinalizer** = (`ctx`) => `Promise`\<`unknown` \| `undefined`\> \| `unknown` \| `undefined`
+
+The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out.
+
+#### Parameters
+
+##### ctx
+
+[`FinalizeContext`](#finalizecontext)
+
+#### Returns
+
+`Promise`\<`unknown` \| `undefined`\> \| `unknown` \| `undefined`
+
+***
+
+### WorkerTraceUnavailableReason
+
+> **WorkerTraceUnavailableReason** = `"execution-did-not-start"` \| `"executor-did-not-expose-trace-source"` \| `"trace-source-unavailable"` \| `"no-tool-spans-captured"` \| `"invalid-tool-spans"` \| `"trace-collection-failed"` \| `"trace-persistence-failed"` \| `"legacy-settlement-without-trace-evidence"` \| `"not-an-executor"`
+
+***
+
+### WorkerTraceEvidence
+
+> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
+
+***
+
+### Settled
+
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+***
+
+### SupervisedResult
+
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+***
+
+### RuntimeStreamEventSink
+
+> **RuntimeStreamEventSink** = (`event`) => `void`
+
+#### Parameters
+
+##### event
+
+[`RuntimeStreamEvent`](#runtimestreamevent)
+
+#### Returns
+
+`void`
+
+***
+
+### AgentTaskStatus
+
+> **AgentTaskStatus** = `"completed"` \| `"blocked"` \| `"failed"` \| `"aborted"`
+
+**`Stable`**
+
+***
+
+### AgentRuntimeEvent
+
+> **AgentRuntimeEvent**\<`TState`, `TAction`, `TActionResult`, `TEval`\> = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; \} \| \{ `type`: `"control_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; \} \| \{ `type`: `"control_step"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `step`: `ControlStep`\<`TState`, `TAction`, `TActionResult`, `TEval`\>; \} \| \{ `type`: `"control_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `control`: `ControlRunResult`\<`TState`, `TAction`, `TActionResult`, `TEval`\>; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; \}
+
+**`Stable`**
+
+#### Type Parameters
+
+##### TState
+
+`TState` = `unknown`
+
+##### TAction
+
+`TAction` = `unknown`
+
+##### TActionResult
+
+`TActionResult` = `unknown`
+
+##### TEval
+
+`TEval` *extends* `ControlEvalResult` = `ControlEvalResult`
+
+***
+
+### AgentRuntimeEventSink
+
+> **AgentRuntimeEventSink**\<`TState`, `TAction`, `TActionResult`, `TEval`\> = (`event`) => `Promise`\<`void`\> \| `void`
+
+**`Stable`**
+
+#### Type Parameters
+
+##### TState
+
+`TState` = `unknown`
+
+##### TAction
+
+`TAction` = `unknown`
+
+##### TActionResult
+
+`TActionResult` = `unknown`
+
+##### TEval
+
+`TEval` *extends* `ControlEvalResult` = `ControlEvalResult`
+
+#### Parameters
+
+##### event
+
+[`AgentRuntimeEvent`](#agentruntimeevent)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
+
+#### Returns
+
+`Promise`\<`void`\> \| `void`
+
+***
+
+### OpenAIChatToolChoice
+
+> **OpenAIChatToolChoice** = `"auto"` \| `"none"` \| `"required"` \| \{ `type`: `"function"`; `function`: \{ `name`: `string`; \}; \}
+
+**`Stable`**
+
+`tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI
+spec: `'auto'` (default — model decides), `'none'` (disable tool calling
+for this turn), `'required'` (force a tool call), or a specific function
+pin `{ type: 'function', function: { name } }`.
+
+***
+
+### OpenAIChatResponseFormat
+
+> **OpenAIChatResponseFormat** = \{ `type`: `"text"`; \} \| \{ `type`: `"json_object"`; \} \| \{ `type`: `"json_schema"`; `json_schema`: `Record`\<`string`, `unknown`\>; \}
+
+**`Stable`**
+
+`response_format` parameter for OpenAI-compatible chat endpoints. Use
+`json_object` when the caller needs syntactically valid JSON, or
+`json_schema` when the upstream provider supports schema-constrained JSON.
 
 ## Variables
 
@@ -14615,6 +15313,34 @@ Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (mod
 
 ***
 
+### envelopeRuntimeEvents()
+
+> **envelopeRuntimeEvents**(`events`, `options`): `AsyncGenerator`\<[`RuntimeStreamEventEnvelope`](#runtimestreameventenvelope)\>
+
+**`Stable`**
+
+Wrap an existing stream without buffering it.
+
+A source-provided id or cursor is required. A sequence is ordering metadata,
+not an identity: synthesizing an invocation-local id would make replay after
+reconnect indistinguishable from a new event.
+
+#### Parameters
+
+##### events
+
+`AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
+
+##### options
+
+[`EnvelopeRuntimeEventsOptions`](#enveloperuntimeeventsoptions)
+
+#### Returns
+
+`AsyncGenerator`\<[`RuntimeStreamEventEnvelope`](#runtimestreameventenvelope)\>
+
+***
+
 ### defineRuntimeHooks()
 
 > **defineRuntimeHooks**(`hooks`): [`RuntimeHooks`](#runtimehooks)
@@ -14726,13 +15452,222 @@ lifetime; consumers should not share it across requests.
 
 ***
 
+### planPortableContext()
+
+> **planPortableContext**(`request`, `options?`): `PortableContextPlanResult`
+
+**`Stable`**
+
+Build a complete canonical context plan without creating an environment or
+dispatching a run. Unknown parts require an explicit transform or omission.
+
+#### Parameters
+
+##### request
+
+`PortableContextPlanRequest`
+
+##### options?
+
+[`PlanPortableContextOptions`](#planportablecontextoptions) = `{}`
+
+#### Returns
+
+`PortableContextPlanResult`
+
+***
+
+### executePortableContextTransfer()
+
+> **executePortableContextTransfer**(`options`): `Promise`\<[`PortableContextTransferExecution`](#portablecontexttransferexecution)\>
+
+**`Stable`**
+
+Admit one accepted context into a provider-created fresh session and accept
+success only when the provider returns the exact shared receipt.
+
+#### Parameters
+
+##### options
+
+[`ExecutePortableContextTransferOptions`](#executeportablecontexttransferoptions)
+
+#### Returns
+
+`Promise`\<[`PortableContextTransferExecution`](#portablecontexttransferexecution)\>
+
+***
+
+### startRetainedRun()
+
+> **startRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+**`Stable`**
+
+Dispatch one detached, replayable run and return only after exact durable
+coordinates are confirmed by the provider.
+
+#### Parameters
+
+##### options
+
+[`StartRetainedRunOptions`](#startretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+***
+
+### reconnectRetainedRun()
+
+> **reconnectRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle) \| `null`\>
+
+**`Stable`**
+
+Rebuild a retained-run client without retaining any object from the starter.
+
+#### Parameters
+
+##### options
+
+[`ReconnectRetainedRunOptions`](#reconnectretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle) \| `null`\>
+
+***
+
+### createInProcessSupervisorControlClient()
+
+> **createInProcessSupervisorControlClient**(`handle`, `options?`): [`SupervisorControlClient`](#supervisorcontrolclient)
+
+**`Stable`**
+
+Build a control client over a root handle bound to one live run.
+
+#### Parameters
+
+##### handle
+
+[`ControllableRootHandle`](runtime.md#controllableroothandle)\<`unknown`\>
+
+##### options?
+
+###### runId?
+
+`string`
+
+###### now?
+
+() => `number`
+
+###### pollMs?
+
+`number`
+
+#### Returns
+
+[`SupervisorControlClient`](#supervisorcontrolclient)
+
+***
+
+### createFileSupervisorControlClient()
+
+> **createFileSupervisorControlClient**(`runDir`, `options?`): [`SupervisorControlClient`](#supervisorcontrolclient)
+
+**`Stable`**
+
+Build a client that can be recreated in another process from the run directory.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+##### options?
+
+[`SupervisorControlClientOptions`](#supervisorcontrolclientoptions) = `{}`
+
+#### Returns
+
+[`SupervisorControlClient`](#supervisorcontrolclient)
+
+***
+
+### supervisorSteerCommandDigest()
+
+> **supervisorSteerCommandDigest**(`runId`, `input`): `string`
+
+**`Stable`**
+
+Return the canonical digest that identifies a supervisor steer before delivery.
+
+#### Parameters
+
+##### runId
+
+`string`
+
+##### input
+
+`Pick`\<[`SupervisorSteerInput`](#supervisorsteerinput), `"operationId"` \| `"workerId"` \| `"message"` \| `"source"`\>
+
+#### Returns
+
+`string`
+
+***
+
+### supervisorControlFiles()
+
+> **supervisorControlFiles**(`runDir`): [`SupervisorControlFiles`](#supervisorcontrolfiles-3)
+
+**`Stable`**
+
+Resolve every control-route path from an already-owned run directory.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+[`SupervisorControlFiles`](#supervisorcontrolfiles-3)
+
+***
+
+### startSupervisorControlRoute()
+
+> **startSupervisorControlRoute**(`options`): [`SupervisorControlRoute`](#supervisorcontrolroute)
+
+**`Stable`**
+
+Start reading durable commands and publishing runtime snapshots.
+
+#### Parameters
+
+##### options
+
+[`SupervisorControlRouteOptions`](#supervisorcontrolrouteoptions)
+
+#### Returns
+
+[`SupervisorControlRoute`](#supervisorcontrolroute)
+
+***
+
 ### sanitizeKnowledgeReadinessReport()
 
 > **sanitizeKnowledgeReadinessReport**(`report`, `options?`): [`SanitizedKnowledgeReadinessReport`](#sanitizedknowledgereadinessreport)
 
 **`Stable`**
 
-Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission.
+Strip private inputs and large evidence blobs from a readiness report.
 
 #### Parameters
 
@@ -14747,6 +15682,50 @@ Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry e
 #### Returns
 
 [`SanitizedKnowledgeReadinessReport`](#sanitizedknowledgereadinessreport)
+
+***
+
+### sanitizeRuntimeStreamEvent()
+
+> **sanitizeRuntimeStreamEvent**(`event`, `options?`): `Record`\<`string`, `unknown`\>
+
+**`Stable`**
+
+Reduce one runtime stream event to a serializable, telemetry-safe object.
+
+#### Parameters
+
+##### event
+
+[`RuntimeStreamEvent`](#runtimestreamevent)
+
+##### options?
+
+[`RuntimeTelemetryOptions`](#runtimetelemetryoptions) = `{}`
+
+#### Returns
+
+`Record`\<`string`, `unknown`\>
+
+***
+
+### createRuntimeStreamEventCollector()
+
+> **createRuntimeStreamEventCollector**(`options?`): [`RuntimeStreamEventCollector`](#runtimestreameventcollector)
+
+**`Stable`**
+
+Create a collector that stores sanitized events and a compact summary.
+
+#### Parameters
+
+##### options?
+
+[`RuntimeTelemetryOptions`](#runtimetelemetryoptions) = `{}`
+
+#### Returns
+
+[`RuntimeStreamEventCollector`](#runtimestreameventcollector)
 
 ***
 
@@ -14781,30 +15760,6 @@ Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telem
 ##### event
 
 [`AgentRuntimeEvent`](#agentruntimeevent)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
-
-##### options?
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions) = `{}`
-
-#### Returns
-
-`Record`\<`string`, `unknown`\>
-
-***
-
-### sanitizeRuntimeStreamEvent()
-
-> **sanitizeRuntimeStreamEvent**(`event`, `options?`): `Record`\<`string`, `unknown`\>
-
-**`Stable`**
-
-Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry.
-
-#### Parameters
-
-##### event
-
-[`RuntimeStreamEvent`](#runtimestreamevent)
 
 ##### options?
 
@@ -14851,31 +15806,6 @@ Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s
 #### Returns
 
 [`RuntimeEventCollector`](#runtimeeventcollector)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
-
-***
-
-### createRuntimeStreamEventCollector()
-
-> **createRuntimeStreamEventCollector**(`options?`): [`RuntimeStreamEventCollector`](#runtimestreameventcollector)
-
-**`Stable`**
-
-Streaming-event counterpart of `createRuntimeEventCollector`. Pass each
-event yielded by `runAgentTaskStream` through `onEvent` and read the
-sanitized copies off `events`; the same `RuntimeTelemetryOptions` redaction
-flags apply. Kept distinct from `createRuntimeEventCollector` because the
-stream and non-stream event shapes overlap on `type` literals — dispatching
-on `type` alone would misroute events.
-
-#### Parameters
-
-##### options?
-
-[`RuntimeTelemetryOptions`](#runtimetelemetryoptions) = `{}`
-
-#### Returns
-
-[`RuntimeStreamEventCollector`](#runtimestreameventcollector)
 
 ***
 

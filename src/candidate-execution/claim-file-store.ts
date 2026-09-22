@@ -272,9 +272,12 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
     const stored = await readClaimIfPresent(claimPath)
     if (!stored) return undefined
     assertSameSlot(stored.claim, claim, claimPath)
-    const state = await this.transitionState(stored.claim)
     const terminalPath = this.terminalPath(claim)
+    // Terminal publication is ordered after staging. Read it first so a
+    // concurrent finisher cannot publish both records between our staging
+    // snapshot and terminal read, which would create a false orphan verdict.
     const terminal = await readTerminalIfPresent(terminalPath)
+    const state = await this.transitionState(stored.claim)
     if (terminal) {
       assertTerminalMatchesClaim(terminal, stored.claim, terminalPath)
       if (!state.staged) {

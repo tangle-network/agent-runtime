@@ -7,6 +7,9 @@ import { defineConfig } from 'vitest/config'
 //   ../node_modules/.bin/vitest run
 export default defineConfig({
   test: {
+    // SQLite-backed backfill fixtures need more than Vitest's 5s default when
+    // the repository suite is running alongside the bench workers.
+    testTimeout: 15_000,
     include: [
       'src/swe-arena/**/*.test.mts',
       'src/quant-arena/**/*.test.mts',

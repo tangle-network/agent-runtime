@@ -16,7 +16,7 @@
  *   cd ~/company/devops/secrets && dotenvx run -f agent-state.env -f tangle-router.env -- bash -c \
  *     'cd ~/code/agent-runtime-swe && OUT=/path/swe-stage0.jsonl node_modules/.bin/tsx bench/src/swe-repro-calibrate.mts'
  *
- * Env: ZAI_API_KEY (required unless CANARY_ONLY), ZAI_BASE, MODEL=glm-5.2, MAX_TOKENS=12000, TEMP=0.2,
+ * Env: ZAI_API_KEY (required unless CANARY_ONLY), ZAI_BASE, MODEL=glm-5.2, MAX_TOKENS=12000, TEMPERATURE=0.2,
  *      CONC=3, REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000, IDS=comma-list override, OUT=jsonl path,
  *      REPRO_EXEC=mount|image (execution substrate; see the constant below),
  *      CANARY_ONLY=1 (run ONLY the per-instance execution canary — no model calls, no grading —
@@ -30,6 +30,7 @@ import { promisify } from 'node:util'
 import type { AgenticTask, ArtifactHandle } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata } from './swe-bench-env'
+import { resolveModelTemperature } from './swe-structural-policy'
 import {
   APPLY_SENTINEL,
   cachedInstanceIds,
@@ -53,7 +54,7 @@ const ZAI_KEY = process.env.ZAI_API_KEY ?? ''
 const MODEL = process.env.MODEL ?? 'glm-5.2'
 // glm-5.2 is a reasoning model: hidden reasoning consumes max_tokens, so <8000 starves content.
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 12_000)
-const TEMP = Number(process.env.TEMP ?? 0.2)
+const TEMP = resolveModelTemperature(process.env, { defaultValue: 0.2 })
 const CONC = Math.max(1, Math.min(3, Number(process.env.CONC ?? 3)))
 const REPRO_TIMEOUT_S = Number(process.env.REPRO_TIMEOUT ?? 120)
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 480_000)

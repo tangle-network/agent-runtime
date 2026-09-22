@@ -3,9 +3,7 @@
  * `./top-model` renders, plus the two operator controls that write back to the run — steer a live
  * worker, and request cancellation of a run.
  *
- * Both controls go through the owned run layout: steers via `writeWorkerSteer` (the durable inbox
- * append), cancellation via a file inside the run directory the snapshot reported. Nothing here
- * joins a path from the workspace root.
+ * Both controls go through the runtime's typed, acknowledged control client.
  *
  * Extracted from the `loops` repo (`src/top.ts`). The module-level singletons are the origin's
  * shape and are kept: this drives one terminal, and `runTopApp` is its one entry point.
@@ -14,10 +12,15 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
-import { writeWorkerSteer } from '../runtime/supervise/run-layout'
+import {
+  type PendingSupervisorSteer,
+  startSupervisorCancel,
+  startSupervisorSteer,
+} from './control-actions'
 import {
   loadTopSnapshot,
   type RenderTarget,
@@ -27,12 +30,15 @@ import {
 
 interface UiState {
   root: string
+  controlCapabilityToken: string | undefined
   color: boolean
   focus: 'supervisors' | 'workers'
   mode: 'overview' | 'detail' | 'log'
   selectedSupervisorId: string | undefined
   selectedWorkerId: string | undefined
   notice: string | undefined
+  pendingSteer: PendingSupervisorSteer | undefined
+  pendingCancel: { runId: string; operationId: string } | undefined
   steerInput: {
     active: boolean
     value: string
@@ -43,9 +49,11 @@ interface UiState {
 export interface TopAppOptions {
   readonly argv?: readonly string[]
   readonly cwd?: string
+  /** Secret delivered separately from the run directory; required for steer and cancel. */
+  readonly controlCapabilityToken?: string
 }
 
-let state: UiState = initialState([], process.cwd())
+let state: UiState = initialState([], process.cwd(), undefined)
 let snapshot: TopSnapshot = { root: state.root, generatedAt: 0, supervisors: [] }
 let targets: RenderTarget[] = []
 let timer: NodeJS.Timeout | undefined
@@ -56,7 +64,7 @@ let timer: NodeJS.Timeout | undefined
  */
 export function renderTopOnce(options: TopAppOptions = {}): string {
   const args = [...(options.argv ?? process.argv.slice(2))]
-  state = initialState(args, options.cwd ?? process.cwd())
+  state = initialState(args, options.cwd ?? process.cwd(), options.controlCapabilityToken)
   snapshot = loadTopSnapshot(state.root)
   clampSelection()
   return renderTopFrameWithLayout(snapshot, {
@@ -80,21 +88,28 @@ export function runTopApp(options: TopAppOptions = {}): void {
     process.stdout.write(renderTopOnce(options))
     return
   }
-  state = initialState(args, options.cwd ?? process.cwd())
+  state = initialState(args, options.cwd ?? process.cwd(), options.controlCapabilityToken)
   snapshot = loadTopSnapshot(state.root)
   start()
 }
 
-function initialState(args: readonly string[], cwd: string): UiState {
+function initialState(
+  args: readonly string[],
+  cwd: string,
+  controlCapabilityToken: string | undefined,
+): UiState {
   const rootArg = args.find((arg) => !arg.startsWith('-'))
   return {
     root: resolve(rootArg ?? cwd),
+    controlCapabilityToken,
     color: Boolean(process.stdout.isTTY) && !args.includes('--no-color'),
     focus: args.includes('--detail') ? 'workers' : 'supervisors',
     mode: args.includes('--log') ? 'log' : args.includes('--detail') ? 'detail' : 'overview',
     selectedSupervisorId: undefined,
     selectedWorkerId: undefined,
     notice: undefined,
+    pendingSteer: undefined,
+    pendingCancel: undefined,
     steerInput: { active: false, value: '' },
   }
 }
@@ -252,7 +267,16 @@ function startSteerInput(): void {
     state.notice = 'no worker selected'
     return
   }
-  state.steerInput = { active: true, value: '' }
+  const pendingSteer = state.pendingSteer
+  state.steerInput = {
+    active: true,
+    value:
+      pendingSteer !== undefined &&
+      pendingSteer.runId === selectedSupervisor()?.id &&
+      pendingSteer.workerId === state.selectedWorkerId
+        ? pendingSteer.message
+        : '',
+  }
 }
 
 function submitSteerInput(): void {
@@ -269,10 +293,39 @@ function submitSteerInput(): void {
     return
   }
   try {
-    // The snapshot already carries the worker LABEL the layout keys inboxes by, so this is the
-    // direct durable append with no id-to-label resolution step in between.
-    const written = writeWorkerSteer(state.root, supervisor.id, worker.label, message, 'human')
-    state.notice = `steer queued for ${supervisor.id}/${written.worker}`
+    const request = startSupervisorSteer({
+      stateDir: supervisor.stateDir,
+      runId: supervisor.id,
+      workerId: worker.id,
+      message,
+      capabilityToken: state.controlCapabilityToken,
+      pending: state.pendingSteer,
+    })
+    state.pendingSteer = request.pending
+    state.notice = `sending steer to ${supervisor.id}/${worker.label}`
+    void request.acknowledgement
+      .then((acknowledgement) => {
+        if (state.pendingSteer?.operationId !== request.pending.operationId) return
+        if (acknowledgement.status === 'unknown') {
+          state.pendingSteer = {
+            operationId: acknowledgement.operationId,
+            commandDigest: acknowledgement.commandDigest,
+            runId: supervisor.id,
+            workerId: worker.id,
+            message,
+          }
+        } else {
+          state.pendingSteer = undefined
+        }
+        state.notice = `${acknowledgement.effect}: ${supervisor.id}/${worker.label}`
+        draw()
+      })
+      .catch((error) => {
+        if (state.pendingSteer?.operationId !== request.pending.operationId) return
+        state.pendingSteer = request.pending
+        state.notice = `steer failed: ${error instanceof Error ? error.message : String(error)}`
+        draw()
+      })
   } catch (err) {
     state.notice = `steer failed: ${err instanceof Error ? err.message : String(err)}`
   }
@@ -385,26 +438,32 @@ function requestCancel(): void {
     state.notice = 'no supervisor selected'
     return
   }
-  if (supervisor.status !== 'running') {
+  if (supervisor.status !== 'running' && supervisor.status !== 'unknown') {
     state.notice = `${supervisor.id} is ${supervisor.status}; no cancel request written`
     return
   }
   try {
-    mkdirSync(supervisor.stateDir, { recursive: true })
-    writeFileSync(
-      join(supervisor.stateDir, 'cancel.request.json'),
-      `${JSON.stringify(
-        {
-          at: new Date().toISOString(),
-          source: 'agent-runtime-top',
-          reason: 'operator requested cancel from TUI',
-        },
-        null,
-        2,
-      )}\n`,
-      'utf8',
-    )
-    state.notice = `cancel requested for ${supervisor.id}`
+    const pending = state.pendingCancel?.runId === supervisor.id ? state.pendingCancel : undefined
+    const operationId = pending?.operationId ?? randomUUID()
+    state.pendingCancel = { runId: supervisor.id, operationId }
+    state.notice = `requesting cancel for ${supervisor.id}`
+    void startSupervisorCancel({
+      stateDir: supervisor.stateDir,
+      runId: supervisor.id,
+      operationId,
+      capabilityToken: state.controlCapabilityToken,
+    })
+      .then((acknowledgement) => {
+        if (state.pendingCancel?.operationId !== operationId) return
+        if (acknowledgement.status !== 'unknown') state.pendingCancel = undefined
+        state.notice = `${acknowledgement.effect}: ${supervisor.id}`
+        draw()
+      })
+      .catch((error) => {
+        if (state.pendingCancel?.operationId !== operationId) return
+        state.notice = `cancel request failed: ${error instanceof Error ? error.message : String(error)}`
+        draw()
+      })
   } catch (err) {
     state.notice = `cancel request failed: ${err instanceof Error ? err.message : String(err)}`
   }

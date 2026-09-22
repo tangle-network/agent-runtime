@@ -16,7 +16,7 @@ import {
   SWE_SEED_PROMPT,
   SWE_SEED_PROMPT_WITH_RUN,
 } from './swe-bench-env'
-import { absoluteSweTempDir } from './swe-temp'
+import { absoluteSweTempDir, validateSweTempDir } from './swe-temp'
 
 const makeRelativeSymlinkRepo = (): { root: string; source: string; destination: string; links: string[] } => {
   const root = mkdtempSync(join(tmpdir(), 'swe-cache-copy-'))
@@ -92,22 +92,9 @@ describe('SWE worker prompts', () => {
 })
 
 describe('SWE temporary directory', () => {
-  it('stays absolute when model temperature is configured through TEMPERATURE', () => {
-    const priorTemp = process.env.TEMP
-    const priorTemperature = process.env.TEMPERATURE
-    try {
-      delete process.env.TEMP
-      process.env.TEMPERATURE = '0.8'
-      assert.equal(isAbsolute(absoluteSweTempDir()), true)
-
-      process.env.TEMP = '0.8'
-      assert.throws(() => absoluteSweTempDir(), /must be absolute.*TEMPERATURE/)
-    } finally {
-      if (priorTemp === undefined) delete process.env.TEMP
-      else process.env.TEMP = priorTemp
-      if (priorTemperature === undefined) delete process.env.TEMPERATURE
-      else process.env.TEMPERATURE = priorTemperature
-    }
+  it('keeps the default absolute and rejects a relative configured temp root', () => {
+    assert.equal(isAbsolute(absoluteSweTempDir()), true)
+    assert.throws(() => validateSweTempDir('0.8'), /must be absolute.*TEMPERATURE/)
   })
 })
 

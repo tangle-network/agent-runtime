@@ -3,6 +3,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spa
 import { ValidationError } from '../../errors'
 import { createExecutorRegistry } from './runtime'
 import { createSupervisor } from './supervisor'
+import { supervisorAbortError } from './supervisor-finalization'
 import type { Agent, Scope, Spend, SupervisorOpts } from './types'
 
 /** A supervisor wired to in-memory durability with a frozen clock — no network, no sandbox. The
@@ -33,6 +34,15 @@ function driver(body: (scope: Scope<unknown>) => Promise<unknown>): Agent<unknow
 }
 
 describe('supervisor: the driver rejection survives onto the typed no-winner', () => {
+  it('preserves a DOMException AbortError without mutating its read-only name', () => {
+    const controller = new AbortController()
+    const reason = new DOMException('caller cancelled', 'AbortError')
+    controller.abort(reason)
+
+    expect(supervisorAbortError(controller.signal)).toBe(reason)
+    expect(reason.name).toBe('AbortError')
+  })
+
   it('carries the rejection and names a driver failure when no child ever went down', async () => {
     // The real production shape: a misconfigured run that dies before the tree exists.
     const fault = new ValidationError('executors: no executor registered for runtime "router"')

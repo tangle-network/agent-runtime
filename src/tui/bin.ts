@@ -3,7 +3,8 @@
 /**
  * `agent-runtime-top` — watch the supervisor runs of one workspace.
  *
- *   agent-runtime-top [root] [--once] [--no-color] [--detail] [--log]
+ *   AGENT_RUNTIME_SUPERVISOR_CONTROL_TOKEN=... agent-runtime-top [root]
+ *     [--once] [--no-color] [--detail] [--log]
  *
  * `root` is the workspace whose `.agent/supervisor/` runs are shown; it defaults to the current
  * directory. With a TTY on both ends the view refreshes every second and takes the keys it prints
@@ -14,4 +15,6 @@
 
 import { runTopApp } from './top-app'
 
-runTopApp()
+const controlCapabilityToken = process.env.AGENT_RUNTIME_SUPERVISOR_CONTROL_TOKEN
+delete process.env.AGENT_RUNTIME_SUPERVISOR_CONTROL_TOKEN
+runTopApp(controlCapabilityToken === undefined ? {} : { controlCapabilityToken })

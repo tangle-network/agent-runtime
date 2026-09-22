@@ -20,7 +20,7 @@
  */
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
+import type { LoopSandboxPlacement, SandboxClient } from '../runtime/types'
 
 /** @experimental */
 export interface DelegationExecutor {

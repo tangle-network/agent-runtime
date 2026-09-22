@@ -25,11 +25,12 @@ import type {
   AgentRunSpec,
   Iteration,
   LoopTraceEmitter,
-  Outcome,
   SandboxClient,
-  WinnerStrategy,
-} from '../runtime'
-import { runAgentRounds, selectValidWinner } from '../runtime'
+} from '../runtime/types'
+import type { Outcome } from '../runtime/personify/types'
+import type { WinnerStrategy } from '../runtime/personify/wave-types'
+import { selectValidWinner } from '../runtime/personify/combinators'
+import { runAgentRounds } from '../runtime/run-loop'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type CoderOutput,

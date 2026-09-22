@@ -28,6 +28,14 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 **`Experimental`**
 
+##### controlCapabilityToken?
+
+> `readonly` `optional` **controlCapabilityToken?**: `string`
+
+**`Experimental`**
+
+Secret delivered separately from the run directory; required for steer and cancel.
+
 ***
 
 ### TopSnapshot
@@ -334,7 +342,7 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 ##### status
 
-> `readonly` **status**: `"done"` \| `"down"` \| `"running"` \| `"cancelled"`
+> `readonly` **status**: `"done"` \| `"down"` \| `"cancelled"` \| `"running"`
 
 ##### verdict?
 
@@ -610,8 +618,6 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 > **renderTopOnce**(`options?`): `string`
 
-**`Experimental`**
-
 Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a
 test — so it never touches raw mode, the alternate screen, or `process.exit`.
 
@@ -630,8 +636,6 @@ test — so it never touches raw mode, the alternate screen, or `process.exit`.
 ### runTopApp()
 
 > **runTopApp**(`options?`): `void`
-
-**`Experimental`**
 
 Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`;
 otherwise it writes a single frame to stdout and returns.
@@ -717,3 +721,27 @@ alongside the text is what keeps click handling out of the renderer.
 #### Returns
 
 [`RenderedTopFrame`](#renderedtopframe)
+
+## References
+
+### createFileSupervisorControlClient
+
+Re-exports [createFileSupervisorControlClient](index.md#createfilesupervisorcontrolclient)
+
+***
+
+### SupervisorControlAcknowledgement
+
+Re-exports [SupervisorControlAcknowledgement](index.md#supervisorcontrolacknowledgement)
+
+***
+
+### SupervisorControlClient
+
+Re-exports [SupervisorControlClient](index.md#supervisorcontrolclient)
+
+***
+
+### SupervisorControlSnapshot
+
+Re-exports [SupervisorControlSnapshot](index.md#supervisorcontrolsnapshot)

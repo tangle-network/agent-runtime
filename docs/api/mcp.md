@@ -1899,7 +1899,7 @@ machineId so workers don't compete with the orchestrator on the same VM.
 
 ##### by
 
-> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
+> **by**: `"user"` \| `"agent"` \| `"downstream-judge"`
 
 **`Experimental`**
 
@@ -4750,7 +4750,7 @@ Best-effort hint — coder loops can take minutes-to-hours.
 
 ##### kind
 
-> **kind**: `"artifact"` \| `"outcome"` \| `"delegation"`
+> **kind**: `"outcome"` \| `"artifact"` \| `"delegation"`
 
 **`Experimental`**
 
@@ -4812,7 +4812,7 @@ For `'delegation'`, this is the taskId.
 
 ##### by
 
-> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
+> **by**: `"user"` \| `"agent"` \| `"downstream-judge"`
 
 **`Experimental`**
 
@@ -5297,7 +5297,7 @@ Default 50. Hard cap 500.
 
 ##### by
 
-> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
+> **by**: `"user"` \| `"agent"` \| `"downstream-judge"`
 
 **`Experimental`**
 

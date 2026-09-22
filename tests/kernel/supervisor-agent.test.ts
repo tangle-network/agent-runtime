@@ -372,7 +372,11 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
               await new Promise<void>((_resolve, reject) => {
                 const onAbort = () => {
                   toolCancelled()
-                  reject(new DOMException(String(context.signal.reason), 'AbortError'))
+                  reject(
+                    context.signal.reason instanceof Error
+                      ? context.signal.reason
+                      : new DOMException(String(context.signal.reason), 'AbortError'),
+                  )
                 }
                 if (context.signal.aborted) onAbort()
                 else context.signal.addEventListener('abort', onAbort, { once: true })
@@ -485,7 +489,11 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
               await new Promise<void>((_resolve, reject) => {
                 const onAbort = () => {
                   toolCancelled()
-                  reject(new DOMException(String(context.signal.reason), 'AbortError'))
+                  reject(
+                    context.signal.reason instanceof Error
+                      ? context.signal.reason
+                      : new DOMException(String(context.signal.reason), 'AbortError'),
+                  )
                 }
                 if (context.signal.aborted) onAbort()
                 else context.signal.addEventListener('abort', onAbort, { once: true })
@@ -508,16 +516,17 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     })
 
     await started
-    caller.abort()
+    const callerReason = new Error('caller chose stop')
+    caller.abort(callerReason)
     await cancelled
     const result = await running
     await finished
 
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
     expect(externalSignal?.aborted).toBe(true)
-    expect(externalSignal?.reason).toBe('caller signal aborted')
+    expect(externalSignal?.reason).toBe(callerReason)
     expect(externalResponse).toMatchObject({
-      error: { code: -32000, message: 'caller signal aborted' },
+      error: { code: -32000, message: 'caller chose stop' },
     })
   })
 

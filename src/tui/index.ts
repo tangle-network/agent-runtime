@@ -20,6 +20,12 @@
  * @experimental
  */
 
+export {
+  createFileSupervisorControlClient,
+  type SupervisorControlAcknowledgement,
+  type SupervisorControlClient,
+  type SupervisorControlSnapshot,
+} from '../runtime/supervise/control'
 export { renderTopOnce, runTopApp, type TopAppOptions } from './top-app'
 export {
   type BudgetStats,

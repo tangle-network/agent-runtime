@@ -34,7 +34,7 @@ import type { OtelExportConfig, OtelExporter, OtelSpan } from '../../otel-export
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
-import type { TraceContext, WorkerTraceResolver } from './worker-trace'
+import type { TraceContext, WorkerTraceResolver } from './worker-trace-types'
 
 /** OTEL status codes (`UNSET` / `OK` / `ERROR`) — the numeric wire values `OtelSpan.status` carries. */
 const STATUS_UNSET = 0

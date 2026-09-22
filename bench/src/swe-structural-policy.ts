@@ -47,18 +47,24 @@ export function resolveExperimentArm(value: string): ExperimentArmPreset {
 }
 
 /** Keep model sampling configuration disjoint from Node's TEMP-controlled filesystem root. */
-export function resolveExperimentTemperature(
+export function resolveModelTemperature(
   env: Readonly<Record<string, string | undefined>>,
+  options: {
+    variable?: 'TEMPERATURE' | 'SAMPLE_TEMP'
+    defaultValue?: number
+  } = {},
 ): number {
-  if (env.TEMP?.trim() && !isAbsolute(env.TEMP)) {
+  if (env.TEMP !== undefined && env.TEMP !== '' && !isAbsolute(env.TEMP)) {
     throw new Error(
       `TEMP is the operating-system temporary-directory root and must be absolute, got "${env.TEMP}"; ` +
         'use TEMPERATURE for model sampling',
     )
   }
-  const value = Number(env.TEMPERATURE ?? 0.8)
+  const variable = options.variable ?? 'TEMPERATURE'
+  const configured = env[variable] ?? (variable === 'SAMPLE_TEMP' ? env.TEMPERATURE : undefined)
+  const value = Number(configured ?? options.defaultValue ?? 0.8)
   if (!Number.isFinite(value)) {
-    throw new Error(`TEMPERATURE must be a finite number, got "${env.TEMPERATURE}"`)
+    throw new Error(`${variable} must be a finite number, got "${configured}"`)
   }
   return value
 }

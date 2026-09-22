@@ -36,10 +36,11 @@
  * @experimental
  */
 
-import { addTokenUsage, zeroTokenUsage } from '../util'
-import type { Budget, LoopTokenUsage, Spend, UsageEvent } from './types'
+import { foldUsage, spendFromUsageEvents, totalTokens } from './budget-usage'
+import type { Budget, Spend, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
+export { spendFromUsageEvents }
 
 /** Opaque, single-use reservation handle returned by `reserve` and consumed by
  *  `reconcile`. Carries the reserved ceilings so reconciliation needs no lookup. */
@@ -176,62 +177,6 @@ export interface BudgetPool {
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
   assertNoOpenTickets(): void
-}
-
-/** Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
- *  channels; iterations come from `'iteration'` events. Pure; `ms` stays zero (the
- *  pool does not read wall-clock). */
-export function spendFromUsageEvents(events: UsageEvent[]): Spend {
-  const tokens = zeroTokenUsage()
-  let usd = 0
-  let usdKnown = true
-  let iterations = 0
-  for (const ev of events) {
-    if (ev.kind === 'tokens') {
-      addTokenUsage(tokens, { input: ev.input, output: ev.output })
-    } else if (ev.kind === 'cost') {
-      usd += ev.usd
-      if (ev.usdKnown === false) usdKnown = false
-    } else {
-      iterations += 1
-    }
-  }
-  return {
-    iterations,
-    tokens,
-    usd,
-    ...(usdKnown ? {} : { usdKnown: false }),
-    ms: 0,
-  }
-}
-
-async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
-  if (Array.isArray(events)) return spendFromUsageEvents(events)
-  const tokens = zeroTokenUsage()
-  let usd = 0
-  let usdKnown = true
-  let iterations = 0
-  for await (const ev of events) {
-    if (ev.kind === 'tokens') {
-      addTokenUsage(tokens, { input: ev.input, output: ev.output })
-    } else if (ev.kind === 'cost') {
-      usd += ev.usd
-      if (ev.usdKnown === false) usdKnown = false
-    } else {
-      iterations += 1
-    }
-  }
-  return {
-    iterations,
-    tokens,
-    usd,
-    ...(usdKnown ? {} : { usdKnown: false }),
-    ms: 0,
-  }
-}
-
-function totalTokens(usage: LoopTokenUsage): number {
-  return usage.input + usage.output
 }
 
 /**

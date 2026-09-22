@@ -7,7 +7,7 @@ import {
   continuationStateNotice,
   preferLaterCandidate,
   resolveExperimentArm,
-  resolveExperimentTemperature,
+  resolveModelTemperature,
   shouldAcceptContinuation,
   shouldRunContinuation,
 } from './swe-structural-policy'
@@ -44,14 +44,37 @@ describe('structural experiment arms', () => {
   })
 
   it('uses TEMPERATURE without repurposing Node TEMP as a model knob', () => {
-    assert.equal(resolveExperimentTemperature({}), 0.8)
-    assert.equal(resolveExperimentTemperature({ TEMPERATURE: '0.35' }), 0.35)
-    assert.equal(resolveExperimentTemperature({ TEMP: '/tmp', TEMPERATURE: '0.35' }), 0.35)
+    assert.equal(resolveModelTemperature({}), 0.8)
+    assert.equal(resolveModelTemperature({ TEMPERATURE: '0.35' }), 0.35)
+    assert.equal(resolveModelTemperature({ TEMP: '/tmp', TEMPERATURE: '0.35' }), 0.35)
     assert.throws(
-      () => resolveExperimentTemperature({ TEMP: '0.8' }),
+      () => resolveModelTemperature({ TEMP: '0.8' }),
       /TEMP is the operating-system temporary-directory root.*TEMPERATURE/,
     )
-    assert.throws(() => resolveExperimentTemperature({ TEMPERATURE: 'hot' }), /finite number/)
+    assert.throws(
+      () => resolveModelTemperature({ TEMP: '   ' }),
+      /TEMP is the operating-system temporary-directory root.*TEMPERATURE/,
+    )
+    assert.throws(() => resolveModelTemperature({ TEMPERATURE: 'hot' }), /finite number/)
+  })
+
+  it('supports an explicit default and a stream-specific override', () => {
+    assert.equal(resolveModelTemperature({}, { defaultValue: 0.2 }), 0.2)
+    assert.equal(
+      resolveModelTemperature(
+        { TEMPERATURE: '0.4', SAMPLE_TEMP: '0.6' },
+        { variable: 'SAMPLE_TEMP' },
+      ),
+      0.6,
+    )
+    assert.equal(
+      resolveModelTemperature({ TEMPERATURE: '0.4' }, { variable: 'SAMPLE_TEMP' }),
+      0.4,
+    )
+    assert.throws(
+      () => resolveModelTemperature({ SAMPLE_TEMP: 'hot' }, { variable: 'SAMPLE_TEMP' }),
+      /SAMPLE_TEMP must be a finite number/,
+    )
   })
 })
 

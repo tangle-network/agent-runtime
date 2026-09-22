@@ -19,6 +19,7 @@ import {
   readinessServerSentEvent,
   runAgentTask,
   runAgentTaskStream,
+  runtimeStreamServerSentEvent,
   sanitizeAgentRuntimeEvent,
   sanitizeRuntimeStreamEvent,
 } from '../src/index'
@@ -454,6 +455,36 @@ describe('runAgentTask', () => {
     expect(
       JSON.stringify(sanitizeRuntimeStreamEvent(toolCall, { includeControlPayloads: true })),
     ).toContain('secret.ts')
+  })
+
+  it('preserves canonical replay identity while redacting payloads by default', () => {
+    const canonical: RuntimeStreamEvent = {
+      type: 'canonical_event',
+      event: { type: 'warning', code: 'review', message: 'Needs approval.' },
+      eventId: 'canonical-1',
+      cursor: 'cursor-1',
+      sequence: 9,
+      occurredAt: '2026-08-02T03:00:00.000Z',
+      timestamp: '2026-08-02T03:00:00.000Z',
+    }
+    const expected = {
+      type: 'canonical_event',
+      event: { type: 'warning', code: 'review' },
+      eventId: 'canonical-1',
+      cursor: 'cursor-1',
+      sequence: 9,
+      occurredAt: '2026-08-02T03:00:00.000Z',
+      timestamp: '2026-08-02T03:00:00.000Z',
+    }
+
+    expect(sanitizeRuntimeStreamEvent(canonical)).toEqual(expected)
+    expect(runtimeStreamServerSentEvent(canonical)).toBe(`data: ${JSON.stringify(expected)}\n\n`)
+    expect(sanitizeRuntimeStreamEvent(canonical, { includeControlPayloads: true })).toMatchObject({
+      event: canonical.event,
+    })
+    expect(runtimeStreamServerSentEvent(canonical, { includeControlPayloads: true })).toContain(
+      'Needs approval.',
+    )
   })
 
   it('maps sandbox prompt events into runtime stream events', async () => {

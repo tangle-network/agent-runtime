@@ -29,7 +29,7 @@ import type {
   CoordinationEvent,
   MakeWorkerAgent,
   WorkerWatchOptions,
-} from '../../mcp/tools/coordination'
+} from '../../mcp/tools/coordination-types'
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
 import { agentHarness } from '../harness-role'
 import { type RouterConfig, routerBrain } from '../router-client'

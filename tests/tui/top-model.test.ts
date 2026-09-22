@@ -459,7 +459,23 @@ describe('supervisor top model', () => {
     expect(snapshot.supervisors).toEqual([])
     const frame = renderTopFrame(snapshot, { color: false, width: 120, height: 30 })
     expect(frame).toContain('NO SUPERVISORS')
-    expect(frame).toContain(join(root, '.agent', 'supervisor'))
+    expect(frame).toContain('No run state under')
+  })
+
+  it('truncates a long no-run path without changing the no-supervisor state', () => {
+    const root = join('/tmp', 'deep-workspace-'.repeat(16))
+    const frame = renderTopFrame(loadTopSnapshot(root), { color: false, width: 120, height: 30 })
+    const pathLine = frame.split('\n').find((line) => line.startsWith('No run state under'))
+
+    expect(frame).toContain('NO SUPERVISORS')
+    expect(pathLine).toMatch(/^No run state under .+~$/)
+  })
+
+  it('renders the complete no-run path when the terminal width is sufficient', () => {
+    const root = join('/tmp', 'tui-fixture')
+    const frame = renderTopFrame(loadTopSnapshot(root), { color: false, width: 300, height: 30 })
+
+    expect(frame).toContain(`No run state under ${join(root, '.agent', 'supervisor')}`)
   })
 
   function fixtureRoot(): string {

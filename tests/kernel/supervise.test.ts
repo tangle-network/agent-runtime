@@ -1060,6 +1060,56 @@ describe('reactive scope', () => {
     expect(settled?.kind).toBe('down')
     expect(scope.view.inFlight).toBe(0)
   })
+
+  it('cancels one child through one abort signal even when control is repeated', async () => {
+    const controller = new AbortController()
+    const { scope } = await beginScope({ signal: controller.signal })
+    let aborts = 0
+    let abortReason: unknown
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const executor: Executor<unknown> = {
+      runtime: 'router',
+      execute(_task, signal) {
+        return (async function* () {
+          markStarted()
+          await new Promise<void>((resolve) => {
+            const onAbort = () => {
+              aborts += 1
+              abortReason = signal.reason
+              resolve()
+            }
+            if (signal.aborted) onAbort()
+            else signal.addEventListener('abort', onAbort, { once: true })
+          })
+        })()
+      },
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => ({
+        out: 'cancelled',
+        spent: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+      }),
+    }
+    const agent = {
+      name: 'cancel-once',
+      act: async () => 'cancelled',
+      executorSpec: { profile: { name: 'cancel-once' }, harness: null, executor },
+    } as unknown as Agent<unknown, unknown>
+    const spawned = scope.spawn(agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'cancel-once',
+    })
+    if (!spawned.ok) throw new Error(spawned.reason)
+    await started
+    expect(scope.cancel(spawned.handle.id, 'first reason')).toBe(true)
+    expect(scope.cancel(spawned.handle.id, 'second reason')).toBe(false)
+    spawned.handle.abort('third reason')
+    await expect(scope.next()).resolves.toMatchObject({ kind: 'down' })
+    expect(aborts).toBe(1)
+    expect(abortReason).toBe('first reason')
+  })
 })
 
 // ── 4. settledToIteration adapter (single-sourced selection) ─────────────────────

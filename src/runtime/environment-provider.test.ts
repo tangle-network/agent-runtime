@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, AgentRunControlRef } from '@tangle-network/agent-interface'
 import type {
   BackendType,
   CreateSandboxOptions,
@@ -12,6 +12,7 @@ import {
   type AgentEnvironmentProvider,
   type AgentSession,
   type AgentTurnInput,
+  type AgentTurnResult,
   createAgentEnvironmentProviderRegistry,
   providerAsExecutor,
   providerAsSandboxClient,
@@ -28,6 +29,300 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it('round-trips the exact control reference and execution selector through the legacy Sandbox port', async () => {
+    const controlRef: AgentRunControlRef = {
+      runId: 'run-neutral',
+      provider: 'fake-provider',
+      environmentId: 'environment-neutral',
+      sessionId: 'session-neutral',
+      executionId: 'execution-neutral',
+    }
+    let eventOptions: unknown
+    let resultOptions: unknown
+    let cancelOptions: unknown
+    const session = {
+      id: controlRef.sessionId!,
+      controlRef,
+      status: async () => 'running',
+      async *events(options) {
+        eventOptions = options
+        yield { type: 'result', data: { finalText: 'exact' } }
+      },
+      async result(options?: { executionId?: string }) {
+        resultOptions = options
+        return {
+          text: 'exact',
+          success: true,
+          sessionId: controlRef.sessionId,
+          metadata: { executionId: controlRef.executionId },
+        }
+      },
+      prompt: async () => ({ text: 'unused', success: true }),
+      async cancel(options?: { executionId?: string }) {
+        cancelOptions = options
+      },
+    } as AgentSession & {
+      result(options?: { executionId?: string }): Promise<AgentTurnResult>
+      cancel(options?: { executionId?: string }): Promise<void>
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: 'fake-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          id: controlRef.environmentId,
+          stream: async function* () {
+            yield* []
+          },
+          dispatch: async () => ({ id: session.id, provider: provider.name, controlRef }),
+          session: () => session,
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+    const dispatched = await box.dispatchPrompt?.('go', {
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+      turnId: controlRef.runId,
+      detach: true,
+    })
+    expect(dispatched).toMatchObject({
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+      controlRef,
+    })
+    const resumed = box.session(controlRef.sessionId!)
+    await collect(resumed.events({ since: 'cursor-0', executionId: controlRef.executionId }))
+    await resumed.result({ executionId: controlRef.executionId })
+    await resumed.interrupt({ executionId: controlRef.executionId })
+    expect(eventOptions).toEqual({ since: 'cursor-0', executionId: controlRef.executionId })
+    expect(resultOptions).toEqual({ executionId: controlRef.executionId })
+    expect(cancelOptions).toEqual({ executionId: controlRef.executionId })
+  })
+
+  it('round-trips Sandbox execution identity into the shared session reference', async () => {
+    let dispatchOptions: unknown
+    let eventOptions: unknown
+    let resultOptions: unknown
+    let interruptOptions: unknown
+    const box = {
+      id: 'sandbox-exact',
+      status: 'running',
+      async dispatchPrompt(_message: string, options: unknown) {
+        dispatchOptions = options
+        return {
+          sessionId: 'session-exact',
+          executionId: 'execution-exact',
+          controlRef: {
+            runId: 'run-exact',
+            provider: 'tangle-sandbox',
+            environmentId: 'sandbox-exact',
+            sessionId: 'session-exact',
+            executionId: 'execution-exact',
+          },
+          status: 'running',
+          alreadyExisted: false,
+          dispatched: true,
+        }
+      },
+      session(id: string) {
+        return {
+          id,
+          async status() {
+            return { status: 'running' }
+          },
+          async *events(options: unknown) {
+            eventOptions = options
+            yield {
+              type: 'status',
+              id: 'event-exact',
+              data: { status: 'running', executionId: 'execution-exact' },
+            }
+          },
+          async result(options: unknown) {
+            resultOptions = options
+            return { response: 'exact', success: true, executionId: 'execution-exact' }
+          },
+          async prompt() {
+            return { response: 'unused', success: true }
+          },
+          async interrupt(options: unknown) {
+            interruptOptions = options
+            return { cancelled: true }
+          },
+        }
+      },
+      async *streamPrompt() {
+        yield { type: 'result', data: { finalText: 'unused' } }
+      },
+    } as unknown as SandboxInstance
+    const provider = sandboxClientAsProvider(
+      {
+        create: async () => box,
+      },
+      { exactControlRef: true },
+    )
+    const environment = await provider.create({ profile: { name: 'worker' } })
+    const reference = await environment.dispatch?.({
+      prompt: 'go',
+      turnId: 'run-exact',
+      executionId: 'execution-exact',
+      detach: true,
+    })
+    expect(dispatchOptions).toMatchObject({
+      turnId: 'run-exact',
+      executionId: 'execution-exact',
+      detach: true,
+    })
+    expect(reference?.controlRef).toEqual({
+      runId: 'run-exact',
+      provider: 'tangle-sandbox',
+      environmentId: 'sandbox-exact',
+      sessionId: 'session-exact',
+      executionId: 'execution-exact',
+    })
+    if (!reference?.controlRef) throw new Error('expected an exact control reference')
+    expect(() => environment.session?.('session-exact')).toThrow(
+      'requires the exact provider-owned control reference',
+    )
+    const session = environment.session?.('session-exact', { controlRef: reference.controlRef })
+    if (!session) throw new Error('expected a session')
+    await expect(
+      collect(session.events({ since: 'event-0', executionId: 'execution-exact' })),
+    ).rejects.toThrow('cannot admit session replay cursors')
+    await collect(session.events({ executionId: 'execution-exact' }))
+    await session.result()
+    await session.cancel()
+    expect(eventOptions).toEqual({ executionId: 'execution-exact' })
+    expect(resultOptions).toEqual({ executionId: 'execution-exact' })
+    expect(interruptOptions).toEqual({ executionId: 'execution-exact' })
+  })
+
+  it('rejects a caller-supplied Sandbox control reference that this provider never issued', async () => {
+    const box = {
+      id: 'sandbox-forged-reference',
+      status: 'running',
+      session() {
+        return {
+          id: 'session-forged-reference',
+          async status() {
+            return { status: 'running' }
+          },
+          async *events(): AsyncIterable<SandboxEvent> {},
+          async result() {
+            return { response: 'unused', success: true }
+          },
+          async prompt() {
+            return { response: 'unused', success: true }
+          },
+          async interrupt() {
+            return { cancelled: true }
+          },
+        }
+      },
+    } as unknown as SandboxInstance
+    const provider = sandboxClientAsProvider({ create: async () => box })
+    const environment = await provider.create({ profile: { name: 'worker' } })
+
+    expect(() =>
+      environment.session?.('session-forged-reference', {
+        controlRef: {
+          runId: 'caller-run',
+          provider: 'tangle-sandbox',
+          environmentId: box.id,
+          sessionId: 'session-forged-reference',
+        },
+      }),
+    ).toThrow('not returned by this provider')
+  })
+
+  it('downgrades unsupported Sandbox replay/context transfer before dispatch', async () => {
+    let dispatches = 0
+    const provider = sandboxClientAsProvider({
+      create: async () =>
+        ({
+          id: 'sandbox-unsupported',
+          status: 'running',
+          async dispatchPrompt() {
+            dispatches += 1
+            return {
+              sessionId: 'session-unsupported',
+              executionId: 'execution-unsupported',
+              status: 'running',
+              alreadyExisted: false,
+            }
+          },
+          async *streamPrompt() {
+            yield { type: 'result', data: { finalText: 'unused' } }
+          },
+        }) as unknown as SandboxInstance,
+    })
+    await expect(provider.capabilities()).resolves.toMatchObject({
+      streaming: { replay: false, detach: false },
+      sessions: { continue: false },
+    })
+    const environment = await provider.create({ profile: { name: 'worker' } })
+    await expect(
+      environment.dispatch?.({
+        prompt: 'must not send',
+        turnId: 'transfer-operation',
+        contextTransfer: { unsupported: true } as never,
+      }),
+    ).rejects.toThrow(/cannot admit canonical context transfer/)
+    expect(dispatches).toBe(0)
+  })
+
+  it('rejects unsupported Sandbox detach and replay fields before streaming', async () => {
+    let streams = 0
+    const provider = sandboxClientAsProvider({
+      create: async () =>
+        ({
+          id: 'sandbox-replay-unsupported',
+          status: 'running',
+          async *streamPrompt() {
+            streams += 1
+            yield { type: 'result', data: { finalText: 'must not send' } }
+          },
+        }) as unknown as SandboxInstance,
+    })
+    const environment = await provider.create({ profile: { name: 'worker' } })
+
+    await expect(
+      collect(environment.stream({ prompt: 'must not send', detach: true })),
+    ).rejects.toThrow(/cannot admit detached turns/)
+    await expect(
+      collect(environment.stream({ prompt: 'must not send', lastEventId: 'event-1' })),
+    ).rejects.toThrow(/cannot admit replay cursors/)
+    expect(streams).toBe(0)
+  })
+
+  it('cannot override installed Sandbox capability downgrades', async () => {
+    const provider = sandboxClientAsProvider(
+      {
+        create: async () =>
+          ({
+            id: 'sandbox-claimed',
+            status: 'running',
+            async *streamPrompt() {
+              yield { type: 'result', data: { finalText: 'unused' } }
+            },
+          }) as unknown as SandboxInstance,
+      },
+      {
+        capabilities: fakeCapabilities,
+        stableEventIdentity: true,
+        exactControlRef: true,
+      },
+    )
+
+    await expect(provider.capabilities()).resolves.toMatchObject({
+      streaming: { replay: false, detach: false, turnIdempotency: false },
+      sessions: { continue: false },
+    })
+  })
+
   it('adapts a neutral provider to SandboxClient without losing profile/backend/dispatch data', async () => {
     let created: unknown
     let turn: AgentTurnInput | undefined
@@ -524,6 +819,29 @@ describe('environment provider adapters', () => {
     await expect(box.prompt('hello')).rejects.toThrow(/terminal result/)
   })
 
+  it('preserves a failed terminal event as a failed Sandbox prompt result', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'failing-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'status', data: { status: 'failed', error: 'backend failed' } }
+          },
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+
+    await expect(box.prompt('hello')).resolves.toMatchObject({
+      success: false,
+      status: 'failed',
+      error: 'backend failed',
+    })
+  })
+
   it('destroys an environment that cannot satisfy a required session', async () => {
     let destroyed = 0
     const provider: AgentEnvironmentProvider = {
@@ -667,6 +985,137 @@ describe('environment provider adapters', () => {
       tokens: { input: 7, output: 16 },
       usd: 0.03,
     })
+  })
+
+  it('preserves the caller abort reason through the provider executor', async () => {
+    let observedSignal: AbortSignal | undefined
+    let destroyed = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'abort-reason-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (input: AgentTurnInput): AsyncIterable<AgentEnvironmentEvent> {
+            const signal = input.signal
+            if (!signal) throw new Error('provider stream signal is required')
+            observedSignal = signal
+            await new Promise<void>((resolve) => {
+              if (signal.aborted) resolve()
+              else signal.addEventListener('abort', () => resolve(), { once: true })
+            })
+            throw signal.reason
+          },
+          destroy: async () => {
+            destroyed += 1
+          },
+        })
+      },
+    }
+    const caller = new AbortController()
+    const factory = providerAsExecutor(provider)
+    const ctx: ExecutorContext = { signal: caller.signal, seams: {} }
+    const executor = factory(
+      { profile: { name: 'abort-reason' } as AgentProfile, harness: null },
+      ctx,
+    )
+    const running = collect(executor.execute('task', caller.signal) as AsyncIterable<UsageEvent>)
+    while (!observedSignal) await Promise.resolve()
+
+    const reason = new Error('caller chose stop')
+    caller.abort(reason)
+
+    await expect(running).rejects.toBe(reason)
+    expect(observedSignal?.reason).toBe(reason)
+    expect(destroyed).toBe(1)
+  })
+
+  it('interrupts a provider stream iterator that ignores abort and destroys the environment', async () => {
+    const entered = deferred()
+    let closed = 0
+    let destroyed = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'non-cooperative-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: () => ({
+            [Symbol.asyncIterator]() {
+              return {
+                next: () => {
+                  entered.resolve()
+                  return new Promise<IteratorResult<AgentEnvironmentEvent>>(() => {})
+                },
+                return: async () => {
+                  closed += 1
+                  return { done: true, value: undefined }
+                },
+              }
+            },
+          }),
+          destroy: async () => {
+            destroyed += 1
+          },
+        })
+      },
+    }
+    const caller = new AbortController()
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'non-cooperative' } as AgentProfile, harness: null },
+      { signal: caller.signal, seams: {} },
+    )
+    const running = collect(executor.execute('task', caller.signal) as AsyncIterable<UsageEvent>)
+    await entered.promise
+    const reason = new Error('stop the provider')
+    caller.abort(reason)
+
+    await expect(running).rejects.toBe(reason)
+    expect(closed).toBe(1)
+    expect(destroyed).toBe(1)
+  })
+
+  it('does not wait for a non-cooperative environment destroy after abort', async () => {
+    const entered = deferred()
+    const destroyStarted = deferred()
+    let closed = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'non-cooperative-destroy-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: () => ({
+            [Symbol.asyncIterator]() {
+              return {
+                next: () => {
+                  entered.resolve()
+                  return new Promise<IteratorResult<AgentEnvironmentEvent>>(() => {})
+                },
+                return: async () => {
+                  closed += 1
+                  return { done: true, value: undefined }
+                },
+              }
+            },
+          }),
+          destroy: async () => {
+            destroyStarted.resolve()
+            return new Promise<never>(() => {})
+          },
+        })
+      },
+    }
+    const caller = new AbortController()
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'non-cooperative-destroy' } as AgentProfile, harness: null },
+      { signal: caller.signal, seams: {} },
+    )
+    const running = collect(executor.execute('task', caller.signal) as AsyncIterable<UsageEvent>)
+    await entered.promise
+    const reason = new Error('stop before destroy settles')
+    caller.abort(reason)
+
+    await expect(running).rejects.toBe(reason)
+    await destroyStarted.promise
+    expect(closed).toBe(1)
   })
 
   it('composes a profile-only supervisor spec through one steerable CLI-bridge-like Pi session', async () => {

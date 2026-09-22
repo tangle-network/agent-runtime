@@ -12,7 +12,7 @@
 
 **`Experimental`**
 
-In-memory registry for named `AgentEnvironmentProvider` instances.
+In-memory registry for named agent environment provider instances.
 
 #### Methods
 
@@ -128,7 +128,7 @@ In-memory registry for named `AgentEnvironmentProvider` instances.
 
 **`Experimental`**
 
-Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port.
+Options for exposing an environment provider through the legacy Sandbox client port.
 
 #### Properties
 
@@ -168,143 +168,25 @@ Require declared live continuation plus concrete session controls.
 
 `Partial`\<`CreateAgentEnvironmentInput`\>
 
-***
+## Type Aliases
 
-### SandboxClientProviderOptions
+### ResolveSandboxProfile
 
-**`Experimental`**
+> **ResolveSandboxProfile** = (`profileId`) => `AgentProfile` \| `Promise`\<`AgentProfile`\>
 
-Options for wrapping the current Tangle sandbox client as an environment provider.
+Resolve a named profile before passing it to Sandbox, which accepts inline profiles only.
 
-#### Properties
+#### Parameters
 
-##### name?
-
-> `optional` **name?**: `string`
-
-**`Experimental`**
-
-##### defaultBackend?
-
-> `optional` **defaultBackend?**: `BackendType`
-
-**`Experimental`**
-
-##### capabilities?
-
-> `optional` **capabilities?**: `AgentEnvironmentCapabilities` \| (() => `AgentEnvironmentCapabilities` \| `Promise`\<`AgentEnvironmentCapabilities`\>)
-
-**`Experimental`**
-
-##### validateProfile?
-
-> `optional` **validateProfile?**: (`profile`) => `AgentProfileValidationResult` \| `Promise`\<`AgentProfileValidationResult`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### profile
-
-`AgentProfileRef`
-
-###### Returns
-
-`AgentProfileValidationResult` \| `Promise`\<`AgentProfileValidationResult`\>
-
-##### resolveProfile?
-
-> `optional` **resolveProfile?**: (`profileId`) => `AgentProfile` \| `Promise`\<`AgentProfile`\>
-
-**`Experimental`**
-
-Resolve a named profile before calling Sandbox, which accepts inline profiles only.
-
-###### Parameters
-
-###### profileId
+##### profileId
 
 `string`
 
-###### Returns
+#### Returns
 
 `AgentProfile` \| `Promise`\<`AgentProfile`\>
 
-##### mapCreateInput?
-
-> `optional` **mapCreateInput?**: (`input`) => `CreateSandboxOptions`
-
-**`Experimental`**
-
-###### Parameters
-
-###### input
-
-`CreateAgentEnvironmentInput`
-
-###### Returns
-
-`CreateSandboxOptions`
-
 ***
-
-### ProviderExecutorOptions
-
-**`Experimental`**
-
-Options for running a provider as a supervise-mode executor.
-
-#### Extended by
-
-- [`ProviderSeam`](../runtime.md#providerseam)
-
-#### Properties
-
-##### defaults?
-
-> `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
-
-**`Experimental`**
-
-##### runtime?
-
-> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-4)
-
-**`Experimental`**
-
-##### destroyOnSettle?
-
-> `optional` **destroyOnSettle?**: `boolean`
-
-**`Experimental`**
-
-##### requireTerminalEvent?
-
-> `optional` **requireTerminalEvent?**: `boolean`
-
-**`Experimental`**
-
-##### taskToTurn?
-
-> `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
-
-**`Experimental`**
-
-###### Parameters
-
-###### task
-
-`unknown`
-
-###### specProfile
-
-`AgentProfile`
-
-###### Returns
-
-`AgentTurnInput`
-
-## Type Aliases
 
 ### AgentEnvironmentProviderRef
 
@@ -366,7 +248,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 **`Experimental`**
 
-Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths.
+Adapt an environment provider to the Sandbox client shape used by existing loop paths.
 
 #### Parameters
 
@@ -382,55 +264,19 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 
 [`SandboxClient`](../runtime.md#sandboxclient-5)
 
-***
-
-### sandboxClientAsProvider()
-
-> **sandboxClientAsProvider**(`client`, `options?`): `AgentEnvironmentProvider`
-
-**`Experimental`**
-
-Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
-
-#### Parameters
-
-##### client
-
-[`SandboxClient`](../runtime.md#sandboxclient-5)
-
-##### options?
-
-[`SandboxClientProviderOptions`](#sandboxclientprovideroptions) = `{}`
-
-#### Returns
-
-`AgentEnvironmentProvider`
-
-***
-
-### providerAsExecutor()
-
-> **providerAsExecutor**(`provider`, `options?`): [`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>
-
-**`Experimental`**
-
-Adapt an environment provider into an `ExecutorFactory` for `createExecutor`.
-
-#### Parameters
-
-##### provider
-
-`AgentEnvironmentProvider`
-
-##### options?
-
-[`ProviderExecutorOptions`](#providerexecutoroptions) = `{}`
-
-#### Returns
-
-[`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>
-
 ## References
+
+### SandboxClientProviderOptions
+
+Re-exports [SandboxClientProviderOptions](../runtime.md#sandboxclientprovideroptions)
+
+***
+
+### sandboxClientAsProvider
+
+Re-exports [sandboxClientAsProvider](../runtime.md#sandboxclientasprovider)
+
+***
 
 ### CreateTangleSandboxExactProcessProviderOptions
 
@@ -441,3 +287,15 @@ Re-exports [CreateTangleSandboxExactProcessProviderOptions](../runtime.md#create
 ### createTangleSandboxExactProcessProvider
 
 Re-exports [createTangleSandboxExactProcessProvider](../runtime.md#createtanglesandboxexactprocessprovider)
+
+***
+
+### ProviderExecutorOptions
+
+Re-exports [ProviderExecutorOptions](../runtime.md#providerexecutoroptions)
+
+***
+
+### providerAsExecutor
+
+Re-exports [providerAsExecutor](../runtime.md#providerasexecutor)
