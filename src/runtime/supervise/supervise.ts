@@ -1818,6 +1818,8 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Durable steer directory when it differs from the run-control directory. */
+  readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
    *  with `blobs` — a journal whose result payloads live in a different store cannot replay. */
   readonly journal?: SpawnJournal
@@ -1964,6 +1966,7 @@ const superviseOptionKeys = [
   'runId',
   'signal',
   'stallAfterMs',
+  'steerDir',
   'stopRule',
   'watchWorkers',
   'repromptOnUnmet',
@@ -3160,6 +3163,7 @@ function superviseInternal(
                 controlScope: 'subtree' as const,
                 abortRun: cancelDurableRun,
               }),
+          ...(options.steerDir === undefined ? {} : { steerDir: resolve(options.steerDir) }),
         })
         return driverChild(
           authorized,
@@ -3324,6 +3328,7 @@ function superviseInternal(
             controlDir: resolve(options.runDir),
             abortRun: cancelDurableRun,
           }),
+      ...(options.steerDir === undefined ? {} : { steerDir: resolve(options.steerDir) }),
     } satisfies SupervisorAgentDeps
     const agent =
       testBrain === undefined

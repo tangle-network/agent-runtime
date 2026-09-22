@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.253.0
+
+`supervisePursuit` now reads root steers from the same run directory used by the public `writeWorkerSteer` API.
+The root acknowledges and consumes admitted corrections while pursuit records and cancellation stay at their existing paths.
+Admit Sandbox SDK 0.46 while retaining the existing 0.36.4 floor.
+The peer range is `>=0.36.4 <0.47.0`, and the compatibility matrix checks 0.36.4, 0.43.0, and 0.46.0.
+The packed-consumer check qualifies the exact Sandbox archive before publication.
+
 ## 0.252.1
 
 Supervisor cleanup preserves a retained owner environment when its turn has no verified workspace receipt.

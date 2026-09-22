@@ -4,10 +4,10 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.252.1.**
+> **Version 0.253.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.183.0 <0.184.0`.
-> `sandbox` must satisfy `>=0.36.4 <0.46.0`.
+> `sandbox` must satisfy `>=0.36.4 <0.47.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.10.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
@@ -250,6 +250,8 @@ It does not prove that the worker read or followed the instruction.
 Manager shutdown interrupts pending event capture before delivery and records an uncertain steer outcome as `unknown`.
 The final pass reconciles existing cancellations and expires unseen requests without issuing another abort.
 To steer the root, pass its run ID as the target: `writeWorkerSteer(root, runId, runId, { operationId, message, interrupt: true })`.
+By default, use `supervisePursuit`'s `runDir` as `root`; Runtime reads and acknowledges steers in `supervisorRunDir(runDir, runId)`.
+Direct `supervise` callers may set `steerDir` only when the steer inbox differs from their `runDir`.
 The same atomic request, claim and acknowledgement protocol handles root and child steers; only the root manager owns root delivery.
 Router roots read durable steers between turns, so a filesystem request does not interrupt an already-running router inference call.
 Native roots leave steers pending during startup and between retries.

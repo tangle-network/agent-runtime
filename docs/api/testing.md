@@ -368,6 +368,12 @@ path, `not_live` when the worker is already gone — a missing worker never read
 Which requests this driver OWNS is set by [controlScope](#controlscope). Omit = no acknowledger
 (in-memory runs keep in-process control via handles).
 
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
 ##### onCoordinationTools?
 
 > `readonly` `optional` **onCoordinationTools?**: (`tools`) => `void`
@@ -1105,6 +1111,16 @@ resumable run per directory but collides across concurrent runs sharing one `run
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
+
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`steerDir`](runtime.md#steerdir-1)
 
 ##### probes?
 
@@ -2032,6 +2048,16 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
 
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`steerDir`](runtime.md#steerdir-1)
+
 ##### journal?
 
 > `readonly` `optional` **journal?**: [`SpawnJournal`](runtime.md#spawnjournal)
@@ -2784,6 +2810,16 @@ Durable control directory. Both arms acknowledge worker requests; external manag
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`controlDir`](runtime.md#controldir)
+
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`steerDir`](runtime.md#steerdir-2)
 
 ##### controlScope?
 

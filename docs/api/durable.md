@@ -2041,6 +2041,16 @@ Worker output store. Defaults to in-memory.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-5)
 
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`steerDir`](runtime.md#steerdir-1)
+
 ##### journal?
 
 > `readonly` `optional` **journal?**: [`SpawnJournal`](runtime.md#spawnjournal)

@@ -257,6 +257,8 @@ export interface DriverAgentOptions {
    * (in-memory runs keep in-process control via handles).
    */
   readonly controlDir?: string
+  /** Durable steer directory when it differs from the run-control directory. */
+  readonly steerDir?: string
   /**
    * Which cancel requests this driver's acknowledger owns when `controlDir` is set.
    *
@@ -1021,10 +1023,10 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               ...(opts.abortRun ? { abortRun: opts.abortRun } : {}),
             })
       const steerAcknowledger =
-        opts.controlDir === undefined
+        opts.steerDir === undefined && opts.controlDir === undefined
           ? undefined
           : createSteerAcknowledger({
-              dir: opts.controlDir,
+              dir: opts.steerDir ?? opts.controlDir!,
               coord,
               now,
               ownerId: scope.view.root,

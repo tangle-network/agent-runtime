@@ -4,7 +4,8 @@ import type { Scope } from './types'
 
 /** Observe durable worker controls while the native harness owns the manager's turn loop. */
 export function observeWorkerControls(options: {
-  dir: string
+  dir?: string
+  steerDir?: string
   coord: CoordinationTools
   scope: Scope<unknown>
   signal: AbortSignal
@@ -16,13 +17,18 @@ export function observeWorkerControls(options: {
   onError: (error: unknown) => void
 }): { close(): Promise<void> } {
   const { dir, coord, scope, signal, controlScope, onError } = options
-  const deps = { dir, coord, scope, signal, now: Date.now, ownerId: scope.view.root, controlScope }
-  const steers = createSteerAcknowledger({
-    ...deps,
-    deliverRoot: options.deliverRoot,
-    deliverRootReady: options.deliverRootReady,
-  })
-  const cancellations = createCancelAcknowledger(deps)
+  const steerDir = options.steerDir ?? dir
+  const deps = { coord, scope, signal, now: Date.now, ownerId: scope.view.root, controlScope }
+  const steers =
+    steerDir === undefined
+      ? undefined
+      : createSteerAcknowledger({
+          ...deps,
+          dir: steerDir,
+          deliverRoot: options.deliverRoot,
+          deliverRootReady: options.deliverRootReady,
+        })
+  const cancellations = dir === undefined ? undefined : createCancelAcknowledger({ ...deps, dir })
   let active = true
   let timer: ReturnType<typeof setInterval> | undefined
   let steering = false
@@ -44,8 +50,8 @@ export function observeWorkerControls(options: {
     if (!active) return
     try {
       // Cancellation stays available while an earlier steer awaits durable event capture.
-      cancellations.pass('turn')
-      if (steering) return
+      cancellations?.pass('turn')
+      if (steers === undefined || steering) return
       steering = true
       inFlight = steers
         .pass('turn')
@@ -69,10 +75,10 @@ export function observeWorkerControls(options: {
     stop()
     await inFlight
     try {
-      await steers.pass('final')
-      cancellations.pass('final')
+      await steers?.pass('final')
+      cancellations?.pass('final')
     } finally {
-      cancellations.finish()
+      cancellations?.finish()
     }
     if (failure) throw failure.error
   }
