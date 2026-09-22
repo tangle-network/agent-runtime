@@ -246,11 +246,9 @@ describe('provider workspace retention', () => {
   it('refuses executor reuse while a retained source environment is still live', async () => {
     const artifacts = artifactStore()
     let creates = 0
-    let failCreate = false
     const { provider, destroyed } = providerFor(doneStream(), {
       create: () => {
         creates += 1
-        if (failCreate) throw new Error('next create failed')
       },
     })
     const executor = providerAsExecutor(provider, {
@@ -287,17 +285,49 @@ describe('provider workspace retention', () => {
     await expect(executor.teardown('brutalKill')).resolves.toMatchObject({ destroyed: true })
     expect(destroyed()).toBe(1)
 
-    failCreate = true
     await expect(async () => {
       for await (const _event of executor.execute(
         'third',
         new AbortController().signal,
       ) as AsyncIterable<UsageEvent>) {
-        // The provider create fails before a new environment is published.
+        // A new run needs a new executor and materialization receipt.
       }
-    }).rejects.toThrow('next create failed')
-    expect(creates).toBe(2)
+    }).rejects.toThrow(/already materialized/)
+    expect(creates).toBe(1)
     await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+    expect(destroyed()).toBe(1)
+  })
+
+  it('refuses a second provider run before creating an untracked environment', async () => {
+    let creates = 0
+    const { provider, destroyed } = providerFor(doneStream(), {
+      create: () => {
+        creates += 1
+      },
+    })
+    const executor = providerAsExecutor(provider)(
+      { profile: testProfile('cleanup-generation'), harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {},
+      },
+    )
+
+    for await (const _event of executor.execute(
+      'first',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      // The first stream destroys the shared environment.
+    }
+    await expect(async () => {
+      for await (const _event of executor.execute(
+        'second',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        // A second create would have no pending materialization acknowledgement.
+      }
+    }).rejects.toThrow(/already materialized/)
+    expect(creates).toBe(1)
     expect(destroyed()).toBe(1)
   })
 
@@ -376,6 +406,49 @@ describe('provider workspace retention', () => {
     await executor.cancel?.({ operationId: 'cancel-retention' })
     await expect(running).rejects.toThrow()
     expect(outcome).toMatchObject({ success: false, errorCode: 'cancelled' })
+    expect(destroyed()).toBe(0)
+  })
+
+  it('does not delete during a cancellation and teardown race', async () => {
+    const artifacts = artifactStore()
+    let started!: () => void
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let finish!: () => void
+    const finishPromise = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    const { provider, destroyed } = providerFor(async function* () {
+      started()
+      // Deliberately ignore cancellation until teardown has returned.
+      await finishPromise
+      yield* []
+      throw new Error('race cancelled')
+    })
+    const executor = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        capture: (context) => snapshot(artifacts, context.executionId),
+      },
+    })(
+      { profile: testProfile('retention-race'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const running = (async () => {
+      for await (const _event of executor.execute(
+        'task',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        // The source waits for the cancellation signal.
+      }
+    })()
+    await startedPromise
+    await expect(executor.teardown('brutalKill')).resolves.toMatchObject({ destroyed: false })
+    expect(destroyed()).toBe(0)
+    finish()
+    await expect(running).rejects.toThrow('race cancelled')
     expect(destroyed()).toBe(0)
   })
 

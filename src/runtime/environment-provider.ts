@@ -107,6 +107,7 @@ import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
   newExecutionAttemptId,
+  runtimeOwnedExecutorMaterialization,
 } from './supervise/materialization'
 import {
   concreteProfileModel,
@@ -732,20 +733,29 @@ function createProviderExecutor(
   // workspace whose files changed during the retry. A failed generation stays fail-closed until
   // the caller constructs a fresh executor after resolving its unreceipted source.
   const beginWorkspaceExecution = (): void => {
-    if (options.workspaceRetention === undefined || workspaceRunActive) return
-    if (workspacePreservationRequired) {
+    if (workspaceRunActive) {
+      throw new ValidationError(`providerAsExecutor(${provider.name}): executor is already running`)
+    }
+    if (options.workspaceRetention !== undefined) {
+      if (workspacePreservationRequired) {
+        throw new ValidationError(
+          `providerAsExecutor(${provider.name}): a prior failed execution has no retrievable workspace receipt; source remains preserved and this executor cannot be reused`,
+        )
+      }
+      if (environment !== undefined && !destroyed) {
+        throw new ValidationError(
+          `providerAsExecutor(${provider.name}): the prior workspace environment is still live; teardown must release it before this executor can be reused`,
+        )
+      }
+    }
+    if (runtimeOwnedExecutorMaterialization(executor) !== undefined) {
       throw new ValidationError(
-        `providerAsExecutor(${provider.name}): a prior failed execution has no retrievable workspace receipt; source remains preserved and this executor cannot be reused`,
+        `providerAsExecutor(${provider.name}): this executor has already materialized; create a new executor for another run`,
       )
     }
-    if (environment !== undefined && !destroyed) {
-      throw new ValidationError(
-        `providerAsExecutor(${provider.name}): the prior workspace environment is still live; teardown must release it before this executor can be reused`,
-      )
-    }
-    // Do not leave a confirmed-destroyed handle in the next generation. If the new create fails
-    // before onEnvironment runs, a later teardown must not retry deletion of the old source.
     if (environment !== undefined && destroyed) {
+      // Do not leave a confirmed-destroyed handle in the next generation. If the new create fails
+      // before onEnvironment runs, a later teardown must not retry deletion of the old source.
       environment = undefined
       workspaceEnvironmentId = undefined
     }
@@ -1025,6 +1035,13 @@ function createProviderExecutor(
     },
     async teardown(_grace): Promise<{ destroyed: boolean; detail?: string }> {
       controller.abort()
+      if (options.workspaceRetention !== undefined && workspaceRunActive) {
+        return {
+          destroyed: false,
+          detail:
+            'provider workspace retention: source preserved while the execution is still active',
+        }
+      }
       if (pending) return { destroyed: false, detail: 'retained execution requires reconciliation' }
       // A failed or timed-out capture keeps the source alive. The shared cleanup promise also
       // means a stream-finally teardown and a caller teardown cannot race two provider deletes.
@@ -1046,6 +1063,14 @@ function createProviderExecutor(
         destroyed,
         ...(detail === undefined ? {} : { detail }),
       })
+      if (options.workspaceRetention !== undefined && workspaceRunActive) {
+        return [
+          receipt(
+            false,
+            'provider workspace retention: source preserved while execution is still active',
+          ),
+        ]
+      }
       if (retainedReleasePromise !== undefined) return await retainedReleasePromise
       const releasePromise = (async () => {
         try {
