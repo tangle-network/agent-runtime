@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.7
+
+Support Eval 0.183 and require Knowledge 17.1 through the shared dependency catalog.
+Consume Runtime 0.249.0 through the workspace dependency.
+
 ## 0.13.6
 
 Follow Runtime 0.244.0 through the workspace dependency. Benchmark APIs and grading are unchanged.

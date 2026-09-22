@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.249.0
+
+Require Eval `>=0.183.0 <0.184.0`, matching the tested development dependency.
+Require Knowledge 17.1 and pin the release cohort to its exact source alongside Eval 0.183.
+
 ## 0.248.0
 
 Runtime runs, persona conversations, and Intelligence share normalized usage accounting.
