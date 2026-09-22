@@ -207,7 +207,22 @@ async function runPi(
     signal: new AbortController().signal,
     seams: { [piSeamKey]: { bin: fakePi, cwd, env: { PI_LOG_DIR: logDir } } },
   }
-  const spec: AgentSpec = { profile, harness: null }
+  // pi spawns on the host, so every profile in this harness declares the explicit opt-out.
+  const spec: AgentSpec = {
+    profile: {
+      ...profile,
+      metadata: {
+        ...profile.metadata,
+        ...{
+          network: {
+            mode: 'open',
+            reason: 'local test harness — host process, deliberately unenforced',
+          },
+        },
+      },
+    },
+    harness: null,
+  }
   const executor = piExecutor(spec, ctx)
   let error: Error | undefined
   try {
@@ -667,6 +682,12 @@ describe('piExecutor — a profile`s MCP servers reach the real pi process', () 
           profile: {
             name: 'worker',
             mcp: { [server]: { transport: 'http', url: `http://127.0.0.1:1/${server}` } },
+            metadata: {
+              network: {
+                mode: 'open',
+                reason: 'local test harness — host process, deliberately unenforced',
+              },
+            },
           },
           harness: null,
         } satisfies AgentSpec,
@@ -756,6 +777,12 @@ describe('piExecutor — a profile`s MCP servers reach the real pi process', () 
           name: 'doomed',
           mcp: { coordination: { transport: 'http', url: 'http://127.0.0.1:1/mcp' } },
           extensions: { pi: { load: ['pi-memory'] } },
+          metadata: {
+            network: {
+              mode: 'open',
+              reason: 'local test harness — host process, deliberately unenforced',
+            },
+          },
         },
         harness: null,
       } satisfies AgentSpec,
@@ -825,7 +852,15 @@ describe('piExecutor — a profile`s MCP servers reach the real pi process', () 
       },
     }
     const spec: AgentSpec = {
-      profile: { mcp: { coordination: { transport: 'http', url: 'http://127.0.0.1:1/mcp' } } },
+      profile: {
+        mcp: { coordination: { transport: 'http', url: 'http://127.0.0.1:1/mcp' } },
+        metadata: {
+          network: {
+            mode: 'open',
+            reason: 'local test harness — host process, deliberately unenforced',
+          },
+        },
+      },
       harness: null,
     }
     const executor = piExecutor(spec, ctx)

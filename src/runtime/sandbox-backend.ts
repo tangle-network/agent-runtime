@@ -11,6 +11,9 @@
 import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions } from '@tangle-network/sandbox'
 
+import type { AgentEgressPolicy } from './egress/policy'
+import { resolveEgressPolicy, resolveModelHosts, toSandboxEgressPolicy } from './egress/policy'
+
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>
 
@@ -96,18 +99,44 @@ function resolveBackendType(
   return 'opencode' as BackendType
 }
 
+/** Per-call network inputs, kept out of `overrides` so a raw `egressPolicy` cannot be smuggled
+ *  past the declaration path and re-enable the implicit domain list. */
+export interface BackendNetworkOptions {
+  /** Narrows the profile's declaration for this run only; may never widen it. */
+  network?: AgentEgressPolicy
+  /** The model base URL this run actually uses, when it is not the ambient one. */
+  modelBaseUrl?: string
+}
+
 /**
  * Build `CreateSandboxOptions` for `profile`, merging `overrides` and setting
  * `backend.profile`. `model`/`server` from an override backend pass through.
+ *
+ * The network grant is resolved here, and an ABSENT declaration resolves to `gateway`: the model
+ * endpoint and nothing else. This is a breaking change for callers that relied on sandboxes
+ * reaching package registries — they now declare `network:{mode:'strict',allowDomains:[...]}` —
+ * and it is deliberate. The previous default let an untrusted worker reach GitHub, and
+ * `mode:'strict'` alone would not have stopped it either, because the SDK's implicit domain list
+ * carries `github.com`, `codeload.github.com` and `**.githubusercontent.com`.
+ * `includeImplicitDomains` is therefore always false and is not a caller-facing option.
  */
 export function buildBackendOptions(
   profile: AgentProfile,
   overrides: Partial<CreateSandboxOptions> | undefined,
+  network: BackendNetworkOptions = {},
 ): CreateSandboxOptions {
   const base = overrides ?? {}
   const overrideBackend = base.backend
+  const policy = resolveEgressPolicy(profile, network.network)
+  const egressPolicy = toSandboxEgressPolicy(
+    policy,
+    resolveModelHosts({ baseUrl: network.modelBaseUrl }),
+  )
   return {
     ...base,
+    // `open` is the only policy that leaves the SDK default in place; every other one is written
+    // here and wins over any `egressPolicy` a caller put in `overrides`.
+    ...(egressPolicy ? { egressPolicy } : {}),
     backend: {
       type: resolveBackendType(profile, overrideBackend),
       profile: profileAsSandboxProfile(profile),

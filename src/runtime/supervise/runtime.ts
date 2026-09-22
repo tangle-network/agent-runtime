@@ -46,6 +46,11 @@ import {
   type WorktreeHarnessResult,
 } from '../../mcp/worktree-harness'
 import {
+  type AgentEgressPolicy,
+  assertHostExecutionAllowed,
+  resolveEgressPolicy,
+} from '../egress/policy'
+import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
@@ -126,6 +131,15 @@ export interface SandboxSeam {
    * which is a different resource profile from a fire-and-forget shot.
    */
   steering?: SandboxSteeringOptions
+  /**
+   * Network grant for the worker's box, narrowing the profile's declaration. Without this field a
+   * supervised worker's policy had nowhere to live: the box options were hardcoded to
+   * `{backend:{type}}`, so the path a supervised worker actually runs on was the one path that
+   * could not be configured.
+   */
+  network?: AgentEgressPolicy
+  /** The model base URL these workers use, when it is not the ambient one. */
+  modelBaseUrl?: string
 }
 
 /** CLI subprocess seam. `bin` + `args` describe the Halo/RLM process to spawn. */
@@ -634,6 +648,8 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       options: seam.steering,
       ...(seam.loopCtx ? { loopCtx: seam.loopCtx } : {}),
       ...(Object.keys(traceEnv).length > 0 ? { traceEnv } : {}),
+      ...(seam.network ? { network: seam.network } : {}),
+      ...(seam.modelBaseUrl ? { modelBaseUrl: seam.modelBaseUrl } : {}),
       contentRef,
     })
     return {
@@ -743,6 +759,8 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       // Absent entirely when tracing is off, so the create options are byte-identical to before.
       ...(Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
     },
+    ...(args.seam.network ? { network: args.seam.network } : {}),
+    ...(args.seam.modelBaseUrl ? { modelBaseUrl: args.seam.modelBaseUrl } : {}),
   }
   const started = Date.now()
 
@@ -834,9 +852,15 @@ function leafVerdict(result: { winner?: { output?: unknown } }): DefaultVerdict 
  * resolver/equal-k path checks `budgetExempt`). teardown is SIGTERM → SIGKILL
  * with a grace window. Streaming: yields one `iteration` event on clean exit.
  */
-export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
+export const cliExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<CliSeam>(ctx, cliSeamKey, 'cli')
   if (!seam.bin) throw new ValidationError('cliExecutor: CliSeam.bin required')
+  // Spawns an arbitrary binary on the host with the host's environment and network.
+  assertHostExecutionAllowed(
+    resolveEgressPolicy(spec.profile),
+    'cliExecutor',
+    'Run this profile on the sandbox executor, which enforces the policy at the network boundary',
+  )
   // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise.
   const traceEnv = workerTraceEnv(ctx)
 
@@ -1012,6 +1036,13 @@ function bridgeCellModel(seamModel: string, ctx: ExecutorContext): string {
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  // The bridge fronts a harness CLI running on the host with host network. Its only lever is a
+  // tool-name denylist the CLI itself interprets, which is a request rather than a boundary.
+  assertHostExecutionAllowed(
+    resolveEgressPolicy(spec.profile),
+    'bridgeExecutor',
+    'Run this profile on the sandbox executor, or point the bridge at a sandboxed harness',
+  )
   // A per-create `backend` override (threaded by `inlineSandboxClient` as
   // `seams.createOptions`) targets the bridge model per cell without a second
   // client: `backend.type` is the harness, `backend.model.model` the model, and

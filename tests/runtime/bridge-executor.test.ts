@@ -53,6 +53,7 @@ function sse(content: string, input: number, output: number): Readable {
 }
 
 function bridgeClient(model: string) {
+  // The bridge fronts a harness on the host, so this local client declares the opt-out.
   return inlineSandboxClient(
     createExecutor({
       backend: 'bridge',
@@ -60,6 +61,12 @@ function bridgeClient(model: string) {
       bridgeBearer: 'secret',
       model,
     }),
+    {
+      network: {
+        mode: 'open',
+        reason: 'local test harness — host process, deliberately unenforced',
+      },
+    },
   )
 }
 

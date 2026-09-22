@@ -928,7 +928,10 @@ export async function createSandboxForSpec<Task>(
   signal: AbortSignal,
   recordMount?: MountRecorder,
 ): Promise<SandboxInstance> {
-  const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides)
+  const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides, {
+    ...(spec.network ? { network: spec.network } : {}),
+    ...(spec.modelBaseUrl ? { modelBaseUrl: spec.modelBaseUrl } : {}),
+  })
   // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
   // host-agent registration) can't surface as a failure — readiness is observed
   // from sandbox status, and a gateway-timed-out create is recovered by lookup.

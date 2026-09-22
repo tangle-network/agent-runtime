@@ -126,6 +126,40 @@ export {
   type LeaderboardScore,
   type LeaderboardSpec,
 } from './define-leaderboard'
+// Enforcement is proven by executing a probe inside the environment, never by reading the policy
+// back out of the API that was supposed to apply it.
+export {
+  type AssertEgressEnforcedOptions,
+  assertEgressEnforced,
+  type EgressProbeRunner,
+  sandboxProbeRunner,
+} from './egress/assert-enforced'
+// The network declaration and its two outcomes: a sandbox boundary policy, or a refusal on an
+// execution path that has no boundary to enforce it.
+export {
+  type AgentEgressPolicy,
+  assertHostExecutionAllowed,
+  DEFAULT_EGRESS_POLICY,
+  DEFAULT_MODEL_HOST,
+  describeEgressPolicy,
+  egressRank,
+  parseEgressPolicy,
+  readProfileEgressPolicy,
+  resolveEgressPolicy,
+  resolveModelHosts,
+  type SandboxEgressPolicy,
+  toSandboxEgressPolicy,
+} from './egress/policy'
+export {
+  buildEgressProbeScript,
+  defaultBlockedHosts,
+  type EgressProbeRecord,
+  type EgressProbeTargets,
+  type EgressProbeVerdict,
+  gradeControlArm,
+  gradeEnforcedArm,
+  parseEgressProbeOutput,
+} from './egress/probe'
 export {
   type AgentEnvironment,
   type AgentEnvironmentCapabilities,

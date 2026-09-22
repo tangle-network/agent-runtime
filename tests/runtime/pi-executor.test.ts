@@ -245,7 +245,17 @@ function piCtx(): ExecutorContext {
 }
 
 const spec: AgentSpec = {
-  profile: { name: 'coder' } as AgentProfile,
+  // A host-process executor refuses any policy it cannot enforce, so a local harness must opt
+  // out explicitly. The opt-out is the audit trail.
+  profile: {
+    name: 'coder',
+    metadata: {
+      network: {
+        mode: 'open',
+        reason: 'local test harness — host process, deliberately unenforced',
+      },
+    },
+  } as AgentProfile,
   harness: null,
 }
 

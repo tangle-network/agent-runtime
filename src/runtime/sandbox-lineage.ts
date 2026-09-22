@@ -232,7 +232,10 @@ export function createSandboxLineage(
     signal: AbortSignal,
   ): Promise<SandboxInstance> => {
     if (signal.aborted) throwAbort()
-    const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides)
+    const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides, {
+      ...(spec.network ? { network: spec.network } : {}),
+      ...(spec.modelBaseUrl ? { modelBaseUrl: spec.modelBaseUrl } : {}),
+    })
     const box = await acquireSandbox(client, opts, { signal })
     await spec.prepareBox?.(box, { signal, recordMount })
     owned.push(box)

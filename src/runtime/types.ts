@@ -17,6 +17,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
+import type { AgentEgressPolicy } from './egress/policy'
 
 // DefaultVerdict is a substrate primitive — it lives in @tangle-network/agent-eval.
 // agent-runtime re-exports it here so existing consumers keep working without
@@ -96,6 +97,15 @@ export interface AgentRunSpec<Task> {
   sandboxOverrides?: Partial<Omit<CreateSandboxOptions, 'backend'>> & {
     backend?: Omit<NonNullable<CreateSandboxOptions['backend']>, 'profile'>
   }
+  /**
+   * Narrows the profile's declared network grant for this run. Absent, the profile's declaration
+   * applies; absent there too, `gateway` — the model endpoint and nothing else. An override that
+   * would widen the profile's grant is rejected rather than honoured.
+   */
+  network?: AgentEgressPolicy
+  /** The model base URL this run uses, when it is not the ambient one. Drives which host the
+   *  network policy keeps reachable, so a run never has to name it twice. */
+  modelBaseUrl?: string
 }
 
 /**

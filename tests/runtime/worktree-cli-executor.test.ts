@@ -88,14 +88,21 @@ function freshGitState(overrides?: Partial<FakeGitState>): FakeGitState {
   }
 }
 
+// Host-process execution: these profiles opt out of network enforcement deliberately.
+const trustedLocal = {
+  network: { mode: 'open', reason: 'local test harness — host process, deliberately unenforced' },
+}
+
 const authoredProfile: AgentProfile = {
   name: 'careful-refactorer',
+  metadata: trustedLocal,
   prompt: { systemPrompt: 'You are a careful refactorer. Keep diffs minimal.' },
   model: { default: 'deepseek/deepseek-v4-flash' },
 }
 
 const reproducibleCodexProfile: AgentProfile = {
   name: 'reproducible-codex',
+  metadata: trustedLocal,
   prompt: {
     systemPrompt: 'You are a careful refactorer.',
     instructions: ['Never search for a public solution.'],

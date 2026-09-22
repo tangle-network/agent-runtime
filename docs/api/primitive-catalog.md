@@ -494,7 +494,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 671 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -507,6 +507,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `areaUnderCurve` | function | Mean of a best-so-far curve — the anytime AUC when the curve is normalized to [0,1]. Higher = |
 | `asAuthoredProfile` | function | Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the |
 | `assertCoordinationBinding` | function | Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_agent / |
+| `assertEgressEnforced` | function | Throw unless the environment demonstrably enforces `policy`. |
+| `assertHostExecutionAllowed` | function | Refuse an execution path that has no network boundary. |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
 | `assessAuthoredProfile` | function | OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task |
@@ -515,6 +517,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `bestSoFar` | function | The best-so-far fold — the ONE definition of "how good was the run after k results", shared by |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
+| `buildEgressProbeScript` | function | Emit the probe program. POSIX sh, no dependencies beyond what the checks themselves test for. |
 | `buildPiMcpServers` | function | Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
@@ -555,6 +558,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
 | `createWorktreeCliExecutor` | function | Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a |
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
+| `defaultBlockedHosts` | function | Blocked hosts every probe checks, on top of whatever the caller adds. |
 | `defaultExtractCandidate` | function | The candidate a shot produced, read from its conversation: the LAST `submit_answer` |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
@@ -563,11 +567,13 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `defineStrategy` | function | Author a Strategy from the composable steps — the open, compact way. |
 | `delegate` | function | Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged. |
 | `depthStrategy` | function | DEPTH: one persistent artifact, carried across analyst-steered shots. |
+| `describeEgressPolicy` | function | Human-readable form for error messages and metadata. |
 | `deterministicCompletion` | function | Completion for a DETERMINISTIC check (build/test/lint/citation/proof): done iff the check |
 | `discriminatingMeans` | function | Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field |
 | `driverAgent` | function | Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a |
 | `dumbDriver` | function | `dumbDriver` — the pass/fail-only steering control. |
 | `effectiveConcurrency` | function | The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually |
+| `egressRank` | function | How permissive a policy is. Used to reject any override that would widen a profile's grant. |
 | `envKeyProvider` | function | The env-backed provider: reads the (dotenvx-loaded) process env. Empty / |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
@@ -579,8 +585,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `freeSlots` | function | Free worker slots under a simultaneity cap: `cap - live`, floored at 0, or `null` when there is |
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
 | `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
+| `gradeControlArm` | function | Grade probe records for the NEGATIVE CONTROL arm (`{ mode: 'open' }`): the graded clone MUST |
+| `gradeEnforcedArm` | function | Grade probe records for an ENFORCED arm: every `allowed:` host reached, everything else blocked. |
 | `harvestCorpus` | function | Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. |
-| `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is |
+| `inlineSandboxClient` | function | Builds a `SandboxClient` over an executor factory: each `create` runs one prompt through the |
 | `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
 | `isWaitOutcome` | function | Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers, |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
@@ -604,6 +612,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `openSandboxRun` | function | Open a sandbox run. Harness-agnostic: the harness lives in |
 | `pairwiseSignificance` | function | Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real |
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
+| `parseEgressPolicy` | function | Validate an untyped declaration (profile metadata, seam input, task config) into a policy. |
+| `parseEgressProbeOutput` | function | Parse probe records out of raw stdout, ignoring anything that is not a probe line. |
 | `patchDelivered` | function | Build the `DeliverableSpec<WorktreePatchArtifact>`: `check(artifact)` runs the shared mechanical |
 | `pendingWaits` | function | The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the |
 | `pickBestDelivered` | function | The single argmax both the default finalizer and `finalizeBestDelivered` share: highest |
@@ -621,6 +631,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
+| `readProfileEgressPolicy` | function | Read a profile's declaration. `profile.network` is the shape agent-interface 0.41 will carry; |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
 | `readWorkerSteerRequests` | function | Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. |
 | `readWorkerTraceContext` | function | Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no |
@@ -635,8 +646,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `renderReport` | function | Operator-facing report, split by who should act. The agent block is the |
 | `replaySpawnTree` | function | Re-feed a journaled spawn tree in strict `seq` order, rehydrating each settled |
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
+| `resolveEgressPolicy` | function | Combine a profile's declaration with a per-run override. An override may only NARROW: a run may |
 | `resolveEntrySymbol` | function | The symbol authored checks are pinned to: `task.meta.entryPoint` when the surface |
 | `resolveMcpServerLaunch` | function | Resolve a profile MCP server's `args`/`env` config values (interface ≥0.40 |
+| `resolveModelHosts` | function | Resolve the hostnames a policy must keep reachable so the agent can call its own model. |
 | `resolveSandboxClient` | function | Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core |
 | `resolveSecretEnv` | function | Resolve a declared secret-env map into the real env entries for a server |
 | `resolveSupervisorProfile` | function | Reduce either profile spelling — a hand-written `SupervisorProfile` or a canonical `AgentProfile` |
@@ -657,6 +670,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
+| `sandboxProbeRunner` | function | Adapt a sandbox into an `EgressProbeRunner`. |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `sanitizeMcpToolSchema` | function | Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. |
 | `secretEnvOfMcpServer` | function | Read (and validate) a server entry's declared secret-env map, if any. |
@@ -680,6 +694,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `supervisorRunDir` | function | The run directory every artifact of one supervisor run lives under. |
 | `supervisorRunsRoot` | function | The root every supervisor run of one workspace lives under. |
 | `timerAt` | function | Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed |
+| `toSandboxEgressPolicy` | function | Translate a declaration into the sandbox boundary's policy. Returns `undefined` for `open` — |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
@@ -701,6 +716,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `collectDelivered` | const | Every verified distinct output, highest score first — the shape for competing hypotheses, a |
 | `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote |
+| `DEFAULT_EGRESS_POLICY` | const | Applied when a profile declares nothing. Deny-by-default, minus the model endpoint. |
+| `DEFAULT_MODEL_HOST` | const | Used when nothing names a base URL. Every Tangle agent routes through this one host. |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
@@ -782,6 +799,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `DispatchUnit` | interface | One unit of queued work: the agent to run, its task, and the spawn options (budget + label). |
 | `DownMessageEvent` | interface | A parent→child message (the down-leg): recorded for observability, delivered via the child inbox, |
 | `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
+| `EgressProbeRecord` | interface | One observation from inside the environment under test. |
+| `EgressProbeTargets` | interface | What the probe must be able to reach, and what it must not. |
+| `EgressProbeVerdict` | interface | What the records mean, given which arm produced them. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
 | `EqualKVerdict` | interface | The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the |
@@ -869,6 +889,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `SandboxCapabilities` | interface | What the loop kernel is allowed to know about a sandbox backend: a single |
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
 | `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
+| `SandboxEgressPolicy` | interface | The sandbox SDK's policy shape (`@tangle-network/sandbox` `EgressPolicy`), reproduced |
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
@@ -926,6 +947,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
 | `WorktreeHarnessResult` | interface | The canonical result of one worktree-harness run, projected by each port to its own shape. |
 | `WorktreeProfileMaterializationReceipt` | interface | Proof of the profile inputs delivered before the worker process started. |
+| `AgentEgressPolicy` | type | What an agent may reach. |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
 | `AgentTurnBackend` | type | The execution substrate one turn runs on — a closed discriminated union over |
@@ -939,6 +961,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `Deliverable` | type | How a typed deliverable `Out` is materialized from a finished turn. |
 | `DispatchStopReason` | type | Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end); |
 | `DriveHarness` | type | How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate |
+| `EgressProbeRunner` | type | Runs a shell program inside the environment under test and returns everything it printed. |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `ExecutorConfig` | type | Config for {@link createExecutor}: the backend is DATA — the cost dial a profile, |
@@ -997,7 +1020,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CoordinationMcpHandle`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `DriverAgentOptions`, `EventBus`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestCorpusOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterConfig`, `RouterToolLoopResult`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `SandboxControlClient`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AssertEgressEnforcedOptions`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CoordinationMcpHandle`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `DriverAgentOptions`, `EventBus`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestCorpusOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterConfig`, `RouterToolLoopResult`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `SandboxControlClient`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

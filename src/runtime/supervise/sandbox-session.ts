@@ -32,6 +32,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType, PromptOptions, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
+import type { AgentEgressPolicy } from '../egress/policy'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import { extractLlmCallEvent } from '../sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
@@ -87,6 +88,10 @@ export interface SteerableSandboxArgs {
    * Absent when the run records no spans — the create options are then untouched.
    */
   readonly traceEnv?: Record<string, string>
+  /** Network grant for this session's box, narrowing the profile's declaration. */
+  readonly network?: AgentEgressPolicy
+  /** The model base URL this session uses, when it is not the ambient one. */
+  readonly modelBaseUrl?: string
   readonly contentRef: (prefix: string, value: unknown) => string
   readonly now?: () => number
 }
@@ -151,6 +156,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         backend: { type: args.harness },
         ...(args.traceEnv && Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
       },
+      ...(args.network ? { network: args.network } : {}),
+      ...(args.modelBaseUrl ? { modelBaseUrl: args.modelBaseUrl } : {}),
     }
     const promptOptions = readPromptOptions(args.loopCtx)
 

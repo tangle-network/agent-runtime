@@ -25,7 +25,16 @@ async function startBridgeStub(
 }
 
 function makeExecutor(bridgeUrl: string) {
-  const profile: AgentProfile = { name: 'bridge-test-worker' }
+  const profile: AgentProfile = {
+    name: 'bridge-test-worker',
+    // The bridge runs a harness on the host; a local test opts out of enforcement explicitly.
+    metadata: {
+      network: {
+        mode: 'open',
+        reason: 'local test harness — host process, deliberately unenforced',
+      },
+    },
+  }
   return bridgeExecutor(
     { profile, harness: null },
     {

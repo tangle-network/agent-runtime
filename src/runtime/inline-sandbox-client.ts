@@ -12,7 +12,10 @@
  * `answerOutput`/the kernel's cost ledger already parse — no sessions, no fs,
  * no fork (those degrade gracefully via the optional `SandboxClient` methods).
  */
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+
+import type { AgentEgressPolicy } from './egress/policy'
 import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 import type { SandboxClient } from './types'
 
@@ -41,7 +44,24 @@ async function settle(
  * instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
  * run once on the prompt, emit the terminal result event, tear down.
  */
-export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxClient {
+export interface InlineSandboxClientOptions {
+  /**
+   * Network declaration for the synthesized profile, used only when `create` is called without a
+   * `backend.profile` of its own. A host-process executor refuses anything stricter than `open`,
+   * so an inline client fronting one must say so here rather than inheriting a default it cannot
+   * honour.
+   */
+  network?: AgentEgressPolicy
+}
+
+/**
+ * Builds a `SandboxClient` over an executor factory: each `create` runs one prompt through the
+ * executor on the host, emits the terminal result event, and tears down.
+ */
+export function inlineSandboxClient(
+  factory: ExecutorFactory<unknown>,
+  clientOptions: InlineSandboxClientOptions = {},
+): SandboxClient {
   let seq = 0
   return {
     async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
@@ -70,7 +90,18 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
             if (callerSignal.aborted) onAbort()
             else callerSignal.addEventListener('abort', onAbort, { once: true })
           }
-          const spec: AgentSpec = { profile: { name: id }, harness: null }
+          // The caller's real profile — and with it their network declaration — arrives on
+          // `backend.profile`. Discarding it and synthesizing `{name: id}` silently replaced
+          // every declaration with the default, which is how a policy stops travelling with the
+          // agent it describes.
+          const declared = createOptions?.backend?.profile as AgentProfile | undefined
+          const spec: AgentSpec = {
+            profile: declared ?? {
+              name: id,
+              ...(clientOptions.network ? { metadata: { network: clientOptions.network } } : {}),
+            },
+            harness: null,
+          }
           const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
           try {
             const artifact = await settle(exec, message, controller.signal)

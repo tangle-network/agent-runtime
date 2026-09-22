@@ -109,7 +109,18 @@ function scriptedDriver(
 function resolvedLeaf(name: string): Agent<unknown, unknown> {
   return {
     name,
-    executorSpec: { profile: { name }, harness: null },
+    executorSpec: {
+      profile: {
+        name,
+        metadata: {
+          network: {
+            mode: 'open',
+            reason: 'local test harness — host process, deliberately unenforced',
+          },
+        },
+      },
+      harness: null,
+    },
     act: () => Promise.resolve(undefined),
   } as unknown as Agent<unknown, unknown>
 }
@@ -424,7 +435,22 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
         brain: scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+              {
+                name: 'spawn_agent',
+                arguments: {
+                  // The cli backend spawns on the host; the authored profile opts out explicitly.
+                  profile: {
+                    kind: 'worker',
+                    metadata: {
+                      network: {
+                        mode: 'open',
+                        reason: 'local test harness — host process, deliberately unenforced',
+                      },
+                    },
+                  },
+                  task: 'go',
+                },
+              },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },

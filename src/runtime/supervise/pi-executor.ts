@@ -62,6 +62,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
+import { assertHostExecutionAllowed, resolveEgressPolicy } from '../egress/policy'
 import { abortError, throwIfAborted } from '../util'
 import { createInbox, type Inbox, type InboxMessage } from './inbox'
 import { PI_MCP_ADAPTER, type PiMcpReceipt, preparePiMcp } from './pi-mcp'
@@ -128,6 +129,15 @@ interface PiAssistantOutcome {
 /** Build the `Executor` for one pi worker. Registered as runtime `'pi'`. */
 export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readPiSeam(ctx)
+  // pi is spawned on the HOST with `{...process.env, ...seam.env}`, and `seam.args` are appended
+  // after the runtime's own flags. Proxy env vars are advisory to a process whose bash tool can
+  // unset them, and a caller can override any flag we set. There is no lever here that survives
+  // the agent, so any policy stricter than `open` is refused instead of approximated.
+  assertHostExecutionAllowed(
+    resolveEgressPolicy(spec.profile),
+    'piExecutor',
+    'Run this profile on the sandbox executor, which enforces the policy at the network boundary',
+  )
   // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise, which
   // leaves the spawn environment byte-identical to the untraced path.
   const traceEnv = workerTraceEnv(ctx)
