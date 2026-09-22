@@ -327,6 +327,88 @@ describe('coordination tools', () => {
     expect(events).toEqual([{ type: 'submission', result: { answer: 42 } }])
   })
 
+  it('returns checked failure details without coercing packets or accepting diagnostic prose', async () => {
+    const { scope } = mockScope()
+    const explained: unknown[] = []
+    const failures = new Map<unknown, string>()
+    const stringPacket = JSON.stringify({ status: 'complete', accepted: { correctness: true } })
+    const aliasedPacket = { status: 'complete', accepted: { correctness: true } }
+    const failedEvidence = { dimensions: { correctness: 'verified' }, evidence: ['failed-test'] }
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      deliverable: {
+        check(result) {
+          const failure =
+            typeof result === 'string'
+              ? 'result must be an object, not a JSON string'
+              : result !== null && typeof result === 'object' && !('dimensions' in result)
+                ? 'dimensions is required; accepted is not that field'
+                : 'the evidence check failed'
+          failures.set(result, failure)
+          return false
+        },
+        async explainFailure(result) {
+          explained.push(result)
+          return failures.get(result)
+        },
+      },
+    })
+    const submit = tool(tb, 'submit_result')
+    for (const [result, reason] of [
+      [stringPacket, 'result must be an object, not a JSON string'],
+      [aliasedPacket, 'dimensions is required; accepted is not that field'],
+      [failedEvidence, 'the evidence check failed'],
+    ]) {
+      expect(await submit.handler({ result })).toEqual({
+        accepted: false,
+        stop: false,
+        reason: `the independent check did not pass on this result. ${reason}`,
+      })
+    }
+    expect(explained[0]).toBe(stringPacket)
+    expect(explained[1]).toEqual(aliasedPacket)
+    expect(tb.isStopped()).toBe(false)
+    expect(tb.submittedResult()).toBeUndefined()
+  })
+
+  it('keeps diagnostic failures separate from check failures and never explains accepted results', async () => {
+    const { scope } = mockScope()
+    let explanations = 0
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      deliverable: {
+        describe: 'checked artifact',
+        check(result) {
+          if (result === 'broken-check') throw new Error('check unavailable')
+          return result === 'checked-artifact'
+        },
+        explainFailure() {
+          explanations += 1
+          throw new Error('diagnostic unavailable')
+        },
+      },
+    })
+    const submit = tool(tb, 'submit_result')
+    expect(await submit.handler({ result: 'unfinished' })).toEqual({
+      accepted: false,
+      stop: false,
+      reason: 'the independent check did not pass on this result. Expected: checked artifact',
+      diagnosticError: 'diagnostic unavailable',
+    })
+    expect(await submit.handler({ result: 'broken-check' })).toMatchObject({
+      accepted: false,
+      reason: expect.stringContaining('the independent check THREW'),
+    })
+    expect(await submit.handler({ result: 'checked-artifact' })).toMatchObject({ accepted: true })
+    expect(explanations).toBe(1)
+  })
+
   it('commits one passing submission when concurrent callers race the durable append', async () => {
     const { scope } = mockScope()
     const events: CoordinationEvent[] = []
