@@ -3153,17 +3153,18 @@ function superviseInternal(
               }
             : {}),
           ...(finalizer ? { finalizer } : {}),
-          // A nested manager acknowledges cancels for ITS direct children from the same layout
-          // dir as the root — subtree-scoped, so exact node ids route to the one manager that
-          // parents them and label references stay the root's alone.
+          // A nested manager owns only its subtree's durable controls. Root-level labels remain
+          // the root's even when steering uses a separate directory from cancellation.
           ...(options.runDir === undefined
             ? {}
             : {
                 controlDir: resolve(options.runDir),
-                controlScope: 'subtree' as const,
                 abortRun: cancelDurableRun,
               }),
           ...(options.steerDir === undefined ? {} : { steerDir: resolve(options.steerDir) }),
+          ...(options.runDir === undefined && options.steerDir === undefined
+            ? {}
+            : { controlScope: 'subtree' as const }),
         })
         return driverChild(
           authorized,
