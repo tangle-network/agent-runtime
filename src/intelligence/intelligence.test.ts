@@ -292,6 +292,24 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
 })
 
 describe('billing classification — OFF proves inference-only', () => {
+  it.each(['off', 'standard'] as const)(
+    'reports unreported Intelligence cost honestly at %s',
+    async (effort) => {
+      const { calls } = installFetchSpy('ok')
+      const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl, effort })
+      await client.traceRun({ input: {} }, async (trace) => {
+        trace.recordOutcome({ costUsd: 0.01 })
+        return 'ok'
+      })
+      await client.flush()
+      const attrs = attrsOf(calls[0]?.body)
+      expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
+      expect(attrs['tangle.usage.intelligence_usd_known']).toBe(
+        effort === 'off' ? undefined : false,
+      )
+    },
+  )
+
   it("effort:'off' produces zero intelligence-class usage on the trace", async () => {
     const { calls } = installFetchSpy('ok')
     const client = createIntelligenceClient({
@@ -324,6 +342,7 @@ describe('billing classification — OFF proves inference-only', () => {
     const attrs = attrsOf(calls[0]?.body)
     expect(attrs['tangle.effort.intelligence_off']).toBe(false)
     expect(attrs['tangle.usage.intelligence_usd']).toBe(0.03)
+    expect(attrs).not.toHaveProperty('tangle.usage.intelligence_usd_known')
   })
 
   it('exports a separate inference estimate beside billed inference usage', async () => {

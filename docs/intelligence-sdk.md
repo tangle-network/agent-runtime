@@ -62,6 +62,7 @@ The best-effort law: telemetry-export failures are swallowed — a live agent ne
 Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs, outputs, and opted-in runtime payloads pass through the redactor and are exported without content truncation.
 
 Unreported inference cost is unknown, including when an agent fails before reporting usage.
+Unreported Intelligence cost is also unknown above the OFF tier.
 `UsageSplit.inferenceUsdKnown` and `UsageSplit.intelligenceUsdKnown` mark incomplete subtotals with `false`.
 Exports preserve these flags as `tangle.usage.inference_usd_known` and `tangle.usage.intelligence_usd_known`.
 The OFF tier still guarantees zero Intelligence spend.
@@ -73,7 +74,7 @@ Runtime run records and persona conversations use the same normalized event acco
 Missing, invalid, or explicitly incomplete measurements remain incomplete after later complete events.
 Numeric overrides in run records and Intelligence replace subtotals without erasing those flags.
 Intelligence ignores malformed token overrides and marks the totals incomplete; invalid estimate overrides preserve valid event estimates.
-Repeated `trace.recordOutcome` calls replace numeric subtotals without clearing explicitly incomplete usage.
+Repeated `trace.recordOutcome` and `applied.record` calls replace numeric subtotals without clearing explicitly incomplete usage.
 
 ## Two lanes: traces UP, certified artifacts DOWN
 

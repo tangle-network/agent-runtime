@@ -207,6 +207,85 @@ function attrsOf(body: unknown, spanName?: string): Record<string, unknown> {
 }
 
 describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
+  it.each(['off', 'standard'] as const)(
+    'reports unreported Intelligence cost honestly at %s',
+    async (effort) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(async () => 'done', {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        effort,
+        fetchImpl: async () => jsonResponse(COMPOSED),
+      })
+      await agent(null)
+      await agent.flush()
+      const attrs = attrsOf(posts[0], 'tangle.intelligence.run')
+      expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
+      expect(attrs['tangle.usage.intelligence_usd_known']).toBe(
+        effort === 'off' ? undefined : false,
+      )
+    },
+  )
+
+  it.each(['split', 'bare'] as const)(
+    'keeps completeness evidence across repeated records and a later %s subtotal',
+    async (kind) => {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          if (init.body) posts.push(JSON.parse(String(init.body)))
+          return new Response('{}', { status: 200 })
+        }),
+      )
+      const agent = withIntelligence(
+        async (_input: null, applied) => {
+          applied.record({
+            usage: {
+              inferenceUsd: 0.01,
+              inferenceUsdKnown: false,
+              intelligenceUsdKnown: false,
+              estimatedInferenceUsd: 0.02,
+            },
+            tokens: { input: 10, output: 5, tokensKnown: false },
+          })
+          applied.record({ usage: { intelligenceUsd: 0.04 } })
+          applied.record({
+            ...(kind === 'split' ? { usage: { inferenceUsd: 0.03 } } : { costUsd: 0.03 }),
+            tokens: { input: 20, output: 9 },
+          })
+          return 'done'
+        },
+        {
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://plane.test',
+          fetchImpl: async () => jsonResponse(COMPOSED),
+        },
+      )
+      await agent(null)
+      await agent.flush()
+      expect(attrsOf(posts[0], 'tangle.intelligence.run')).toMatchObject({
+        'tangle.usage.inference_usd': 0.03,
+        'tangle.usage.inference_usd_known': false,
+        'tangle.usage.intelligence_usd': 0.04,
+        'tangle.usage.intelligence_usd_known': false,
+        'tangle.usage.inference_usd_estimated': 0.02,
+        'gen_ai.usage.input_tokens': 20,
+        'gen_ai.usage.output_tokens': 9,
+        'tangle.usage.tokens_known': false,
+      })
+    },
+  )
+
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5])(
     'preserves observed tokens when overrides contain invalid counts (%s)',
     async (invalid) => {

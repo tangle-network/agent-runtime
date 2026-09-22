@@ -2520,8 +2520,8 @@ Exact proposal → review → execution → receipt linkage for candidate runs.
 
 What an agent reports (via `applied.record`) to enrich the [RunRecord](#runrecord)
 sent for its call. All optional — an un-recorded run still sends input/output
-with unknown inference usage. `costUsd` without a split is treated
-as pure inference (the base stream).
+with unknown usage, except for the OFF billing guarantee.
+`costUsd` supplies inference spend when the split omits it.
 
 #### Properties
 
@@ -2811,10 +2811,8 @@ Capture the run's output. Exported through the redactor.
 
 > **recordOutcome**(`outcome`): `void`
 
-Capture the run's outcome. `usage` defaults to inference-only
-(`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
-fills `intelligenceUsd` itself. `costUsd`, when given without a split, is
-treated as pure inference.
+Capture the run's outcome. Unreported spend is unknown, except for Intelligence at OFF.
+`costUsd` supplies inference spend when the split omits it.
 Numeric usage updates replace subtotals; explicit incomplete flags remain sticky.
 
 ###### Parameters
@@ -3351,7 +3349,7 @@ Fold every proposal into `base` via `applyAgentProfileDiff`, in promotion
 
 Enrich the [RunRecord](#runrecord) sent for this call — outcome, usage split,
  model/provider, and the loop event stream. Optional; an un-recorded run
- still sends input/output with unknown inference usage.
+ still sends input/output with unknown usage, except for the OFF billing guarantee.
 
 ###### Parameters
 

@@ -50,7 +50,9 @@ import {
   type IntelligenceConfig,
   type RunRecord,
   type RunReport,
+  type UsageSplit,
 } from './index'
+import { mergeReportedUsage, normalizeReportedUsage } from './usage'
 
 /** What the hook hands the agent each run. Additive over the prompt-only
  *  delivery: `composePrompt` folds the certified prompt surface (as before);
@@ -75,7 +77,7 @@ export interface AppliedIntelligence {
   applyProfile(base: AgentProfile): AgentProfile
   /** Enrich the {@link RunRecord} sent for this call — outcome, usage split,
    *  model/provider, and the loop event stream. Optional; an un-recorded run
-   *  still sends input/output with unknown inference usage. */
+   *  still sends input/output with unknown usage, except for the OFF billing guarantee. */
   record(report: RunReport): void
 }
 
@@ -209,6 +211,7 @@ export function withIntelligence<I, O>(
     const certified = source.current()
     const proposals = currentProposals()
     const report: RunReport = {}
+    const usage: Partial<UsageSplit> = {}
     const applied: AppliedIntelligence = {
       runId,
       traceId,
@@ -217,7 +220,18 @@ export function withIntelligence<I, O>(
       proposals,
       applyProfile: (base: AgentProfile) =>
         proposals.reduce((profile, p) => applyAgentProfileDiff(profile, p.diff), base),
-      record: (r: RunReport) => Object.assign(report, r),
+      record: (r: RunReport) => {
+        const tokens = r.tokens ?? report.tokens
+        const tokensIncomplete =
+          report.tokens?.tokensKnown === false || tokens?.tokensKnown === false
+        mergeReportedUsage(usage, r)
+        Object.assign(report, r, {
+          usage,
+          ...(tokens
+            ? { tokens: { ...tokens, ...(tokensIncomplete ? { tokensKnown: false } : {}) } }
+            : {}),
+        })
+      },
     }
 
     function exportCompleted(output: unknown, caught?: unknown): void {
@@ -264,15 +278,15 @@ export function withIntelligence<I, O>(
             report.success ??
             (caught !== undefined ? false : (eventSummary.success ?? error === undefined)),
           ...(report.score !== undefined ? { score: report.score } : {}),
-          usage: {
+          usage: normalizeReportedUsage({
             inferenceUsd: isUsageAmount(reportedCost) ? reportedCost : eventSummary.costUsd,
             ...(inferenceKnown ? {} : { inferenceUsdKnown: false }),
             ...(isUsageAmount(estimatedInferenceUsd) ? { estimatedInferenceUsd } : {}),
-            intelligenceUsd: report.usage?.intelligenceUsd ?? 0,
+            intelligenceUsd: report.usage?.intelligenceUsd,
             ...(report.usage?.intelligenceUsdKnown === false
               ? { intelligenceUsdKnown: false }
               : {}),
-          },
+          }),
         },
         timing: { startedAt, completedAt, durationMs: completedAt - startedAt },
         ...((report.model ?? eventSummary.model)

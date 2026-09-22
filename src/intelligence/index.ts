@@ -31,7 +31,6 @@ import {
 } from '../otel-export'
 import { type Redactor, resolveRedactor } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
-import { isUsageAmount } from '../runtime-usage'
 import type { RuntimeTelemetryOptions } from '../sanitize'
 import type { RuntimeStreamEvent } from '../types'
 import { resolveIntelligenceBaseUrl } from './delivery'
@@ -43,6 +42,7 @@ import {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
+import { mergeReportedUsage, normalizeReportedUsage } from './usage'
 
 export type {
   AgentCandidateProfileActivation as CandidateProfileMaterialization,
@@ -257,18 +257,18 @@ function usageAttributes(
   usage: UsageSplit,
   intelligenceOff: boolean,
 ): Record<string, number | boolean> {
-  const inferenceKnown = isUsageAmount(usage.inferenceUsd) && usage.inferenceUsdKnown !== false
-  const intelligenceKnown =
-    intelligenceOff ||
-    (isUsageAmount(usage.intelligenceUsd) && usage.intelligenceUsdKnown !== false)
+  const normalized = normalizeReportedUsage(usage, intelligenceOff)
   return {
-    'tangle.usage.inference_usd': isUsageAmount(usage.inferenceUsd) ? usage.inferenceUsd : 0,
-    'tangle.usage.intelligence_usd':
-      intelligenceOff || !isUsageAmount(usage.intelligenceUsd) ? 0 : usage.intelligenceUsd,
-    ...(!inferenceKnown ? { 'tangle.usage.inference_usd_known': false } : {}),
-    ...(!intelligenceKnown ? { 'tangle.usage.intelligence_usd_known': false } : {}),
-    ...(isUsageAmount(usage.estimatedInferenceUsd)
-      ? { 'tangle.usage.inference_usd_estimated': usage.estimatedInferenceUsd }
+    'tangle.usage.inference_usd': normalized.inferenceUsd,
+    'tangle.usage.intelligence_usd': normalized.intelligenceUsd,
+    ...(normalized.inferenceUsdKnown === false
+      ? { 'tangle.usage.inference_usd_known': false }
+      : {}),
+    ...(normalized.intelligenceUsdKnown === false
+      ? { 'tangle.usage.intelligence_usd_known': false }
+      : {}),
+    ...(normalized.estimatedInferenceUsd !== undefined
+      ? { 'tangle.usage.inference_usd_estimated': normalized.estimatedInferenceUsd }
       : {}),
   }
 }
@@ -318,8 +318,8 @@ export interface RunRecord {
 /**
  * What an agent reports (via `applied.record`) to enrich the {@link RunRecord}
  * sent for its call. All optional — an un-recorded run still sends input/output
- * with unknown inference usage. `costUsd` without a split is treated
- * as pure inference (the base stream).
+ * with unknown usage, except for the OFF billing guarantee.
+ * `costUsd` supplies inference spend when the split omits it.
  */
 export interface RunReport {
   success?: boolean
@@ -419,10 +419,8 @@ export interface TraceHandle {
   /** Capture the run's output. Exported through the redactor. */
   recordOutput(output: unknown): void
   /**
-   * Capture the run's outcome. `usage` defaults to inference-only
-   * (`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
-   * fills `intelligenceUsd` itself. `costUsd`, when given without a split, is
-   * treated as pure inference.
+   * Capture the run's outcome. Unreported spend is unknown, except for Intelligence at OFF.
+   * `costUsd` supplies inference spend when the split omits it.
    * Numeric usage updates replace subtotals; explicit incomplete flags remain sticky.
    */
   recordOutcome(outcome: {
@@ -800,9 +798,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       const runId = meta.runId ?? freshRunId()
       const traceId = meta.traceId ?? freshTraceId()
       let recordedOutput: unknown
-      const usage: UsageSplit = { inferenceUsd: 0, inferenceUsdKnown: false, intelligenceUsd: 0 }
-      // Unreported usage can become known; an explicitly incomplete receipt cannot.
-      let inferenceIncomplete = false
+      const usage: Partial<UsageSplit> = {}
       let success: boolean | undefined
       let score: number | undefined
 
@@ -813,24 +809,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         recordOutcome(outcome): void {
           if (typeof outcome.success === 'boolean') success = outcome.success
           if (typeof outcome.score === 'number') score = outcome.score
-          if (outcome.usage?.inferenceUsdKnown === false) {
-            inferenceIncomplete = true
-            usage.inferenceUsdKnown = false
-          }
-          const inferenceUsd = outcome.usage ? outcome.usage.inferenceUsd : outcome.costUsd
-          if (isUsageAmount(inferenceUsd)) {
-            usage.inferenceUsd = inferenceUsd
-            if (!inferenceIncomplete) delete usage.inferenceUsdKnown
-          }
-          if (outcome.usage) {
-            if (isUsageAmount(outcome.usage.intelligenceUsd)) {
-              usage.intelligenceUsd = outcome.usage.intelligenceUsd
-            }
-            if (outcome.usage.intelligenceUsdKnown === false) usage.intelligenceUsdKnown = false
-            if (isUsageAmount(outcome.usage.estimatedInferenceUsd)) {
-              usage.estimatedInferenceUsd = outcome.usage.estimatedInferenceUsd
-            }
-          }
+          mergeReportedUsage(usage, outcome)
         },
       }
 
@@ -839,7 +818,6 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       // We clamp on export rather than trust the caller, so the billing proof
       // holds even if a caller mis-records an outcome at OFF.
       const result = await fn(trace)
-      if (intelligenceOff) usage.intelligenceUsd = 0
 
       const outcome: TraceOutcome = {
         runId,
@@ -849,7 +827,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         intelligenceOff,
         ...(success !== undefined ? { success } : {}),
         ...(score !== undefined ? { score } : {}),
-        usage,
+        usage: normalizeReportedUsage(usage, intelligenceOff),
       }
       exportTrace(meta, outcome, recordedOutput)
       return result
