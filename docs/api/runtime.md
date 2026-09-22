@@ -17424,6 +17424,8 @@ The caller's reason, carried verbatim from the request.
 
 > `readonly` `optional` **operator?**: `string`
 
+The caller's operator identity, carried verbatim from the request.
+
 ##### detail?
 
 > `readonly` `optional` **detail?**: `string`
@@ -36416,10 +36418,10 @@ cascade controller the run already has, so every live worker comes down with it.
 never applies the cancellation itself; writing a request file is not an acknowledgement.
 
 Idempotency is a lookup: when an acknowledgement for `operationId` already exists it is returned
-AS-IS and nothing is written. A retry that changes the source or reason fails closed. A request
-the runtime has not answered yet returns `effect: 'unknown'` (never a success); call again with
-the same `operationId` — or [readRunCancellation](#readruncancellation) — to read the acknowledged result
-after a reconnect.
+AS-IS and nothing is written. A retry that changes the source, reason, deadline, or operator
+fails closed. A request the runtime has not answered yet returns `effect: 'unknown'` (never a
+success); call again with the same `operationId` — or [readRunCancellation](#readruncancellation) — to read the
+acknowledged result after a reconnect.
 
 A run carries ONE run-scoped operation: a second request under a different `operationId` throws
 rather than silently replacing the pending one, because both would claim the same single abort.

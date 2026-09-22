@@ -184,6 +184,86 @@ describe('durable file helpers', () => {
     )
   })
 
+  it('carries the operator on the queued result and refuses a retry that changes it', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    const queued = cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })
+    expect(queued).toMatchObject({ effect: 'unknown', operator: 'alice' })
+    expect(readRunCancelRequest(root)).toMatchObject({ operationId: 'run-op', operator: 'alice' })
+    // The same operator is a pure lookup; a different or omitted one is another operation.
+    expect(cancelRun(root, 'run-op', { source: 'test', operator: 'alice' }).operator).toBe('alice')
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'bob' })).toThrow(
+      /operator 'alice' != 'bob'/u,
+    )
+    expect(() => cancelRun(root!, 'run-op', { source: 'test' })).toThrow(/operator/u)
+
+    // Once acknowledged, the acknowledgement is compared too, so a changed operator is refused
+    // even when the record is returned as-is for the admitted one.
+    const acknowledged = {
+      operationId: 'run-op',
+      effect: 'cancelled' as const,
+      requestedAt: queued.requestedAt,
+      observedAt: '2026-08-28T00:00:01.000Z',
+      operator: 'alice',
+      detail: 'run aborted',
+    }
+    writeRunCancellation(root, acknowledged)
+    expect(cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })).toEqual(acknowledged)
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'bob' })).toThrow(
+      /operator/u,
+    )
+  })
+
+  it('returns a legacy acknowledgement that predates the operator field for the admitted operator', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    // A 0.251.0 runtime persisted the operator on the request and omitted it on the record.
+    const queued = cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })
+    const legacy = {
+      operationId: 'run-op',
+      effect: 'cancelled' as const,
+      requestedAt: queued.requestedAt,
+      observedAt: '2026-08-28T00:00:01.000Z',
+      detail: 'run aborted',
+    }
+    writeRunCancellation(root, legacy)
+
+    // The retry stays an idempotent lookup across the upgrade; the request still holds the line.
+    expect(cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })).toEqual(legacy)
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'bob' })).toThrow(
+      /admitted request \(operator 'alice' != 'bob'\)/u,
+    )
+  })
+
+  it('refuses an acknowledgement that names a different operator even without its request', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    const queued = cancelRun(root, 'run-op', { source: 'test', operator: 'alice' })
+    writeRunCancellation(root, {
+      operationId: 'run-op',
+      effect: 'cancelled' as const,
+      requestedAt: queued.requestedAt,
+      observedAt: '2026-08-28T00:00:01.000Z',
+      operator: 'alice',
+      detail: 'run aborted',
+    })
+    rmSync(join(root, 'cancellations', 'run.request.json'))
+
+    expect(cancelRun(root, 'run-op', { operator: 'alice' }).operator).toBe('alice')
+    expect(() => cancelRun(root!, 'run-op', { operator: 'bob' })).toThrow(
+      /acknowledgement \(operator 'alice' != 'bob'\)/u,
+    )
+  })
+
+  it('rejects an operator on a retry after an operator-less request was admitted', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    expect(cancelRun(root, 'run-op', { source: 'test' }).operator).toBeUndefined()
+    expect(() => cancelRun(root!, 'run-op', { source: 'test', operator: 'alice' })).toThrow(
+      /operator/u,
+    )
+  })
+
   it('rejects explicit run fields after an omitted field was admitted', () => {
     root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
 

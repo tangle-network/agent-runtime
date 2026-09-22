@@ -204,6 +204,7 @@ export interface RunCancellation {
   readonly observedAt: string
   /** The caller's reason, carried verbatim from the request. */
   readonly reason?: string
+  /** The caller's operator identity, carried verbatim from the request. */
   readonly operator?: string
   /** The runtime's explanation of how it arrived at `effect`. */
   readonly detail?: string
@@ -754,10 +755,10 @@ export function writeRunCancellation(eventDir: string, record: RunCancellation):
  * never applies the cancellation itself; writing a request file is not an acknowledgement.
  *
  * Idempotency is a lookup: when an acknowledgement for `operationId` already exists it is returned
- * AS-IS and nothing is written. A retry that changes the source or reason fails closed. A request
- * the runtime has not answered yet returns `effect: 'unknown'` (never a success); call again with
- * the same `operationId` — or {@link readRunCancellation} — to read the acknowledged result
- * after a reconnect.
+ * AS-IS and nothing is written. A retry that changes the source, reason, deadline, or operator
+ * fails closed. A request the runtime has not answered yet returns `effect: 'unknown'` (never a
+ * success); call again with the same `operationId` — or {@link readRunCancellation} — to read the
+ * acknowledged result after a reconnect.
  *
  * A run carries ONE run-scoped operation: a second request under a different `operationId` throws
  * rather than silently replacing the pending one, because both would claim the same single abort.
@@ -829,6 +830,7 @@ export function cancelRun(
       queued: true,
       ...(options.reason === undefined ? {} : { reason: options.reason }),
       ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
+      ...(options.operator === undefined ? {} : { operator: options.operator }),
     })
   }
   return {
@@ -837,6 +839,7 @@ export function cancelRun(
     requestedAt: request.at,
     observedAt: request.at,
     ...(request.reason === undefined ? {} : { reason: request.reason }),
+    ...(request.operator === undefined ? {} : { operator: request.operator }),
     detail: 'request queued; no runtime acknowledger has answered yet',
   }
 }
@@ -853,6 +856,7 @@ type RunCancelRequestCandidate = {
   readonly operationId: string
   readonly source: string
   readonly reason?: string
+  readonly operator?: string
 }
 
 function assertSameWorkerCancelRequest(
@@ -924,6 +928,12 @@ function assertSameRunCancelRequest(
         `(reason differs)`,
     )
   }
+  if (existing.operator !== candidate.operator) {
+    throw new Error(
+      `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request ` +
+        `(operator '${existing.operator}' != '${candidate.operator}')`,
+    )
+  }
 }
 
 function assertRunCancellationMatchesCandidate(
@@ -934,6 +944,16 @@ function assertRunCancellationMatchesCandidate(
     throw new Error(
       `cancelRun: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
         `(reason differs)`,
+    )
+  }
+  // An acknowledgement written before acknowledgements carried the operator (0.251.0) names none
+  // even when its admitted request does. The request comparator has already held the candidate
+  // to that request, so a legacy record matches any candidate operator; a record that names one
+  // must name the same one.
+  if (existing.operator !== undefined && existing.operator !== candidate.operator) {
+    throw new Error(
+      `cancelRun: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
+        `(operator '${existing.operator}' != '${candidate.operator}')`,
     )
   }
 }

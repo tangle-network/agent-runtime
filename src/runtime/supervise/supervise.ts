@@ -2398,6 +2398,7 @@ function recordRunCancellationOutcome(
       ? {}
       : { deadlineExceeded: record.deadlineExceeded }),
     ...(request.reason === undefined ? {} : { reason: request.reason }),
+    ...(request.operator === undefined ? {} : { operator: request.operator }),
   }
   if (record === undefined) {
     writeRunCancellation(dir, {

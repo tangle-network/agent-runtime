@@ -33,6 +33,7 @@ export function applyRunCancellation(
     requestedAt: request.at,
     observedAt,
     ...(request.reason === undefined ? {} : { reason: request.reason }),
+    ...(request.operator === undefined ? {} : { operator: request.operator }),
     detail: 'root abort issued to the whole run; termination not yet proven',
   }
   writeRunCancellation(dir, record)
