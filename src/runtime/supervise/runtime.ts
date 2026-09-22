@@ -2062,8 +2062,15 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
     case 'provider': {
       // `validator` is an executable port like `provider`: retained live by reference, never
       // cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
-      const { provider, registry, profileForCreate, taskToTurn, validator, ...decisionData } =
-        config
+      const {
+        provider,
+        registry,
+        profileForCreate,
+        taskToTurn,
+        validator,
+        workspaceRetention,
+        ...decisionData
+      } = config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
       // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
       // retain the resulting provider instance, never the registry lookup for later execution.
@@ -2074,6 +2081,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
         ...(validator === undefined ? {} : { validator }),
+        ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
       })
     }
     case 'sandbox': {
@@ -2252,6 +2260,11 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           ? selectProviderPlacement(spec.profile, originalSeam)
           : undefined
         const providerSeam = selected?.options ?? originalSeam
+        if (providerSeam.steering && providerSeam.workspaceRetention !== undefined) {
+          throw new ValidationError(
+            'createExecutor(provider, steering): workspaceRetention cannot be used with steering because the session-owned environment has no single-shot preservation barrier',
+          )
+        }
         const provider = resolveAgentEnvironmentProvider(
           providerSeam.provider,
           providerSeam.registry,

@@ -197,6 +197,8 @@ export {
   type ProviderLeafOut,
   type ProviderPlacement,
   type ProviderPromptOptions,
+  type ProviderWorkspaceRetentionContext,
+  type ProviderWorkspaceRetentionPort,
   providerAsExecutor,
   providerAsSandboxClient,
   type ResourceRequest,

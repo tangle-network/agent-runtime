@@ -4144,6 +4144,14 @@ Read a part's text from `part.text`; a retained frame's `delta` is only that fra
 
 **`Experimental`**
 
+##### workspaceSnapshot?
+
+> `optional` **workspaceSnapshot?**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+**`Experimental`**
+
+Portable executable workspace evidence accepted before the source environment was deleted.
+
 ##### supersededPartUpdates?
 
 > `optional` **supersededPartUpdates?**: `number`
@@ -4224,6 +4232,14 @@ shared validator can apply a root-only contract without applying it to nested ma
 
 The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
 back to its own settle verdict.
+
+##### workspaceRetention?
+
+> `optional` **workspaceRetention?**: [`ProviderWorkspaceRetentionPort`](#providerworkspaceretentionport)
+
+**`Experimental`**
+
+Capture and verify a portable executable workspace before Runtime destroys the environment.
 
 ##### profileForCreate?
 
@@ -7390,6 +7406,78 @@ Caller-declared execution placement. Matching never changes the authored profile
 
 ***
 
+### ProviderWorkspaceRetentionPort
+
+The caller-owned boundary used to retain an executable provider workspace.
+
+#### Properties
+
+##### timeoutMs
+
+> `readonly` **timeoutMs**: `number`
+
+Maximum wall-clock time Runtime gives capture and verification.
+
+##### artifacts
+
+> `readonly` **artifacts**: [`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
+
+Reads the durable manifest and archive after capture returns.
+
+#### Methods
+
+##### capture()
+
+> **capture**(`context`): `Promise`\<`AgentCandidateWorkspaceSnapshotEvidence`\>
+
+Capture the live environment into the standard candidate workspace evidence shape.
+
+###### Parameters
+
+###### context
+
+[`ProviderWorkspaceRetentionContext`](#providerworkspaceretentioncontext)
+
+###### Returns
+
+`Promise`\<`AgentCandidateWorkspaceSnapshotEvidence`\>
+
+***
+
+### ProviderWorkspaceRetentionContext
+
+The exact live execution facts supplied to a retention callback.
+
+#### Properties
+
+##### environment
+
+> `readonly` **environment**: `AgentEnvironment`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+The exact profile used to create the provider environment.
+
+##### outcome?
+
+> `readonly` `optional` **outcome?**: `AgentRunOutcome`
+
+The provider-derived outcome, when one was available before cleanup.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-1).
+
+***
+
 ### ResolveSandboxClientOptions
 
 #### Properties
@@ -7535,7 +7623,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-1)
 
 ##### interactiveIdempotencyKey
 
@@ -8300,7 +8388,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-2)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-3)
 
 ##### existingEnvironmentId?
 
@@ -14773,7 +14861,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-21)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-22)
 
 ##### execution?
 
@@ -17904,6 +17992,16 @@ back to its own settle verdict.
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`validator`](#validator)
 
+##### workspaceRetention?
+
+> `optional` **workspaceRetention?**: [`ProviderWorkspaceRetentionPort`](#providerworkspaceretentionport)
+
+Capture and verify a portable executable workspace before Runtime destroys the environment.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`workspaceRetention`](#workspaceretention)
+
 ##### profileForCreate?
 
 > `optional` **profileForCreate?**: (`profile`) => `AgentProfile`
@@ -19988,7 +20086,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-16)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-17)
 
 ##### task
 
@@ -23344,7 +23442,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-27)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-28)
 
 ##### abort()
 
@@ -37713,7 +37811,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-30), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-31), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
