@@ -946,7 +946,11 @@ function assertRunCancellationMatchesCandidate(
         `(reason differs)`,
     )
   }
-  if (existing.operator !== candidate.operator) {
+  // An acknowledgement written before acknowledgements carried the operator (0.251.0) names none
+  // even when its admitted request does. The request comparator has already held the candidate
+  // to that request, so a legacy record matches any candidate operator; a record that names one
+  // must name the same one.
+  if (existing.operator !== undefined && existing.operator !== candidate.operator) {
     throw new Error(
       `cancelRun: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
         `(operator '${existing.operator}' != '${candidate.operator}')`,
