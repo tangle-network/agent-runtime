@@ -1,6 +1,7 @@
-import type { AgentImprovementProposal } from '@tangle-network/agent-interface'
-
-import { verifyAgentImprovementProposal } from '../intelligence/improvement-cycle'
+import {
+  type AgentImprovementProposal,
+  verifyAgentImprovementProposal,
+} from '../intelligence/improvement-cycle'
 import canonicalAgentImprovementProposalFixture from './fixtures/agent-improvement-proposal.json'
 
 const serializedAgentImprovementProposalFixture = JSON.stringify(

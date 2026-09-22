@@ -29,20 +29,20 @@
  * for a missing word; the driver READS that rejected draft and BUILDS a corrective prompt from it;
  * shot 1 re-runs with that prompt and passes — proving the loop's behavior changed BECAUSE of the fold.
  *
- * Fully offline — the worker is a scripted client (in ./scripted-worker.ts, keyed on the prompt),
+ * Fully offline: the worker uses a scripted provider (in ./scripted-worker.ts, keyed on the prompt),
  * so it runs with zero credentials (the same offline pattern self-improving-loop uses).
  *
  * Run:  pnpm tsx examples/driver-loop/driver-loop.ts
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile } from '@tangle-network/sandbox'
 import {
   type NoteOutput,
   type NoteTask,
   output,
   requiredWord,
-  scriptedWorkerClient,
+  scriptedWorkerProvider,
   validator,
 } from './scripted-worker'
 
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
     output,
     validator,
     task,
-    ctx: { sandboxClient: scriptedWorkerClient() },
+    ctx: { environmentProvider: scriptedWorkerProvider() },
     maxIterations: 5,
   })
 

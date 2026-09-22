@@ -47,7 +47,7 @@ export interface DriverLoopGeneratorOptions {
    *  `ToolLoopChat`, same seam as `driverAgent`): `routerBrain(cfg)` in production, a scripted
    *  mock in tests. */
   brain: ToolLoopChat
-  /** Local coding harness the driver's worker sessions run in the worktree. Default `claude`. */
+  /** Local coding harness the driver's worker sessions run in the worktree. Default `claude-code`. */
   harness?: LocalHarness
   /** Per-worker-session wall-clock timeout (ms). Default = `runLocalHarness` default (5m). */
   timeoutMs?: number
@@ -83,7 +83,7 @@ const researchResultMaxChars = 8_000
 
 /** Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop authors, observes, rates, and steers coding-harness sessions in the worktree until the verifier passes or the session budget is spent. */
 export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): CandidateGenerator {
-  const harness = opts.harness ?? 'claude'
+  const harness = opts.harness ?? 'claude-code'
   const buildPrompt = opts.buildPrompt ?? defaultBuildPrompt
   const run = opts.runHarness ?? runLocalHarness
   const changed = opts.changedPaths ?? worktreeChangedPaths

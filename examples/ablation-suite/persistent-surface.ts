@@ -1,5 +1,5 @@
 /**
- * persistentSurface — wrap an AgenticSurface so every worker solving the SAME task shares ONE workspace.
+ * persistentSurface — wrap an TaskEnvironment so every worker solving the SAME task shares ONE workspace.
  *
  * Default surfaces open a fresh workspace per worker (the stub, re-written). A supervisor that re-spawns
  * after a stall then starts each worker from scratch — best-of-N, never building on prior progress. This
@@ -9,18 +9,18 @@
  * exceed one worker's degrading N shots (the context-lifecycle thesis) — the lever no prompt can supply.
  */
 import type {
-  AgenticSurface,
-  AgenticTask,
   ArtifactHandle,
+  EnvironmentTask,
+  TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 
-export function persistentSurface(base: AgenticSurface): AgenticSurface {
+export function persistentSurface(base: TaskEnvironment): TaskEnvironment {
   // One opened handle per task id, shared by every worker on that task. Reference-counted so the shared
   // workspace is torn down only when the LAST holder closes — never on an individual worker's settle.
   const handles = new Map<string, { handle: Promise<ArtifactHandle>; refs: number }>()
   return {
     name: `persistent:${base.name}`,
-    async open(task: AgenticTask): Promise<ArtifactHandle> {
+    async open(task: EnvironmentTask): Promise<ArtifactHandle> {
       let entry = handles.get(task.id)
       if (!entry) {
         // base.open writes the stub exactly once per task — subsequent workers see the accumulated file.

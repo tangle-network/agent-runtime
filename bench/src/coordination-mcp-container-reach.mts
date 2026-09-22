@@ -12,12 +12,10 @@ import {
   type Agent,
   type AgentProfile,
   type AgentSpec,
-  createExecutorRegistry,
+  createInMemoryRunContext,
   createSupervisor,
   type Executor,
   type ExecutorResult,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
   type Scope,
   type UsageEvent,
 } from '../../src/runtime/index'
@@ -107,7 +105,8 @@ function opencodeConfigSnippet(containerUrl: string): string {
 }
 
 async function main(): Promise<void> {
-  const blobs = new InMemoryResultBlobStore()
+  const context = createInMemoryRunContext()
+  const blobs = context.blobs
   let ok = false
 
   const root: Agent<unknown, unknown> = {
@@ -160,9 +159,9 @@ async function main(): Promise<void> {
   await createSupervisor<unknown, unknown>().run(root, 'reach', {
     budget: { maxIterations: 100, maxTokens: 400_000 },
     runId: 'coordination-mcp-container-reach',
-    journal: new InMemorySpawnJournal(),
+    journal: context.journal,
     blobs,
-    executors: createExecutorRegistry(),
+    executors: context.executors,
     maxDepth: 4,
     now: () => Date.now(),
   })

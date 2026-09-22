@@ -34,7 +34,7 @@ export interface AuthoredHarness {
   /** The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness via §1.5). */
   profile: AgentProfile
   /** Which local harness CLI drives this leaf. */
-  harness: 'claude' | 'codex' | 'opencode'
+  harness: 'claude-code' | 'codex' | 'opencode'
   /** Per-harness model/runId/baseRef overrides flow through the profile + these. */
   runId?: string
   baseRef?: string
@@ -70,7 +70,7 @@ export interface WorktreeFanoutOptions extends PatchDeliverableOptions {
 }
 
 /**
- * Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })`
+ * Build the worktree fanout combinator. Run it with `runPersonaShape({ persona, shape, task, budget })`
  * — equal-k holds by construction (the conserved budget pool bounds the N leaves), and selection is
  * the shared valid-only `selectValidWinner` (never a judge).
  *

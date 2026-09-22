@@ -9,6 +9,7 @@
  * (which get converted to OTLP spans automatically).
  */
 
+import { createHash } from 'node:crypto'
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
@@ -21,19 +22,49 @@ export interface OtelExportConfig {
   batchSize?: number
   /** Flush interval ms. Default 5000. */
   flushIntervalMs?: number
+  /** Maximum spans retained across queued and active exports. Default 2048. */
+  maxQueueSize?: number
+  /** Initial retry delay after a failed automatic export. Default 1000ms. */
+  retryInitialDelayMs?: number
+  /** Maximum retry delay after repeated failures. Default 30000ms. */
+  retryMaxDelayMs?: number
+  /** Deadline for the request and response body. Default 10000ms. */
+  requestTimeoutMs?: number
+  /** Maximum response body size. Default 65536 bytes. */
+  maxResponseBytes?: number
+  /** Called when a new span is dropped because the queue is full. */
+  onDrop?: (event: OtelDropEvent) => void
   /** Resource attributes stamped on every export. */
   resourceAttributes?: Record<string, string | number | boolean>
   /** Service name. Default 'agent-runtime'. */
   serviceName?: string
 }
 
+export interface OtelDropEvent {
+  readonly reason: 'queue_full'
+  readonly droppedCount: 1
+  readonly totalDropped: number
+  readonly queueSize: number
+  readonly maxQueueSize: number
+}
+
+/** Lifetime delivery totals observed when an explicit flush settles. */
+export interface OtelFlushResult {
+  /** True only when every submitted span was confirmed and none were dropped. */
+  readonly succeeded: boolean
+  readonly deliveredSpans: number
+  readonly undeliveredSpans: number
+  readonly droppedSpans: number
+  readonly error?: string
+}
+
 export interface OtelExporter {
-  /** Export a span. */
+  /** Queue a valid OTLP span. Throws after shutdown or for malformed input. */
   exportSpan(span: OtelSpan): void
-  /** Force flush pending spans. */
-  flush(): Promise<void>
-  /** Shutdown cleanly. */
-  shutdown(): Promise<void>
+  /** Flush pending spans and report confirmed, retained, and dropped totals. */
+  flush(): Promise<OtelFlushResult>
+  /** Stop accepting spans and report delivery of every pending span. */
+  shutdown(): Promise<OtelFlushResult>
 }
 
 export interface OtelSpan {
@@ -55,20 +86,24 @@ export interface OtelAttribute {
 
 interface OtlpResourceSpans {
   resource: { attributes: OtelAttribute[] }
-  scopeSpans: Array<{ scope: { name: string; version: string }; spans: OtelSpan[] }>
+  scopeSpans: Array<{ scope: { name: string; version?: string }; spans: OtelSpan[] }>
 }
 
 interface OtlpExport {
   resourceSpans: OtlpResourceSpans[]
 }
 
-const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.83.0' }
+const SCOPE = { name: '@tangle-network/agent-runtime' }
+const TRACE_ID = /^[0-9a-f]{32}$/
+const SPAN_ID = /^[0-9a-f]{16}$/
+const ZERO_TRACE_ID = '0'.repeat(32)
+const ZERO_SPAN_ID = '0'.repeat(16)
 
 /**
  * Current (non-deprecated) OpenTelemetry GenAI semantic-convention keys.
  * Registry: https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/
  * NB: `gen_ai.system` / `gen_ai.usage.prompt_tokens` / `completion_tokens` are
- * DEPRECATED — do not emit them. We use `provider.name` + `input/output_tokens`.
+ * deprecated. Emit the current input/output token keys instead.
  */
 const GEN_AI = {
   operation: 'gen_ai.operation.name',
@@ -88,49 +123,190 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
   if (!resolvedEndpoint) return undefined
   const endpoint: string = resolvedEndpoint
 
-  const headers = config?.headers ?? parseHeadersFromEnv()
+  const headers = { ...(config?.headers ?? parseHeadersFromEnv()) }
   const batchSize = config?.batchSize ?? 64
   const flushIntervalMs = config?.flushIntervalMs ?? 5000
+  const maxQueueSize = config?.maxQueueSize ?? 2048
+  const retryInitialDelayMs = config?.retryInitialDelayMs ?? 1000
+  const retryMaxDelayMs = config?.retryMaxDelayMs ?? 30000
+  const requestTimeoutMs = config?.requestTimeoutMs ?? 10000
+  const maxResponseBytes = config?.maxResponseBytes ?? 65536
+  assertPositiveInteger(batchSize, 'batchSize')
+  assertPositiveInteger(flushIntervalMs, 'flushIntervalMs')
+  assertPositiveInteger(maxQueueSize, 'maxQueueSize')
+  assertPositiveInteger(retryInitialDelayMs, 'retryInitialDelayMs')
+  assertPositiveInteger(retryMaxDelayMs, 'retryMaxDelayMs')
+  assertPositiveInteger(requestTimeoutMs, 'requestTimeoutMs')
+  assertPositiveInteger(maxResponseBytes, 'maxResponseBytes')
+  if (retryMaxDelayMs < retryInitialDelayMs) {
+    throw new Error('OTLP exporter retryMaxDelayMs must be at least retryInitialDelayMs')
+  }
   const serviceName = config?.serviceName ?? 'agent-runtime'
-  const resourceAttrs = config?.resourceAttributes ?? {}
+  if (!serviceName.trim()) throw new Error('OTLP exporter serviceName must be non-empty')
+  const resourceAttrs = { ...(config?.resourceAttributes ?? {}) }
 
   const pending: OtelSpan[] = []
-  let timer: ReturnType<typeof setInterval> | undefined
+  let intervalTimer: ReturnType<typeof setInterval> | undefined
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
   let stopped = false
+  let inFlight: Promise<void> | undefined
+  let inFlightBatch: OtelSpan[] | undefined
+  let activeTransport: Promise<void> | undefined
+  let consecutiveFailures = 0
+  let totalDelivered = 0
+  let totalDropped = 0
 
   const exporter: OtelExporter = {
     exportSpan(span: OtelSpan): void {
-      if (stopped) return
-      pending.push(span)
+      if (stopped) throw new Error('OTLP exporter is shut down')
+      assertExportableSpan(span)
+      const queueSize = pending.length + (inFlightBatch?.length ?? 0)
+      if (queueSize >= maxQueueSize) {
+        totalDropped += 1
+        notifyDrop(
+          Object.freeze({
+            reason: 'queue_full',
+            droppedCount: 1,
+            totalDropped,
+            queueSize,
+            maxQueueSize,
+          }),
+        )
+        return
+      }
+      pending.push(snapshotOtelSpan(span))
       if (pending.length >= batchSize) {
-        void doFlush()
+        runAutomaticFlush()
       }
     },
 
-    async flush(): Promise<void> {
-      await doFlush()
+    async flush(): Promise<OtelFlushResult> {
+      return flushResult()
     },
 
-    async shutdown(): Promise<void> {
+    async shutdown(): Promise<OtelFlushResult> {
       stopped = true
-      if (timer !== undefined) {
-        clearInterval(timer)
-        timer = undefined
+      if (intervalTimer !== undefined) {
+        clearInterval(intervalTimer)
+        intervalTimer = undefined
       }
-      await doFlush()
+      clearRetryTimer()
+      return flushResult()
     },
   }
 
-  timer = setInterval(() => {
-    if (pending.length > 0) void doFlush()
+  intervalTimer = setInterval(() => {
+    if (pending.length > 0 && retryTimer === undefined && activeTransport === undefined) {
+      runAutomaticFlush()
+    }
   }, flushIntervalMs)
-  if (typeof timer === 'object' && 'unref' in timer) {
-    ;(timer as NodeJS.Timeout).unref()
+  if (typeof intervalTimer === 'object' && 'unref' in intervalTimer) {
+    ;(intervalTimer as NodeJS.Timeout).unref()
   }
 
-  async function doFlush(): Promise<void> {
-    if (pending.length === 0) return
+  function runAutomaticFlush(): void {
+    if (activeTransport !== undefined) return
+    void startFlush().catch(() => {
+      // The retained batch is retried by scheduleRetry.
+    })
+  }
+
+  function startFlush(): Promise<void> {
+    if (inFlight) return inFlight
+    if (activeTransport) {
+      return Promise.reject(
+        new Error('OTLP export cannot retry while a timed-out transport request remains in flight'),
+      )
+    }
+    if (pending.length === 0) return Promise.resolve()
     const batch = pending.splice(0)
+    inFlightBatch = batch
+    const operation = send(batch)
+      .then(() => {
+        totalDelivered += batch.length
+        consecutiveFailures = 0
+        clearRetryTimer()
+      })
+      .catch((error: unknown) => {
+        pending.unshift(...batch)
+        consecutiveFailures += 1
+        scheduleRetry()
+        throw asError(error)
+      })
+      .finally(() => {
+        if (inFlight === operation) {
+          inFlight = undefined
+          inFlightBatch = undefined
+        }
+        if (
+          !stopped &&
+          activeTransport === undefined &&
+          retryTimer === undefined &&
+          pending.length >= batchSize
+        ) {
+          runAutomaticFlush()
+        }
+      })
+    inFlight = operation
+    return operation
+  }
+
+  async function drain(): Promise<void> {
+    clearRetryTimer()
+    while (true) {
+      if (pending.length === 0 && !inFlight) return
+      await (inFlight ?? startFlush())
+    }
+  }
+
+  async function flushResult(): Promise<OtelFlushResult> {
+    let failure: Error | undefined
+    try {
+      await drain()
+    } catch (cause) {
+      failure = asError(cause)
+    }
+    const undeliveredSpans = pending.length + (inFlightBatch?.length ?? 0)
+    const succeeded = failure === undefined && undeliveredSpans === 0 && totalDropped === 0
+    const dropError =
+      totalDropped > 0 ? `${totalDropped} span${totalDropped === 1 ? '' : 's'} dropped` : undefined
+    return Object.freeze({
+      succeeded,
+      deliveredSpans: totalDelivered,
+      undeliveredSpans,
+      droppedSpans: totalDropped,
+      ...(failure ? { error: failure.message } : dropError ? { error: dropError } : {}),
+    })
+  }
+
+  function scheduleRetry(): void {
+    if (stopped || retryTimer !== undefined || activeTransport !== undefined) return
+    const exponent = Math.min(consecutiveFailures - 1, 30)
+    const delayMs = Math.min(retryInitialDelayMs * 2 ** exponent, retryMaxDelayMs)
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined
+      runAutomaticFlush()
+    }, delayMs)
+    if (typeof retryTimer === 'object' && 'unref' in retryTimer) {
+      ;(retryTimer as NodeJS.Timeout).unref()
+    }
+  }
+
+  function clearRetryTimer(): void {
+    if (retryTimer === undefined) return
+    clearTimeout(retryTimer)
+    retryTimer = undefined
+  }
+
+  function notifyDrop(event: OtelDropEvent): void {
+    try {
+      config?.onDrop?.(event)
+    } catch {
+      // Telemetry observation must not affect the application.
+    }
+  }
+
+  async function send(batch: OtelSpan[]): Promise<void> {
     const body: OtlpExport = {
       resourceSpans: [
         {
@@ -145,18 +321,154 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
       ],
     }
     const url = `${endpoint.replace(/\/+$/, '')}/v1/traces`
+    const controller = new AbortController()
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const request = sendRequest(controller.signal).then(
+      () => ({ kind: 'accepted' as const }),
+      (cause: unknown) => ({ kind: 'failed' as const, error: asError(cause) }),
+    )
+    const trackedTransport = request.then(() => undefined)
+    activeTransport = trackedTransport
+    void trackedTransport.then(() => {
+      if (activeTransport === trackedTransport) {
+        activeTransport = undefined
+        if (!stopped && !inFlight && pending.length > 0) scheduleRetry()
+      }
+    })
+    const deadline = new Promise<{ kind: 'timeout'; error: Error }>((resolve) => {
+      timeout = setTimeout(() => {
+        const error = new Error(
+          `OTLP export request to ${url} timed out after ${requestTimeoutMs}ms`,
+        )
+        controller.abort(error)
+        resolve({ kind: 'timeout', error })
+      }, requestTimeoutMs)
+    })
+
     try {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...headers },
-        body: JSON.stringify(body),
-      })
-    } catch {
-      // Best-effort — telemetry export must not crash the runtime.
+      const outcome = await Promise.race([request, deadline])
+      if (outcome.kind === 'failed' || outcome.kind === 'timeout') throw outcome.error
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+      controller.abort()
+    }
+
+    async function sendRequest(signal: AbortSignal): Promise<void> {
+      let response: Response
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...headers },
+          body: JSON.stringify(body),
+          redirect: 'error',
+          signal,
+        })
+      } catch (cause) {
+        throw new Error(`OTLP export request to ${url} failed: ${errorMessage(cause)}`, { cause })
+      }
+      await assertOtlpResponseAccepted(response, url, maxResponseBytes, signal)
     }
   }
 
   return exporter
+}
+
+async function assertOtlpResponseAccepted(
+  response: Response,
+  url: string,
+  maxResponseBytes: number,
+  signal: AbortSignal,
+): Promise<void> {
+  let responseBody: string
+  try {
+    responseBody = await readResponseBody(response, maxResponseBytes, signal)
+  } catch (cause) {
+    if (cause instanceof OtelResponseSizeError) throw cause
+    throw new Error(`OTLP export to ${url} could not read the HTTP ${response.status} response`, {
+      cause,
+    })
+  }
+
+  const detail = responseBody.trim()
+  if (!response.ok) {
+    throw new Error(
+      `OTLP export to ${url} was rejected with HTTP ${response.status}${
+        detail ? `: ${detail.slice(0, 500)}` : ''
+      }`,
+    )
+  }
+  if (!detail) return
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(detail)
+  } catch (cause) {
+    throw new Error(`OTLP export to ${url} returned invalid JSON after HTTP ${response.status}`, {
+      cause,
+    })
+  }
+  if (!isRecord(payload)) {
+    throw new Error(`OTLP export to ${url} returned a non-object response`)
+  }
+
+  const partialSuccess = payload.partialSuccess
+  if (partialSuccess === undefined) return
+  if (!isRecord(partialSuccess)) {
+    throw new Error(`OTLP export to ${url} returned invalid partialSuccess metadata`)
+  }
+
+  const rejectedSpans = otlpUnsignedInteger(
+    partialSuccess.rejectedSpans ?? '0',
+    'partialSuccess.rejectedSpans',
+  )
+  const partialErrorMessage = partialSuccess.errorMessage
+  if (partialErrorMessage !== undefined && typeof partialErrorMessage !== 'string') {
+    throw new Error(`OTLP export to ${url} returned a non-string partialSuccess.errorMessage`)
+  }
+  if (rejectedSpans > 0n) {
+    const message = partialErrorMessage?.trim()
+      ? `: ${partialErrorMessage.trim().slice(0, 500)}`
+      : ''
+    throw new Error(
+      `OTLP export to ${url} rejected ${rejectedSpans.toString()} spans despite HTTP ${response.status}${message}`,
+    )
+  }
+}
+
+class OtelResponseSizeError extends Error {}
+
+async function readResponseBody(
+  response: Response,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let body = ''
+  let bytesRead = 0
+  const cancelOnAbort = () => {
+    void reader.cancel(signal.reason).catch(() => {})
+  }
+  signal.addEventListener('abort', cancelOnAbort, { once: true })
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytesRead += value.byteLength
+      if (bytesRead > maxBytes) {
+        await reader.cancel().catch(() => {})
+        throw new OtelResponseSizeError(
+          `OTLP response exceeded the ${maxBytes}-byte response limit`,
+        )
+      }
+      body += decoder.decode(value, { stream: true })
+    }
+    return body + decoder.decode()
+  } finally {
+    signal.removeEventListener('abort', cancelOnAbort)
+    reader.releaseLock()
+  }
 }
 
 /**
@@ -184,9 +496,9 @@ export function loopEventToOtelSpan(
   }
   const ts = msToNs(event.timestamp)
   return {
-    traceId: padTraceId(traceId),
+    traceId: otelTraceId(traceId),
     spanId,
-    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    parentSpanId: parentSpanId ? otelSpanId(parentSpanId) : undefined,
     name: event.kind,
     kind: 1,
     startTimeUnixNano: ts,
@@ -215,9 +527,9 @@ export function flatOtelSpan(
   const start = msToNs(timestampMs)
   const end = msToNs(Math.max(timestampMs, endTimestampMs))
   return {
-    traceId: padTraceId(traceId),
+    traceId: otelTraceId(traceId),
     spanId: generateSpanId(),
-    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    parentSpanId: parentSpanId ? otelSpanId(parentSpanId) : undefined,
     name,
     kind: 1,
     startTimeUnixNano: start,
@@ -236,6 +548,7 @@ function eventTimestampMs(event: RuntimeStreamEvent): number {
   if ('timestamp' in event && typeof event.timestamp === 'string') {
     const parsed = Date.parse(event.timestamp)
     if (Number.isFinite(parsed)) return parsed
+    throw new Error(`runtime event timestamp is invalid: ${event.timestamp}`)
   }
   return Date.now()
 }
@@ -297,8 +610,8 @@ export function buildRuntimeEventOtelSpans(
       if (event.latencyMs !== undefined) attrs['tangle.latency_ms'] = event.latencyMs
       if (event.finishReason !== undefined)
         attrs['gen_ai.response.finish_reasons'] = event.finishReason
-    } else if (event.type === 'backend_error') {
-      attrs['error.type'] = event.error?.kind ?? 'backend'
+    } else if (event.type === 'turn_error') {
+      attrs['error.type'] = event.error.kind
       attrs['error.message'] = event.message
     } else if (event.type === 'final') {
       attrs['tangle.outcome.status'] = event.status
@@ -315,10 +628,7 @@ export function buildRuntimeEventOtelSpans(
         ? startMs + event.latencyMs
         : startMs
     const span = flatOtelSpan(name, attrs, traceId, startMs, parentSpanId, endMs)
-    if (
-      event.type === 'backend_error' ||
-      (event.type === 'final' && event.status !== 'completed')
-    ) {
+    if (event.type === 'turn_error' || (event.type === 'final' && event.status !== 'completed')) {
       span.status = { code: 2, message: attrs['error.message']?.toString() ?? event.type }
     }
     return span
@@ -366,14 +676,14 @@ export function buildLoopOtelSpans(
   traceId: string,
   rootParentSpanId?: string,
 ): OtelSpan[] {
-  const tid = padTraceId(traceId)
+  const tid = otelTraceId(traceId)
   return buildLoopSpanNodes(events).map((node) => ({
     traceId: tid,
-    spanId: node.spanId,
+    spanId: otelSpanId(node.spanId),
     parentSpanId: node.parentSpanId
-      ? padSpanId(node.parentSpanId)
+      ? otelSpanId(node.parentSpanId)
       : rootParentSpanId
-        ? padSpanId(rootParentSpanId)
+        ? otelSpanId(rootParentSpanId)
         : undefined,
     name: node.name,
     kind: 1,
@@ -606,37 +916,56 @@ function parseHeadersFromEnv(): Record<string, string> {
 }
 
 function toAttributes(record: Record<string, string | number | boolean>): OtelAttribute[] {
-  return Object.entries(record).flatMap(([key, value]) => {
-    if (typeof value === 'number' && !Number.isFinite(value)) return []
-    return [
-      {
-        key,
-        value:
-          typeof value === 'number'
-            ? Number.isInteger(value)
-              ? { intValue: value.toString() }
-              : { doubleValue: value }
-            : typeof value === 'boolean'
-              ? { boolValue: value }
-              : { stringValue: value },
-      },
-    ]
+  return Object.entries(record).map(([key, value]) => {
+    if (!key) throw new Error('OTLP attribute key must be non-empty')
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new Error(`OTLP attribute ${key} must be finite`)
+    }
+    return {
+      key,
+      value:
+        typeof value === 'number'
+          ? Number.isInteger(value)
+            ? { intValue: value.toString() }
+            : { doubleValue: value }
+          : typeof value === 'boolean'
+            ? { boolValue: value }
+            : { stringValue: value },
+    }
   })
 }
 
 function msToNs(ms: number): string {
-  const safeMs = Number.isFinite(ms) ? ms : Date.now()
-  return (BigInt(Math.floor(safeMs)) * 1_000_000n).toString()
+  if (!Number.isFinite(ms) || ms < 0 || ms > Number.MAX_SAFE_INTEGER) {
+    throw new Error('OTLP timestamp must be a non-negative finite safe number of milliseconds')
+  }
+  const wholeMs = Math.floor(ms)
+  const fractionalNs = Math.round((ms - wholeMs) * 1_000_000)
+  return (BigInt(wholeMs) * 1_000_000n + BigInt(fractionalNs)).toString()
 }
 
-function padSpanId(id: string): string {
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 16).padEnd(16, '0')
+function otelSpanId(id: string): string {
+  return otelId(id, SPAN_ID, ZERO_SPAN_ID, 16, 'span')
 }
 
-function padTraceId(id: string): string {
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 32).padEnd(32, '0')
+function otelTraceId(id: string): string {
+  return otelId(id, TRACE_ID, ZERO_TRACE_ID, 32, 'trace')
+}
+
+function otelId(
+  id: string,
+  pattern: RegExp,
+  zero: string,
+  length: number,
+  domain: 'trace' | 'span',
+): string {
+  const normalized = id.toLowerCase()
+  if (pattern.test(normalized) && normalized !== zero) return normalized
+  const hashed = createHash('sha256')
+    .update(`${domain}\0${id}`, 'utf8')
+    .digest('hex')
+    .slice(0, length)
+  return hashed === zero ? `${'0'.repeat(length - 1)}1` : hashed
 }
 
 function generateSpanId(): string {
@@ -646,9 +975,120 @@ function generateSpanId(): string {
   } else {
     for (let i = 0; i < 8; i++) bytes[i] = Math.floor(Math.random() * 256)
   }
-  return Array.from(bytes)
+  const id = Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
+  return id === ZERO_SPAN_ID ? `${'0'.repeat(15)}1` : id
+}
+
+function snapshotOtelSpan(span: OtelSpan): OtelSpan {
+  const attributes: OtelAttribute[] | undefined = span.attributes?.map((attribute) => {
+    const snapshot: OtelAttribute = {
+      key: attribute.key,
+      value: { ...attribute.value },
+    }
+    Object.freeze(snapshot.value)
+    return Object.freeze(snapshot)
+  })
+  if (attributes) Object.freeze(attributes)
+  const snapshot: OtelSpan = {
+    traceId: span.traceId,
+    spanId: span.spanId,
+    ...(span.parentSpanId === undefined ? {} : { parentSpanId: span.parentSpanId }),
+    name: span.name,
+    ...(span.kind === undefined ? {} : { kind: span.kind }),
+    startTimeUnixNano: span.startTimeUnixNano,
+    endTimeUnixNano: span.endTimeUnixNano,
+    ...(attributes === undefined ? {} : { attributes }),
+    ...(span.status === undefined ? {} : { status: Object.freeze({ ...span.status }) }),
+  }
+  return Object.freeze(snapshot)
+}
+
+function assertExportableSpan(span: OtelSpan): void {
+  if (!span.name) throw new Error('OTLP span name must be non-empty')
+  assertOtelId(span.traceId, TRACE_ID, ZERO_TRACE_ID, 'traceId')
+  assertOtelId(span.spanId, SPAN_ID, ZERO_SPAN_ID, 'spanId')
+  if (span.parentSpanId !== undefined) {
+    assertOtelId(span.parentSpanId, SPAN_ID, ZERO_SPAN_ID, 'parentSpanId')
+    if (span.parentSpanId === span.spanId) {
+      throw new Error('OTLP span parentSpanId must differ from spanId')
+    }
+  }
+  const start = unixNano(span.startTimeUnixNano, 'startTimeUnixNano')
+  const end = unixNano(span.endTimeUnixNano, 'endTimeUnixNano')
+  if (end < start)
+    throw new Error('OTLP span endTimeUnixNano must be at or after startTimeUnixNano')
+  if (span.kind !== undefined && (!Number.isInteger(span.kind) || span.kind < 0 || span.kind > 5)) {
+    throw new Error('OTLP span kind must be an integer from 0 to 5')
+  }
+  if (
+    span.status !== undefined &&
+    (!Number.isInteger(span.status.code) || span.status.code < 0 || span.status.code > 2)
+  ) {
+    throw new Error('OTLP span status code must be 0, 1, or 2')
+  }
+  const keys = new Set<string>()
+  for (const attribute of span.attributes ?? []) {
+    if (!attribute.key) throw new Error('OTLP attribute key must be non-empty')
+    if (keys.has(attribute.key)) {
+      throw new Error(`OTLP span contains duplicate attribute ${attribute.key}`)
+    }
+    keys.add(attribute.key)
+    const values = Object.values(attribute.value).filter((value) => value !== undefined)
+    if (values.length !== 1) {
+      throw new Error(`OTLP attribute ${attribute.key} must contain exactly one value`)
+    }
+    if (
+      attribute.value.doubleValue !== undefined &&
+      !Number.isFinite(attribute.value.doubleValue)
+    ) {
+      throw new Error(`OTLP attribute ${attribute.key} must be finite`)
+    }
+    if (attribute.value.intValue !== undefined && !/^-?\d+$/.test(attribute.value.intValue)) {
+      throw new Error(`OTLP attribute ${attribute.key} intValue must be an integer string`)
+    }
+  }
+}
+
+function assertOtelId(id: string, pattern: RegExp, zero: string, field: string): void {
+  if (!pattern.test(id) || id === zero) {
+    throw new Error(`OTLP span ${field} must be a non-zero lowercase hexadecimal identifier`)
+  }
+}
+
+function unixNano(value: string, field: string): bigint {
+  if (!/^\d+$/.test(value)) throw new Error(`OTLP span ${field} must be an unsigned integer string`)
+  return BigInt(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function otlpUnsignedInteger(value: unknown, field: string): bigint {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`OTLP response ${field} must be a non-negative safe integer`)
+    }
+    return BigInt(value)
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value)
+  throw new Error(`OTLP response ${field} must be a non-negative integer string`)
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function assertPositiveInteger(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`OTLP exporter ${field} must be a positive safe integer`)
+  }
 }
 
 // ─── Eval-run ingest (self-improvement provenance) ───────────────────────────
@@ -720,10 +1160,9 @@ export interface EvalRunsExportResult {
 const DEFAULT_INTELLIGENCE_BASE = 'https://intelligence.tangle.tools'
 
 /**
- * Ship self-improvement eval-run events to Tangle Intelligence. Unlike the
- * best-effort span exporter, this RESOLVES with the ingest verdict (accepted /
- * rejected per event) so a consumer's loop can assert its provenance landed.
- * Throws only on a missing key or network failure.
+ * Ship self-improvement eval-run events to Tangle Intelligence and return the
+ * accepted and rejected event counts. Throws on a missing key or network
+ * failure; HTTP rejection is returned in `ok` and `status`.
  */
 export async function exportEvalRuns(
   events: EvalRunEvent[],

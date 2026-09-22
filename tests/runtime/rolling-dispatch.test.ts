@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
 import { fanout } from '../../src/runtime/personify/combinators'
-import { runPersonified } from '../../src/runtime/personify/persona'
+import { runPersonaShape } from '../../src/runtime/personify/persona'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import {
   type DispatchReport,
@@ -303,7 +303,7 @@ describe('fanout({ width })', () => {
     const items = Array.from({ length: 8 }, (_, i) => i)
 
     const rolling = { now: 0, peak: 0 }
-    const withWidth = await runPersonified<string, string>({
+    const withWidth = await runPersonaShape<string, string>({
       persona: persona(rolling),
       shape: fanout<string, number, string>(items, {
         itemTask: (item) => `t${item}`,
@@ -320,7 +320,7 @@ describe('fanout({ width })', () => {
     })
 
     const batch = { now: 0, peak: 0 }
-    const withoutWidth = await runPersonified<string, string>({
+    const withoutWidth = await runPersonaShape<string, string>({
       persona: persona(batch),
       shape: fanout<string, number, string>(items, {
         itemTask: (item) => `t${item}`,

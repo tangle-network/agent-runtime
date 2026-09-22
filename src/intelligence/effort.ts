@@ -138,11 +138,11 @@ export function isIntelligenceOff(settings: EffortSettings): boolean {
 
 /**
  * The run-config overrides an `EffortSettings` compiles to — the bridge between the
- * pure effort policy and the orchestration entrypoints (`runPersonified` / the
+ * pure effort policy and the orchestration entrypoints (`runPersonaShape` / the
  * improvement cycle). This is ONLY data: it never constructs an analyst or runs a
  * loop. The caller reads these flags to decide WHAT to pass:
  *
- *  - `withAnalyst: false` ⇒ DO NOT construct/pass a `ScopeAnalyst` to `runPersonified`
+ *  - `withAnalyst: false` ⇒ DO NOT construct/pass a `ScopeAnalyst` to `runPersonaShape`
  *    (the dormant empty-findings path runs; the base agent still works). This is the
  *    PRODUCT fail-closed at `off`/`eco` — "don't construct the analyst" — distinct from
  *    the EXPERIMENT fail-closed inside `createScopeAnalyst` ("hard abort"), which stays
@@ -157,7 +157,7 @@ export function isIntelligenceOff(settings: EffortSettings): boolean {
 export interface EffortOverridesCompiled {
   /** Construct + pass a `ScopeAnalyst`? `false` ⇒ omit it (degrade to the base agent). */
   withAnalyst: boolean
-  /** `ShapeBudget.fanout` width to pass to `runPersonified`. */
+  /** `ShapeBudget.fanout` width to pass to `runPersonaShape`. */
   fanout: number
   /** Run the multi-step improvement cycle, or no-op it for this run? */
   withLoops: boolean

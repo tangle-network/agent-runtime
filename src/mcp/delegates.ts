@@ -1,19 +1,16 @@
 /**
  *
- * `detachedSessionDelegate` — the sandbox-session coder delegate: a closure that drives `runAgentRounds`
- * against a `SandboxClient` + a caller-supplied (or minimal model-only default) worker profile, to a
- * mechanically-validated `CoderOutput`. The caller invokes the returned delegate directly with its
- * coder args; when wired into a durable queue it also settles cross-restart-resumed records.
+ * `detachedSessionDelegate` drives coder work through a
+ * `DelegationExecutor`'s environment provider and returns a mechanically
+ * validated patch. Durable queues can resume its detached provider sessions.
  *
  * Delegation vs COORDINATION (`../runtime/supervise/coordination-mcp.ts`): this delegate runs a
- * coding task INSIDE the agent's OWN sandbox environment — a sibling box on its own `SandboxClient`,
- * fresh branch on its repo. It is NOT backend-pluggable. To instead SPAWN + live-drive workers in a
- * CHOSEN backend (sandbox OR cli-bridge, via `createExecutor({ backend })`) with observe/steer/resume
- * + recursion, use `delegate()` / the coordination MCP.
+ * coding task in the executor's environment. To spawn and live-drive recursive
+ * workers, use `delegate()` and the coordination MCP.
  *
  * The worker profile is a parameter the caller supplies (§1.5: the system authors profiles). When
  * none is passed, a minimal model-only default profile is materialized in `./detached-coder` — no
- * hardcoded skills or tools. For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`
+ * hardcoded skills or tools. For new local-repo coding use `worktreeLoopRunner`
  * (author one `AgentProfile` per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`).
  *
  * @experimental
@@ -21,15 +18,11 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CoderTask } from '../profiles/coder'
-import type {
-  AgentRunSpec,
-  Iteration,
-  LoopTraceEmitter,
-  Outcome,
-  SandboxClient,
-  WinnerStrategy,
-} from '../runtime'
-import { runAgentRounds, selectValidWinner } from '../runtime'
+import { selectValidWinner } from '../runtime/personify/combinators'
+import type { Outcome } from '../runtime/personify/types'
+import type { WinnerStrategy } from '../runtime/personify/wave-types'
+import { runAgentRounds } from '../runtime/run-loop'
+import type { AgentRunSpec, Iteration, LoopTraceEmitter } from '../runtime/types'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type CoderOutput,
@@ -45,7 +38,7 @@ import {
   parseDetachedSessionRef,
   runDetachedTurn,
 } from './detached-turn'
-import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
+import type { DelegationExecutor } from './executor'
 import type {
   DelegateCodeArgs,
   DelegateUiAuditArgs,
@@ -60,11 +53,11 @@ export interface DelegateRunCtx {
   /**
    * Detached-run resume key recorded on the queue record at submit time
    * (`formatDetachedSessionRef`). Present only when the submit path requested
-   * detached dispatch — its presence is what routes a session-backed delegate
-   * onto the `driveTurn` tick path instead of holding a stream.
+   * detached dispatch. Its presence routes a session-backed delegate onto
+   * provider session polling instead of holding a live event stream.
    */
   detachedSessionRef?: string
-  /** Rebind the record's resume key (e.g. once the sandbox id is known). */
+  /** Rebind the record's resume key after environment dispatch succeeds. */
   updateDetachedSessionRef?(ref: string): void
   /**
    * Per-delegation trace sink supplied by the queue — loop events emitted
@@ -76,16 +69,16 @@ export interface DelegateRunCtx {
 }
 
 /** @experimental The coder delegate closure — given the coder args + run context, drives the
- *  sandbox-session coder path to a validated `CoderOutput`. `detachedSessionDelegate` is the
+ *  provider-backed coder path to a validated `CoderOutput`. `detachedSessionDelegate` is the
  *  built-in implementation; the queue invokes one of these per coder delegation. */
 export type CoderDelegate = (args: DelegateCodeArgs, ctx: DelegateRunCtx) => Promise<CoderOutput>
 
 /**
  * UI-auditor delegate — fully consumer-injected. agent-runtime ships no
  * default factory because the inputs are workspace path + judge function
- * + (optionally) a `SandboxClient`, and the judge is the consumer's
- * model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
- * `@tangle-network/agent-runtime/profiles` for the canonical wiring.
+ * + an environment provider, and the judge is the consumer's model seam.
+ * See `createInProcessUiAuditEnvironmentProvider` and `uiAuditorProfile`
+ * in `@tangle-network/agent-runtime/profiles`.
  *
  * @experimental
  */
@@ -123,7 +116,7 @@ export type CoderReviewer = (
 
 /**
  * @experimental Winner-selection strategy among validated (+ reviewed) candidates on the
- * sandbox-session path. The base strategies (`highest-score` / `smallest-diff` /
+ * provider-backed path. The base strategies (`highest-score` / `smallest-diff` /
  * `first-approved`) delegate to the shared `selectValidWinner`; `highest-readiness` is the
  * reviewer-only strategy this path keeps that the generic selector does not express. Default
  * `highest-score`.
@@ -137,21 +130,14 @@ export type DetachedWinnerSelection =
 /** @experimental */
 export interface DetachedSessionDelegateOptions {
   /**
-   * Execution placement. Pass a {@link DelegationExecutor} (sibling or fleet)
-   * to control where worker iterations land. `sandboxClient` is a
-   * convenience shorthand that wraps the client in a sibling executor — pass
-   * one or the other, not both.
+   * Execution provider. Its environments report `local`, `sandbox`, `fleet`,
+   * or `provider` placement through the official contract.
    */
-  executor?: DelegationExecutor
-  /**
-   * Convenience shorthand for sibling placement. Equivalent to
-   * `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
-   */
-  sandboxClient?: SandboxClient
+  executor: DelegationExecutor
   /**
    * The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
-   * sandbox-session run spec → `runAgentRounds` → the executor's `harnessInvocation`, so the harness runs
-   * under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
+   * environment run spec → `runAgentRounds` → the provider. Omit to use a
+   * minimal model-only default (no hardcoded skills/tools);
    * `harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
    * profile is used.
    */
@@ -172,6 +158,8 @@ export interface DetachedSessionDelegateOptions {
   fanoutModels?: (string | undefined)[]
   /** Hard cap on the kernel's per-batch concurrency. Default 4. */
   maxConcurrency?: number
+  /** Provider-neutral workspace, resources, environment variables, and metadata. */
+  environment?: AgentRunSpec<unknown>['environment']
   /**
    * Optional adversarial reviewer. When set, a candidate must pass mechanical
    * validation AND `reviewer.approved` to be eligible to win — empty/secret/
@@ -195,30 +183,25 @@ export interface DetachedSessionDelegateOptions {
   traceEmitter?: LoopTraceEmitter
   /** Tick cadence (ms) for the detached single-variant path. Default 5000. */
   detachedTickIntervalMs?: number
-  /** Wall-clock cap (ms) forwarded to `driveTurn` for detached turns. */
+  /** Wall-clock cap (ms) forwarded to the provider for detached turns. */
   detachedWallCapMs?: number
 }
 
 /**
- * Build the sandbox-session coder delegate. It drives `runAgentRounds` against the project's
- * sandbox client + coder profile; when `args.variants > 1` it switches to the multi-harness fanout
- * topology.
+ * Build the provider-backed coder delegate. Multi-variant work fans out across
+ * provider environments. Single-variant work can use a detached provider
+ * session so a durable queue resumes it after an MCP restart.
  *
- * This is the SANDBOX-SESSION coder path: workers run the in-box harness via the
- * `SandboxClient`'s `streamPrompt`, and single-variant turns can dispatch DETACHED
- * (driveTurn ticks) so a durable queue resumes them across an MCP restart — a substrate
- * the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
- *
- * For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner` (author an `AgentProfile`
+ * For new local-repo coding use `worktreeLoopRunner` (author an `AgentProfile`
  * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate runs
- * held-stream by default and only its OPTIONAL cross-restart resume (the `driveTurn` tick) is opt-in
- * behind `MCP_ENABLE_DETACHED_RESUME`.
+ * held-stream by default and only its optional cross-restart provider-session
+ * polling is enabled by `MCP_ENABLE_DETACHED_RESUME`.
  *
  * @experimental
  */
 export function detachedSessionDelegate(options: DetachedSessionDelegateOptions): CoderDelegate {
-  const executor = resolveExecutor(options)
-  const sandboxClient = executor.client
+  const executor = options.executor
+  const environmentProvider = executor.provider
   const fanoutHarnesses = options.fanoutHarnesses
   const maxConcurrency = options.maxConcurrency ?? 4
   const traceEmitter = options.traceEmitter
@@ -228,16 +211,21 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
     const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
-      const agentRunSpec = coderRunSpec({
-        ...(options.workerProfile ? { profile: options.workerProfile } : {}),
-        ...(options.harness ? { harness: options.harness } : {}),
-        ...(options.model ? { model: options.model } : {}),
-        ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
-      })
+      const harness = options.harness ?? 'claude-code'
+      const agentRunSpec = withEnvironment(
+        coderRunSpec({
+          ...(options.workerProfile ? { profile: options.workerProfile } : {}),
+          harness,
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
+        }),
+        harness,
+        options.environment,
+      )
       const output = coderOutputAdapter
       const validator = createCoderValidator(task)
-      // Detached dispatch: one session on one box, driven by `driveTurn` ticks
-      // instead of a held stream, so the run survives an MCP-process restart
+      // Detached dispatch: one provider session polled without a held stream,
+      // so the run survives an MCP-process restart
       // (the resume driver re-attaches via the persisted ref). Only the
       // single-variant path detaches — fanout needs N sessions + winner
       // selection over every candidate, which one resume key cannot express.
@@ -245,15 +233,15 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
         const { sessionId } = parseDetachedSessionRef(ctx.detachedSessionRef)
         const rebind = ctx.updateDetachedSessionRef
         const turn = await runDetachedTurn({
-          client: sandboxClient,
+          provider: environmentProvider,
           spec: agentRunSpec as AgentRunSpec<unknown>,
           prompt: agentRunSpec.taskToPrompt(task),
           sessionId,
-          bindSandbox: (sandboxId) => rebind(formatDetachedSessionRef({ sandboxId, sessionId })),
+          bindEnvironment: (environmentId, resolvedSessionId) =>
+            rebind(formatDetachedSessionRef({ environmentId, sessionId: resolvedSessionId })),
           signal: ctx.signal,
           report: ctx.report,
           ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
-          ...(executor.placement === 'fleet' ? { placement: 'fleet' as const } : {}),
           ...(options.detachedTickIntervalMs !== undefined
             ? { tickIntervalMs: options.detachedTickIntervalMs }
             : {}),
@@ -279,7 +267,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
         validator,
         task,
         ctx: {
-          sandboxClient,
+          environmentProvider,
           signal: ctx.signal,
           ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
         },
@@ -304,7 +292,9 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
         : {}),
       ...(options.fanoutModels ? { models: options.fanoutModels.slice(0, variants) } : {}),
     })
-    const agentRuns = fanout.agentRuns.slice(0, variants)
+    const agentRuns = fanout.agentRuns
+      .slice(0, variants)
+      .map((spec) => withEnvironment(spec, readAgentBackend(spec), options.environment))
     const result = await runAgentRounds({
       driver: fanout.driver,
       agentRuns,
@@ -312,7 +302,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
       validator: fanout.validator,
       task,
       ctx: {
-        sandboxClient,
+        environmentProvider,
         signal: ctx.signal,
         ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
       },
@@ -354,7 +344,7 @@ interface EligibleCandidate {
  *   2. if a `reviewer` is wired, keep only those it APPROVES,
  *   3. select among survivors via the shared `selectValidWinner` (base strategies) or, for the
  *      reviewer-only `highest-readiness`, a readiness sort (the one strategy the generic selector
- *      does not express — a documented capability of this sandbox-session path).
+ *      does not express — a documented capability of this provider path).
  * Returns `undefined` when nothing survives — the delegate fails loud.
  */
 async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput | undefined> {
@@ -392,7 +382,7 @@ async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput |
     sizeOf: (o) => o.diffStats.insertions + o.diffStats.deletions,
   })(wrapped)
   const out = winner?.output
-  if (!out || out.kind !== 'done') return undefined
+  if (out?.kind !== 'done') return undefined
   return out.deliverable
 }
 
@@ -455,11 +445,9 @@ export interface SettleDetachedCoderTurnOptions {
  * then the optional reviewer. Throws when nothing survives — a resumed or
  * detached run must not return an unvalidated patch.
  *
- * SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resume path is
- * bound to the `runAgentRounds` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
- * journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
- * advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
- * `createDetachedTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
+ * Detached resume requires a provider environment and session reference. The
+ * worktree-CLI leaf has journal replay but no provider session reference, so
+ * this helper remains specific to detached provider work.
  *
  * @experimental
  */
@@ -483,15 +471,26 @@ function buildCoderGoal(args: DelegateCodeArgs): string {
   return [args.goal, '', '## Context', args.contextHint].join('\n')
 }
 
-function resolveExecutor(options: DetachedSessionDelegateOptions): DelegationExecutor {
-  if (options.executor && options.sandboxClient) {
-    throw new Error('detachedSessionDelegate: pass exactly one of `executor` or `sandboxClient`')
+function withEnvironment<Task>(
+  spec: AgentRunSpec<Task>,
+  backend: string,
+  environment: AgentRunSpec<unknown>['environment'],
+): AgentRunSpec<Task> {
+  return {
+    ...spec,
+    environment: {
+      ...(environment ?? {}),
+      backend,
+    },
   }
-  if (options.executor) return options.executor
-  if (options.sandboxClient) {
-    return createSiblingSandboxExecutor({ client: options.sandboxClient })
+}
+
+function readAgentBackend<Task>(spec: AgentRunSpec<Task>): string {
+  const backend = spec.profile.metadata?.backendType
+  if (typeof backend !== 'string' || backend.length === 0) {
+    throw new Error(`coder delegate: run "${spec.name ?? spec.profile.name}" has no agent backend`)
   }
-  throw new Error('detachedSessionDelegate: `executor` or `sandboxClient` is required')
+  return backend
 }
 
 /**

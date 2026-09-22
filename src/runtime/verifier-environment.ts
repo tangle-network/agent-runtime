@@ -29,28 +29,28 @@
  */
 
 import type { Environment } from './run-benchmark'
-import type { AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from './strategy'
+import type { ArtifactHandle, EnvironmentScore, EnvironmentTask, EnvironmentTool } from './strategy'
 
 export interface VerifierEnvironmentOptions {
   name: string
   /** The deployable check over a submitted answer. Graded via passes/total. */
-  check(task: AgenticTask, answer: string): Promise<SurfaceScore> | SurfaceScore
+  check(task: EnvironmentTask, answer: string): Promise<EnvironmentScore> | EnvironmentScore
   /** Extra domain tools (read-only helpers: calculator, retrieval, style lookup). */
-  extraTools?: AgenticTool[]
+  extraTools?: EnvironmentTool[]
   /** Executes the extra tools. Required when `extraTools` is set. */
   callExtra?(
-    task: AgenticTask,
+    task: EnvironmentTask,
     name: string,
     args: Record<string, unknown>,
   ): Promise<string> | string
 }
 
 interface AnswerState {
-  task: AgenticTask
+  task: EnvironmentTask
   submissions: string[]
 }
 
-const submitTool: AgenticTool = {
+const submitTool: EnvironmentTool = {
   type: 'function',
   function: {
     name: 'submit_answer',
@@ -110,8 +110,8 @@ export function createVerifierEnvironment(opts: VerifierEnvironmentOptions): Env
     async score(task, handle) {
       const state = states.get(handle.id)
       if (!state || state.submissions.length === 0) return { passes: 0, total: 1, errored: 0 }
-      let best: SurfaceScore = { passes: 0, total: 1, errored: 0 }
-      const ratio = (s: SurfaceScore) => (s.total > 0 ? s.passes / s.total : 0)
+      let best: EnvironmentScore = { passes: 0, total: 1, errored: 0 }
+      const ratio = (s: EnvironmentScore) => (s.total > 0 ? s.passes / s.total : 0)
       for (const answer of state.submissions) {
         const s = await opts.check(task, answer)
         if (ratio(s) > ratio(best)) best = s

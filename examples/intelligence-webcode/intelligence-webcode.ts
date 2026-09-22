@@ -14,16 +14,17 @@
  *   3. OTLP (the production trace pipe) — `createOtelExporter()` + `loopEventToOtelSpan`. Streams every
  *      span to your OTLP/HTTP collector (set `OTEL_EXPORTER_OTLP_ENDPOINT`); a no-op when unset.
  *
- * The intelligence attaches at TWO seams: the BOUNDARY wraps the whole cell (`withIntelligence`
- * works over any async fn), and the INTERNAL trace rides `openSandboxRun`'s `hooks` (the only run verb
+ * The intelligence attaches at TWO points: the boundary wraps the whole cell (`withIntelligence`
+ * works over any async function), and the internal trace rides `openEnvironmentRun`'s `hooks`
  * here that emits per-tool spans). Same pattern instruments `runProfileMatrix`'s dispatch wholesale.
  *
  * Run:
- *   SANDBOX_API_KEY=$TANGLE_API_KEY [EFFORT=standard] [OTEL_EXPORTER_OTLP_ENDPOINT=…] \
+ *   TANGLE_API_KEY=... [EFFORT=standard] [OTEL_EXPORTER_OTLP_ENDPOINT=…] \
  *     tsx examples/intelligence-webcode/intelligence-webcode.ts
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import {
   composeRuntimeHooks,
   createOtelExporter,
@@ -34,12 +35,12 @@ import { type EffortTier, withIntelligence } from '@tangle-network/agent-runtime
 import {
   type AgentRunSpec,
   createWaterfallCollector,
-  openSandboxRun,
-  type SandboxClient,
-  sumSandboxUsage,
+  openEnvironmentRun,
+  sumEnvironmentUsage,
 } from '@tangle-network/agent-runtime/loops'
-import type { BackendType } from '@tangle-network/sandbox'
 import {
+  createWebCodeEnvironmentProvider,
+  gradeWebCodeEnvironment,
   loadWebCodeTasks,
   type WebCodeTask,
   profiles as webcodeGrid,
@@ -63,7 +64,9 @@ interface CellResult {
 /** One instrumented cell: run a harness×model on a WebCode task in its own sandbox with the INTERNAL trace
  *  collected (cost waterfall) AND streamed (OTLP), then score on the hidden tests. Wrapping this in
  *  `withIntelligence` (below) adds the BOUNDARY layer. */
-function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<CellResult> {
+function instrumentedCell(
+  environmentProvider: AgentEnvironmentProvider,
+): (input: CellInput) => Promise<CellResult> {
   return async ({ profile, task }) => {
     const harness = String(profile.metadata?.harness ?? 'opencode')
     const model = String(profile.metadata?.model ?? '')
@@ -93,61 +96,63 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
       profile,
       name: profile.name ?? harness,
       taskToPrompt: (t) => t,
-      sandboxOverrides: {
-        // The box self-auths via its provisioned credential (the SANDBOX_API_KEY = your TANGLE_API_KEY) —
+      environment: {
+        backend: harness,
+        workspace: task.baseImage ? { image: task.baseImage } : { environment: 'universal' },
+        env: { TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa' },
+        providerOptions: {
+          sandboxCreateOptions: {
+            backend: {
+              model: { provider: 'openai-compat', model, baseUrl: routerBaseUrl },
+            },
+          },
+        },
+        // The box self-auths via the TANGLE_API_KEY used to provision it.
         // do NOT pass a router/model key into the box (egress proxy rejects foreign creds). Search-provider
         // pick only.
-        env: { TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa' },
-        // The multi-language toolchain (python+pytest + Go/Py/TS/Java/C++), same as commit0/clbench.
-        environment: 'universal',
-        backend: {
-          type: harness as BackendType,
-          model: { provider: 'openai-compat', model, baseUrl: routerBaseUrl },
-        },
       },
     }
 
-    const run = await openSandboxRun<{ passed: boolean }>(
-      client,
-      {
-        agentRun,
-        scenarioId: task.id,
-        signal: new AbortController().signal,
-        hooks: composeRuntimeHooks(waterfall.hooks, otelHook),
-      },
-      { kind: 'events', fromEvents: () => ({ passed: false }) },
-    )
+    const run = await openEnvironmentRun<{ passed: boolean }>({
+      provider: environmentProvider,
+      agentRun,
+      scenarioId: task.id,
+      signal: new AbortController().signal,
+      hooks: composeRuntimeHooks(waterfall.hooks, otelHook),
+      deliverable: { kind: 'events', fromEvents: () => ({ passed: false }) },
+    })
     const solutionFile = task.solutionFiles[0] ?? 'Solution.txt'
-    const turn = await run.start(
-      `${task.taskDescription}\n\n— Write your solution to \`solution/${solutionFile}\`. Use web_search for the post-${task.releaseTag} API; make every test pass.`,
-    )
-    // The honest run cost — summed off the turn's events by the ONE metering seam (the waterfall below is
-    // the per-tool breakdown demo; this is the authoritative total).
-    const usage = sumSandboxUsage(turn.events)
-    // Grade with Exa's exact test_patch (pytest), score on exit — the same execution-truth grader as
-    // webcode-matrix; here every cell is also traced + billed by the intelligence layers above.
-    await run.box.fs.mkdir('tests', { recursive: true })
-    await run.box.fs.mkdir('solution', { recursive: true })
-    await run.box.fs.write('tests/test_solution.py', task.testPatch)
-    await run.box.exec?.('python3 -m pip install -q pytest 2>/dev/null || true')
-    const res = await run.box.exec?.('python3 -m pytest tests/ -q')
-    await otel?.flush()
-
-    const report = waterfall.report()
-    return {
-      passed: (res?.exitCode ?? 1) === 0,
-      usd: usage.costUsd || report.totalUsd,
-      ms: report.totalMs,
-      waterfall: waterfall.render({ maxRows: 8 }),
+    try {
+      const turn = await run.turn(
+        `${task.taskDescription}\n\nWrite your solution to \`solution/${solutionFile}\`. Use web_search for the post-${task.releaseTag} API; make every test pass.`,
+      )
+      const usage = sumEnvironmentUsage(turn.events)
+      const passed = await gradeWebCodeEnvironment(run.environment, task)
+      const report = waterfall.report()
+      return {
+        passed,
+        usd: usage.costUsd || report.totalUsd,
+        ms: report.totalMs,
+        waterfall: waterfall.render({ maxRows: 8 }),
+      }
+    } finally {
+      await run.close()
+      await otel?.flush()
     }
   }
 }
 
 /** Run the WebCode grid × tasks with the full intelligence stack on every cell. */
-export async function runIntelligenceWebcode(client: SandboxClient): Promise<void> {
+export async function runIntelligenceWebcode(
+  environmentProvider: AgentEnvironmentProvider,
+): Promise<void> {
   // LAYER 1 — the BOUNDARY: every cell runs under `withIntelligence` — observed + billed, effort-gated.
   // `effort: 'off'` clamps intelligence spend to 0 (the provable passthrough floor) while still running.
-  const smartCell = withIntelligence(instrumentedCell(client), { project, effort })
+  const smartCell = withIntelligence(instrumentedCell(environmentProvider), {
+    tenantId: process.env.TANGLE_TENANT_ID ?? 'tenant-demo',
+    project,
+    effort,
+  })
   const webcodeTasks = loadWebCodeTasks(
     process.env.LIMIT ? { limit: Number(process.env.LIMIT) } : {},
   )
@@ -170,16 +175,13 @@ export async function runIntelligenceWebcode(client: SandboxClient): Promise<voi
   }
 }
 
-// Run it live — mirrors ../webcode-matrix's client wiring.
+// Run it live with the same provider as ../webcode-matrix.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { SandboxClient } = (await import('@tangle-network/sandbox')) as {
-    SandboxClient: new (o: { apiKey: string; baseUrl: string }) => SandboxClient
-  }
-  const apiKey = process.env.SANDBOX_API_KEY
-  if (!apiKey) throw new Error('SANDBOX_API_KEY required')
-  const client = new SandboxClient({
+  const apiKey = process.env.TANGLE_API_KEY
+  if (!apiKey) throw new Error('TANGLE_API_KEY required')
+  const environmentProvider = createWebCodeEnvironmentProvider({
     apiKey,
     baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
   })
-  await runIntelligenceWebcode(client)
+  await runIntelligenceWebcode(environmentProvider)
 }

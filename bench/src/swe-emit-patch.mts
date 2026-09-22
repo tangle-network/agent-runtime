@@ -2,7 +2,7 @@
  * Judge-FREE patch emitter for the SWE scaffold — the FIXED measurement entrypoint.
  *
  * Given ONE instance id (IDS) + worker model + router env, this runs the candidate scaffold's OWN
- * `createSweBenchEnvironment` + `runAgentic` IN THIS worktree and prints the unified `git diff` of
+ * `createSweBenchEnvironment` + `runStrategy` IN THIS worktree and prints the unified `git diff` of
  * the agent's edits to STDOUT. It does NOT judge — the swebench Docker judge is held OUTSIDE the
  * candidate (in swe-code-improve.mts) so the scaffold can never grade its own axis.
  *
@@ -22,8 +22,8 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
+import { refine, runStrategy } from '@tangle-network/agent-runtime/loops'
 import { createSweBenchEnvironment, SWE_SEED_PROMPT, SWE_SEED_PROMPT_WITH_RUN } from './swe-bench-env'
 
 const exec = promisify(execFile)
@@ -65,9 +65,9 @@ async function main(): Promise<void> {
   // and rms the checkout). Keep the LATEST non-empty diff so accumulated refinements win and a later
   // empty read never clobbers a real patch.
   let capturedPatch = ''
-  const proxy: AgenticSurface = {
+  const proxy: TaskEnvironment = {
     ...environment,
-    async score(_t, handle: ArtifactHandle): Promise<SurfaceScore> {
+    async score(_t, handle: ArtifactHandle): Promise<EnvironmentScore> {
       try {
         const d = await exec('git', ['-C', handle.id, 'diff'], { maxBuffer: 40_000_000, timeout: 60_000 })
         if (d.stdout.trim()) capturedPatch = d.stdout
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   }
 
   const t0 = Date.now()
-  const r = await runAgentic({
+  const r = await runStrategy({
     surface: proxy,
     task,
     strategy: refine,

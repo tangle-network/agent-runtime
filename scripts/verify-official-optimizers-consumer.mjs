@@ -66,7 +66,7 @@ async function runWheelVerification() {
     assert(firstGepa.provenance?.resumed === false, 'first GEPA run must be fresh')
     assert(firstGepa.provenance?.source.version === '0.1.4', 'GEPA version was not observed')
     assert(
-      firstGepa.provenance?.bridge?.version === '0.126.6',
+      firstGepa.provenance?.bridge?.version === '0.129.0',
       'agent-eval-rpc version was not observed',
     )
     assert(
@@ -254,6 +254,7 @@ async function runOmniVerification() {
       surface: 'prompt',
       executionRef: digest({ fixture: 'packed-official-gepa-omni' }),
       method: officialGepa({
+        persistenceIdentity: digest({ evaluation: 'packed-official-gepa-omni-v1' }),
         objective: 'Return a JSON configuration whose k value is 2.',
         recipe: {
           kind: 'omni',
@@ -290,7 +291,7 @@ async function runOmniVerification() {
       'source GEPA revision was not observed',
     )
     assert(
-      result.provenance?.bridge?.version === '0.126.6',
+      result.provenance?.bridge?.version === '0.129.0',
       'Omni agent-eval-rpc version was not observed',
     )
     assert(result.decision === 'ship', 'Omni candidate was not promoted')
@@ -342,6 +343,7 @@ function runGepa({
     surface: 'prompt',
     executionRef: digest({ fixture: 'packed-official-gepa' }),
     method: officialGepa({
+      persistenceIdentity: digest({ evaluation: 'packed-official-gepa-v1' }),
       objective,
       recipe: {
         kind: 'engine',
@@ -409,6 +411,7 @@ function runSkillOpt(runDir, modelUrl) {
     skills: { resourceName: 'answering' },
     executionRef: digest({ fixture: 'packed-official-skillopt' }),
     method: officialSkillOpt({
+      persistenceIdentity: digest({ evaluation: 'packed-official-skillopt-v1' }),
       objective: 'Add the required response rule.',
       trainer: {
         epochs: 1,

@@ -21,7 +21,7 @@ import {
   DELEGATE_TOOL_NAME,
   validateDelegateArgs,
 } from '../../src/mcp/tools/delegate'
-import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
+import type { EnvironmentWorkerOptions } from '../../src/runtime/supervise/runtime'
 import type {
   RouterConfig,
   Spend,
@@ -34,12 +34,13 @@ const router: RouterConfig = {
   routerKey: 'k',
   model: 'deepseek-v4-flash',
 }
-const backend: ExecutorConfig = {
-  backend: 'router-tools',
-  routerBaseUrl: 'http://localhost/v1',
-  routerKey: 'k',
-  model: 'deepseek-v4-flash',
-} as ExecutorConfig
+const worker: EnvironmentWorkerOptions = {
+  provider: {
+    name: 'test',
+    capabilities: () => Promise.reject(new Error('not used')),
+    create: () => Promise.reject(new Error('not used')),
+  },
+}
 
 const emptyTree = { id: 'root', children: [] } as unknown as TreeView
 const spentTotal: Spend = {
@@ -69,7 +70,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
   })
 
   it('routes the intent to delegate()/supervise() and returns the delivered output WITH spentTotal', async () => {
-    const handler = createDelegateHandler({ router, backend })
+    const handler = createDelegateHandler({ router, worker })
     const result = (await handler({ intent: 'fix the bug' })) as {
       status: string
       out: unknown
@@ -94,7 +95,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
       downCount: 2,
       spentTotal,
     })
-    const handler = createDelegateHandler({ router, backend })
+    const handler = createDelegateHandler({ router, worker })
     const result = (await handler({ intent: 'do x' })) as {
       status: string
       reason: string
@@ -107,7 +108,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
   })
 
   it('applies a per-call model override', async () => {
-    const handler = createDelegateHandler({ router, backend, model: 'deepseek-v4-flash' })
+    const handler = createDelegateHandler({ router, worker, model: 'deepseek-v4-flash' })
     await handler({ intent: 'do x', model: 'glm-5.2' })
     const [profile] = superviseSpy.mock.calls[0] as [{ model?: string }]
     expect(profile.model).toBe('glm-5.2')
@@ -117,7 +118,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
     const without = createMcpServer({})
     expect(without.tools.has(DELEGATE_TOOL_NAME)).toBe(false)
 
-    const withSupervisor = createMcpServer({ delegateSupervisor: { router, backend } })
+    const withSupervisor = createMcpServer({ delegateSupervisor: { router, worker } })
     expect(withSupervisor.tools.has(DELEGATE_TOOL_NAME)).toBe(true)
   })
 })

@@ -1,6 +1,6 @@
 /**
  *
- * The cross-run corpus (G2) — the learning-flywheel's durable accreted-fact store.
+ * Durable facts retained across runs.
  *
  * `Corpus` is DISTINCT from the per-run `SpawnJournal` (decisions/replay) and `ResultBlobStore`
  * (payloads): a `CorpusRecord` is a FACT one run LEARNED that a FUTURE run reads back (the
@@ -288,7 +288,7 @@ export class FileCorpus implements Corpus {
 // ── Render-back: project accreted facts into a profile's instruction seams ─────
 
 /**
- * The learning-flywheel READ side. Queries the corpus through `filter`, renders the matching facts
+ * Queries the corpus through `filter`, renders the matching facts
  * (most-confident first, capped by `maxLines`) into instruction lines, and returns a FRESH
  * `AgentProfile` with them merged in — never mutates the input profile. Default `target: 'prompt'`
  * appends the lines to `prompt.instructions[]` (the additive append-line seam); `target:

@@ -9,11 +9,8 @@
  *   - `learned` — durable facts written to the cross-run `Corpus` so the NEXT
  *     run starts smarter (the continuous half of "continuous self-improvement").
  *
- * Findings are TRACE-derived, never JUDGE-derived (`derived_from_judge:false`):
- * the observer reads behavior, never the acceptance verdict — the selector≠judge
- * firewall (docs/learning-flywheel.md). The observer is harness-agnostic: it
- * reads a trace + an output, so it watches opencode, codex, hermes, or a BYO
- * agent identically.
+ * Findings come from the trace, never from the final score.
+ * The observer reads behavior and output without receiving the acceptance result.
  */
 import { type AnalystFinding, type ChatClient, makeFinding } from '@tangle-network/agent-eval'
 import type { Corpus, CorpusRecord } from './personify/wave-types'

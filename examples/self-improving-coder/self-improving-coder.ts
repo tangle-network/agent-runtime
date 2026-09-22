@@ -1,7 +1,7 @@
 /**
  * Self-improving coder — the substrate's self-improvement spine, composed cleanly, on a
  * CONTAMINATION-PROOF coding task. NOTHING here is hand-rolled: the genome is an `AgentProfile`-shaped
- * worker, the task is an `AgenticSurface` (open/tools/call/score/close), and the held-out-gated
+ * worker, the task is an `TaskEnvironment` (open/tools/call/score/close), and the held-out-gated
  * flywheel is `runStrategyEvolution` — which authors candidate strategies from TRAIN losses, then
  * makes ONE promotion decision on a FRESH holdout slice the search never touched (`promotionGate`,
  * a seeded paired-bootstrap CI). Adaptive data analysis is structurally impossible: the holdout is
@@ -30,14 +30,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
 import {
-  type AgenticSurface,
-  type AgenticTask,
-  type AgenticTool,
   type ArtifactHandle,
+  type EnvironmentScore,
+  type EnvironmentTask,
+  type EnvironmentTool,
   refine,
   runStrategyEvolution,
-  type SurfaceScore,
   sample,
+  type TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 
 // ── The contamination-proof task generator (deterministic per seed) ──────────────
@@ -85,7 +85,7 @@ function genTask(seed: number): { stub: string; test: string; total: number } {
   return { stub, test: tests, total: 9 }
 }
 
-// ── The Environment (AgenticSurface) — host pytest, no Docker. (Docker is a swap for untrusted code.) ──
+// ── The Environment (TaskEnvironment) — host pytest, no Docker. (Docker is a swap for untrusted code.) ──
 interface Ws {
   dir: string
   total: number
@@ -114,7 +114,7 @@ function pytestPassed(dir: string): { passed: number; total: number } {
   return { passed, total: passed + failed }
 }
 
-export const codingEnv: AgenticSurface = {
+export const codingEnv: TaskEnvironment = {
   name: 'generated-coding',
   async open(task) {
     const seed = Number((task.meta as { seed?: number })?.seed ?? 0)
@@ -163,7 +163,7 @@ export const codingEnv: AgenticSurface = {
       },
       // NO run_tests: the agent cannot iterate-until-green. It must implement correctly from READING the
       // tests — which creates real headroom and makes the STRATEGY (planning, multiple attempts) matter.
-    ] satisfies AgenticTool[]
+    ] satisfies EnvironmentTool[]
   },
   async call(handle, name, args) {
     const ws = workspaces.get(handle.id)
@@ -191,7 +191,7 @@ export const codingEnv: AgenticSurface = {
     }
     return `ERROR: unknown tool ${name}`
   },
-  async score(_task, handle): Promise<SurfaceScore> {
+  async score(_task, handle): Promise<EnvironmentScore> {
     const ws = workspaces.get(handle.id)
     if (!ws) return { passes: 0, total: 0, errored: 1 }
     const { passed, total } = pytestPassed(ws.dir)
@@ -208,7 +208,7 @@ export const codingEnv: AgenticSurface = {
 }
 
 // ── The disjoint task supplier (train [0,trainN); holdout drawn past it) ──────────
-export const codingTasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
+export const codingTasks = async (offset: number, n: number): Promise<EnvironmentTask[]> =>
   Array.from({ length: n }, (_, i) => {
     const seed = offset + i
     return {
@@ -221,7 +221,7 @@ export const codingTasks = async (offset: number, n: number): Promise<AgenticTas
       userPrompt:
         'Read test_lib.py to learn the exact contract, then write a correct lib.py. You cannot run the tests — reason carefully.',
       meta: { seed },
-    } satisfies AgenticTask
+    } satisfies EnvironmentTask
   })
 
 /** The correct lib.py for a seed — used ONLY by the $0 calibration self-check (never by the agent). */

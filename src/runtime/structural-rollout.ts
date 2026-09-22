@@ -1,10 +1,7 @@
 /**
  * structuralRollout — the measured structural lever as a fourth member of the
  * sample/refine/sampleThenRefine strategy family: k independent samples, selection by
- * TASK-VISIBLE checks only, then a guarded self-repair loop steered by the checks'
- * failure output. Design: docs/design/structural-rollout-integration.md; measured basis
- * (bench/src/hev-structural.mts, bench/src/mbpp-structural.mts): +8.5..+21.3pp hidden-test
- * lift across Llama-3-8B/Qwen2.5-7B × HumanEval/MBPP, null only at saturation.
+ * task-visible checks only, then a bounded self-repair loop steered by failure output.
  *
  * Honesty invariants carried over from the proven rigs:
  *  - Visible checks are generated from task-visible information only, BEFORE any
@@ -26,8 +23,8 @@
 
 import { randomBytes } from 'node:crypto'
 import {
-  type AgenticTask,
   defineStrategy,
+  type EnvironmentTask,
   type Strategy,
   type StrategyCtx,
   type StrategyResult,
@@ -109,7 +106,7 @@ export interface CheckSourceCtx {
  *  only, before any candidate exists — the strategy freezes the returned set for every
  *  sample and repair round of the task. */
 export interface CheckSource {
-  generate(task: AgenticTask, ctx: CheckSourceCtx): Promise<VisibleCheck[]>
+  generate(task: EnvironmentTask, ctx: CheckSourceCtx): Promise<VisibleCheck[]>
 }
 
 const authorInstruction = (count: number, entry: string) =>
@@ -191,7 +188,7 @@ export function composeCheckSources(...sources: CheckSource[]): CheckSource {
 /** The symbol authored checks are pinned to: `task.meta.entryPoint` when the surface
  *  provides it, else the LAST `def name(` in the visible prompt (a code-completion stub
  *  lists helpers first, the entry stub last). Undefined ⇒ authoring is skipped. */
-export function resolveEntrySymbol(task: AgenticTask): string | undefined {
+export function resolveEntrySymbol(task: EnvironmentTask): string | undefined {
   const meta = task.meta?.entryPoint
   if (typeof meta === 'string' && meta.trim().length > 0) return meta.trim()
   const defs = [...task.userPrompt.matchAll(/(?:^|\n)\s*def\s+([A-Za-z_]\w*)\s*\(/g)]
@@ -224,7 +221,7 @@ export interface CheckExecChannel {
 }
 
 export interface CheckRunContext {
-  task: AgenticTask
+  task: EnvironmentTask
   /** Live exec channel for this run (`ValidationCtx.box` / a sandbox instance). */
   box?: CheckExecChannel
   signal?: AbortSignal
@@ -484,7 +481,7 @@ export type RepairStop =
   | 'no-candidates'
 
 /** The body's deliverable — a `StrategyResult` plus selection provenance. The extra
- *  fields ride through `defineStrategy`'s deliverable spread onto `AgenticRunResult`
+ *  fields ride through `defineStrategy`'s deliverable spread onto `StrategyRunResult`
  *  (score/resolved stay harness-verified, exactly as for every authored strategy). */
 export interface StructuralRolloutResult extends StrategyResult {
   /** Exact selected candidate text passed to the visible checks, or null when no shot ran. */
@@ -521,7 +518,7 @@ export interface StructuralRolloutConfig {
  * official-check guard. Authored via `defineStrategy`, so the deliverable score stays
  * harness-verified and every shot is metered by the conserved pool.
  *
- * Budget note: `runAgentic`'s `budget` sizes the pool — pass at least
+ * Budget note: `runStrategy`'s `budget` sizes the pool — pass at least
  * `k + repairRounds + 1` so the samples, repairs, and the check-author consult all admit.
  */
 export function structuralRollout(
@@ -684,7 +681,7 @@ export function structuralRollout(
   )
 
   if (policy.temperature === undefined) return inner
-  // The shot temperature is an AgenticOptions concern; the policy override threads in at
+  // The shot temperature is an StrategyWorkerOptions concern; the policy override threads in at
   // the driver seam so the strategy stays a plain defineStrategy member.
   return {
     name: inner.name,

@@ -6,7 +6,7 @@
  * the kernel picks the best VALID one. The validator hard-fails any output that leaks into a
  * different knowledge namespace, so the bad candidate is pruned by construction.
  *
- * Offline: the two synthetic researcher outputs and the stand-in `sandboxClient` live in
+ * Offline: the two synthetic researcher outputs and the provider live in
  * ./synthetic-researcher.ts. Needs the optional `@tangle-network/agent-knowledge` peer.
  *
  * Run:  pnpm tsx examples/researcher-loop/researcher-loop.ts
@@ -18,7 +18,7 @@ import {
   researcherProfile,
 } from '@tangle-network/agent-knowledge/profiles'
 import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
-import { sandboxClient, task } from './synthetic-researcher'
+import { researchEnvironmentProvider, task } from './synthetic-researcher'
 
 async function main(): Promise<void> {
   const { output, validator, agentRunSpec } = researcherProfile({ task })
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     output,
     validator,
     task,
-    ctx: { sandboxClient },
+    ctx: { environmentProvider: researchEnvironmentProvider },
   })
 
   console.log(`decision: ${result.decision}`)

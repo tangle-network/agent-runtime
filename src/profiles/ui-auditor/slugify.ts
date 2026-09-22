@@ -1,6 +1,6 @@
 /**
  *
- * Shared slug helper used by both the in-process auditor client (for
+ * Shared slug helper used by both the in-process auditor provider (for
  * screenshot filenames) and the issue writer (for issue Markdown
  * filenames). Lowercases, normalizes, strips non-alphanumeric, trims
  * dashes, caps at 80 chars. Throws when the result is empty so callers

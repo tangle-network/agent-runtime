@@ -27,7 +27,7 @@ describe('runToolLoop', () => {
     expect(r.finalText).toBe('Here is my analysis.')
     expect(r.turns).toBe(1)
     expect(r.toolResults).toHaveLength(0)
-    expect(r.cappedOut).toBe(false)
+    expect(r.stopReason).toBe('completed')
   })
 
   it('executes a tool call, folds the result back, re-runs to the final answer', async () => {
@@ -204,7 +204,6 @@ describe('runToolLoop', () => {
       isExecutableTool: isExec,
     })
     expect(r.stopReason).toBe('backstop')
-    expect(r.cappedOut).toBe(true)
     expect(r.toolResults.length).toBe(3)
   })
 
@@ -224,7 +223,6 @@ describe('runToolLoop', () => {
       isExecutableTool: isExec,
     })
     expect(r.stopReason).toBe('stuck-loop')
-    expect(r.cappedOut).toBe(true)
     // Fires on the 3rd identical call — 2 tool results recorded before stop.
     expect(r.toolResults.length).toBe(2)
   })
@@ -270,7 +268,6 @@ describe('runToolLoop', () => {
       isExecutableTool: isExec,
     })
     expect(r.stopReason).toBe('deadline')
-    expect(r.cappedOut).toBe(true)
   })
 
   it('completes normally with more than 50 tool turns when given sufficient backstop', async () => {
@@ -299,7 +296,6 @@ describe('runToolLoop', () => {
       isExecutableTool: isExec,
     })
     expect(r.stopReason).toBe('completed')
-    expect(r.cappedOut).toBe(false)
     expect(r.toolResults.length).toBe(total)
   })
 

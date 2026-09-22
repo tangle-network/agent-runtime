@@ -1,5 +1,5 @@
 /**
- * countingSurface — wrap an AgenticSurface so every tool call is tallied per tool name.
+ * countingSurface — wrap an TaskEnvironment so every tool call is tallied per tool name.
  *
  * Default surfaces expose no observability over HOW a worker used its tools. This wrapper
  * counts each `call(handle, name, ...)` by tool name and exposes the running tally via a
@@ -10,12 +10,12 @@
  * tool calls over a shared, accumulating workspace.
  */
 import type {
-  AgenticSurface,
-  AgenticTask,
   ArtifactHandle,
+  EnvironmentTask,
+  TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 
-export interface CountingSurface extends AgenticSurface {
+export interface CountingSurface extends TaskEnvironment {
   /** A snapshot of how many times each tool was called, keyed by tool name. Reading it
    *  returns a fresh plain object, so callers can record it without aliasing live state. */
   readonly toolCounts: Readonly<Record<string, number>>
@@ -25,7 +25,7 @@ export interface CountingSurface extends AgenticSurface {
   resetToolCounts(): void
 }
 
-export function countingSurface(base: AgenticSurface): CountingSurface {
+export function countingSurface(base: TaskEnvironment): CountingSurface {
   const tally = new Map<string, number>()
   return {
     name: `counting:${base.name}`,
@@ -40,17 +40,17 @@ export function countingSurface(base: AgenticSurface): CountingSurface {
     resetToolCounts(): void {
       tally.clear()
     },
-    open(task: AgenticTask): Promise<ArtifactHandle> {
+    open(task: EnvironmentTask): Promise<ArtifactHandle> {
       return base.open(task)
     },
-    tools(task: AgenticTask, handle: ArtifactHandle) {
+    tools(task: EnvironmentTask, handle: ArtifactHandle) {
       return base.tools(task, handle)
     },
     call(handle: ArtifactHandle, name: string, args: Record<string, unknown>): Promise<string> {
       tally.set(name, (tally.get(name) ?? 0) + 1)
       return base.call(handle, name, args)
     },
-    score(task: AgenticTask, handle: ArtifactHandle) {
+    score(task: EnvironmentTask, handle: ArtifactHandle) {
       return base.score(task, handle)
     },
     close(handle: ArtifactHandle): Promise<void> {

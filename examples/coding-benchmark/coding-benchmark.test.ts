@@ -23,24 +23,27 @@ import { assertNoHiddenLeak, type RunRecord } from '@tangle-network/agent-eval'
 import { leaderboard } from '@tangle-network/agent-runtime/loops'
 import { describe, expect, it } from 'vitest'
 import { main, offlineAgentScripts } from './benchmark'
-import { type CheckBox, composeScore, runChecks, runHeldout } from './eval'
+import { type CheckEnvironment, composeScore, runChecks, runHeldout } from './eval'
 import { harnessProfiles } from './profiles'
 import { type CodingScenario, checkCmds, routeCodingFields, scenarios } from './scenarios'
 
 const execAsync = promisify(execCb)
 
-/** A real in-process `CheckBox` over a fresh temp dir — `fs.write` + `exec` only, the
+interface TestEnvironment extends CheckEnvironment {
+  write(path: string, content: string): Promise<void>
+  exec(command: string): Promise<{ exitCode: number; stdout: string; stderr: string }>
+}
+
+/** A real in-process environment over a fresh temp dir, with the exact
  *  exact surface `runChecks` / `runHeldout` use. `node --test` runs for real here, so the
  *  held-out execution is genuine (no creds, no network). */
-function tempBox(): { box: CheckBox; dir: string } {
+function tempEnvironment(): { environment: TestEnvironment; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'coding-bench-test-'))
-  const box: CheckBox = {
-    fs: {
-      async write(path: string, content: string) {
-        const abs = join(dir, path)
-        await mkdir(dirname(abs), { recursive: true })
-        await writeFile(abs, content, 'utf8')
-      },
+  const environment: TestEnvironment = {
+    async write(path: string, content: string) {
+      const abs = join(dir, path)
+      await mkdir(dirname(abs), { recursive: true })
+      await writeFile(abs, content, 'utf8')
     },
     async exec(command: string) {
       try {
@@ -56,7 +59,7 @@ function tempBox(): { box: CheckBox; dir: string } {
       }
     },
   }
-  return { box, dir }
+  return { environment, dir }
 }
 
 /** Write a solution, run the VISIBLE example test + the HELD-OUT suite against it in one
@@ -69,18 +72,18 @@ async function gradeSolution(
   scenario: CodingScenario,
   solution: string,
 ): Promise<{ visiblePassRate: number; heldoutPassRate: number; heldoutNotes: string }> {
-  const { box, dir } = tempBox()
+  const { environment, dir } = tempEnvironment()
   try {
     const cmds = checkCmds(scenario)
-    await box.fs?.write(scenario.solutionPath, solution)
+    await environment.write(scenario.solutionPath, solution)
     // "During the turn": the visible example test is seeded + run.
     const visible = await runHeldout(
-      box,
+      environment,
       { ...scenario, heldoutTest: scenario.visibleTest },
       cmds.dev,
     )
     // "At grading": the held-out suite is seeded + run (the real anti-cheat).
-    const heldout = await runHeldout(box, scenario, cmds.heldout)
+    const heldout = await runHeldout(environment, scenario, cmds.heldout)
     return {
       visiblePassRate: visible.passRate,
       heldoutPassRate: heldout.passRate,
@@ -143,96 +146,114 @@ describe('coding-benchmark (offline)', () => {
 
   // Every scenario's REAL offline solution passes its held-out suite (the suites are not
   // accidentally impossible) — run for real against the in-process box.
-  it.each(
-    scenarios,
-  )('the real offline solution passes the held-out suite for $id', async (scenario: CodingScenario) => {
-    const script = offlineAgentScripts[scenario.id]
-    expect(script, `no offline solution for ${scenario.id}`).toBeDefined()
-    const solution = (script as NonNullable<typeof script>).solutionFor(99) // settled round
-    const grade = await gradeSolution(scenario, solution)
-    expect(
-      grade.heldoutPassRate,
-      `real ${scenario.id} failed held-out: ${grade.heldoutNotes}`,
-    ).toBe(1)
-  }, 60_000)
+  it.each(scenarios)(
+    'the real offline solution passes the held-out suite for $id',
+    async (scenario: CodingScenario) => {
+      const script = offlineAgentScripts[scenario.id]
+      expect(script, `no offline solution for ${scenario.id}`).toBeDefined()
+      const solution = (script as NonNullable<typeof script>).solutionFor(99) // settled round
+      const grade = await gradeSolution(scenario, solution)
+      expect(
+        grade.heldoutPassRate,
+        `real ${scenario.id} failed held-out: ${grade.heldoutNotes}`,
+      ).toBe(1)
+    },
+    60_000,
+  )
 
   // FIREWALL: the held-out test is never seeded into the box during the agent turn —
   // only the visible test is. After running the dev checks (which seed the visible test),
   // the held-out file must NOT exist in the box; it appears only after `runHeldout`.
-  it.each(
-    scenarios,
-  )('does NOT seed the held-out test during the turn for $id', async (scenario: CodingScenario) => {
-    const { box, dir } = tempBox()
-    try {
-      const cmds = checkCmds(scenario)
-      const script = offlineAgentScripts[scenario.id] as NonNullable<
-        (typeof offlineAgentScripts)[string]
-      >
-      await box.fs?.write(scenario.solutionPath, script.solutionFor(99))
-      // "The turn": run the dev checks, which seed ONLY the visible test.
-      await runChecks(box, scenario, cmds)
-      // The visible test exists; the held-out test must NOT (the firewall).
-      const visibleExists = await box.exec(`test -f '${scenario.visibleTest.path}'`)
-      const heldoutExists = await box.exec(`test -f '${scenario.heldoutTest.path}'`)
-      expect(visibleExists.exitCode, 'visible test should be seeded during the turn').toBe(0)
-      expect(
-        heldoutExists.exitCode,
-        `held-out test for ${scenario.id} leaked into the box during the turn`,
-      ).not.toBe(0)
-      // Only AFTER grading does the held-out file appear.
-      await runHeldout(box, scenario, cmds.heldout)
-      const afterGrading = await box.exec(`test -f '${scenario.heldoutTest.path}'`)
-      expect(afterGrading.exitCode, 'held-out should be seeded at grading').toBe(0)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  }, 60_000)
+  it.each(scenarios)(
+    'does NOT seed the held-out test during the turn for $id',
+    async (scenario: CodingScenario) => {
+      const { environment, dir } = tempEnvironment()
+      try {
+        const cmds = checkCmds(scenario)
+        const script = offlineAgentScripts[scenario.id] as NonNullable<
+          (typeof offlineAgentScripts)[string]
+        >
+        await environment.write(scenario.solutionPath, script.solutionFor(99))
+        // "The turn": run the dev checks, which seed ONLY the visible test.
+        await runChecks(environment, scenario, cmds)
+        // The visible test exists; the held-out test must NOT (the firewall).
+        const visibleExists = await environment.exec(`test -f '${scenario.visibleTest.path}'`)
+        const heldoutExists = await environment.exec(`test -f '${scenario.heldoutTest.path}'`)
+        expect(visibleExists.exitCode, 'visible test should be seeded during the turn').toBe(0)
+        expect(
+          heldoutExists.exitCode,
+          `held-out test for ${scenario.id} leaked into the box during the turn`,
+        ).not.toBe(0)
+        // Only AFTER grading does the held-out file appear.
+        await runHeldout(environment, scenario, cmds.heldout)
+        const afterGrading = await environment.exec(`test -f '${scenario.heldoutTest.path}'`)
+        expect(afterGrading.exitCode, 'held-out should be seeded at grading').toBe(0)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+    60_000,
+  )
 
   // FIREWALL ENFORCEMENT (the agent-eval port): `assertNoHiddenLeak` over the routed fields
   // is real enforcement, not a comment — a clean agent context passes, but the held-out
   // suite's CONTENT inside the context is a breach that THROWS. This is what the dispatch's
   // `gradeOnHidden` re-asserts on real data at grading time.
-  it.each(
-    scenarios,
-  )('the firewall passes a clean context but THROWS when the held-out suite leaks for $id', (scenario: CodingScenario) => {
-    const fields = routeCodingFields(scenario)
-    // A clean context — only the agent-visible prompt — does not trip the firewall.
-    expect(() => assertNoHiddenLeak(fields, scenario.prompt)).not.toThrow()
-    // The held-out suite's CONTENT pasted into the context IS a breach → throws loud.
-    const leaked = `${scenario.prompt}\n${scenario.heldoutTest.content}`
-    expect(
-      () => assertNoHiddenLeak(fields, leaked),
-      `held-out leak for ${scenario.id} should throw`,
-    ).toThrow(/firewall/i)
-    // The rubric note (judge-only) leaking is also a breach.
-    const rubricLeak = `${scenario.prompt}\n${scenario.rubricNote}`
-    expect(
-      () => assertNoHiddenLeak(fields, rubricLeak),
-      `rubric leak for ${scenario.id} should throw`,
-    ).toThrow(/firewall/i)
-  })
+  it.each(scenarios)(
+    'the firewall passes a clean context but THROWS when the held-out suite leaks for $id',
+    (scenario: CodingScenario) => {
+      const fields = routeCodingFields(scenario)
+      // A clean context — only the agent-visible prompt — does not trip the firewall.
+      expect(() => assertNoHiddenLeak(fields, scenario.prompt)).not.toThrow()
+      // The held-out suite's CONTENT pasted into the context IS a breach → throws loud.
+      const leaked = `${scenario.prompt}\n${scenario.heldoutTest.content}`
+      expect(
+        () => assertNoHiddenLeak(fields, leaked),
+        `held-out leak for ${scenario.id} should throw`,
+      ).toThrow(/firewall/i)
+      // The rubric note (judge-only) leaking is also a breach.
+      const rubricLeak = `${scenario.prompt}\n${scenario.rubricNote}`
+      expect(
+        () => assertNoHiddenLeak(fields, rubricLeak),
+        `rubric leak for ${scenario.id} should throw`,
+      ).toThrow(/firewall/i)
+    },
+  )
 
   it('reps do NOT fake independent n — identical reps leave the CI unchanged', () => {
     // Two harnesses, two scenarios, identical scores. Build records for reps=1 and
     // reps=3 (the extra reps are exact duplicates → zero new information). The honest
     // leaderboard collapses reps to one mean per (harness, scenario), so the CI width
     // and the n must be IDENTICAL across reps — duplicating a sample cannot tighten it.
-    const mk = (harness: string, scenarioId: string, s: number): RunRecord =>
-      ({
-        candidateId: harness,
-        scenarioId,
-        outcome: { searchScore: s },
-      }) as unknown as RunRecord
+    const fixtureHash = 'c'.repeat(64)
+    const mk = (harness: string, scenarioId: string, score: number, rep: number): RunRecord => ({
+      runId: `coding:${harness}:${scenarioId}:${rep}`,
+      experimentId: 'coding-rep-weighting',
+      candidateId: harness,
+      seed: rep,
+      model: 'offline-agent@test',
+      promptHash: fixtureHash,
+      configHash: fixtureHash,
+      commitSha: 'test',
+      wallMs: 1,
+      costUsd: null,
+      costProvenance: { kind: 'uncaptured', usd: null },
+      tokenUsage: { input: 0, output: 0 },
+      terminalOutcome: 'succeeded',
+      outcome: { searchScore: score, raw: {} },
+      splitTag: 'search',
+      scenarioId,
+    })
     const base: Array<[string, string, number]> = [
       ['a', 's1', 0.9],
       ['a', 's2', 0.4],
       ['b', 's1', 0.8],
       ['b', 's2', 0.5],
     ]
-    const keyOf = (r: RunRecord) => r.candidateId ?? 'x'
-    const scoreOf = (r: RunRecord) => r.outcome.searchScore ?? r.outcome.holdoutScore ?? 0
-    const reps1 = base.map(([h, s, v]) => mk(h, s, v))
-    const reps3 = base.flatMap(([h, s, v]) => [mk(h, s, v), mk(h, s, v), mk(h, s, v)])
+    const keyOf = (r: RunRecord) => r.candidateId
+    const scoreOf = (r: RunRecord) => r.outcome.searchScore
+    const reps1 = base.map(([h, s, v]) => mk(h, s, v, 0))
+    const reps3 = base.flatMap(([h, s, v]) => [mk(h, s, v, 0), mk(h, s, v, 1), mk(h, s, v, 2)])
 
     const opts = { stats: true as const, passThreshold: 0.6, profileKeyOf: keyOf, scoreOf }
     const r1 = leaderboard(reps1, opts)
@@ -243,6 +264,10 @@ describe('coding-benchmark (offline)', () => {
       const row3 = r3.profiles.find((r) => r.label === harness)!
       expect(row1.scoreCi).toBeDefined()
       expect(row3.scoreCi).toBeDefined()
+      expect(row1.runCount).toBe(2)
+      expect(row3.runCount).toBe(6)
+      expect(row1.scenarioCount).toBe(2)
+      expect(row3.scenarioCount).toBe(2)
       // Same mean, and the CI must NOT narrow — collapsing reps to one mean per scenario is the honest n.
       expect(row3.meanScore).toBeCloseTo(row1.meanScore, 10)
       const width1 = row1.scoreCi!.upper - row1.scoreCi!.lower

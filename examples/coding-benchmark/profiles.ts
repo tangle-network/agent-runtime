@@ -4,51 +4,35 @@
  * Each profile is deliberately bare (name + model, no skills, no injected prompt) so we
  * measure the HARNESS, not our scaffolding; the tool surface is a separate orthogonal knob
  * (`withTools`), making harness × tool a clean cartesian. Two non-obvious facts about the
- * shape: `AgentProfile` (`@tangle-network/agent-interface`) has no `harness` field (harness
- * is a SANDBOX concept), so the harness selector rides `metadata.harness` (`harnessOf()` is
+ * shape: the harness is an execution choice, so this matrix stores its axis value in
+ * `metadata.harness` (`harnessOf()` is
  * the one reader); and `runProfileMatrix` REQUIRES a snapshot-dated `model.default` — see
  * `harnessModel` below.
  */
 
 import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
-import type { BackendType } from '@tangle-network/sandbox'
 
 /** The harnesses we sweep. `cli-base` is the plain-CLI baseline (no agent harness). */
-export const harnesses = [
-  'claude-code',
-  'opencode',
-  'codex',
-  'cli-base',
-] as const satisfies readonly BackendType[]
+export const harnesses = ['claude-code', 'opencode', 'codex', 'cli-base'] as const
+export type CodingHarness = (typeof harnesses)[number]
 
 /** Read the harness a profile targets. The ONE place metadata.harness is decoded. */
-export function harnessOf(profile: AgentProfile): BackendType {
+export function harnessOf(profile: AgentProfile): CodingHarness {
   const h = profile.metadata?.harness
-  if (typeof h !== 'string') {
+  if (typeof h !== 'string' || !harnesses.includes(h as CodingHarness)) {
     throw new Error(`profile "${profile.name}" is missing metadata.harness — see profiles.ts`)
   }
-  return h as BackendType
+  return h as CodingHarness
 }
 
 /** The default model each harness runs (override per-harness via env). The model id MUST
  *  carry a SNAPSHOT DATE (`provider/name-YYYY-MM-DD`): `runProfileMatrix` rejects a bare
  *  alias, because a record without the exact snapshot is not reproducible. */
-const harnessModel: Record<BackendType, string> = {
+const harnessModel: Record<CodingHarness, string> = {
   'claude-code': process.env.CLAUDE_CODE_MODEL ?? 'anthropic/claude-sonnet-4-5-2025-09-29',
   opencode: process.env.OPENCODE_MODEL ?? 'anthropic/claude-sonnet-4-5-2025-09-29',
   codex: process.env.CODEX_MODEL ?? 'openai/gpt-5-codex-2025-09-15',
   'cli-base': process.env.CLI_BASE_MODEL ?? 'openai/gpt-4.1-2025-04-14',
-  // unreached by this example, but BackendType is a closed union — name them all
-  'kimi-code': 'moonshot/kimi-k2-2025-07-11',
-  amp: 'anthropic/claude-sonnet-4-5-2025-09-29',
-  'factory-droids': 'anthropic/claude-sonnet-4-5-2025-09-29',
-  pi: 'openai/gpt-4.1-2025-04-14',
-  hermes: 'openai/gpt-4.1-2025-04-14',
-  forge: 'openai/gpt-4.1-2025-04-14',
-  openclaw: 'anthropic/claude-sonnet-4-5-2025-09-29',
-  nanoclaw: 'anthropic/claude-sonnet-4-5-2025-09-29',
-  acp: 'openai/gpt-4.1-2025-04-14',
-  cursor: 'anthropic/claude-sonnet-4-5-2025-09-29',
 }
 
 /** One bare baseline profile per harness — the harness's out-of-the-box behavior. */

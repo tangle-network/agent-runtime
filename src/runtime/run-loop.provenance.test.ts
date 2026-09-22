@@ -1,18 +1,17 @@
 import { createHash } from 'node:crypto'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
+import { inProcessEnvironmentProvider } from './in-process-environment-provider'
 import { runAgentRounds } from './run-loop'
-import type { AgentRunSpec, Driver, LoopWinner, OutputAdapter, SandboxClient } from './types'
+import type { AgentRunSpec, Driver, LoopWinner, OutputAdapter } from './types'
 
-function makeBox(id: string, finalText: string): SandboxInstance {
-  return {
-    id,
-    name: id,
-    status: 'running',
-    async *streamPrompt(_prompt: string): AsyncIterable<SandboxEvent> {
-      yield { type: 'result', data: { finalText } } as SandboxEvent
-    },
-  } as SandboxInstance
+function makeProvider(finalText: string): AgentEnvironmentProvider {
+  return inProcessEnvironmentProvider({
+    onTurn: () => [{ type: 'result', data: { finalText } }],
+  })
 }
 
 const output: OutputAdapter<string> = {
@@ -22,21 +21,14 @@ const output: OutputAdapter<string> = {
 }
 
 describe('runAgentRounds provenance', () => {
-  it('surfaces a mount manifest recorded during prepareBox', async () => {
+  it('surfaces a mount manifest recorded during prepareEnvironment', async () => {
     const bytes = Buffer.from('fixture-contents')
     const sha256 = createHash('sha256').update(bytes).digest('hex')
-    const client: SandboxClient = {
-      async create() {
-        return makeBox('box-1', 'done')
-      },
-    }
+    const provider = makeProvider('done')
     const agentRun: AgentRunSpec<string> = {
       profile: { name: 'mounting-agent' },
       taskToPrompt: (task) => task,
-      // The caller owns the bytes it writes; it declares each mount via the
-      // recorder. The kernel never reads the box, so this is the only path the
-      // manifest is populated from.
-      prepareBox(_box, ctx) {
+      prepareEnvironment(_environment, ctx) {
         ctx.recordMount({
           path: '/work/fixture.txt',
           sha256,
@@ -58,7 +50,7 @@ describe('runAgentRounds provenance', () => {
       output,
       task: 'hello',
       maxIterations: 1,
-      ctx: { sandboxClient: client, signal: new AbortController().signal },
+      ctx: { environmentProvider: provider, signal: new AbortController().signal },
     })
 
     expect(result.provenance.mounts).toEqual([
@@ -72,11 +64,7 @@ describe('runAgentRounds provenance', () => {
   })
 
   it('emits the empty manifest when nothing is mounted', async () => {
-    const client: SandboxClient = {
-      async create() {
-        return makeBox('box-1', 'done')
-      },
-    }
+    const provider = makeProvider('done')
     const driver: Driver<string, string, 'done'> = {
       async plan(_task, history) {
         return history.length === 0 ? ['hello'] : []
@@ -90,7 +78,7 @@ describe('runAgentRounds provenance', () => {
       output,
       task: 'hello',
       maxIterations: 1,
-      ctx: { sandboxClient: client, signal: new AbortController().signal },
+      ctx: { environmentProvider: provider, signal: new AbortController().signal },
     })
 
     expect(result.provenance.mounts).toEqual([])
@@ -100,13 +88,14 @@ describe('runAgentRounds provenance', () => {
     // Two-wide fanout, distinct scores → the higher score wins under the default
     // argmax. Each non-errored candidate gets exactly one receipt.
     const created: string[] = []
-    const client: SandboxClient = {
-      async create() {
-        const id = `box-${created.length}`
+    const provider = inProcessEnvironmentProvider({
+      id: (sequence) => {
+        const id = `environment-${sequence}`
         created.push(id)
-        return makeBox(id, id)
+        return id
       },
-    }
+      onTurn: (prompt) => [{ type: 'result', data: { finalText: prompt } }],
+    })
     const driver: Driver<string, string, 'done'> = {
       async plan(_task, history) {
         return history.length === 0 ? ['a', 'b'] : []
@@ -126,10 +115,11 @@ describe('runAgentRounds provenance', () => {
       },
       task: 'go',
       maxIterations: 2,
-      ctx: { sandboxClient: client, signal: new AbortController().signal },
+      ctx: { environmentProvider: provider, signal: new AbortController().signal },
     })
 
     expect(result.winner?.iterationIndex).toBe(1)
+    expect(created).toEqual(['environment-0', 'environment-1'])
     expect(result.provenance.selectionReceipts).toEqual([
       {
         candidateIndex: 0,
@@ -150,13 +140,13 @@ describe('runAgentRounds provenance', () => {
 
   it('omits a receipt for an errored iteration and attributes a caller selector without inventing a reason', async () => {
     let calls = 0
-    const client: SandboxClient = {
-      async create() {
+    const baseProvider = makeProvider('ok')
+    const provider: AgentEnvironmentProvider = {
+      ...baseProvider,
+      async create(input: CreateAgentEnvironmentInput) {
         calls += 1
-        // Second box fails to acquire → that iteration errors and is never a
-        // candidate, so it gets no selection receipt.
-        if (calls === 2) throw new Error('box acquire blew up')
-        return makeBox(`box-${calls}`, 'ok')
+        if (calls === 2) throw new Error('environment creation failed')
+        return baseProvider.create(input)
       },
     }
     const driver: Driver<string, string, 'done'> = {
@@ -185,7 +175,7 @@ describe('runAgentRounds provenance', () => {
       task: 'go',
       maxIterations: 2,
       selectWinner,
-      ctx: { sandboxClient: client, signal: new AbortController().signal },
+      ctx: { environmentProvider: provider, signal: new AbortController().signal },
     })
 
     // Only the non-errored iteration (index 0) is a candidate; the errored one is omitted.

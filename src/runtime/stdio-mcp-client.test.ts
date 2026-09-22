@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import { mcpServeVerifier } from '../improvement/mcp-serve-verifier'
-import { localSandboxClient } from './local-sandbox-client'
+import { localEnvironmentProvider } from './local-environment-provider'
 import { connectStdioMcp, McpSpawnFault, materializeLocalMcp } from './stdio-mcp-client'
 
 /** A minimal stdio MCP server (newline JSON-RPC 2.0): initialize / tools/list /
@@ -192,7 +192,7 @@ describe('materializeLocalMcp', () => {
     }
   })
 
-  it('the same-host client forwards its key provider to declared MCP secrets', async () => {
+  it('the same-host provider forwards its key provider to declared MCP secrets', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'local-mcp-secret-'))
     const marker = join(dir, 'received.txt')
     const get = vi.fn(async (name: string) => (name === 'GREETER_TOKEN' ? 'test-token' : undefined))
@@ -208,26 +208,25 @@ describe('materializeLocalMcp', () => {
       },
     }
     expect(JSON.stringify(profile)).not.toContain('test-token')
-    await expect(
-      localSandboxClient({
-        router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
-        profile,
-        profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
-      }).create(),
-    ).rejects.toThrow(/no KeyProvider/)
-
-    const client = localSandboxClient({
+    const providerWithoutKeys = localEnvironmentProvider({
       router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
-      keys: { get },
-      profile,
+      trustedProfile: profile,
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
     })
-    const box = await client.create()
+    await expect(providerWithoutKeys.create({ profile })).rejects.toThrow(/no KeyProvider/)
+
+    const provider = localEnvironmentProvider({
+      router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+      keys: { get },
+      trustedProfile: profile,
+      profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
+    })
+    const environment = await provider.create({ profile })
     try {
       expect(get).toHaveBeenCalledWith('GREETER_TOKEN')
       expect(readFileSync(marker, 'utf8')).toBe('test-token')
     } finally {
-      await box.delete()
+      await environment.destroy?.()
       rmSync(dir, { recursive: true, force: true })
     }
   })
@@ -244,9 +243,9 @@ describe('materializeLocalMcp', () => {
         },
       },
     }
-    const client = localSandboxClient({
+    const provider = localEnvironmentProvider({
       router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
-      profile: trustedProfile,
+      trustedProfile,
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
     })
     const dynamicProfile: AgentProfile = {
@@ -260,9 +259,9 @@ describe('materializeLocalMcp', () => {
       },
     }
     try {
-      await expect(
-        client.create({ backend: { profile: dynamicProfile } } as never),
-      ).rejects.toThrow(/local\/stdio MCP server 'untrusted' is not allowed/)
+      await expect(provider.create({ profile: dynamicProfile })).rejects.toThrow(
+        /local\/stdio MCP server 'untrusted' is not allowed/,
+      )
       expect(existsSync(marker)).toBe(false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -271,11 +270,11 @@ describe('materializeLocalMcp', () => {
 
   it('rejects permissive host-process policy without fixed trusted profile bytes', () => {
     expect(() =>
-      localSandboxClient({
+      localEnvironmentProvider({
         router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
         profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
       }),
-    ).toThrow(/requires a fixed author-controlled profile/)
+    ).toThrow(/requires a fixed author-controlled trustedProfile/)
   })
 
   it('redacts a provisioned secret echoed by a failing MCP child', async () => {

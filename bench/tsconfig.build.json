@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.public.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0"
+  }
+}

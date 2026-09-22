@@ -13,8 +13,8 @@
  * `leaderboard` engine → a ranked board + the full profile×task matrix + SVG/HTML charts.
  *
  * Run it live (writes report.md / report.svg / report.html to RUN_DIR):
- *   SANDBOX_API_KEY=$TANGLE_API_KEY  [LIMIT=3]  tsx examples/webcode-matrix/webcode-matrix.ts
- * ONE key: the SANDBOX_API_KEY the box is created with (your TANGLE_API_KEY) provisions the box's own
+ *   TANGLE_API_KEY=...  [LIMIT=3]  tsx examples/webcode-matrix/webcode-matrix.ts
+ * ONE key: TANGLE_API_KEY provisions the box's own
  * model + search credential — nothing else is passed in. A live run therefore requires IN-BOX router
  * inference to be enabled for that key; if it is not, the agent stream produces zero tokens and the
  * backend-integrity guard correctly aborts the matrix as a stub (it never fakes a score).
@@ -23,19 +23,23 @@ import { writeFileSync } from 'node:fs'
 import type { JudgeConfig, ProfileDispatchFn } from '@tangle-network/agent-eval/campaign'
 import { runProfileMatrix } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import {
   type AgentRunSpec,
   leaderboard,
-  openSandboxRun,
+  openEnvironmentRun,
   pairwiseSignificance,
   renderLeaderboardHtml,
   renderLeaderboardMarkdown,
   renderLeaderboardSvg,
   renderPairwiseMarkdown,
-  type SandboxClient,
-  sumSandboxUsage,
+  sumEnvironmentUsage,
 } from '@tangle-network/agent-runtime/loops'
-import type { BackendType } from '@tangle-network/sandbox'
+import { Sandbox } from '@tangle-network/sandbox'
 import { loadWebCodeTasks, type WebCodeTask } from './webcode-dataset'
 
 const routerBaseUrl = process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1'
@@ -58,22 +62,36 @@ const snapshot = process.env.MODEL_SNAPSHOT ?? '2026-06-30'
 
 export const profiles: AgentProfile[] = grid.map(({ harness, model }) => ({
   name: `${harness}·${model.split('/').at(-1)}`,
-  // model.default = the dated id the eval records by; metadata.model = the BARE id the box calls (the
-  // router serves bare). AgentProfile has no `harness` field — it's a SANDBOX backend, on metadata so the
-  // dispatch + the leaderboard profile key can read it back.
+  // model.default = the dated id the eval records by; metadata.model = the bare id the provider calls.
   model: { default: `${model}@${snapshot}` },
+  harness,
   metadata: { harness, model },
-  systemPrompt:
-    'Solve the task. The library API post-dates your training — use web_search to find the CURRENT ' +
-    'signatures, then write the solution file so every test passes. Do not guess at the API.',
+  prompt: {
+    systemPrompt:
+      'Solve the task. The library API post-dates your training. Use web_search to find the current ' +
+      'signatures, then write the solution file so every test passes. Do not guess at the API.',
+  },
 }))
 
 export { loadWebCodeTasks, type WebCodeTask } from './webcode-dataset'
 
+/** Build the maintained Tangle adapter used by live WebCode runs. */
+export function createWebCodeEnvironmentProvider(options: {
+  apiKey: string
+  baseUrl?: string
+}): AgentEnvironmentProvider {
+  return createTangleProvider({
+    client: new Sandbox({
+      apiKey: options.apiKey,
+      baseUrl: options.baseUrl ?? 'https://sandbox.tangle.tools',
+    }) as unknown as Parameters<typeof createTangleProvider>[0]['client'],
+  })
+}
+
 // ── DISPATCH — render one (profile, task) cell: run the harness in its own sandbox with web search on, have
 //    it write the solution file, then run EXA'S OWN test_patch as the grader.
 function webcodeDispatch(
-  client: SandboxClient,
+  environmentProvider: AgentEnvironmentProvider,
 ): ProfileDispatchFn<WebCodeTask, { passed: boolean }> {
   return async (profile, task, ctx) => {
     const harness = String(profile.metadata?.harness ?? 'opencode')
@@ -85,55 +103,64 @@ function webcodeDispatch(
       profile,
       name: profile.name ?? harness,
       taskToPrompt: (t) => t,
-      sandboxOverrides: {
-        // The box self-auths: its OWN provisioned credential (from the SANDBOX_API_KEY the client was
-        // created with — your TANGLE_API_KEY) covers the model router AND router-backed web_search. Do NOT
-        // pass a router/model key INTO the box — the egress proxy rejects foreign credentials (403, empty
-        // output). The only box env is the search-provider pick.
+      environment: {
+        backend: harness,
+        workspace: task.baseImage ? { image: task.baseImage } : { environment: 'universal' },
         env: { TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa' },
-        // The toolchain: `universal` is the multi-language Nix stack (python+pytest + Go/Py/TS/Java/C++),
-        // the same default the commit0/clbench gates use. Exotic per-task toolchains (Swift/Elixir/…) ship
-        // their own image in `task.baseImage` — see the README's grading tiers.
-        environment: 'universal',
-        backend: {
-          type: harness as BackendType,
-          model: { provider: 'openai-compat', model, baseUrl: routerBaseUrl },
+        providerOptions: {
+          sandboxCreateOptions: {
+            backend: {
+              model: { provider: 'openai-compat', model, baseUrl: routerBaseUrl },
+            },
+          },
         },
       },
     }
-    const run = await openSandboxRun<{ passed: boolean }>(
-      client,
-      { agentRun, scenarioId: task.id, signal: ctx.signal },
-      { kind: 'events', fromEvents: () => ({ passed: false }) },
-    )
-    const paid = await ctx.cost.runPaidCall({
-      channel: 'agent',
-      actor: 'webcode-cell',
-      model,
+    const run = await openEnvironmentRun<{ passed: boolean }>({
+      provider: environmentProvider,
+      agentRun,
+      scenarioId: task.id,
       signal: ctx.signal,
-      execute: () => run.start(prompt),
-      receipt: (turn) => {
-        const usage = sumSandboxUsage(turn.events)
-        return {
-          model,
-          inputTokens: usage.input,
-          outputTokens: usage.output,
-          ...(usage.costUsd > 0 ? { actualCostUsd: usage.costUsd } : {}),
-        }
-      },
+      deliverable: { kind: 'events', fromEvents: () => ({ passed: false }) },
     })
-    if (!paid.succeeded) throw paid.error
-
-    // Grade with Exa's EXACT test_patch: drop it into the box, ensure pytest, run it, score on exit. A
-    // missing language toolchain (an exotic per-task image not provisioned) surfaces as a failing test —
-    // never a fake pass.
-    await run.box.fs.mkdir('tests', { recursive: true })
-    await run.box.fs.mkdir('solution', { recursive: true })
-    await run.box.fs.write('tests/test_solution.py', task.testPatch)
-    await run.box.exec?.('python3 -m pip install -q pytest 2>/dev/null || true')
-    const res = await run.box.exec?.('python3 -m pytest tests/ -q')
-    return { passed: (res?.exitCode ?? 1) === 0 }
+    try {
+      const paid = await ctx.cost.runPaidCall({
+        channel: 'agent',
+        actor: 'webcode-cell',
+        model,
+        signal: ctx.signal,
+        execute: () => run.turn(prompt),
+        receipt: (turn) => {
+          const usage = sumEnvironmentUsage(turn.events)
+          return {
+            model,
+            inputTokens: usage.input,
+            outputTokens: usage.output,
+            ...(usage.costUsd > 0 ? { actualCostUsd: usage.costUsd } : {}),
+          }
+        },
+      })
+      if (!paid.succeeded) throw paid.error
+      return { passed: await gradeWebCodeEnvironment(run.environment, task) }
+    } finally {
+      await run.close()
+    }
   }
+}
+
+/** Run Exa's exact test patch inside the provider environment. */
+export async function gradeWebCodeEnvironment(
+  environment: AgentEnvironment,
+  task: WebCodeTask,
+): Promise<boolean> {
+  if (!environment.exec || !environment.write) {
+    throw new Error('WebCode requires a provider with workspace write and command execution')
+  }
+  await environment.exec('mkdir -p tests solution')
+  await environment.write('tests/test_solution.py', task.testPatch)
+  await environment.exec('python3 -m pip install -q pytest 2>/dev/null || true')
+  const result = await environment.exec('python3 -m pytest tests/ -q')
+  return result.exitCode === 0
 }
 
 // ── SCORE — pass/fail on Exa's suite (deterministic; no LLM in the loop).
@@ -148,12 +175,16 @@ const hiddenTests: JudgeConfig<{ passed: boolean }, WebCodeTask> = {
 }
 
 /** Run the matrix and render the leaderboard (markdown + SVG + HTML) into `runDir`. */
-export async function runWebCodeMatrix(client: SandboxClient, runDir: string, commitSha: string) {
+export async function runWebCodeMatrix(
+  environmentProvider: AgentEnvironmentProvider,
+  runDir: string,
+  commitSha: string,
+) {
   const tasks = loadWebCodeTasks(process.env.LIMIT ? { limit: Number(process.env.LIMIT) } : {})
   const result = await runProfileMatrix<WebCodeTask, { passed: boolean }>({
     profiles,
     scenarios: tasks,
-    dispatch: webcodeDispatch(client),
+    dispatch: webcodeDispatch(environmentProvider),
     judges: [hiddenTests],
     runDir,
     commitSha,
@@ -183,14 +214,15 @@ export async function runWebCodeMatrix(client: SandboxClient, runDir: string, co
 
 // Run it live.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { SandboxClient } = (await import('@tangle-network/sandbox')) as {
-    SandboxClient: new (o: { apiKey: string; baseUrl: string }) => SandboxClient
-  }
-  const apiKey = process.env.SANDBOX_API_KEY
-  if (!apiKey) throw new Error('SANDBOX_API_KEY required')
-  const client = new SandboxClient({
+  const apiKey = process.env.TANGLE_API_KEY
+  if (!apiKey) throw new Error('TANGLE_API_KEY required')
+  const environmentProvider = createWebCodeEnvironmentProvider({
     apiKey,
     baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
   })
-  await runWebCodeMatrix(client, process.env.RUN_DIR ?? '.', process.env.COMMIT_SHA ?? 'local')
+  await runWebCodeMatrix(
+    environmentProvider,
+    process.env.RUN_DIR ?? '.',
+    process.env.COMMIT_SHA ?? 'local',
+  )
 }

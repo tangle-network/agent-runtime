@@ -3,31 +3,36 @@
  *
  * The measured defect this file exists to close: 0 steer messages across 897+ supervisor journal
  * events. Two mechanical causes, both proved here:
- *   1. the default sandbox worker implemented no `Executor.deliver`, so `Scope.send` returned
+ *   1. the default provider worker implemented no `Executor.deliver`, so `Scope.send` returned
  *      `false` and every `steer_agent` reported `delivered:false`;
  *   2. `observe_agent` returned nothing about a RUNNING worker, so a driver had no evidence a
  *      steer was warranted even if one could land.
  *
  * The test drives the REAL path — `supervise()` → coordination MCP verbs → `Scope` → the
- * steerable sandbox executor → `SandboxLineage` — against a fake box whose harness is scripted to
- * behave differently depending on what it is told. It asserts on the WORKER'S OBSERVED ACTIONS,
+ * steerable provider executor against a scripted environment. It asserts on worker actions,
  * split at the moment the steer was delivered:
  *
  *   before the steer: the worker only ever touched `legacy/wrong.ts`
  *   after  the steer: the worker touched `core/right.ts` and never `legacy/wrong.ts` again
  *
- * and it FALSIFIES itself: the same script, same box, same brain, with delivery disabled (the
- * historical single-shot sandbox worker) must fail — the steer is not delivered and the worker's
+ * and it falsifies itself: the same script, same provider, same brain, with delivery disabled must
+ * fail. The steer is not delivered and the worker's
  * post-steer actions never change.
  */
 
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+  AgentSession,
+  AgentTurnResult,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
+import { inProcessEnvironmentProvider } from '../../src/runtime/in-process-environment-provider'
+import type { EnvironmentWorkerOptions } from '../../src/runtime/supervise/runtime'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { Budget } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
-import type { SandboxClient } from '../../src/runtime/types'
 
 const WRONG = 'legacy/wrong.ts'
 const RIGHT = 'core/right.ts'
@@ -53,7 +58,7 @@ interface WorkerAction {
 }
 
 interface FakeHarness {
-  readonly client: SandboxClient
+  readonly provider: AgentEnvironmentProvider
   /** Every file the worker touched, in order — the ground truth the proof asserts on. */
   readonly actions: WorkerAction[]
   /** Resolved once the worker has done enough work to be worth observing. */
@@ -64,7 +69,7 @@ interface FakeHarness {
 }
 
 /**
- * A fake sandbox whose "coding harness" is a two-state machine:
+ * A fake coding environment is a two-state machine:
  *   - given a prompt that does NOT name a target file, it edits {@link WRONG} three times;
  *   - given a prompt that names `core/right.ts`, it edits {@link RIGHT} twice.
  * That is the whole behavioral difference a steer is supposed to cause, made observable.
@@ -79,7 +84,7 @@ function createFakeHarness(): FakeHarness {
   const release = deferred()
   let turn = 0
 
-  const toolEvent = (file: string, seq: number): SandboxEvent =>
+  const toolEvent = (file: string, seq: number): AgentEnvironmentEvent =>
     ({
       type: 'message.part.updated',
       data: {
@@ -90,20 +95,23 @@ function createFakeHarness(): FakeHarness {
           state: { status: 'completed', input: { filePath: file } },
         },
       },
-    }) as unknown as SandboxEvent
+    }) as AgentEnvironmentEvent
 
-  const resultEvent = (text: string): SandboxEvent =>
+  const resultEvent = (text: string): AgentEnvironmentEvent =>
     ({
       type: 'result',
       data: { finalText: text, usage: { inputTokens: 120, outputTokens: 40 } },
-    }) as unknown as SandboxEvent
+    }) as AgentEnvironmentEvent
 
-  const box: SandboxInstance = {
-    id: 'fake-box',
-    async *streamPrompt(message: string, _options?: unknown): AsyncGenerator<SandboxEvent> {
+  const knownSessions = new Set<string>()
+  const baseProvider = inProcessEnvironmentProvider({
+    name: 'steering-test',
+    id: 'steering-environment',
+    async *onTurn(message, ctx): AsyncIterable<AgentEnvironmentEvent> {
       const myTurn = turn
       turn += 1
       prompts.push(message)
+      if (ctx.input.sessionId) knownSessions.add(ctx.input.sessionId)
       const target = message.includes(RIGHT) ? RIGHT : WRONG
       const edits = target === RIGHT ? 2 : 3
       for (let i = 0; i < edits; i += 1) {
@@ -118,19 +126,52 @@ function createFakeHarness(): FakeHarness {
       }
       yield resultEvent(`edited ${target}`)
     },
-    async delete() {},
-  } as unknown as SandboxInstance
+  })
 
-  const client: SandboxClient = {
-    create: (_options?: CreateSandboxOptions) => Promise.resolve(box),
+  const provider: AgentEnvironmentProvider = {
+    ...baseProvider,
+    async capabilities() {
+      const capabilities = await baseProvider.capabilities()
+      return {
+        ...capabilities,
+        sessions: { ...capabilities.sessions, continue: true },
+      }
+    },
+    async create(input) {
+      const environment = await baseProvider.create(input)
+      return {
+        ...environment,
+        session: (id: string) => fakeSession(id, knownSessions),
+      } satisfies AgentEnvironment
+    },
   }
 
   return {
-    client,
+    provider,
     actions,
     prompts,
     workingOnWrongFile: observed.promise,
     releaseFirstTurn: () => release.resolve(),
+  }
+}
+
+function fakeSession(id: string, knownSessions: Set<string>): AgentSession {
+  const result: AgentTurnResult = { text: '', success: true, sessionId: id }
+  return {
+    id,
+    async status() {
+      return knownSessions.has(id) ? 'running' : null
+    },
+    async *events() {
+      yield { type: 'session.ready', data: { sessionId: id } }
+    },
+    async result() {
+      return result
+    },
+    async prompt() {
+      return result
+    },
+    async cancel() {},
   }
 }
 
@@ -196,14 +237,12 @@ function safeJson(text: string): Record<string, unknown> | undefined {
   }
 }
 
-function backend(harness: FakeHarness, steerable: boolean): ExecutorConfig {
+function worker(harness: FakeHarness, steerable: boolean): EnvironmentWorkerOptions {
   return {
-    backend: 'sandbox',
-    harness: 'opencode',
-    sandboxClient: harness.client,
-    // The ONLY difference between the proof and its falsification.
+    provider: harness.provider,
+    environment: { backend: 'opencode' },
     ...(steerable ? { steering: { maxTurns: 6 } } : {}),
-  } as ExecutorConfig
+  }
 }
 
 async function runSupervisedSteer(steerable: boolean) {
@@ -214,7 +253,7 @@ async function runSupervisedSteer(steerable: boolean) {
     'change the right module',
     {
       budget,
-      backend: backend(harness, steerable),
+      worker: worker(harness, steerable),
       brain: steeringBrain(harness, record),
       maxTurns: 8,
     },
@@ -222,13 +261,12 @@ async function runSupervisedSteer(steerable: boolean) {
   return { harness, record, result }
 }
 
-describe('mid-flight steering — a supervisor observes a live worker and changes what it does', () => {
-  it('delivers a steer to a RUNNING sandbox worker and the worker acts differently afterwards', {
+describe('mid-flight steering changes a live provider worker', () => {
+  it('delivers a steer to a running worker and changes its later actions', {
     timeout: 30_000,
   }, async () => {
     const { harness, record } = await runSupervisedSteer(true)
 
-    // ── B-1: the driver could SEE the running worker ───────────────────────────────
     const progress = record.observedProgress?.progress as Record<string, unknown> | undefined
     expect(progress, 'observe_agent returned no progress for a running worker').toBeDefined()
     expect(progress?.live).toBe(true)
@@ -241,10 +279,8 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     expect(typeof progress?.idleMs).toBe('number')
     expect(progress?.stalled).toBe(false)
 
-    // ── B-2: the steer actually landed ────────────────────────────────────────────
     expect(record.steerResult?.delivered, 'steer_agent did not deliver to a live worker').toBe(true)
 
-    // ── THE PROOF: the worker's behavior CHANGED, before vs after the message ──────
     const steeredTurns = new Set(
       harness.prompts.map((p, i) => (p.includes(STEER) ? i : -1)).filter((i) => i >= 0),
     )
@@ -262,16 +298,14 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     expect(after.some((a) => a.file === WRONG)).toBe(false)
   })
 
-  it('FALSIFICATION: with delivery disabled the same run cannot steer and the worker never changes', {
+  it('with delivery disabled the same run cannot steer and the worker never changes', {
     timeout: 30_000,
   }, async () => {
     const { harness, record } = await runSupervisedSteer(false)
 
-    // The single-shot sandbox worker has no inbox — this is the historical behavior, stated.
     expect(record.steerResult?.delivered).toBe(false)
     expect(record.steerResult?.reason).toBe('runtime-has-no-inbox')
 
-    // And so the proof's assertion is unreachable: nothing the worker did ever changed.
     expect(harness.prompts.some((p) => p.includes(STEER))).toBe(false)
     expect(harness.actions.length).toBeGreaterThan(0)
     expect(new Set(harness.actions.map((a) => a.file))).toEqual(new Set([WRONG]))

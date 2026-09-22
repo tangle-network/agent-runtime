@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import { worktreeLoopRunner } from '../../src/loop-runner'
 import type { GitRunner } from '../../src/mcp/worktree'
@@ -51,7 +51,7 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
       taskPrompt: 'fix the off-by-one',
       budget,
       harnesses: [
-        { name: 'claude', profile: profile('claude'), harness: 'claude' },
+        { name: 'claude', profile: profile('claude'), harness: 'claude-code' },
         { name: 'opencode', profile: profile('opencode'), harness: 'opencode' },
       ],
       testCmd: 'pnpm test',
@@ -76,7 +76,7 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
       repoRoot: '/repo',
       taskPrompt: 'fix it',
       budget,
-      harnesses: [{ name: 'claude', profile: profile('claude'), harness: 'claude' }],
+      harnesses: [{ name: 'claude', profile: profile('claude'), harness: 'claude-code' }],
       testCmd: 'pnpm test',
       require: ['tests'],
       runGit: fakeGitWith(() => ({
@@ -95,7 +95,7 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
       repoRoot: '/repo',
       taskPrompt: 'do nothing',
       budget,
-      harnesses: [{ name: 'claude', profile: profile('claude'), harness: 'claude' }],
+      harnesses: [{ name: 'claude', profile: profile('claude'), harness: 'claude-code' }],
       runGit: fakeGitWith(() => ({ patch: '', shortstat: ' 0 files changed\n' })),
       runHarness: okHarness,
     })

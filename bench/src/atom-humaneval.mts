@@ -23,13 +23,11 @@ import {
   contentAddress,
   type DriverAgentOptions,
   driverAgent,
-  createExecutorRegistry,
+  createInMemoryRunContext,
   createSupervisor,
   type Executor,
   type ExecutorResult,
   gateOnDeliverable,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
   type RouterConfig,
   routerBrain,
   routerChatWithUsage,
@@ -105,8 +103,9 @@ interface TaskOutcome {
 async function driveTask(
   task: HumanEvalTask,
 ): Promise<{ delivered: boolean; spawns: number; tokens: number }> {
-  const blobs = new InMemoryResultBlobStore()
-  const journal = new InMemorySpawnJournal()
+  const context = createInMemoryRunContext()
+  const blobs = context.blobs
+  const journal = context.journal
   let spawns = 0
   const makeWorker = (): Agent<unknown, unknown> => {
     const w = humanEvalWorker(task, `w-${spawns}`)
@@ -129,7 +128,7 @@ async function driveTask(
     runId,
     journal,
     blobs,
-    executors: createExecutorRegistry(),
+    executors: context.executors,
     maxDepth: 4,
     now: () => Date.now(),
   })

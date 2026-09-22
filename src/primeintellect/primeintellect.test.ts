@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createPrimeIntellectPackage, writePrimeIntellectPackage } from './package'
 import {
-  createPrimeIntellectBackend,
+  primeIntellectModelEndpoint,
   readPrimeIntellectEpisodeContext,
   runPrimeIntellectProgram,
 } from './runner'
@@ -179,14 +179,15 @@ describe('PrimeIntellect runtime program contract', () => {
     OPENAI_API_KEY: 'interception-secret',
   }
 
-  it('reads an answer-free episode and creates the existing backend', async () => {
+  it('reads an answer-free episode and exposes the intercepted model endpoint', async () => {
     const context = readPrimeIntellectEpisodeContext(env)
     expect(context.task.id).toBe('eval-refund')
     expect(context.mcpServers.policy).toBe('http://127.0.0.1:3210/mcp')
-    expect(createPrimeIntellectBackend(context).kind).toBe('primeintellect')
-    expect(createPrimeIntellectBackend(context, { kind: 'product-runtime' }).kind).toBe(
-      'product-runtime',
-    )
+    expect(primeIntellectModelEndpoint(context)).toEqual({
+      model: 'openai/gpt-5.4-20260601',
+      baseUrl: 'http://127.0.0.1:9000/v1',
+      apiKey: 'interception-secret',
+    })
     await expect(
       runPrimeIntellectProgram(async (episode) => episode.task.id, { env }),
     ).resolves.toBe('eval-refund')
@@ -307,6 +308,7 @@ describe('PrimeIntellect trace import', () => {
     expect(record.costProvenance?.kind).toBe('observed')
     expect(record.costProvenance?.usd).toBeCloseTo(0.06)
     expect(record.wallMs).toBe(5_500)
+    expect(record.terminalOutcome).toBe('succeeded')
   })
 
   it('parses durable JSONL and refuses empty or malformed inputs', () => {
@@ -322,11 +324,48 @@ describe('PrimeIntellect trace import', () => {
     delete trace.nodes[2]!.usage!.cost
     const record = primeIntellectTraceToRunRecord(trace, importOptions)
 
-    expect(record.costUsd).toBe(0)
+    expect(record.costUsd).toBeNull()
     expect(record.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     expect(record.outcome.raw).toMatchObject({
       'prime.cost_complete': 0,
       'prime.reported_cost_usd': 0.04,
+    })
+  })
+
+  it('keeps incomplete and failed terminal results explicit', () => {
+    const incomplete = primeTrace()
+    incomplete.is_completed = false
+    incomplete.stop_condition = 'turn_limit'
+    expect(primeIntellectTraceToRunRecord(incomplete, importOptions)).toMatchObject({
+      terminalOutcome: 'incomplete',
+      terminalFailureReason: 'turn_limit',
+    })
+
+    const failed = primeTrace()
+    failed.is_completed = false
+    failed.errors = [{ type: 'runtime_error', message: 'worker exited' }]
+    const failedRecord = primeIntellectTraceToRunRecord(failed, importOptions)
+    expect(failedRecord).toMatchObject({
+      terminalOutcome: 'failed',
+      terminalFailureReason: 'runtime_error: worker exited',
+    })
+    expect(failedRecord.failureClass).toBeUndefined()
+    expect(failedRecord.failureMode).toBeUndefined()
+  })
+
+  it('counts recovered provider errors without marking the completed task failed', () => {
+    const trace = primeTrace()
+    trace.errors = [{ type: 'rate_limit', message: 'first request was retried' }]
+
+    const record = primeIntellectTraceToRunRecord(trace, importOptions)
+
+    expect(record.terminalOutcome).toBe('succeeded')
+    expect(record.terminalFailureReason).toBeUndefined()
+    expect(record.failureClass).toBeUndefined()
+    expect(record.failureMode).toBeUndefined()
+    expect(record.outcome.raw).toMatchObject({
+      execution_error_count: 1,
+      'prime.errors': 1,
     })
   })
 

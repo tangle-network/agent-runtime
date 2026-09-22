@@ -1,7 +1,7 @@
 /**
  * `supervisorAgent` — build a supervisor `Agent` FROM its profile. The brain is resolved from
- * `profile.harness` exactly as `createExecutor({ backend })` resolves a worker: backend-as-data,
- * no hand-built brain. The supervisor stops being special — it's one profile, materialized by the
+ * `profile.harness`: a router brain when unset, or a coding CLI when set.
+ * The supervisor stops being special: it is one profile, materialized by the
  * same resolution rule as every other agent.
  *
  *  - `harness` null/undefined → the in-process router tool-loop: `driverAgent` over the
@@ -48,8 +48,7 @@ export const defaultSupervisorPrompt = [
   'as soon as the deliverable is met.',
 ].join('\n')
 
-/** The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
- *  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction. */
+/** The subset of an `AgentProfile` that selects and shapes the supervisor brain. */
 export interface SupervisorProfile {
   readonly name?: string
   /** null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain. */
@@ -123,7 +122,7 @@ export interface SupervisorAgentDeps {
   readonly compaction?: ToolLoopCompactionOptions
 }
 
-/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
+/** Build a supervisor `Agent` from its profile. */
 export function supervisorAgent(
   profile: SupervisorProfile,
   deps: SupervisorAgentDeps,

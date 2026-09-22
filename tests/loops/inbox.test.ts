@@ -1,6 +1,7 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type AgentSpec, createExecutor, createInbox } from '../../src/runtime'
+import { type AgentSpec, createInbox } from '../../src/runtime'
+import { routerToolsInlineExecutor } from '../../src/runtime/supervise/runtime'
 
 describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
@@ -76,19 +77,21 @@ describe('router-tools executor drains the inbox', () => {
       }),
     )
 
-    const factory = createExecutor({
-      backend: 'router-tools',
+    const routerTools = {
       model: 'test-model',
       routerBaseUrl: 'http://router.test',
       routerKey: 'k',
       tools: [],
       executeToolCall: async () => '',
-    })
+    }
     const spec: AgentSpec = {
       profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
       harness: null,
     } as AgentSpec
-    const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+    const exec = routerToolsInlineExecutor(spec, {
+      signal: new AbortController().signal,
+      seams: { 'router-tools': routerTools },
+    })
     deliver = (m) => exec.deliver?.(m)
 
     await exec.execute('implement wcwidth', new AbortController().signal)
@@ -118,19 +121,21 @@ describe('router-tools executor drains the inbox', () => {
       }),
     )
 
-    const factory = createExecutor({
-      backend: 'router-tools',
+    const routerTools = {
       model: 'test-model',
       routerBaseUrl: 'http://router.test',
       routerKey: 'k',
       tools: [],
       executeToolCall: async () => '',
-    })
+    }
     const spec: AgentSpec = {
       profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
       harness: null,
     } as AgentSpec
-    const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+    const exec = routerToolsInlineExecutor(spec, {
+      signal: new AbortController().signal,
+      seams: { 'router-tools': routerTools },
+    })
     deliver = (m) => exec.deliver?.(m)
 
     const result = await exec.execute('edit the file', new AbortController().signal)
@@ -142,5 +147,6 @@ describe('router-tools executor drains the inbox', () => {
       bodies[0]?.messages.some((m) => m.content?.includes('wrong file, edit src/core.ts')),
     ).toBe(true)
     expect(result.spent.iterations).toBe(1)
+    expect(result.spent).toMatchObject({ usd: 0, usdKnown: false })
   })
 })

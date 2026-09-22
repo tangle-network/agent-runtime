@@ -4,8 +4,13 @@
  * the fail-loud guards — without a model, sandbox, or dataset. Run: `tsx bench/src/run-benchmarks.test.mts`.
  */
 import assert from 'node:assert/strict'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import {
+  createAgentEnvironmentProviderRegistry,
+  inProcessEnvironmentProvider,
+} from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
-import { runBenchmarks, type BenchShot } from './run-benchmarks'
+import { type BenchShot, runBenchmarks } from './run-benchmarks'
 
 function stubAdapter(name: string, n: number): BenchmarkAdapter {
   const tasks: BenchTask[] = Array.from({ length: n }, (_, i) => ({
@@ -30,7 +35,10 @@ function stubAdapter(name: string, n: number): BenchmarkAdapter {
   }
 }
 
-const REGISTRY: Record<string, BenchmarkAdapter> = { alpha: stubAdapter('alpha', 4), beta: stubAdapter('beta', 4) }
+const REGISTRY: Record<string, BenchmarkAdapter> = {
+  alpha: stubAdapter('alpha', 4),
+  beta: stubAdapter('beta', 4),
+}
 const resolveStub = (key: string): BenchmarkAdapter => {
   const a = REGISTRY[key]
   if (!a) throw new Error(`unknown benchmark: ${key}`)
@@ -38,7 +46,7 @@ const resolveStub = (key: string): BenchmarkAdapter => {
 }
 
 /** A perfect cell returns each task's gold; a half cell solves even-indexed tasks; a broken cell throws. */
-const shot: BenchShot = async ({ adapter, task, cell }) => {
+const shot: BenchShot = async ({ task, cell }) => {
   const gold = String(task.metadata?.gold)
   if (cell.label === 'broken') throw new Error('harness down')
   if (cell.label === 'perfect') return { artifact: gold, ok: true }
@@ -50,7 +58,11 @@ async function main(): Promise<void> {
   // Matrix: 2 benchmarks × 3 cells × 4 tasks = 24 shots.
   const report = await runBenchmarks({
     benchmarks: ['alpha', 'beta'],
-    cells: [{ label: 'perfect', model: 'm' }, { label: 'half', model: 'm' }, { label: 'broken', model: 'm' }],
+    cells: [
+      { label: 'perfect', model: 'm' },
+      { label: 'half', model: 'm' },
+      { label: 'broken', model: 'm' },
+    ],
     routerBaseUrl: 'x',
     routerKey: 'x',
     runShot: shot,
@@ -68,25 +80,42 @@ async function main(): Promise<void> {
   const broken = row('alpha', 'broken')
   assert.equal(broken.errored, 4, 'a throwing shot is errored, not scored')
   assert.equal(broken.resolved, 0, 'broken cell resolves nothing')
-  assert.equal(broken.resolveRate, 0, 'errored shots leave resolveRate at 0 (denominator floored at 1)')
+  assert.equal(
+    broken.resolveRate,
+    0,
+    'errored shots leave resolveRate at 0 (denominator floored at 1)',
+  )
 
   // Leaderboard sort: within a benchmark, descending resolveRate.
   const alpha = report.rows.filter((r) => r.benchmark === 'alpha')
-  assert.deepEqual(alpha.map((r) => r.cell), ['perfect', 'half', 'broken'], 'rows sorted by descending resolveRate')
+  assert.deepEqual(
+    alpha.map((r) => r.cell),
+    ['perfect', 'half', 'broken'],
+    'rows sorted by descending resolveRate',
+  )
 
   // Subset: ids + n restrict the task set.
   const subset = await runBenchmarks({
     benchmarks: ['alpha'],
     cells: [{ label: 'perfect', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: shot, resolveAdapter: resolveStub,
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: shot,
+    resolveAdapter: resolveStub,
     ids: ['alpha-0', 'alpha-2'],
   })
   assert.equal(subset.perTask.length, 2, 'ids restrict the task subset')
 
   // reps multiply shots per task.
   const repped = await runBenchmarks({
-    benchmarks: ['alpha'], cells: [{ label: 'perfect', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: shot, resolveAdapter: resolveStub, reps: 3, n: 2,
+    benchmarks: ['alpha'],
+    cells: [{ label: 'perfect', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: shot,
+    resolveAdapter: resolveStub,
+    reps: 3,
+    n: 2,
   })
   assert.equal(repped.perTask.length, 6, 'reps × tasks')
 
@@ -97,14 +126,25 @@ async function main(): Promise<void> {
     return { artifact: prompts.length === 1 ? 'WRONG' : String(task.metadata?.gold), ok: true }
   }
   const oneShot = await runBenchmarks({
-    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: retryShot, resolveAdapter: resolveStub, n: 1,
+    benchmarks: ['alpha'],
+    cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: retryShot,
+    resolveAdapter: resolveStub,
+    n: 1,
   })
   assert.equal(oneShot.rows[0]!.resolveRate, 0, 'without the loop, the first bad attempt fails')
   prompts = []
   const looped = await runBenchmarks({
-    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: retryShot, resolveAdapter: resolveStub, n: 1, loopAttempts: 2,
+    benchmarks: ['alpha'],
+    cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: retryShot,
+    resolveAdapter: resolveStub,
+    n: 1,
+    loopAttempts: 2,
   })
   assert.equal(looped.rows[0]!.resolveRate, 1, 'with loopAttempts=2, the retry can pass')
   assert.equal(prompts.length, 2, 'loop stops after the passing second attempt')
@@ -116,11 +156,17 @@ async function main(): Promise<void> {
   const leaky: BenchmarkAdapter = {
     name: 'leaky',
     preflight: async () => {},
-    loadTasks: async () => [{ id: 'leaky-0', prompt: 'Answer the hidden task.', metadata: { gold: leakyGold } }],
+    loadTasks: async () => [
+      { id: 'leaky-0', prompt: 'Answer the hidden task.', metadata: { gold: leakyGold } },
+    ],
     judge: async (_task, artifact) => ({
       resolved: artifact === leakyGold,
       score: artifact === leakyGold ? 1 : 0,
-      detail: JSON.stringify({ bestGold: leakyGold, expectedAnswer: leakyGold, publicHint: 'retry' }),
+      detail: JSON.stringify({
+        bestGold: leakyGold,
+        expectedAnswer: leakyGold,
+        publicHint: 'retry',
+      }),
     }),
     goldArtifact: async () => leakyGold,
   }
@@ -130,102 +176,219 @@ async function main(): Promise<void> {
     return { artifact: leakyPrompts.length === 1 ? 'WRONG' : leakyGold, ok: true }
   }
   await runBenchmarks({
-    benchmarks: ['leaky'], cells: [{ label: 'retrying', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: leakyShot, resolveAdapter: () => leaky, loopAttempts: 2,
+    benchmarks: ['leaky'],
+    cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: leakyShot,
+    resolveAdapter: () => leaky,
+    loopAttempts: 2,
   })
   assert.equal(leakyPrompts.length, 2)
-  assert.equal(leakyPrompts[1]!.includes(leakyGold), false, 'retry prompt redacts hidden gold fields')
+  assert.equal(
+    leakyPrompts[1]!.includes(leakyGold),
+    false,
+    'retry prompt redacts hidden gold fields',
+  )
   assert.match(leakyPrompts[1]!, /publicHint/)
 
-  const runtime = await import('@tangle-network/agent-runtime/loops')
-  if (runtime.openSandboxRun.toString().includes('beforeStart')) {
-    // The default shot path supports benchmark-owned box setup/extract without real sandbox infra.
-    const order: string[] = []
-    const fakeClient = {
-      async create() {
-        return {
-          id: 'box-default-shot',
-          async exec(command: string, options?: { sessionId?: string }) {
-            order.push(`exec:${command}:streams=${order.filter((x) => x.startsWith('stream:')).length}:session=${options?.sessionId ? 'yes' : 'no'}`)
-            return { exitCode: 0, stdout: command === 'extract-patch' ? 'PATCH' : '', stderr: '' }
-          },
-          async *streamPrompt(_prompt: string, options?: { sessionId?: string }) {
-            order.push(`stream:session=${options?.sessionId ? 'yes' : 'no'}`)
-            yield { type: 'result', data: { finalText: 'fallback text' } }
-          },
-          async delete() {
-            order.push('delete')
-          },
-        }
-      },
-      async criuStatus() {
-        return { available: false }
-      },
-    }
-    const boxAdapter: BenchmarkAdapter = {
-      name: 'boxy',
-      preflight: async () => {},
-      loadTasks: async () => [{ id: 'boxy-0', prompt: 'edit repo', metadata: {} }],
-      judge: async (_task, artifact) => ({ resolved: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0 }),
-      goldArtifact: async () => 'PATCH',
-      boxSetup: () => ({ command: 'setup-repo' }),
-      boxExtract: () => ({ command: 'extract-patch' }),
-    }
-    const boxy = await runBenchmarks({
-      benchmarks: ['boxy'],
-      cells: [{ label: 'default-shot', model: 'm', backend: 'sandbox' }],
-      routerBaseUrl: 'x',
-      routerKey: 'x',
-      resolveAdapter: () => boxAdapter,
-      resolveClient: () => fakeClient as never,
-    })
-    assert.equal(boxy.rows[0]!.resolveRate, 1, 'boxExtract artifact is judged instead of fallback text')
-    assert.deepEqual(
-      order.slice(0, 3),
-      ['exec:setup-repo:streams=0:session=yes', 'stream:session=yes', 'exec:extract-patch:streams=1:session=yes'],
-      'setup runs before the prompt stream, extract runs after the prompt stream, both in the same session',
-    )
+  // The default shot path supports benchmark-owned environment setup/extract without live infra.
+  const order: string[] = []
+  let createInput: Record<string, unknown> | undefined
+  const fakeTangleClient = {
+    async create(input?: unknown) {
+      createInput = input as Record<string, unknown>
+      return {
+        id: 'environment-default-shot',
+        async exec(command: string, options?: { sessionId?: string }) {
+          order.push(
+            `exec:${command}:streams=${order.filter((x) => x.startsWith('stream:')).length}:session=${options?.sessionId ? 'yes' : 'no'}`,
+          )
+          return {
+            exitCode: 0,
+            stdout: command === 'extract-patch' ? 'PATCH' : '',
+            stderr: '',
+          }
+        },
+        async *streamPrompt(_prompt: string, options?: { sessionId?: string }) {
+          order.push(`stream:session=${options?.sessionId ? 'yes' : 'no'}`)
+          yield { type: 'result', data: { finalText: 'fallback text' } }
+        },
+        async delete() {
+          order.push('delete')
+        },
+      }
+    },
   }
+  const fakeProvider = createTangleProvider({
+    client: fakeTangleClient,
+    name: 'bench-test',
+  })
+  const providerRegistry = createAgentEnvironmentProviderRegistry([fakeProvider])
+  const environmentAdapter: BenchmarkAdapter = {
+    name: 'environment',
+    preflight: async () => {},
+    loadTasks: async () => [{ id: 'environment-0', prompt: 'edit repo', metadata: {} }],
+    judge: async (_task, artifact) => ({
+      resolved: artifact === 'PATCH',
+      score: artifact === 'PATCH' ? 1 : 0,
+    }),
+    goldArtifact: async () => 'PATCH',
+    environmentSetup: () => ({ command: 'setup-repo' }),
+    environmentExtract: () => ({ command: 'extract-patch' }),
+  }
+  const environmentReport = await runBenchmarks({
+    benchmarks: ['environment'],
+    cells: [
+      {
+        label: 'default-shot',
+        model: 'm',
+        provider: 'bench-test',
+      },
+    ],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    providerRegistry,
+    resolveAdapter: () => environmentAdapter,
+  })
+  assert.equal(
+    environmentReport.rows[0]!.resolveRate,
+    1,
+    'environmentExtract artifact is judged instead of fallback text',
+  )
+  assert.equal(createInput?.environment, 'universal')
+  assert.deepEqual(createInput?.backend, {
+    type: 'opencode',
+    profile: { name: 'default-shot', metadata: { backendType: 'opencode' } },
+    model: { provider: 'openai', model: 'm', baseUrl: 'x' },
+  })
+  assert.deepEqual(
+    order.slice(0, 3),
+    [
+      'exec:setup-repo:streams=0:session=yes',
+      'stream:session=yes',
+      'exec:extract-patch:streams=1:session=yes',
+    ],
+    'setup runs before the prompt stream, extract runs after it, both in the same session',
+  )
+
+  const leafProvider = inProcessEnvironmentProvider({
+    name: 'native-leaf',
+    onTurn: () => [{ type: 'result', data: { finalText: 'fallback text' } }],
+  })
+  const leafAdapter: BenchmarkAdapter = {
+    name: 'leaf',
+    preflight: async () => {},
+    loadTasks: async () => [{ id: 'leaf-0', prompt: 'use native worker', metadata: {} }],
+    judge: async (_task, artifact) => ({
+      resolved: artifact === 'fallback text',
+      score: artifact === 'fallback text' ? 1 : 0,
+    }),
+    goldArtifact: async () => 'fallback text',
+    leafProvider: () => leafProvider,
+  }
+  const leafReport = await runBenchmarks({
+    benchmarks: ['leaf'],
+    cells: [{ label: 'native-leaf', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    resolveAdapter: () => leafAdapter,
+  })
+  assert.equal(
+    leafReport.rows[0]!.resolveRate,
+    1,
+    'benchmark-owned providers run without a cell provider',
+  )
 
   // An unavailable benchmark (preflight throws) is skipped, not fatal; the sweep still runs the rest.
   const flaky: Record<string, BenchmarkAdapter> = {
     ok: stubAdapter('ok', 2),
-    down: { ...stubAdapter('down', 2), preflight: async () => { throw new Error('no docker') } },
+    down: {
+      ...stubAdapter('down', 2),
+      preflight: async () => {
+        throw new Error('no docker')
+      },
+    },
   }
   const mixed = await runBenchmarks({
-    benchmarks: ['ok', 'down'], cells: [{ label: 'perfect', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: shot,
-    resolveAdapter: (k) => { const a = flaky[k]; if (!a) throw new Error(`unknown: ${k}`); return a },
+    benchmarks: ['ok', 'down'],
+    cells: [{ label: 'perfect', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: shot,
+    resolveAdapter: (k) => {
+      const a = flaky[k]
+      if (!a) throw new Error(`unknown: ${k}`)
+      return a
+    },
   })
   assert.equal(mixed.unavailable.length, 1, 'the unavailable benchmark is recorded')
   assert.equal(mixed.unavailable[0]!.benchmark, 'down')
-  assert.ok(mixed.rows.every((r) => r.benchmark === 'ok'), 'only the available benchmark produced rows')
+  assert.ok(
+    mixed.rows.every((r) => r.benchmark === 'ok'),
+    'only the available benchmark produced rows',
+  )
 
   // Judge self-verification: a miscalibrated judge (rejects its own gold) marks the bench unavailable.
-  const miscalibrated: BenchmarkAdapter = { ...stubAdapter('mis', 2), judge: async () => ({ resolved: false, score: 0 }) }
+  const miscalibrated: BenchmarkAdapter = {
+    ...stubAdapter('mis', 2),
+    judge: async () => ({ resolved: false, score: 0 }),
+  }
   const guarded = await runBenchmarks({
-    benchmarks: ['mis'], cells: [{ label: 'perfect', model: 'm' }],
-    routerBaseUrl: 'x', routerKey: 'x', runShot: shot,
-    resolveAdapter: () => miscalibrated, verifyJudge: true,
+    benchmarks: ['mis'],
+    cells: [{ label: 'perfect', model: 'm' }],
+    routerBaseUrl: 'x',
+    routerKey: 'x',
+    runShot: shot,
+    resolveAdapter: () => miscalibrated,
+    verifyJudge: true,
   })
-  assert.equal(guarded.unavailable.length, 1, 'a judge that rejects its own gold is caught before spending')
+  assert.equal(
+    guarded.unavailable.length,
+    1,
+    'a judge that rejects its own gold is caught before spending',
+  )
   assert.equal(guarded.perTask.length, 0, 'no shots run against a miscalibrated judge')
 
   // Fail-loud guards.
   await assert.rejects(
-    runBenchmarks({ benchmarks: [], cells: [{ label: 'x', model: 'm' }], routerBaseUrl: 'x', routerKey: 'x', runShot: shot, resolveAdapter: resolveStub }),
+    runBenchmarks({
+      benchmarks: [],
+      cells: [{ label: 'x', model: 'm' }],
+      routerBaseUrl: 'x',
+      routerKey: 'x',
+      runShot: shot,
+      resolveAdapter: resolveStub,
+    }),
     /no benchmarks/,
   )
   await assert.rejects(
-    runBenchmarks({ benchmarks: ['alpha'], cells: [], routerBaseUrl: 'x', routerKey: 'x', runShot: shot, resolveAdapter: resolveStub }),
+    runBenchmarks({
+      benchmarks: ['alpha'],
+      cells: [],
+      routerBaseUrl: 'x',
+      routerKey: 'x',
+      runShot: shot,
+      resolveAdapter: resolveStub,
+    }),
     /no cells/,
   )
   await assert.rejects(
-    runBenchmarks({ benchmarks: ['nope'], cells: [{ label: 'x', model: 'm' }], routerBaseUrl: 'x', routerKey: 'x', runShot: shot, resolveAdapter: resolveStub, verifyJudge: false }),
+    runBenchmarks({
+      benchmarks: ['nope'],
+      cells: [{ label: 'x', model: 'm' }],
+      routerBaseUrl: 'x',
+      routerKey: 'x',
+      runShot: shot,
+      resolveAdapter: resolveStub,
+      verifyJudge: false,
+    }),
     /unknown benchmark/,
   )
 
-  console.log('run-benchmarks.test: OK (24-shot matrix, subset, reps, unavailable-skip, judge self-check, guards)')
+  console.log(
+    'run-benchmarks.test: OK (24-shot matrix, subset, reps, unavailable-skip, judge self-check, guards)',
+  )
 }
 
 void main()

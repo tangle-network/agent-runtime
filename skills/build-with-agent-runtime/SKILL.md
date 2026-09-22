@@ -34,10 +34,12 @@ Do not move product storage transactions into a provider-neutral package.
 |---|---|
 | One product chat turn | `handleChatTurn(...)` |
 | One normalized streamed agent turn | `streamAgentTurn(...)` and `collectAgentTurn(...)` |
-| One task or multi-turn loop | `runAgentTask(...)`, `runAgentTaskStream(...)`, or `runAgentRounds(...)` |
+| One persistent provider session | `openEnvironmentRun(...)` |
+| Fixed actors taking turns | `runInteraction(...)` |
+| Driver-planned batches or rounds | `runAgentRounds(...)` |
 | Supervisor and workers | `supervise(...)` or `superviseSurface(...)` |
-| Parallel work with a shared budget | `fanout(...)` |
-| Fixed composition | `pipeline(...)`, `panel(...)`, or `verify(...)` |
+| Strategy over a scored task environment | `runStrategy(...)` |
+| Parallel repository workers | `worktreeLoopRunner(...)` |
 | Product benchmark | `defineLeaderboard(...)` |
 | Profile matrix | `expandProfileAxes(...)` and `runProfileMatrix(...)` from agent-eval |
 | Search one agent surface | `improve(...)` |

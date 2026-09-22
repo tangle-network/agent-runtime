@@ -6,10 +6,12 @@
  * sandbox → opencode agent → router model), so it also exercises provisioning.
  */
 
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import {
   type AgentRunSpec,
-  type Deliverable,
-  openSandboxRun,
+  type EnvironmentDeliverable,
+  type EnvironmentRun,
+  openEnvironmentRun,
 } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
@@ -51,13 +53,14 @@ interface SwePatch {
   lastErr?: string
 }
 
-const swePatchDeliverable: Deliverable<SwePatch> = {
+const swePatchDeliverable: EnvironmentDeliverable<SwePatch> = {
   kind: 'artifact',
   path: PATCH_PATH,
   fromArtifact: (raw, events) => {
     let lastErr: string | undefined
     for (const ev of events) {
-      if ((ev as { type?: string }).type === 'error') lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
+      if ((ev as { type?: string }).type === 'error')
+        lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
     }
     return { patch: raw, ...(lastErr ? { lastErr } : {}) }
   },
@@ -73,6 +76,7 @@ export async function solveShot(
   const repo = String(md.repo)
   const base = String(md.base_commit)
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
+  const provider = createTangleProvider({ client: client as never })
 
   const prompt = [
     `Clone https://github.com/${repo} into /work and \`git checkout ${base}\`.`,
@@ -89,48 +93,55 @@ export async function solveShot(
 
   // Cold-start-resilient via the shared lineage layer (a gateway-timed-out create is
   // recovered by name lookup). The inline profile + backend override is the same
-  // generic AgentRunSpec the runLoop kernel boots against the real sandbox.
+  // generic AgentRunSpec the runAgentRounds kernel boots against the real sandbox.
   const controller = new AbortController()
   const timer = cfg.timeoutMs ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
   const agentRun: AgentRunSpec<string> = {
     profile: { name: 'swebench-worker', metadata: { backendType: 'opencode' } },
     name: 'swebench-worker',
-    taskToPrompt: () => '', // unused — the prompt is streamed directly by openSandboxRun
-    sandboxOverrides: {
+    taskToPrompt: () => '', // unused because the prompt is passed directly to openEnvironmentRun
+    environment: {
       name: `bench-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-      environment: 'universal',
-      backend: {
-        type: 'opencode',
-        model: { provider: cfg.provider ?? 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl },
+      workspace: { environment: 'universal' },
+      backend: 'opencode',
+      providerOptions: {
+        sandboxCreateOptions: {
+          backend: {
+            model: {
+              provider: cfg.provider ?? 'openai',
+              model: cfg.model,
+              baseUrl: cfg.routerBaseUrl,
+            },
+          },
+        },
       },
     },
   }
   const runtime = createRuntimeHookRecorder()
-  const run = await openSandboxRun(
-    client,
-    {
+  let run: EnvironmentRun<SwePatch> | undefined
+  try {
+    run = await openEnvironmentRun({
+      provider,
       agentRun,
       signal: controller.signal,
       hooks: runtime.hooks,
       runId: `swe-bench:${task.id}`,
       scenarioId: task.id,
-    },
-    swePatchDeliverable,
-  )
-  try {
-    const turn = await run.start(prompt)
-    const empty = turn.out.patch.trim().length === 0
+      deliverable: swePatchDeliverable,
+    })
+    const turn = await run.turn(prompt)
+    const empty = turn.output.patch.trim().length === 0
     return {
-      patch: turn.out.patch,
+      patch: turn.output.patch,
       ok: !empty,
       detail: empty
-        ? `empty patch${turn.readError ? ` (patch read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}`
+        ? `empty patch${turn.readError ? ` (patch read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.output.lastErr ? `; lastError=${turn.output.lastErr}` : ''}`
         : undefined,
       runtimeEvents: runtime.events,
       runtimeDecisionPoints: runtime.decisionPoints,
     }
   } finally {
     if (timer) clearTimeout(timer)
-    await run.close()
+    await run?.close()
   }
 }

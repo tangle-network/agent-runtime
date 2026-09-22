@@ -1,11 +1,10 @@
 /**
  *
- * Driven-loop substrate. `runAgentRounds` orchestrates around the sandbox SDK; it
- * does not invent its own notion of "what an agent is". Each iteration is
- * a `sandboxClient.create({ backend: { profile } })` + `box.streamPrompt`
- * call. The driver owns topology; the validator owns scoring; the output
- * adapter owns event-stream decode; the kernel owns iteration accounting,
- * concurrency, abort, cost aggregation, and trace emission.
+ * Driven-loop runtime. `runAgentRounds` creates isolated runs through an
+ * `AgentEnvironmentProvider`; it does not invent its own notion of an agent.
+ * The driver owns planning, the validator owns scoring, the output adapter
+ * decodes provider events, and the runtime owns iteration accounting,
+ * concurrency, cancellation, cost aggregation, and trace emission.
  *
  * @experimental
  */
@@ -14,14 +13,6 @@
 // findings on the coordination bus (the profile-richness gate, an online detector) does not need a
 // separate agent-eval import. The taxonomy + firewall provenance live in agent-eval.
 export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
-// One-stop import: sandbox-SDK types consumers need to spell out an
-// `AgentRunSpec` without importing `@tangle-network/sandbox` separately.
-export type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
@@ -54,8 +45,7 @@ export {
 // The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
 // here so a host folding the bus onto its own timeline (the supervise-topology observability) can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
-// alongside it: the worker-seam type `supervise`/`workerFromBackend` traffic in, so a host authoring
-// its own seam types it from the loop layer rather than the `/mcp` subpath.
+// alongside it so a host can type custom worker construction from the loop layer.
 export type {
   AnalystRegistry,
   CoordinationEvent,
@@ -123,6 +113,24 @@ export {
   type LeaderboardScore,
   type LeaderboardSpec,
 } from './define-leaderboard'
+export { createEnvironmentForSpec } from './environment-create'
+export {
+  createEnvironmentToolPartState,
+  type EnvironmentToolPartState,
+  extractEnvironmentFinalText,
+  extractEnvironmentTurnText,
+  extractLlmCallEvent,
+  mapAgentEnvironmentEvent,
+  mapEnvironmentToolEvent,
+  notifyAgentEnvironmentEventObserver,
+  sumEnvironmentUsage,
+} from './environment-events'
+export {
+  createEnvironmentLineage,
+  type EnvironmentLineage,
+  type EnvironmentLineageHandle,
+  turnEvents,
+} from './environment-lineage'
 export {
   type AgentEnvironment,
   type AgentEnvironmentCapabilities,
@@ -142,39 +150,42 @@ export {
   type CheckpointRef,
   type CheckpointRequest,
   type CreateAgentEnvironmentInput,
-  type CreateTangleSandboxExactProcessProviderOptions,
   createAgentEnvironmentProviderRegistry,
-  createTangleSandboxExactProcessProvider,
   type ExecRequest,
   type ExecResult,
   type ForkRequest,
   type PlacementInfo,
-  type ProviderAsSandboxClientOptions,
-  type ProviderExecutorOptions,
-  providerAsExecutor,
-  providerAsSandboxClient,
   type ResourceRequest,
   resolveAgentEnvironmentProvider,
-  type SandboxClientProviderOptions,
-  sandboxClientAsProvider,
   type WorkspaceRequest,
 } from './environment-provider'
+export {
+  type EnvironmentDeliverable,
+  type EnvironmentRun,
+  EnvironmentRunAbortError,
+  type EnvironmentTurnOptions,
+  type EnvironmentTurnResult,
+  type OpenEnvironmentRunBeforeStartContext,
+  type OpenEnvironmentRunOptions,
+  openEnvironmentRun,
+} from './environment-run'
 export {
   type HarvestCorpusOptions,
   type HarvestFailure,
   type HarvestReport,
   harvestCorpus,
 } from './harvest-corpus'
-// The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
-// runAgentRounds / openSandboxRun (the typed offline seam, no SandboxInstance cast).
 export {
-  type InProcessOnPrompt,
-  type InProcessPromptCtx,
-  type InProcessSandboxClientOptions,
-  inProcessSandboxClient,
-} from './in-process-sandbox-client'
-// The one pseudo-box adapter: any non-box Executor → a SandboxClient for runAgentRounds.
-export { inlineSandboxClient } from './inline-sandbox-client'
+  type InProcessEnvironmentProviderOptions,
+  type InProcessOnTurn,
+  type InProcessTurnContext,
+  type InProcessTurnEvents,
+  inProcessEnvironmentProvider,
+} from './in-process-environment-provider'
+export {
+  type InlineEnvironmentProviderOptions,
+  inlineEnvironmentProvider,
+} from './inline-environment-provider'
 // API-key provisioning for adopted external MCP servers: secrets ride the
 // profile by NAME only; a KeyProvider resolves values at materialize time.
 export {
@@ -184,10 +195,12 @@ export {
   resolveSecretEnv,
   secretEnvOfMcpServer,
 } from './key-provider'
-// The same-host pseudo-box: a router-brain tool loop with the profile's stdio
-// MCP servers spawned as LOCAL children — the one client that can reach an MCP
-// server built into a host worktree.
-export { type LocalSandboxClientOptions, localSandboxClient } from './local-sandbox-client'
+// Same-host execution for trusted profiles whose stdio MCP servers must run
+// against the current worktree.
+export {
+  type LocalEnvironmentProviderOptions,
+  localEnvironmentProvider,
+} from './local-environment-provider'
 export {
   type LoopCampaignDispatchOptions,
   type LoopDispatchOptions,
@@ -211,10 +224,7 @@ export {
   observe,
   renderReport,
 } from './observe'
-// The personify layer + the RSI wave built on the recursive keystone: the persona content seam
-// (`definePersona`/`runPersonified`), the open shape registry, the content-free generic
-// combinators, the cross-run corpus, the analyst-on-scope steer firewall, and the trajectory +
-// equal-k-on-cost ledger. The wave's type contracts live in `./personify/wave-types`.
+// Trace analysis and reusable learning records for supervised runs.
 export {
   assertTraceDerivedFindings,
   buildSteerContext,
@@ -224,40 +234,13 @@ export {
   registryScopeAnalyst,
 } from './personify/analyst'
 export {
-  fanout,
-  flatWidenGate,
-  loopUntil,
-  panel,
-  pipeline,
-  selectValidWinner,
-  verify,
-  widen,
-} from './personify/combinators'
-export {
   FileCorpus,
   InMemoryCorpus,
   renderCorpusToInstructions,
 } from './personify/corpus'
-export { definePersona, runPersonified } from './personify/persona'
-export { builtinShapes, createShapeRegistry, registerShape } from './personify/registry'
 export { equalKOnCost, trajectoryReport } from './personify/trajectory'
 export type {
-  DefinePersona,
-  DefinePersonaInput,
-  LoopShape,
-  Outcome,
-  Persona,
-  PersonaContext,
-  PersonaExecutors,
-  RunPersonified,
-  RunPersonifiedOptions,
-  ShapeBudget,
-  ShapeContext,
-  ShapeRegistry,
-} from './personify/types'
-export type {
   AssertTraceDerivedFindings,
-  CombinatorShape,
   Corpus,
   CorpusFilter,
   CorpusRecord,
@@ -265,37 +248,15 @@ export type {
   EqualKOnCost,
   EqualKOnCostOptions,
   EqualKVerdict,
-  Fanout,
-  FanoutOptions,
-  FanoutSynthesis,
-  FanoutWinnerSelector,
-  FlatWidenGate,
-  LoopUntil,
-  LoopUntilSpec,
-  LoopUntilState,
-  Panel,
-  PanelJudge,
-  PanelSpec,
-  PanelVerdict,
-  Pipeline,
-  PipelineStage,
   RenderCorpusToInstructions,
   RenderCorpusToInstructionsOptions,
   ScopeAnalyst,
   ScopeAnalyzeInput,
-  ScopeWidenGate,
   SteerContext,
   TrajectoryNode,
   TrajectoryReport,
   TrajectoryReportFn,
   TrajectoryReportOptions,
-  Verify,
-  VerifySpec,
-  Widen,
-  WidenDecision,
-  WidenLineage,
-  WidenSpec,
-  WinnerStrategy,
 } from './personify/wave-types'
 export {
   type PromotionGateOptions,
@@ -303,11 +264,6 @@ export {
   promotionGate,
 } from './promotion-gate'
 export { reportLoopUsage, type UsageSink } from './report-usage'
-// The product-facing backend selector: one call picks sandbox/bridge/router transport.
-export {
-  type ResolveSandboxClientOptions,
-  resolveSandboxClient,
-} from './resolve-sandbox-client'
 // The one router chat client (chat / chat-with-tools / off-box tool loop). `ToolSpec` is exported
 // with the executor seam block below. `routerBrain` is the production supervisor BRAIN — the
 // router's tool-calling as the canonical `ToolLoopChat` seam a `driverAgent` drives
@@ -322,7 +278,12 @@ export {
   routerChatWithTools,
   routerChatWithUsage,
   routerToolLoop,
+  type ToolSpec,
 } from './router-client'
+export {
+  type RouterEnvironmentProviderOptions,
+  routerEnvironmentProvider,
+} from './router-environment-provider'
 export {
   type BenchmarkCell,
   type BenchmarkConfig,
@@ -337,46 +298,7 @@ export {
 // `runAgentRounds` is the multi-agent fanout/vote/refine kernel (many sandbox sessions per
 // call). It is NOT `runToolLoop`/`streamToolLoop` (package root: one chat turn, tool calls
 // folded back in) and NOT `routerToolLoop` (also on this subpath — router chat + tools).
-// `runLoop`/`RunLoopOptions` are the pre-rename names, kept as deprecated aliases.
-export {
-  defaultSelectWinner,
-  type RunAgentRoundsOptions,
-  type RunLoopOptions,
-  runAgentRounds,
-  runLoop,
-} from './run-loop'
-export { acquireSandbox } from './sandbox-acquire'
-export {
-  type CriuCapableClient,
-  probeSandboxCapabilities,
-  type SandboxCapabilities,
-} from './sandbox-capabilities'
-export {
-  createSandboxToolPartState,
-  extractLlmCallEvent,
-  mapSandboxEvent,
-  mapSandboxToolEvent,
-  type SandboxToolPartState,
-  sumSandboxUsage,
-} from './sandbox-events'
-export {
-  type CheckpointCapableBox,
-  createSandboxLineage,
-  type ForkCapableBox,
-  type SandboxLineage,
-  type SandboxLineageHandle,
-  type SessionCapableBox,
-} from './sandbox-lineage'
-export {
-  type Deliverable,
-  type OpenSandboxRunBeforeStartContext,
-  type OpenSandboxRunOptions,
-  type OpenSandboxRunPromptOptions,
-  openSandboxRun,
-  type SandboxRun,
-  SandboxRunAbortError,
-  type TurnResult,
-} from './sandbox-run'
+export { defaultSelectWinner, type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 // Same-host stdio MCP: the ONE spawn+handshake connection (shared by the serve
 // verifier and the live consumers) + the profile.mcp materializer.
 export {
@@ -402,28 +324,28 @@ export {
 // `defineStrategy` (compose shot() + critique(), zero Supervisor ceremony); compare
 // with runBenchmark. The depth/breadth drivers are the reference implementations.
 export {
-  type AgenticOptions,
-  type AgenticRunResult,
-  type AgenticSurface,
-  type AgenticTask,
-  type AgenticTool,
   type ArtifactHandle,
   adaptiveRefine,
   breadthStrategy,
   type CorpusReadbackOptions,
   defineStrategy,
   depthStrategy,
-  type RunAgenticOptions,
+  type EnvironmentScore,
+  type EnvironmentTask,
+  type EnvironmentTool,
+  type RunStrategyOptions,
   refine,
-  runAgentic,
+  runStrategy,
   type ShotPersona,
   type ShotSpec,
   type Strategy,
   type StrategyCtx,
   type StrategyResult,
-  type SurfaceScore,
+  type StrategyRunResult,
+  type StrategyWorkerOptions,
   sample,
   sampleThenRefine,
+  type TaskEnvironment,
 } from './strategy'
 export {
   type AuthoredStrategy,
@@ -448,16 +370,14 @@ export {
   selectChampion,
 } from './strategy-evolution'
 export {
-  type AgentTurnBackend,
+  type AgentTurnTarget,
   type AgentTurnUsage,
   type CollectedAgentTurn,
   collectAgentTurn,
   type StreamAgentTurnOptions,
   streamAgentTurn,
 } from './stream-agent-turn'
-// The structural lever as a strategy-family member: k samples → select by task-visible checks
-// (official above authored, crash lowest) → guarded repair steered by the checks' failure output.
-// Measured +8..+21pp hidden-test lift (docs/design/structural-rollout-integration.md).
+// Sample candidates, rank them with task-visible checks, then repair within a fixed budget.
 export {
   type CheckExecChannel,
   type CheckOutcome,
@@ -547,6 +467,16 @@ export {
   type RollingDispatchOptions,
   rollingDispatch,
 } from './supervise/dispatch'
+// One persistent provider session across turns so steering is applied at the
+// next turn boundary without recreating the environment.
+export {
+  assertSteerableEnvironmentProvider,
+  createSteerableEnvironmentSession,
+  DEFAULT_ENVIRONMENT_STEERING_MAX_TURNS,
+  type EnvironmentSteeringOptions,
+  type SteerableEnvironmentArgs,
+  type SteerableEnvironmentSession,
+} from './supervise/environment-session'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -600,24 +530,10 @@ export {
   type InMemoryRunContextOptions,
   type RunContext,
 } from './supervise/run-context'
-// The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
-// The per-backend factories are internal case-arms; BYO agents implement `Executor`.
-export {
-  cliWorktreeExecutor,
-  createExecutor,
-  createExecutorRegistry,
-  type ExecutorConfig,
-  type ProviderSeam,
-  type ToolSpec,
+export type {
+  EnvironmentWorkerOptions,
+  EnvironmentWorkerResult,
 } from './supervise/runtime'
-// The STEERABLE sandbox worker: one box, one server-side session, many turns — so a steer has a
-// turn boundary to be folded into and the default cloud worker becomes correctable mid-flight.
-export {
-  createSteerableSandboxSession,
-  DEFAULT_SANDBOX_STEERING_MAX_TURNS,
-  type SandboxSteeringOptions,
-  type SteerableSandboxSession,
-} from './supervise/sandbox-session'
 export { createScope, settledToIteration } from './supervise/scope'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
@@ -640,18 +556,15 @@ export {
   type StopRule,
   sampleFromSettled,
 } from './supervise/stop-rules'
-// The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
-// sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
-// from a backend config + an optional completion oracle (settled⟺delivered).
 export {
   type SuperviseOptions,
   supervise,
-  workerFromBackend,
+  workerFromEnvironment,
+  workerFromExecutor,
 } from './supervise/supervise'
 export { createSupervisor } from './supervise/supervisor'
-// Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
-// `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,
-// a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
+// Build a supervisor from its profile. A null harness uses the in-process router loop;
+// a coding harness drives the coordination tools through its own environment.
 export {
   type DriveHarness,
   type SupervisorAgentDeps,
@@ -723,17 +636,9 @@ export {
   type WorktreePatchArtifact,
   type WorktreeProfileMaterializationReceipt,
 } from './supervise/worktree-cli-executor'
-// The generic coding combinator: a fanout of authored harness profiles, each on its own
-// worktree-CLI leaf, each gated by the injected deliverable, winner via the shared valid-only
-// `selectValidWinner`.
-export {
-  type AuthoredHarness,
-  type WorktreeFanoutOptions,
-  worktreeFanout,
-} from './supervise/worktree-fanout'
-// `supervise()` specialized for a graded `AgenticSurface` task: workers each `runAgentic` over the surface
+// `supervise()` specialized for a graded `TaskEnvironment` task: workers each `runStrategy` over the surface
 // (refine by default), settle on the surface's own check, and feed the driver a self-improvement lens (the
-// failing tests, by default) so the next spawn targets them. One capability over `supervise` + `runAgentic`.
+// failing tests, by default) so the next spawn targets them. One capability over `supervise` + `runStrategy`.
 export {
   failuresAnalyst,
   type SuperviseSurfaceOptions,
@@ -761,7 +666,6 @@ export type {
   LoopPlanDescription,
   LoopPlanPayload,
   LoopResult,
-  LoopSandboxPlacement,
   LoopStartedPayload,
   LoopTeardownFailedPayload,
   LoopTokenUsage,
@@ -772,7 +676,6 @@ export type {
   MountRecorder,
   OutputAdapter,
   RunProvenance,
-  SandboxClient,
   SelectionReceipt,
   ValidationCtx,
   Validator,

@@ -1,4 +1,9 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import {
   InMemoryResultBlobStore,
@@ -9,7 +14,7 @@ import {
 import { ValidationError } from '../../src/errors'
 import { defaultSelectWinner } from '../../src/runtime/run-loop'
 import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
-import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createExecutorRegistry, environmentExecutor } from '../../src/runtime/supervise/runtime'
 import { createScope, settledToIteration } from '../../src/runtime/supervise/scope'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -231,6 +236,16 @@ describe('conserved budget pool', () => {
         ms: 0,
       }),
     ).toThrow(/unknown dollar cost/)
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 900,
+      usdLeft: 0,
+      reservedTokens: 0,
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1, maxUsd: 0.01 } as Budget)).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
   })
 
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {
@@ -563,19 +578,162 @@ describe('open executor registry', () => {
     }
   })
 
-  it('harness:null resolves the router factory; a BackendType resolves the sandbox factory', () => {
+  it('resolves router directly and requires explicit registration for other runtimes', () => {
     const registry = createExecutorRegistry()
     const router = registry.resolve({ profile: { name: 'r' } as AgentProfile, harness: null })
-    const sandbox = registry.resolve({
+    const unregistered = registry.resolve({
       profile: { name: 's' } as AgentProfile,
       harness: 'claude-code',
     })
     expect(router.succeeded).toBe(true)
-    expect(sandbox.succeeded).toBe(true)
-    // Distinct factories: router/inline vs the sandbox-composing-runLoop built-in.
-    if (router.succeeded && sandbox.succeeded) {
-      expect(router.value).not.toBe(sandbox.value)
+    expect(unregistered).toMatchObject({ succeeded: false })
+
+    registry.register('claude-code', mockRouterFactory())
+    expect(
+      registry.resolve({
+        profile: { name: 's' } as AgentProfile,
+        harness: 'claude-code',
+      }).succeeded,
+    ).toBe(true)
+  })
+
+  it('runs a metered leaf through an official environment provider', async () => {
+    const created: CreateAgentEnvironmentInput[] = []
+    let destroyed = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'test-provider',
+      capabilities: () => ({
+        profile: {},
+        streaming: { live: true, replay: false, detach: false, turnIdempotency: false },
+        sessions: { continue: false, list: false, messages: false },
+        workspace: {
+          read: false,
+          write: false,
+          exec: false,
+          git: false,
+          upload: false,
+          download: false,
+        },
+        branching: { checkpoint: false, fork: false },
+        placement: false,
+        usage: true,
+        confidential: false,
+      }),
+      async create(input) {
+        created.push(input)
+        return {
+          id: 'environment-1',
+          provider: 'test-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield {
+              type: 'llm_call',
+              data: { model: 'model', tokensIn: 7, tokensOut: 3, costUsd: 0.01 },
+            }
+            yield { type: 'result', data: { finalText: 'done' } }
+          },
+          destroy: async () => {
+            destroyed += 1
+          },
+        } satisfies AgentEnvironment
+      },
     }
+    const spec: AgentSpec = {
+      profile: { name: 'worker' },
+      harness: null,
+    }
+    const executor = environmentExecutor(provider, {
+      provider,
+      environment: { backend: 'codex' },
+    })(spec, { signal: new AbortController().signal, seams: {} })
+    const result = (await executor.execute(
+      'task',
+      new AbortController().signal,
+    )) as ExecutorResult<unknown>
+
+    expect(created).toHaveLength(1)
+    expect(created[0]).toMatchObject({ profile: spec.profile, backend: 'codex' })
+    expect(result.spent).toMatchObject({
+      iterations: 1,
+      tokens: { input: 7, output: 3 },
+      usd: 0.01,
+    })
+    expect(result.spent).not.toHaveProperty('usdKnown')
+    expect(result.out).toMatchObject({
+      events: expect.arrayContaining([expect.objectContaining({ type: 'result' })]),
+    })
+    expect(destroyed).toBe(1)
+  })
+
+  it('rejects a provider with unreported dollar cost under a dollar-capped run', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'unknown-cost-provider',
+      capabilities: () => ({
+        profile: {},
+        streaming: { live: true, replay: false, detach: false, turnIdempotency: false },
+        sessions: { continue: false, list: false, messages: false },
+        workspace: {
+          read: false,
+          write: false,
+          exec: false,
+          git: false,
+          upload: false,
+          download: false,
+        },
+        branching: { checkpoint: false, fork: false },
+        placement: false,
+        usage: true,
+        confidential: false,
+      }),
+      async create() {
+        return {
+          id: 'environment-unknown-cost',
+          provider: 'unknown-cost-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield {
+              type: 'llm_call',
+              data: { model: 'unpriced-model', tokensIn: 11, tokensOut: 4 },
+            }
+            yield { type: 'result', data: { finalText: 'done' } }
+          },
+          destroy: async () => {},
+        } satisfies AgentEnvironment
+      },
+    }
+    const spec: AgentSpec = {
+      profile: { name: 'unknown-cost-worker' },
+      harness: null,
+    }
+    const executor = environmentExecutor(provider, {
+      provider,
+      environment: { backend: 'codex' },
+    })(spec, { signal: new AbortController().signal, seams: {} })
+    const pool = createBudgetPool({ maxIterations: 1, maxTokens: 100, maxUsd: 1 }, () => 0)
+    const { scope } = await beginScope({ pool })
+    const agent: Agent<unknown, unknown> = {
+      name: 'unknown-cost-worker',
+      act: async () => 'unused',
+      executorSpec: { ...spec, executor },
+    }
+
+    const spawned = scope.spawn(agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 100, maxUsd: 1 },
+      label: 'unknown-cost-worker',
+    })
+    expect(spawned.ok).toBe(true)
+    const settled = await scope.next()
+
+    expect(settled).toMatchObject({
+      kind: 'down',
+      reason: expect.stringContaining('unknown dollar cost'),
+    })
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 85,
+      usdLeft: 0,
+      reservedTokens: 0,
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
 
   it('register is fail-loud on a duplicate runtime tag', () => {
@@ -896,7 +1054,7 @@ describe('replay determinism', () => {
 
 // ── 9. one observable tree — spawn/settle ride the lifecycle hook stream ─────────
 //
-// The recursive tree is observable through the SAME `RuntimeHooks` stream `runLoop`/
+// The recursive tree is observable through the SAME `RuntimeHooks` stream `runAgentRounds`/
 // `tool-loop` feed: `scope.spawn` emits `agent.spawn`, the settle cursor emits
 // `agent.child`. This is what the topology viewer reads — without it the tree is only
 // in the journal (replay-only, not live). The journal stays the durable record; the

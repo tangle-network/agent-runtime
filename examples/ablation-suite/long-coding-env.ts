@@ -1,7 +1,7 @@
 /**
  * long-coding-env — a LONG, contamination-proof generated coding task built to stress the CONTEXT-
  * LIFECYCLE hypothesis (Ralph-style respawn beats a single continuous worker on long tasks). It mirrors
- * hard-coding-env's surface EXACTLY (an `AgenticSurface` open/tools[list_files,read_file,write_file,
+ * hard-coding-env's surface EXACTLY (an `TaskEnvironment` open/tools[list_files,read_file,write_file,
  * run_tests]/call/score/close + an exported `longCodingTasks(offset,n)` supplier, seed-derived +
  * host-pytest-graded) but the TASK is shaped to force LENGTH and OSCILLATION, not algorithmic difficulty.
  *
@@ -44,11 +44,11 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  AgenticSurface,
-  AgenticTask,
-  AgenticTool,
   ArtifactHandle,
-  SurfaceScore,
+  EnvironmentScore,
+  EnvironmentTask,
+  EnvironmentTool,
+  TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 
 // ── Seed-derived constants (the contract no model can recall) ────────────────────
@@ -1137,7 +1137,7 @@ function build(seed: number): {
   }
 }
 
-// ── The Environment (AgenticSurface) — host pytest, no Docker. ─────────────────────
+// ── The Environment (TaskEnvironment) — host pytest, no Docker. ─────────────────────
 interface Ws {
   dir: string
   total: number
@@ -1200,7 +1200,7 @@ function runTestsReport(dir: string): string {
   return `${head} FAILING: ${shown.join(', ')}${more}`
 }
 
-export const longCodingEnv: AgenticSurface = {
+export const longCodingEnv: TaskEnvironment = {
   name: 'long-generated-coding',
   async open(task) {
     const seed = Number((task.meta as { seed?: number })?.seed ?? 0)
@@ -1257,7 +1257,7 @@ export const longCodingEnv: AgenticSurface = {
           parameters: { type: 'object', properties: {} },
         },
       },
-    ] satisfies AgenticTool[]
+    ] satisfies EnvironmentTool[]
   },
   async call(handle, name, args) {
     const ws = workspaces.get(handle.id)
@@ -1286,7 +1286,7 @@ export const longCodingEnv: AgenticSurface = {
     if (name === 'run_tests') return runTestsReport(ws.dir)
     return `ERROR: unknown tool ${name}`
   },
-  async score(_task, handle): Promise<SurfaceScore> {
+  async score(_task, handle): Promise<EnvironmentScore> {
     const ws = workspaces.get(handle.id)
     if (!ws) return { passes: 0, total: 0, errored: 1 }
     const { passed, total } = pytestPassed(ws.dir)
@@ -1303,7 +1303,7 @@ export const longCodingEnv: AgenticSurface = {
 }
 
 // ── The disjoint task supplier (train [offset, offset+n); holdout drawn past it) ──
-export const longCodingTasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
+export const longCodingTasks = async (offset: number, n: number): Promise<EnvironmentTask[]> =>
   Array.from({ length: n }, (_, i) => {
     const seed = offset + i
     return {
@@ -1322,7 +1322,7 @@ export const longCodingTasks = async (offset: number, n: number): Promise<Agenti
       userPrompt:
         'Read test_lib.py, implement lib.py for every function (nailing each shared convention), then run_tests and fix the failing tests until all pass.',
       meta: { seed },
-    } satisfies AgenticTask
+    } satisfies EnvironmentTask
   })
 
 /** The correct lib.py for a seed — used ONLY by the $0 calibration self-check (never by the agent).

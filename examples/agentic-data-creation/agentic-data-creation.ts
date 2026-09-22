@@ -36,7 +36,10 @@ import { CostLedger } from '@tangle-network/agent-eval'
 // The generic `JudgeConfig<TArtifact, TScenario>` + its `Scenario` (`{ id, kind }`) that `llmJudge`
 // returns live on the campaign subpath; the root `JudgeConfig`/`Scenario` are the non-generic twins.
 import type { JudgeConfig, Scenario } from '@tangle-network/agent-eval/campaign'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
   type AgentRunSpec,
   type Corpus,
   type CorpusRecord,
@@ -44,10 +47,8 @@ import {
   InMemoryCorpus,
   type OutputAdapter,
   runAgentRounds,
-  type SandboxClient,
   type Validator,
 } from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
 
 // ── The four-role data shapes ─────────────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ const solverOutput: OutputAdapter<{ answer: string }> = {
 // variance-reduced estimate the accept rule compares — not argmax). runAgentRounds already aggregated
 // the N calls' cost, so we just roll its total into the ledger under this solver's channel.
 async function sampleSolverScore(args: {
-  solver: SandboxClient
+  environmentProvider: AgentEnvironmentProvider
   solverSpec: AgentRunSpec<SolverTask>
   example: DataExample
   judge: JudgeConfig<SolverArtifact>
@@ -197,7 +198,7 @@ async function sampleSolverScore(args: {
   ledger: CostLedger
   signal?: AbortSignal
 }): Promise<number> {
-  const { solver, solverSpec, example, judge, samples, channel, ledger } = args
+  const { environmentProvider, solverSpec, example, judge, samples, channel, ledger } = args
 
   const validator: Validator<{ answer: string }> = {
     async validate(out, ctx) {
@@ -234,7 +235,7 @@ async function sampleSolverScore(args: {
         output: solverOutput,
         validator,
         task: { example, sampleIndex: 0 },
-        ctx: { sandboxClient: solver, signal },
+        ctx: { environmentProvider, signal },
         maxIterations: samples,
         maxConcurrency: samples,
       }),
@@ -298,10 +299,10 @@ export interface DataCreationConfig {
   /** The grounding document the challenger writes examples from. */
   readonly doc: string
   /** The challenger worker (prompt → DataExample). The driver authors each round's prompt. */
-  readonly challenger: SandboxClient
+  readonly challengerProvider: AgentEnvironmentProvider
   /** The weak + strong solver workers (rendered example → answer). */
-  readonly weakSolver: SandboxClient
-  readonly strongSolver: SandboxClient
+  readonly weakSolverProvider: AgentEnvironmentProvider
+  readonly strongSolverProvider: AgentEnvironmentProvider
   /** The rubric judge — an `llmJudge` `JudgeConfig`. */
   readonly judge: JudgeConfig<SolverArtifact>
   /** The challenger's base instruction over the doc (the un-folded prompt). */
@@ -394,7 +395,7 @@ export async function createDataCreationLoop(
         const quality = qualityCheck(example)
         const weakScore = quality.ok
           ? await sampleSolverScore({
-              solver: config.weakSolver,
+              environmentProvider: config.weakSolverProvider,
               solverSpec: weakSolverSpec,
               example,
               judge: config.judge,
@@ -406,7 +407,7 @@ export async function createDataCreationLoop(
           : 0
         const strongScore = quality.ok
           ? await sampleSolverScore({
-              solver: config.strongSolver,
+              environmentProvider: config.strongSolverProvider,
               solverSpec: strongSolverSpec,
               example,
               judge: config.judge,
@@ -441,7 +442,7 @@ export async function createDataCreationLoop(
           output: challengerOutput,
           validator,
           task: { doc: config.doc, prompt: config.baseInstruction(config.doc) },
-          ctx: { sandboxClient: config.challenger, signal },
+          ctx: { environmentProvider: config.challengerProvider, signal },
           maxIterations: maxRetries + 1,
         }),
       receipt: (result) => ({
@@ -493,7 +494,7 @@ function toCorpusRecord(evalRec: ExampleEvaluation, index: number): CorpusRecord
   }
 }
 
-function resultPayload(events: SandboxEvent[]): unknown {
+function resultPayload(events: AgentEnvironmentEvent[]): unknown {
   for (const ev of events) {
     if (ev.type === 'result') return (ev as { data?: { result?: unknown } }).data?.result
   }

@@ -15,7 +15,7 @@
  * it calls the router directly). That is the *degenerate* rollout (HARNESS.md's
  * "Terminology"): it isolates the SELECTOR with the generator unable to self-correct,
  * so it measures the selector's value at its MAXIMUM. A real rollout (an `AgentProfile`
- * through `runLoop`, `maxTurns>0` over a persistent workspace) self-verifies by
+ * through `runAgentRounds`, `maxTurns>0` over a persistent workspace) self-verifies by
  * iterating, which shrinks the external selector's job — that is the next experiment,
  * not this one. A positive result here is the science (the selector works in a
  * deployable-checker regime), not the product.

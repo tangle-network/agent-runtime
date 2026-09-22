@@ -1,11 +1,8 @@
 /**
  *
- * The ONE worktree-harness execution core. The physical act — run a supervisor-authored
- * `AgentProfile` on a local coding-harness CLI (claude / codex / opencode) against a fresh git
- * worktree off `repoRoot`, capture the diff, derive the test/typecheck PASS signals, then clean
- * up — lives here ONCE. Two executors adapt it to two ports without re-implementing it:
- *   - `createWorktreeCliExecutor` — the `Scope`/`Supervisor` leaf `Executor`.
- *   - `createInProcessExecutor`   — the `runAgentRounds` `SandboxClient` / coder-delegate path.
+ * Run an `AgentProfile` through a local coding CLI in a fresh git worktree,
+ * capture its patch and checks, then clean up. Both supervisor workers and
+ * in-process environment runs use this implementation.
  *
  * §1.5 by construction: prompt + model reach the direct invocation, while file-backed resources
  * are lowered by the shared profile materializer and applied before spawn. Resource instructions
@@ -90,9 +87,9 @@ export interface WorktreeHarnessResult {
    * Absent on transports that cannot return a materializer receipt; never fabricated.
    */
   profileMaterialization?: WorktreeProfileMaterializationReceipt
-  /** The harness subprocess outcome. */
+  /** The local harness or environment-provider outcome. */
   harness: {
-    name: LocalHarness | 'bridge'
+    name: string
     exitCode: number | null
     timedOut: boolean
     killedBySignal: NodeJS.Signals | null
@@ -183,9 +180,7 @@ export interface RunWorktreeHarnessOptions {
 export interface WorktreeHarnessRun {
   worktree: WorktreeHandle
   result: WorktreeHarnessResult
-  /** Remove the worktree. The caller invokes this at its own teardown point (the leaf in its
-   *  `Executor.teardown`, the SandboxClient in its `streamPrompt` finally). On a thrown run the
-   *  core already cleaned up, so the caller never double-removes. */
+  /** Remove the worktree at the caller's teardown point. Failed runs clean up internally. */
   cleanup: () => Promise<void>
 }
 
@@ -244,7 +239,7 @@ export async function runWorktreeHarness(
     const { command, args } = harnessInvocation(opts.harness, invocationProfile, opts.taskPrompt, {
       // This helper created the candidate worktree above; autonomous Claude
       // edits are permitted only inside that isolated checkout.
-      dangerouslySkipPermissions: opts.harness === 'claude',
+      dangerouslySkipPermissions: opts.harness === 'claude-code',
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
     })
     const harnessResult: LocalHarnessResult = await runHarness({
@@ -411,7 +406,7 @@ function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHar
       unsupportedAxes.push(`${path}.cwd`)
     }
   }
-  if (harness === 'claude') {
+  if (harness === 'claude-code') {
     for (const [event, commands] of Object.entries(profile.hooks ?? {})) {
       for (const [index, command] of commands.entries()) {
         const path = `hooks[${JSON.stringify(event)}][${index}]`
@@ -424,7 +419,7 @@ function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHar
     const path = `subagents[${JSON.stringify(name)}]`
     if (hasEntries(subagent.permissions)) unsupportedAxes.push(`${path}.permissions`)
     if (subagent.maxSteps !== undefined) unsupportedAxes.push(`${path}.maxSteps`)
-    if (hasEntries(subagent.tools) && harness !== 'claude') {
+    if (hasEntries(subagent.tools) && harness !== 'claude-code') {
       unsupportedAxes.push(`${path}.tools`)
     }
   }

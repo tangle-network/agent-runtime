@@ -1,5 +1,9 @@
+import type {
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { runLoop } from '../../src/runtime/run-loop'
+import { runAgentRounds } from '../../src/runtime/run-loop'
 import type {
   LoopTraceEmitter,
   LoopTraceEvent,
@@ -7,16 +11,27 @@ import type {
   Validator,
 } from '../../src/runtime/types'
 
-function makeSandboxClient() {
+function makeEnvironmentProvider(): AgentEnvironmentProvider {
   return {
+    name: 'trace-provider',
+    capabilities() {
+      throw new Error('capabilities are not used without lineage')
+    },
     async create() {
       return {
-        id: 'box-1',
-        async *streamPrompt() {
-          yield { type: 'text', content: 'done' }
+        id: 'environment-1',
+        provider: 'trace-provider',
+        async status() {
+          return 'running'
         },
-        async stop() {},
-      } as any
+        async *stream() {
+          yield {
+            type: 'text',
+            data: { content: 'done' },
+          } satisfies AgentEnvironmentEvent
+        },
+        async destroy() {},
+      }
     },
   }
 }
@@ -39,7 +54,7 @@ describe('validator tracing', () => {
       },
     }
 
-    await runLoop({
+    await runAgentRounds({
       driver: {
         name: 'test',
         async plan(_task, history) {
@@ -50,14 +65,14 @@ describe('validator tracing', () => {
         },
       },
       agentRun: {
-        profile: { name: 'test', systemPrompt: 'test' },
+        profile: { name: 'test' },
         taskToPrompt: (t: string) => t,
       },
       output: { parse: () => 'parsed-output' },
       validator,
       task: 'test-task',
       ctx: {
-        sandboxClient: makeSandboxClient(),
+        environmentProvider: makeEnvironmentProvider(),
         traceEmitter,
         signal: AbortSignal.timeout(5000),
       },
@@ -68,16 +83,18 @@ describe('validator tracing', () => {
   })
 
   it('validator receives undefined traceEmitter when kernel has none', async () => {
-    let receivedEmitter: LoopTraceEmitter | undefined = 'sentinel' as any
+    let receivedEmitter: LoopTraceEmitter | undefined
+    let validatorCalled = false
 
     const validator: Validator<string> = {
       async validate(_output: string, ctx: ValidationCtx) {
+        validatorCalled = true
         receivedEmitter = ctx.traceEmitter
         return { valid: true, score: 1.0 }
       },
     }
 
-    await runLoop({
+    await runAgentRounds({
       driver: {
         name: 'test',
         async plan(_task, history) {
@@ -88,19 +105,20 @@ describe('validator tracing', () => {
         },
       },
       agentRun: {
-        profile: { name: 'test', systemPrompt: 'test' },
+        profile: { name: 'test' },
         taskToPrompt: (t: string) => t,
       },
       output: { parse: () => 'parsed-output' },
       validator,
       task: 'test-task',
       ctx: {
-        sandboxClient: makeSandboxClient(),
+        environmentProvider: makeEnvironmentProvider(),
         signal: AbortSignal.timeout(5000),
       },
       maxIterations: 1,
     })
 
+    expect(validatorCalled).toBe(true)
     expect(receivedEmitter).toBeUndefined()
   })
 
@@ -127,7 +145,7 @@ describe('validator tracing', () => {
       },
     }
 
-    await runLoop({
+    await runAgentRounds({
       driver: {
         name: 'test',
         async plan(_task, history) {
@@ -138,14 +156,14 @@ describe('validator tracing', () => {
         },
       },
       agentRun: {
-        profile: { name: 'test', systemPrompt: 'test' },
+        profile: { name: 'test' },
         taskToPrompt: (t: string) => t,
       },
       output: { parse: () => 'parsed-output' },
       validator,
       task: 'test-task',
       ctx: {
-        sandboxClient: makeSandboxClient(),
+        environmentProvider: makeEnvironmentProvider(),
         traceEmitter,
         signal: AbortSignal.timeout(5000),
       },

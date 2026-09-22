@@ -52,17 +52,18 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import {
   type AgentRunSpec,
-  type Deliverable,
-  openSandboxRun,
-  type SandboxRun,
+  type EnvironmentDeliverable,
+  type EnvironmentRun,
+  openEnvironmentRun,
 } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
-import { type AnalystFn, llmAnalyst } from './sandbox-run'
+import { type AnalystFn, llmAnalyst } from './environment-run'
 import {
   type BenchRuntimeDecisionPoint,
   type BenchRuntimeHookEvent,
@@ -166,22 +167,29 @@ interface RolloutDeliverable {
 /** Reads the patch FILE the agent wrote (the robust deliverable — a large diff
  *  truncates in the chat stream → `git apply` "corrupt patch"), folding any in-box
  *  error event into `lastErr` so a failed rollout still surfaces on an empty patch. */
-const commit0Deliverable: Deliverable<RolloutDeliverable> = {
+const commit0Deliverable: EnvironmentDeliverable<RolloutDeliverable> = {
   kind: 'artifact',
   path: PATCH_PATH,
   fromArtifact: (raw, events) => {
     let lastErr: string | undefined
     for (const ev of events) {
-      if ((ev as { type?: string }).type === 'error') lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
+      if ((ev as { type?: string }).type === 'error')
+        lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
     }
     return { diff: raw, ...(lastErr ? { lastErr } : {}) }
   },
 }
 
-async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: string): Promise<Shot> {
+async function runShot(
+  task: BenchTask,
+  attempt: number,
+  cfg: ShotCfg,
+  steer?: string,
+): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
+  const environmentProvider = createTangleProvider({ client: client as never })
   // A stream/transport ceiling for the flaky sandbox path (0 ⇒ untimed); the run
   // tears its own box down in `close()`. The whole rollout is fault-isolated: ANY
   // error (502 / stream drop / provision fail / abort) becomes a recorded NO-DIFF
@@ -191,42 +199,50 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: s
   const timer = cfg.timeoutMs > 0 ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
   // backend.model pins provider/model/baseUrl only; the platform writes the in-box
   // provider config keyed to the box's own OPENCODE_MODEL_API_KEY. The inline
-  // profile + backend override is the same generic AgentRunSpec the runLoop kernel
+  // profile + backend override is the same generic AgentRunSpec the runAgentRounds kernel
   // boots. Never inject an external key — the egress proxy 403s foreign credentials.
   const agentRun: AgentRunSpec<string> = {
     profile: { name: 'commit0-worker', metadata: { backendType: 'opencode' } },
     name: 'commit0-worker',
-    taskToPrompt: () => '', // unused — the prompt is streamed directly by openSandboxRun
-    sandboxOverrides: {
-      name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-      environment: 'universal',
-      backend: {
-        type: 'opencode',
-        model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl },
+    taskToPrompt: () => '', // unused because the prompt is passed directly to openEnvironmentRun
+    environment: {
+      name: `commit0-${task.id}-${attempt}-${randomSuffix()}`
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .slice(0, 60),
+      workspace: { environment: 'universal' },
+      backend: 'opencode',
+      providerOptions: {
+        sandboxCreateOptions: {
+          backend: {
+            model: {
+              provider: cfg.provider,
+              model: cfg.model,
+              baseUrl: cfg.routerBaseUrl,
+            },
+          },
+        },
       },
     },
   }
-  let run: SandboxRun<RolloutDeliverable> | undefined
+  let run: EnvironmentRun<RolloutDeliverable> | undefined
   const runtime = createRuntimeHookRecorder()
   try {
-    run = await openSandboxRun(
-      client,
-      {
-        agentRun,
-        signal: controller.signal,
-        hooks: runtime.hooks,
-        runId: `commit0:${task.id}:${attempt}`,
-        scenarioId: task.id,
-      },
-      commit0Deliverable,
-    )
+    run = await openEnvironmentRun({
+      provider: environmentProvider,
+      agentRun,
+      signal: controller.signal,
+      hooks: runtime.hooks,
+      runId: `commit0:${task.id}:${attempt}`,
+      scenarioId: task.id,
+      deliverable: commit0Deliverable,
+    })
     const prompt = steer ? steeredPrompt(rolloutPrompt(meta), steer) : rolloutPrompt(meta)
-    const turn = await run.start(prompt)
-    const ok = turn.out.diff.trim().length > 0
+    const turn = await run.turn(prompt)
+    const ok = turn.output.diff.trim().length > 0
     return {
       task,
       attempt,
-      diff: turn.out.diff,
+      diff: turn.output.diff,
       ok,
       events: turn.events.length,
       traceEvents: turn.events.slice(-TRACE_EVENTS_TAIL),
@@ -234,7 +250,11 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: s
       runtimeEvents: runtime.events,
       runtimeDecisionPoints: runtime.decisionPoints,
       wallMs: Date.now() - startedAt,
-      ...(ok ? {} : { detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}` }),
+      ...(ok
+        ? {}
+        : {
+            detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.output.lastErr ? `; lastError=${turn.output.lastErr}` : ''}`,
+          }),
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -257,7 +277,11 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: s
 }
 
 /** Run a subprocess, capturing combined stdout+stderr; never throws (returns rc). */
-function sh(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; out: string }> {
+function sh(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
@@ -265,8 +289,12 @@ function sh(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: numbe
       ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     })
     let out = ''
-    child.stdout?.on('data', (c: Buffer) => { out += c.toString() })
-    child.stderr?.on('data', (c: Buffer) => { out += c.toString() })
+    child.stdout?.on('data', (c: Buffer) => {
+      out += c.toString()
+    })
+    child.stderr?.on('data', (c: Buffer) => {
+      out += c.toString()
+    })
     child.on('error', (e) => resolve({ code: -1, out: `${out}\n${e}` }))
     child.on('close', (code) => resolve({ code: code ?? -1, out }))
   })
@@ -296,19 +324,44 @@ function localRolloutPrompt(meta: Commit0Meta): string {
  * in place, then read the diff straight from git (complete — no message truncation).
  * Fault-isolated like runShot: any failure → a recorded NO-DIFF attempt, never a throw.
  */
-async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: string): Promise<Shot> {
+async function runShotLocal(
+  task: BenchTask,
+  attempt: number,
+  cfg: ShotCfg,
+  steer?: string,
+): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   let dir: string | undefined
   try {
     dir = await mkdtemp(join(tmpdir(), 'commit0-local-'))
-    const clone = await sh('git', ['clone', '--quiet', `https://github.com/${meta.repo}`, dir], { timeoutMs: 180_000 })
+    const clone = await sh('git', ['clone', '--quiet', `https://github.com/${meta.repo}`, dir], {
+      timeoutMs: 180_000,
+    })
     if (clone.code !== 0) {
-      return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `git clone failed: ${clone.out.trim().slice(-180)}` }
+      return {
+        task,
+        attempt,
+        diff: '',
+        ok: false,
+        events: 0,
+        wallMs: Date.now() - startedAt,
+        detail: `git clone failed: ${clone.out.trim().slice(-180)}`,
+      }
     }
-    const co = await sh('git', ['-C', dir, 'checkout', '--quiet', meta.baseCommit], { timeoutMs: 60_000 })
+    const co = await sh('git', ['-C', dir, 'checkout', '--quiet', meta.baseCommit], {
+      timeoutMs: 60_000,
+    })
     if (co.code !== 0) {
-      return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `git checkout ${meta.baseCommit} failed: ${co.out.trim().slice(-180)}` }
+      return {
+        task,
+        attempt,
+        diff: '',
+        ok: false,
+        events: 0,
+        wallMs: Date.now() - startedAt,
+        detail: `git checkout ${meta.baseCommit} failed: ${co.out.trim().slice(-180)}`,
+      }
     }
     // openai/* → route through the router (OPENAI_* env); anything else → opencode's
     // OWN configured auth (kimi-for-coding / zai coding-plan subscriptions).
@@ -316,11 +369,21 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, stee
       ? { ...process.env, OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl }
       : process.env
     const prompt = steer ? steeredPrompt(localRolloutPrompt(meta), steer) : localRolloutPrompt(meta)
-    const oc = await sh(cfg.opencodeBin, ['run', prompt, '-m', cfg.model, '--dir', dir], { timeoutMs: cfg.timeoutMs, env })
+    const oc = await sh(cfg.opencodeBin, ['run', prompt, '-m', cfg.model, '--dir', dir], {
+      timeoutMs: cfg.timeoutMs,
+      env,
+    })
     const lines = oc.out.split('\n')
     const events = lines.length
     // Read the diff straight from git, scoped to src_dir (excludes the .venv the agent made).
-    const diffRes = await sh('bash', ['-c', `cd ${JSON.stringify(dir)} && git add -- ${JSON.stringify(meta.srcDir)} && git diff --cached -- ${JSON.stringify(meta.srcDir)}`], { timeoutMs: 60_000 })
+    const diffRes = await sh(
+      'bash',
+      [
+        '-c',
+        `cd ${JSON.stringify(dir)} && git add -- ${JSON.stringify(meta.srcDir)} && git diff --cached -- ${JSON.stringify(meta.srcDir)}`,
+      ],
+      { timeoutMs: 60_000 },
+    )
     const diff = diffRes.out
     const ok = diff.trim().length > 0
     return {
@@ -335,7 +398,16 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, stee
       ...(ok ? {} : { detail: `no diff (opencode rc=${oc.code}): ${oc.out.trim().slice(-160)}` }),
     }
   } catch (err) {
-    return { task, attempt, diff: '', ok: false, events: 0, ...(steer ? { steer } : {}), wallMs: Date.now() - startedAt, detail: `local rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 180)}` }
+    return {
+      task,
+      attempt,
+      diff: '',
+      ok: false,
+      events: 0,
+      ...(steer ? { steer } : {}),
+      wallMs: Date.now() - startedAt,
+      detail: `local rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 180)}`,
+    }
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
@@ -349,21 +421,29 @@ async function main(): Promise<void> {
   const backend = process.env.COMMIT0_BACKEND === 'local' ? 'local' : 'sandbox'
   const n = Number(process.env.N ?? 8)
   const k = Number(process.env.K ?? 4)
-  const model = process.env.WORKER_MODEL ?? (backend === 'local' ? 'kimi-for-coding/kimi-k2-thinking' : 'gpt-4.1')
+  const model =
+    process.env.WORKER_MODEL ??
+    (backend === 'local' ? 'kimi-for-coding/kimi-k2-thinking' : 'gpt-4.1')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   // The arms under test. `random` = K independent blind shots (the equal-compute
   // control); `refineAudit` = blind shot 0, then trace-only-analyst-steered shots.
-  const armNames = (process.env.ARMS ?? 'random').split(',').map((s) => s.trim()).filter(Boolean)
+  const armNames = (process.env.ARMS ?? 'random')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   for (const a of armNames) {
-    if (a !== 'random' && a !== 'refineAudit') throw new Error(`unknown arm ${a} (have: random, refineAudit)`)
+    if (a !== 'random' && a !== 'refineAudit')
+      throw new Error(`unknown arm ${a} (have: random, refineAudit)`)
   }
   // The analyst is an OFF-BOX router call (host-side), so it needs the router key
   // even when the worker runs on its own auth.
   const analystModel = process.env.ANALYST_MODEL ?? 'deepseek-v4-pro'
-  const needsRouterKey = backend === 'sandbox' || model.startsWith('openai/') || armNames.includes('refineAudit')
+  const needsRouterKey =
+    backend === 'sandbox' || model.startsWith('openai/') || armNames.includes('refineAudit')
   const routerKey = needsRouterKey ? must('TANGLE_API_KEY') : (process.env.TANGLE_API_KEY ?? '')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
-  const opencodeBin = process.env.OPENCODE_BIN ?? join(process.env.HOME ?? '', '.local/bin/opencode')
+  const opencodeBin =
+    process.env.OPENCODE_BIN ?? join(process.env.HOME ?? '', '.local/bin/opencode')
   // openai-compat = generic passthrough so cheap router models resolve in-box;
   // `openai` rejects non-registered model names. Override via WORKER_PROVIDER.
   const provider = process.env.WORKER_PROVIDER ?? 'openai-compat'
@@ -371,24 +451,43 @@ async function main(): Promise<void> {
   // No tight cap on the agentic rollout — it runs until the agent finishes (the clone→
   // implement→pytest-iterate loop genuinely takes a while). 0 = untimed. Only set
   // SHOT_TIMEOUT_MS to impose a deliberate ceiling. Sandbox keeps a stream cap (flaky transport).
-  const timeoutMs = process.env.SHOT_TIMEOUT_MS ? Number(process.env.SHOT_TIMEOUT_MS) : backend === 'local' ? 0 : 900_000
+  const timeoutMs = process.env.SHOT_TIMEOUT_MS
+    ? Number(process.env.SHOT_TIMEOUT_MS)
+    : backend === 'local'
+      ? 0
+      : 900_000
   const corpusPath = process.env.CORPUS ?? '/tmp/commit0.jsonl'
-  if (!Number.isInteger(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
-  if (!Number.isInteger(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
+  if (!Number.isInteger(n) || n < 1)
+    throw new Error(`N must be a positive integer, got ${process.env.N}`)
+  if (!Number.isInteger(k) || k < 1)
+    throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
   const adapter = createCommit0Adapter()
-  console.log(`=== commit0 Layer-1 gate · backend=${backend} · N=${n} K=${k} arms=${armNames.join(',')} model=${model} analyst=${analystModel} rolloutConc=${concurrency} ===`)
+  console.log(
+    `=== commit0 Layer-1 gate · backend=${backend} · N=${n} K=${k} arms=${armNames.join(',')} model=${model} analyst=${analystModel} rolloutConc=${concurrency} ===`,
+  )
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: n })
   console.log(`loaded ${tasks.length} task(s): ${tasks.map((t) => t.id).join(', ')}`)
 
   // Phase 1 — rollouts, concurrent. sandbox = remote box; local = cli-bridge (opencode
   // in a tmpdir, diff read from git). Both fault-isolated → a failure is a NO-DIFF, never a throw.
-  const cfg: ShotCfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, provider, timeoutMs, opencodeBin }
+  const cfg: ShotCfg = {
+    sandboxBaseUrl,
+    sandboxKey: routerKey,
+    routerBaseUrl,
+    routerKey,
+    model,
+    provider,
+    timeoutMs,
+    opencodeBin,
+  }
   const runRollout = backend === 'local' ? runShotLocal : runShot
   const analyze: AnalystFn = llmAnalyst({ routerBaseUrl, routerKey, model: analystModel })
   const logShot = (armName: string, s: Shot) =>
-    console.log(`  rollout ${s.task.id}[${armName}]#${s.attempt}: ${s.ok ? `diff ${s.diff.length}B` : `NO DIFF (${s.detail})`}${s.steer ? ' [steered]' : ''} (${(s.wallMs / 1000) | 0}s)`)
+    console.log(
+      `  rollout ${s.task.id}[${armName}]#${s.attempt}: ${s.ok ? `diff ${s.diff.length}B` : `NO DIFF (${s.detail})`}${s.steer ? ' [steered]' : ''} (${(s.wallMs / 1000) | 0}s)`,
+    )
 
   interface TaggedShot {
     arm: string
@@ -421,14 +520,29 @@ async function main(): Promise<void> {
             // never a judge score (judging is phase 2 — selector≠judge by
             // construction). "no change needed" is the policy's informed no-op.
             try {
-              const events = prev.traceEvents?.length ? prev.traceEvents : prev.detail ? [prev.detail] : []
-              const feedback = (await analyze([{ output: prev.diff.slice(0, ANALYST_DIFF_MAX), events }])).trim()
-              if (feedback && !/^no change needed/i.test(feedback)) steer = feedback.slice(0, STEER_MAX)
+              const events = prev.traceEvents?.length
+                ? prev.traceEvents
+                : prev.detail
+                  ? [prev.detail]
+                  : []
+              const feedback = (
+                await analyze([{ output: prev.diff.slice(0, ANALYST_DIFF_MAX), events }])
+              ).trim()
+              if (feedback && !/^no change needed/i.test(feedback))
+                steer = feedback.slice(0, STEER_MAX)
             } catch (err) {
               // A steered arm whose analyst died is no longer a steered arm —
               // record the attempt as INFRA rather than degrading to blind.
               const msg = (err instanceof Error ? err.message : String(err)).slice(0, 200)
-              const s: Shot = { task, attempt, diff: '', ok: false, events: 0, wallMs: 0, detail: `analyst error: ${msg}` }
+              const s: Shot = {
+                task,
+                attempt,
+                diff: '',
+                ok: false,
+                events: 0,
+                wallMs: 0,
+                detail: `analyst error: ${msg}`,
+              }
               logShot(armName, s)
               out.push({ arm: armName, shot: s })
               break
@@ -444,7 +558,9 @@ async function main(): Promise<void> {
     }
   }
   const where = backend === 'local' ? 'local opencode (cli-bridge)' : `in-box (${PATCH_PATH})`
-  console.log(`\n▶ phase 1: ${tasks.length * armNames.length * k} rollouts in ${units.length} units (conc=${concurrency}) via ${where}`)
+  console.log(
+    `\n▶ phase 1: ${tasks.length * armNames.length * k} rollouts in ${units.length} units (conc=${concurrency}) via ${where}`,
+  )
   const tagged = (await pool(units, concurrency, (u) => u())).flat()
 
   // Phase 2 — judging, SEQUENTIAL (Docker-bound; commit0 keys its report dir on
@@ -453,14 +569,18 @@ async function main(): Promise<void> {
   // immediately so a mid-run crash keeps completed records. Fail loud: an attempt
   // with no diff or a failed judge becomes an INFRA attempt (error recorded, no
   // score) and the whole record is infra-excluded — never a silent 0.
-  console.log(`\n▶ phase 2: judging sequentially per task (official commit0 pytest harness) → ${corpusPath}`)
+  console.log(
+    `\n▶ phase 2: judging sequentially per task (official commit0 pytest harness) → ${corpusPath}`,
+  )
   let scoredRecords = 0
   let infraRecords = 0
   let infraAttempts = 0
   for (const task of tasks) {
     let imageTouched = false
     for (const armName of armNames) {
-      const armShots = tagged.filter((t) => t.arm === armName && t.shot.task.id === task.id).map((t) => t.shot)
+      const armShots = tagged
+        .filter((t) => t.arm === armName && t.shot.task.id === task.id)
+        .map((t) => t.shot)
       const attempts: AttemptRecord[] = []
       let recordInfra = false
       for (let i = 0; i < k; i += 1) {
@@ -476,7 +596,9 @@ async function main(): Promise<void> {
           try {
             const v = await adapter.judge(s.task, s.diff)
             sc = { score: v.score, resolved: v.resolved }
-            console.log(`  judge ${task.id}[${armName}]#${i}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`)
+            console.log(
+              `  judge ${task.id}[${armName}]#${i}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`,
+            )
           } catch (err) {
             attemptError = `judge harness failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 300)}`
             console.log(`  judge ${task.id}[${armName}]#${i}: INFRA ${attemptError.slice(0, 200)}`)

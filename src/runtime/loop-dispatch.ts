@@ -1,30 +1,14 @@
 /**
  * `loopDispatch` — turn `runAgentRounds` into an agent-eval campaign dispatch.
  *
- * Without this adapter a consumer wiring `runAgentRounds` into `runProfileMatrix` /
- * `runCampaign` has to, by hand, every time: (a) build an `ExecCtx` with a
- * sandbox client, (b) adapt the campaign `DispatchContext.trace` into a
- * `LoopTraceEmitter` (or lose all loop trace correlation), and (c) remember to
- * forward the loop's cost + tokens via `ctx.cost` (forgetting it yields a
- * `{0,0}` cell the backend-integrity guard reads as a stub). Three foot-guns,
- * the third silent. The fleet's products skipped (c) and fell back to a
- * `workerRecords[]` side-channel — the exact anti-pattern the substrate exists
- * to kill.
- *
- * `loopDispatch` collapses all three into one typed call:
+ * `loopDispatch` builds the execution context, forwards trace events, and
+ * reports cost and token usage for each campaign cell:
  *
  *   const dispatch = loopDispatch({
- *     sandboxClient,
+ *     environmentProvider,
  *     toLoopOptions: (scenario, profile) => ({ driver, agentRun, output, validator, task }),
  *   })
  *   await runProfileMatrix({ profiles, scenarios, dispatch, judges, commitSha })
- *
- * Usage is reported automatically; trace events are forwarded automatically;
- * the ctx is built automatically. The seam becomes impossible to mis-wire.
- *
- * Typed structurally against the campaign `DispatchContext` (imported type-only
- * from `@tangle-network/agent-eval/campaign`) — a downward dependency, never an
- * inversion.
  */
 
 // agent-eval's AgentProfile (the eval-harness unit of variation, `model: string`)
@@ -37,8 +21,9 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
-import type { LoopResult, LoopTraceEmitter, SandboxClient } from './types'
+import type { LoopResult, LoopTraceEmitter } from './types'
 
 /** runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). */
 export type LoopOptionsForDispatch<Task, Output, Decision> = Omit<
@@ -53,8 +38,8 @@ export interface LoopDispatchOptions<
   TScenario extends Scenario,
   TArtifact,
 > {
-  /** Sandbox client used for every cell's `runAgentRounds`. Supplied once. */
-  sandboxClient: SandboxClient
+  /** Environment provider used for every cell's `runAgentRounds`. */
+  environmentProvider: AgentEnvironmentProvider
   /** Build the per-cell runAgentRounds options from the scenario (+ profile, when
    *  used with `runProfileMatrix`). */
   toLoopOptions: (
@@ -117,7 +102,7 @@ async function runLoopForCell<Task, Output, Decision, TScenario extends Scenario
 
 async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
   opts: {
-    sandboxClient: SandboxClient
+    environmentProvider: AgentEnvironmentProvider
     toArtifact?: (result: LoopResult<Task, Output, Decision>) => TArtifact
     forwardTrace?: boolean
     costSource?: string
@@ -140,7 +125,7 @@ async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
       runAgentRounds<Task, Output, Decision>({
         ...loopOptions,
         ctx: {
-          sandboxClient: opts.sandboxClient,
+          environmentProvider: opts.environmentProvider,
           signal: executionSignal,
           traceEmitter:
             opts.forwardTrace === false ? undefined : campaignTraceToLoopEmitter(ctx.trace),
@@ -190,8 +175,8 @@ export interface LoopCampaignDispatchOptions<
   TScenario extends Scenario,
   TArtifact,
 > {
-  /** Sandbox client used for every campaign cell's `runAgentRounds`. */
-  sandboxClient: SandboxClient
+  /** Environment provider used for every campaign cell's `runAgentRounds`. */
+  environmentProvider: AgentEnvironmentProvider
   /** Build the per-cell runAgentRounds options from the campaign scenario. */
   toLoopOptions: (scenario: TScenario) => LoopOptionsForDispatch<Task, Output, Decision>
   /** Map the finished loop to the artifact the campaign judges score. */

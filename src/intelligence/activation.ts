@@ -4,7 +4,6 @@ import type {
   AgentImprovementActivationOutcome,
   AgentImprovementActivationResult,
   AgentImprovementActivationTarget,
-  AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementSurface,
   Sha256Digest,
@@ -21,6 +20,7 @@ import {
   verifyCanonicalCandidateDocument,
 } from '../candidate-execution/digest'
 import {
+  type AgentImprovementProposal,
   verifyAgentImprovementActivation,
   verifyAgentImprovementProposal,
 } from './improvement-cycle'
@@ -233,7 +233,7 @@ function assertTransitionInput(
         planned.get(identity)?.expectedBaseDigest !== target.expectedBaseDigest,
     ) ||
     transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
-    transition.candidateBundle.digest !== activation.candidateBundleDigest ||
+    transition.candidateBundle.digest !== activation.candidateDigest ||
     !desiredInputsMatch ||
     (activation.intent === 'activate-candidate' &&
       transition.bundle.digest !== transition.candidateBundle.digest)

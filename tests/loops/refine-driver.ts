@@ -40,7 +40,7 @@ export interface ScriptedDriverOptions<Task, Output> {
 
 /**
  * Minimal scripted driver — test scaffolding only. Replays a fixed (or
- * function-computed) sequence of topology moves through the real `runLoop`
+ * function-computed) sequence of topology moves through the real `runAgentRounds`
  * kernel: it implements `plan`/`decide`/`describePlan`/`selectWinner` so kernel
  * coverage (abort, teardown, lineage prune/fork, completion stop) survives
  * without the deleted dynamic `createDriver`. It is NOT a model of an

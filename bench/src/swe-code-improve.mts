@@ -2,7 +2,7 @@
  * META-HARNESS on the SWE scaffold — improve({ surface: 'code' }).
  *
  * A coding agent (Claude Code) REWRITES the scaffold LOGIC under bench/src (the seed prompt/playbook,
- * runAgentic strategy/params, context handling, retry/patch synthesis) with the MODEL (glm worker) +
+ * runStrategy strategy/params, context handling, retry/patch synthesis) with the MODEL (glm worker) +
  * the TOOL surface (list/read/edit[/run]) + the JUDGE held FIXED, judged on the official swebench
  * Docker verdict, gated on a held-out instance split. This is the DGM/meta-harness recipe: let the
  * SYSTEM find the scaffold lever from the RAW failure traces, not hand-build it.
@@ -10,12 +10,8 @@
  * Wiring (all verified in this worktree):
  *   - improve()/codeProposerFor + rawTraceContext come from the LOCAL agent-runtime build, linked into
  *     this bench's node_modules (bench/node_modules/@tangle-network/agent-runtime -> /home/drew/code/agent-runtime).
- *   - The candidate proposer is agenticGenerator(harness:'claude'), BUT the shipped runLocalHarness
- *     spawns `claude --headless -p` and --headless is an unknown option on the current CLI (exit 1, no
- *     edits ever). We pass code.generator with a corrected runHarness that spawns
- *     `claude -p <prompt> --dangerously-skip-permissions` so the coding agent can actually edit the
- *     worktree. This is a harness-spawn fix, NOT a hand-authored scaffold edit — Claude still finds the
- *     lever itself from the traces.
+ *   - The candidate proposer is `agenticGenerator({ harness: 'claude-code' })`.
+ *     Runtime owns the CLI invocation, cancellation, timeout, and usage capture.
  *   - Each candidate is a git worktree the driver forks off baseRef; Claude edits bench/src in place;
  *     `verify` (an import smoke of the edited scaffold) gates it before the expensive measurement.
  *   - MEASUREMENT: the code-aware agent fn shells into the candidate scaffold's OWN judge-free emit
@@ -198,44 +194,6 @@ async function main(): Promise<void> {
     },
   }
 
-  // The corrected coding-harness spawn: `claude -p <prompt> --dangerously-skip-permissions`. The shipped
-  // runLocalHarness uses `claude --headless -p` (unknown option on this CLI). agenticGenerator ignores
-  // the return value (it reads worktree dirtiness), so a minimal result shape is enough.
-  const runHarness = (o: { cwd: string; taskPrompt: string; timeoutMs?: number; signal?: AbortSignal }): Promise<{ exitCode: number | null; stdout: string; stderr: string; killedBySignal: NodeJS.Signals | null; durationMs: number; timedOut: boolean }> => {
-    const started = Date.now()
-    return new Promise((resolve) => {
-      const child = spawn('claude', ['-p', o.taskPrompt, '--dangerously-skip-permissions'], {
-        cwd: o.cwd,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      let stdout = ''
-      let stderr = ''
-      let timedOut = false
-      child.stdout?.on('data', (d) => (stdout += String(d)))
-      child.stderr?.on('data', (d) => (stderr += String(d)))
-      const timer = setTimeout(() => {
-        timedOut = true
-        if (!child.killed) child.kill('SIGTERM')
-      }, o.timeoutMs ?? harnessTimeoutMs)
-      ;(timer as { unref?: () => void }).unref?.()
-      const onAbort = () => {
-        if (!child.killed) child.kill('SIGTERM')
-      }
-      o.signal?.addEventListener('abort', onAbort, { once: true })
-      child.on('error', () => {
-        clearTimeout(timer)
-        resolve({ exitCode: 1, stdout, stderr: `${stderr}\n[spawn error]`, killedBySignal: null, durationMs: Date.now() - started, timedOut })
-      })
-      child.on('close', (code, signal) => {
-        clearTimeout(timer)
-        o.signal?.removeEventListener('abort', onAbort)
-        console.error(`  [proposer:claude] exit=${code} wall=${Math.round((Date.now() - started) / 1000)}s out=${stdout.length}b`)
-        resolve({ exitCode: code, stdout, stderr, killedBySignal: signal, durationMs: Date.now() - started, timedOut })
-      })
-    })
-  }
-
   // Domain prompt: name the EDIT BOUNDARY (scaffold logic only) + keep the raw-trace evidence discipline
   // (agenticGenerator discards a raw-trace candidate that doesn't inspect a trace + write the diagnosis).
   const buildPrompt = (args: { report: unknown; findings: Array<{ severity?: string; claim?: string; recommended_action?: string }> }): string => {
@@ -245,7 +203,7 @@ async function main(): Promise<void> {
       'EDIT ONLY the scaffold logic under bench/src:',
       '  - the seed prompt / playbook: SWE_SEED_PROMPT and SWE_SEED_PROMPT_WITH_RUN in bench/src/swe-bench-env.ts',
       '  - the exploration/context handling in bench/src/swe-bench-env.ts: list_files walk depth and 240-entry cap, the read_file 24000-char truncation, edit_file retry messaging, patch synthesis (git diff)',
-      '  - the runAgentic strategy/params in bench/src/swe-emit-patch.mts: innerTurns default, budget, how the patch is captured',
+      '  - the runStrategy strategy/params in bench/src/swe-emit-patch.mts: innerTurns default, budget, how the patch is captured',
       '',
       'DO NOT change (FIXED for this search):',
       '  - the TOOL surface: the list_files/read_file/edit_file/run tool NAMES, JSON signatures, or the path jail. Do not add or remove a tool.',
@@ -285,13 +243,11 @@ async function main(): Promise<void> {
   }
 
   const generator = agenticGenerator({
-    harness: 'claude',
+    harness: 'claude-code',
     verify,
     timeoutMs: harnessTimeoutMs,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     buildPrompt: buildPrompt as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    runHarness: runHarness as any,
   })
 
   const scenarios: Scenario[] = allIds.map((id) => ({ id, kind: 'swe-bench-verified' }))

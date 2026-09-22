@@ -4,7 +4,7 @@
  *
  * The proposer parses each finding's `subject` via
  * `parseFindingSubject` (agent-eval), resolves it to a real file path
- * via the agent's `AgentSurfaces`, reads the current content, and asks
+ * via the agent's declared improvement paths, reads the current content, and asks
  * an LLM to draft a unified-diff patch given the finding + current
  * content + per-kind editing-discipline rules.
  *
@@ -27,8 +27,8 @@ import { readFileSync } from 'node:fs'
 import type { AnalystFinding, FindingSubject } from '@tangle-network/agent-eval'
 import { parseFindingSubject } from '@tangle-network/agent-eval/analyst'
 import type { ImprovementProposalSource } from '../analyst-loop/types'
-import type { AgentSurfaces, ResolvedSurface } from './surfaces'
-import { resolveSubjectPath } from './surfaces'
+import type { AgentImprovementPaths, ResolvedImprovementPath } from './improvement-paths'
+import { resolveSubjectPath } from './improvement-paths'
 
 // ── proposal shape ───────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ export interface SurfaceImprovementEdit {
   /** Parsed subject; included so the apply step doesn't re-parse. */
   subject: FindingSubject
   /** Resolved on-disk target. */
-  target: ResolvedSurface
+  target: ResolvedImprovementPath
   /** SHA-256 of the current file content the patch was drafted against. */
   baseSha256: string
   /** Unified-diff patch the LLM drafted (relative to `target.absolutePath`). */
@@ -56,7 +56,7 @@ export interface SurfaceImprovementEdit {
 }
 
 export interface CreateSurfaceImprovementProposerOptions {
-  surfaces: AgentSurfaces
+  paths: AgentImprovementPaths
   repoRoot: string
   /**
    * LLM-draft callback. Given a finding + current file content + the
@@ -80,7 +80,7 @@ export interface CreateSurfaceImprovementProposerOptions {
 export interface DraftPatchInput {
   finding: AnalystFinding
   subject: FindingSubject
-  target: ResolvedSurface
+  target: ResolvedImprovementPath
   /** Current file content (empty string when `intent === 'create-new'`). */
   currentContent: string
 }
@@ -144,12 +144,12 @@ export function createSurfaceImprovementProposer(
           continue
         }
 
-        const target = resolveSubjectPath(subject, opts.surfaces, opts.repoRoot)
+        const target = resolveSubjectPath(subject, opts.paths, opts.repoRoot)
         if (target === null) {
           errors.push({
             findingId: f.finding_id,
             subject: f.subject ?? '',
-            message: `subject kind "${subject.kind}" targets an undeclared surface; declare it in AgentSurfaces or stop emitting this subject`,
+            message: `subject kind "${subject.kind}" targets an undeclared improvement path`,
           })
           continue
         }
@@ -158,7 +158,7 @@ export function createSurfaceImprovementProposer(
           errors.push({
             findingId: f.finding_id,
             subject: f.subject ?? '',
-            message: `target ${target.repoRelativePath} does not exist; the kind "${subject.kind}" requires an existing target (analyst named a section that isn't in the codebase)`,
+            message: `target ${target.declaredPath} does not exist; the kind "${subject.kind}" requires an existing target (analyst named a section that isn't in the codebase)`,
           })
           continue
         }

@@ -260,53 +260,52 @@ function sha256(value) {
 }
 
 function renderRunner() {
-  const conversationEntry = resolve('dist/conversation.js')
+  const runtimeEntry = resolve('dist/index.js')
+  const loopsEntry = resolve('dist/loops.js')
   const primeEntry = resolve('dist/primeintellect/index.js')
-  return `import { runConversation } from ${JSON.stringify(conversationEntry)}
-import { createPrimeIntellectBackend, runPrimeIntellectProgram } from ${JSON.stringify(primeEntry)}
-
-function roleBackend(base, kind, instruction) {
-  return {
-    kind,
-    async *stream(input, context) {
-      const existing = input.messages ?? [{ role: 'user', content: input.message ?? context.task.intent }]
-      yield* base.stream(
-        { ...input, messages: [{ role: 'system', content: instruction }, ...existing] },
-        context,
-      )
-    },
-  }
-}
+  return `import { runInteraction } from ${JSON.stringify(runtimeEntry)}
+import { routerEnvironmentProvider } from ${JSON.stringify(loopsEntry)}
+import { primeIntellectModelEndpoint, runPrimeIntellectProgram } from ${JSON.stringify(primeEntry)}
 
 await runPrimeIntellectProgram(async (episode) => {
   if (typeof episode.task.prompt !== 'string') throw new Error('live proof expects a string prompt')
-  const base = createPrimeIntellectBackend(episode, {
-    temperature: 0,
-    maxTokens: 192,
-    retry: { maxAttempts: 2, requestTimeoutMs: 60_000 },
+  const endpoint = primeIntellectModelEndpoint(episode)
+  const providerFor = (name) => routerEnvironmentProvider({
+    name,
+    routerBaseUrl: endpoint.baseUrl,
+    routerKey: endpoint.apiKey,
+    model: endpoint.model,
+    maxTurns: 1,
   })
-  const solver = roleBackend(
-    base,
-    'prime-solver',
-    'You are the solver. Calculate the arithmetic and send one complete handoff beginning with REVIEW REQUEST:. Do not emit FINAL:.',
-  )
-  const reviewer = roleBackend(
-    base,
-    'prime-reviewer',
-    'You are the reviewer. Independently check the arithmetic in the solver handoff. Reply exactly FINAL: 42 only when the handoff is correct, with no other text.',
-  )
-  const result = await runConversation(
-    {
-      participants: [
-        { name: 'solver', backend: solver, authSource: 'agent-owned' },
-        { name: 'reviewer', backend: reviewer, authSource: 'agent-owned' },
-      ],
-      policy: { maxTurns: 2, turnOrder: 'alternate' },
-    },
-    { seed: episode.task.prompt, runId: 'prime:' + episode.task.id },
-  )
+  const result = await runInteraction({
+    actors: [
+      {
+        name: 'solver',
+        profile: {
+          name: 'solver',
+          prompt: {
+            systemPrompt: 'You are the solver. Calculate the arithmetic and send one complete handoff beginning with REVIEW REQUEST:. Do not emit FINAL:.',
+          },
+        },
+        provider: providerFor('prime-solver'),
+      },
+      {
+        name: 'reviewer',
+        profile: {
+          name: 'reviewer',
+          prompt: {
+            systemPrompt: 'You are the reviewer. Independently check the arithmetic in the solver handoff. Reply exactly FINAL: 42 only when the handoff is correct, with no other text.',
+          },
+        },
+        provider: providerFor('prime-reviewer'),
+      },
+    ],
+    prompt: episode.task.prompt,
+    policy: { maxTurns: 2, turnOrder: 'alternate' },
+    runId: 'prime:' + episode.task.id,
+  })
   if (result.turns !== 2) throw new Error('expected two completed runtime turns, received ' + result.turns)
-  process.stdout.write(JSON.stringify({ turns: result.turns, halted: result.halted }) + '\\n')
+  process.stdout.write(JSON.stringify({ turns: result.turns, halted: result.halted.kind }) + '\\n')
 })
 `
 }

@@ -43,7 +43,8 @@ export {
 export type {
   BrowserContextHandle,
   BrowserHandle,
-  InProcessUiAuditClientOptions,
+  InProcessUiAuditEnvironmentProvider,
+  InProcessUiAuditEnvironmentProviderOptions,
   PageHandle,
   UiAuditCapture,
   UiAuditCaptureRequest,
@@ -62,7 +63,7 @@ export type {
 } from './ui-auditor'
 export {
   buildAuditorSystemPrompt,
-  createInProcessUiAuditClient,
+  createInProcessUiAuditEnvironmentProvider,
   createUiAuditorValidator,
   decodeAuditTaskEnvelope,
   encodeAuditTaskEnvelope,

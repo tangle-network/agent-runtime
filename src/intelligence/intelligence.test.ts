@@ -10,7 +10,7 @@ import {
   type UsageSplit,
 } from './index'
 
-const baseUrl = 'https://intelligence.test'
+const baseUrl = 'https://intelligence.tangle.tools'
 const apiKey = 'sk-tan-test-key'
 
 /** Capture every OTLP POST body the exporter flushes. */
@@ -213,15 +213,57 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     expect(calls[0]?.headers.authorization).toBe(`Bearer ${apiKey}`)
   })
 
-  it('survives a dead endpoint — agent output is returned, no throw', async () => {
+  it('survives a dead endpoint and reports undelivered spans on explicit flush', async () => {
     installFetchSpy('throw')
     const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
     const result = await client.traceRun({ input: { q: 'hi' } }, async (trace) => {
       trace.recordOutput({ answer: 'still here' })
       return 42
     })
-    await expect(client.flush()).resolves.toBeUndefined()
+    await expect(client.flush()).resolves.toMatchObject({
+      succeeded: false,
+      deliveredSpans: 0,
+      undeliveredSpans: 1,
+      droppedSpans: 0,
+      error: expect.stringContaining('network down'),
+    })
     expect(result).toBe(42)
+  })
+
+  it('exposes queue limits and drop reporting through the high-level client', async () => {
+    const { calls } = installFetchSpy('ok')
+    const drops: unknown[] = []
+    const client = createIntelligenceClient({
+      project: 'support-agent',
+      apiKey,
+      baseUrl,
+      telemetryExport: {
+        batchSize: 100,
+        maxQueueSize: 2,
+        onDrop: (event) => drops.push(event),
+      },
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      await client.traceRun({ input: { index } }, async () => index)
+    }
+    const result = await client.flush()
+
+    expect(result).toEqual({
+      succeeded: false,
+      deliveredSpans: 2,
+      undeliveredSpans: 0,
+      droppedSpans: 1,
+      error: '1 span dropped',
+    })
+    expect(drops).toEqual([
+      expect.objectContaining({
+        reason: 'queue_full',
+        totalDropped: 1,
+        maxQueueSize: 2,
+      }),
+    ])
+    expect(calls).toHaveLength(1)
   })
 
   it('propagates an error thrown by the agent body (not swallowed)', async () => {
@@ -421,7 +463,11 @@ describe('recordTrace — loop topology via buildLoopOtelSpans (gap 2)', () => {
     const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
     const traceId = client.recordTrace(loopStream())
     expect(traceId).toMatch(/^[0-9a-f]{32}$/)
-    await expect(client.flush()).resolves.toBeUndefined()
+    await expect(client.flush()).resolves.toMatchObject({
+      succeeded: false,
+      undeliveredSpans: expect.any(Number),
+      error: expect.stringContaining('network down'),
+    })
   })
 
   it('is a no-op (no fetch) on an empty event stream or with no tenant key', async () => {

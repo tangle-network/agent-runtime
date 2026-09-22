@@ -1,10 +1,10 @@
 /**
  *
- * The personify layer impl — `definePersona` (the thin builder) + `runPersonified` (composes
+ * The personify layer impl — `definePersona` (the thin builder) + `runPersonaShape` (composes
  * the persona + chosen shape onto the keystone `Supervisor`), plus `createShapeContext`, the
  * seam that hands a shape its spawn helpers without it touching the registry.
  *
- * This file adds NO engine: `runPersonified` is `createSupervisor().run(rootAgent, task, …)`
+ * This file adds NO engine: `runPersonaShape` is `createSupervisor().run(rootAgent, task, …)`
  * where `rootAgent` is the persona's chosen `LoopShape` applied to a `ShapeContext`. All the
  * conserved-budget / journal / abort / typed-result machinery is the keystone's; this layer
  * only wires the persona's CONTENT (root spec + directive + context + seams) into it.
@@ -41,7 +41,7 @@ import type {
   LoopShape,
   Outcome,
   Persona,
-  RunPersonifiedOptions,
+  RunPersonaShapeOptions,
   ShapeBudget,
   ShapeContext,
 } from './types'
@@ -120,7 +120,7 @@ export function createShapeContext<D>(
   }
 }
 
-// ── runPersonified ──────────────────────────────────────────────────────────────
+// ── runPersonaShape ──────────────────────────────────────────────────────────────
 
 /**
  * Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape
@@ -129,8 +129,8 @@ export function createShapeContext<D>(
  * Fail loud on an unknown shape name or an unresolvable persona registry — never a silent
  * default-shape fallback.
  */
-export async function runPersonified<Task, D>(
-  options: RunPersonifiedOptions<Task, D>,
+export async function runPersonaShape<Task, D>(
+  options: RunPersonaShapeOptions<Task, D>,
 ): Promise<SupervisedResult<Outcome<D>>> {
   const { persona } = options
   const shape = resolveShape<Task, D>(options.shape)
@@ -165,7 +165,7 @@ function resolveShape<Task, D>(shape: LoopShape<Task, D> | string): LoopShape<Ta
   const resolved = builtinShapes.resolve<Task, D>(shape)
   if (!resolved.succeeded) {
     throw new ValidationError(
-      `runPersonified: ${resolved.error} (registered: ${builtinShapes.names().join(', ')})`,
+      `runPersonaShape: ${resolved.error} (registered: ${builtinShapes.names().join(', ')})`,
     )
   }
   return resolved.value

@@ -1,21 +1,19 @@
 /**
  *
  * `@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the
- * delegation tools to sandbox coding-harness agents: the generic `delegate`
+ * delegation tools to coding agents: the generic `delegate`
  * (one intent → a supervisor that authors + drives its own worker, returns the
  * delivered output with its cost), plus the queue-bound `delegate_feedback`,
  * `delegation_status`, and `delegation_history`. `delegate_ui_audit` is served
  * when a `uiAuditorDelegate` is wired.
  *
- * Mount the server inside a product agent's sandbox via
+ * Mount the server inside a product agent's execution environment via
  * `agent-runtime-mcp` (the bin) or wire it into a custom Node entry
  * point with `createMcpServer({ ... })`.
  *
  * @experimental
  */
 
-export type { DetectExecutorArgs } from './bin-helpers'
-export { detectExecutor } from './bin-helpers'
 export type {
   CoderDelegate,
   CoderReview,
@@ -56,8 +54,6 @@ export type {
   DetachedSessionRefParts,
   DetachedTurn,
   DetachedTurnResumeDriverOptions,
-  DriveTurnCapableBox,
-  DriveTurnTick,
   RunDetachedTurnOptions,
 } from './detached-turn'
 export {
@@ -71,15 +67,11 @@ export type {
   DelegationExecutor,
   FleetHandle,
   FleetWorkspaceExecutorOptions,
-  SiblingSandboxExecutorOptions,
 } from './executor'
-export { createFleetWorkspaceExecutor, createSiblingSandboxExecutor } from './executor'
+export { createDelegationExecutor, createFleetWorkspaceExecutor } from './executor'
 export type { FeedbackEvent, FeedbackStore } from './feedback-store'
 export { eventToSnapshot, InMemoryFeedbackStore } from './feedback-store'
-export type {
-  InProcessExecutorDescribePlacement,
-  InProcessExecutorOptions,
-} from './in-process-executor'
+export type { InProcessExecutorOptions } from './in-process-executor'
 export { createInProcessExecutor } from './in-process-executor'
 export {
   type CreateKbGateOptions,
@@ -100,6 +92,7 @@ export type {
 } from './local-harness'
 export {
   CodexExecutionDiagnosticError,
+  LOCAL_HARNESSES,
   parseCodexTokenUsage,
   runLocalHarness,
 } from './local-harness'

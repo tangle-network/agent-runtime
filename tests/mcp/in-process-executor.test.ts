@@ -1,3 +1,4 @@
+import type { AgentEnvironmentEvent, AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import { createInProcessExecutor } from '../../src/mcp/in-process-executor'
 import type { GitRunner } from '../../src/mcp/worktree'
@@ -32,6 +33,20 @@ function makeFakeGit(state: FakeGitState): GitRunner {
   }
 }
 
+async function runWorker(
+  executor: ReturnType<typeof createInProcessExecutor>,
+  prompt: string,
+  profile: AgentProfile = { name: 'worker' },
+): Promise<{
+  events: AgentEnvironmentEvent[]
+  environment: Awaited<ReturnType<typeof executor.provider.create>>
+}> {
+  const environment = await executor.provider.create({ profile })
+  const events: AgentEnvironmentEvent[] = []
+  for await (const event of environment.stream({ prompt })) events.push(event)
+  return { events, environment }
+}
+
 describe('createInProcessExecutor', () => {
   it('streamPrompt emits started → ended → result events with the raw patch artifact', async () => {
     const state: FakeGitState = {
@@ -44,7 +59,7 @@ describe('createInProcessExecutor', () => {
     }
     const exec = createInProcessExecutor({
       repoRoot: '/workspace',
-      harnesses: ['claude'],
+      harnesses: ['claude-code'],
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
         exitCode: 0,
@@ -56,19 +71,11 @@ describe('createInProcessExecutor', () => {
       })),
     })
 
-    const box = await exec.client.create()
-    const events: Array<{ type: string; data: Record<string, unknown> }> = []
-    for await (const event of (
-      box as unknown as {
-        streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }>
-      }
-    ).streamPrompt('add util.ts exporting add(a,b)')) {
-      events.push(event)
-    }
+    const { events } = await runWorker(exec, 'add util.ts exporting add(a,b)')
 
     expect(events.map((e) => e.type)).toEqual([
-      'in_process.harness.started',
-      'in_process.harness.ended',
+      'worktree.worker.started',
+      'worktree.worker.completed',
       'result',
     ])
     const result = events[2]!.data.result as {
@@ -105,21 +112,23 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude', 'codex', 'opencode'],
+      harnesses: ['claude-code', 'codex', 'opencode'],
       runGit: makeFakeGit(state),
       runHarness,
     })
 
     for (let i = 0; i < 6; i++) {
-      const box = await exec.client.create()
-      for await (const _ of (
-        box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
-      ).streamPrompt(`task ${i}`)) {
-        // drain
-      }
+      await runWorker(exec, `task ${i}`)
     }
     const harnesses = runHarness.mock.calls.map((c) => (c[0] as { harness: string }).harness)
-    expect(harnesses).toEqual(['claude', 'codex', 'opencode', 'claude', 'codex', 'opencode'])
+    expect(harnesses).toEqual([
+      'claude-code',
+      'codex',
+      'opencode',
+      'claude-code',
+      'codex',
+      'opencode',
+    ])
   })
 
   it('runs testCmd + typecheckCmd against the worktree and folds results into the artifact checks', async () => {
@@ -137,7 +146,7 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude'],
+      harnesses: ['claude-code'],
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
       runGit: makeFakeGit(state),
@@ -152,15 +161,7 @@ describe('createInProcessExecutor', () => {
       runPostCheck,
     })
 
-    const box = await exec.client.create()
-    const events: Array<{ type: string; data: Record<string, unknown> }> = []
-    for await (const event of (
-      box as unknown as {
-        streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }>
-      }
-    ).streamPrompt('go')) {
-      events.push(event)
-    }
+    const { events } = await runWorker(exec, 'go')
     const result = events.find((e) => e.type === 'result')!.data.result as {
       checks?: {
         tests?: { passed: boolean }
@@ -193,19 +194,11 @@ describe('createInProcessExecutor', () => {
         timedOut: false,
       })),
     })
-    const box = await exec.client.create()
-    const events: Array<{ type: string; data: Record<string, unknown> }> = []
-    for await (const event of (
-      box as unknown as {
-        streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }>
-      }
-    ).streamPrompt('x')) {
-      events.push(event)
-    }
+    const { events } = await runWorker(exec, 'x')
     const result = events.find((e) => e.type === 'result')!.data.result as {
       harness: { name: string; exitCode: number | null }
     }
-    expect(result.harness.name).toBe('claude')
+    expect(result.harness.name).toBe('claude-code')
     expect(result.harness.exitCode).toBe(2)
   })
 
@@ -224,16 +217,7 @@ describe('createInProcessExecutor', () => {
         throw new Error('boom')
       }),
     })
-    const box = await exec.client.create()
-    await expect(
-      (async () => {
-        for await (const _ of (
-          box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
-        ).streamPrompt('x')) {
-          // drain
-        }
-      })(),
-    ).rejects.toThrow(/boom/)
+    await expect(runWorker(exec, 'x')).rejects.toThrow(/boom/)
     expect(state.worktreesCreated.length).toBe(1)
     expect(state.worktreesRemoved.length).toBe(1)
   })
@@ -259,20 +243,11 @@ describe('createInProcessExecutor', () => {
         timedOut: false,
       })),
     })
-    const box = await exec.client.create()
-    for await (const _ of (
-      box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
-    ).streamPrompt('x')) {
-      // drain so streamPrompt populates the worktree handle
-    }
-    const placement = exec.client.describePlacement?.(box) as {
-      harness?: string
-      worktreePath?: string
-      sandboxId?: string
-    }
-    expect(placement?.harness).toBe('codex')
-    expect(placement?.worktreePath).toMatch(/\.agent-worktrees/)
-    expect(placement?.sandboxId).toMatch(/^in-process-/)
+    const { environment } = await runWorker(exec, 'x')
+    const placement = await environment.placement?.()
+    expect(placement?.kind).toBe('local')
+    expect(placement?.providerMetadata?.worker).toBe('codex')
+    expect(placement?.providerMetadata?.worktreePath).toMatch(/\.agent-worktrees/)
   })
 
   it('§1.5: threads the authored profile systemPrompt + model into the harness invocation', async () => {
@@ -293,26 +268,15 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude'],
+      harnesses: ['claude-code'],
       runGit: makeFakeGit(state),
       runHarness,
     })
-    // The authored worker profile rides in `backend.profile` (where `buildBackendOptions` puts it).
-    const box = await exec.client.create({
-      backend: {
-        type: 'claude',
-        profile: {
-          name: 'w',
-          prompt: { systemPrompt: 'BE RIGOROUS' },
-          model: { default: 'deepseek-v4-flash' },
-        },
-      },
-    } as unknown as Parameters<typeof exec.client.create>[0])
-    for await (const _ of (
-      box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
-    ).streamPrompt('add util(a,b)')) {
-      // drain
-    }
+    await runWorker(exec, 'add util(a,b)', {
+      name: 'w',
+      prompt: { systemPrompt: 'BE RIGOROUS' },
+      model: { default: 'deepseek-v4-flash' },
+    })
     // The harness was invoked with a composed `invocation` (NOT the prompt-only path that dropped
     // the profile): the authored systemPrompt + model reach the harness argv.
     const call = runHarness.mock.calls[0]![0] as { invocation?: { args: string[] } }

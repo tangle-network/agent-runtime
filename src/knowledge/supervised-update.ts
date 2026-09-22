@@ -1,7 +1,7 @@
 import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
 import { researcherProfile } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
-import type { ExecutorConfig } from '../runtime/supervise/runtime'
+import type { EnvironmentWorkerOptions } from '../runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { Budget, SupervisedResult } from '../runtime/supervise/types'
@@ -65,7 +65,7 @@ export interface SupervisedKnowledgeUpdateOptions {
   findings?: readonly unknown[]
   metadata?: Record<string, unknown>
   budget: Budget
-  backend?: ExecutorConfig
+  worker?: EnvironmentWorkerOptions
   makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
   harness?: string
   supervisorModel?: string
@@ -73,7 +73,7 @@ export interface SupervisedKnowledgeUpdateOptions {
   superviseOptions?: Partial<
     Omit<
       SuperviseOptions,
-      'budget' | 'backend' | 'deliverable' | 'makeWorkerAgent' | 'allowedModels'
+      'budget' | 'worker' | 'deliverable' | 'makeWorkerAgent' | 'allowedModels'
     >
   >
   allowedModels?: readonly string[]
@@ -145,7 +145,7 @@ export async function runSupervisedKnowledgeUpdate(
   const supervised = await run(profile, task, {
     ...options.superviseOptions,
     budget: options.budget,
-    backend: options.backend,
+    worker: options.worker,
     deliverable: knowledgeReadinessDeliverable(options),
     makeWorkerAgent: options.makeWorkerAgent,
     allowedModels: options.allowedModels,

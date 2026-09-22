@@ -1,151 +1,83 @@
 # Concepts
 
-> **In plain terms:** This is the one-page mental model of agent-runtime —
-> read it first if you're meeting the package cold. agent-runtime is a small
-> shared foundation that handles the plumbing every AI agent needs — running a
-> task, streaming a chat reply, reconnecting a dropped connection, picking a
-> model — so you only write the parts unique to your agent. The one takeaway:
-> it owns a handful of reusable building blocks and leaves all the
-> domain-specific work — your tools, prompts, and scoring rules — to you.
+Agent Runtime runs portable agent profiles through pluggable execution providers.
 
-agent-runtime is a thin, shared foundation layer. It owns five things and
-delegates the rest. Read this file once and the rest of the API falls into
-place.
+## The Model
 
-## The five layers
-
-```
-                              ┌──────────────────────────┐
-                              │   Domain code (yours)    │
-                              │  tools, rubric, prompts  │
-                              └────────────┬─────────────┘
-                                           │
-   ┌───────────────────────────────────────┴─────────────────┐
-   │  Agent manifest  ─  defineAgent({ surfaces, run, … })   │
-   └───────────────────────────────────────┬─────────────────┘
-                                           │
-   ┌───────────────────────────────────────┴─────────────────┐
-   │  Task lifecycle  ─  runAgentTask / runAgentTaskStream   │
-   │     observe → validate → decide → act → eval            │
-   └───────────────────────────────────────┬─────────────────┘
-                                           │
-   ┌───────────────────────────────────────┴─────────────────┐
-   │  Chat-turn lifecycle ─  handleChatTurn(...)                 │
-   │  NDJSON + session.run.* envelope + persist/trace hooks   │
-   └───────────────────────────────────────┬─────────────────┘
-                                           │
-   ┌───────────────────────────────────────┴─────────────────┐
-   │  Execution continuity (substrate-owned)                  │
-   │  box.streamPrompt — auto-reconnect in-call; X-Execution-ID
-   │  header for cross-process. deriveExecutionId is the
-   │  convention helper.                                       │
-   └───────────────────────────────────────┬─────────────────┘
-                                           │
-   ┌───────────────────────────────────────┴─────────────────┐
-   │  Backends + catalog                                     │
-   │  createOpenAICompatibleBackend, createSandboxPromptBackend,
-   │  getModels / resolveChatModel / validateChatModelId       │
-   └─────────────────────────────────────────────────────────┘
+```text
+AgentProfile
+    |
+    v
+AgentEnvironmentProvider
+    |
+    v
+AgentEnvironment
+    |
+    v
+turns, sessions, interactions, rounds, supervision, improvement
 ```
 
-Each layer composes the one below it. You can use the bottom layers
-alone (a raw backend + the model catalog), or the whole stack
-(`defineAgent` → `handleChatTurn`) — they're the same primitives
-nested.
+### AgentProfile
 
-## The task lifecycle
+An `AgentProfile` says how an agent should behave.
+It can include prompts, models, tools, skills, MCP servers, permissions, hooks, and subagents.
+It does not contain API keys, service URLs, or deployment policy.
 
-Every `runAgentTask` is a small state machine over an `AgentAdapter`:
+### AgentEnvironmentProvider
 
-- **observe** → snapshot domain state (read-only).
-- **validate** → score the snapshot against the eval rubric.
-- **decide** → `act` (perform a domain action) | `ask` (ask the user
-  something) | `stop` (this turn is done, here's the outcome).
-- **act** → effect the action; loop.
+An `AgentEnvironmentProvider` says where and how a profile runs.
+Examples include Tangle Sandbox, CLI Bridge, a trusted local process, or a test callback.
+The provider reports its capabilities and creates environments.
 
-The adapter is *yours*. The lifecycle, the eval lift, the stop semantics,
-the cost ledger — all substrate. Streaming is the same shape:
-`runAgentTaskStream` yields `RuntimeStreamEvent`s as the loop progresses.
+### AgentEnvironment
 
-## Execution continuity — substrate-owned
+An `AgentEnvironment` is one live workspace and execution context.
+It can stream turns and may support session continuation, file access, commands, checkpoints, or forks.
+The provider owns the implementation.
+The Runtime caller owns or delegates cleanup explicitly.
 
-Long-running execution durability — reconnect, replay, dedup — is the
-substrate's job, not agent-runtime's. The `@tangle-network/sandbox`
-SDK + orchestrator already handle it:
+## Execution Levels
 
-- **In-call reconnect**: `box.streamPrompt` extracts `executionId` from
-  the response's `execution.started` event and replays via the runtime
-  endpoint if the stream drops. Transparent — callers do nothing.
-- **Cross-process reconnect**: a fresh Worker can resume a prior
-  Worker's execution by POSTing to the orchestrator's
-  `/agents/run/stream` with the `X-Execution-ID` header. The SDK's
-  public `PromptOptions` does not yet surface this; products bypass the
-  SDK and call the orchestrator directly when they need it (see
-  tax-agent's `sessions.ts`).
-- The orchestrator's buffer is 10k events / 2-min post-completion. A
-  retry past that window gets `execution_not_found` and re-runs.
+Use the lowest level that matches the job.
 
-agent-runtime owns one helper, `deriveExecutionId({ projectId,
-sessionId, turnIndex })`, that produces the stable id the product
-persists on its session row.
+1. `streamAgentTurn` runs one response.
+2. `openEnvironmentRun` keeps one agent session alive across turns.
+3. `runInteraction` gives each named actor a persistent session and passes the transcript between them.
+4. `runAgentRounds` lets deterministic driver code plan bounded batches of work.
+5. `supervise` lets a model create, steer, and stop workers dynamically.
+6. `runStrategy` runs a fixed search or refinement policy against a task environment.
 
-What lives in the Worker: auth, access control, product DB writes,
-prompt composition, routing. What lives in the substrate: the
-long-running execution, event buffering, replay-on-reconnect, dedup.
-The Worker stays a routing + persistence layer — it does not host
-execution state.
+These functions share providers and profiles.
+They are different control policies, not different definitions of an agent.
 
-## The agent manifest
+## State And Resume
 
-`defineAgent(...)` is how a vertical declares the **surfaces** (the full
-`AgentProfile`: prompt, skills, tools, MCP, hooks, subagents, and extensions), the
-**knowledge** requirements, the **rubric**, and the **run** function
-that ties it all together. The manifest is what the eval harness
-benchmarks, what the analyst loop improves, and (in time) what the
-generated scaffold produces.
+Provider sessions preserve model context within an environment.
+An interaction journal preserves actor identities, completed turns, and the stop result across process restarts.
+The journal never recreates a changed interaction definition silently: callers provide a stable `definitionId`, and a mismatch fails.
 
-Keep `defineAgent` *declarative*. Domain logic — the actual tool calls,
-the actual rubric scoring — lives in functions the manifest references,
-not inline.
+Supervisor state uses its own spawn journal because a dynamic worker tree is not a turn-taking transcript.
+Do not use the interaction journal as a worker-tree store.
 
-## Model resolution
+## Knowledge And Memory
 
-Every product chat handler asks the same questions and gets the same
-answers wrong (or differently). Substrate primitive:
+Knowledge is input to an agent, not a second execution system.
+Agent Knowledge owns source ingestion, indexing, retrieval, memory adapters, freshness, and evaluation.
+Runtime can call Knowledge workflows and can run agents that propose knowledge changes.
+Applications decide which knowledge is mounted into a profile or exposed through tools.
 
-- **`resolveChatModel(candidates, fallback)`** — first-non-blank
-  precedence over caller-supplied candidates (`request → workspace →
-  env`, in whatever order *you* want). Policy-free.
-- **`validateChatModelId(modelId, { allowlist?, routerBaseUrl? })`** —
-  rejects malformed ids and ids absent from both the caller's
-  `allowlist` and the live router catalog. **Fails closed**: when the
-  catalog can't be fetched, an unverifiable id is rejected.
-- **`getModels` / `resolveRouterBaseUrl`** —
-  the catalog fetch + base-URL helpers.
+## Evaluation And Improvement
 
-This module has **no React, no `process.env` assumption** — it runs
-unchanged in Node and in Cloudflare Workers.
+Agent Eval measures behavior on cases and compares candidates.
+Runtime's `improve` function connects those measurements to executable changes:
 
-## Backends
+- profile fields use an optimizer supplied by Agent Eval;
+- repository code runs in isolated worktrees;
+- every candidate is measured on development cases;
+- the selected candidate is checked on held-back cases;
+- the result is returned for explicit activation.
 
-`createOpenAICompatibleBackend({ baseUrl, model, apiKey })` and
-`createSandboxPromptBackend({ ... })` are the two production backends.
-Both stream. `policy.fallbackModels: [...]` rotates through a named list
-on transient failure — that's the only fallback you should ever wire,
-and it's explicit.
+Improvement does not mutate a live profile or knowledge base automatically.
+Promotion is a separate application decision.
 
-The doctrine is in `AGENTS.md`: **no silent fallbacks**. Required fields
-fail loud; named rotations are opt-in.
-
-## What this package does NOT own
-
-Domain policy. Models. Tools. Connectors. UI. Prompts. Rubrics. Those
-live in your vertical. The runtime is reusable across many kinds of
-agents because nothing in this list is baked into it.
-
-## Next
-
-Run the one example that shows the core move — a driver reading a worker's
-output and composing the next step from it: `pnpm tsx examples/driver-loop/driver-loop.ts`
-(offline, no creds). Then the [examples map](../examples/README.md) and
-[canonical-api.md](./canonical-api.md) — "I want to ___ → use ___".
+See [`canonical-api.md`](./canonical-api.md) for entry-point selection and [`docs/api`](./api/) for generated signatures.

@@ -17,26 +17,26 @@ import { pairedBootstrap, paretoFrontier } from '@tangle-network/agent-eval'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { routerChatWithUsage } from './router-client'
 import {
-  type AgenticOptions,
-  type AgenticSurface,
-  type AgenticTask,
+  type EnvironmentTask,
   refine,
-  runAgentic,
+  runStrategy,
   type Strategy,
+  type StrategyWorkerOptions,
   sample,
+  type TaskEnvironment,
 } from './strategy'
 
 /** A checkable task domain — implement these 5 hooks and the suite does the rest. The
- *  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it. */
-export type Environment = AgenticSurface
+ *  same seam as `TaskEnvironment`; `Environment` is the RL/gym-standard name for it. */
+export type Environment = TaskEnvironment
 
 export interface BenchmarkConfig {
   /** The task domain (5 hooks). */
   environment: Environment
   /** The tasks to score across. */
-  tasks: AgenticTask[]
+  tasks: EnvironmentTask[]
   /** The worker: model + router + (optional) the critic's instruction (the steerer knob). */
-  worker: AgenticOptions
+  worker: StrategyWorkerOptions
   /** Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own.
    *  Default: [sample, refine]. */
   strategies?: Strategy[]
@@ -48,7 +48,7 @@ export interface BenchmarkConfig {
    *  progress file, render a tree, stream to a dashboard). `done` counts settled tasks. */
   onTask?: (row: BenchmarkTaskRow, done: number, total: number) => void
   /** Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
-   *  here live (the watchdog/route-auditor seam, passed through to `runAgentic`). */
+   *  here live (the watchdog/route-auditor seam, passed through to `runStrategy`). */
   hooks?: RuntimeHooks
   /**
    * Model availability check before tasks start.
@@ -59,7 +59,11 @@ export interface BenchmarkConfig {
    */
   modelPreflight?:
     | false
-    | ((model: string, worker: Readonly<AgenticOptions>, signal: AbortSignal) => Promise<void>)
+    | ((
+        model: string,
+        worker: Readonly<StrategyWorkerOptions>,
+        signal: AbortSignal,
+      ) => Promise<void>)
   /** Maximum time for each model availability check. Default 30 seconds. */
   modelPreflightTimeoutMs?: number
 }
@@ -150,7 +154,7 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
     throw new Error('modelPreflightTimeoutMs must be a positive finite number')
   const check =
     cfg.modelPreflight ??
-    (async (model: string, worker: Readonly<AgenticOptions>, signal: AbortSignal) => {
+    (async (model: string, worker: Readonly<StrategyWorkerOptions>, signal: AbortSignal) => {
       await routerChatWithUsage(
         {
           routerBaseUrl: worker.routerBaseUrl,
@@ -223,7 +227,7 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
       // task. The thrower scores an honest zero — it competed, it failed, it loses.
       for (const s of strategies) {
         try {
-          const r = await runAgentic({
+          const r = await runStrategy({
             ...cfg.worker,
             surface: cfg.environment,
             task,

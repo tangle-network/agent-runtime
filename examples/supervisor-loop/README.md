@@ -1,69 +1,67 @@
-# One supervisor, workers that run anywhere — change one setting
+# Supervisor loop
 
-A supervisor agent splits a job into pieces and hands each to a worker agent. Here the *same*
-supervisor code runs its workers two ways — as real command-line coding agents on your machine, or in
-fresh cloud sandboxes — and the only thing you change is one environment variable, `WORKER_BACKEND`.
-Every worker's result counts only when a real check passes on its output, never because the worker said
-"done."
+This example runs one supervisor that creates worker agents, waits for their results, and accepts only output that passes a code check.
 
-## Why it matters
+Workers can use either provider:
 
-You want to build and debug an agent system locally, then run it at scale in the cloud, without
-rewriting it. This proves that: develop against local CLI agents (`bridge`), then flip
-`WORKER_BACKEND=sandbox` and the identical supervisor drives workers in real cloud boxes — zero code
-change.
+- `cli-bridge` runs installed coding CLIs.
+- `tangle` runs managed Tangle environments.
+
+Both use the same `AgentEnvironmentProvider` contract.
 
 ## Run
 
-Build once (the examples import the built package), then pick a backend:
+Build the package first because the examples import `dist`.
 
 ```bash
 pnpm build
 
-# Workers = real local coding CLIs (claude-code / codex / opencode / …), via a local bridge:
-WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
-  pnpm tsx examples/supervisor-loop/run.ts
+# Local coding CLI workers
+WORKER_PROVIDER=cli-bridge \
+WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
+pnpm tsx examples/supervisor-loop/run.ts
 
-# The SAME code, workers in real cloud boxes:
-WORKER_BACKEND=sandbox TANGLE_API_KEY=sk-… SANDBOX_BASE_URL=https://… \
-  pnpm tsx examples/supervisor-loop/run.ts
+# Managed Tangle workers
+WORKER_PROVIDER=tangle \
+TANGLE_API_KEY=sk-... \
+SANDBOX_BASE_URL=https://... \
+pnpm tsx examples/supervisor-loop/run.ts
 ```
 
-For a $0, no-network wiring check (no agents, no key), two unit tests cover the
-spawn → wait → checked-settle loop:
+Start `cli-bridge` before using the local provider:
 
 ```bash
-pnpm test tests/loops/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
+cd ~/code/cli-bridge
+pnpm install
+pnpm install:harness -- opencode
+pnpm start
 ```
 
-## Three runners
+Use a model as the supervisor by setting `DRIVER_MODEL` and `TANGLE_API_KEY`.
+Without them, `run.ts` uses fixed local turns so the control flow can be tested without inference.
 
-| file | what it shows |
+## MCP supervisor
+
+`run-supervisor-mcp.ts` makes a coding agent the supervisor.
+Runtime serves `spawn_agent`, `await_event`, and `stop` over MCP, then mounts that server through `AgentProfile.mcp`.
+The supervisor and every worker still run through provider objects.
+
+```bash
+WORKER_PROVIDER=cli-bridge \
+WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
+pnpm tsx examples/supervisor-loop/run-supervisor-mcp.ts
+```
+
+## Files
+
+| File | Purpose |
 |---|---|
-| `run.ts` | the one-call supervisor. `WORKER_BACKEND=bridge` \| `sandbox` is the only knob. |
-| `run-supervisor-mcp.ts` | the harness-native path: a coding agent *is* the supervisor and calls a real `spawn_agent` tool to launch workers — a box driving boxes, no scripted driver. |
-| `shared.ts` | the demo goal, the pass/fail check, and the two helpers that make the one-knob swap real. |
+| `run.ts` | Run `supervise()` with a model or fixed local turns |
+| `run-supervisor-mcp.ts` | Let a coding agent call the coordination tools over MCP |
+| `shared.ts` | Select the worker provider and define the output check |
 
-## The pieces, in plain terms
-
-- **`WORKER_BACKEND`** — the one knob. `bridge` = local CLI agents behind one HTTP endpoint (needs a
-  running `cli-bridge`, below); `sandbox` = real cloud boxes (needs `TANGLE_API_KEY` + `SANDBOX_BASE_URL`).
-- **the check** — a worker is "done" only when its output passes a real, deterministic check (here: the
-  output must contain `ANSWER=42`), read off the worker's actual output. No model grades itself.
-- **the supervisor's brain** — with a router key, a real model reasons the plan → spawn → stop loop;
-  without one, a fixed script drives the wiring so the example runs offline.
-- **budget** — every worker draws from one shared, capped compute budget, so the whole tree can't overspend.
-
-## The local bridge
-
-`bridge` runs real coding CLIs on your machine behind one OpenAI-compatible endpoint — no cloud needed.
-Start it, then point a worker at it:
+Run the local control-flow tests with:
 
 ```bash
-cd ~/code/cli-bridge && pnpm install && pnpm install:harness -- opencode && pnpm start   # → http://127.0.0.1:3344
-WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
-  pnpm tsx examples/supervisor-loop/run.ts
+pnpm exec vitest run tests/loops/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
 ```
-
-The workflow: prove the supervisor topology against local CLIs (`bridge`), then point it at real boxes
-(`sandbox`) with zero code change — only the worker seam differs.

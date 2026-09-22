@@ -1,47 +1,14 @@
 import type { ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { PassThrough, type Readable } from 'node:stream'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { createCliBridgeProvider } from '@tangle-network/agent-provider-cli-bridge'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-
-// The bridge transport (`streamBridgeSession`) POSTs over the `node:http` core client,
-// not global `fetch`, so a slow local bridge isn't killed by undici's headers timeout.
-// Tests drive it by setting `bridgeHttpHandler` — the fake `request` reads the POST body,
-// hands the test the parsed payload, and streams back an SSE `IncomingMessage`.
-let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
-
-vi.mock('node:http', async () => {
-  const actual = await vi.importActual<typeof import('node:http')>('node:http')
-  return {
-    ...actual,
-    request: (
-      _url: unknown,
-      _opts: unknown,
-      cb: (res: Readable) => void,
-    ): { write: (b: string) => void; end: () => void; on: () => void; destroy: () => void } => {
-      let body = ''
-      return {
-        write: (chunk: string) => {
-          body += chunk
-        },
-        end: () => {
-          const payload = JSON.parse(body || '{}') as Record<string, unknown>
-          if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
-          const res = bridgeHttpHandler(payload) as Readable & { statusCode?: number }
-          res.statusCode = res.statusCode ?? 200
-          cb(res)
-        },
-        on: () => {},
-        destroy: () => {},
-      }
-    },
-  }
-})
 
 import { type RunLocalHarnessOptions, runLocalHarness } from '../../src/mcp/local-harness'
 import type { GitRunner } from '../../src/mcp/worktree'
-import { type AgentSpec, createExecutor } from '../../src/runtime'
+import type { AgentSpec } from '../../src/runtime'
+import { worktreeExecutor } from '../../src/runtime/supervise/runtime'
 import {
   createWorktreeCliExecutor,
   type WorktreePatchArtifact,
@@ -103,19 +70,20 @@ const reproducibleCodexProfile: AgentProfile = {
   model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
 }
 
-function bridgeSseResponse(content: string): Readable {
+function bridgeSseResponse(content: string): Response {
   const payload = [
     `data: ${JSON.stringify({
-      choices: [{ delta: { content } }],
+      choices: [{ delta: { content }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 3, completion_tokens: 5, cost: 0.02 },
     })}`,
     '',
     'data: [DONE]',
     '',
   ].join('\n')
-  const stream = new PassThrough()
-  stream.end(payload)
-  return stream
+  return new Response(payload, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  })
 }
 
 async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
@@ -143,7 +111,6 @@ function makeFakeChild(opts: { stdout?: string; exitCode?: number }): ChildProce
 describe('createWorktreeCliExecutor', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-    bridgeHttpHandler = null
   })
 
   it('threads the authored systemPrompt + model into the harness invocation', async () => {
@@ -164,7 +131,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'fix the off-by-one',
       runGit: makeFakeGit(state),
       runHarness,
@@ -173,7 +140,7 @@ describe('createWorktreeCliExecutor', () => {
     await exec.execute(undefined, new AbortController().signal)
 
     expect(seen).toBeDefined()
-    expect(seen?.harness).toBe('claude')
+    expect(seen?.harness).toBe('claude-code')
     // The §1.5 fix: the authored systemPrompt reaches the harness PROMPT channel ...
     const promptArg = seen?.invocation?.args.find((a) => a.includes('fix the off-by-one'))
     expect(promptArg).toBe(
@@ -250,7 +217,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -405,7 +372,7 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: reproducibleCodexProfile,
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: 'x',
         codexReproducible: true,
       }),
@@ -450,7 +417,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       budgetExempt: false,
       runGit: makeFakeGit(freshGitState()),
@@ -459,17 +426,16 @@ describe('createWorktreeCliExecutor', () => {
     expect(exec.budgetExempt).toBe(false)
   })
 
-  it('threads reproducible Codex through the backend-as-data factory', () => {
-    const factory = createExecutor({
-      backend: 'cli-worktree',
+  it('threads reproducible Codex through the worktree executor', () => {
+    const worktree = {
       repoRoot: '/workspace',
       harness: 'codex',
       taskPrompt: 'x',
       codexReproducible: true,
-    })
-    const exec = factory(
+    }
+    const exec = worktreeExecutor(
       { profile: reproducibleCodexProfile, harness: null },
-      { signal: new AbortController().signal, seams: {} },
+      { signal: new AbortController().signal, seams: { worktree } },
     )
     expect(exec.runtime).toBe('cli')
     expect(exec.budgetExempt).toBe(false)
@@ -479,7 +445,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -558,7 +524,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(async () => ({
@@ -574,7 +540,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(result.out.checks).toBeUndefined()
   })
 
-  it('runs cli-worktree over the live bridge transport without losing isolation or steering', async () => {
+  it('runs a provider in the worktree without losing isolation, metering, or steering', async () => {
     const state = freshGitState({
       diffPatch:
         'diff --git a/live.ts b/live.ts\n+++ b/live.ts\n@@ +1 @@\n+export const live = true\n',
@@ -586,52 +552,54 @@ describe('createWorktreeCliExecutor', () => {
       messages?: Array<{ role: string; content: string }>
     }> = []
     const checks: Array<{ command: string; cwd: string }> = []
-    bridgeHttpHandler = (payload) => {
-      requests.push(payload as (typeof requests)[number])
-      return bridgeSseResponse('done from bridge')
-    }
+    const provider = createCliBridgeProvider({
+      baseUrl: 'http://bridge.test',
+      bearerToken: 'secret',
+      defaultModel: 'codex/live',
+      fetch: async (_url, init) => {
+        requests.push(JSON.parse(String(init?.body)) as (typeof requests)[number])
+        return bridgeSseResponse('done from bridge')
+      },
+    })
 
-    const factory = createExecutor({
-      backend: 'cli-worktree',
+    const worktree = {
       repoRoot: '/workspace',
       taskPrompt: 'implement the feature',
       runId: 'run-live',
-      bridge: {
-        bridgeUrl: 'http://bridge.test',
-        bridgeBearer: 'secret',
-        model: 'codex/live',
-        sessionId: 'session-live',
-      },
+      provider,
+      environment: { backend: 'codex/live' },
+      steering: { maxTurns: 4 },
       testCmd: 'pnpm test',
       runGit: makeFakeGit(state),
       runCommand: async ({ command, cwd }) => {
         checks.push({ command, cwd })
         return { exitCode: 0, output: 'tests passed' }
       },
-    })
+    }
     const spec: AgentSpec = { profile: authoredProfile, harness: null }
-    const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+    const exec = worktreeExecutor(spec, {
+      signal: new AbortController().signal,
+      seams: { worktree },
+    })
 
     exec.deliver?.({ steer: 'also update docs' })
-    const run = exec.execute(undefined, new AbortController().signal)
-    await drain(run as AsyncIterable<unknown>)
+    const artifact = await exec.execute(undefined, new AbortController().signal)
 
     const worktreePath = state.worktreesCreated[0]
     expect(worktreePath).toBe('/workspace/.agent-worktrees/run-live')
     expect(requests).toHaveLength(1)
     expect(requests[0]?.cwd).toBe(worktreePath)
-    expect(requests[0]?.session_id).toBe('session-live')
+    expect(requests[0]?.session_id).toEqual(expect.any(String))
     expect(requests[0]?.messages?.some((m) => m.content.includes('implement the feature'))).toBe(
       true,
     )
     expect(requests[0]?.messages?.some((m) => m.content.includes('also update docs'))).toBe(true)
     expect(checks).toEqual([{ command: 'pnpm test', cwd: worktreePath }])
 
-    const artifact = exec.resultArtifact()
     const out = artifact.out as WorktreePatchArtifact
     expect(out.patch).toContain('+export const live = true')
     expect(out.stats).toEqual({ filesChanged: 1, insertions: 1, deletions: 0 })
-    expect(out.harness.name).toBe('bridge')
+    expect(out.harness.name).toBe('cli-bridge')
     expect(out.harness.stdout).toBe('done from bridge')
     expect(out.checks?.tests?.passed).toBe(true)
     expect(artifact.spent.tokens).toEqual({ input: 3, output: 5 })
@@ -647,7 +615,7 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '',
         profile: authoredProfile,
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: 'x',
       }),
     ).toThrow(/repoRoot required/)
@@ -655,7 +623,7 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: authoredProfile,
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: '',
       }),
     ).toThrow(/taskPrompt required/)

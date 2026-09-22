@@ -1,4 +1,7 @@
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import {
   type CoderReview,
@@ -7,6 +10,8 @@ import {
   detachedSessionDelegate,
 } from '../../src/mcp/delegates'
 import type { CoderOutput } from '../../src/mcp/detached-coder'
+import { createDelegationExecutor } from '../../src/mcp/executor'
+import { inProcessEnvironmentProvider } from '../../src/runtime/in-process-environment-provider'
 
 function diff(path: string, plus: number, minus: number): string {
   const out = [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`]
@@ -36,20 +41,30 @@ const CANDIDATES: CoderOutput[] = [
   },
 ]
 
-// Stub sandbox client: each create() serves the next candidate (by call order)
-// as a parseable `result` event. Two harnesses → two branches → two candidates.
-function candidateClient() {
+// Each turn serves the next candidate as a parseable result event.
+function candidateProvider(
+  onCreate?: (input: CreateAgentEnvironmentInput) => void,
+): AgentEnvironmentProvider {
   let i = 0
-  return {
-    async create(_opts?: CreateSandboxOptions): Promise<SandboxInstance> {
+  const provider = inProcessEnvironmentProvider({
+    name: 'candidate-test',
+    onTurn() {
       const out = CANDIDATES[i++ % CANDIDATES.length]!
-      return {
-        async *streamPrompt() {
-          yield { type: 'result', data: { result: out } } satisfies SandboxEvent
-        },
-      } as unknown as SandboxInstance
+      return [{ type: 'result', data: { result: out } }]
+    },
+  })
+  if (!onCreate) return provider
+  return {
+    ...provider,
+    async create(input) {
+      onCreate(input)
+      return provider.create(input)
     },
   }
+}
+
+function candidateExecutor() {
+  return createDelegationExecutor(candidateProvider())
 }
 
 const ctx = { signal: new AbortController().signal, report() {} }
@@ -65,7 +80,7 @@ const readinessReviewer: CoderReviewer = (output) => ({
 describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   it('smallest-diff selects the smaller valid patch', async () => {
     const delegate = detachedSessionDelegate({
-      sandboxClient: candidateClient(),
+      executor: candidateExecutor(),
       fanoutHarnesses: ['claude-code', 'codex'],
       winnerSelection: 'smallest-diff' satisfies DetachedWinnerSelection,
     })
@@ -75,7 +90,7 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
 
   it('highest-readiness selects by the reviewer score, diverging from diff size', async () => {
     const delegate = detachedSessionDelegate({
-      sandboxClient: candidateClient(),
+      executor: candidateExecutor(),
       fanoutHarnesses: ['claude-code', 'codex'],
       reviewer: readinessReviewer,
       winnerSelection: 'highest-readiness',
@@ -91,7 +106,7 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
       readiness: 0,
     })
     const delegate = detachedSessionDelegate({
-      sandboxClient: candidateClient(),
+      executor: candidateExecutor(),
       fanoutHarnesses: ['claude-code', 'codex'],
       reviewer: rejectAll,
     })
@@ -100,7 +115,7 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
 
   it('default highest-score (no reviewer) still returns a valid winner', async () => {
     const delegate = detachedSessionDelegate({
-      sandboxClient: candidateClient(),
+      executor: candidateExecutor(),
       fanoutHarnesses: ['claude-code', 'codex'],
     })
     const out = await delegate(args, ctx)
@@ -109,27 +124,17 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   })
 
   it('applies harness and model overrides on the single-coder path', async () => {
-    let createOptions: CreateSandboxOptions | undefined
+    let createInput: CreateAgentEnvironmentInput | undefined
     const delegate = detachedSessionDelegate({
-      sandboxClient: {
-        async create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
-          createOptions = opts
-          return {
-            async *streamPrompt() {
-              yield { type: 'result', data: { result: CANDIDATES[0] } } satisfies SandboxEvent
-            },
-          } as unknown as SandboxInstance
-        },
-      },
+      executor: createDelegationExecutor(candidateProvider((input) => (createInput = input))),
       harness: 'opencode',
       model: 'zai/glm-4.7',
     })
 
     await delegate({ goal: 'fix it', repoRoot: '/repo' }, ctx)
 
-    const profile = createOptions?.backend?.profile as
-      | { model?: { default?: string }; metadata?: Record<string, unknown> }
-      | undefined
+    const profile = createInput?.profile
+    if (!profile || typeof profile === 'string') throw new Error('expected an inline profile')
     expect(profile?.model?.default).toBe('zai/glm-4.7')
     expect(profile?.metadata?.backendType).toBe('opencode')
   })
@@ -138,11 +143,11 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
 import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/runtime'
 
 describe('detachedSessionDelegate — trace emitter wiring (MCP → OTEL sink)', () => {
-  it('forwards the trace emitter into the delegated runLoop (loop.* spans emitted)', async () => {
+  it('forwards the trace emitter into the delegated runAgentRounds (loop.* spans emitted)', async () => {
     const events: LoopTraceEvent[] = []
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
     const delegate = detachedSessionDelegate({
-      sandboxClient: candidateClient(),
+      executor: candidateExecutor(),
       fanoutHarnesses: ['claude-code', 'codex'],
       traceEmitter,
     })

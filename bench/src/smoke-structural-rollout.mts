@@ -1,7 +1,7 @@
 /**
  * smoke-structural-rollout — the ship gate for the PORTED structuralRollout strategy
  * (src/runtime/structural-rollout.ts): prove the RUNTIME code path works against a REAL
- * model on REAL HumanEval tasks. This runs `runAgentic` with the strategy over a
+ * model on REAL HumanEval tasks. This runs `runStrategy` with the strategy over a
  * `createVerifierEnvironment` surface — routerToolLoop, the conserved pool, the metered
  * consult channel, `sandboxCheckRunner`, receipts — NOT the bench rig (hev-structural.mts).
  *
@@ -29,13 +29,13 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import {
-  type AgenticRunResult,
+  type StrategyRunResult,
   type CheckExecChannel,
   type CheckOutcome,
   type CheckRunner,
   createVerifierEnvironment,
   defaultStructuralRolloutPolicy,
-  runAgentic,
+  runStrategy,
   type StructuralRolloutResult,
   sandboxCheckRunner,
   selectBestIndex,
@@ -173,7 +173,7 @@ async function runTask(t: HumanEvalTask): Promise<TaskRow> {
     name: 'humaneval-inert',
     check: () => ({ passes: 0, total: 1, errored: 0 }),
   })
-  const result = (await runAgentic({
+  const result = (await runStrategy({
     surface,
     task: {
       id: t.taskId,
@@ -190,7 +190,7 @@ async function runTask(t: HumanEvalTask): Promise<TaskRow> {
     strategy,
     // The strategy's documented sizing: k samples + repair rounds + the check-author consult.
     budget: policy.k + policy.repairRounds + 1,
-  })) as AgenticRunResult & StructuralRolloutResult
+  })) as StrategyRunResult & StructuralRolloutResult
 
   // Receipts ↔ recorded outcomes must agree exactly (candidateIndex is the recording
   // order: samples first, then repairs). A mismatch is an adapter or strategy defect.
@@ -289,7 +289,7 @@ async function main(): Promise<void> {
     `=== structuralRollout RUNTIME smoke · n=${tasks.length} offset=${OFFSET} · k=${k} repairs<=${repairRounds} testgen=${testgen} temp=${TEMP} ===`,
   )
   console.log(`  model=${MODEL}  base=${BASE}  maxTokens=${MAX_TOKENS}  task-concurrency=${CONCURRENCY}`)
-  console.log(`  path: runAgentic → structuralRollout(default policy) → createVerifierEnvironment(inert) → sandboxCheckRunner(docker --network=none)`)
+  console.log(`  path: runStrategy → structuralRollout(default policy) → createVerifierEnvironment(inert) → sandboxCheckRunner(docker --network=none)`)
 
   const started = Date.now()
   const rows = await pooled(tasks, CONCURRENCY, async (t): Promise<TaskRow> => {

@@ -26,7 +26,7 @@ import {
 import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
-import type { ExecutorConfig } from '../runtime/supervise/runtime'
+import type { EnvironmentWorkerOptions } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { Budget, SupervisedResult } from '../runtime/supervise/types'
@@ -41,7 +41,7 @@ export interface RunKnowledgeImprovementJobOptions
   extends Omit<KnowledgeImprovementOptions, 'updateKnowledge'> {
   budget: Budget
   readinessCheck?: KnowledgeReadinessCheck
-  backend?: ExecutorConfig
+  worker?: EnvironmentWorkerOptions
   makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
   harness?: string
   supervisorModel?: string
@@ -49,7 +49,7 @@ export interface RunKnowledgeImprovementJobOptions
   superviseOptions?: Partial<
     Omit<
       SuperviseOptions,
-      'budget' | 'backend' | 'deliverable' | 'makeWorkerAgent' | 'allowedModels'
+      'budget' | 'worker' | 'deliverable' | 'makeWorkerAgent' | 'allowedModels'
     >
   >
   allowedModels?: readonly string[]
@@ -143,7 +143,7 @@ export async function runKnowledgeImprovementJob(
 ): Promise<KnowledgeImprovementJobResult> {
   const {
     allowedModels,
-    backend,
+    worker,
     budget,
     candidateArtifacts,
     harness,
@@ -171,7 +171,7 @@ export async function runKnowledgeImprovementJob(
     readinessTaskId: options.readinessTaskId,
     readinessOptions: options.readiness,
     budget,
-    backend,
+    worker,
     makeWorkerAgent,
     harness,
     supervisorModel,

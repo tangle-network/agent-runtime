@@ -1,11 +1,12 @@
 /**
  * The DISPATCH — renders one (profile, scenario) matrix cell: it runs the coding
- * agent on the profile's harness, MULTI-ROUND, in ONE persistent box, then hands
+ * agent on the profile's harness, MULTI-ROUND, in ONE persistent environment, then hands
  * back the `RunArtifact` the judges score.
  *
  * This file composes four primitives and nothing bespoke:
- *   - `offlineSandboxClient` (offline) or `new SandboxClient(...)` (live) give the box.
- *   - `openSandboxRun(client, opts, deliverable)` opens ONE persistent, resumable box.
+ *   - `offlineEnvironmentProvider` (offline) or `createTangleProvider(...)` (live)
+ *     provides the environment.
+ *   - `openEnvironmentRun({ provider, ... })` opens ONE persistent, resumable environment.
  *     `.start(prompt)` = round 1; `.resume(prompt)` = round N over the SAME session.
  *     That IS the "each round builds on the prior output" loop — no extra combinator.
  *   - `runChecks` (eval.ts) runs the deterministic `MultiLayerVerifier` pipeline each round.
@@ -34,12 +35,12 @@ import { assertNoHiddenLeak } from '@tangle-network/agent-eval'
 import type { DispatchContext, ProfileDispatchFn } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
   type AgentRunSpec,
-  openSandboxRun,
-  type SandboxClient,
-  sumSandboxUsage,
+  openEnvironmentRun,
+  sumEnvironmentUsage,
 } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent } from '@tangle-network/sandbox'
 import { gradeOnHiddenCriteria, layerOutput, type RunArtifact, runChecks } from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'
 import { type CodingScenario, checkCmds, routeCodingFields } from './scenarios'
@@ -71,15 +72,14 @@ function nextPrompt(report: RunArtifact['checks']): string {
 }
 
 /**
- * The dispatch factory. Curry the tool preset + the sandbox client; return a
+ * The dispatch factory. Curry the tool preset + provider resolver; return a
  * `ProfileDispatchFn` the matrix calls once per cell.
  *
- * @param clientFor  Resolve a `SandboxClient` for a profile's harness. Offline:
- *                   return `offlineSandboxClient(...)`. Live: `new SandboxClient(...)`.
+ * @param providerFor Resolve an `AgentEnvironmentProvider` for a profile.
  */
 export function codingDispatch(
   toolPreset: ToolPreset,
-  clientFor: (profile: AgentProfile) => SandboxClient,
+  providerFor: (profile: AgentProfile) => AgentEnvironmentProvider,
 ): ProfileDispatchFn<CodingScenario, RunArtifact> {
   return async (
     profile: AgentProfile,
@@ -100,19 +100,22 @@ export function codingDispatch(
       profile: equippedProfile,
       // FIREWALL: the prompt is the WHOLE of what the agent sees. Only scenario.prompt.
       taskToPrompt: (task: string) => task,
-      sandboxOverrides: { backend: { type: harness } },
+      environment: { backend: harness },
     }
 
-    // Read the produced solution file off the box after each turn (the deliverable).
-    const run = await openSandboxRun<{ solution: string }>(
-      clientFor(profile),
-      { agentRun, signal: ctx.signal, runId: ctx.cellId, scenarioId: scenario.id },
-      {
+    // Read the produced solution file from the environment after each turn.
+    const run = await openEnvironmentRun<{ solution: string }>({
+      provider: providerFor(profile),
+      agentRun,
+      signal: ctx.signal,
+      runId: ctx.cellId,
+      scenarioId: scenario.id,
+      deliverable: {
         kind: 'artifact',
         path: scenario.solutionPath,
         fromArtifact: (raw: string) => ({ solution: raw }),
       },
-    )
+    })
 
     try {
       let checks = blankReport()
@@ -133,12 +136,12 @@ export function codingDispatch(
         assertNoHiddenLeak(routedFields, agentContextParts.join('\n'))
         const paid = await ctx.cost.runPaidCall({
           channel: 'agent',
-          actor: 'sandbox-cell',
+          actor: 'environment-cell',
           model,
           signal: ctx.signal,
-          execute: () => (round === 0 ? run.start(prompt) : run.resume(prompt)),
+          execute: () => run.turn(prompt),
           receipt: (turn) => {
-            const usage = sumSandboxUsage(turn.events)
+            const usage = sumEnvironmentUsage(turn.events)
             return {
               model,
               inputTokens: usage.input,
@@ -149,26 +152,25 @@ export function codingDispatch(
         })
         if (!paid.succeeded) throw paid.error
         const turn = paid.value
-        solution = turn.out.solution
+        solution = turn.output.solution
         finalText = turn.events.map(eventText).filter(Boolean).join(' ').slice(0, 2000)
 
-        // Dev checks (visible example tests), IN THE BOX, this round. These (and only
+        // Dev checks (visible example tests), in the environment, this round. These (and only
         // these) steer the next round — the firewall keeps the held-out suite + rubric
-        // out of the loop. `run.box` is a `SandboxInstance`; `CheckBox` is the minimal
-        // `exec`(+optional `fs.write`) subset the checks use — a structural narrowing.
-        checks = await runChecks(run.box, scenario, cmds)
+        // out of the loop.
+        checks = await runChecks(run.environment, scenario, cmds)
         if (checks.allPass) break // stop on worker-observable green only
       }
 
       // HELD-OUT GRADING behind the FIREWALL — the anti-cheat. `gradeOnHiddenCriteria`
       // (→ agent-eval's `gradeOnHidden`) RE-ASSERTS `assertNoHiddenLeak` against the exact
       // agent context the run used (proving on real data that the held-out suite + rubric
-      // never reached the agent), THEN seeds + runs the held-out suite in the SAME box. Its
+      // never reached the agent), THEN seeds + runs the held-out suite in the SAME environment. Its
       // pass rate is the PRIMARY correctness score (the judge blends it as the recorded
       // composite). A solution that hardcoded the visible examples fails the held-out inputs
       // it never saw — execution truth behind a substrate-enforced firewall, not a regex.
       const heldout = await gradeOnHiddenCriteria(
-        run.box,
+        run.environment,
         scenario,
         cmds.heldout,
         { fields: routedFields, agentContext: agentContextParts.join('\n') },
@@ -202,9 +204,8 @@ function blankReport(): RunArtifact['checks'] {
   }
 }
 
-/** Pull the agent's text out of a stream event (best-effort, for judge context). The
- *  text payload isn't on `SandboxEvent`'s typed surface, so we read `data` defensively. */
-function eventText(ev: SandboxEvent): string {
+/** Pull the agent's text out of a provider event for judge context. */
+function eventText(ev: AgentEnvironmentEvent): string {
   const e = ev as { data?: { finalText?: string; text?: string; delta?: string } }
   return e.data?.finalText ?? e.data?.text ?? e.data?.delta ?? ''
 }

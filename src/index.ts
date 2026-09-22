@@ -1,102 +1,16 @@
 /**
  * @tangle-network/agent-runtime
  *
- * Reusable runtime lifecycle for domain-specific agents. Standardizes the
- * task lifecycle (knowledge readiness → questions / acquisition → control
- * loop → eval) and delegates domain behavior to an adapter. Owns no domain
- * policy, models, tools, connectors, or UI.
+ * Agent execution, multi-agent coordination, and improvement workflows.
  *
  * See `docs/concepts.md` (mental model) and `README.md` (quickstart).
  */
 
-// ── Re-exports from @tangle-network/agent-eval ───────────────────────
-export type {
-  ControlBudget,
-  ControlDecision,
-  ControlEvalResult,
-  ControlRunResult,
-  ControlStep,
-  DataAcquisitionPlan,
-  KnowledgeReadinessReport,
-  KnowledgeRequirement,
-  RunRecord,
-} from '@tangle-network/agent-eval'
-
-// ── Backends ──────────────────────────────────────────────────────────
-export {
-  createIterableBackend,
-  createOpenAICompatibleBackend,
-  createSandboxPromptBackend,
-} from './backends'
 // ── Immutable candidate execution ─────────────────────────────────────
 // One verified bundle → one exact per-task plan → one protected run receipt.
 // This composes the shared profile materializer and agent-eval trace store;
 // benchmark adapters supply only environment-specific artifact/container ports.
 export * from './candidate-execution'
-export type {
-  AuthSource,
-  BackendCallPolicy,
-  CircuitBreakerConfig,
-  Conversation,
-  ConversationDriveState,
-  ConversationJournal,
-  ConversationJournalEntry,
-  ConversationParticipant,
-  ConversationPolicy,
-  ConversationResult,
-  ConversationStreamEvent,
-  ConversationTurn,
-  D1DatabaseLike,
-  D1StmtLike,
-  ForwardHeaderName,
-  HaltContext,
-  HaltPredicate,
-  HaltReason,
-  HaltSignal,
-  PropagatedHeaders,
-  RetryableErrorPredicate,
-  RetryBackoff,
-  RunConversationOptions,
-  SqlAdapter,
-  TurnOrder,
-} from './conversation'
-// ── Conversations (multi-agent, distributed) ──────────────────────────
-// Drives N participants in turn through any reachable AgentExecutionBackend
-// (in-process, local cli-bridge, sandbox, router, remote agent-gateway).
-// Layered primitives — durable journal, per-turn call policy (deadline +
-// retry + circuit breaker), deterministic turn ids, and cross-gateway header
-// propagation — make the same driver work same-machine, same-cluster, and
-// cross-cloud without code changes. See docs/agent-bus-protocol.md.
-export {
-  buildForwardHeaders,
-  CircuitBreakerState,
-  CircuitOpenError,
-  computeBackoff,
-  createConversationBackend,
-  DEFAULT_MAX_DEPTH,
-  DeadlineExceededError,
-  d1ToSqlAdapter,
-  defaultIsRetryable,
-  defineConversation,
-  FileConversationJournal,
-  FORWARD_HEADERS,
-  InMemoryConversationJournal,
-  isDepthExceeded,
-  makePerAttemptSignal,
-  type PersonaConversationResult,
-  type PersonaDriver,
-  type RunPersonaConfig,
-  type RunPersonaConversationOptions,
-  readDepth,
-  runConversation,
-  runConversationStream,
-  runPersonaConversation,
-  runPersonaDispatch,
-  SqlConversationJournal,
-  sleep,
-  slugifySpeaker,
-  turnId,
-} from './conversation'
 // ── Chat-turn HTTP orchestration ──────────────────────────────────────
 // `handleChatTurn` frames a producer with the `session.run.*` envelope
 // + NDJSON line protocol + persist/post-process/trace-flush hook order.
@@ -108,7 +22,6 @@ export * from './durable'
 export {
   AgentEvalError,
   type AgentEvalErrorCode,
-  BackendTransportError,
   ConfigError,
   JudgeError,
   NotFoundError,
@@ -120,6 +33,8 @@ export {
 // Complete agent-eval methods optimize profile fields. Runtime owns only
 // isolated code/worktree candidate execution.
 export * from './improvement'
+// ── Persistent multi-agent interaction ────────────────────────────────
+export * from './interaction'
 // ── Knowledge orchestration ──────────────────────────────────────────
 // Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
 // These wrappers bridge the two without making agent-knowledge import runtime.
@@ -172,8 +87,10 @@ export type {
   EvalRunsExportResult,
   LoopSpanNode,
   OtelAttribute,
+  OtelDropEvent,
   OtelExportConfig,
   OtelExporter,
+  OtelFlushResult,
   OtelSpan,
   RuntimeEventOtelOptions,
 } from './otel-export'
@@ -187,12 +104,6 @@ export {
   INTELLIGENCE_WIRE_VERSION,
   loopEventToOtelSpan,
 } from './otel-export'
-// ── Readiness ─────────────────────────────────────────────────────────
-export { decideKnowledgeReadiness } from './readiness'
-export type { AgentBackendKind, ResolveAgentBackendOptions } from './resolve-agent-backend'
-export { resolveAgentBackend } from './resolve-agent-backend'
-// ── Run loop ─────────────────────────────────────────────────────────
-export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
   RuntimeDecisionEvidenceRef,
@@ -220,22 +131,17 @@ export type {
 export { startRuntimeRun } from './runtime-run'
 // ── Sanitization / telemetry ─────────────────────────────────────────
 export type {
-  RuntimeEventCollector,
   RuntimeStreamEventCollector,
+  RuntimeStreamEventSink,
+  RuntimeStreamEventSummary,
   RuntimeTelemetryOptions,
-  SanitizedKnowledgeReadinessReport,
 } from './sanitize'
 export {
-  createRuntimeEventCollector,
   createRuntimeStreamEventCollector,
-  sanitizeAgentRuntimeEvent,
-  sanitizeKnowledgeReadinessReport,
   sanitizeRuntimeStreamEvent,
 } from './sanitize'
-// ── Sessions ──────────────────────────────────────────────────────────
-export { InMemoryRuntimeSessionStore } from './sessions'
 // ── SSE ───────────────────────────────────────────────────────────────
-export { readinessServerSentEvent, runtimeStreamServerSentEvent } from './sse'
+export { encodeServerSentEvent, runtimeStreamServerSentEvent } from './sse'
 export {
   type RunToolLoopOptions,
   runToolLoop,
@@ -252,21 +158,11 @@ export {
 } from './tool-loop'
 // ── Core types ───────────────────────────────────────────────────────
 export type {
-  AgentAdapter,
-  AgentBackendContext,
-  AgentBackendInput,
-  AgentExecutionBackend,
-  AgentKnowledgeProvider,
-  AgentRuntimeEvent,
-  AgentRuntimeEventSink,
-  AgentTaskContext,
-  AgentTaskRunResult,
   AgentTaskSpec,
   AgentTaskStatus,
-  BackendErrorDetail,
+  AgentTurnError,
   OpenAIChatResponseFormat,
   OpenAIChatTool,
   OpenAIChatToolChoice,
-  RuntimeSessionStore,
   RuntimeStreamEvent,
 } from './types'

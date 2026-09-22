@@ -15,13 +15,19 @@
  */
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { extractLlmCallEvent, openSandboxRun } from '@tangle-network/agent-runtime/loops'
-import { Sandbox, type SandboxEvent } from '@tangle-network/sandbox'
-import { answerOutput, sandboxAgentRun, type WorkerBackendType } from '../sandbox-run'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
+  extractLlmCallEvent,
+  openEnvironmentRun,
+} from '@tangle-network/agent-runtime/loops'
+import { Sandbox } from '@tangle-network/sandbox'
+import { answerOutput, environmentAgentRun, type WorkerBackendType } from '../environment-run'
 import { type BridgeCfg, runBridgeCell } from './bridge'
-import { type SearchArm, armLabel, buildArmProfile } from './profiles'
-import { freshTasks } from './tasks-fresh'
+import { armLabel, buildArmProfile, type SearchArm } from './profiles'
 import { type SearchTask, scoreTask, seedTasks, taskToPrompt } from './tasks'
+import { freshTasks } from './tasks-fresh'
 
 export interface SearchCellResult {
   taskId: string
@@ -58,13 +64,17 @@ function extractCitations(answer: string): string[] {
 }
 
 /** Sum token usage + cost across the run's llm_call events (the kernel's ledger). */
-function tally(events: SandboxEvent[]): { costUsd?: number; tokensIn?: number; tokensOut?: number } {
+function tally(events: AgentEnvironmentEvent[]): {
+  costUsd?: number
+  tokensIn?: number
+  tokensOut?: number
+} {
   let costUsd = 0
   let tokensIn = 0
   let tokensOut = 0
   let any = false
   for (const ev of events) {
-    const call = extractLlmCallEvent(ev as never, 'search-bench')
+    const call = extractLlmCallEvent(ev, 'search-bench')
     if (!call) continue
     any = true
     costUsd += call.costUsd ?? 0
@@ -82,7 +92,7 @@ function tally(events: SandboxEvent[]): { costUsd?: number; tokensIn?: number; t
  * single call counts once, and surface the names so the export can show which
  * search backend the agent actually used (native vs the provider MCP).
  */
-function extractTools(events: SandboxEvent[]): { count: number; names: string[] } {
+function extractTools(events: AgentEnvironmentEvent[]): { count: number; names: string[] } {
   const calls = new Map<string, string>()
   for (const ev of events) {
     const part = (ev as { data?: { part?: Record<string, unknown> } }).data?.part
@@ -116,7 +126,7 @@ export interface RunCfg {
 
 async function runCell(
   cfg: RunCfg,
-  client: Sandbox,
+  provider: AgentEnvironmentProvider,
   task: SearchTask,
   harness: WorkerBackendType,
   arm: SearchArm,
@@ -134,7 +144,7 @@ async function runCell(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 300_000)
   try {
-    const agentRun = sandboxAgentRun({
+    const agentRun = environmentAgentRun({
       model: cfg.model,
       routerBaseUrl: cfg.routerBaseUrl,
       backendType: harness,
@@ -147,21 +157,22 @@ async function runCell(
         metadata: { harness, arm: armId, taskId: task.id },
       }),
     })
-    const run = await openSandboxRun<string>(
-      client,
-      { agentRun, signal: controller.signal },
-      { kind: 'events', fromEvents: (events) => answerOutput.parse(events as never) },
-    )
+    const run = await openEnvironmentRun<string>({
+      provider,
+      agentRun,
+      signal: controller.signal,
+      deliverable: { kind: 'events', fromEvents: (events) => answerOutput.parse(events) },
+    })
     let turn: Awaited<ReturnType<typeof run.start>>
     try {
-      turn = await run.start(taskToPrompt(task))
+      turn = await run.turn(taskToPrompt(task))
     } finally {
       await run.close().catch(() => {})
     }
     if (process.env.DUMP_EVENTS) {
       writeFileSync(process.env.DUMP_EVENTS, JSON.stringify(turn.events, null, 2))
     }
-    const answer = turn.out ?? ''
+    const answer = turn.output
     const { score, reasons } = scoreTask(task, answer)
     const tools = extractTools(turn.events)
     return {
@@ -195,12 +206,26 @@ async function runCell(
 export async function runSearchBench(cfg: RunCfg): Promise<SearchCellResult[]> {
   const useBridge = cfg.backend === 'bridge'
   if (useBridge && !cfg.bridge) throw new Error('backend=bridge requires cfg.bridge')
-  const client = useBridge ? null : new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
-  const runOne = (task: SearchTask, harness: WorkerBackendType, arm: SearchArm): Promise<SearchCellResult> =>
-    useBridge ? runBridgeCell(cfg.bridge!, task, harness, arm) : runCell(cfg, client!, task, harness, arm)
+  const provider = useBridge
+    ? null
+    : createTangleProvider({
+        client: new Sandbox({
+          baseUrl: cfg.sandboxBaseUrl,
+          apiKey: cfg.sandboxKey,
+        }) as never,
+      })
+  const runOne = (
+    task: SearchTask,
+    harness: WorkerBackendType,
+    arm: SearchArm,
+  ): Promise<SearchCellResult> =>
+    useBridge
+      ? runBridgeCell(cfg.bridge!, task, harness, arm)
+      : runCell(cfg, provider!, task, harness, arm)
   const cells: Array<{ task: SearchTask; harness: WorkerBackendType; arm: SearchArm }> = []
   for (const task of cfg.tasks)
-    for (const harness of cfg.harnesses) for (const arm of cfg.arms) cells.push({ task, harness, arm })
+    for (const harness of cfg.harnesses)
+      for (const arm of cfg.arms) cells.push({ task, harness, arm })
 
   mkdirSync(dirname(cfg.outPath), { recursive: true })
   writeFileSync(cfg.outPath, '')
@@ -217,7 +242,9 @@ export async function runSearchBench(cfg: RunCfg): Promise<SearchCellResult[]> {
       const mark = r.score === null ? 'ERR' : r.score === 1 ? 'PASS' : 'fail'
       console.error(
         `[${i + 1}/${cells.length}] ${harness}:${armLabel(arm)} ${task.id} → ${mark}` +
-          (r.infraError ? ` (${r.infraError})` : ` tools=${r.toolCalls}[${r.toolNames.join(',')}] cites=${r.citations.length} ${Math.round(r.wallMs / 1000)}s`),
+          (r.infraError
+            ? ` (${r.infraError})`
+            : ` tools=${r.toolCalls}[${r.toolNames.join(',')}] cites=${r.citations.length} ${Math.round(r.wallMs / 1000)}s`),
       )
     }
   }
@@ -233,7 +260,9 @@ function env(name: string, fallback?: string): string {
 }
 
 async function main(): Promise<void> {
-  const harnesses = env('HARNESSES', 'opencode').split(',').map((s) => s.trim()) as WorkerBackendType[]
+  const harnesses = env('HARNESSES', 'opencode')
+    .split(',')
+    .map((s) => s.trim()) as WorkerBackendType[]
   const arms: SearchArm[] = env('ARMS', 'native,you')
     .split(',')
     .map((s) => s.trim())
@@ -248,15 +277,24 @@ async function main(): Promise<void> {
       tangleApiKey,
       routerSearchMcp: env('ROUTER_SEARCH_MCP', 'https://router.tangle.tools/v1/search/mcp'),
       bridgeModels: JSON.parse(
-        env('BRIDGE_MODELS', '{"claude-code":"claude-code/sonnet","opencode":"opencode/zai-coding-plan/glm-5.1"}'),
+        env(
+          'BRIDGE_MODELS',
+          '{"claude-code":"claude-code/sonnet","opencode":"opencode/zai-coding-plan/glm-5.1"}',
+        ),
       ) as Record<string, string>,
       timeoutMs: Number(env('TIMEOUT_MS', '300000')),
     }
   }
   const taskSet = (process.env.TASK_SET ?? 'fresh') === 'seed' ? seedTasks : freshTasks
-  const onlyIds = (process.env.TASK_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  const onlyIds = (process.env.TASK_IDS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   const tasks = onlyIds.length ? taskSet.filter((t) => onlyIds.includes(t.id)) : taskSet
-  if (tasks.length === 0) throw new Error(`no tasks matched TASK_IDS=${process.env.TASK_IDS} in TASK_SET=${process.env.TASK_SET ?? 'fresh'}`)
+  if (tasks.length === 0)
+    throw new Error(
+      `no tasks matched TASK_IDS=${process.env.TASK_IDS} in TASK_SET=${process.env.TASK_SET ?? 'fresh'}`,
+    )
   const results = await runSearchBench({
     tasks,
     harnesses,

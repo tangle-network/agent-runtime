@@ -15,7 +15,7 @@
  *   TANGLE_API_KEY=… WORKER_MODEL=gpt-4.1 BUDGET=3 tsx src/examples/lean-proof-gate.mts
  */
 import {
-  type AgenticTask,
+  type EnvironmentTask,
   createVerifierEnvironment,
   printBenchmarkReport,
   refine,
@@ -74,7 +74,7 @@ const SYSTEM =
   'it compiles. Then submit ONLY the proof (everything that goes after `:=`, e.g. `⟨h.2, h.1⟩` or ' +
   '`by omega`) with `submit_answer`. Never use `sorry`, `admit`, or `native_decide`.'
 
-const tasks: AgenticTask[] = PROBLEMS.map((p) => ({
+const tasks: EnvironmentTask[] = PROBLEMS.map((p) => ({
   id: p.id,
   systemPrompt: SYSTEM,
   userPrompt: `Prove this Lean 4 theorem.\n\n${p.header} := ?\n\nStatement: ${p.statement}`,

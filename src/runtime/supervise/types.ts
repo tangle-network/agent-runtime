@@ -26,8 +26,7 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { BackendType } from '@tangle-network/sandbox'
+import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
@@ -193,7 +192,7 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 export interface AgentSpec {
   readonly profile: AgentProfile
   /** `null` selects router/inline; a `BackendType` selects the sandboxed harness. */
-  readonly harness: BackendType | null
+  readonly harness: HarnessType | null
   /** Bring-your-own executor: when set, overrides harness-based resolution entirely. */
   readonly executor?: Executor<unknown>
 }
@@ -287,9 +286,8 @@ export interface SpawnOpts {
 }
 
 /**
- * A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into
- * the `acquireSandbox` signal and reaps a find-by-name orphan box, so a node aborted
- * mid-acquire never leaks (M1).
+ * A live child handle. `abort()` also cancels environment acquisition, so a
+ * node aborted while starting does not leak its environment.
  */
 export interface Handle<Out> {
   readonly id: NodeId

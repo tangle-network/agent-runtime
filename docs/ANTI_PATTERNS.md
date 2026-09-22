@@ -1,81 +1,64 @@
-> **Track:** Reference | **Role:** process guardrail | **Status:** canonical
-
 # Anti-Patterns
 
-These are repo-level failure modes that have already cost time or produced
-misleading confidence. If a proposal repeats one, stop and ask what proof would
-make the work legitimate.
+These patterns create incorrect results, unclear ownership, or duplicate runtime behavior.
 
-## Mechanism Ahead Of The Gate
+## Rebuilding Provider Lifecycle
 
-Do not build per-branch adaptive sub-agents, learned planners, corpus promotion,
-outer-flywheel machinery, or other high-ceiling mechanisms before a positive
-gate result. Expressiveness was the closed gap; evidence is the open one.
+Do not recreate environment creation, streaming, session continuation, workspace reads, and cleanup inside an application loop.
+Use an `AgentEnvironmentProvider` with `openEnvironmentRun` or `runAgentRounds`.
+Implement a new provider only when an execution service cannot satisfy the existing contract.
 
-Required proof: a measured non-blind topology beats blind compute at equal k,
-under a deployable selector, on a domain with a correctable middle band, with
-reported discordant pairs and multiple-comparison discipline.
+## Selecting Execution By Vendor Branches
 
-## Facade Before Substrate Join
+Do not spread provider-name conditionals through application code.
+Construct providers at the application boundary and pass the selected provider into Runtime.
+Use `AgentEnvironmentProviderRegistry` when selection must come from configuration.
 
-A developer-friendly loop/protocol/API is not justified until a tiny executable
-proof shows the real path it claims to simplify:
+## Hiding Unsupported Capabilities
 
-```txt
-existing substrate primitive -> real worker -> real trace/state -> verifier/observer -> corrective action
-```
+Do not advertise session, workspace, command, or branching support that the provider cannot perform.
+Missing capabilities should fail before work starts.
+A provider fallback must preserve requested behavior instead of silently changing it.
 
-If most of the API retypes `Scope`, MCP tools, journals, validators, or git,
-delete it and document the missing join instead.
+## Putting Operations In Profiles
 
-Current local proof:
+Do not place credentials, provider clients, deployment settings, or observation callbacks in `AgentProfile`.
+Profiles describe portable agent behavior.
+Applications own providers, secrets, cancellation, and runtime hooks.
 
-```bash
-pnpm exec tsx bench/src/cloud-loop.mts
-```
+## Mixing Providers And Executors
 
-Remaining external proof: the same shape with `openSandboxRun` workers and a
-remote branch a sandbox can clone and push.
+Do not treat `AgentEnvironmentProvider` and `Executor` as interchangeable contracts.
+Providers own environment lifecycle and capabilities.
+Executors own one supervised unit of work, steering, usage reporting, and cleanup.
+Use the provider-backed executor when supervised work must run through a provider.
 
-## Relocated Protocol Masquerading As Simplification
+## Losing Lifecycle Ownership
 
-Deleting a facade is not enough if the same grammar reappears one layer lower.
-Question, analyst, message, packet, trace, or coordination surfaces need the
-same proof burden wherever they live: an executable run over live
-`Scope`/MCP/journal/workspace paths, not mocks proving the grammar can talk to
-itself.
+Do not create an environment or lineage without a clear owner for shutdown.
+Close persistent runs and tear down direct lineage objects in `finally` blocks.
+Cleanup should remain idempotent when cancellation and normal completion race.
 
-## Re-Running Settled Measurements
+## Comparing Unequal Runs
 
-Do not re-open a settled experiment because it is emotionally attractive. Read
-`.evolve/current.json`, `memory/`, and the dated controlled-result notes before
-launching a new run. A new experiment must name the changed axis and why the old
-result no longer answers it.
+Do not attribute an improvement to coordination, prompts, or provider choice when compared runs received different tasks or resources.
+Record tasks, models, providers, iteration limits, concurrency, tokens, cost, and failures for each compared run.
+Separate execution failures from task-quality failures.
 
-## Confounded Causal Claims
+## Letting Selection Grade Itself
 
-Never claim a topology, prompt, planner, or steering strategy helped when the
-treatment received more compute or better infrastructure than control.
-
-Minimum report:
-
-- same tasks
-- same budget/equal k
-- infra errors excluded and counted separately
-- discordant pairs reported
-- deterministic or execution-grounded oracle preferred
-- threats to validity stated in the artifact
+Do not use the same unreviewed model output both to choose a candidate and to establish that the candidate is correct.
+Use independent checks and held-back cases for promotion decisions.
+Report uncertainty when the task set is too small to support the claimed difference.
 
 ## Silent Success
 
-Do not fake completion by returning defaults, empty arrays, best-effort outputs,
-or swallowed errors. External-boundary calls return typed outcomes; inspect
-`succeeded` before `value`. A verifier, package check, deployment, or benchmark
-worked only after the artifact itself was checked.
+Do not ignore provider errors, `readError`, empty event streams, or exhausted budgets.
+Preserve failure details in typed results or thrown errors that retain the observed events.
+Inspect the produced artifact or terminal event before reporting completion.
 
-## Overclaim
+## Preserving Obsolete Design History
 
-"Validates the concept" is not "validates the product." Route through the real
-kernel before claiming product proof. Underpowered directional splits are not
-wins. Mocked analyst/model seams are acceptable for local plumbing tests, but
-the report must say what remains unproven.
+Do not keep implementation plans as current documentation after their APIs are removed.
+Move durable decisions into current reference docs and delete the stale plan.
+Keep historical material only when it explains a still-enforced invariant that current docs cannot state directly.

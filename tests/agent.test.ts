@@ -2,18 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  AgentManifestError,
-  collectAgentRun,
-  defineAgent,
-  unimplementedAgentRun,
-} from '../src/agent/define-agent'
+import { collectAgentRun } from '../src/agent/environment-act'
 import {
   createSurfaceImprovementProposer,
   type DraftPatchInput,
   type DraftPatchOutput,
 } from '../src/agent/improvement-adapter'
-import { resolveSubjectPath, validateSurfaces } from '../src/agent/surfaces'
+import { resolveSubjectPath, validateImprovementPaths } from '../src/agent/improvement-paths'
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -22,10 +17,7 @@ function makeAgentTree(root: string): void {
   writeFileSync(join(root, 'prompts/intake.md'), '# intake\n\nOriginal intake section.\n')
   mkdirSync(join(root, 'tools/list_invoices'), { recursive: true })
   writeFileSync(join(root, 'tools/list_invoices/README.md'), '# list_invoices\n')
-  mkdirSync(join(root, 'personas'), { recursive: true })
-  writeFileSync(join(root, 'personas/w2-single.yaml'), 'id: w2-single\n')
   mkdirSync(join(root, '.agent-knowledge'), { recursive: true })
-  writeFileSync(join(root, 'rubric.ts'), 'export const rubric = {}\n')
 }
 
 function f(
@@ -59,112 +51,13 @@ afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true })
 })
 
-// ── defineAgent ─────────────────────────────────────────────────────
-
-describe('defineAgent', () => {
-  it('returns the manifest when every required surface resolves', () => {
-    const m = defineAgent({
-      id: 'test-agent',
-      repoRoot: tmpRoot,
-      surfaces: {
-        systemPrompt: 'prompts',
-        tools: 'tools',
-        rubric: 'rubric.ts',
-        knowledge: '.agent-knowledge',
-        personas: 'personas',
-      },
-      rubric: {
-        dimensions: [
-          { id: 'd1', weight: 0.5, score: () => 1 },
-          { id: 'd2', weight: 0.5, score: () => 1 },
-        ],
-      },
-      runtime: { act: () => unimplementedAgentRun() },
-      personas: async () => [],
-      analystKinds: [],
-      analyst: { model: 'claude-haiku-4-5' },
-    })
-    expect(m.id).toBe('test-agent')
-  })
-
-  it('throws AgentManifestError on missing required surface', () => {
-    expect(() =>
-      defineAgent({
-        id: 'broken',
-        repoRoot: tmpRoot,
-        surfaces: {
-          systemPrompt: 'prompts',
-          tools: 'tools',
-          rubric: 'does-not-exist.ts',
-          knowledge: '.agent-knowledge',
-          personas: 'personas',
-        },
-        rubric: { dimensions: [{ id: 'd1', weight: 1, score: () => 0 }] },
-        runtime: { act: () => unimplementedAgentRun() },
-        personas: async () => [],
-        analystKinds: [],
-        analyst: { model: 'claude-haiku-4-5' },
-      }),
-    ).toThrow(AgentManifestError)
-  })
-
-  it('throws when rubric weights sum to a clearly miscalibrated total', () => {
-    expect(() =>
-      defineAgent({
-        id: 'mis-weighted',
-        repoRoot: tmpRoot,
-        surfaces: {
-          systemPrompt: 'prompts',
-          tools: 'tools',
-          rubric: 'rubric.ts',
-          knowledge: '.agent-knowledge',
-          personas: 'personas',
-        },
-        rubric: {
-          dimensions: [
-            { id: 'd1', weight: 5, score: () => 1 },
-            { id: 'd2', weight: 5, score: () => 1 },
-          ],
-        },
-        runtime: { act: () => unimplementedAgentRun() },
-        personas: async () => [],
-        analystKinds: [],
-        analyst: { model: 'claude-haiku-4-5' },
-      }),
-    ).toThrow(/sum to 10\.000/)
-  })
-
-  it('does NOT validate optional surfaces that are omitted', () => {
-    const m = defineAgent({
-      id: 'no-optionals',
-      repoRoot: tmpRoot,
-      surfaces: {
-        systemPrompt: 'prompts',
-        tools: 'tools',
-        rubric: 'rubric.ts',
-        knowledge: '.agent-knowledge',
-        personas: 'personas',
-        // No scaffolding / memory / rag / outputSchema — should not throw.
-      },
-      rubric: { dimensions: [{ id: 'd1', weight: 1, score: () => 0 }] },
-      runtime: { act: () => unimplementedAgentRun() },
-      personas: async () => [],
-      analystKinds: [],
-      analyst: { model: 'claude-haiku-4-5' },
-    })
-    expect(m.surfaces.scaffolding).toBeUndefined()
-  })
-})
-
 // ── resolveSubjectPath ──────────────────────────────────────────────
 
 describe('resolveSubjectPath', () => {
-  const surfaces = {
+  const paths = {
     systemPrompt: 'prompts',
     tools: 'tools',
-    rubric: 'rubric.ts',
     knowledge: '.agent-knowledge',
-    personas: 'personas',
     rag: 'rag',
     skills: 'skills',
     mcp: 'mcp',
@@ -176,19 +69,15 @@ describe('resolveSubjectPath', () => {
     code: 'src',
   }
 
-  it('routes system-prompt subject to <surfaces.systemPrompt>/<section>.md', () => {
-    const r = resolveSubjectPath({ kind: 'system-prompt', section: 'intake' }, surfaces, tmpRoot)
-    expect(r?.repoRelativePath).toBe('prompts/intake.md')
+  it('routes a system-prompt subject to its declared prompt directory', () => {
+    const r = resolveSubjectPath({ kind: 'system-prompt', section: 'intake' }, paths, tmpRoot)
+    expect(r?.declaredPath).toBe('prompts/intake.md')
     expect(r?.exists).toBe(true)
     expect(r?.intent).toBe('edit-existing')
   })
 
   it('routes system-prompt to create-new when the file does not exist', () => {
-    const r = resolveSubjectPath(
-      { kind: 'system-prompt', section: 'new-section' },
-      surfaces,
-      tmpRoot,
-    )
+    const r = resolveSubjectPath({ kind: 'system-prompt', section: 'new-section' }, paths, tmpRoot)
     expect(r?.intent).toBe('create-new')
     expect(r?.exists).toBe(false)
   })
@@ -196,10 +85,10 @@ describe('resolveSubjectPath', () => {
   it('routes tool-doc with aspect to <tools>/<tool>/<aspect>.md', () => {
     const r = resolveSubjectPath(
       { kind: 'tool-doc', tool: 'list_invoices', aspect: 'examples' },
-      surfaces,
+      paths,
       tmpRoot,
     )
-    expect(r?.repoRelativePath).toBe('tools/list_invoices/examples.md')
+    expect(r?.declaredPath).toBe('tools/list_invoices/examples.md')
   })
 
   it.each([
@@ -215,21 +104,21 @@ describe('resolveSubjectPath', () => {
     [{ kind: 'agent-profile', field: 'prompt.systemPrompt' } as const, 'agent-profile.json'],
     [{ kind: 'code', path: 'workers/dispatch.ts' } as const, 'src/workers/dispatch.ts'],
   ])('routes the %s finding to its declared surface', (subject, expected) => {
-    expect(resolveSubjectPath(subject, surfaces, tmpRoot)?.repoRelativePath).toBe(expected)
+    expect(resolveSubjectPath(subject, paths, tmpRoot)?.declaredPath).toBe(expected)
   })
 
   it('rejects a code finding that escapes its declared source root', () => {
     expect(
-      resolveSubjectPath({ kind: 'code', path: '../../secrets.env' }, surfaces, tmpRoot),
+      resolveSubjectPath({ kind: 'code', path: '../../secrets.env' }, paths, tmpRoot),
     ).toBeNull()
   })
 
   it('rejects raw-knowledge and RAG findings that escape their declared roots', () => {
     expect(
-      resolveSubjectPath({ kind: 'knowledge.raw', sourceId: '../../secrets' }, surfaces, tmpRoot),
+      resolveSubjectPath({ kind: 'knowledge.raw', sourceId: '../../secrets' }, paths, tmpRoot),
     ).toBeNull()
     expect(
-      resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: '../../secrets' }, surfaces, tmpRoot),
+      resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: '../../secrets' }, paths, tmpRoot),
     ).toBeNull()
   })
 
@@ -246,40 +135,36 @@ describe('resolveSubjectPath', () => {
       { kind: 'rag', corpus: '../../secrets', docId: 'entry' } as const,
     ]
     for (const subject of escaped) {
-      expect(resolveSubjectPath(subject, surfaces, tmpRoot)).toBeNull()
+      expect(resolveSubjectPath(subject, paths, tmpRoot)).toBeNull()
     }
   })
 
   it('returns null when subject targets an undeclared optional surface', () => {
-    const noRag = { ...surfaces, rag: undefined }
+    const noRag = { ...paths, rag: undefined }
     const r = resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: 'foo' }, noRag, tmpRoot)
     expect(r).toBeNull()
   })
 
   it('returns null for cluster subjects (failure-mode evidence, not mutations)', () => {
-    const r = resolveSubjectPath({ kind: 'cluster', label: 'tool-call-loop' }, surfaces, tmpRoot)
+    const r = resolveSubjectPath({ kind: 'cluster', label: 'tool-call-loop' }, paths, tmpRoot)
     expect(r).toBeNull()
   })
 
   it('returns null for websearch.outdated / prior-run-summary (stale signals, no direct file)', () => {
     expect(
-      resolveSubjectPath({ kind: 'websearch.outdated', topic: 't' }, surfaces, tmpRoot),
+      resolveSubjectPath({ kind: 'websearch.outdated', topic: 't' }, paths, tmpRoot),
     ).toBeNull()
-    expect(
-      resolveSubjectPath({ kind: 'prior-run-summary', topic: 't' }, surfaces, tmpRoot),
-    ).toBeNull()
+    expect(resolveSubjectPath({ kind: 'prior-run-summary', topic: 't' }, paths, tmpRoot)).toBeNull()
   })
 })
 
 // ── createSurfaceImprovementProposer — proposeFromFindings ───────────
 
 describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
-  const baseSurfaces = {
+  const basePaths = {
     systemPrompt: 'prompts',
     tools: 'tools',
-    rubric: 'rubric.ts',
     knowledge: '.agent-knowledge',
-    personas: 'personas',
   }
 
   function mkDraft(): {
@@ -292,8 +177,8 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
       fn: async (input) => {
         calls.push(input)
         return {
-          patch: `--- a/${input.target.repoRelativePath}\n+++ b/${input.target.repoRelativePath}\n@@ +1,1 @@\n+drafted\n`,
-          summary: `edit ${input.target.repoRelativePath}`,
+          patch: `--- a/${input.target.declaredPath}\n+++ b/${input.target.declaredPath}\n@@ +1,1 @@\n+drafted\n`,
+          summary: `edit ${input.target.declaredPath}`,
           rationale: 'because',
         }
       },
@@ -303,7 +188,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   it('proposes an edit when subject + surface resolve cleanly', async () => {
     const { fn, calls } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -320,7 +205,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   it('records an error when subject does not parse', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -333,7 +218,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   it('skips findings without a subject (descriptive findings)', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -346,7 +231,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   it('skips cluster findings (failure-mode evidence)', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -358,7 +243,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   it('skips agent-knowledge:* subjects (they route to the KnowledgeProposalSource)', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -369,10 +254,10 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
     expect(skipped).toBe(1)
   })
 
-  it('records an error when subject targets an undeclared surface', async () => {
+  it('records an error when subject targets an undeclared improvement path', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces, // no `rag` declared
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -381,13 +266,13 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
     ])
     expect(edits).toEqual([])
     expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toMatch(/undeclared surface/)
+    expect(errors[0]!.message).toMatch(/undeclared improvement path/)
   })
 
   it('records an error when target does not exist for a non-create kind', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
       allowCreateForKinds: ['knowledge.wiki'], // explicitly disallow create for system-prompt
@@ -403,7 +288,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   it('binds each patch to the source content for later activation checks', async () => {
     const { fn } = mkDraft()
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: fn,
     })
@@ -413,7 +298,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
 
   it('records an error when draftPatch throws (no silent skip)', async () => {
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: async () => {
         throw new Error('boom')
@@ -426,7 +311,7 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
 
   it('skips when draftPatch returns an empty patch', async () => {
     const adapter = createSurfaceImprovementProposer({
-      surfaces: baseSurfaces,
+      paths: basePaths,
       repoRoot: tmpRoot,
       draftPatch: async () => ({ patch: '', summary: 'no-op', rationale: '' }),
     })
@@ -436,81 +321,63 @@ describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   })
 })
 
-// ── validateSurfaces direct ─────────────────────────────────────────
+// ── validateImprovementPaths direct ─────────────────────────────────
 
-describe('validateSurfaces', () => {
-  it('flags every missing required surface (not first-fail)', () => {
-    const issues = validateSurfaces(
+describe('validateImprovementPaths', () => {
+  it('reports every declared missing path', () => {
+    const issues = validateImprovementPaths(
       {
         systemPrompt: 'nope',
         tools: 'nada',
-        rubric: 'rubric.ts',
-        knowledge: '.agent-knowledge',
-        personas: 'personas',
       },
       tmpRoot,
     )
-    expect(issues.map((i) => i.surface).sort()).toEqual(['systemPrompt', 'tools'])
+    expect(issues.map((issue) => issue.pathKind).sort()).toEqual(['systemPrompt', 'tools'])
   })
 
-  it('flags an optional surface only when explicitly declared but missing', () => {
-    const ok = validateSurfaces(
+  it('accepts omitted paths and reports only explicitly declared missing paths', () => {
+    const ok = validateImprovementPaths(
       {
         systemPrompt: 'prompts',
         tools: 'tools',
-        rubric: 'rubric.ts',
         knowledge: '.agent-knowledge',
-        personas: 'personas',
-        // rag undefined → not flagged
       },
       tmpRoot,
     )
     expect(ok).toEqual([])
 
-    const flagged = validateSurfaces(
+    const flagged = validateImprovementPaths(
       {
         systemPrompt: 'prompts',
         tools: 'tools',
-        rubric: 'rubric.ts',
         knowledge: '.agent-knowledge',
-        personas: 'personas',
-        rag: 'rag', // explicitly declared but absent
+        rag: 'rag',
       },
       tmpRoot,
     )
     expect(flagged).toHaveLength(1)
-    expect(flagged[0]!.surface).toBe('rag')
+    expect(flagged[0]!.pathKind).toBe('rag')
   })
 
   it('distinguishes files from directories instead of treating existence as valid', () => {
     writeFileSync(join(tmpRoot, 'not-a-directory'), 'file\n')
     mkdirSync(join(tmpRoot, 'not-a-file'))
-    const issues = validateSurfaces(
+    const issues = validateImprovementPaths(
       {
         systemPrompt: 'prompts',
         tools: 'not-a-directory',
-        rubric: 'not-a-file',
-        knowledge: '.agent-knowledge',
-        personas: 'personas',
+        outputSchema: 'not-a-file',
       },
       tmpRoot,
     )
     expect(issues).toEqual([
-      { surface: 'tools', path: 'not-a-directory', reason: 'not-directory' },
-      { surface: 'rubric', path: 'not-a-file', reason: 'not-file' },
+      { pathKind: 'tools', path: 'not-a-directory', reason: 'not-directory' },
+      { pathKind: 'outputSchema', path: 'not-a-file', reason: 'not-file' },
     ])
   })
 })
 
 describe('AgentRunInvocation streaming contract', () => {
-  it('unimplementedAgentRun yields no events and rejects output with a clear message', async () => {
-    const invocation = unimplementedAgentRun<{ score: number }>()
-    const events: unknown[] = []
-    for await (const ev of invocation.events) events.push(ev)
-    expect(events).toEqual([])
-    await expect(invocation.output).rejects.toThrow(/not yet wired/)
-  })
-
   it('collectAgentRun drains events AND awaits output', async () => {
     const invocation = {
       events: (async function* yielder() {
@@ -562,7 +429,7 @@ describe('multi-candidate path probing', () => {
       surfaces,
       tmpRoot,
     )
-    expect(r?.repoRelativePath).toBe('prompts/expense-categorization/SKILL.md')
+    expect(r?.declaredPath).toBe('prompts/expense-categorization/SKILL.md')
     expect(r?.intent).toBe('edit-existing')
   })
 
@@ -582,7 +449,7 @@ describe('multi-candidate path probing', () => {
       surfaces,
       tmpRoot,
     )
-    expect(r?.repoRelativePath).toBe('prompts/both-layouts.md')
+    expect(r?.declaredPath).toBe('prompts/both-layouts.md')
   })
 
   it('falls back to flat tool-doc <tool>.md when <tool>/README.md is absent', () => {
@@ -595,6 +462,6 @@ describe('multi-candidate path probing', () => {
     }
     writeFileSync(join(tmpRoot, 'tools/flat-tool.md'), '# flat-tool\n')
     const r = resolveSubjectPath({ kind: 'tool-doc', tool: 'flat-tool' }, surfaces, tmpRoot)
-    expect(r?.repoRelativePath).toBe('tools/flat-tool.md')
+    expect(r?.declaredPath).toBe('tools/flat-tool.md')
   })
 })

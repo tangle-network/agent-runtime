@@ -1,17 +1,17 @@
 # A research agent that can't leak one tenant's data into another's
 
-Two research agents answer the same question in parallel. Each returns **structured findings** —
+Two research agents answer the same question in parallel. Each returns **structured findings** -
 claims, each backed by a source quote and URL, plus a list of proposed knowledge-base writes. A
 validator scores every answer on citation quality and enforces one hard rule: every finding must
 stay inside the tenant (the isolated data namespace) the task was scoped to. One of the two agents
 here leaks a finding into a **different** tenant's namespace, so the validator throws its *entire*
-answer out — and the clean agent wins by default.
+answer out - and the clean agent wins by default.
 
 ## Why it matters
 
 "Let the agent research and write to the knowledge base" is where multi-tenant products get burned:
 one bad write puts customer A's data in customer B's space. This example shows the guardrail that
-makes that structurally impossible. The validator is a hard gate, not a warning — a single
+makes that structurally impossible. The validator is a hard gate, not a warning - a single
 out-of-namespace item rejects the whole result, so a leaky answer can never win and never gets
 written. It also shows the **propose-don't-apply** contract: the winning agent returns
 `proposedWrites` it *wants* to make, but nothing is written to the store until you approve it.
@@ -32,11 +32,11 @@ written. It also shows the **propose-don't-apply** contract: the winning agent r
 ## Run
 
 ```bash
-# 1. Install the one optional package this example needs (the runtime does NOT depend on it —
+# 1. Install the one optional package this example needs (the runtime does NOT depend on it -
 #    domain packs are injected, not bundled, so it isn't installed by default):
 pnpm add -D @tangle-network/agent-knowledge
 
-# 2. Run it (fully offline — the two agent answers are scripted fixtures, no model call, no key):
+# 2. Run it (fully offline - the two agent answers are scripted fixtures, no model call, no key):
 pnpm tsx examples/researcher-loop/researcher-loop.ts
 ```
 
@@ -54,18 +54,19 @@ winner: iteration #0 (...)
     - insert into example-tenant
 ```
 
-Both `items` carry `example-tenant` — the leaked candidate never reaches the winner. `proposedWrites: 1`
+Both `items` carry `example-tenant` - the leaked candidate never reaches the winner. `proposedWrites: 1`
 is the write the agent *proposes*; it is not applied.
 
 ## Make it real
 
-Swap the scripted answer source for a live sandbox — `new Sandbox({ apiKey })` — and the loop creates
-a real cloud sandbox per attempt, streams the research prompt into it, and parses the same structured
-findings out. The validator, namespace firewall, and propose-don't-apply contract are unchanged.
+Swap the scripted provider for `createTangleProvider({ client: new Sandbox({ apiKey }) })`.
+The loop then creates one cloud environment per attempt, streams the research prompt into it, and
+parses the same structured findings.
+The validator, namespace firewall, and propose-don't-apply contract are unchanged.
 
 ## Files
 
 | file | what it is |
 |---|---|
 | `researcher-loop.ts` | the lesson: the profile, the two-agent fanout, and winner selection |
-| `synthetic-researcher.ts` | the offline fixtures — the two scripted answers (one clean, one leaky) |
+| `synthetic-researcher.ts` | the offline fixtures - the two scripted answers (one clean, one leaky) |

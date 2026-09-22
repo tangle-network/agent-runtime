@@ -12,7 +12,7 @@
  *   TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini BUDGET=3 tsx src/examples/math-demo.mts
  */
 import {
-  type AgenticTask,
+  type EnvironmentTask,
   createVerifierEnvironment,
   printBenchmarkReport,
   refine,
@@ -37,7 +37,7 @@ const problems: Array<{ q: string; answer: number }> = [
   },
 ]
 
-const tasks: AgenticTask[] = problems.map((p, i) => ({
+const tasks: EnvironmentTask[] = problems.map((p, i) => ({
   id: `math-${i + 1}`,
   systemPrompt:
     'You are a careful mathematician. Work step by step, use the calculator tool for arithmetic, then submit ONLY the final number with submit_answer.',

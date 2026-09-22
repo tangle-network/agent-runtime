@@ -18,7 +18,7 @@ vi.mock('../../src/runtime/supervise/supervise', () => ({
 
 import { supervisorInstructions } from '../../src/runtime/supervise/authoring'
 import { defaultDelegateBudget, delegate } from '../../src/runtime/supervise/delegate'
-import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
+import type { EnvironmentWorkerOptions } from '../../src/runtime/supervise/runtime'
 import type {
   RouterConfig,
   Spend,
@@ -31,12 +31,13 @@ const router: RouterConfig = {
   routerKey: 'k',
   model: 'deepseek-v4-flash',
 }
-const backend: ExecutorConfig = {
-  backend: 'router-tools',
-  routerBaseUrl: 'http://localhost/v1',
-  routerKey: 'k',
-  model: 'deepseek-v4-flash',
-} as ExecutorConfig
+const worker: EnvironmentWorkerOptions = {
+  provider: {
+    name: 'test',
+    capabilities: () => Promise.reject(new Error('not used')),
+    create: () => Promise.reject(new Error('not used')),
+  },
+}
 
 const emptyTree = { id: 'root', children: [] } as unknown as TreeView
 
@@ -58,13 +59,13 @@ beforeEach(() => {
 
 describe('delegate — the one generic delegation verb over supervise()', () => {
   it('routes to supervise() with the DEFAULT authoring-supervisor profile (no hardcoded worker)', async () => {
-    await delegate('fix the failing auth test', { backend, router })
+    await delegate('fix the failing auth test', { worker, router })
 
     expect(superviseSpy).toHaveBeenCalledTimes(1)
     const [profile, task, opts] = superviseSpy.mock.calls[0] as [
       { name?: string; harness?: unknown; systemPrompt?: string },
       unknown,
-      { backend?: unknown; router?: unknown; budget?: unknown },
+      { worker?: unknown; router?: unknown; budget?: unknown },
     ]
     // A router-brained AUTHORING supervisor: its standing instruction IS the authoring skill, so it
     // writes its own worker profile from the intent — no worker profile is baked into delegate.
@@ -73,7 +74,7 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     // The intent is handed through verbatim as the task.
     expect(task).toBe('fix the failing auth test')
     // The injected substrate (where workers run + the brain) is forwarded.
-    expect(opts.backend).toBe(backend)
+    expect(opts.worker).toBe(worker)
     expect(opts.router).toBe(router)
     expect(opts.budget).toBe(defaultDelegateBudget)
   })
@@ -82,7 +83,7 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     const canned = winner({ patch: 'diff' })
     superviseSpy.mockResolvedValue(canned)
 
-    const result = await delegate('refactor the parser', { backend, router })
+    const result = await delegate('refactor the parser', { worker, router })
 
     expect(result).toBe(canned)
     expect(result.kind).toBe('winner')
@@ -104,7 +105,7 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     }
     superviseSpy.mockResolvedValue(noWinner)
 
-    const result = await delegate('do the thing', { backend, router })
+    const result = await delegate('do the thing', { worker, router })
     expect(result.kind).toBe('no-winner')
     if (result.kind === 'no-winner') {
       // A budget-exhausted delegation still cost real compute; the spend rides back unchanged.
@@ -117,7 +118,7 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     const budget = { maxIterations: 7, maxTokens: 9000 }
 
     await delegate('intent', {
-      backend,
+      worker,
       router,
       deliverable,
       model: 'glm-5.2',
@@ -140,7 +141,7 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
 
   it('lets the caller override only the supervisor name/stance', async () => {
     await delegate('intent', {
-      backend,
+      worker,
       router,
       supervisor: { name: 'my-supervisor', systemPrompt: 'custom stance' },
     })
@@ -150,12 +151,12 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
   })
 
   it('fails loud on an empty intent', async () => {
-    await expect(delegate('   ', { backend, router })).rejects.toThrow(/intent/)
+    await expect(delegate('   ', { worker, router })).rejects.toThrow(/intent/)
     expect(superviseSpy).not.toHaveBeenCalled()
   })
 
   it('fails loud when neither router nor brain is provided (no supervisor brain)', async () => {
-    await expect(delegate('intent', { backend })).rejects.toThrow(/router|brain/)
+    await expect(delegate('intent', { worker })).rejects.toThrow(/router|brain/)
     expect(superviseSpy).not.toHaveBeenCalled()
   })
 })

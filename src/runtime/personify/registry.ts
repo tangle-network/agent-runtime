@@ -4,7 +4,7 @@
  *
  * A `LoopShape` is reusable STRUCTURE (how to decompose / fan out / verify / synthesize),
  * parameterized by a persona's CONTENT. The registry lets a caller resolve a composed shape by
- * NAME: register a factory once, then `runPersonified({ shape: '<name>' })` resolves it with zero
+ * NAME: register a factory once, then `runPersonaShape({ shape: '<name>' })` resolves it with zero
  * edits elsewhere. `register` fails loud on a duplicate; `resolve` returns a typed outcome so an
  * unknown name is a named error, never a silent default.
  *
@@ -45,7 +45,7 @@ export function createShapeRegistry(): ShapeRegistry {
   }
 }
 
-/** The default registry `runPersonified` resolves a shape name against. Empty by construction —
+/** The default registry `runPersonaShape` resolves a shape name against. Empty by construction —
  *  a caller registers its own composed shapes; the engine ships no domain shape. */
 export const builtinShapes: ShapeRegistry = createShapeRegistry()
 

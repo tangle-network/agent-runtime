@@ -1,27 +1,27 @@
 /**
- * superviseSurface — drive a team of agents to solve a graded `AgenticSurface` task. ONE capability that
+ * superviseSurface — drive a team of agents to solve a graded `TaskEnvironment` task. ONE capability that
  * replaces the worker-seam + "self-improving supervisor" wrapper pair: the driver (`profile`) spawns
- * workers that each run `runAgentic` over the surface (`refine` by default), settle on the surface's OWN
+ * workers that each run `runStrategy` over the surface (`refine` by default), settle on the surface's OWN
  * check (settled ⟺ resolved — a worker that ran but didn't pass settles invalid, so a keep-best driver
  * never counts it done), and feed the driver a self-improvement lens (the still-FAILING tests, by default)
  * so the next spawn targets the persistently-hard cases. Returns the deployable outcome + the full
  * conserved spend.
  *
- * WHY this lives here and not as a `supervise()` backend: `runAgentic` depends on the supervise core
+ * WHY this lives here and not as a `supervise()` backend: `runStrategy` depends on the supervise core
  * (`strategy.ts` → `supervise/`), so a surface-solving worker cannot be a supervise built-in without an
- * import cycle. It is therefore a COMPOSITION of `supervise()` + `runAgentic` at the layer above both —
+ * import cycle. It is therefore a COMPOSITION of `supervise()` + `runStrategy` at the layer above both —
  * the right home for "supervise over a graded surface". The within-run self-improvement is the analyst
  * (authored content, swap `analysts`); the across-run kind wraps this call in `improve()`.
  */
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
 import type { RouterConfig } from './router-client'
 import {
-  type AgenticSurface,
-  type AgenticTask,
+  type EnvironmentTask,
   refine,
-  runAgentic,
+  runStrategy,
   type Strategy,
+  type TaskEnvironment,
 } from './strategy'
 import type { DeliverableSpec } from './supervise/completion-gate'
 import { supervise } from './supervise/supervise'
@@ -41,12 +41,12 @@ export interface SurfaceWorkerOut {
 
 /** Remember the worker's LAST `run_tests` output so the analyst can name the still-failing tests — a
  *  transparent passthrough for every other surface call. Local to this module (no surface-zoo concept). */
-function captureFailures(base: AgenticSurface): {
-  surface: AgenticSurface
+function captureFailures(base: TaskEnvironment): {
+  surface: TaskEnvironment
   failing: () => string[]
 } {
   let lastReport = ''
-  const surface: AgenticSurface = {
+  const surface: TaskEnvironment = {
     name: base.name,
     open: (t) => base.open(t),
     tools: (t, h) => base.tools(t, h),
@@ -109,12 +109,12 @@ export interface SurfaceWorkerConfig {
   readonly budget?: number
 }
 
-/** One spawned worker = one `runAgentic` attempt over the surface task. The driver's brief is threaded
- *  into the attempt (so a re-spawn can take a targeted angle, not an identical retry); `runAgentic` stamps
+/** One spawned worker = one `runStrategy` attempt over the surface task. The driver's brief is threaded
+ *  into the attempt (so a re-spawn can take a targeted angle, not an identical retry); `runStrategy` stamps
  *  real tokens/usd/ms, forwarded as `Spend`; the still-failing tests are captured for the analyst. */
 function surfaceWorkerExecutor(
-  surface: AgenticSurface,
-  task: AgenticTask,
+  surface: TaskEnvironment,
+  task: EnvironmentTask,
   worker: SurfaceWorkerConfig,
   strategy: Strategy,
 ): Executor<SurfaceWorkerOut> {
@@ -123,14 +123,14 @@ function surfaceWorkerExecutor(
     runtime: 'surface-worker',
     async execute(brief: unknown): Promise<ExecutorResult<SurfaceWorkerOut>> {
       const guidance = typeof brief === 'string' ? brief.trim() : brief ? JSON.stringify(brief) : ''
-      const attemptTask: AgenticTask = guidance
+      const attemptTask: EnvironmentTask = guidance
         ? {
             ...task,
             systemPrompt: `${task.systemPrompt ?? ''}\n\n— Supervisor guidance for THIS attempt (incorporate it; do not just repeat a prior approach) —\n${guidance}`,
           }
         : task
       const cap = captureFailures(surface)
-      const r = await runAgentic({
+      const r = await runStrategy({
         surface: cap.surface,
         task: attemptTask,
         strategy,
@@ -167,7 +167,7 @@ function surfaceWorkerExecutor(
 
 export interface SuperviseSurfaceOptions {
   /** The graded surface workers solve (open/tools/call/score/close). */
-  readonly surface: AgenticSurface
+  readonly surface: TaskEnvironment
   /** Where/how each worker runs the surface task. */
   readonly worker: SurfaceWorkerConfig
   /** The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
@@ -199,12 +199,12 @@ export interface SuperviseSurfaceResult {
   readonly completions: number
 }
 
-/** Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and
+/** Drive a team of agents (spawned + steered by `profile`) to solve a graded `TaskEnvironment` task, and
  *  report the deployable outcome + the full conserved spend. This is `supervise()` configured for surfaces
  *  — there is no other entrypoint to learn. */
 export async function superviseSurface(
   profile: SupervisorProfile,
-  task: AgenticTask,
+  task: EnvironmentTask,
   opts: SuperviseSurfaceOptions,
 ): Promise<SuperviseSurfaceResult> {
   const strategy = opts.strategy ?? refine

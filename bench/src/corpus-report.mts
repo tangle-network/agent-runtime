@@ -1,6 +1,5 @@
 /**
- * Cross-benchmark corpus analysis instrument (docs/learning-flywheel.md - the
- * "corpus" + "measurement" layers).
+ * Cross-benchmark corpus analysis.
  *
  * The corpus (one JSONL RunRecord per condition-run) is the flywheel's only durable
  * asset. This reads it back and reports, GROUPED BY benchmark x condition, the

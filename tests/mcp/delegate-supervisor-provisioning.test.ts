@@ -3,11 +3,17 @@ import {
   delegateEnabled,
   resolveDelegateSupervisor,
 } from '../../src/mcp/delegate-supervisor-provisioning'
-import type { SandboxClient } from '../../src/runtime'
+import type { AgentEnvironmentProvider } from '../../src/runtime'
 
-// The resolver only stores the client reference into the backend config; it never invokes it, so a
-// bare cast is a faithful stub for these assertions.
-const stubClient = {} as SandboxClient
+const stubProvider: AgentEnvironmentProvider = {
+  name: 'test-provider',
+  capabilities() {
+    throw new Error('not used')
+  },
+  async create() {
+    throw new Error('not used')
+  },
+}
 
 describe('delegateEnabled', () => {
   it('is off by default and on only at MCP_ENABLE_DELEGATE=1', () => {
@@ -21,11 +27,11 @@ describe('delegateEnabled', () => {
 
 describe('resolveDelegateSupervisor', () => {
   it('returns undefined when delegate is not opted in (fail-closed)', () => {
-    expect(resolveDelegateSupervisor(stubClient, {} as NodeJS.ProcessEnv)).toBeUndefined()
+    expect(resolveDelegateSupervisor(stubProvider, {} as NodeJS.ProcessEnv)).toBeUndefined()
   })
 
-  it('wires a router-brained supervisor over a sandbox backend when enabled', () => {
-    const opts = resolveDelegateSupervisor(stubClient, {
+  it('wires a router-brained supervisor to the environment provider when enabled', () => {
+    const opts = resolveDelegateSupervisor(stubProvider, {
       MCP_ENABLE_DELEGATE: '1',
       TANGLE_API_KEY: 'tk',
     } as unknown as NodeJS.ProcessEnv)
@@ -36,12 +42,14 @@ describe('resolveDelegateSupervisor', () => {
       model: 'moonshotai/kimi-k2.6',
     })
     expect(opts!.model).toBe('moonshotai/kimi-k2.6')
-    expect(opts!.backend).toMatchObject({ backend: 'sandbox', harness: 'opencode' })
-    expect((opts!.backend as { sandboxClient: unknown }).sandboxClient).toBe(stubClient)
+    expect(opts!.worker).toMatchObject({
+      environment: { backend: 'opencode' },
+    })
+    expect(opts!.worker.provider).toBe(stubProvider)
   })
 
   it('honors the supervisor model + worker harness + router overrides', () => {
-    const opts = resolveDelegateSupervisor(stubClient, {
+    const opts = resolveDelegateSupervisor(stubProvider, {
       MCP_ENABLE_DELEGATE: '1',
       TANGLE_API_KEY: 'tk',
       MCP_SUPERVISOR_MODEL: 'deepseek-chat',
@@ -54,16 +62,18 @@ describe('resolveDelegateSupervisor', () => {
       routerKey: 'override',
       model: 'deepseek-chat',
     })
-    expect(opts!.backend).toMatchObject({ backend: 'sandbox', harness: 'claude-code' })
+    expect(opts!.worker).toMatchObject({
+      environment: { backend: 'claude-code' },
+    })
   })
 
   it('falls back through MCP_WORKER_MODEL then WORKER_MODEL for the brain', () => {
-    const a = resolveDelegateSupervisor(stubClient, {
+    const a = resolveDelegateSupervisor(stubProvider, {
       MCP_ENABLE_DELEGATE: '1',
       WORKER_MODEL: 'wm',
     } as unknown as NodeJS.ProcessEnv)
     expect(a!.router.model).toBe('wm')
-    const b = resolveDelegateSupervisor(stubClient, {
+    const b = resolveDelegateSupervisor(stubProvider, {
       MCP_ENABLE_DELEGATE: '1',
       MCP_WORKER_MODEL: 'mwm',
       WORKER_MODEL: 'wm',
@@ -72,7 +82,7 @@ describe('resolveDelegateSupervisor', () => {
   })
 
   it('normalizes a router base without a version suffix to /v1', () => {
-    const opts = resolveDelegateSupervisor(stubClient, {
+    const opts = resolveDelegateSupervisor(stubProvider, {
       MCP_ENABLE_DELEGATE: '1',
       TANGLE_ROUTER_BASE_URL: 'https://r.example.com',
     } as unknown as NodeJS.ProcessEnv)

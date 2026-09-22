@@ -3,7 +3,7 @@
  * `CoderTask` + `coderTaskToPrompt` — the per-task DATA + pure formatter for code-modification tasks
  * (§1.5: the system authors profiles; there is no hardcoded coder profile constant). A domain
  * customizes the worker by authoring its own `AgentProfile` and handing it to a leaf executor
- * (`createWorktreeCliExecutor`) or a fanout (`worktreeFanout`); "is it delivered" is a
+ * (`createWorktreeCliExecutor`) or `worktreeLoopRunner`; "is it delivered" is a
  * `DeliverableSpec` (`patchDelivered`), not a bundled validator. This formatter renders a `CoderTask`
  * into the per-task instruction that profile receives.
  *

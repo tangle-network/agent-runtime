@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/sandbox'
+import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
 
 // ── 1. PROFILE ───────────────────────────────────────────────────────────
 //
@@ -13,20 +13,24 @@ import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/sandbo
 const DELEGATION_MCP_SERVER_KEY = 'agent-runtime-delegation'
 
 function buildDelegationMcpEntry(opts: {
-  sandboxApiKey: string
+  tangleApiKey: string
   sandboxBaseUrl?: string
 }): Record<string, AgentProfileMcpServer> {
+  if (!opts.tangleApiKey.trim()) {
+    throw new Error('TANGLE_API_KEY is required when MCP_ENABLE_DELEGATE=1')
+  }
+
   return {
     [DELEGATION_MCP_SERVER_KEY]: {
       transport: 'stdio',
       command: 'npx',
       args: ['-y', '@tangle-network/agent-runtime', 'mcp'],
       env: {
-        TANGLE_API_KEY: opts.sandboxApiKey,
+        TANGLE_API_KEY: opts.tangleApiKey,
         SANDBOX_BASE_URL: opts.sandboxBaseUrl ?? 'https://sandbox.tangle.tools',
-        // Opt into the ONE generic `delegate` verb (a supervisor that authors + drives its own
+        // Opt into the generic `delegate` verb (a supervisor that authors and drives its own
         // worker and returns the delivered output with its cost). It needs a real sandbox key.
-        ...(opts.sandboxApiKey ? { MCP_ENABLE_DELEGATE: '1' } : {}),
+        MCP_ENABLE_DELEGATE: '1',
       },
       enabled: true,
       metadata: {
@@ -42,7 +46,7 @@ function buildDelegationMcpEntry(opts: {
  * The shape here is illustrative — copy and adapt.
  */
 export function composeAgentProfileWithDelegation(opts: {
-  sandboxApiKey: string
+  tangleApiKey: string
   sandboxBaseUrl?: string
 }): AgentProfile {
   return {
@@ -65,7 +69,7 @@ export function composeAgentProfileWithDelegation(opts: {
 // up. The child is the same bin a sandbox-side agent would launch when the
 // profile mounts the MCP entry above. The generic `delegate` verb registers
 // only when MCP_ENABLE_DELEGATE=1 AND a real sandbox key resolves, so the
-// diagnostic (no-key) smoke asserts only the always-on trio.
+// queue-only smoke leaves MCP_ENABLE_DELEGATE unset and asserts the trio.
 
 const EXPECTED_TOOLS = ['delegate_feedback', 'delegation_history', 'delegation_status']
 
@@ -78,12 +82,8 @@ interface JsonRpcResponse {
 
 async function smokeMcpToolsList(): Promise<void> {
   const env: NodeJS.ProcessEnv = { ...process.env }
-  if (!env.TANGLE_API_KEY) {
-    // Diagnostic mode — the bin starts without a sandbox client; tools/list
-    // still resolves so the smoke leg verifies the MCP surface even when
-    // no key is available.
-    env.AGENT_RUNTIME_MCP_ALLOW_NO_KEY = '1'
-  }
+  delete env.MCP_ENABLE_DELEGATE
+  delete env.TANGLE_API_KEY
 
   // The repo's local bin: dist/mcp/bin.js. Built by `pnpm build` so this
   // example exercises the freshly-built code rather than a published copy.
@@ -163,7 +163,7 @@ async function smokeMcpToolsList(): Promise<void> {
     if (missing.length > 0) {
       throw new Error(`agent-runtime-mcp is missing tools: ${missing.join(', ')}`)
     }
-    console.log('OK — the always-on queue-bound delegation tools are exposed.')
+    console.log('OK: the queue-only delegation tools are exposed.')
   } finally {
     child.kill('SIGINT')
   }
@@ -174,17 +174,17 @@ async function main(): Promise<void> {
   // for readability — the rest of the profile is whatever the product
   // already owns.
   const profile = composeAgentProfileWithDelegation({
-    sandboxApiKey: 'sk_sb_demo_placeholder',
+    tangleApiKey: 'sk_sb_demo_placeholder',
     sandboxBaseUrl: 'https://sandbox.tangle.tools',
   })
-  console.log('— PROFILE ————————————————————————————————')
+  console.log('PROFILE')
   console.log(`profile.name: ${profile.name}`)
   console.log('profile.mcp[agent-runtime-delegation]:')
   console.log(JSON.stringify(profile.mcp?.[DELEGATION_MCP_SERVER_KEY], null, 2))
   console.log()
 
-  // Smoke the locally-built bin to prove all five tools are exposed.
-  console.log('— SMOKE ———————————————————————————————————')
+  // Smoke the locally-built bin in queue-only mode.
+  console.log('SMOKE')
   await smokeMcpToolsList()
 }
 

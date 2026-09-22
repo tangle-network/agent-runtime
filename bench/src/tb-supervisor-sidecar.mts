@@ -8,10 +8,8 @@
 import { appendFileSync, writeFileSync } from 'node:fs'
 import {
   type Agent,
-  createExecutorRegistry,
+  createInMemoryRunContext,
   createSupervisor,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
   type Scope,
 } from '../../src/runtime/index'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
@@ -110,7 +108,8 @@ const parseWorkerUsage: ParseUsage = ({ stdout }) => {
 
 async function main(): Promise<void> {
   writeFileSync(LOG_FILE, '')
-  const blobs = new InMemoryResultBlobStore()
+  const context = createInMemoryRunContext()
+  const blobs = context.blobs
 
   const makeWorkerAgent = makeTbContainerWorkerAgent({
     containerId: CONTAINER_ID,
@@ -208,9 +207,9 @@ async function main(): Promise<void> {
   await createSupervisor<unknown, unknown>().run(root, 'tb-supervisor', {
     budget: { maxIterations: 500, maxTokens: 2_000_000 },
     runId: 'tb-supervisor-sidecar',
-    journal: new InMemorySpawnJournal(),
+    journal: context.journal,
     blobs,
-    executors: createExecutorRegistry(),
+    executors: context.executors,
     maxDepth: 4,
     now: () => Date.now(),
   })

@@ -18,10 +18,9 @@
  *    barrier can never overwrite the real failure.
  *  - Abort cascade: a root abort (caller signal, `RootHandle.abort`, a tripped breaker,
  *    or pool exhaustion) aborts ONE internal controller whose signal is the root scope's
- *    signal. The scope cascades that into every live child's executor abort — which, for
- *    an `acquiring` child, chains into the `acquireSandbox` signal and reaps the
- *    find-by-name orphan box (M1). The supervisor never reaps children directly.
- *  - The supervisor NEVER re-enters a child (m3): the kernel/`acquireSandbox` already
+ *    signal. The scope cascades that into every live child's executor abort.
+ *    Environment acquisition owns cleanup for partially created workers.
+ *  - The supervisor never re-enters a child. Environment acquisition already
  *    retried at the leaf, and a driver re-spawns through `scope.spawn`. The breaker only
  *    COUNTS `down` settlements within the intensity window and trips to a typed
  *    no-winner; it does not restart anything.

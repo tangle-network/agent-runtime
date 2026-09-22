@@ -2,11 +2,10 @@
  *
  * `uiAuditorProfile` — preset for vision-driven UI audit iterations.
  *
- * A `runAgentRounds` bundle: it returns the `AgentRunSpec`, output adapter, validator, and prompt
- * formatter the loop kernel needs. The agent's "harness" is not a sandbox-SDK code-runner — it's a
- * vision-capable judge driving a browser. The loop kernel still iterates
- * `client.create() → box.streamPrompt() → box.delete()`; the client/box pair are provided by
- * `createInProcessUiAuditClient` (in `./in-process-client.ts`) or a consumer-supplied `SandboxClient`.
+ * A `runAgentRounds` bundle with the profile, prompt formatter, output parser,
+ * and validator needed for vision-driven browser review. Use it with
+ * `createInProcessUiAuditEnvironmentProvider` or another
+ * `AgentEnvironmentProvider`.
  *
  * @experimental
  */
@@ -27,7 +26,7 @@ export interface UiAuditorProfileOptions {
   name?: string
   /**
    * Optional model identifier passed in `AgentProfile.model.default`.
-   * The consumer's `SandboxClient` chooses how to interpret it.
+   * The environment provider chooses how to interpret it.
    */
   model?: string
   /**
@@ -70,15 +69,13 @@ export function uiAuditorProfile(options: UiAuditorProfileOptions = {}): {
     ? createUiAuditorValidator(options.task)
     : createUiAuditorValidator({ lens: 'other', captures: [] })
 
-  // Prompt shape (consumed both by sandbox-SDK harnesses AND by the
-  // in-process auditor client):
+  // Prompt shape consumed by environment providers:
   //   <<UI_AUDIT_TASK>>{json}<<UI_AUDIT_TASK_END>>
   //   <system-prompt for the lens>
   //   <human-readable iteration brief>
   // The envelope makes the iteration self-describing so concurrent fanout
-  // does not race over per-client side state. Sandbox-SDK harnesses can
-  // ignore the envelope; the in-process auditor client decodes it back
-  // into a typed UiAuditTask via decodeAuditTaskEnvelope.
+  // does not race over provider state. The in-process provider decodes it
+  // into a typed UiAuditTask.
   const taskToPrompt = (task: UiAuditTask): string =>
     `${encodeAuditTaskEnvelope(task)}\n${buildAuditorSystemPrompt(task.lens)}\n\n${formatAuditorPrompt(task)}`
 

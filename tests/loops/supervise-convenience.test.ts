@@ -1,10 +1,10 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
-import { supervise, workerFromBackend } from '../../src/runtime/supervise/supervise'
+import { inProcessEnvironmentProvider } from '../../src/runtime/in-process-environment-provider'
+import { supervise, workerFromEnvironment } from '../../src/runtime/supervise/supervise'
 import type {
   Agent,
   AgentSpec,
@@ -107,21 +107,17 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     }
   })
 
-  it('workerFromBackend builds a spawnable worker leaf with an executor (no network)', () => {
-    const make = workerFromBackend({
-      backend: 'router-tools',
-      routerBaseUrl: 'http://localhost',
-      routerKey: 'k',
-      model: 'm',
-    } as ExecutorConfig)
+  it('workerFromEnvironment builds a spawnable worker leaf (no network)', () => {
+    const provider = inProcessEnvironmentProvider({ onTurn: () => [] })
+    const make = workerFromEnvironment({ provider })
     const w = make({ name: 'w' }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     expect(w.name).toBe('w')
     expect(w.executorSpec.executor).toBeDefined()
   })
 
-  it('fails loud with neither backend nor makeWorkerAgent', () => {
+  it('fails loud with neither worker nor makeWorkerAgent', () => {
     expect(() => supervise({ name: 'r', harness: null }, 't', { budget })).toThrow(
-      /backend|makeWorkerAgent/,
+      /worker|makeWorkerAgent/,
     )
   })
 
@@ -141,21 +137,6 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         router: { routerBaseUrl: 'http://localhost', routerKey: 'k', model: 'gpt-4.1' },
-        allowedModels: ['deepseek-v4-flash'],
-      }),
-    ).toThrow(/gpt-4\.1.*not in the allowed set/)
-  })
-
-  it('allowedModels rejects a backend model outside the allowed set', () => {
-    expect(() =>
-      supervise({ name: 'r', harness: null }, 't', {
-        budget,
-        backend: {
-          backend: 'router-tools',
-          routerBaseUrl: 'http://localhost',
-          routerKey: 'k',
-          model: 'gpt-4.1',
-        } as ExecutorConfig,
         allowedModels: ['deepseek-v4-flash'],
       }),
     ).toThrow(/gpt-4\.1.*not in the allowed set/)

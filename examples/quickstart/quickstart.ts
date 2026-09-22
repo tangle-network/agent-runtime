@@ -3,22 +3,26 @@
  *
  * One driver runs a worker, reads the worker's real output, and writes the next prompt
  * from it until a check passes. The worker here is a scripted stand-in so the loop runs
- * anywhere; swap `inProcessSandboxClient` for a real sandbox, CLI-harness, or router
- * backend without changing the driver. This is the same shape as examples/driver-loop,
+ * anywhere; swap `inProcessEnvironmentProvider` for a cloud, CLI, or router provider
+ * without changing the driver. This is the same shape as examples/driver-loop,
  * which annotates every seam.
  *
  * Run:  pnpm build && pnpm tsx examples/quickstart/quickstart.ts
  */
 
-import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentEnvironmentEvent,
+  inProcessEnvironmentProvider,
+  runAgentRounds,
+} from '@tangle-network/agent-runtime/loops'
 
 type Task = { prompt: string }
 type Note = { note: string }
 
 // A stand-in worker: it obeys the prompt it is given. Swap for a real backend later.
-const worker = inProcessSandboxClient({
-  onPrompt: (prompt): SandboxEvent[] => [
+const environmentProvider = inProcessEnvironmentProvider({
+  onTurn: (prompt): AgentEnvironmentEvent[] => [
     {
       type: 'result',
       data: {
@@ -68,7 +72,7 @@ const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail
       score: out.note.includes('rollback') ? 1 : 0,
     }),
   },
-  ctx: { sandboxClient: worker },
+  ctx: { environmentProvider },
   maxIterations: 3,
 })
 

@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   demoCheck,
@@ -17,7 +17,7 @@ import type {
 } from '../src/runtime/supervise/types'
 
 // ── An offline worker leaf — returns the ANSWER=42 marker, no network/LLM ─────────
-// The example's runners build this leaf from a real backend (`workerFromBackend`); here
+// The example's runners build this leaf from a real environment provider; here
 // we inject an equivalent in-process executor so the surviving supervise() + scripted-brain
 // path runs end-to-end at $0. The output rides the `content` field so the example's deployable
 // check (`demoCheck`) matches its content branch.

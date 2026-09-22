@@ -20,14 +20,15 @@ import {
   pairedBootstrap,
   pairedTTest,
   type RunRecord,
+  type RunSplitTag,
+  validateRunRecord,
   wilson,
 } from '@tangle-network/agent-eval'
 
-/** Pull the headline score in [0,1] from a record. Default: the held-out split, else the search split,
- *  else a `composite`/`passed`/`score` entry in the raw bag. Override to score a domain differently. */
+/** Pull the headline score in [0,1] from a record. */
 export type ScoreOf = (record: RunRecord) => number | undefined
-/** The profile (matrix row) a record belongs to — default `harness·model` from the record's profile cell,
- *  falling back to the model. This is the leaderboard's unit of comparison. */
+/** The profile (matrix row) a record belongs to. Defaults to the canonical
+ *  `agentProfile.cellId`, falling back to `candidateId`. */
 export type ProfileKeyOf = (record: RunRecord) => string
 /** The axis (matrix column) a record contributes to — default the scenario group. */
 export type GroupOf = (record: RunRecord) => string
@@ -41,7 +42,7 @@ export interface LeaderboardOptions {
   readonly profileKeyOf?: ProfileKeyOf
   readonly groupOf?: GroupOf
   readonly axisScoresOf?: AxisScoresOf
-  /** Display label for a profile key (default: the key itself). */
+  /** Display label for a profile key. Defaults to the record's harness and model. */
   readonly labelOf?: (profileKey: string) => string
   /** Commit SHA / dataset / dates surfaced in the provenance block. */
   readonly meta?: Record<string, string>
@@ -59,18 +60,22 @@ export interface Interval {
   readonly upper: number
 }
 
-/** One leaderboard row — a harness×model profile, every measured column. */
+/** One leaderboard row for one canonical profile and one data split. */
 export interface LeaderboardRow {
   readonly profileKey: string
+  readonly splitTag: RunSplitTag
   readonly label: string
   readonly model: string
-  readonly n: number
+  readonly runCount: number
+  readonly scenarioCount: number
   readonly meanScore: number
-  /** Fraction of records scoring ≥ `passThreshold` (default 0.999) — the binary pass rate. */
+  /** Fraction of scenario means scoring at least `passThreshold`. */
   readonly solveRate: number
-  /** axis → mean score for this profile (blank in render when the profile never ran that axis). */
+  /** Axis to scenario-weighted mean score. */
   readonly perAxis: Record<string, number>
-  readonly costUsd: number
+  readonly observedCostUsd: number
+  readonly estimatedCostUsd: number
+  readonly uncapturedCostRunCount: number
   readonly tokensIn: number
   readonly tokensOut: number
   readonly latencyP50Ms: number
@@ -86,37 +91,41 @@ export interface Leaderboard {
   readonly title: string
   /** Column order — scenario groups (default) or dimension keys (`axisScoresOf`). */
   readonly axes: readonly string[]
-  /** Rows ranked by `meanScore` desc (ties → lower cost, then label). */
+  /** Rows ranked by `meanScore` descending, then label. */
   readonly profiles: readonly LeaderboardRow[]
   readonly meta: Record<string, string>
-  /** Provenance counts — the denominators every honest report leads with. */
+  /** Counts and cost coverage for the complete report input. */
   readonly provenance: {
-    readonly records: number
+    readonly runCount: number
+    readonly scenarioCount: number
     readonly profiles: number
     readonly axes: number
     readonly models: readonly string[]
-    readonly totalCostUsd: number
+    readonly splits: readonly RunSplitTag[]
+    readonly observedCostUsd: number
+    readonly estimatedCostUsd: number
+    readonly uncapturedCostRunCount: number
   }
 }
 
 const defaultScoreOf: ScoreOf = (r) => {
-  const o = r.outcome
-  if (typeof o.holdoutScore === 'number') return o.holdoutScore
-  if (typeof o.searchScore === 'number') return o.searchScore
-  const raw = o.raw ?? {}
-  for (const k of ['composite', 'score', 'passed', 'resolved']) {
-    if (typeof raw[k] === 'number') return raw[k]
-  }
-  return undefined
+  return r.splitTag === 'holdout' ? r.outcome.holdoutScore : r.outcome.searchScore
 }
 
 const defaultProfileKeyOf: ProfileKeyOf = (r) => {
-  const cell = (r as { agentProfile?: { harness?: string; model?: string } }).agentProfile
-  const harness = cell?.harness
-  return harness ? `${harness}·${r.model}` : r.model
+  return r.agentProfile?.cellId ?? r.candidateId
 }
 
-const defaultGroupOf: GroupOf = (r) => r.scenarioId ?? r.experimentId
+const defaultGroupOf: GroupOf = (r) => r.scenarioId
+
+function defaultProfileLabel(record: RunRecord): string {
+  const harness = record.agentProfile?.harness?.id
+  return harness ? `${harness}·${record.model}` : record.model
+}
+
+function displayRowLabel(row: LeaderboardRow): string {
+  return `${row.label} [${row.splitTag}]`
+}
 
 function quantile(sorted: number[], q: number): number {
   if (sorted.length === 0) return 0
@@ -128,22 +137,70 @@ function mean(xs: readonly number[]): number {
   return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
 }
 
+interface CostSummary {
+  observedCostUsd: number
+  estimatedCostUsd: number
+  uncapturedCostRunCount: number
+}
+
+function summarizeCost(records: readonly RunRecord[]): CostSummary {
+  const summary: CostSummary = {
+    observedCostUsd: 0,
+    estimatedCostUsd: 0,
+    uncapturedCostRunCount: 0,
+  }
+  for (const record of records) {
+    if (record.costProvenance.kind === 'observed') {
+      summary.observedCostUsd += record.costProvenance.usd
+    } else if (record.costProvenance.kind === 'estimated') {
+      summary.estimatedCostUsd += record.costProvenance.usd
+    } else {
+      summary.uncapturedCostRunCount += 1
+    }
+  }
+  return summary
+}
+
+function assertUniqueRunIds(records: readonly RunRecord[]): void {
+  const runIds = new Set<string>()
+  for (const record of records) {
+    if (runIds.has(record.runId)) {
+      throw new Error(`benchmark-report: duplicate runId ${record.runId}`)
+    }
+    runIds.add(record.runId)
+  }
+}
+
+function evaluateScores(records: readonly RunRecord[], scoreOf: ScoreOf): Map<RunRecord, number> {
+  const scores = new Map<RunRecord, number>()
+  for (const record of records) {
+    const score = scoreOf(record)
+    if (score === undefined) {
+      throw new Error(`benchmark-report: run ${record.runId} has no benchmark score`)
+    }
+    if (!Number.isFinite(score) || score < 0 || score > 1) {
+      throw new Error(`benchmark-report: run ${record.runId} has invalid score ${String(score)}`)
+    }
+    scores.set(record, score)
+  }
+  return scores
+}
+
 /** Collapse reps to ONE mean score per scenario — the honest unit for a CI or a paired test. Reps
  *  tighten the per-(profile, scenario) estimate but are NOT independent samples, so feeding raw reps into
  *  a CI lets identical reps fake a narrower interval. Fails LOUD on a record missing `scenarioId`: an
  *  empty-string fallback would silently merge distinct scenarios into one bucket. */
-function meanByScenario(records: readonly RunRecord[], scoreOf: ScoreOf): Map<string, number> {
+function meanByScenario(
+  records: readonly RunRecord[],
+  scores: ReadonlyMap<RunRecord, number>,
+): Map<string, number> {
   const sums = new Map<string, { total: number; n: number }>()
   for (const r of records) {
-    const s = scoreOf(r)
-    if (typeof s !== 'number') continue
-    const id = r.scenarioId
-    if (!id) {
-      throw new Error(
-        `benchmark-report: RunRecord (candidate ${r.candidateId ?? 'unknown'}) is missing scenarioId — ` +
-          'cannot pair or interval it honestly. Pass opts.stats only on a scenario-tagged corpus.',
-      )
+    const s = scores.get(r)
+    if (s === undefined) {
+      throw new Error(`benchmark-report: run ${r.runId} has no evaluated score`)
     }
+    const id = r.scenarioId
     const acc = sums.get(id) ?? { total: 0, n: 0 }
     acc.total += s
     acc.n += 1
@@ -159,109 +216,172 @@ export function leaderboard(
   records: readonly RunRecord[],
   opts: LeaderboardOptions = {},
 ): Leaderboard {
+  const validRecords = records.map((record) => validateRunRecord(record))
   const scoreOf = opts.scoreOf ?? defaultScoreOf
   const profileKeyOf = opts.profileKeyOf ?? defaultProfileKeyOf
   const groupOf = opts.groupOf ?? defaultGroupOf
-  const labelOf = opts.labelOf ?? ((k: string) => k)
+  const pass = opts.passThreshold ?? 0.999
+  if (!Number.isFinite(pass) || pass < 0 || pass > 1) {
+    throw new Error(`benchmark-report: passThreshold must be in [0, 1], got ${String(pass)}`)
+  }
+
+  assertUniqueRunIds(validRecords)
+  const scoresByRecord = evaluateScores(validRecords, scoreOf)
 
   // Column set: explicit axis decomposition, else the scenario groups present in the data.
   const axisSet = new Set<string>()
+  const axisEntriesByRecord = new Map<RunRecord, Array<[string, number]>>()
+  const groupByRecord = new Map<RunRecord, string>()
   if (opts.axisScoresOf) {
-    for (const r of records) for (const k of Object.keys(opts.axisScoresOf(r))) axisSet.add(k)
+    for (const r of validRecords) {
+      const entries = Object.entries(opts.axisScoresOf(r))
+      axisEntriesByRecord.set(r, entries)
+      for (const [axis, score] of entries) {
+        if (axis.length === 0) {
+          throw new Error(`benchmark-report: run ${r.runId} has an empty axis identity`)
+        }
+        if (!Number.isFinite(score) || score < 0 || score > 1) {
+          throw new Error(
+            `benchmark-report: run ${r.runId} has invalid axis score ${axis}=${String(score)}`,
+          )
+        }
+        axisSet.add(axis)
+      }
+    }
   } else {
-    for (const r of records) axisSet.add(groupOf(r))
+    for (const r of validRecords) {
+      const axis = groupOf(r)
+      if (axis.length === 0) {
+        throw new Error(`benchmark-report: run ${r.runId} has an empty axis identity`)
+      }
+      groupByRecord.set(r, axis)
+      axisSet.add(axis)
+    }
   }
   const axes = [...axisSet].sort()
 
-  // Bucket records by profile.
-  const byProfile = new Map<string, RunRecord[]>()
-  for (const r of records) {
+  // Split is an independent comparison dimension. Never average search/dev
+  // and holdout observations into the same profile row.
+  const bySplit = new Map<RunSplitTag, Map<string, RunRecord[]>>()
+  for (const r of validRecords) {
     const key = profileKeyOf(r)
+    if (key.length === 0) {
+      throw new Error(`benchmark-report: run ${r.runId} has an empty profile identity`)
+    }
+    const byProfile = bySplit.get(r.splitTag) ?? new Map<string, RunRecord[]>()
     const bucket = byProfile.get(key)
     if (bucket) bucket.push(r)
     else byProfile.set(key, [r])
+    bySplit.set(r.splitTag, byProfile)
   }
 
   const rows: LeaderboardRow[] = []
-  for (const [profileKey, recs] of byProfile) {
-    const scores = recs.map(scoreOf).filter((s): s is number => typeof s === 'number')
-    // Per-axis means.
-    const axisBuckets = new Map<string, number[]>()
-    for (const r of recs) {
-      if (opts.axisScoresOf) {
-        for (const [axis, s] of Object.entries(opts.axisScoresOf(r))) {
-          const b = axisBuckets.get(axis) ?? []
-          b.push(s)
-          axisBuckets.set(axis, b)
-        }
-      } else {
-        const s = scoreOf(r)
-        if (typeof s === 'number') {
-          const axis = groupOf(r)
-          const b = axisBuckets.get(axis) ?? []
-          b.push(s)
-          axisBuckets.set(axis, b)
+  for (const [splitTag, byProfile] of bySplit) {
+    for (const [profileKey, recs] of byProfile) {
+      const scenarioScores = meanByScenario(recs, scoresByRecord)
+      const scores = [...scenarioScores.values()]
+      const axisBuckets = new Map<string, Map<string, number[]>>()
+      for (const r of recs) {
+        if (opts.axisScoresOf) {
+          const entries = axisEntriesByRecord.get(r)
+          if (entries === undefined) {
+            throw new Error(`benchmark-report: run ${r.runId} has no axis scores`)
+          }
+          for (const [axis, s] of entries) {
+            const byScenario = axisBuckets.get(axis) ?? new Map<string, number[]>()
+            const bucket = byScenario.get(r.scenarioId) ?? []
+            bucket.push(s)
+            byScenario.set(r.scenarioId, bucket)
+            axisBuckets.set(axis, byScenario)
+          }
+        } else {
+          const axis = groupByRecord.get(r)
+          if (axis === undefined) {
+            throw new Error(`benchmark-report: run ${r.runId} has no axis identity`)
+          }
+          const byScenario = axisBuckets.get(axis) ?? new Map<string, number[]>()
+          const bucket = byScenario.get(r.scenarioId) ?? []
+          const score = scoresByRecord.get(r)
+          if (score === undefined) {
+            throw new Error(`benchmark-report: run ${r.runId} has no evaluated score`)
+          }
+          bucket.push(score)
+          byScenario.set(r.scenarioId, bucket)
+          axisBuckets.set(axis, byScenario)
         }
       }
-    }
-    const perAxis: Record<string, number> = {}
-    for (const [axis, b] of axisBuckets) perAxis[axis] = mean(b)
+      const perAxis: Record<string, number> = {}
+      for (const [axis, byScenario] of axisBuckets) {
+        perAxis[axis] = mean([...byScenario.values()].map((scenarioReps) => mean(scenarioReps)))
+      }
 
-    const latencies = recs.map((r) => r.wallMs).sort((a, b) => a - b)
-    const pass = opts.passThreshold ?? 0.999
-    // Confidence intervals (opt-in) over per-scenario means — the honest n is #scenarios, not #reps.
-    let scoreCi: Interval | undefined
-    let passCi: Interval | undefined
-    if (opts.stats) {
-      const collapsed = [...meanByScenario(recs, scoreOf).values()]
-      if (collapsed.length > 0) {
-        const ci = confidenceInterval(collapsed, 0.95, { seed: 7 })
-        scoreCi = { lower: ci.lower, upper: ci.upper }
-        const w = wilson(collapsed.filter((s) => s >= pass).length, collapsed.length, 0.95)
-        passCi = { lower: w.lower, upper: w.upper }
+      const latencies = recs.map((r) => r.wallMs).sort((a, b) => a - b)
+      let scoreCi: Interval | undefined
+      let passCi: Interval | undefined
+      if (opts.stats) {
+        if (scores.length > 0) {
+          const ci = confidenceInterval(scores, 0.95, { seed: 7 })
+          scoreCi = { lower: ci.lower, upper: ci.upper }
+          const w = wilson(scores.filter((s) => s >= pass).length, scores.length, 0.95)
+          passCi = { lower: w.lower, upper: w.upper }
+        }
       }
+      const costSummary = summarizeCost(recs)
+      rows.push({
+        profileKey,
+        splitTag,
+        label: opts.labelOf
+          ? opts.labelOf(profileKey)
+          : opts.profileKeyOf
+            ? profileKey
+            : defaultProfileLabel(recs[0]!),
+        model: recs[0]!.model,
+        runCount: recs.length,
+        scenarioCount: scenarioScores.size,
+        meanScore: mean(scores),
+        solveRate: scores.length === 0 ? 0 : scores.filter((s) => s >= pass).length / scores.length,
+        perAxis,
+        ...costSummary,
+        tokensIn: recs.reduce((a, r) => a + r.tokenUsage.input, 0),
+        tokensOut: recs.reduce((a, r) => a + r.tokenUsage.output, 0),
+        latencyP50Ms: quantile(latencies, 0.5),
+        latencyP90Ms: quantile(latencies, 0.9),
+        ...(scoreCi ? { scoreCi } : {}),
+        ...(passCi ? { passCi } : {}),
+      })
     }
-    rows.push({
-      profileKey,
-      label: labelOf(profileKey),
-      model: recs[0]?.model ?? profileKey,
-      n: recs.length,
-      meanScore: mean(scores),
-      solveRate: scores.length === 0 ? 0 : scores.filter((s) => s >= pass).length / scores.length,
-      perAxis,
-      costUsd: recs.reduce((a, r) => a + r.costUsd, 0),
-      tokensIn: recs.reduce((a, r) => a + (r.tokenUsage?.input ?? 0), 0),
-      tokensOut: recs.reduce((a, r) => a + (r.tokenUsage?.output ?? 0), 0),
-      latencyP50Ms: quantile(latencies, 0.5),
-      latencyP90Ms: quantile(latencies, 0.9),
-      ...(scoreCi ? { scoreCi } : {}),
-      ...(passCi ? { passCi } : {}),
-    })
   }
 
-  // Rank: score desc, then cheaper, then label for a stable order.
   rows.sort(
-    (a, b) => b.meanScore - a.meanScore || a.costUsd - b.costUsd || a.label.localeCompare(b.label),
+    (a, b) =>
+      b.meanScore - a.meanScore ||
+      a.splitTag.localeCompare(b.splitTag) ||
+      a.label.localeCompare(b.label),
   )
 
-  const models = [...new Set(records.map((r) => r.model))].sort()
+  const models = [...new Set(validRecords.map((r) => r.model))].sort()
+  const splits = [...new Set(validRecords.map((r) => r.splitTag))].sort()
+  const costSummary = summarizeCost(validRecords)
   return {
     title: opts.title ?? 'Benchmark report',
     axes,
     profiles: rows,
     meta: opts.meta ?? {},
     provenance: {
-      records: records.length,
+      runCount: validRecords.length,
+      scenarioCount: new Set(validRecords.map((record) => record.scenarioId)).size,
       profiles: rows.length,
       axes: axes.length,
       models,
-      totalCostUsd: records.reduce((a, r) => a + r.costUsd, 0),
+      splits,
+      ...costSummary,
     },
   }
 }
 
 /** One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. */
 export interface PairwiseVerdict {
+  readonly splitTag: RunSplitTag
   readonly a: string
   readonly b: string
   /** Paired unit count (shared scenarios). The significance is suppressed below `minPairs`. */
@@ -294,49 +414,62 @@ export function pairwiseSignificance(
   records: readonly RunRecord[],
   opts: PairwiseOptions = {},
 ): PairwiseVerdict[] {
+  const validRecords = records.map((record) => validateRunRecord(record))
+  assertUniqueRunIds(validRecords)
   const scoreOf = opts.scoreOf ?? defaultScoreOf
   const profileKeyOf = opts.profileKeyOf ?? defaultProfileKeyOf
   const labelOf = opts.labelOf ?? ((k: string) => k)
   const minPairs = opts.minPairs ?? 12
+  const scoresByRecord = evaluateScores(validRecords, scoreOf)
 
-  const byProfile = new Map<string, RunRecord[]>()
-  for (const r of records) {
+  const bySplit = new Map<RunSplitTag, Map<string, RunRecord[]>>()
+  for (const r of validRecords) {
     const k = profileKeyOf(r)
+    if (k.length === 0) {
+      throw new Error(`benchmark-report: run ${r.runId} has an empty profile identity`)
+    }
+    const byProfile = bySplit.get(r.splitTag) ?? new Map<string, RunRecord[]>()
     const b = byProfile.get(k)
     if (b) b.push(r)
     else byProfile.set(k, [r])
+    bySplit.set(r.splitTag, byProfile)
   }
-  const keys = [...byProfile.keys()].sort()
-  const collapsed = new Map(keys.map((k) => [k, meanByScenario(byProfile.get(k) ?? [], scoreOf)]))
 
   const raw: Array<Omit<PairwiseVerdict, 'significant'>> = []
-  for (let i = 0; i < keys.length; i += 1) {
-    for (let j = i + 1; j < keys.length; j += 1) {
-      const ka = keys[i] as string
-      const kb = keys[j] as string
-      const am = collapsed.get(ka) as Map<string, number>
-      const bm = collapsed.get(kb) as Map<string, number>
-      const aScores: number[] = []
-      const bScores: number[] = []
-      for (const sid of [...am.keys()].sort()) {
-        const bv = bm.get(sid)
-        if (bv !== undefined) {
-          aScores.push(am.get(sid) as number)
-          bScores.push(bv)
+  for (const [splitTag, byProfile] of [...bySplit].sort(([a], [b]) => a.localeCompare(b))) {
+    const keys = [...byProfile.keys()].sort()
+    const collapsed = new Map(
+      keys.map((k) => [k, meanByScenario(byProfile.get(k) ?? [], scoresByRecord)]),
+    )
+    for (let i = 0; i < keys.length; i += 1) {
+      for (let j = i + 1; j < keys.length; j += 1) {
+        const ka = keys[i] as string
+        const kb = keys[j] as string
+        const am = collapsed.get(ka) as Map<string, number>
+        const bm = collapsed.get(kb) as Map<string, number>
+        const aScores: number[] = []
+        const bScores: number[] = []
+        for (const sid of [...am.keys()].sort()) {
+          const bv = bm.get(sid)
+          if (bv !== undefined) {
+            aScores.push(am.get(sid) as number)
+            bScores.push(bv)
+          }
         }
+        if (aScores.length === 0) continue
+        const boot = pairedBootstrap(aScores, bScores, { seed: 7, statistic: 'median' })
+        const p = pairedTTest(aScores, bScores).p
+        raw.push({
+          splitTag,
+          a: labelOf(ka),
+          b: labelOf(kb),
+          pairs: aScores.length,
+          delta: boot.median,
+          ciLow: boot.low,
+          ciHigh: boot.high,
+          p,
+        })
       }
-      if (aScores.length === 0) continue
-      const boot = pairedBootstrap(aScores, bScores, { seed: 7, statistic: 'median' })
-      const p = pairedTTest(aScores, bScores).p
-      raw.push({
-        a: labelOf(ka),
-        b: labelOf(kb),
-        pairs: aScores.length,
-        delta: boot.median,
-        ciLow: boot.low,
-        ciHigh: boot.high,
-        p,
-      })
     }
   }
   const { significant } = benjaminiHochberg(
@@ -351,6 +484,7 @@ export function pairwiseSignificance(
 
 const pct = (x: number): string => `${(100 * x).toFixed(1)}%`
 const ci = (iv: Interval | undefined): string => (iv ? ` [${pct(iv.lower)}, ${pct(iv.upper)}]` : '')
+const usd = (value: number, decimals: number): string => `$${value.toFixed(decimals)}`
 
 /** Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis
  *  matrix → cost/latency/token columns. Every axis is shown — a curated subset is a reporting failure. */
@@ -359,7 +493,8 @@ export function renderLeaderboardMarkdown(report: Leaderboard): string {
   lines.push(`# ${report.title}`, '')
   const p = report.provenance
   lines.push(
-    `**${p.profiles} profiles × ${p.axes} axes**, ${p.records} runs, ${p.models.length} models · total $${p.totalCostUsd.toFixed(2)}`,
+    `**${p.profiles} profiles × ${p.axes} axes**, ${p.runCount} runs across ${p.scenarioCount} scenarios, ${p.models.length} models`,
+    `**Cost:** ${usd(p.observedCostUsd, 2)} observed, ${usd(p.estimatedCostUsd, 2)} estimated, ${p.uncapturedCostRunCount} runs uncaptured`,
     '',
   )
   for (const [k, v] of Object.entries(report.meta)) lines.push(`- **${k}:** ${v}`)
@@ -368,26 +503,26 @@ export function renderLeaderboardMarkdown(report: Leaderboard): string {
   // Leaderboard — the headline ranking with every measured column (+ CIs when computed).
   lines.push('## Leaderboard', '')
   lines.push(
-    '| # | Profile | Score (95% CI) | Solved (95% CI) | Runs | Cost | Tok in/out | p50 | p90 |',
+    '| # | Profile | Split | Score (95% CI) | Solved (95% CI) | Runs | Scenarios | Observed cost | Estimated cost | Unknown cost runs | Tok in/out | p50 | p90 |',
   )
-  lines.push('|---|---|--:|--:|--:|--:|--:|--:|--:|')
+  lines.push('|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|')
   report.profiles.forEach((r, i) => {
     lines.push(
-      `| ${i + 1} | ${r.label} | ${pct(r.meanScore)}${ci(r.scoreCi)} | ${pct(r.solveRate)}${ci(r.passCi)} | ${r.n} | $${r.costUsd.toFixed(3)} | ${r.tokensIn}/${r.tokensOut} | ${(r.latencyP50Ms / 1000).toFixed(1)}s | ${(r.latencyP90Ms / 1000).toFixed(1)}s |`,
+      `| ${i + 1} | ${r.label} | ${r.splitTag} | ${pct(r.meanScore)}${ci(r.scoreCi)} | ${pct(r.solveRate)}${ci(r.passCi)} | ${r.runCount} | ${r.scenarioCount} | ${usd(r.observedCostUsd, 3)} | ${usd(r.estimatedCostUsd, 3)} | ${r.uncapturedCostRunCount} | ${r.tokensIn}/${r.tokensOut} | ${(r.latencyP50Ms / 1000).toFixed(1)}s | ${(r.latencyP90Ms / 1000).toFixed(1)}s |`,
     )
   })
   lines.push('')
 
   // The full matrix — profile × every axis.
   lines.push('## Score matrix — profile × axis', '')
-  lines.push(`| Profile | ${report.axes.join(' | ')} |`)
-  lines.push(`|---|${report.axes.map(() => '--:').join('|')}|`)
+  lines.push(`| Profile | Split | ${report.axes.join(' | ')} |`)
+  lines.push(`|---|---|${report.axes.map(() => '--:').join('|')}|`)
   for (const r of report.profiles) {
     const cells = report.axes.map((a) => {
       const v = r.perAxis[a]
       return v === undefined ? '·' : pct(v)
     })
-    lines.push(`| ${r.label} | ${cells.join(' | ')} |`)
+    lines.push(`| ${r.label} | ${r.splitTag} | ${cells.join(' | ')} |`)
   }
   lines.push('')
   lines.push('> `·` = the profile never ran that axis (blank, never zero).')
@@ -403,12 +538,12 @@ export function renderPairwiseMarkdown(
 ): string {
   const lines: string[] = [`## ${title}`, '']
   if (verdicts.length === 0) return lines.concat('_no comparable pairs_').join('\n')
-  lines.push('| A vs B | Δ(b−a) median | 95% CI | pairs | p | verdict |')
-  lines.push('|---|--:|--:|--:|--:|---|')
+  lines.push('| Split | A vs B | Δ(b−a) median | 95% CI | pairs | p | verdict |')
+  lines.push('|---|---|--:|--:|--:|--:|---|')
   for (const v of verdicts) {
     const verdict = v.significant ? `**${v.delta >= 0 ? v.b : v.a} wins**` : 'ns'
     lines.push(
-      `| ${v.a} vs ${v.b} | ${v.delta >= 0 ? '+' : ''}${pct(v.delta)} | [${pct(v.ciLow)}, ${pct(v.ciHigh)}] | ${v.pairs} | ${v.p.toFixed(3)} | ${verdict} |`,
+      `| ${v.splitTag} | ${v.a} vs ${v.b} | ${v.delta >= 0 ? '+' : ''}${pct(v.delta)} | [${pct(v.ciLow)}, ${pct(v.ciHigh)}] | ${v.pairs} | ${v.p.toFixed(3)} | ${verdict} |`,
     )
   }
   lines.push(
@@ -458,7 +593,7 @@ export function renderLeaderboardSvg(report: Leaderboard): string {
   // Bar chart (ranked).
   profiles.forEach((r, i) => {
     const y = pad + 12 + i * rowH
-    out.push(`<text x="${pad}" y="${y + 14}">${esc(r.label)}</text>`)
+    out.push(`<text x="${pad}" y="${y + 14}">${esc(displayRowLabel(r))}</text>`)
     const w = Math.round(r.meanScore * barAreaW)
     out.push(`<rect x="${labelW}" y="${y + 4}" width="${barAreaW}" height="16" fill="#eef0f2"/>`)
     out.push(
@@ -479,7 +614,7 @@ export function renderLeaderboardSvg(report: Leaderboard): string {
   })
   profiles.forEach((r, i) => {
     const y = heatTop + 8 + i * rowH
-    out.push(`<text x="${pad}" y="${y + 16}">${esc(r.label)}</text>`)
+    out.push(`<text x="${pad}" y="${y + 16}">${esc(displayRowLabel(r))}</text>`)
     report.axes.forEach((a, c) => {
       const x = labelW + c * cellW
       const s = r.perAxis[a]
@@ -509,7 +644,7 @@ export function renderLeaderboardHtml(report: Leaderboard): string {
   const rows = report.profiles
     .map(
       (r, i) =>
-        `<tr><td>${i + 1}</td><td>${esc(r.label)}</td><td class="n">${pct(r.meanScore)}</td><td class="n">${pct(r.solveRate)}</td><td class="n">${r.n}</td><td class="n">$${r.costUsd.toFixed(3)}</td>${report.axes
+        `<tr><td>${i + 1}</td><td>${esc(r.label)}</td><td>${r.splitTag}</td><td class="n">${pct(r.meanScore)}</td><td class="n">${pct(r.solveRate)}</td><td class="n">${r.runCount}</td><td class="n">${r.scenarioCount}</td><td class="n">${usd(r.observedCostUsd, 3)}</td><td class="n">${usd(r.estimatedCostUsd, 3)}</td><td class="n">${r.uncapturedCostRunCount}</td>${report.axes
           .map((a) => {
             const v = r.perAxis[a]
             return `<td class="n">${v === undefined ? '·' : pct(v)}</td>`
@@ -527,9 +662,9 @@ th{background:#f9fafb;text-align:left}.n{text-align:right;font-variant-numeric:t
 tr:first-child td{font-weight:600}
 </style></head><body>
 <h1>${esc(report.title)}</h1>
-<div class="sub">${p.profiles} profiles × ${p.axes} axes · ${p.records} runs · ${p.models.length} models · total $${p.totalCostUsd.toFixed(2)}</div>
+<div class="sub">${p.profiles} profiles × ${p.axes} axes · ${p.runCount} runs across ${p.scenarioCount} scenarios · ${p.models.length} models · ${usd(p.observedCostUsd, 2)} observed · ${usd(p.estimatedCostUsd, 2)} estimated · ${p.uncapturedCostRunCount} runs with unknown cost</div>
 ${svg}
-<table><thead><tr><th>#</th><th>Profile</th><th>Score</th><th>Solved</th><th>Runs</th><th>Cost</th>${axisHead}</tr></thead>
+<table><thead><tr><th>#</th><th>Profile</th><th>Split</th><th>Score</th><th>Solved</th><th>Runs</th><th>Scenarios</th><th>Observed cost</th><th>Estimated cost</th><th>Unknown cost runs</th>${axisHead}</tr></thead>
 <tbody>
 ${rows}
 </tbody></table>

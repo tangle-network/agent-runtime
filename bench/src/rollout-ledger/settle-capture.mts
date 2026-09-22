@@ -194,9 +194,14 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
   const log = opts.log ?? (() => {})
   const dbPath = opts.opencodeDb ?? DEFAULT_OPENCODE_DB
 
-  const base = (capturedAt: string): Pick<RolloutLine, 'schema' | 'run_id'> & { provenance: RolloutLine['provenance'] } => ({
+  const base = (
+    capturedAt: string,
+  ): Pick<RolloutLine, 'schema' | 'run_id' | 'experiment_id'> & {
+    provenance: RolloutLine['provenance']
+  } => ({
     schema: ROLLOUT_SCHEMA,
     run_id: opts.runId,
+    experiment_id: opts.runId,
     provenance: { captured_at: capturedAt, capture: 'settle-time' },
   })
 
@@ -239,6 +244,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
           is_completed: args.resolved !== null,
           is_truncated: false,
           error: null,
+          realness_gated: false,
         },
         cost: {
           usd: args.cost.usd,
@@ -325,6 +331,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
                 is_completed: session !== null && messages.length > 0,
                 is_truncated: false,
                 error: null,
+                realness_gated: false,
               },
               cost: {
                 usd: session?.costUsd ?? null,
@@ -410,6 +417,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
           is_completed: true,
           is_truncated: false,
           error: null,
+          realness_gated: false,
         },
         cost: { usd: null, tokens_in: null, tokens_out: null, tokens_reasoning: null, cache_read: null, cache_write: null, wall_s: null },
         artifacts: {

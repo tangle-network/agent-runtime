@@ -7,19 +7,22 @@
  * @experimental
  */
 
-import type { SandboxClient } from '../runtime'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import type { SandboxClientLike } from '@tangle-network/agent-provider-tangle'
 import {
+  createDelegationExecutor,
   createFleetWorkspaceExecutor,
-  createSiblingSandboxExecutor,
   type DelegationExecutor,
   type FleetHandle,
 } from './executor'
 import { createInProcessExecutor } from './in-process-executor'
-import type { LocalHarness } from './local-harness'
+import { LOCAL_HARNESSES, type LocalHarness } from './local-harness'
 
 /** @experimental */
 export interface DetectExecutorArgs {
-  sandboxClient: SandboxClient
+  provider: AgentEnvironmentProvider
+  /** Required only for Tangle fleet placement discovery. */
+  tangleClient?: SandboxClientLike
   /** Raw env (defaults to `process.env`). Pass an explicit map for tests. */
   env?: Record<string, string | undefined>
   /**
@@ -27,20 +30,18 @@ export interface DetectExecutorArgs {
    * default reads `client.fleets.get(fleetId)` and validates the returned
    * shape against the structural `FleetHandle` contract.
    */
-  resolveFleet?: (client: SandboxClient, fleetId: string) => Promise<FleetHandle>
+  resolveFleet?: (client: SandboxClientLike, fleetId: string) => Promise<FleetHandle>
 }
 
 /**
  * Pick the right executor for an MCP server invocation based on env vars.
  *
- * - `TANGLE_FLEET_ID` set → fleet-workspace placement; resolves the handle
- *   via `sandboxClient.fleets.get(...)`.
- * - Otherwise → sibling-sandbox placement; each delegation creates a fresh
- *   sandbox via `sandboxClient.create(...)`.
+ * - `TANGLE_FLEET_ID` set: place work on the named fleet.
+ * - Otherwise: create one isolated environment per delegation.
  *
  * Fails loud (throws) when fleet mode is requested but the SDK shape is
- * incompatible — the operator chose fleet semantics, silently degrading to
- * sibling mode would lie about workspace topology.
+ * incompatible. Fleet placement must not silently fall back to isolated
+ * environments.
  *
  * @experimental
  */
@@ -68,18 +69,19 @@ export async function detectExecutor(args: DetectExecutorArgs): Promise<Delegati
 
   const fleetId = parseFleetId(env.TANGLE_FLEET_ID)
   if (!fleetId) {
-    return createSiblingSandboxExecutor({ client: args.sandboxClient })
+    return createDelegationExecutor(args.provider)
+  }
+  if (!args.tangleClient) {
+    throw new Error('agent-runtime-mcp: TANGLE_FLEET_ID requires a Tangle Sandbox client')
   }
   const resolveFleet = args.resolveFleet ?? defaultResolveFleet
-  const fleet = await resolveFleet(args.sandboxClient, fleetId)
+  const fleet = await resolveFleet(args.tangleClient, fleetId)
   const excludeMachineIds = parseList(env.TANGLE_FLEET_EXCLUDE_MACHINES)
   return createFleetWorkspaceExecutor({
     fleet,
     excludeMachineIds,
   })
 }
-
-const KNOWN_HARNESSES: ReadonlyArray<LocalHarness> = ['claude', 'codex', 'opencode']
 
 function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | undefined {
   if (!raw) return undefined
@@ -89,9 +91,9 @@ function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | 
     .filter(Boolean)
   if (parts.length === 0) return undefined
   for (const part of parts) {
-    if (!KNOWN_HARNESSES.includes(part as LocalHarness)) {
+    if (!LOCAL_HARNESSES.includes(part as LocalHarness)) {
       throw new Error(
-        `agent-runtime-mcp: AGENT_RUNTIME_LOCAL_HARNESSES contains unknown harness "${part}". Expected: ${KNOWN_HARNESSES.join(', ')}.`,
+        `agent-runtime-mcp: AGENT_RUNTIME_LOCAL_HARNESSES contains unknown harness "${part}". Expected: ${LOCAL_HARNESSES.join(', ')}.`,
       )
     }
   }
@@ -103,10 +105,10 @@ interface FleetsApi {
 }
 
 async function defaultResolveFleet(
-  sandboxClient: SandboxClient,
+  client: SandboxClientLike,
   fleetId: string,
 ): Promise<FleetHandle> {
-  const fleets = (sandboxClient as unknown as { fleets?: FleetsApi }).fleets
+  const fleets = (client as unknown as { fleets?: FleetsApi }).fleets
   if (!fleets || typeof fleets.get !== 'function') {
     throw new Error(
       'agent-runtime-mcp: the configured sandbox client does not expose `.fleets.get`; upgrade @tangle-network/sandbox to >= 0.2.1 or unset TANGLE_FLEET_ID.',

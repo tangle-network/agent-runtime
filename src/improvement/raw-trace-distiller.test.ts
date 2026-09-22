@@ -171,6 +171,31 @@ describe('rawTraceDistiller', () => {
     expect(JSON.stringify(findings)).toContain(resolve(c.spansPath))
   })
 
+  it('surfaces missing scores as unavailable instead of zero', async () => {
+    const input = {
+      generation: 4,
+      runDir: join(root, 'gen-4'),
+      candidates: [
+        {
+          surfaceHash: 'unscored',
+          composite: null,
+          campaign: {
+            runDir: join(root, 'gen-4', 'candidate-0'),
+            cells: [{ cellId: 's:0', scenarioId: 's', judgeScores: { j: {} } }],
+          },
+        },
+      ],
+      history: [],
+    } as unknown as AnalyzeInput
+
+    const findings = (await rawTraceDistiller()(input)) as Array<Record<string, unknown>>
+    const candidate = findings.find((finding) => finding.subject === 'unscored')
+    expect(candidate).toBeDefined()
+    expect(candidate!.severity).toBe('critical')
+    expect(candidate!.claim).toMatch(/composite unavailable/)
+    expect((candidate!.metadata as { composite: unknown }).composite).toBeNull()
+  })
+
   it('uses the configured runDir override for generation-level trace anchors', async () => {
     const inputRunDir = join(root, 'input-gen')
     const overrideRunDir = join(root, 'override-gen')

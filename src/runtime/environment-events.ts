@@ -1,0 +1,445 @@
+/**
+ * Provider event to runtime event mapping.
+ *
+ * Providers emit a polymorphic `AgentEnvironmentEvent` whose event vocabulary
+ * is backend-determined. Two consumers project it:
+ *   - the loop kernel's cost ledger (`extractLlmCallEvent`) — sums usage off
+ *     every cost-bearing event, regardless of stream shape;
+ *   - the `AgentRuntime.act` streaming contract (`mapEnvironmentEvent`) — projects
+ *     incremental events to the `RuntimeStreamEvent` chat-UX vocabulary.
+ *
+ * Both live here so the empirically-observed `type` vocabulary has one home.
+ */
+
+import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
+import type { RuntimeStreamEvent } from '../types'
+
+/**
+ * Forward a provider event to an optional observer without letting observer
+ * behavior affect the run. The observer receives a defensive copy, synchronous
+ * throws are swallowed, and returned promises are deliberately not awaited.
+ */
+export function notifyAgentEnvironmentEventObserver<Meta>(
+  event: AgentEnvironmentEvent,
+  observer: ((event: AgentEnvironmentEvent, meta: Meta) => void | PromiseLike<void>) | undefined,
+  meta: Meta,
+): void {
+  if (!observer) return
+  try {
+    const result = observer(cloneEnvironmentEventForObserver(event), meta)
+    if (result && typeof result.then === 'function') {
+      void result.then(undefined, () => {})
+    }
+  } catch {
+    // Live observation is optional and must never interrupt the event stream.
+  }
+}
+
+function cloneEnvironmentEventForObserver(event: AgentEnvironmentEvent): AgentEnvironmentEvent {
+  try {
+    return structuredClone(event)
+  } catch {
+    return copyPlainSpine(event, new WeakMap()) as AgentEnvironmentEvent
+  }
+}
+
+function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const existing = seen.get(value)
+  if (existing !== undefined) return existing
+  if (Array.isArray(value)) {
+    const copy: unknown[] = []
+    seen.set(value, copy)
+    for (const item of value) copy.push(copyPlainSpine(item, seen))
+    return copy
+  }
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return {}
+  const copy: Record<string, unknown> = {}
+  seen.set(value, copy)
+  for (const [key, child] of Object.entries(value)) {
+    copy[key] = copyPlainSpine(child, seen)
+  }
+  return copy
+}
+
+/**
+ * Extract a `RuntimeStreamEvent`-shaped `llm_call` from a provider event when
+ * the event carries usage/cost data. Returns `undefined` for non-cost events
+ * so the kernel can iterate the full stream without branching.
+ *
+ * Canonical cost-carrying types observed in the wild:
+ *   - `llm_call` — `data: { model, tokensIn, tokensOut, costUsd, ... }`
+ *   - `message.completed` / `result` — `data: { usage: { inputTokens,
+ *      outputTokens, totalCostUsd? } }`
+ *   - `cost.usage` / `usage` — same shape under a dedicated type
+ *
+ * `AgentEnvironmentEvent.usage` is an additive amount for that event, never a
+ * running total. Numeric coercion is strict: `Number.isFinite` gates every
+ * accumulator write so a sentinel `NaN` from a misbehaving backend cannot
+ * poison the ledger.
+ */
+export function extractLlmCallEvent(
+  event: AgentEnvironmentEvent,
+  agentRunName: string,
+): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+
+  if (event.usage) {
+    return buildLlmCall(
+      {
+        inputTokens: event.usage.inputTokens,
+        outputTokens: event.usage.outputTokens,
+        totalCostUsd: event.usage.cost,
+        model: data.model,
+      },
+      agentRunName,
+    )
+  }
+  if (type === 'llm_call' || type === 'cost.usage' || type === 'usage') {
+    return buildLlmCall(data, agentRunName)
+  }
+  if (type === 'message.completed' || type === 'result' || type === 'final') {
+    const usage = data.usage as Record<string, unknown> | undefined
+    if (!usage || typeof usage !== 'object') return undefined
+    return buildLlmCall({ ...usage, model: data.model ?? usage.model }, agentRunName)
+  }
+  // Some providers emit terminal usage as `data.tokenUsage` plus `totalCostUsd`.
+  // reasoningTokens, cacheReadInputTokens }, totalCostUsd }`. Usage lives under
+  // `tokenUsage` (not `usage`) and the cost is top-level — neither matched the
+  // branches above, so an in-process loopDispatch run reported {0,0} and the
+  // backend-integrity guard misread a real run as a stub. Reasoning tokens are
+  // billed output (reasoning models), so they fold into the output count.
+  if (type === 'done') {
+    const usage = data.tokenUsage as Record<string, unknown> | undefined
+    if (!usage || typeof usage !== 'object') return undefined
+    const out = pickFiniteNumber(usage, ['outputTokens', 'completion_tokens', 'tokensOut'])
+    const reasoning = pickFiniteNumber(usage, ['reasoningTokens'])
+    const mergedOut =
+      out !== undefined || reasoning !== undefined ? (out ?? 0) + (reasoning ?? 0) : undefined
+    return buildLlmCall(
+      {
+        inputTokens: usage.inputTokens,
+        outputTokens: mergedOut,
+        totalCostUsd: data.totalCostUsd,
+        model: data.model ?? usage.model,
+      },
+      agentRunName,
+    )
+  }
+  return undefined
+}
+
+/**
+ * Sum the token usage + USD cost of a provider turn's events — the one honest way to meter an
+ * environment run. Folds `extractLlmCallEvent` over the stream (which reads usage off every backend
+ * event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
+ *
+ *     receipt: (turn) => {
+ *       const u = sumEnvironmentUsage(turn.events)
+ *       return { model, inputTokens: u.input, outputTokens: u.output,
+ *         ...(u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}) }
+ *     }
+ *
+ * Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
+ * matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
+ */
+export function sumEnvironmentUsage(
+  events: readonly AgentEnvironmentEvent[],
+  agentRunName = 'agent',
+): { input: number; output: number; costUsd: number } {
+  let input = 0
+  let output = 0
+  let costUsd = 0
+  for (const ev of events) {
+    const call = extractLlmCallEvent(ev, agentRunName)
+    if (!call) continue
+    input += call.tokensIn ?? 0
+    output += call.tokensOut ?? 0
+    costUsd += call.costUsd ?? 0
+  }
+  return { input, output, costUsd }
+}
+
+/** Read final text from a terminal provider event when the provider reports it. */
+export function extractEnvironmentFinalText(event: AgentEnvironmentEvent): string | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  if (type !== 'result' && type !== 'done' && type !== 'final') return undefined
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+  const candidates = [
+    data,
+    data.result && typeof data.result === 'object'
+      ? (data.result as Record<string, unknown>)
+      : undefined,
+  ]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    for (const key of ['finalText', 'text', 'response', 'content']) {
+      const value = candidate[key]
+      if (typeof value === 'string') return value
+    }
+  }
+  return typeof data.result === 'string' ? data.result : undefined
+}
+
+/** Resolve one provider turn to text, preferring its terminal result over deltas. */
+export function extractEnvironmentTurnText(events: readonly AgentEnvironmentEvent[]): string {
+  let deltas = ''
+  let finalText: string | undefined
+  for (const event of events) {
+    finalText = extractEnvironmentFinalText(event) ?? finalText
+    const mapped = mapAgentEnvironmentEvent(event)
+    if (mapped?.type === 'text_delta') deltas += mapped.text
+  }
+  const text = (finalText ?? deltas).trim()
+  if (!text) throw new Error('provider turn completed without text')
+  return text
+}
+
+function buildLlmCall(
+  data: Record<string, unknown>,
+  agentRunName: string,
+): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
+  const tokensIn = pickFiniteNumber(data, ['tokensIn', 'inputTokens', 'prompt_tokens'])
+  const tokensOut = pickFiniteNumber(data, ['tokensOut', 'outputTokens', 'completion_tokens'])
+  const costUsd = pickFiniteNumber(data, ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'])
+  if (tokensIn === undefined && tokensOut === undefined && costUsd === undefined) {
+    return undefined
+  }
+  const model = typeof data.model === 'string' && data.model.length > 0 ? data.model : agentRunName
+  const event: RuntimeStreamEvent & { type: 'llm_call' } = {
+    type: 'llm_call',
+    model,
+  }
+  if (tokensIn !== undefined) event.tokensIn = tokensIn
+  if (tokensOut !== undefined) event.tokensOut = tokensOut
+  if (costUsd !== undefined) event.costUsd = costUsd
+  return event
+}
+
+function pickFiniteNumber(data: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = data[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return undefined
+}
+
+/**
+ * Cross-event state for {@link mapEnvironmentToolEvent}. Providers emit a
+ * tool invocation as MANY `message.part.updated` frames on the same call id
+ * (pending → running → completed), so faithful projection needs per-call
+ * status memory: one `tool_call` on first sighting, at most one `tool_result`
+ * on the terminal transition, nothing on intermediate re-frames. Create one
+ * state per turn via {@link createEnvironmentToolPartState}.
+ *
+ * @experimental
+ */
+export interface EnvironmentToolPartState {
+  /** Last seen status per tool call id. A terminal status is sticky — later
+   *  frames on a settled call project to nothing. */
+  statusByCall: Map<string, string>
+  /** Sequence for synthesized call ids when an event carries none. */
+  seq: number
+}
+
+/**
+ * Fresh per-turn {@link EnvironmentToolPartState} for {@link mapEnvironmentToolEvent} — an
+ * empty call-status map so each turn projects tool frames independently.
+ *
+ * @experimental
+ */
+export function createEnvironmentToolPartState(): EnvironmentToolPartState {
+  return { statusByCall: new Map(), seq: 0 }
+}
+
+/** Terminal tool statuses that are failures (everything here settles the call). */
+const TERMINAL_TOOL_FAILURE =
+  /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i
+
+/**
+ * Project one `AgentEnvironmentEvent` onto the `tool_call` / `tool_result` variants of
+ * `RuntimeStreamEvent` — the tool-part projection `mapAgentEnvironmentEvent`
+ * deliberately does NOT perform. Opt-in and additive: `mapAgentEnvironmentEvent`'s
+ * default vocabulary (text/reasoning deltas + `llm_call`) is unchanged;
+ * consumers that need the tool surface (chat UIs rendering tool activity)
+ * compose this projector alongside it — `streamAgentTurn` does exactly that
+ * under its `preserveToolParts` option.
+ *
+ * Handled shapes (observed on the opencode / claude-code provider backends):
+ *   - `message.part.updated` with `part.type === 'tool'` — stateful: a
+ *     `tool_call` on the call id's first frame (args from `state.input` or
+ *     `state.metadata.input`), a `tool_result` when the status transitions to
+ *     `completed` (result from `state.output` / `metadata.output`) or to a
+ *     terminal failure (result is `{ error, status, output? }` — the error
+ *     surfaced in-band, never dropped).
+ *   - bare `tool*` event types (`tool.call`, `tool_result`, …) — stateless:
+ *     `*result*` types project to `tool_result`, the rest to `tool_call`.
+ *
+ * Returns `[]` for every non-tool event.
+ *
+ * @experimental
+ */
+export function mapEnvironmentToolEvent(
+  event: AgentEnvironmentEvent,
+  state: EnvironmentToolPartState,
+): (RuntimeStreamEvent & { type: 'tool_call' | 'tool_result' })[] {
+  if (!event || typeof event !== 'object') return []
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+
+  if (type === 'message.part.updated') {
+    const part =
+      data.part && typeof data.part === 'object' ? (data.part as Record<string, unknown>) : {}
+    if (String(part.type ?? '') !== 'tool') return []
+    return projectToolPart(part, state, typeof event.id === 'string' ? event.id : undefined)
+  }
+
+  if (type.includes('tool')) {
+    const callId =
+      pickString(data, ['toolCallId', 'tool_use_id', 'id']) ??
+      (typeof event.id === 'string' ? event.id : undefined) ??
+      `environment-tool-${++state.seq}`
+    const toolName = pickString(data, ['name', 'toolName', 'tool']) ?? 'provider_tool'
+    if (type.includes('result')) {
+      return [
+        {
+          type: 'tool_result',
+          toolName,
+          toolCallId: callId,
+          result: data.output ?? data.result ?? data.content ?? data,
+        },
+      ]
+    }
+    return [
+      { type: 'tool_call', toolName, toolCallId: callId, args: data.input ?? data.args ?? {} },
+    ]
+  }
+
+  return []
+}
+
+function projectToolPart(
+  part: Record<string, unknown>,
+  state: EnvironmentToolPartState,
+  eventId: string | undefined,
+): (RuntimeStreamEvent & { type: 'tool_call' | 'tool_result' })[] {
+  const callId =
+    pickString(part, ['callID', 'callId', 'toolCallId', 'id']) ??
+    eventId ??
+    `environment-tool-${++state.seq}`
+  const toolName = pickString(part, ['tool', 'toolName', 'name']) ?? 'provider_tool'
+  const toolState =
+    part.state && typeof part.state === 'object' ? (part.state as Record<string, unknown>) : {}
+  const metadata =
+    toolState.metadata && typeof toolState.metadata === 'object'
+      ? (toolState.metadata as Record<string, unknown>)
+      : {}
+  const status = pickString(toolState, ['status']) ?? 'updated'
+
+  const previous = state.statusByCall.get(callId)
+  const settled =
+    previous === 'completed' || (previous !== undefined && TERMINAL_TOOL_FAILURE.test(previous))
+  if (settled) return []
+
+  const out: (RuntimeStreamEvent & { type: 'tool_call' | 'tool_result' })[] = []
+  if (previous === undefined) {
+    out.push({
+      type: 'tool_call',
+      toolName,
+      toolCallId: callId,
+      args: toolState.input ?? metadata.input ?? {},
+    })
+  }
+  state.statusByCall.set(callId, status)
+
+  if (status === 'completed') {
+    out.push({
+      type: 'tool_result',
+      toolName,
+      toolCallId: callId,
+      result: toolState.output ?? metadata.output ?? '',
+    })
+  } else if (TERMINAL_TOOL_FAILURE.test(status)) {
+    const message =
+      pickString(toolState, ['error', 'message']) ??
+      pickString(metadata, ['error', 'message']) ??
+      `environment tool ended with status ${status}`
+    const output = toolState.output ?? metadata.output
+    out.push({
+      type: 'tool_result',
+      toolName,
+      toolCallId: callId,
+      result: { error: message, status, ...(output !== undefined ? { output } : {}) },
+    })
+  }
+  return out
+}
+
+function pickString(data: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = data[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return undefined
+}
+
+/**
+ * Project one `AgentEnvironmentEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary,
+ * for runtimes that bridge a provider stream into the
+ * `AgentRuntime.act` streaming contract. Returns `undefined` for events that
+ * have no faithful projection — the raw stream is preserved separately for the
+ * `OutputAdapter`, so an unmapped event never loses data.
+ *
+ * Mapped (the task-optional incremental variants — no synthesized task
+ * lifecycle, no guessed tool-part shapes):
+ *   - `message.part.updated` text part → `text_delta`
+ *   - `message.part.updated` reasoning/thinking part → `reasoning_delta`
+ *   - cost-bearing events → `llm_call` (shared with the ledger extractor)
+ *
+ * Tool parts are deliberately NOT mapped here (unchanged default) — compose
+ * {@link mapEnvironmentToolEvent} alongside when a consumer needs them.
+ *
+ * The opencode backend emits incremental text as
+ * `{ type: 'message.part.updated', data: { part: { type, text }, delta } }`;
+ * `delta` is the increment, `part.text` the running accumulation.
+ */
+export function mapAgentEnvironmentEvent(
+  event: AgentEnvironmentEvent,
+  opts: { agentRunName?: string } = {},
+): RuntimeStreamEvent | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+
+  if (type === 'message.part.updated') {
+    const part =
+      data.part && typeof data.part === 'object' ? (data.part as Record<string, unknown>) : {}
+    const partType = String(part.type ?? '')
+    const delta = typeof data.delta === 'string' ? data.delta : undefined
+    const text = delta ?? (typeof part.text === 'string' ? part.text : undefined)
+    if (text === undefined) return undefined
+    if (partType === '' && delta !== undefined) return { type: 'text_delta', text }
+    if (partType === 'text') return { type: 'text_delta', text }
+    if (partType === 'reasoning' || partType === 'thinking')
+      return { type: 'reasoning_delta', text }
+    return undefined
+  }
+
+  return extractLlmCallEvent(event, opts.agentRunName ?? 'agent')
+}

@@ -117,10 +117,11 @@ export async function captureProposerProvenance(
     (h): h is NonNullable<ProposerSpec['harness']> => h !== undefined,
   )
   for (const harness of harnesses) {
-    const res = await exec(harness, ['--version'])
+    const command = harness === 'claude-code' ? 'claude' : harness
+    const res = await exec(command, ['--version'])
     if (res.code !== 0) {
       throw new Error(
-        `proposer provenance: '${harness} --version' failed (rc=${res.code}) — the ${harness} seat cannot author. ` +
+        `proposer provenance: '${command} --version' failed (rc=${res.code}) — the ${harness} seat cannot author. ` +
           `stderr: ${res.stderr.slice(0, 300)}`,
       )
     }
@@ -163,7 +164,7 @@ export async function captureProposerProvenance(
         harness: spec.harness,
         pinnedModel: spec.model ?? null,
         harnessVersion: versionByHarness.get(spec.harness!)!,
-        settingsModel: spec.harness === 'claude' && !spec.model ? readSettingsModel() : null,
+        settingsModel: spec.harness === 'claude-code' && !spec.model ? readSettingsModel() : null,
         authStatus: (spec.harness !== undefined ? authByHarness.get(spec.harness) : undefined) ?? null,
         merge: spec.merge === true,
       }

@@ -105,14 +105,14 @@ export function diffChanged(parent: string, candidate: string): boolean {
 
 /** Hash the actual imported callables, not merely the source file expected to contain them. */
 export function runtimeImplementationFingerprint(input: {
-  runAgentic: unknown
+  runStrategy: unknown
   refine: { name: string; driver: unknown }
 }): string {
-  if (typeof input.runAgentic !== 'function' || typeof input.refine.driver !== 'function') {
-    throw new Error('runtime implementation receipt requires callable runAgentic and refine.driver')
+  if (typeof input.runStrategy !== 'function' || typeof input.refine.driver !== 'function') {
+    throw new Error('runtime implementation receipt requires callable runStrategy and refine.driver')
   }
   return fingerprint({
-    runAgentic: Function.prototype.toString.call(input.runAgentic),
+    runStrategy: Function.prototype.toString.call(input.runStrategy),
     refine: {
       name: input.refine.name,
       driver: Function.prototype.toString.call(input.refine.driver),

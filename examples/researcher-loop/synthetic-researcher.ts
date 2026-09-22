@@ -1,5 +1,5 @@
 /**
- * The offline fixture for researcher-loop — the task and a synthetic `sandboxClient` that
+ * The offline fixture for researcher-loop: the task and a synthetic environment provider that
  * dispatches two hand-written `ResearchOutput`s.
  *
  * It lives in this sibling so `researcher-loop.ts` leads with its SUBJECT (the `runAgentRounds` +
@@ -12,8 +12,11 @@
  */
 
 import type { ResearchOutput, ResearchTask } from '@tangle-network/agent-knowledge/profiles'
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
+  inProcessEnvironmentProvider,
+} from '@tangle-network/agent-runtime/loops'
 
 export const namespace = 'example-tenant'
 
@@ -122,10 +125,10 @@ const candidateOutputs: ResearchOutput[] = [
 
 // Each fanout dispatch picks the NEXT candidate (the inline-fanout driver issues two boxes; the
 // dispatch counter is what hands iteration 0 the valid output and iteration 1 the namespace leak).
-// `inProcessSandboxClient` owns the offline seam — the `onPrompt` callback IS the box, no cast.
+// `inProcessEnvironmentProvider` owns the offline execution path.
 let dispatchIndex = 0
-export const sandboxClient: SandboxClient = inProcessSandboxClient({
-  onPrompt: (): SandboxEvent[] => {
+export const researchEnvironmentProvider: AgentEnvironmentProvider = inProcessEnvironmentProvider({
+  onTurn: (): AgentEnvironmentEvent[] => {
     const output = candidateOutputs[dispatchIndex++ % candidateOutputs.length]
     return [
       {

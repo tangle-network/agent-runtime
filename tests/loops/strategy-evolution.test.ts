@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BenchmarkReport } from '../../src/runtime/run-benchmark'
-import type { AgenticSurface, AgenticTask } from '../../src/runtime/strategy'
+import type { EnvironmentTask, TaskEnvironment } from '../../src/runtime/strategy'
 import { sample } from '../../src/runtime/strategy'
 import { runStrategyEvolution, selectChampion } from '../../src/runtime/strategy-evolution'
 
@@ -22,7 +22,7 @@ import { runStrategyEvolution, selectChampion } from '../../src/runtime/strategy
 /** Deterministic surface: score = shots taken on the handle, capped at 2 of 2 — one
  *  worker pass per shot is observable via tools() calls. Depth (2 shots, one handle)
  *  scores 1.0; breadth (fresh handle per shot) scores 0.5. */
-function shotCountingSurface(): AgenticSurface {
+function shotCountingSurface(): TaskEnvironment {
   const shotsByHandle = new Map<string, number>()
   let seq = 0
   return {
@@ -107,7 +107,7 @@ const worker = {
 }
 
 const sliceTasks = (calls: Array<{ offset: number; n: number }>) => {
-  return async (offset: number, n: number): Promise<AgenticTask[]> => {
+  return async (offset: number, n: number): Promise<EnvironmentTask[]> => {
     calls.push({ offset, n })
     return Array.from({ length: n }, (_, i) => ({
       id: `task-${offset + i}`,
@@ -295,7 +295,7 @@ import { discriminatingMeans, pickChampion } from '../../src/runtime/strategy-ev
 
 /** Difficulty by task id: 'easy-*' tasks score 1.0 for ANY strategy; others score by
  *  shots-on-handle capped at 2 (depth 1.0, breadth 0.5) — the middle band. */
-function difficultySurface(): AgenticSurface {
+function difficultySurface(): TaskEnvironment {
   const shotsByHandle = new Map<string, number>()
   const taskByHandle = new Map<string, string>()
   let seq = 0
@@ -360,7 +360,7 @@ describe('band-aware scoring', () => {
   it('holdout band screening keeps only headroom tasks; estimand recorded', async () => {
     stubWorkerRouter()
     const { chat } = scriptedChat([fenced(twoShotDepthModule)])
-    const mixed = (offset: number, n: number): Promise<AgenticTask[]> =>
+    const mixed = (offset: number, n: number): Promise<EnvironmentTask[]> =>
       Promise.resolve(
         Array.from({ length: n }, (_, i) => {
           const idx = offset + i
@@ -395,7 +395,7 @@ describe('band-aware scoring', () => {
   it('throws loudly when the pool has too few headroom tasks', async () => {
     stubWorkerRouter()
     const { chat } = scriptedChat([fenced(oneShotModule)])
-    const allEasy = (offset: number, n: number): Promise<AgenticTask[]> =>
+    const allEasy = (offset: number, n: number): Promise<EnvironmentTask[]> =>
       Promise.resolve(
         Array.from({ length: n }, (_, i) => ({
           id: `easy-${offset + i}`,
@@ -427,7 +427,7 @@ describe('tool catalog', () => {
     stubWorkerRouter()
     const { chat, seen } = scriptedChat([fenced(oneShotModule)])
     const surface = shotCountingSurface()
-    const withTools: AgenticSurface = {
+    const withTools: TaskEnvironment = {
       ...surface,
       async tools(t, h) {
         await surface.tools(t, h)

@@ -19,7 +19,7 @@
 import type { RouterConfig } from '../../runtime/router-client'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type DelegateOptions, delegate } from '../../runtime/supervise/delegate'
-import type { ExecutorConfig } from '../../runtime/supervise/runtime'
+import type { EnvironmentWorkerOptions } from '../../runtime/supervise/runtime'
 import type { Spend, SupervisedResult } from '../../runtime/supervise/types'
 
 /** MCP tool name for the `delegate` generic-delegation tool. @experimental */
@@ -103,8 +103,8 @@ export type DelegateResult =
 export interface DelegateHandlerOptions {
   /** The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained). */
   router: RouterConfig
-  /** WHERE the authored workers run. Required for `supervise()` to spawn anything. */
-  backend: ExecutorConfig
+  /** Environment provider and creation options used by authored workers. */
+  worker: EnvironmentWorkerOptions
   /** The completion oracle the authored workers settle against (settled ⟺ delivered). */
   deliverable?: DeliverableSpec
   /** Default supervisor brain model when a call omits `model`. */
@@ -139,7 +139,7 @@ export function createDelegateHandler(
   return async (raw) => {
     const args = validateDelegateArgs(raw)
     const opts: DelegateOptions = {
-      backend: options.backend,
+      worker: options.worker,
       router: options.router,
       model: args.model ?? options.model,
       ...(options.deliverable ? { deliverable: options.deliverable } : {}),

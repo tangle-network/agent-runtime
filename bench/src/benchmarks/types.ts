@@ -8,7 +8,7 @@
  * from the benchmark's published evaluation harness.
  */
 
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import type { AgentEnvironmentProvider, OutputAdapter } from '@tangle-network/agent-runtime/loops'
 
 export interface BenchTask {
   /** Stable benchmark instance id. */
@@ -77,24 +77,27 @@ export interface BenchmarkAdapter {
    *  so the gate runner (`runGate` / `runBenchmark`) needs no
    *  per-benchmark branching. */
   output?: OutputAdapter<string>
-  /** Post-shot deliverable extraction from the box FILESYSTEM, not the event stream.
-   *  When set, the shot runner execs `command` in the STILL-ALIVE box after the agent
+  /** Post-shot deliverable extraction from the environment filesystem, not the event stream.
+   *  When set, the shot runner execs `command` in the still-running environment after the agent
    *  turn drains and uses its stdout as the judged artifact — the durable way to capture
    *  a git diff of the agent's in-box edits (standard SWE-bench practice: SWE-agent /
    *  OpenHands read the diff from repo STATE), instead of hoping the model printed a
    *  fenced diff in its reply. Empty stdout ⇒ the runner falls back to `output` (the
-   *  event-stream parse). `cwd` defaults to the box root. */
-  boxExtract?(task: BenchTask): { command: string; cwd?: string }
-  /** Optional workspace pre-stage run in the box BEFORE the agent shot (same
-   *  session as `boxExtract`). For repo-state benchmarks (SWE-bench) this clones
+   *  event-stream parse). `cwd` defaults to the environment root. */
+  environmentExtract?(task: BenchTask): { command: string; cwd?: string }
+  /** Optional workspace pre-stage run in the environment before the agent shot (same
+   *  session as `environmentExtract`). For repo-state benchmarks (SWE-bench) this clones
    *  the instance repo at `base_commit` into a fixed path so the agent only edits
    *  — the harness owns the checkout, not the (stochastic) model. A non-zero exit
-   *  fails the shot loud rather than letting the agent run against an empty box. */
-  boxSetup?(task: BenchTask): { command: string; cwd?: string }
+   *  fails the shot loud rather than letting the agent run against an empty environment. */
+  environmentSetup?(task: BenchTask): { command: string; cwd?: string }
   /** Benchmark-owned worker leaf. Set when the benchmark's native protocol IS the
    *  worker (e.g. AppWorld's interactive ReAct episode runs inside the engine,
    *  not as a chat completion) — the experiment uses this instead of the
-   *  BACKEND-selected client; the steer still flows through the per-round prompt.
-   *  Typed loosely to avoid a runtime import cycle; the harness casts it. */
-  leafClient?: (cfg: { model: string; routerBaseUrl: string; routerKey: string }) => unknown
+   *  configured provider; the steer still flows through the per-round prompt. */
+  leafProvider?: (cfg: {
+    model: string
+    routerBaseUrl: string
+    routerKey: string
+  }) => AgentEnvironmentProvider
 }

@@ -1,68 +1,49 @@
-> **Track:** Reference | **Role:** building discipline | **Status:** canonical
+# Building
 
-# Building Guidelines
+Extend existing profiles, providers, and policies before adding another abstraction.
 
-This repo is a measurement substrate as much as a runtime. The build style is:
-prove the smallest real path, extend the existing primitive, and report what is
-measured versus inferred.
+## Before Editing
 
-## Default Loop
+1. Read [`canonical-api.md`](./canonical-api.md) and search the public exports.
+2. Name the application flow that needs to change.
+3. Identify which package owns the concept.
+4. Run the smallest executable case that exposes the current behavior.
 
-For every substantive step, state:
+## Ownership
 
-- what is changing
-- why it matters to the north star
-- why the obvious alternatives are worse
-- how the claim was verified
+- Portable profile or environment contracts belong in Agent Interface.
+- Evaluation cases, outcomes, traces, comparisons, and optimizer contracts belong in Agent Eval.
+- Sources, indexes, retrieval, memory, and knowledge checks belong in Agent Knowledge.
+- Execution flow, environment lifecycle, coordination, and agent-driven composition belong in Runtime.
+- Authentication, billing, product policy, and UI belong in applications.
 
-## Rules
+Do not create an upward dependency from a lower package to Runtime.
 
-1. **Goal before execution.** Name the consumer, the decision this work changes,
-and the axis that must discriminate before optimizing anything.
-2. **Ground truth over inference.** Claims about behavior come from running the
-   thing or reading the source. If a probe contradicts the model, the probe wins.
-3. **Check existing before building.** Search for the primitive first. Extend it
-   instead of forking it unless the new module can name the boundary it owns.
-4. **Cheapest decisive check first.** Run the experiment that could invalidate
-   the plan before the broad implementation or benchmark matrix.
-5. **Verify before claiming.** Typecheck/lint/tests before "built"; live probe
-   before "works"; artifact opened before "shipped."
-6. **Estimate cost before launch.** State cells x per-cell-time / concurrency
-   before any fleet, benchmark, or optimizer run.
-7. **Separate roles.** Verifier accepts/rejects, judge scores held-out quality,
-   analyst diagnoses traces, driver chooses action. Do not let judge output steer
-   the current run.
-8. **Keep durable state durable.** Commits, journals, result blobs, trace events,
-   and corpus facts are the record. Do not rely on a string summary where a
-   replayable artifact is available.
-9. **Write down durable knowledge in the same turn.** Update the code map,
-   evidence ledger, or process doc when the work changes how future agents
-   should operate.
+## Implementation Rules
 
-## Loop API Discipline
+- Pass an `AgentEnvironmentProvider` into Runtime instead of branching on vendor names.
+- Advertise only capabilities the provider implements.
+- Keep environment ownership explicit and close owned resources in `finally` blocks.
+- Preserve provider events, errors, session IDs, and usage data.
+- Use stable run and command IDs for retryable work.
+- Keep proposal, evaluation, and activation as separate operations.
+- Delete a replaced API and migrate first-party callers in the same change.
+- Add a new control policy only when existing composition cannot express the behavior cleanly.
 
-The blessed loop surface is the substrate:
+## Proof
 
-- fixed shapes: `fanout`, `pipeline`, `loopUntil`, `panel`
-- sandbox loops: `runAgentRounds`
-- dynamic recursive trees: `Scope` + Supervisor
-- sandbox driver binding: `createCoordinationTools`
-- durable workspace: `gitWorkspace` over a `Shell`
-- trace feedback: `observe`
+Run focused tests while editing, then run the package checks before pushing:
 
-Add a facade only after a tiny executable proof shows the substrate join and the
-remaining boilerplate is irreducible.
+```bash
+pnpm run lint
+pnpm run typecheck
+pnpm test
+pnpm run build
+pnpm run verify:package
+pnpm run docs:check
+```
 
-## Documentation Placement
+Run `pnpm run verify:bench` when changing shared execution, candidate execution, or public types used by `@tangle-network/agent-bench`.
 
-- `CLAUDE.md` / `AGENTS.md`: bootloader and repo-local deltas only.
-- `docs/BUILDING.md`: stable build rules.
-- `docs/MAINTAINING.md`: the generated-vs-judgment docs split + the freshness gate.
-- `docs/canonical-api.md`: the hand-curated JUDGMENT layer (decision table, when-to-use, "Do NOT"); per-symbol signatures are GENERATED into `docs/api/` — never hand-edit those.
-- `docs/ANTI_PATTERNS.md`: named failure modes and stop signs.
-- `docs/research/*`: evidence, postmortems, open designs, and dated decisions.
-- `.evolve/current.json` and `memory/`: live state and measured results.
-
-If a rule is timeless and applies across agents, put it here and link to it from
-the bootloader. If it is an experiment result, put it in the evidence ledger, not
-the bootloader.
+Live provider behavior requires a provider integration run in addition to local tests.
+Record the provider, model, cases, resource limits, cost, duration, and failures for comparisons.

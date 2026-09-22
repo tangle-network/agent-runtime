@@ -1,31 +1,34 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { detectExecutor } from '../../src/mcp/bin-helpers'
+import { inProcessEnvironmentProvider } from '../../src/runtime/in-process-environment-provider'
 
-const stubClient = { create: vi.fn(async () => ({ id: 'sibling-stub' }) as never) }
+const provider = inProcessEnvironmentProvider({
+  name: 'test-provider',
+  onTurn: () => [],
+})
 
-describe('detectExecutor — in-process selection', () => {
-  it('selects in-process when AGENT_RUNTIME_IN_SANDBOX=1', async () => {
+describe('detectExecutor: local worktree selection', () => {
+  it('selects local worktrees when AGENT_RUNTIME_IN_SANDBOX=1', async () => {
     const exec = await detectExecutor({
-      sandboxClient: stubClient,
+      provider,
       env: { AGENT_RUNTIME_IN_SANDBOX: '1', AGENT_RUNTIME_REPO_ROOT: '/workspace' },
     })
-    expect(exec.describe()).toMatch(/in-process/)
+    expect(exec.describe()).toMatch(/local worktrees/)
     expect(exec.describe()).toContain('/workspace')
-    expect(exec.describe()).toContain('harnesses=[claude]')
-    // In-process placement has no sandbox session — the bin keys detached
-    // dispatch off this tag, so it must never read session-backed here.
-    expect(exec.placement).toBe('in-process')
+    expect(exec.describe()).toContain('workers=[claude-code]')
+    expect(exec.placement).toBe('local')
   })
 
-  it('tags sibling placement as session-backed', async () => {
-    const exec = await detectExecutor({ sandboxClient: stubClient, env: {} })
-    expect(exec.placement).toBe('sibling')
+  it('keeps the configured provider when local worktree mode is disabled', async () => {
+    const exec = await detectExecutor({ provider, env: {} })
+    expect(exec.provider).toBe(provider)
+    expect(exec.placement).toBe('provider')
   })
 
-  it('throws when in-sandbox mode lacks repo root', async () => {
+  it('throws when local worktree mode lacks repo root', async () => {
     await expect(
       detectExecutor({
-        sandboxClient: stubClient,
+        provider,
         env: { AGENT_RUNTIME_IN_SANDBOX: '1' },
       }),
     ).rejects.toThrow(/AGENT_RUNTIME_REPO_ROOT/)
@@ -33,32 +36,32 @@ describe('detectExecutor — in-process selection', () => {
 
   it('passes through configured harnesses list', async () => {
     const exec = await detectExecutor({
-      sandboxClient: stubClient,
+      provider,
       env: {
         AGENT_RUNTIME_IN_SANDBOX: '1',
         AGENT_RUNTIME_REPO_ROOT: '/wk',
-        AGENT_RUNTIME_LOCAL_HARNESSES: 'claude,codex,opencode',
+        AGENT_RUNTIME_LOCAL_HARNESSES: 'claude-code,codex,opencode',
       },
     })
-    expect(exec.describe()).toContain('harnesses=[claude,codex,opencode]')
+    expect(exec.describe()).toContain('workers=[claude-code,codex,opencode]')
   })
 
   it('rejects unknown harness name', async () => {
     await expect(
       detectExecutor({
-        sandboxClient: stubClient,
+        provider,
         env: {
           AGENT_RUNTIME_IN_SANDBOX: '1',
           AGENT_RUNTIME_REPO_ROOT: '/wk',
-          AGENT_RUNTIME_LOCAL_HARNESSES: 'claude,gemini',
+          AGENT_RUNTIME_LOCAL_HARNESSES: 'claude',
         },
       }),
-    ).rejects.toThrow(/unknown harness "gemini"/)
+    ).rejects.toThrow(/unknown harness "claude"/)
   })
 
-  it('threads test + typecheck commands into the executor description', async () => {
+  it('accepts test and typecheck commands for the local executor', async () => {
     const exec = await detectExecutor({
-      sandboxClient: stubClient,
+      provider,
       env: {
         AGENT_RUNTIME_IN_SANDBOX: '1',
         AGENT_RUNTIME_REPO_ROOT: '/wk',
@@ -66,19 +69,19 @@ describe('detectExecutor — in-process selection', () => {
         AGENT_RUNTIME_TYPECHECK_CMD: 'pnpm typecheck',
       },
     })
-    expect(exec.describe()).toContain('testCmd="pnpm test"')
-    expect(exec.describe()).toContain('typecheckCmd="pnpm typecheck"')
+    expect(exec.placement).toBe('local')
+    expect(exec.provider.name).toBe('worktree-process')
   })
 
-  it('in-process takes priority over TANGLE_FLEET_ID', async () => {
+  it('local worktree mode takes priority over TANGLE_FLEET_ID', async () => {
     const exec = await detectExecutor({
-      sandboxClient: stubClient,
+      provider,
       env: {
         AGENT_RUNTIME_IN_SANDBOX: '1',
         AGENT_RUNTIME_REPO_ROOT: '/wk',
         TANGLE_FLEET_ID: 'fleet-x',
       },
     })
-    expect(exec.describe()).toMatch(/in-process/)
+    expect(exec.placement).toBe('local')
   })
 })

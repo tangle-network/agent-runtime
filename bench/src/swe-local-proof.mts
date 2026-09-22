@@ -2,7 +2,7 @@
  * SEE-able LOCAL proof of the SWE-bench Verified pipeline — NO tangle sandbox.
  *
  * The whole loop runs on infra we can watch: the repo is cloned into a host tmpdir, the agent is a
- * router-driven tool loop (`runAgentic` + the swe-bench `AgenticSurface`'s list/read/edit tools —
+ * router-driven tool loop (`runStrategy` + the swe-bench `TaskEnvironment`'s list/read/edit tools —
  * jailed to the checkout), the patch is a plain `git diff` of the agent's edits, and the score is
  * the OFFICIAL swebench Docker harness (`adapter.judge`). The only remote call is the model
  * completion via the router. Nothing touches sandbox.tangle.tools.
@@ -20,8 +20,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
+import { refine, runStrategy } from '@tangle-network/agent-runtime/loops'
 import type { BenchScore } from './benchmarks/types'
 import { createSweBenchEnvironment } from './swe-bench-env'
 
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   const captured = new Map<string, Rec>()
   const judged = new Map<string, BenchScore>()
   const toolStats = new Map<string, { list: number; read: number; edit_ok: number; edit_fail: number; run: number; run_err: number }>()
-  const proxy: AgenticSurface = {
+  const proxy: TaskEnvironment = {
     ...environment,
     async call(handle, name, args) {
       const res = await environment.call(handle, name, args)
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
       }
       return res
     },
-    async score(task, handle: ArtifactHandle): Promise<SurfaceScore> {
+    async score(task, handle: ArtifactHandle): Promise<EnvironmentScore> {
       const dir = handle.id
       const diff = await exec('git', ['-C', dir, 'diff'], { maxBuffer: 40_000_000, timeout: 60_000 })
       const patch = diff.stdout
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
   let anyResolved = 0
   for (const task of taskList) {
     const t0 = Date.now()
-    const r = await runAgentic({
+    const r = await runStrategy({
       surface: proxy,
       task,
       strategy: refine,

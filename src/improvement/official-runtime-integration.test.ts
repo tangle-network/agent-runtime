@@ -35,6 +35,9 @@ officialIt(
         surface: 'prompt',
         executionRef: canonicalCandidateDigest({ fixture: 'official-gepa-runtime' }),
         method: officialGepa<OptimizerScenario, OptimizerArtifact>({
+          persistenceIdentity: canonicalCandidateDigest({
+            evaluation: 'official-gepa-runtime-v1',
+          }),
           objective: 'Return a JSON configuration whose k value is 2.',
           recipe: {
             kind: 'engine',
@@ -147,6 +150,9 @@ officialIt(
         skills: { resourceName: 'answering' },
         executionRef: canonicalCandidateDigest({ fixture: 'official-skillopt-runtime' }),
         method: officialSkillOpt<OptimizerScenario, OptimizerArtifact>({
+          persistenceIdentity: canonicalCandidateDigest({
+            evaluation: 'official-skillopt-runtime-v1',
+          }),
           objective: 'Add the required response rule.',
           trainer: {
             epochs: 1,

@@ -12,7 +12,7 @@
  * Toy task = only a router key needed (no dataset, no sandbox). Run from bench/:
  *   TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts
  */
-import { adaptiveRefine, type AgenticTask, type ArtifactHandle, defineStrategy, type Environment, printBenchmarkReport, refine, runBenchmark, sample } from '@tangle-network/agent-runtime/loops'
+import { adaptiveRefine, type EnvironmentTask, type ArtifactHandle, defineStrategy, type Environment, printBenchmarkReport, refine, runBenchmark, sample } from '@tangle-network/agent-runtime/loops'
 
 // ── 1. Implement an Environment (the only thing a new domain writes) ──────────────
 // A toy: the agent must drive a counter to exactly the target using the increment tool.
@@ -57,7 +57,7 @@ const counterEnv: Environment = {
   },
 }
 
-const task: AgenticTask = {
+const task: EnvironmentTask = {
   id: 'counter-to-5',
   systemPrompt: 'You operate a counter with tools.',
   userPrompt: `Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,

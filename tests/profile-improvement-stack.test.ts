@@ -12,7 +12,7 @@ import * as runtimeImprovement from '../src/improvement'
 import { improve, officialGepa, officialSkillOpt } from '../src/improvement'
 import type { ReadonlyAgentProfile } from '../src/improvement/profile-types'
 import { loopUntil } from '../src/runtime/personify/combinators'
-import { definePersona, runPersonified } from '../src/runtime/personify/persona'
+import { definePersona, runPersonaShape } from '../src/runtime/personify/persona'
 import type { Outcome } from '../src/runtime/personify/wave-types'
 import { createExecutorRegistry } from '../src/runtime/supervise/runtime'
 import type {
@@ -235,7 +235,7 @@ describe('profile improvement stack', () => {
       },
     )
 
-    const result = await runPersonified<LoopTask, LoopDeliverable>({
+    const result = await runPersonaShape<LoopTask, LoopDeliverable>({
       persona,
       shape,
       task: { issue: 'ticket is still open after first draft' },

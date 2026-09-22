@@ -26,7 +26,10 @@ import {
   buildRuntimeEventOtelSpans,
   createOtelExporter,
   flatOtelSpan,
+  type OtelDropEvent,
+  type OtelExportConfig,
   type OtelExporter,
+  type OtelFlushResult,
 } from '../otel-export'
 import { type Redactor, resolveRedactor } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
@@ -49,10 +52,14 @@ export type {
   AgentImprovementActivationOutcome,
   AgentImprovementActivationResult,
   AgentImprovementMeasuredComparison,
-  AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementReviewDecision,
   CandidateExecutionEvidence,
+  CertifiedContext,
+  CertifiedContextDelivery,
+  CertifiedContextEntry,
+  CertifiedContextKind,
+  CertifiedContextProvenance,
 } from '@tangle-network/agent-interface'
 export { parseAgentCandidateProfileActivation as parseCandidateProfileMaterialization } from '../candidate-execution/profile'
 export type { Redactor } from '../redact'
@@ -73,44 +80,23 @@ export {
   verifyAgentImprovementActivationResult,
 } from './activation'
 export type {
-  CapabilityAuth,
-  CapabilityInterface,
-  CapabilityManifest,
-  CapabilitySurface,
-  CertifiedCapability,
-  CertProvenance,
-  ContentRef,
-  CredentialRef,
-  DeliveryBinding,
-  DeliveryBindingKind,
-  HostSpec,
-  JsonSchema,
-  ResolvedHook,
-  ResolvedRetrieval,
-  ResolvedSubagent,
-  ResolvedSurface,
-} from './capability'
-export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
-export type {
   AgentImprovementProposalSubmissionState,
-  CertifiedArtifact,
-  CertifiedCapabilitySummary,
-  CertifiedProfile,
-  CertifiedPromptSource,
-  CertifiedPromptSourceOptions,
-  CertifiedPromptSurface,
-  DiffProvenance,
-  ProposedProfileDiff,
-  PullCertifiedOptions,
-  PullOutcome,
+  CertifiedContextCheckpoint,
+  CertifiedContextCheckpointKey,
+  CertifiedContextCheckpointStore,
+  CertifiedContextSource,
+  CertifiedContextSourceOptions,
+  ComposedCertifiedContext,
+  IntelligenceEndpointPolicy,
+  PullCertifiedContextOptions,
+  PullCertifiedContextOutcome,
   SubmitAgentImprovementProposalOptions,
   SubmitAgentImprovementProposalOutcome,
 } from './delivery'
 export {
-  composeCertifiedPrompt,
-  createCertifiedPromptSource,
-  normalizeCertifiedProfile,
-  pullCertified,
+  composeCertifiedContext,
+  createCertifiedContextSource,
+  pullCertifiedContext,
   resolveIntelligenceBaseUrl,
   submitAgentImprovementProposal,
 } from './delivery'
@@ -143,6 +129,7 @@ export {
 export type {
   AgentCandidateExperimentCellPlacement,
   AgentImprovementExperimentMaterial,
+  AgentImprovementProposal,
   CreateAgentImprovementActivationOptions,
   CreateAgentImprovementProposalOptions,
   ExecuteAgentCandidateExperimentCellOptions,
@@ -196,11 +183,6 @@ export type {
   AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
-export type { ProvisionedHost, ResolveCtx } from './resolver'
-export {
-  composeCertifiedProfile,
-  composeCertifiedProfileFromWire,
-} from './resolver'
 export type {
   AppliedIntelligence,
   IntelligenceAgent,
@@ -299,6 +281,22 @@ export interface RepoConfig {
   baseBranch: string
 }
 
+/** Queue, retry, deadline, and drop controls for Intelligence trace export. */
+export type IntelligenceTelemetryExportOptions = Pick<
+  OtelExportConfig,
+  | 'batchSize'
+  | 'flushIntervalMs'
+  | 'maxQueueSize'
+  | 'retryInitialDelayMs'
+  | 'retryMaxDelayMs'
+  | 'requestTimeoutMs'
+  | 'maxResponseBytes'
+  | 'onDrop'
+>
+
+export type IntelligenceFlushResult = OtelFlushResult
+export type { OtelDropEvent }
+
 /** Client configuration. `project` + `apiKey` are the Observe minimum; the
  *  rest tune effort, endpoint, redaction, and (for `doctor()` readiness)
  *  declare the surfaces/checks/repo a later PR mode would need. */
@@ -311,12 +309,19 @@ export interface IntelligenceConfig {
   effort?: EffortTier | { tier: EffortTier; overrides?: EffortOverrides }
   /**
    * The ONE Tangle Intelligence base URL — both the send (OTLP `/v1/otlp`) and
-   * receive (`/v1/profiles/:target/composed`) paths derive from it. Reads
+   * receive (`/v1/contexts/:target/certified`) paths derive from it. Reads
    * `TANGLE_INTELLIGENCE_URL` when omitted, else `https://intelligence.tangle.tools`.
    * Send is best-effort and only ships when an `apiKey` is present (the tenant
    * key the ingest requires); absent a key, export is a no-op.
    */
   baseUrl?: string
+  /**
+   * Exact HTTPS origins trusted in addition to the default Tangle
+   * Intelligence origin.
+   */
+  trustedBaseOrigins?: readonly string[]
+  /** Permit loopback HTTP when running a local Intelligence service. */
+  allowInsecureLoopback?: boolean
   /**
    * Redaction hook run over every exported input/output. A function replaces
    * the default scrubber; `false` opts out entirely (raw fidelity, caller has
@@ -335,6 +340,8 @@ export interface IntelligenceConfig {
   commitSha?: string
   /** Runtime-event payload policy. Tool inputs/results remain off unless explicitly enabled. */
   runtimeTelemetry?: RuntimeTelemetryOptions
+  /** OTLP queue limits, retry timing, request deadline, and drop observer. */
+  telemetryExport?: IntelligenceTelemetryExportOptions
   /**
    * Payloads are metadata-only by default: the run span carries a stable hash
    * and UTF-8 byte count, but not the redacted content. Set `full` only when
@@ -448,8 +455,8 @@ export interface IntelligenceClient {
    * needs checks + surfaces + repo.
    */
   doctor(): DoctorReport
-  /** Flush any pending export spans. Best-effort; resolves even if export fails. */
-  flush(): Promise<void>
+  /** Flush pending spans and report confirmed, undelivered, and dropped totals. */
+  flush(): Promise<IntelligenceFlushResult>
 }
 
 /** One mode's readiness verdict. */
@@ -543,7 +550,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
     config.apiKey ?? (typeof process !== 'undefined' ? process.env.TANGLE_API_KEY : undefined)
   // The ONE base URL drives both send and receive; the OTLP ingest lives at
   // `${base}/v1/otlp` and the exporter appends `/v1/traces` → `${base}/v1/otlp/v1/traces`.
-  const otlpEndpoint = `${resolveIntelligenceBaseUrl(config.baseUrl)}/v1/otlp`
+  const otlpEndpoint = `${resolveIntelligenceBaseUrl(config.baseUrl, config)}/v1/otlp`
 
   // Built lazily: a client with no tenant key never allocates an exporter timer.
   let exporter: OtelExporter | undefined
@@ -557,6 +564,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       headers: { authorization: `Bearer ${apiKey}` },
       serviceName: config.project,
       resourceAttributes: { 'tangle.project': config.project },
+      ...config.telemetryExport,
     })
     return exporter
   }
@@ -855,14 +863,17 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       }
     },
 
-    async flush(): Promise<void> {
+    async flush(): Promise<IntelligenceFlushResult> {
       const ex = getExporter()
-      if (!ex) return
-      try {
-        await ex.flush()
-      } catch {
-        // Best-effort — a flush failure must not surface to the caller.
+      if (!ex) {
+        return Object.freeze({
+          succeeded: true,
+          deliveredSpans: 0,
+          undeliveredSpans: 0,
+          droppedSpans: 0,
+        })
       }
+      return ex.flush()
     },
   }
 }

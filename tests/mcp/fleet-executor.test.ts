@@ -1,22 +1,19 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+  PlacementInfo,
+} from '@tangle-network/agent-interface/environment-provider'
+import type { SandboxInstanceLike } from '@tangle-network/agent-provider-tangle'
 import { describe, expect, it } from 'vitest'
-import { detachedSessionDelegate } from '../../src/mcp/delegates'
 import {
+  createDelegationExecutor,
   createFleetWorkspaceExecutor,
-  createSiblingSandboxExecutor,
   type FleetHandle,
 } from '../../src/mcp/executor'
-import {
-  type AgentRunSpec,
-  type LoopTraceEvent,
-  type OutputAdapter,
-  runLoop,
-} from '../../src/runtime'
+import { inProcessEnvironmentProvider } from '../../src/runtime/in-process-environment-provider'
+import { runAgentRounds } from '../../src/runtime/run-loop'
+import type { AgentRunSpec, LoopTraceEvent, OutputAdapter } from '../../src/runtime/types'
 
 const profile: AgentProfile = { name: 'stub' }
 
@@ -52,6 +49,25 @@ interface StubFleet extends FleetHandle {
   selections: string[]
 }
 
+function testProvider(options: {
+  id: string
+  placement?: () => Promise<PlacementInfo>
+}): AgentEnvironmentProvider {
+  const base = inProcessEnvironmentProvider({
+    name: 'test-provider',
+    id: options.id,
+    onTurn: (prompt) => [{ type: 'message.completed', data: { prompt } }],
+  })
+  return {
+    ...base,
+    async create(input): Promise<AgentEnvironment> {
+      const { placement: basePlacement, ...environment } = await base.create(input)
+      void basePlacement
+      return options.placement ? { ...environment, placement: options.placement } : environment
+    },
+  }
+}
+
 function stubFleet(machineIds: string[], opts?: { failOnSandbox?: boolean }): StubFleet {
   const prompts: Array<{ machineId: string; message: string }> = []
   const selections: string[] = []
@@ -61,48 +77,37 @@ function stubFleet(machineIds: string[], opts?: { failOnSandbox?: boolean }): St
     ids,
     prompts,
     selections,
-    async sandbox(machineId: string): Promise<SandboxInstance> {
+    async sandbox(machineId: string): Promise<SandboxInstanceLike> {
       if (opts?.failOnSandbox) throw new Error('sandbox-resolution-failed')
       selections.push(machineId)
-      const sandboxId = `box_${machineId}`
-      const events: SandboxEvent[] = [
-        { type: 'message.completed', data: { prompt: '', machineId, sandboxId } },
-      ]
-      return {
-        id: sandboxId,
-        async *streamPrompt(message: string) {
-          prompts.push({ machineId, message })
-          for (const e of events) {
-            yield {
-              ...e,
-              data: { ...(e.data as Record<string, unknown>), prompt: message },
-            }
+      const environmentId = `box_${machineId}`
+      const environment: SandboxInstanceLike = {
+        id: environmentId,
+        async *streamPrompt(message) {
+          const prompt = typeof message === 'string' ? message : (JSON.stringify(message) ?? '')
+          prompts.push({ machineId, message: prompt })
+          yield {
+            type: 'message.completed',
+            data: { prompt, machineId, environmentId },
           }
         },
-      } as unknown as SandboxInstance
+      }
+      return environment
     },
   }
   return handle
 }
 
-describe('createSiblingSandboxExecutor', () => {
-  it('produces a placement of kind=sibling carrying the sandbox id', async () => {
+describe('createDelegationExecutor', () => {
+  it('preserves provider placement and environment identity', async () => {
     const events: LoopTraceEvent[] = []
-    const fakeBox = {
-      id: 'box_sibling_1',
-      async *streamPrompt() {
-        yield { type: 'message.completed', data: {} } satisfies SandboxEvent
-      },
-    } as unknown as SandboxInstance
-    const executor = createSiblingSandboxExecutor({
-      client: {
-        async create(): Promise<SandboxInstance> {
-          return fakeBox
-        },
-      },
+    const provider = testProvider({
+      id: 'environment-1',
+      placement: async () => ({ kind: 'sandbox', sandboxId: 'environment-1' }),
     })
+    const executor = createDelegationExecutor(provider)
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'one-shot',
         async plan(t, history) {
@@ -117,7 +122,7 @@ describe('createSiblingSandboxExecutor', () => {
       task: { goal: 'hi' },
       maxIterations: 1,
       ctx: {
-        sandboxClient: executor.client,
+        environmentProvider: executor.provider,
         traceEmitter: {
           emit(e) {
             events.push(e)
@@ -129,21 +134,16 @@ describe('createSiblingSandboxExecutor', () => {
     const dispatch = events.find((e) => e.kind === 'loop.iteration.dispatch')
     expect(dispatch).toBeDefined()
     expect(dispatch?.payload).toMatchObject({
-      placement: 'sibling',
-      sandboxId: 'box_sibling_1',
+      placement: 'sandbox',
+      environmentId: 'environment-1',
+      provider: 'test-provider',
     })
-    expect((dispatch?.payload as { fleetId?: string }).fleetId).toBeUndefined()
+    expect((dispatch!.payload as { fleetId?: string }).fleetId).toBeUndefined()
   })
 
   it('describe() returns a stable human-readable tag', () => {
-    const executor = createSiblingSandboxExecutor({
-      client: {
-        async create(): Promise<SandboxInstance> {
-          return null as unknown as SandboxInstance
-        },
-      },
-    })
-    expect(executor.describe()).toMatch(/sibling-sandbox/)
+    const executor = createDelegationExecutor(testProvider({ id: 'environment-1' }))
+    expect(executor.describe()).toBe('provider (test-provider)')
   })
 })
 
@@ -156,7 +156,7 @@ describe('createFleetWorkspaceExecutor', () => {
     })
     const events: LoopTraceEvent[] = []
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'fanout-3',
         async plan(t, history) {
@@ -172,7 +172,7 @@ describe('createFleetWorkspaceExecutor', () => {
       maxIterations: 3,
       maxConcurrency: 1, // serial so round-robin order is deterministic
       ctx: {
-        sandboxClient: executor.client,
+        environmentProvider: executor.provider,
         traceEmitter: {
           emit(e) {
             events.push(e)
@@ -201,9 +201,7 @@ describe('createFleetWorkspaceExecutor', () => {
       excludeMachineIds: ['coordinator'],
     })
 
-    await expect(executor.client.create({} as CreateSandboxOptions)).rejects.toThrow(
-      /no eligible worker machines/,
-    )
+    await expect(executor.provider.create({ profile })).rejects.toThrow(/no eligible machines/)
   })
 
   it('honours a custom selectMachine policy', async () => {
@@ -214,15 +212,15 @@ describe('createFleetWorkspaceExecutor', () => {
         ids[ids.length - 1 - (callIndex % ids.length)] ?? ids[0]!,
     })
 
-    await executor.client.create()
-    await executor.client.create()
+    await executor.provider.create({ profile })
+    await executor.provider.create({ profile })
     expect(fleet.selections).toEqual(['worker-2', 'worker-1'])
   })
 
   it('propagates sandbox-resolution errors', async () => {
     const fleet = stubFleet(['worker-1'], { failOnSandbox: true })
     const executor = createFleetWorkspaceExecutor({ fleet })
-    await expect(executor.client.create()).rejects.toThrow(/sandbox-resolution-failed/)
+    await expect(executor.provider.create({ profile })).rejects.toThrow(/sandbox-resolution-failed/)
   })
 
   it('describe() reports fleetId, machines, and exclusions', () => {
@@ -232,51 +230,18 @@ describe('createFleetWorkspaceExecutor', () => {
       excludeMachineIds: ['coordinator'],
     })
     const tag = executor.describe()
-    expect(tag).toMatch(/fleetId=fl_test/)
+    expect(tag).toMatch(/fleet \(id=fl_test/)
     expect(tag).toMatch(/coordinator,worker-1/)
     expect(tag).toMatch(/excluded=\[coordinator\]/)
   })
 })
 
-describe('detachedSessionDelegate with executor', () => {
-  it('rejects when both executor and sandboxClient are passed', () => {
-    const fakeClient = {
-      async create(): Promise<SandboxInstance> {
-        return null as unknown as SandboxInstance
-      },
-    }
-    const executor = createSiblingSandboxExecutor({ client: fakeClient })
-    expect(() => detachedSessionDelegate({ executor, sandboxClient: fakeClient })).toThrow(
-      /exactly one/,
-    )
-  })
-
-  it('rejects when neither is passed', () => {
-    expect(() => detachedSessionDelegate({})).toThrow(/required/)
-  })
-
-  it('accepts the legacy sandboxClient shorthand (defaults to sibling)', () => {
-    const fakeClient = {
-      async create(): Promise<SandboxInstance> {
-        return null as unknown as SandboxInstance
-      },
-    }
-    const delegate = detachedSessionDelegate({ sandboxClient: fakeClient })
-    expect(typeof delegate).toBe('function')
-  })
-})
-
-describe('SandboxClient placement default', () => {
-  it('falls back to sibling when the client has no describePlacement', async () => {
+describe('AgentEnvironmentProvider placement default', () => {
+  it('falls back to provider when the environment has no placement method', async () => {
     const events: LoopTraceEvent[] = []
-    const fakeBox = {
-      id: 'box_anon',
-      async *streamPrompt() {
-        yield { type: 'message.completed', data: {} } satisfies SandboxEvent
-      },
-    } as unknown as SandboxInstance
+    const provider = testProvider({ id: 'environment-without-placement' })
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'one-shot',
         async plan(t, history) {
@@ -291,11 +256,7 @@ describe('SandboxClient placement default', () => {
       task: { goal: 'hi' },
       maxIterations: 1,
       ctx: {
-        sandboxClient: {
-          async create(): Promise<SandboxInstance> {
-            return fakeBox
-          },
-        },
+        environmentProvider: provider,
         traceEmitter: {
           emit(e) {
             events.push(e)
@@ -305,19 +266,23 @@ describe('SandboxClient placement default', () => {
     })
 
     const dispatch = events.find((e) => e.kind === 'loop.iteration.dispatch')
-    expect(dispatch?.payload).toMatchObject({ placement: 'sibling', sandboxId: 'box_anon' })
+    expect(dispatch?.payload).toMatchObject({
+      placement: 'provider',
+      environmentId: 'environment-without-placement',
+      provider: 'test-provider',
+    })
   })
 
-  it('ignores a describePlacement that throws and falls back to sibling', async () => {
+  it('ignores a placement method that throws and falls back to provider', async () => {
     const events: LoopTraceEvent[] = []
-    const fakeBox = {
-      id: 'box_throw',
-      async *streamPrompt() {
-        yield { type: 'message.completed', data: {} } satisfies SandboxEvent
+    const provider = testProvider({
+      id: 'environment-with-broken-placement',
+      placement: async () => {
+        throw new Error('adapter bug')
       },
-    } as unknown as SandboxInstance
+    })
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'one-shot',
         async plan(t, history) {
@@ -332,14 +297,7 @@ describe('SandboxClient placement default', () => {
       task: { goal: 'hi' },
       maxIterations: 1,
       ctx: {
-        sandboxClient: {
-          async create(): Promise<SandboxInstance> {
-            return fakeBox
-          },
-          describePlacement() {
-            throw new Error('adapter bug')
-          },
-        },
+        environmentProvider: provider,
         traceEmitter: {
           emit(e) {
             events.push(e)
@@ -349,6 +307,10 @@ describe('SandboxClient placement default', () => {
     })
 
     const dispatch = events.find((e) => e.kind === 'loop.iteration.dispatch')
-    expect(dispatch?.payload).toMatchObject({ placement: 'sibling', sandboxId: 'box_throw' })
+    expect(dispatch?.payload).toMatchObject({
+      placement: 'provider',
+      environmentId: 'environment-with-broken-placement',
+      provider: 'test-provider',
+    })
   })
 })

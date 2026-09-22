@@ -10,9 +10,8 @@
  * @stable
  */
 
-import type { KnowledgeReadinessReport } from '@tangle-network/agent-eval'
 import type { RuntimeTelemetryOptions } from './sanitize'
-import { sanitizeKnowledgeReadinessReport, sanitizeRuntimeStreamEvent } from './sanitize'
+import { sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
 /** @stable */
@@ -22,7 +21,10 @@ export interface ServerSentEventOptions {
   retry?: number
 }
 
-/** @stable */
+/**
+ * Serialize a value as one Server-Sent Event record.
+ * @stable
+ */
 export function encodeServerSentEvent(data: unknown, options: ServerSentEventOptions = {}): string {
   const lines: string[] = []
   if (options.id) lines.push(`id: ${stripNewlines(options.id)}`)
@@ -36,21 +38,6 @@ export function encodeServerSentEvent(data: unknown, options: ServerSentEventOpt
     lines.push(`data: ${line}`)
   }
   return `${lines.join('\n')}\n\n`
-}
-
-/** Serialize a `KnowledgeReadinessReport` as a Server-Sent Event string. @stable */
-export function readinessServerSentEvent(
-  report: KnowledgeReadinessReport,
-  options: RuntimeTelemetryOptions & ServerSentEventOptions = {},
-): string {
-  const { event, id, retry, ...telemetryOptions } = options
-  return encodeServerSentEvent(
-    {
-      type: 'readiness',
-      readiness: sanitizeKnowledgeReadinessReport(report, telemetryOptions),
-    },
-    { event, id, retry },
-  )
 }
 
 /** Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. @stable */

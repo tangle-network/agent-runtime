@@ -1,11 +1,9 @@
 /**
  * The gate — run the open binding question THROUGH the recursive runtime.
  *
- * The bench unifier (`run-benchmarks.ts`) ranks a matrix of cells via per-cell `openSandboxRun`.
- * This module drives the recursive atom instead: a `Persona` + the generic `fanout` combinator over
- * the budget-conserving `Supervisor`,
- * so the diverse-strategy-vs-blind gate is measured through the same recursive atom every
- * personified loop uses — not a bespoke harness.
+ * The bench unifier (`run-benchmarks.ts`) ranks a matrix of cells via per-cell `openEnvironmentRun`.
+ * This module drives the recursive runtime directly: one root agent spawns a fixed fanout through
+ * the budget-conserving `Supervisor`.
  *
  * The one specificity is the developer's `AgentProfile` + the strategy list. Everything else is
  * free below it: orchestration, the conserved-budget equal-k guarantee, the trajectory ledger.
@@ -26,35 +24,33 @@
  * gate returns positive.
  */
 
-import type { SandboxEvent } from '@tangle-network/sandbox'
 import type {
-  AgentProfile,
+  Agent,
+  AgentEnvironmentEvent,
   AgentSpec,
   Budget,
-  CombinatorShape,
   DefaultVerdict,
   EqualKArm,
   EqualKVerdict,
-  ExecutorContext,
-  ExecutorRegistry,
   Executor,
+  ExecutorContext,
   ExecutorFactory,
+  ExecutorRegistry,
   ExecutorResult,
-  Outcome,
-  Persona,
   Runtime,
+  Scope,
   Spend,
   SupervisedResult,
   TrajectoryReport,
 } from '@tangle-network/agent-runtime/loops'
 import {
-  definePersona,
-  routerChatWithUsage,
+  createSupervisor,
+  defaultSelectWinner,
   equalKOnCost,
-  fanout,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-  runPersonified,
+  routerChatWithUsage,
+  settledToIteration,
   trajectoryReport,
 } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
@@ -101,7 +97,7 @@ const fnv = (prefix: string, value: unknown): string => {
  *  defines no output parser (the research/QA case). */
 function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
   if (!adapter.output) return content.trim()
-  const events = [{ type: 'agent', data: { finalText: content } }] as unknown as SandboxEvent[]
+  const events: AgentEnvironmentEvent[] = [{ type: 'agent', data: { finalText: content } }]
   return adapter.output.parse(events)
 }
 
@@ -113,7 +109,11 @@ function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
  * tokens but still one iteration (never a fabricated priced cost). Fail-loud: a router non-2xx or
  * a judge throw rejects the leaf (the scope types it into a `down` settlement — never a silent 0).
  */
-export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): Executor<unknown> {
+export function benchSolveLeaf(
+  opts: BenchSolverOptions,
+  spec: AgentSpec,
+  ctx: ExecutorContext,
+): Executor<unknown> {
   const controller = new AbortController()
   const abortIfSignalled = () => {
     if (ctx.signal.aborted) controller.abort()
@@ -150,11 +150,18 @@ export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: E
       }
       const spent: Spend = {
         iterations: 1,
-        tokens: chat.usage ? { input: chat.usage.input, output: chat.usage.output } : { input: 0, output: 0 },
+        tokens: chat.usage
+          ? { input: chat.usage.input, output: chat.usage.output }
+          : { input: 0, output: 0 },
         usd: chat.costUsd ?? 0,
         ms: Date.now() - started,
       }
-      artifact = { outRef: fnv('bench', { id: t.instance.id, candidate }), out: candidate, verdict, spent }
+      artifact = {
+        outRef: fnv('bench', { id: t.instance.id, candidate }),
+        out: candidate,
+        verdict,
+        spent,
+      }
       return artifact
     },
     teardown(): Promise<{ destroyed: boolean }> {
@@ -189,42 +196,72 @@ export function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry 
   }
 }
 
-/** Build the solver `Persona` from the developer's `AgentProfile` + a solve-and-grade registry.
- *  The deliverable type is the candidate text (`string`); `harness: null` is nominal — the
- *  supplied registry overrides resolution, so the root never falls through to the router/sandbox
- *  built-ins. */
-export function defineSolverPersona(
-  profile: AgentProfile,
-  registry: ExecutorRegistry,
-  name = 'gate-solver',
-): Persona<string> {
-  const root: AgentSpec = { profile, harness: null }
-  return definePersona<string>({
+type GateOutcome = { kind: 'done'; deliverable: string } | { kind: 'blocked'; blockers: string[] }
+
+function solverLeaf(name: string, spec: AgentSpec): Agent<unknown, GateOutcome> {
+  return {
     name,
-    root,
-    directive: 'Produce the single best deliverable that the benchmark judge will accept.',
-    context: { role: 'benchmark solver' },
-    executors: { registry },
-  })
+    executorSpec: spec,
+    act(): Promise<GateOutcome> {
+      throw new Error(`gate solver "${name}" must run through its executor`)
+    },
+  }
 }
 
-/** The blind/diverse `fanout` over k children. Each item is a strategy directive appended to the
- *  task prompt; the blind arm passes k empty strategies (k identical prompts = the compute
- *  control). No `synthesize` → the deployable `defaultSelectWinner` returns the best-graded child. */
-function solveFanout(strategies: ReadonlyArray<string>, instance: BenchTask): CombinatorShape<unknown, string> {
-  return fanout<unknown, string, string>(strategies, {
-    itemTask: (strategy): SolveTask => ({
-      prompt: strategy.length > 0 ? `${instance.prompt}\n\n${strategy}` : instance.prompt,
-      instance,
-    }),
-    label: (_s, i) => `solve:${i}`,
-  })
+/** Spawn one child per strategy, then apply the runtime's shared winner rule. */
+function solveFanoutAgent(
+  strategies: ReadonlyArray<string>,
+  instance: BenchTask,
+  profile: AgentSpec['profile'],
+  perChild: Budget,
+): Agent<unknown, GateOutcome> {
+  const spec: AgentSpec = { profile, harness: null }
+  return {
+    name: 'gate-fanout',
+    async act(_task, scope: Scope<GateOutcome>): Promise<GateOutcome> {
+      const blockers: string[] = []
+      let admitted = 0
+      for (let index = 0; index < strategies.length; index += 1) {
+        const strategy = strategies[index] ?? ''
+        const label = `solve:${index}`
+        const spawned = scope.spawn(
+          solverLeaf(label, spec),
+          {
+            prompt: strategy.length > 0 ? `${instance.prompt}\n\n${strategy}` : instance.prompt,
+            instance,
+          } satisfies SolveTask,
+          { budget: perChild, label },
+        )
+        if (spawned.ok) admitted += 1
+        else blockers.push(`${label}: not admitted (${spawned.reason})`)
+      }
+      if (admitted === 0) return { kind: 'blocked', blockers }
+
+      const iterations = []
+      for (let settled = await scope.next(); settled !== null; settled = await scope.next()) {
+        if (settled.kind === 'down') {
+          blockers.push(`${settled.handle.label}: ${settled.reason}`)
+          continue
+        }
+        iterations.push(settledToIteration(settled))
+      }
+      const winner = defaultSelectWinner(iterations)
+      if (!winner) {
+        return {
+          kind: 'blocked',
+          blockers:
+            blockers.length > 0 ? blockers : ['every solver completed without a usable result'],
+        }
+      }
+      return { kind: 'done', deliverable: winner.output as unknown as string }
+    },
+  }
 }
 
 export interface RunGateOptions {
   readonly adapter: BenchmarkAdapter
   /** The ONE specificity: who the solver is (prompt / model / tools). */
-  readonly profile: AgentProfile
+  readonly profile: AgentSpec['profile']
   /**
    * The diverse arm's strategy directives. `k = strategies.length` fixes BOTH arms' child count
    * (the blind arm runs k identical copies), so the two arms are equal-k by construction. Must be
@@ -274,7 +311,11 @@ export interface GateReport {
   readonly k: number
   readonly n: number
   /** Per-instance paired booleans — the input a paired-bootstrap / BH test consumes downstream. */
-  readonly perTask: ReadonlyArray<{ readonly id: string; readonly blind: boolean; readonly diverse: boolean }>
+  readonly perTask: ReadonlyArray<{
+    readonly id: string
+    readonly blind: boolean
+    readonly diverse: boolean
+  }>
   readonly arms: ReadonlyArray<GateArmResult>
   /** diverse.resolveRate − blind.resolveRate, in percentage points (binary all-pass delta). */
   readonly deltaPp: number
@@ -310,7 +351,11 @@ function selectedOutcome(report: TrajectoryReport): { resolved: boolean; score: 
     if (node.status !== 'done' || !node.verdict) continue
     const v = node.verdict
     if (typeof v.score !== 'number') continue
-    if (best === undefined || (v.valid && !best.valid) || (v.valid === best.valid && v.score > best.score)) {
+    if (
+      best === undefined ||
+      (v.valid && !best.valid) ||
+      (v.valid === best.valid && v.score > best.score)
+    ) {
       best = { score: v.score, valid: v.valid === true }
     }
   }
@@ -325,7 +370,9 @@ function selectedOutcome(report: TrajectoryReport): { resolved: boolean; score: 
  */
 export async function runGate(opts: RunGateOptions): Promise<GateReport> {
   if (opts.strategies.length < 2) {
-    throw new Error('runGate: need >= 2 strategies (k = strategies.length fixes both arms’ child count)')
+    throw new Error(
+      'runGate: need >= 2 strategies (k = strategies.length fixes both arms’ child count)',
+    )
   }
   const k = opts.strategies.length
   await opts.adapter.preflight()
@@ -362,21 +409,25 @@ export async function runGate(opts: RunGateOptions): Promise<GateReport> {
   >(armDefs.map((a) => [a.label, { resolved: 0, scoreSum: 0, errored: 0, spend: zeroSpend() }]))
 
   for (const task of tasks) {
-    const row: { id: string; blind: boolean; diverse: boolean } = { id: task.id, blind: false, diverse: false }
+    const row: { id: string; blind: boolean; diverse: boolean } = {
+      id: task.id,
+      blind: false,
+      diverse: false,
+    }
     for (const armDef of armDefs) {
       const journal = new InMemorySpawnJournal()
       const blobs = new InMemoryResultBlobStore()
-      const persona = defineSolverPersona(opts.profile, registry, `${armDef.label}-solver`)
       const runId = `gate:${armDef.label}:${task.id}`
-      const result: SupervisedResult<Outcome<string>> = await runPersonified<unknown, string>({
-        persona,
-        shape: solveFanout(armDef.strategies, task),
-        task: undefined,
+      const result: SupervisedResult<GateOutcome> = await createSupervisor<
+        unknown,
+        GateOutcome
+      >().run(solveFanoutAgent(armDef.strategies, task, opts.profile, perChild), undefined, {
         budget,
-        shapeBudget: { fanout: k, perChild },
         runId,
         journal,
         blobs,
+        executors: registry,
+        maxDepth: 1,
       })
       const report = await trajectoryReport(journal, blobs, runId, { withOutputs: true })
       const entry = acc.get(armDef.label)!

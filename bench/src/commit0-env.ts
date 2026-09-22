@@ -1,6 +1,6 @@
 /**
- * Commit0 as an `Environment` — the HARD test (docs/research/long-horizon-benchmark-survey.md:
- * the survey's top pick, graded + natively multi-stage). The agent implements an entire
+ * Commit0 as an `Environment`.
+ * The agent implements an entire
  * stubbed Python library so its existing test suite passes.
  *
  * Off-box construction (routes around the sandbox platform exactly like the EOPS gym):
@@ -20,7 +20,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, EnvironmentTask, EnvironmentTool, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
 
 const exec = promisify(execFile)
 
@@ -62,7 +62,7 @@ function parsePytest(out: string): { passed: number; failed: number } {
   }
 }
 
-export function rowToTask(row: Commit0Row): AgenticTask {
+export function rowToTask(row: Commit0Row): EnvironmentTask {
   return {
     id: row.instance_id,
     systemPrompt:
@@ -77,7 +77,7 @@ export function rowToTask(row: Commit0Row): AgenticTask {
   }
 }
 
-export function createCommit0Environment(rows: Commit0Row[]): AgenticSurface {
+export function createCommit0Environment(rows: Commit0Row[]): TaskEnvironment {
   const byId = new Map(rows.map((r) => [r.instance_id, r]))
   return {
     name: 'commit0',
@@ -111,7 +111,7 @@ export function createCommit0Environment(rows: Commit0Row[]): AgenticSurface {
         { type: 'function', function: { name: 'read_file', description: 'Read a file from the repo (bounded).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'write_file', description: `Write COMPLETE file contents (source under ${src} only; the test dir is read-only).`, parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
         { type: 'function', function: { name: 'run_tests', description: 'Run the existing test suite; returns the pytest summary + failure tails.', parameters: { type: 'object', properties: {} } } },
-      ] satisfies AgenticTool[]
+      ] satisfies EnvironmentTool[]
     },
 
     async call(handle, name, args) {

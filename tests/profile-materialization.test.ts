@@ -4,7 +4,6 @@ import {
   defineProfileMaterializationContract,
   promptOnlyProfileMaterialization,
   promptResourceProfileMaterialization,
-  sandboxActProfileMaterialization,
   validateProfileMaterialization,
 } from '../src/agent'
 
@@ -51,31 +50,6 @@ describe('profile materialization contracts', () => {
         'Use a run path that carries those AgentProfile axes, or remove them from the candidate.',
       ].join('\n'),
     )
-  })
-
-  it('declares createSandboxAct as the full profile path', () => {
-    expect(
-      validateProfileMaterialization({
-        contract: sandboxActProfileMaterialization,
-        changedAxes: [
-          'name',
-          'model',
-          'systemPrompt',
-          'files',
-          'skills',
-          'tools',
-          'permissions',
-          'mcpConnections',
-          'connections',
-          'subagents',
-          'hooks',
-          'modes',
-          'confidential',
-          'metadata',
-          'extensions',
-        ],
-      }),
-    ).toEqual([])
   })
 
   it('deduplicates axes while preserving first-seen order', () => {

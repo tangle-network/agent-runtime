@@ -17,7 +17,14 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { acquireSandbox, routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
+} from '@tangle-network/agent-interface/environment-provider'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import { routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
@@ -49,10 +56,57 @@ const SCAD_PATH = '/work/model.scad'
 const STL_PATH = '/work/model.stl'
 const PNG_PATH = '/work/model.png'
 
-/** The acquired sandbox instance — the per-task execution Ctx for solveCadRefine. */
-type SandboxBox = Awaited<ReturnType<typeof acquireSandbox>>
+type CadEnvironment = AgentEnvironment &
+  Required<Pick<AgentEnvironment, 'read' | 'write' | 'exec'>>
 
 const randomSuffix = () => Math.random().toString(36).slice(2, 10)
+
+async function createCadEnvironment(
+  provider: AgentEnvironmentProvider,
+  input: CreateAgentEnvironmentInput,
+): Promise<CadEnvironment> {
+  let environment = await provider.create(input)
+  let status = await environment.status()
+  if (status !== 'running' && provider.get) {
+    environment = (await provider.get(environment.id)) ?? environment
+    status = await environment.status()
+  }
+  if (status !== 'running') {
+    await environment.destroy?.().catch(() => undefined)
+    throw new Error(
+      `${provider.name} environment "${environment.id}" is ${status} after creation`,
+    )
+  }
+  if (!environment.read || !environment.write || !environment.exec) {
+    await environment.destroy?.().catch(() => undefined)
+    throw new Error(`${provider.name} does not provide the CAD workspace operations`)
+  }
+  return environment as CadEnvironment
+}
+
+async function renderDataUrl(environment: CadEnvironment): Promise<string | undefined> {
+  const encoded = await environment.exec(`base64 -w 0 ${PNG_PATH}`, { timeoutMs: 30_000 })
+  const content = encoded.stdout.trim()
+  return encoded.exitCode === 0 && content ? `data:image/png;base64,${content}` : undefined
+}
+
+function eventText(event: AgentEnvironmentEvent): string {
+  if (
+    event.normalized?.type === 'message.part.updated' &&
+    typeof event.normalized.delta === 'string'
+  ) {
+    return event.normalized.delta
+  }
+  for (const key of ['delta', 'chunk', 'content', 'text']) {
+    if (typeof event.data[key] === 'string') return event.data[key]
+  }
+  const native = event.providerEvent
+  return native &&
+    typeof native === 'object' &&
+    typeof (native as { text?: unknown }).text === 'string'
+    ? (native as { text: string }).text
+    : ''
+}
 
 /** Strip markdown fences / prose so we keep just the OpenSCAD source. */
 function extractScad(text: string): string {
@@ -207,6 +261,7 @@ export interface CadRefineConfig extends CadWorkerConfig {
 export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Promise<CadShotResult> {
   const rounds = cfg.rounds ?? 3
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
+  const environmentProvider = createTangleProvider({ client })
   const t0 = Date.now()
   const trace: Span[] = []
   const runId = `cad-${task.id}`
@@ -224,27 +279,25 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
   // /work created in setup, torn down in teardown). resolved (compiles AND has
   // geometry) is the early-stop, modeled as a judge so default-decide stops the loop.
   // The round-2+ steer carries lastErr + the prior source verbatim.
-  const res = await runRefineLoop<string, SandboxBox>({
+  const res = await runRefineLoop<string, CadEnvironment>({
     rounds,
     setup: async () => {
-      const box = await acquireSandbox(client, {
-        name: `cad-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-        environment: 'universal',
+      const name = `cad-${task.id}-${randomSuffix()}`
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .slice(0, 60)
+      const environment = await createCadEnvironment(environmentProvider, {
+        profile: { name: 'cad-refiner' },
+        workspace: { environment: 'universal' },
+        name,
+        idempotencyKey: name,
       })
-      // If init fails AFTER acquire, reap the box here — setup throwing before it
-      // returns the Ctx means runRefineLoop's teardown never runs, so an unguarded
-      // mkdir failure would leak the sandbox (the pre-migration finally deleted it).
       try {
-        await box.exec('mkdir -p /work', { timeoutMs: 30_000 })
+        await environment.exec('mkdir -p /work', { timeoutMs: 30_000 })
         // The brief frames the title card (understood_task).
         trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-        return box
+        return environment
       } catch (err) {
-        try {
-          await box.delete?.()
-        } catch {
-          // platform reaps on expiry
-        }
+        await environment.destroy?.().catch(() => undefined)
         throw err
       }
     },
@@ -252,7 +305,7 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
       round === 1
         ? task.prompt
         : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`,
-    runShot: async (user, round, box) => {
+    runShot: async (user, round, environment) => {
       const { content: reply } = await routerChatWithUsage(cfg, [
         { role: 'system', content: sys },
         { role: 'user', content: user },
@@ -261,36 +314,32 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
       trace.push({ spanId: `s-reply-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: reply.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'model.scad', content: scad }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
-      await box.fs.write(SCAD_PATH, scad)
-      const compile = await box.exec(`xvfb-run -a openscad -o ${STL_PATH} ${SCAD_PATH}`, { timeoutMs: 120_000 })
+      await environment.write(SCAD_PATH, scad)
+      const compile = await environment.exec(
+        `xvfb-run -a openscad -o ${STL_PATH} ${SCAD_PATH}`,
+        { timeoutMs: 120_000 },
+      )
       const compileOk = compile.exitCode === 0
       lastErr = compileOk ? '' : `${compile.stdout}\n${compile.stderr}`.trim().slice(0, 800)
       trace.push({ spanId: `s-compile-${round}`, runId, kind: 'tool', name: `openscad r${round}`, toolName: 'shell.exec', args: 'openscad -o model.stl model.scad', result: (compileOk ? compile.stderr : lastErr).slice(0, 1500) || 'ok', startedAt: tick(), endedAt: tick(), status: compileOk ? 'ok' : 'error', error: compileOk ? undefined : `exit ${compile.exitCode}` } as Span)
 
       let screenshot: string | undefined
       if (compileOk) {
-        const render = await box.exec(`xvfb-run -a openscad -o ${PNG_PATH} --imgsize=1100,850 --camera=40,30,40,55,0,25,260 --colorscheme=Tomorrow ${SCAD_PATH}`, { timeoutMs: 120_000 })
+        const render = await environment.exec(`xvfb-run -a openscad -o ${PNG_PATH} --imgsize=1100,850 --camera=40,30,40,55,0,25,260 --colorscheme=Tomorrow ${SCAD_PATH}`, { timeoutMs: 120_000 })
         if (render.exitCode === 0) {
-          const localPng = join(tmpdir(), `cad-${task.id}-r${round}-${randomSuffix()}.png`)
-          await box.fs.download(PNG_PATH, localPng).catch(() => undefined)
-          const buf = await readFile(localPng).catch(() => undefined)
-          if (buf) screenshot = `data:image/png;base64,${buf.toString('base64')}`
+          screenshot = await renderDataUrl(environment)
         }
         // Geometry gate: read STL back + check it's non-trivial (the adapter judge
         // does the full spec scoring; here we just decide whether to stop refining).
-        const stl = await box.fs.read(STL_PATH).catch(() => '')
+        const stl = await environment.read(STL_PATH).catch(() => '')
         resolved = stl.length > 0 && /facet normal/.test(stl)
       }
       trace.push({ spanId: `s-render-${round}`, runId, kind: 'tool', name: `render r${round}`, toolName: 'render.screenshot', args: { action: `rendered round ${round}`, url: 'model.png' }, attributes: screenshot ? { screenshot } : {}, startedAt: tick(), endedAt: tick(), status: screenshot ? 'ok' : 'error', error: screenshot ? undefined : (compileOk ? 'render produced no image' : 'skipped — did not compile') } as Span)
       return { artifact: scad }
     },
     judge: async () => ({ valid: resolved }),
-    teardown: async (box) => {
-      try {
-        await box.delete()
-      } catch {
-        // staging reaps on expiry
-      }
+    teardown: async (environment) => {
+      await environment.destroy?.().catch(() => undefined)
     },
   })
 
@@ -302,17 +351,26 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
  *  openscad and capturing a screenshot-rich trace. */
 export async function solveCadShot(task: BenchTask, cfg: CadWorkerConfig): Promise<CadShotResult> {
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
-  const box = await acquireSandbox(client, {
-    name: `cad-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-    environment: 'universal',
-    backend: {
-      type: 'opencode',
-      // provider/model/baseUrl pinning only — in-box model auth is the box-provisioned
-      // OPENCODE_MODEL_API_KEY (foreign keys are 403'd at egress).
-      model: {
-        provider: cfg.provider ?? 'openai',
-        model: cfg.model,
-        baseUrl: cfg.routerBaseUrl,
+  const environmentProvider = createTangleProvider({ client })
+  const name = `cad-${task.id}-${randomSuffix()}`
+    .replace(/[^a-zA-Z0-9_.-]/g, '_')
+    .slice(0, 60)
+  const environment = await createCadEnvironment(environmentProvider, {
+    profile: { name: 'cad-worker' },
+    backend: 'opencode',
+    workspace: { environment: 'universal' },
+    name,
+    idempotencyKey: name,
+    providerOptions: {
+      sandboxCreateOptions: {
+        backend: {
+          type: 'opencode',
+          model: {
+            provider: cfg.provider ?? 'openai',
+            model: cfg.model,
+            baseUrl: cfg.routerBaseUrl,
+          },
+        },
       },
     },
   })
@@ -347,13 +405,13 @@ export async function solveCadShot(task: BenchTask, cfg: CadWorkerConfig): Promi
     const signal = cfg.timeoutMs ? AbortSignal.timeout(cfg.timeoutMs) : undefined
     let lastErr: string | undefined
     let agentText = ''
-    for await (const ev of box.streamPrompt(prompt, signal ? { signal } : {})) {
-      if (ev?.type === 'error') lastErr = JSON.stringify(ev.data).slice(0, 300)
-      const text = typeof (ev as { text?: unknown })?.text === 'string' ? (ev as unknown as { text: string }).text : ''
+    for await (const ev of environment.stream({ prompt, ...(signal ? { signal } : {}) })) {
+      if (ev.type === 'error') lastErr = JSON.stringify(ev.data).slice(0, 300)
+      const text = eventText(ev)
       if (text) agentText += text
     }
 
-    const artifact = await box.fs.read(SCAD_PATH).catch(() => '')
+    const artifact = await environment.read(SCAD_PATH).catch(() => '')
     if (artifact.trim()) {
       trace.push({
         spanId: 's-write',
@@ -369,7 +427,7 @@ export async function solveCadShot(task: BenchTask, cfg: CadWorkerConfig): Promi
     }
 
     // GATE + RENDER in the sandbox itself (the box's own openscad/xvfb).
-    const compile = await box.exec(`xvfb-run -a openscad -o ${STL_PATH} ${SCAD_PATH}`, {
+    const compile = await environment.exec(`xvfb-run -a openscad -o ${STL_PATH} ${SCAD_PATH}`, {
       timeoutMs: 120_000,
     })
     trace.push({
@@ -388,15 +446,12 @@ export async function solveCadShot(task: BenchTask, cfg: CadWorkerConfig): Promi
 
     let screenshot: string | undefined
     if (compile.exitCode === 0) {
-      const render = await box.exec(
+      const render = await environment.exec(
         `xvfb-run -a openscad -o ${PNG_PATH} --imgsize=1100,850 --camera=40,30,40,55,0,25,260 --colorscheme=Tomorrow ${SCAD_PATH}`,
         { timeoutMs: 120_000 },
       )
       if (render.exitCode === 0) {
-        const localPng = join(tmpdir(), `cad-${task.id}-${randomSuffix()}.png`)
-        await box.fs.download(PNG_PATH, localPng).catch(() => undefined)
-        const buf = await readFile(localPng).catch(() => undefined)
-        if (buf) screenshot = `data:image/png;base64,${buf.toString('base64')}`
+        screenshot = await renderDataUrl(environment)
       }
     }
     // Screen span carrying the render — drives run-capsule's screen capsule.
@@ -442,10 +497,6 @@ export async function solveCadShot(task: BenchTask, cfg: CadWorkerConfig): Promi
             : `compiled with exit ${compile.exitCode}`,
     }
   } finally {
-    try {
-      await box.delete()
-    } catch {
-      /* staging reaps on expiry */
-    }
+    await environment.destroy?.().catch(() => undefined)
   }
 }

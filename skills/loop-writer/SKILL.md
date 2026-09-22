@@ -14,12 +14,12 @@ Do not copy signatures from this skill.
 | Need | Existing path |
 |---|---|
 | One product chat turn | `handleChatTurn(...)` |
-| One task or bounded multi-turn task | `runAgentTask(...)` or `runAgentTaskStream(...)` |
-| Two or more actors taking turns | `defineConversation(...)` and `runConversation(...)` |
+| One normalized provider turn | `streamAgentTurn(...)` |
+| One persistent provider session | `openEnvironmentRun(...)` |
+| Two or more actors taking turns | `runInteraction(...)` |
 | A driver coordinating workers | `supervise(...)` or `superviseSurface(...)` |
-| Parallel or fixed composition | `fanout(...)`, `pipeline(...)`, `panel(...)`, `verify(...)`, or `loopUntil(...)` |
-| Parallel repository workers with isolated branches | `worktreeFanout(...)` |
-| Repeated work in a graded tool environment | `runAgentic(...)` |
+| Parallel repository workers with isolated branches | `worktreeLoopRunner(...)` |
+| Repeated work in a graded tool environment | `runStrategy(...)` |
 | Equal-budget comparison over that environment | `runBenchmark(...)` |
 | Low-level round policy with custom planning and stopping | `runAgentRounds(...)` |
 

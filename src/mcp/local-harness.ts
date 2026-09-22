@@ -35,7 +35,7 @@ import {
 } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import {
   codexSensitiveEnvironmentName,
   collectCodexDiagnosticRedactionValues,
@@ -48,7 +48,13 @@ export type { CodexExecutionFailureDiagnostic } from './codex-diagnostics'
 export { CodexExecutionDiagnosticError } from './codex-diagnostics'
 
 /** Local coding harness available inside the sandbox. */
-export type LocalHarness = 'claude' | 'codex' | 'opencode'
+export const LOCAL_HARNESSES = [
+  'claude-code',
+  'codex',
+  'opencode',
+] as const satisfies readonly HarnessType[]
+
+export type LocalHarness = (typeof LOCAL_HARNESSES)[number]
 
 type ReasoningEffort = NonNullable<NonNullable<AgentProfile['model']>['reasoningEffort']>
 
@@ -91,7 +97,7 @@ const HARNESS_INVOCATIONS: Record<
     reasoningArgs?: (reasoningEffort: ReasoningEffort) => string[]
   }
 > = {
-  claude: {
+  'claude-code': {
     command: 'claude',
     // `-p` IS headless/print mode; the old `--headless` flag was removed from the CLI.
     // Permission bypass is an explicit per-run opt-in below, never the public default.
@@ -159,7 +165,7 @@ function buildHarnessArgs(
   options: HarnessInvocationOptions = {},
 ): string[] {
   const args = HARNESS_INVOCATIONS[harness].buildArgs(taskPrompt)
-  if (harness === 'claude' && options.dangerouslySkipPermissions) {
+  if (harness === 'claude-code' && options.dangerouslySkipPermissions) {
     args.push('--dangerously-skip-permissions')
   }
   if (options.codexReproducible) {

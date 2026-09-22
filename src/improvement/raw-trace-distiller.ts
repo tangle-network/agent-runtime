@@ -63,7 +63,7 @@ export interface RawTraceDistillerOptions {
 
 interface CellTrace {
   scenarioId: string
-  composite: number
+  composite: number | null
   error?: string
   cellDir: string
   files: string[]
@@ -106,7 +106,7 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
         campaignDir: absoluteRunDir(c.campaign.runDir),
         cells: failingCells(c.campaign, maxCellsPerCandidate, maxFilesPerCell),
       }))
-      .sort((a, b) => a.composite - b.composite)
+      .sort((a, b) => compositeRank(a.composite) - compositeRank(b.composite))
       .slice(0, maxCandidates)
 
     const totalFailingCells = ranked.reduce((n, c) => n + c.cells.length, 0)
@@ -169,7 +169,7 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
       const scenarioList = cand.cells.map((c) => c.scenarioId).join(', ')
       const fileLines = cand.cells
         .map((c) => {
-          const header = `  cell ${c.scenarioId} (composite ${c.composite.toFixed(3)}${
+          const header = `  cell ${c.scenarioId} (composite ${formatComposite(c.composite)}${
             c.error ? `, error: ${truncate(c.error, 160)}` : ''
           }) — dir ${c.cellDir}`
           const files = c.files.map((f) => `    - ${f}`).join('\n')
@@ -181,11 +181,11 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
       findings.push(
         makeFinding({
           analyst_id: ANALYST_ID,
-          severity: cand.composite < 0.5 ? 'critical' : 'high',
+          severity: cand.composite === null || cand.composite < 0.5 ? 'critical' : 'high',
           area: 'raw-trace-context',
           confidence: 1,
           subject: cand.surfaceHash,
-          claim: `Candidate ${cand.surfaceHash} scored composite ${cand.composite.toFixed(3)} with ${cand.cells.length} failing cell(s) [${scenarioList}]. Its raw traces are under ${cand.campaignDir}.`,
+          claim: `Candidate ${cand.surfaceHash} has composite ${formatComposite(cand.composite)} with ${cand.cells.length} failing or unavailable cell(s) [${scenarioList}]. Its raw traces are under ${cand.campaignDir}.`,
           recommended_action: `grep/cat these raw trace files to diagnose WHY this candidate failed before editing:\n${fileLines}\nOr scan the whole candidate at once: \`grep -rIn . ${cand.campaignDir}\` and \`ls -R ${cand.campaignDir}\`.`,
           evidence_refs: [
             { kind: 'artifact', uri: cand.campaignDir },
@@ -214,8 +214,7 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
 }
 
 /** The failing cells of a candidate campaign, each with its on-disk trace files.
- *  Mirrors the default distiller's per-cell composite (mean of judge composites,
- *  0 when a cell produced no judge score) and its failing predicate. */
+ *  A missing judge score stays unavailable rather than becoming a zero. */
 function failingCells(
   campaign: {
     runDir: string
@@ -223,7 +222,7 @@ function failingCells(
       cellId: string
       scenarioId: string
       error?: string
-      judgeScores: Record<string, { composite?: number }>
+      judgeScores: Record<string, { composite?: number | null }>
     }>
     artifactsByPath?: Record<string, string>
   },
@@ -235,11 +234,14 @@ function failingCells(
   const out: CellTrace[] = []
   for (const cell of campaign.cells) {
     const scores = Object.values(cell.judgeScores ?? {})
+    const complete = scores.every(
+      (score) => typeof score.composite === 'number' && Number.isFinite(score.composite),
+    )
     const composite =
-      scores.length === 0
-        ? 0
-        : scores.reduce((sum, s) => sum + (s.composite ?? 0), 0) / scores.length
-    if (!cell.error && composite >= PASS_THRESHOLD) continue
+      scores.length === 0 || !complete
+        ? null
+        : scores.reduce((sum, score) => sum + (score.composite as number), 0) / scores.length
+    if (!cell.error && composite !== null && composite >= PASS_THRESHOLD) continue
 
     const cellDir = join(campaignDir, sanitizeCellId(cell.cellId))
     const artifactPaths = artifactPathsForCell(campaign.artifactsByPath, cell.cellId)
@@ -251,7 +253,7 @@ function failingCells(
 
     out.push({
       scenarioId: cell.scenarioId,
-      composite: Number(composite.toFixed(3)),
+      composite: composite === null ? null : Number(composite.toFixed(3)),
       ...(cell.error ? { error: cell.error } : {}),
       cellDir,
       files: files.slice(0, maxFiles),
@@ -331,4 +333,12 @@ function dedupeSorted(paths: string[]): string[] {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`
+}
+
+function compositeRank(value: number | null): number {
+  return value ?? Number.NEGATIVE_INFINITY
+}
+
+function formatComposite(value: number | null): string {
+  return value === null ? 'unavailable' : value.toFixed(3)
 }

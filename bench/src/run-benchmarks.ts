@@ -7,9 +7,9 @@
  * and return a ranked leaderboard. It is the "which harness/model/persona combination wins on which
  * benchmark" question, answered over an arbitrary subset in one call.
  *
- * It owns no new mechanism. Each cell is one `openSandboxRun` shot (the same per-run primitive the
- * SWE worker uses) driven by `resolveBenchClient` (off-box router completion OR in-box Sandbox; the
- * harness rides `sandboxOverrides.backend.type`). The deliverable is the adapter's OWN parser
+ * It owns no new mechanism. Each cell is one `openEnvironmentRun` shot (the same per-run primitive
+ * the SWE worker uses) driven by the cell's configured environment provider. The harness rides
+ * `AgentRunSpec.environment.backend`. The deliverable is the adapter's OWN parser
  * (`adapter.output`), defaulting to the final answer text — so `runBenchmarks` needs no
  * per-benchmark branching. Concurrency is the shared `runPool`. The number comes from
  * `adapter.judge`, never a self-authored judge.
@@ -21,8 +21,8 @@
  *   const report = await runBenchmarks({
  *     benchmarks: ['humaneval', 'swe-bench'],
  *     cells: [
- *       { label: 'opencode/glm-4.6', model: 'glm-4.6', harness: 'opencode' },
- *       { label: 'codex/gpt-5',      model: 'gpt-5',    harness: 'codex'    },
+ *       { label: 'opencode/glm-4.6', model: 'glm-4.6', harness: 'opencode', provider },
+ *       { label: 'codex/gpt-5',      model: 'gpt-5',    harness: 'codex',    provider },
  *     ],
  *     routerBaseUrl, routerKey, n: 20,
  *   })
@@ -30,17 +30,23 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import type {
-  AgentProfile,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProviderRef,
+  AgentEnvironmentProviderRegistry,
   AgentRunSpec,
-  Deliverable,
-  OpenSandboxRunOptions,
+  EnvironmentDeliverable,
+  EnvironmentRun,
+  OpenEnvironmentRunOptions,
 } from '@tangle-network/agent-runtime/loops'
-import { openSandboxRun } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import {
+  collectAgentTurn,
+  openEnvironmentRun,
+  resolveAgentEnvironmentProvider,
+  streamAgentTurn,
+} from '@tangle-network/agent-runtime/loops'
 import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
 import { runRefineLoop } from './refine-loop'
-import { resolveBenchClient } from './resolve-client'
 import { runPool } from './run-pool'
 
 /** One agent under test: a profile (prompt/tools/persona) plus the harness + model that run it. */
@@ -52,16 +58,16 @@ export interface BenchCell {
   /** Coding harness for the in-box path (`opencode`/`codex`/`claude-code`/`kimi-code`). Defaults to
    *  `profile.metadata.backendType`, then `opencode`. Ignored on the `router` transport. */
   readonly harness?: string
-  /** Transport: `router` (off-box completion, default), `sandbox`, or a BackendType for in-box. */
-  readonly backend?: string
-  /** Web-search provider for the `router` transport (turns the leaf into a `router-tools` loop). */
-  readonly searchProvider?: string
   /** The agent under test. Defaults to a minimal `{ name, metadata.backendType }` profile. */
-  readonly profile?: AgentProfile
+  readonly profile?: AgentRunSpec<string>['profile']
+  /** Provider object or registered provider name. Required by the default shot runner. */
+  readonly provider?: AgentEnvironmentProviderRef
+  /** Provider-neutral environment creation fields. Defaults to the Tangle benchmark setup. */
+  readonly environment?: AgentRunSpec<string>['environment']
 }
 
 /** Runs one (adapter, task, cell) shot and returns the deliverable text. The default uses
- *  `openSandboxRun`; tests inject a deterministic stub so the matrix runs offline. */
+ *  `openEnvironmentRun`; tests inject a deterministic stub so the matrix runs offline. */
 export type BenchShot = (input: {
   readonly adapter: BenchmarkAdapter
   readonly task: BenchTask
@@ -72,11 +78,8 @@ export type BenchShot = (input: {
   readonly attempt?: number
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly bridgeUrl?: string
-  readonly bridgeBearer?: string
-  readonly sandboxBaseUrl?: string
   readonly timeoutMs?: number
-  readonly resolveClient?: typeof resolveBenchClient
+  readonly providerRegistry?: AgentEnvironmentProviderRegistry
 }) => Promise<{ artifact: string; ok: boolean; detail?: string }>
 
 export interface RunBenchmarksOptions {
@@ -86,9 +89,6 @@ export interface RunBenchmarksOptions {
   readonly cells: readonly BenchCell[]
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly bridgeUrl?: string
-  readonly bridgeBearer?: string
-  readonly sandboxBaseUrl?: string
   /** Tasks per benchmark (the n). */
   readonly n?: number
   readonly ids?: string[]
@@ -99,15 +99,15 @@ export interface RunBenchmarksOptions {
   readonly concurrency?: number
   /** Per-shot wall-clock (ms). */
   readonly timeoutMs?: number
-  /** Test seam: resolve the runtime transport. Defaults to `resolveBenchClient`. */
-  readonly resolveClient?: typeof resolveBenchClient
+  /** Registry used when a cell selects its provider by name. */
+  readonly providerRegistry?: AgentEnvironmentProviderRegistry
   /** Max attempts per (benchmark × cell × task). Default 1. Attempts after the first receive
    *  non-answer checker feedback and the previous artifacts; the loop stops early on pass. */
   readonly loopAttempts?: number
   /** Self-verify each benchmark's judge against its gold artifact on the first task before spending
    *  model tokens; a benchmark whose judge rejects its own gold is recorded unavailable. Default true. */
   readonly verifyJudge?: boolean
-  /** Test seam: a deterministic shot runner. Defaults to the `openSandboxRun` leaf. */
+  /** Test seam: a deterministic shot runner. Defaults to the `openEnvironmentRun` leaf. */
   readonly runShot?: BenchShot
   /** Test seam: resolve a benchmark key to an adapter. Defaults to the registry `resolveAdapter`. */
   readonly resolveAdapter?: (key: string) => BenchmarkAdapter
@@ -153,7 +153,7 @@ export interface RunBenchmarksReport {
 /** Last assistant text across the common event shapes (delta accumulation, then a terminal
  *  `result`/`done`/`agent` snapshot). The structured-deliverable case is handled by the adapter's
  *  own `output.parse`; this is the research/QA fallback. */
-function finalText(events: readonly SandboxEvent[]): string {
+function finalText(events: readonly AgentEnvironmentEvent[]): string {
   let text = ''
   for (const ev of events) {
     const e = ev as { type?: string; data?: Record<string, unknown> }
@@ -171,102 +171,180 @@ function finalText(events: readonly SandboxEvent[]): string {
   return text.trim()
 }
 
-/** The default real-agent shot: one `openSandboxRun` over the cell's harness+model, deliverable
+/** The default real-agent shot: one `openEnvironmentRun` over the cell's harness+model, deliverable
  *  extracted by the adapter's parser (or final text), abortable on `timeoutMs`. */
-const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, resolveClient }) => {
-  const client = (resolveClient ?? resolveBenchClient)({
-    backend: cell.backend ?? 'router',
-    routerBaseUrl,
-    routerKey,
-    model: cell.model,
-    ...(bridgeUrl ? { bridgeUrl } : {}),
-    ...(bridgeBearer ? { bridgeBearer } : {}),
-    ...(sandboxBaseUrl ? { sandboxBaseUrl } : {}),
-    ...(cell.searchProvider ? { searchProvider: cell.searchProvider } : {}),
-    ...(timeoutMs ? { timeoutMs } : {}),
-  })
-  const harness = cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
-  const profile: AgentProfile = cell.profile ?? { name: cell.label, metadata: { backendType: harness } }
-  // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the box
+const openEnvironmentShot: BenchShot = async ({
+  adapter,
+  task,
+  cell,
+  prompt,
+  routerBaseUrl,
+  routerKey,
+  timeoutMs,
+  providerRegistry,
+}) => {
+  const provider =
+    adapter.leafProvider?.({
+      model: cell.model,
+      routerBaseUrl,
+      routerKey,
+    }) ??
+    (cell.provider ? resolveAgentEnvironmentProvider(cell.provider, providerRegistry) : undefined)
+  if (!provider) {
+    throw new Error(
+      `runBenchmarks: cell "${cell.label}" requires an environment provider for the default shot runner`,
+    )
+  }
+  const harness =
+    cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
+  const profile: AgentRunSpec<string>['profile'] = cell.profile ?? {
+    name: cell.label,
+    metadata: { backendType: harness },
+  }
+  // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the environment
   // name and runId must not collide.
   const uniq = Math.random().toString(36).slice(2, 8)
   const agentRun: AgentRunSpec<string> = {
     profile,
     name: cell.label,
     taskToPrompt: () => '',
-    sandboxOverrides: {
-      name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-      environment: 'universal',
-      backend: { type: harness as never, model: { provider: 'openai', model: cell.model, baseUrl: routerBaseUrl } },
+    environment: cell.environment ?? {
+      name: `bench-${adapter.name}-${task.id}-${uniq}`
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .slice(0, 60),
+      workspace: { environment: 'universal' },
+      backend: harness,
+      providerOptions: {
+        sandboxCreateOptions: {
+          backend: {
+            model: { provider: 'openai', model: cell.model, baseUrl: routerBaseUrl },
+          },
+        },
+      },
     },
   }
-  const deliverable: Deliverable<string> = {
+  const deliverable: EnvironmentDeliverable<string> = {
     kind: 'events',
     fromEvents: (events) => (adapter.output ? adapter.output.parse(events) : finalText(events)),
   }
   const controller = new AbortController()
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
-  const runOptions: OpenSandboxRunOptions = {
+  if (!adapter.environmentSetup && !adapter.environmentExtract) {
+    const events: AgentEnvironmentEvent[] = []
+    try {
+      const turn = await collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'provider',
+            provider,
+            profile,
+            ...(agentRun.environment ? { environment: agentRun.environment } : {}),
+            ...(agentRun.prepareEnvironment
+              ? { prepareEnvironment: agentRun.prepareEnvironment }
+              : {}),
+            agentRunName: agentRun.name,
+          },
+          prompt ?? task.prompt,
+          {
+            signal: controller.signal,
+            onRawEvent: (event) => {
+              events.push(event)
+            },
+          },
+        ),
+      )
+      if (turn.status !== 'completed') {
+        throw new Error(turn.error?.message ?? `agent turn ${turn.status}`)
+      }
+      const artifact = (
+        adapter.output ? adapter.output.parse(events) : finalText(events) || turn.finalText
+      ).trim()
+      return { artifact, ok: artifact.length > 0 }
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+  const runOptions: OpenEnvironmentRunOptions<string> = {
+    provider,
     agentRun,
+    deliverable,
     signal: controller.signal,
     runId: `bench:${adapter.name}:${task.id}:${uniq}`,
     scenarioId: task.id,
   }
-  const boxSetup = adapter.boxSetup
-  if (boxSetup) {
-    runOptions.beforeStart = async ({ box, sessionId }) => {
-      const setup = boxSetup(task)
-      const sres = await box.exec(setup.command, {
+  const environmentSetup = adapter.environmentSetup
+  if (environmentSetup) {
+    runOptions.beforeStart = async ({ environment, sessionId }) => {
+      if (!environment.exec) {
+        throw new Error(
+          `environmentSetup requires workspace execution from provider "${environment.provider}"`,
+        )
+      }
+      const setup = environmentSetup(task)
+      const setupOptions = {
         timeoutMs: 300_000,
         sessionId,
         ...(setup.cwd ? { cwd: setup.cwd } : {}),
-      })
+      }
+      const sres = await environment.exec(setup.command, setupOptions)
       if (sres.exitCode !== 0)
         throw new Error(
-          `boxSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`,
+          `environmentSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`,
         )
     }
   }
-  const run = await openSandboxRun(client, runOptions, deliverable)
+  let run: EnvironmentRun<string> | undefined
   try {
-    const turn = await run.start(prompt ?? task.prompt)
+    run = await openEnvironmentRun(runOptions)
+    const turn = await run.turn(prompt ?? task.prompt)
     // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
-    let artifact = (turn.out ?? '').trim()
-    let boxExtractError: string | undefined
-    // Primary deliverable for benchmarks whose real artifact lives in the box FS
+    let artifact = turn.output.trim()
+    let environmentExtractError: string | undefined
+    // Primary deliverable for benchmarks whose real artifact lives in the environment filesystem
     // (SWE-bench: a git diff of the agent's edits). Run the adapter's extraction
-    // command in the STILL-ALIVE box (valid until run.close() below) and prefer its
-    // stdout; the event-stream parse remains the fallback when the box yields nothing.
-    if (adapter.boxExtract) {
+    // command in the still-running environment and prefer its stdout; the event-stream
+    // parse remains the fallback when the environment yields nothing.
+    if (adapter.environmentExtract) {
       try {
-        const ex = adapter.boxExtract(task)
+        if (!run.environment.exec) {
+          throw new Error(
+            `environmentExtract requires workspace execution from provider "${run.environment.provider}"`,
+          )
+        }
+        const ex = adapter.environmentExtract(task)
         // The agent runs under a DRIVER SESSION whose workspace is a remapped
         // virtual root; an exec WITHOUT that sessionId lands on the host FS and
         // cannot see the agent's edits. Thread run.sessionId so the extraction
         // runs in the SAME workspace the agent wrote to.
-        const res = await run.box.exec(ex.command, {
+        const extractOptions = {
           timeoutMs: 120_000,
           sessionId: run.sessionId,
           ...(ex.cwd ? { cwd: ex.cwd } : {}),
-        })
-        const boxArtifact = (res.stdout ?? '').trim()
+        }
+        const res = await run.environment.exec(ex.command, extractOptions)
+        const environmentArtifact = (res.stdout ?? '').trim()
         if (res.exitCode !== 0)
-          boxExtractError = `exit ${res.exitCode}: ${(res.stderr ?? '').slice(0, 160)}`
-        else if (boxArtifact.length > 0) artifact = boxArtifact
+          environmentExtractError = `exit ${res.exitCode}: ${(res.stderr ?? '').slice(0, 160)}`
+        else if (environmentArtifact.length > 0) artifact = environmentArtifact
         if (process.env.BENCH_ARTIFACT_DIR) {
           try {
             mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
             const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
-            const map = await run.box
+            const mapOptions = { timeoutMs: 60_000, sessionId: run.sessionId }
+            const map = await run.environment
               .exec(
                 'echo "PWD:"; pwd; echo "LS:"; ls -la; echo "GITROOTS:"; find / -maxdepth 5 -type d -name .git 2>/dev/null; echo "SETTINGS:"; find / -maxdepth 8 -name global_settings.py -path "*conf*" 2>/dev/null',
-                { timeoutMs: 60_000, sessionId: run.sessionId },
+                mapOptions,
               )
               .catch((e: unknown) => ({ exitCode: -1, stdout: '', stderr: String(e) }))
             writeFileSync(
               `${process.env.BENCH_ARTIFACT_DIR}/${safe}.exec.json`,
               JSON.stringify(
-                { sessionId: run.sessionId, extract: res, map: { exitCode: map.exitCode, stdout: map.stdout, stderr: map.stderr } },
+                {
+                  sessionId: run.sessionId,
+                  extract: res,
+                  map: { exitCode: map.exitCode, stdout: map.stdout, stderr: map.stderr },
+                },
                 null,
                 2,
               ),
@@ -276,15 +354,13 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
           }
         }
       } catch (err) {
-        boxExtractError = err instanceof Error ? err.message.slice(0, 160) : String(err)
+        environmentExtractError = err instanceof Error ? err.message.slice(0, 160) : String(err)
       }
     }
     const detail =
-      turn.readError !== undefined
-        ? `read: ${turn.readError.slice(0, 160)}`
-        : boxExtractError !== undefined
-          ? `boxExtract: ${boxExtractError}`
-          : undefined
+      environmentExtractError !== undefined
+        ? `environmentExtract: ${environmentExtractError}`
+        : undefined
     // Debug affordance: dump the judged artifact (the exact model_patch the judge
     // will score) so a scoring failure can be diagnosed off the real bytes without
     // re-running the agent. Off by default; set BENCH_ARTIFACT_DIR to enable.
@@ -304,7 +380,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     }
   } finally {
     if (timer) clearTimeout(timer)
-    await run.close()
+    await run?.close()
   }
 }
 
@@ -337,10 +413,16 @@ function safeFeedback(score: BenchScore): Record<string, unknown> {
 }
 
 function truncate(value: string, max = 4_000): string {
-  return value.length <= max ? value : `${value.slice(0, max)}\n...[truncated ${value.length - max} chars]`
+  return value.length <= max
+    ? value
+    : `${value.slice(0, max)}\n...[truncated ${value.length - max} chars]`
 }
 
-function retryPrompt(task: BenchTask, history: ReadonlyArray<{ round: number; artifact: string }>, scores: ReadonlyMap<number, BenchScore>): string {
+function retryPrompt(
+  task: BenchTask,
+  history: ReadonlyArray<{ round: number; artifact: string }>,
+  scores: ReadonlyMap<number, BenchScore>,
+): string {
   const attempts = history
     .map((h) => {
       const score = scores.get(h.round)
@@ -375,7 +457,8 @@ async function loopedShot(
   const scores = new Map<number, BenchScore>()
   const result = await runRefineLoop<string>({
     rounds: attempts,
-    prompt: (round, history) => (round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores)),
+    prompt: (round, history) =>
+      round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores),
     runShot: async (prompt, round) => {
       const out = await shot({ ...input, prompt, attempt: round })
       return { artifact: out.artifact, note: out.detail }
@@ -416,7 +499,10 @@ async function loopedShot(
   }
 }
 
-function combineDetails(runDetail: string | undefined, scoreDetail: string | undefined): string | undefined {
+function combineDetails(
+  runDetail: string | undefined,
+  scoreDetail: string | undefined,
+): string | undefined {
   if (runDetail && scoreDetail) {
     return JSON.stringify({ run: parseMaybeJson(runDetail), score: parseMaybeJson(scoreDetail) })
   }
@@ -437,7 +523,10 @@ async function prepareBenchmarks(
   benchmarks: readonly string[],
   resolve: (key: string) => BenchmarkAdapter,
   opts: Pick<RunBenchmarksOptions, 'n' | 'ids' | 'split' | 'verifyJudge'>,
-): Promise<{ ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }>; unavailable: Array<{ benchmark: string; reason: string }> }> {
+): Promise<{
+  ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }>
+  unavailable: Array<{ benchmark: string; reason: string }>
+}> {
   const ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }> = []
   const unavailable: Array<{ benchmark: string; reason: string }> = []
   for (const benchmark of benchmarks) {
@@ -458,7 +547,10 @@ async function prepareBenchmarks(
         if (gold !== undefined) {
           const verdict = await adapter.judge(tasks[0]!, gold)
           if (!verdict.resolved) {
-            unavailable.push({ benchmark, reason: `judge rejected its own gold on ${tasks[0]!.id} — judge is miscalibrated` })
+            unavailable.push({
+              benchmark,
+              reason: `judge rejected its own gold on ${tasks[0]!.id} — judge is miscalibrated`,
+            })
             continue
           }
         }
@@ -476,13 +568,19 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
   if (opts.cells.length === 0) throw new Error('runBenchmarks: no cells to run')
   const reps = Math.max(1, opts.reps ?? 1)
   const loopAttempts = Math.max(1, opts.loopAttempts ?? 1)
-  const shot = opts.runShot ?? openSandboxShot
+  const shot = opts.runShot ?? openEnvironmentShot
 
-  const { ready, unavailable } = await prepareBenchmarks(opts.benchmarks, opts.resolveAdapter ?? resolveAdapter, opts)
+  const { ready, unavailable } = await prepareBenchmarks(
+    opts.benchmarks,
+    opts.resolveAdapter ?? resolveAdapter,
+    opts,
+  )
 
   const jobs: Job[] = []
   for (const { benchmark, adapter, tasks } of ready)
-    for (const cell of opts.cells) for (const task of tasks) for (let rep = 0; rep < reps; rep += 1) jobs.push({ benchmark, adapter, cell, task, rep })
+    for (const cell of opts.cells)
+      for (const task of tasks)
+        for (let rep = 0; rep < reps; rep += 1) jobs.push({ benchmark, adapter, cell, task, rep })
 
   const perTask: BenchCellTaskResult[] = []
   await runPool(jobs, Math.max(1, opts.concurrency ?? 4), async (job, index) => {
@@ -495,13 +593,11 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         cell: job.cell,
         routerBaseUrl: opts.routerBaseUrl,
         routerKey: opts.routerKey,
-        ...(opts.bridgeUrl ? { bridgeUrl: opts.bridgeUrl } : {}),
-        ...(opts.bridgeBearer ? { bridgeBearer: opts.bridgeBearer } : {}),
-        ...(opts.sandboxBaseUrl ? { sandboxBaseUrl: opts.sandboxBaseUrl } : {}),
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
-        ...(opts.resolveClient ? { resolveClient: opts.resolveClient } : {}),
+        ...(opts.providerRegistry ? { providerRegistry: opts.providerRegistry } : {}),
       }
-      const out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
+      const out =
+        loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
       const score: BenchScore = await job.adapter.judge(job.task, out.artifact)
       result = {
         benchmark: job.benchmark,
@@ -511,7 +607,9 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         resolved: out.ok && score.resolved,
         score: out.ok ? score.score : 0,
         ok: out.ok,
-        ...(out.detail ?? score.detail ? { detail: combineDetails(out.detail, score.detail) } : {}),
+        ...((out.detail ?? score.detail)
+          ? { detail: combineDetails(out.detail, score.detail) }
+          : {}),
         wallMs: Date.now() - startedAt,
       }
     } catch (err) {
@@ -546,10 +644,27 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
 }
 
 function aggregate(perTask: readonly BenchCellTaskResult[]): BenchLeaderboardRow[] {
-  const byKey = new Map<string, { benchmark: string; cell: string; n: number; resolved: number; errored: number; scoreSum: number }>()
+  const byKey = new Map<
+    string,
+    {
+      benchmark: string
+      cell: string
+      n: number
+      resolved: number
+      errored: number
+      scoreSum: number
+    }
+  >()
   for (const r of perTask) {
     const key = `${r.benchmark}\u0000${r.cell}`
-    const e = byKey.get(key) ?? { benchmark: r.benchmark, cell: r.cell, n: 0, resolved: 0, errored: 0, scoreSum: 0 }
+    const e = byKey.get(key) ?? {
+      benchmark: r.benchmark,
+      cell: r.cell,
+      n: 0,
+      resolved: 0,
+      errored: 0,
+      scoreSum: 0,
+    }
     e.n += 1
     if (!r.ok) e.errored += 1
     else {
@@ -570,7 +685,13 @@ function aggregate(perTask: readonly BenchCellTaskResult[]): BenchLeaderboardRow
       meanScore: e.scoreSum / denom,
     }
   })
-  rows.sort((a, b) => (a.benchmark === b.benchmark ? b.resolveRate - a.resolveRate : a.benchmark < b.benchmark ? -1 : 1))
+  rows.sort((a, b) =>
+    a.benchmark === b.benchmark
+      ? b.resolveRate - a.resolveRate
+      : a.benchmark < b.benchmark
+        ? -1
+        : 1,
+  )
   return rows
 }
 

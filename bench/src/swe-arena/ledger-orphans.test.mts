@@ -24,7 +24,7 @@ const ATTRIBUTION = { channel: 'agent', phase: 'search.baseline', model: 'm' }
 
 /** A durable event line in the exact shape cost-ledger.jsonl persists. */
 const line = (record: Record<string, unknown>): string =>
-  `${JSON.stringify({ version: 1, record })}\n`
+  `${JSON.stringify({ version: record.status === 'settled' ? 2 : 1, record })}\n`
 
 /** Write a synthetic ledger: one settled pair + one crash-orphaned pending. */
 function writeCrashedLedger(dir: string): void {

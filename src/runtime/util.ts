@@ -1,23 +1,21 @@
 /**
  *
- * Internal loop-kernel utilities shared across the kernel, drivers, and the
- * sandbox-acquire layer. Not part of the public barrel surface.
+ * Internal utilities shared by the loop runtime, drivers, and environment
+ * acquisition. Not part of the public exports.
  *
  * @experimental
  */
 
-import type { SandboxInstance } from '@tangle-network/sandbox'
+import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import type { LoopTokenUsage } from './types'
 
-/**
- * Best-effort sandbox delete. Skips instances without a `delete` (test fakes);
- * swallows errors (the platform reaps on expiry). Returns `false` when delete
- * threw, `true` otherwise, so callers can surface a leak if they choose.
- */
-export async function deleteBoxSafe(box: SandboxInstance | undefined): Promise<boolean> {
-  if (!box || typeof (box as { delete?: unknown }).delete !== 'function') return true
+/** Best-effort environment destruction. */
+export async function destroyEnvironmentSafe(
+  environment: AgentEnvironment | undefined,
+): Promise<boolean> {
+  if (!environment?.destroy) return true
   try {
-    await box.delete()
+    await environment.destroy()
     return true
   } catch {
     return false
@@ -51,6 +49,47 @@ export function throwAbort(): never {
 /** Throw if the signal is already aborted; otherwise no-op. */
 export function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw abortError()
+}
+
+/**
+ * Reject an operation promptly on abort and invoke its cancellation callback.
+ * Operation and cancellation rejections are observed after abort so they cannot
+ * become unhandled rejections.
+ */
+export function raceWithAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  onAbort?: () => void | Promise<void>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const removeAbortListener = () => signal.removeEventListener('abort', abort)
+    const settle = (complete: () => void) => {
+      if (settled) return
+      settled = true
+      removeAbortListener()
+      complete()
+    }
+    const abort = () => {
+      settle(() => {
+        if (onAbort) {
+          try {
+            void Promise.resolve(onAbort()).catch(() => {})
+          } catch {
+            // Cancellation is best effort; the caller still receives AbortError.
+          }
+        }
+        reject(abortError())
+      })
+    }
+
+    signal.addEventListener('abort', abort, { once: true })
+    operation.then(
+      (value) => settle(() => resolve(value)),
+      (error: unknown) => settle(() => reject(error)),
+    )
+    if (signal.aborted) abort()
+  })
 }
 
 /** True for any error whose `name` is `AbortError` (the cross-kernel abort contract). */

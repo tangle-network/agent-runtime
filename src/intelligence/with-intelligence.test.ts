@@ -1,59 +1,64 @@
-import type {
-  AgentProfile,
-  AgentProfileDiff,
-  CandidateExecutionEvidence,
+import {
+  type CandidateExecutionEvidence,
+  type CertifiedContext,
+  type CertifiedContextEntry,
+  certifiedContextContentHash,
+  certifiedContextEntryContentHash,
 } from '@tangle-network/agent-interface'
-import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ProposedProfileDiff } from './delivery'
 import type { AppliedIntelligence } from './with-intelligence'
 import { withIntelligence } from './with-intelligence'
 
-/** A valid, promoted profile diff — the previously-DROPPED typed artifact the
- *  composed endpoint returns alongside prompt/skill artifacts. */
-const DIFF: AgentProfileDiff = {
-  kind: 'agent-profile-diff',
-  id: 'diff-1',
-  title: 'certified refund tool',
-  set: { tools: { refund: true }, metadata: { certified: true } },
+const generatedAt = '2026-07-25T20:01:00.000Z'
+const expiresAt = '2026-07-25T20:11:00.000Z'
+const fixedNow = () => Date.parse('2026-07-25T20:05:00.000Z')
+
+function certifiedContext(content: string): CertifiedContext {
+  const entryMaterial = {
+    id: 'prompt-surface',
+    kind: 'prompt' as const,
+    name: 'system prompt',
+    delivery: { kind: 'inline', content } as const,
+  }
+  const entry: CertifiedContextEntry = {
+    ...entryMaterial,
+    provenance: {
+      contentHash: certifiedContextEntryContentHash(entryMaterial),
+      version: 4,
+      promotedAt: '2026-07-25T20:00:00.000Z',
+    },
+  }
+  const contentMaterial = {
+    tenantId: 'tenant-1',
+    target: 'support-agent',
+    state: 'active' as const,
+    revision: '1',
+    entries: [entry],
+  }
+  return {
+    ...contentMaterial,
+    generatedAt,
+    expiresAt,
+    contentHash: certifiedContextContentHash(contentMaterial),
+  }
 }
 
-/** The composed-endpoint fixture, carrying `agentProfileDiffs[]`. */
-const COMPOSED = {
+const CERTIFIED = certifiedContext('Confirm the invoice id before refunding.')
+const REVOKED: CertifiedContext = {
+  tenantId: 'tenant-1',
   target: 'support-agent',
-  generatedAt: '2026-06-13T00:00:00.000Z',
-  promptSurface: {
-    surface: 'Confirm the invoice id before refunding.',
-    surfaceHash: 'abc123',
-    version: 4,
-    lift: '+3.1pp',
-  },
-  artifacts: {},
-  capabilities: [
-    {
-      id: 'prompt-surface',
-      iface: { surface: 'context' },
-      binding: { path: null, content: 'Confirm the invoice id before refunding.' },
-      provenance: {
-        contentHash: 'abc123',
-        version: 4,
-        lift: '+3.1pp',
-        promotedAt: '2026-06-12T00:00:00.000Z',
-      },
-    },
-  ],
-  agentProfileDiffs: [
-    {
-      diff: DIFF,
-      provenance: {
-        version: 7,
-        lift: '+2.2pp',
-        contentHash: 'deadbeef',
-        promotedAt: '2026-06-12T00:00:00.000Z',
-      },
-    },
-  ],
-  agentProfile: { name: 'support-agent', tools: { refund: true }, metadata: { certified: true } },
+  state: 'revoked',
+  revision: '2',
+  generatedAt,
+  expiresAt,
+  entries: [],
+  contentHash: certifiedContextContentHash({
+    tenantId: 'tenant-1',
+    target: 'support-agent',
+    state: 'revoked',
+    revision: '2',
+    entries: [],
+  }),
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -68,94 +73,190 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('withIntelligence — RECEIVE (the previously-dropped typed diffs)', () => {
-  it('deserializes agentProfileDiffs and surfaces them as proposals (round-trip)', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+describe('withIntelligence — RECEIVE', () => {
+  it('exposes the exact immutable certified context without rewriting it', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
     let applied: AppliedIntelligence | undefined
     const agent = withIntelligence(
       async (_input: null, a) => {
         applied = a
         return 'ok'
       },
-      { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
-    )
-    await agent(null)
-
-    // The typed diffs the OLD receive path dropped now round-trip verbatim.
-    expect(agent.proposals()).toEqual(COMPOSED.agentProfileDiffs)
-    expect(applied?.proposals).toEqual(COMPOSED.agentProfileDiffs)
-  })
-
-  it('applyProfile folds the proposals exactly as applyAgentProfileDiff would', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
-    let applied: AppliedIntelligence | undefined
-    const agent = withIntelligence(
-      async (_input: null, a) => {
-        applied = a
-        return 'ok'
+      {
+        tenantId: 'tenant-1',
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: fixedNow,
       },
-      { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
     )
     await agent(null)
 
-    const base: AgentProfile = { name: 'support-agent' }
-    // The hook's fold == the canonical single-diff application.
-    expect(applied?.applyProfile(base)).toEqual(applyAgentProfileDiff(base, DIFF))
+    expect(agent.currentCertifiedContext()).toEqual(CERTIFIED)
+    expect(applied?.certifiedContext).toEqual(CERTIFIED)
+    expect(Object.isFrozen(applied?.certifiedContext?.entries)).toBe(true)
   })
 
-  it('fires onProposals once with the promoted set (silent on an unchanged refresh)', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
-    const seen: ProposedProfileDiff[][] = []
+  it('fires onCertifiedContext once for unchanged context and again on revocation', async () => {
+    let calls = 0
+    const fetchImpl = vi.fn(async () => {
+      calls += 1
+      return calls < 3 ? jsonResponse(CERTIFIED) : jsonResponse(REVOKED)
+    }) as unknown as typeof fetch
+    const seen: Array<CertifiedContext | null> = []
     const agent = withIntelligence(async () => 'ok', {
+      tenantId: 'tenant-1',
       project: 'support-agent',
       apiKey: 'k',
-      baseUrl: 'https://plane.test',
+      baseUrl: 'https://intelligence.tangle.tools',
       fetchImpl,
-      onProposals: (p) => seen.push(p),
+      now: fixedNow,
+      refreshMs: 0,
+      onCertifiedContext: (context) => seen.push(context),
     })
     await agent(null)
     await agent(null)
-    expect(seen).toHaveLength(1)
-    expect(seen[0]).toEqual(COMPOSED.agentProfileDiffs)
+    await agent(null)
+    expect(seen).toEqual([CERTIFIED, null])
+  })
+
+  it('surfaces a durable checkpoint rollback through onCertifiedContextReject', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
+    const save = vi.fn(async () => {})
+    const onCertifiedContextReject = vi.fn()
+    let received: CertifiedContext | null | undefined
+    const agent = withIntelligence(
+      async (_input: null, applied) => {
+        received = applied.certifiedContext
+        return 'ok'
+      },
+      {
+        tenantId: 'tenant-1',
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: fixedNow,
+        checkpointStore: {
+          async load() {
+            return {
+              tenantId: REVOKED.tenantId,
+              target: REVOKED.target,
+              revision: REVOKED.revision,
+              contentHash: REVOKED.contentHash,
+              state: REVOKED.state,
+            }
+          },
+          save,
+        },
+        onCertifiedContextReject,
+      },
+    )
+
+    await expect(agent(null)).resolves.toBe('ok')
+
+    expect(received).toBeNull()
+    expect(save).not.toHaveBeenCalled()
+    expect(onCertifiedContextReject).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringMatching(/rolled back from 2 to 1/) }),
+    )
   })
 })
 
 describe('withIntelligence — SAFETY (observe + deliver only, never auto-apply)', () => {
-  it('delivers ONLY the certified prompt surface into the prompt, never the raw diff', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+  it('delivers only certified context into the prompt', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
     let composed = ''
     const agent = withIntelligence(
       async (_input: null, a) => {
         composed = a.composePrompt('BASE PROMPT')
         return 'ok'
       },
-      { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
+      {
+        tenantId: 'tenant-1',
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: fixedNow,
+      },
     )
     await agent(null)
 
     expect(composed).toContain('BASE PROMPT')
     expect(composed).toContain('Confirm the invoice id before refunding')
-    // The typed diff is a PROPOSAL — it must not leak into the delivered prompt.
-    expect(composed).not.toContain('agent-profile-diff')
-    // Proposals are surfaced, but the hook applied nothing on the run path.
-    expect(agent.proposals()).toHaveLength(1)
+    expect(composed).not.toContain('profileDiffs')
+    expect(agent.currentCertifiedContext()).toEqual(CERTIFIED)
   })
 
-  it('runs fail-closed on the base surface when the pull 404s (nothing promoted)', async () => {
+  it('does not compose certified context after it expires during a run', async () => {
+    let nowMs = fixedNow()
+    let exposedAfterExpiry: CertifiedContext | null | undefined
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
+    const agent = withIntelligence(
+      async (_input: null, applied) => {
+        nowMs = Date.parse(expiresAt)
+        exposedAfterExpiry = applied.certifiedContext
+        return applied.composePrompt('BASE PROMPT')
+      },
+      {
+        tenantId: 'tenant-1',
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: () => nowMs,
+      },
+    )
+
+    await expect(agent(null)).resolves.toBe('BASE PROMPT')
+    expect(exposedAfterExpiry).toBeNull()
+  })
+
+  it('isolates certified-context observer failures from delivery and the agent run', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
+    const agent = withIntelligence(
+      async (_input: null, applied) => applied.composePrompt('BASE PROMPT'),
+      {
+        tenantId: 'tenant-1',
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: fixedNow,
+        onCertifiedContext: () => {
+          throw new Error('observer failed')
+        },
+      },
+    )
+
+    await expect(agent(null)).resolves.toContain('Confirm the invoice id before refunding')
+    expect(agent.currentCertifiedContext()).toEqual(CERTIFIED)
+  })
+
+  it('runs on the base surface when the context endpoint is incompatible', async () => {
     const fetchImpl = vi.fn(
       async () => new Response('', { status: 404 }),
     ) as unknown as typeof fetch
     let sawCertified: unknown = 'unset'
     const agent = withIntelligence(
       async (_input: null, a) => {
-        sawCertified = a.certified
-        return a.certified === null && a.proposals.length === 0 ? 'base' : 'x'
+        sawCertified = a.certifiedContext
+        return a.certifiedContext === null ? 'base' : 'x'
       },
-      { project: 'p', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
+      {
+        tenantId: 'tenant-1',
+        project: 'p',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: fixedNow,
+      },
     )
     expect(await agent(null)).toBe('base')
     expect(sawCertified).toBeNull()
-    expect(agent.proposals()).toEqual([])
+    expect(agent.currentCertifiedContext()).toBeNull()
   })
 
   it('never breaks the agent when Intelligence is unreachable', async () => {
@@ -163,21 +264,30 @@ describe('withIntelligence — SAFETY (observe + deliver only, never auto-apply)
       throw new Error('network down')
     }) as unknown as typeof fetch
     const agent = withIntelligence(async (input: number) => input * 2, {
+      tenantId: 'tenant-1',
       project: 'p',
       apiKey: 'k',
-      baseUrl: 'https://plane.test',
+      baseUrl: 'https://intelligence.tangle.tools',
       fetchImpl,
+      now: fixedNow,
     })
     await expect(agent(21)).resolves.toBe(42)
   })
 
   it('propagates an agent error (delivery never swallows the live path)', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
     const agent = withIntelligence(
       async (_i: null) => {
         throw new Error('agent boom')
       },
-      { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
+      {
+        tenantId: 'tenant-1',
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://intelligence.tangle.tools',
+        fetchImpl,
+        now: fixedNow,
+      },
     )
     await expect(agent(null)).rejects.toThrow('agent boom')
   })
@@ -218,7 +328,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       })
       vi.stubGlobal('fetch', otlpSpy)
       // The pull rides its own fetchImpl; SEND rides global fetch (the exporter).
-      const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+      const pull = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
       const agent = withIntelligence(
         async (_input: { q: string }, a) => {
           expect(a.runId).toMatch(/^run-/)
@@ -269,11 +379,13 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
           return 'answer'
         },
         {
+          tenantId: 'tenant-1',
           project: 'support-agent',
           target: 'support-agent',
           apiKey: 'k',
-          baseUrl: 'https://plane.test',
+          baseUrl: 'https://intelligence.tangle.tools',
           fetchImpl: pull,
+          now: fixedNow,
           profile: {
             name: 'support-agent',
             prompt: { systemPrompt: 'Handle support requests.' },
@@ -281,7 +393,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
           },
           commitSha: 'a'.repeat(40),
           repo: { owner: 'tangle-network', name: 'support', baseBranch: 'main' },
-          runtimeTelemetry: { includeControlPayloads: true },
+          runtimeTelemetry: { includeEventData: true },
           payloadAttributes: 'full',
         },
       )
@@ -327,9 +439,11 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
     try {
       const pull = vi.fn(async () => new Response('', { status: 404 })) as unknown as typeof fetch
       const agent = withIntelligence(async () => 'ok', {
+        tenantId: 'tenant-1',
         project: 'p',
-        baseUrl: 'https://plane.test',
+        baseUrl: 'https://intelligence.tangle.tools',
         fetchImpl: pull,
+        now: fixedNow,
       })
       expect(await agent(null)).toBe('ok')
       expect(otlpSpy).not.toHaveBeenCalled()
@@ -350,12 +464,14 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
           return { ok: true, status: 200, async json() {} } as unknown as Response
         }),
       )
-      const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+      const pull = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
       const agent = withIntelligence(async () => 'private output', {
+        tenantId: 'tenant-1',
         project: 'support-agent',
         apiKey: 'k',
-        baseUrl: 'https://plane.test',
+        baseUrl: 'https://intelligence.tangle.tools',
         fetchImpl: pull,
+        now: fixedNow,
         profile: { name: 'support-agent' },
       })
 
@@ -387,12 +503,19 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
           return { ok: true, status: 200, async json() {} } as unknown as Response
         }),
       )
-      const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+      const pull = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
       const agent = withIntelligence(
         async () => {
           throw Object.assign(new Error('provider exhausted'), { code: 'rate_limit' })
         },
-        { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl: pull },
+        {
+          tenantId: 'tenant-1',
+          project: 'support-agent',
+          apiKey: 'k',
+          baseUrl: 'https://intelligence.tangle.tools',
+          fetchImpl: pull,
+          now: fixedNow,
+        },
       )
 
       await expect(agent(null)).rejects.toThrow('provider exhausted')

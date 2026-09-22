@@ -26,8 +26,7 @@
  * @experimental
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { BackendType } from '@tangle-network/sandbox'
+import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type {
   Agent,
@@ -87,7 +86,7 @@ export interface Persona<D = unknown> {
    * read off `ExecutorContext.seams`, OR a fully pre-configured registry. The supervisor
    * threads an EMPTY seam bag to the root scope, so a persona that uses built-in metered
    * runtimes MUST supply a registry whose factories close over their seams (or BYO executors
-   * on each `AgentSpec`). Carried here so `runPersonified` can build `SupervisorOpts.executors`.
+   * on each `AgentSpec`). Carried here so `runPersonaShape` can build `SupervisorOpts.executors`.
    */
   readonly executors: PersonaExecutors
   /**
@@ -95,7 +94,7 @@ export interface Persona<D = unknown> {
    * additive key here, never a breaking change to the `Persona` shape. Opaque to the engine.
    */
   readonly extensions?: Readonly<Record<string, unknown>>
-  /** Phantom: binds the persona to its deliverable type so `runPersonified` infers `D` from
+  /** Phantom: binds the persona to its deliverable type so `runPersonaShape` infers `D` from
    *  the persona and the chosen shape must agree. Type-only — never present at runtime. */
   readonly __deliverable?: D
 }
@@ -177,7 +176,7 @@ export interface ShapeContext<D = unknown> {
   spawnChild(name: string, spec: AgentSpec): Agent<unknown, Outcome<D>>
   /** Derive a child `AgentSpec` from the persona's root spec with an overridden profile —
    *  the seam a shape uses to give a worker a narrower role/prompt than the root persona. */
-  childSpec(profile: AgentProfile, harness?: BackendType | null): AgentSpec
+  childSpec(profile: AgentProfile, harness?: HarnessType | null): AgentSpec
   /** The scope analyst (selector≠judge firewall) the combinator steers from. Absent ⇒ the
    *  dormant default (empty findings → gates read deliverables/state only). */
   readonly analyst?: ScopeAnalyst<D>
@@ -208,7 +207,7 @@ export interface ShapeRegistry {
   names(): string[]
 }
 
-// ── runPersonified — composing the persona + shape onto the supervisor ───────────
+// ── runPersonaShape — composing the persona + shape onto the supervisor ───────────
 
 /**
  * The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then
@@ -220,7 +219,7 @@ export interface ShapeRegistry {
  * default registry). The journal/blobs default to in-memory impls in the engine when omitted
  * (durable FS impls are passed explicitly for a persisted run).
  */
-export interface RunPersonifiedOptions<Task, D> {
+export interface RunPersonaShapeOptions<Task, D> {
   readonly persona: Persona<D>
   /** A resolved shape factory OR a registered shape name. */
   readonly shape: LoopShape<Task, D> | string
@@ -253,6 +252,6 @@ export interface RunPersonifiedOptions<Task, D> {
 }
 
 /** The composed run signature. */
-export type RunPersonified = <Task, D>(
-  options: RunPersonifiedOptions<Task, D>,
+export type RunPersonaShape = <Task, D>(
+  options: RunPersonaShapeOptions<Task, D>,
 ) => Promise<SupervisedResult<Outcome<D>>>

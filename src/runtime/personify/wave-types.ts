@@ -21,7 +21,7 @@
  *  3. CROSS-RUN CORPUS (G2) — `Corpus` is the DURABLE accreted-fact store, DISTINCT from the
  *     per-run `SpawnJournal`/`ResultBlobStore`. `renderCorpusToInstructions` is the read-back:
  *     it projects accreted facts into `AgentProfile.prompt.instructions` / `resources.instructions`
- *     for the next run's persona (the learning-flywheel READ side).
+ *     for the next run's profile.
  *  4. TRAJECTORY TRACE + COST LEDGER — `trajectoryReport(journal, blobs)` reconstructs the whole
  *     spawn tree with per-node + rolled-up `Spend`; `equalKOnCost` compares arms on conserved
  *     COST (tokens/usd), NOT raw iteration count — closing the leaf-fanout confound.
@@ -59,7 +59,7 @@ import type { LoopShape, Outcome, ShapeContext } from './types'
  * runs the combinator's structure over the `Scope` (spawn children, drain `next()`, select via
  * the single-sourced `settledToIteration`+`defaultSelectWinner`, synthesize an `Outcome<D>`).
  * Aliased — NOT a new type — so a combinator stays a first-class shape the persona layer's
- * `runPersonified`/`ShapeRegistry` resolve with zero new machinery. The SHAPE is content-free;
+ * `runPersonaShape`/`ShapeRegistry` resolve with zero new machinery. The SHAPE is content-free;
  * the persona carries the domain.
  */
 export type CombinatorShape<Task, D> = LoopShape<Task, D>
@@ -417,7 +417,7 @@ export type AssertTraceDerivedFindings = (findings: ReadonlyArray<AnalystFinding
 // ════════════════════════════════════════════════════════════════════════════════════
 
 /**
- * One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from
+ * One retained fact in the cross-run corpus. Distinct from
  * a `SpawnEvent` (a per-run decision record): a `CorpusRecord` is a fact a run LEARNED that a
  * FUTURE run should read back (the world-model for story 5). It is content the next persona reads,
  * not a replay input. Tagged + scored so `query`/`renderCorpusToInstructions` can project the
@@ -458,7 +458,7 @@ export interface CorpusFilter {
 }
 
 /**
- * The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal`
+ * The durable cross-run corpus. Distinct from `SpawnJournal`
  * (per-run decisions, replay) and `ResultBlobStore` (per-run payloads): `Corpus` holds accreted
  * FACTS across runs that the next run reads back. `InMemoryCorpus` + `FileCorpus` (JSONL) impls
  * live in `corpus.ts` and MAY share a storage spine with the JSONL journal, but the INTERFACE is
@@ -477,8 +477,8 @@ export interface Corpus {
 }
 
 /**
- * Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel
- * READ side. Reads the corpus through `filter`, renders the matching facts into instruction lines,
+ * Project retained corpus facts into an `AgentProfile`.
+ * Reads the corpus through `filter`, renders matching facts into instruction lines,
  * and returns a NEW profile with them merged into `prompt.instructions` (the append-line seam) so
  * the next run's persona reads the accreted world-model. Pure projection over the queried records;
  * never mutates the input profile (returns a fresh one). The impl lives in `corpus.ts`.

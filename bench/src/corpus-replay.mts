@@ -1,7 +1,5 @@
 /**
- * Offline replay / score substrate over the learning-flywheel corpus
- * (docs/learning-flywheel.md, layer 1: "an offline replay + reward-model layer so
- * the controller space can be searched WITHOUT a live rollout per candidate").
+ * Replay and score recorded attempts without running each candidate again.
  *
  * Two jobs, both READ-ONLY against the corpus:
  *
@@ -35,7 +33,7 @@ import { ADAPTERS } from './adapters'
 import type { RunRecord } from './corpus'
 import { selfConsistencySelect, summarizeSelector, summarizeVerifierSelector } from './selector'
 
-/** The benchmark's own judge - the EXTERNAL, write-only anchor (learning-flywheel.md). */
+/** The benchmark-owned scoring function. */
 export type Judge = (task: BenchTask, artifact: string) => Promise<BenchScore>
 
 /**

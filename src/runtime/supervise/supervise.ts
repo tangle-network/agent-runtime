@@ -1,25 +1,22 @@
 /**
  * `supervise` — the one-call "just invoke the supervisor". Builds + runs a supervisor from its
- * profile with sensible defaults, so the common case is `supervise(profile, task, { backend, budget })`
- * instead of hand-wiring `blobs` / `perWorker` / `journal` / `executors` / `maxDepth`. The raw seams
- * (`supervisorAgent` + `createSupervisor().run`) stay available for power use.
- *
- * `workerFromBackend` derives the worker seam (`makeWorkerAgent`) from a backend config + an optional
- * completion oracle — so "where the workers run" is one data choice, not a hand-rolled factory.
+ * profile with sensible defaults, so the common case is
+ * `supervise(profile, task, { worker: { provider }, budget })`.
  */
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   MakeWorkerAgent,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { assertModelAllowed } from './model-policy'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
-import { createExecutor, type ExecutorConfig } from './runtime'
+import { type EnvironmentWorkerOptions, environmentExecutor } from './runtime'
 import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
 import { type DriveHarness, type SupervisorProfile, supervisorAgent } from './supervisor-agent'
@@ -27,27 +24,36 @@ import type {
   Agent,
   AgentSpec,
   Budget,
+  Executor,
   ExecutorContext,
   ResultBlobStore,
   SpawnJournal,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
 
-/** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
- *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
- *  deliver"). The ONE place a backend becomes a spawnable worker. */
-export function workerFromBackend(
-  backend: ExecutorConfig,
+/** Build workers from the environment provider used for each spawned profile. */
+export function workerFromEnvironment(
+  options: EnvironmentWorkerOptions,
+  deliverable?: DeliverableSpec<unknown>,
+): MakeWorkerAgent {
+  const provider = resolveAgentEnvironmentProvider(options.provider, options.registry)
+  return workerFromExecutor((profile, context) => {
+    const spec: AgentSpec = { profile, harness: null }
+    return environmentExecutor(provider, options)(spec, context)
+  }, deliverable)
+}
+
+/** Build workers from a custom executor factory. */
+export function workerFromExecutor(
+  create: (profile: AgentProfile, context: ExecutorContext) => Executor<unknown>,
   deliverable?: DeliverableSpec<unknown>,
 ): MakeWorkerAgent {
   return (rawProfile) => {
     const p = (rawProfile ?? {}) as { name?: unknown }
     const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'worker'
-    // harness:null — createExecutor(backend) carries the harness in its config (the sandbox case-arm
-    // reads config.harness when the spec leaves it null); the BYO executor below resolves the leaf.
     const spec: AgentSpec = { profile: rawProfile as AgentProfile, harness: null }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
-    const built = createExecutor(backend)(spec, ctx)
+    const built = create(spec.profile, ctx)
     const executor = deliverable ? gateOnDeliverable(built, deliverable) : built
     return { name, act: async () => '', executorSpec: { ...spec, executor } } as Agent<
       unknown,
@@ -59,19 +65,19 @@ export function workerFromBackend(
 export interface SuperviseOptions {
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
-  /** WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`. */
-  readonly backend?: ExecutorConfig
-  /** The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
+  /** Environment provider and creation options used by spawned workers. */
+  readonly worker?: EnvironmentWorkerOptions
+  /** The completion check for provider-backed workers. Strongly recommended:
    *  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
    *  failure mode of a static orchestrator. */
   readonly deliverable?: DeliverableSpec<unknown>
-  /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`. */
+  /** Override worker construction for tests or custom executors. */
   readonly makeWorkerAgent?: MakeWorkerAgent
-  /** The supervisor's router substrate (`harness` null). The profile's model wins. */
+  /** Router connection for an in-process supervisor (`harness` null). The profile's model wins. */
   readonly router?: RouterConfig
   /** Inject the supervisor brain directly (tests / advanced). */
   readonly brain?: ToolLoopChat
-  /** Run a sandboxed-harness supervisor (`harness` set). */
+  /** Run the supervisor through a coding-harness driver. */
   readonly driveHarness?: DriveHarness
   /** WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do simple work
    *  itself) OR SPAWN (delegate when it needs parallelism), not be a pure manager. Pair with
@@ -88,9 +94,8 @@ export interface SuperviseOptions {
   ) => Promise<string | null | undefined>
   /** Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens. */
   readonly perWorker?: Budget
-  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
-   *  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
-   *  sandboxes a real fleet runs at once). Omit/`<= 0` = no cap (the pool stays the only fence). */
+  /** Hard cap on simultaneously live workers. The conserved pool bounds total
+   *  work; this bounds concurrently active provider environments. */
   readonly maxLiveWorkers?: number
   /** Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
    *  (the driver receives settled worker outputs, no analyst findings). */
@@ -104,8 +109,8 @@ export interface SuperviseOptions {
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
    * moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
    * instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
-   * is the correction. Requires a backend whose executor exposes a trace source (the steerable
-   * sandbox worker and the pi wrapper do); other runtimes are simply not watched.
+   * is the correction. Requires a worker implementation that exposes a trace source; the
+   * steerable provider worker and the pi wrapper do, while other runtimes are not watched.
    *
    * Omit = off (status quo — no online watching, no extra events).
    */
@@ -165,7 +170,7 @@ export interface SuperviseOptions {
   readonly runId?: string
   readonly now?: () => number
   /** Restrict the run to this subset of models. When set, every configured model — the
-   *  supervisor router model, the profile's model, and the backend's model — must be a member,
+   *  supervisor router model, the profile's model, and the worker's model must be a member,
    *  or `supervise()` throws a `ConfigError` before any compute is spent. Unset = unrestricted. */
   readonly allowedModels?: readonly string[]
 }
@@ -180,15 +185,8 @@ function defaultPerWorker(budget: Budget): Budget {
 
 /** One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. */
 export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
-  // Fail loud before any compute: every configured model must be in the allowed subset (no-op
-  // when allowedModels is unset). The backend seam carries its own model on most backends.
-  const backendModel = (opts.backend as { model?: unknown } | undefined)?.model
   assertModelAllowed(opts.router?.model, opts.allowedModels)
   assertModelAllowed(profile.model, opts.allowedModels)
-  assertModelAllowed(
-    typeof backendModel === 'string' ? backendModel : undefined,
-    opts.allowedModels,
-  )
 
   // `withDriver: true` is the wiring invariant either way (a `role: 'driver'` child must resolve
   // to the nested-scope executor); `runDir` only changes WHERE the journal and blobs live.
@@ -201,12 +199,16 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
 
   let makeWorkerAgent = opts.makeWorkerAgent
   if (!makeWorkerAgent) {
-    if (!opts.backend) {
-      throw new ValidationError(
-        'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
-      )
+    if (!opts.worker) {
+      throw new ValidationError('supervise: provide opts.worker or opts.makeWorkerAgent')
     }
-    makeWorkerAgent = workerFromBackend(opts.backend, opts.deliverable)
+    makeWorkerAgent = workerFromEnvironment(opts.worker, opts.deliverable)
+  }
+  const buildWorker = makeWorkerAgent
+  makeWorkerAgent = (rawProfile) => {
+    const workerModel = (rawProfile as AgentProfile | undefined)?.model?.default
+    assertModelAllowed(workerModel, opts.allowedModels)
+    return buildWorker(rawProfile)
   }
 
   const agent = supervisorAgent(profile, {

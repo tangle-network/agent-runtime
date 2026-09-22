@@ -13,9 +13,16 @@
  * Run it twice: the second run injects the first run's learnings into the workers.
  */
 import { createChatClient } from '@tangle-network/agent-eval'
-import { FileCorpus, observe, openSandboxRun, renderReport } from '@tangle-network/agent-runtime/loops'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import {
+  type AgentEnvironmentProvider,
+  FileCorpus,
+  observe,
+  openEnvironmentRun,
+  renderReport,
+} from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
-import { answerOutput, sandboxAgentRun, type WorkerBackendType } from './sandbox-run'
+import { answerOutput, environmentAgentRun, type WorkerBackendType } from './environment-run'
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
@@ -40,7 +47,7 @@ interface WorkerResult {
 }
 
 async function runWorker(
-  client: Sandbox,
+  provider: AgentEnvironmentProvider,
   cfg: { backendType: WorkerBackendType; model: string; routerBaseUrl: string },
   id: string,
   task: string,
@@ -51,20 +58,34 @@ async function runWorker(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), Number(process.env.TIMEOUT_MS ?? 240_000))
   try {
-    const agentRun = sandboxAgentRun({ ...cfg, name: id })
-    const run = await openSandboxRun<string>(
-      client,
-      { agentRun, signal: controller.signal },
-      { kind: 'events', fromEvents: (events) => answerOutput.parse(events as never) },
-    )
+    const agentRun = environmentAgentRun({ ...cfg, name: id })
+    const run = await openEnvironmentRun<string>({
+      provider,
+      agentRun,
+      signal: controller.signal,
+      deliverable: { kind: 'events', fromEvents: (events) => answerOutput.parse(events) },
+    })
     try {
-      const turn = await run.start(prompt)
-      return { id, task, output: (turn.out ?? '').trim(), events: turn.events, wallMs: Date.now() - startedAt }
+      const turn = await run.turn(prompt)
+      return {
+        id,
+        task,
+        output: turn.output.trim(),
+        events: turn.events,
+        wallMs: Date.now() - startedAt,
+      }
     } finally {
       await run.close().catch(() => {})
     }
   } catch (err) {
-    return { id, task, output: '', events: [], wallMs: Date.now() - startedAt, error: err instanceof Error ? err.message : String(err) }
+    return {
+      id,
+      task,
+      output: '',
+      events: [],
+      wallMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    }
   } finally {
     clearTimeout(timer)
   }
@@ -80,8 +101,17 @@ async function main(): Promise<void> {
   const n = Math.min(Number(env('N', '2')), subtasks.length)
   const corpus = new FileCorpus(env('CORPUS', '/tmp/fleet-corpus.jsonl'))
   const observerModel = env('OBSERVER_MODEL', 'gpt-4.1')
-  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: cfg.routerBaseUrl, defaultModel: observerModel })
-  const client = new Sandbox({ baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'), apiKey: routerKey })
+  const chat = createChatClient({
+    transport: 'router',
+    apiKey: routerKey,
+    baseUrl: cfg.routerBaseUrl,
+    defaultModel: observerModel,
+  })
+  const client = new Sandbox({
+    baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'),
+    apiKey: routerKey,
+  })
+  const provider = createTangleProvider({ client: client as never })
 
   // ── continuous: read what prior runs LEARNED, inject it into this run's workers
   const prior = await corpus.query({ tags: ['audience:agent'], limit: 8 })
@@ -89,30 +119,49 @@ async function main(): Promise<void> {
     ? `PRIOR LEARNINGS (from earlier runs — apply them):\n${prior.map((r) => `- ${r.claim}`).join('\n')}`
     : ''
   console.error(`\n=== FLEET · ${n} workers · ${cfg.backendType}/${cfg.model} · cloud ===`)
-  console.error(prior.length ? `carrying ${prior.length} prior learning(s) into the workers\n` : 'first run — no prior learnings yet\n')
+  console.error(
+    prior.length
+      ? `carrying ${prior.length} prior learning(s) into the workers\n`
+      : 'first run — no prior learnings yet\n',
+  )
 
   // ── fan out N workers to cloud sandboxes, in parallel
   const tasks = subtasks.slice(0, n)
   const workers = await Promise.all(
-    tasks.map((task, i) => runWorker(client, cfg, `worker-${i + 1}`, task, priorLearnings)),
+    tasks.map((task, i) => runWorker(provider, cfg, `worker-${i + 1}`, task, priorLearnings)),
   )
 
   // ── observe each worker's trace → findings → operator report + durable learnings
   let totalLearned = 0
   for (const w of workers) {
-    console.error(`\n── ${w.id} (${Math.round(w.wallMs / 1000)}s)${w.error ? ` — ERROR: ${w.error}` : ''}`)
+    console.error(
+      `\n── ${w.id} (${Math.round(w.wallMs / 1000)}s)${w.error ? ` — ERROR: ${w.error}` : ''}`,
+    )
     if (w.error) continue
     const ob = await observe(
-      { task: w.task, output: w.output, trace: w.events, outcome: w.output ? 'passed' : 'unknown', runId: w.id },
+      {
+        task: w.task,
+        output: w.output,
+        trace: w.events,
+        outcome: w.output ? 'passed' : 'unknown',
+        runId: w.id,
+      },
       { chat, model: observerModel, corpus, tags: [cfg.backendType, 'fleet'] },
     )
     totalLearned += ob.learned.length
     console.error(`  answer: ${w.output.slice(0, 120).replace(/\n/g, ' ')}`)
-    console.error(renderReport(ob.findings).split('\n').map((l) => `  ${l}`).join('\n'))
+    console.error(
+      renderReport(ob.findings)
+        .split('\n')
+        .map((l) => `  ${l}`)
+        .join('\n'),
+    )
     console.error(`  → ${ob.learned.length} new learning(s) saved to the corpus`)
   }
 
-  console.error(`\n=== fleet done: ${workers.filter((w) => !w.error).length}/${n} workers ok · ${totalLearned} learnings banked → run again to apply them ===`)
+  console.error(
+    `\n=== fleet done: ${workers.filter((w) => !w.error).length}/${n} workers ok · ${totalLearned} learnings banked → run again to apply them ===`,
+  )
 }
 
 main().catch((e) => {

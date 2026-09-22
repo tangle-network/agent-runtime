@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
@@ -11,7 +11,7 @@ import {
   verify,
   widen,
 } from '../../src/runtime/personify/combinators'
-import { definePersona, runPersonified } from '../../src/runtime/personify/persona'
+import { definePersona, runPersonaShape } from '../../src/runtime/personify/persona'
 import type {
   CombinatorShape,
   Outcome,
@@ -122,7 +122,7 @@ const wideShapeBudget = { fanout: 4, perChild: { maxIterations: 10, maxTokens: 5
 /** Run a combinator factory verbatim (NOT via a registry name) through the real keystone.
  *  Passing the factory directly keeps the test independent of the shape-name registry. */
 async function runShape<Task, D>(persona: Persona<D>, shape: CombinatorShape<Task, D>, task: Task) {
-  return runPersonified<Task, D>({
+  return runPersonaShape<Task, D>({
     persona,
     shape,
     task,
@@ -386,7 +386,7 @@ describe('combinator · loopUntil', () => {
       fold: (prior) => ({ round: prior.round, value: prior.value + 1 }),
       until: () => null,
     })
-    const result = await runPersonified<{ goal: string }, number>({
+    const result = await runPersonaShape<{ goal: string }, number>({
       persona,
       shape,
       task: { goal: 'never' },
@@ -592,7 +592,7 @@ function subLoopLeaf(width: number): Executor<unknown> {
         const innerShape = fanout<{ branch: number }, number, string>([0, 1, 2].slice(0, width), {
           itemTask: (item, index) => ({ index, item }),
         })
-        const inner = await runPersonified<{ branch: number }, string>({
+        const inner = await runPersonaShape<{ branch: number }, string>({
           persona: innerPersona,
           shape: innerShape,
           task: { branch },
@@ -665,7 +665,7 @@ describe('meta-orchestrator (depth-2 sub-driver loops)', () => {
     })
 
     const journal = new InMemorySpawnJournal()
-    const result = await runPersonified<{ goal: string }, string>({
+    const result = await runPersonaShape<{ goal: string }, string>({
       persona: metaPersona,
       shape: metaShape,
       task: { goal: 'orchestrate' },
@@ -694,14 +694,14 @@ describe('meta-orchestrator (depth-2 sub-driver loops)', () => {
   })
 })
 
-// ── 8. runPersonified forwards the RuntimeHooks stream (gap 1) ────────────────────────
+// ── 8. runPersonaShape forwards the RuntimeHooks stream (gap 1) ────────────────────────
 //
 // The supervisor threads `SupervisorOpts.hooks` into the root Scope, which emits
-// `agent.spawn`/`agent.child` per child lifecycle. `runPersonified` only had to forward
+// `agent.spawn`/`agent.child` per child lifecycle. `runPersonaShape` only had to forward
 // `options.hooks` into `supervisorOpts.hooks` for those events to reach an observer — the
 // load-bearing one-liner that lets the Intelligence SDK subscribe to a personified run.
 
-describe('runPersonified · hooks forwarding', () => {
+describe('runPersonaShape · hooks forwarding', () => {
   it('forwards agent.spawn/agent.child events to the supplied RuntimeHooks', async () => {
     const persona = makePersona<string>('analyst', 'equity analyst', (task) => {
       const i = indexOf(task)
@@ -719,7 +719,7 @@ describe('runPersonified · hooks forwarding', () => {
       },
     }
 
-    const result = await runPersonified<{ topic: string }, string>({
+    const result = await runPersonaShape<{ topic: string }, string>({
       persona,
       shape: angleFanout<string>(),
       task: { topic: 'ACME' },

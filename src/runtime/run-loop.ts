@@ -1,15 +1,14 @@
 /**
  *
- * `runAgentRounds` — the topology-agnostic kernel built atop the sandbox SDK.
+ * `runAgentRounds` drives provider-neutral agent environments.
  *
  * Each iteration:
  *   1. `driver.plan(task, history)` → N tasks (1 = refine, N = fanout, 0 = stop)
  *   2. For each task (parallel, bounded by `maxConcurrency`):
  *        a. round-robin an `AgentRunSpec` from `agentRuns`
- *        b. `sandboxClient.create({ backend: { profile }, ...overrides })`
- *        c. emit `loop.iteration.dispatch` with the placement
- *           (`{ sibling, sandboxId }` or `{ fleet, fleetId, machineId, sandboxId }`)
- *        d. iterate `box.streamPrompt(taskToPrompt(task))` and collect events
+ *        b. `environmentProvider.create({ profile, ...environment })`
+ *        c. emit `loop.iteration.dispatch` with provider placement
+ *        d. iterate `environment.stream({ prompt })` and collect events
  *   3. `output.parse(events)` → typed `Output`
  *   4. `validator?.validate(output)` → `DefaultVerdict`
  *   5. Append `Iteration` to history; emit `loop.iteration.ended`
@@ -17,26 +16,27 @@
  *
  * The kernel owns: iteration accounting, per-iteration timing, error
  * capture, abort propagation, concurrency cap, cost aggregation, and trace
- * emission. The kernel does NOT own: what the agent runs (sandbox SDK +
- * profile), how outputs are decoded (output adapter), how outputs are
- * scored (validator), or topology (driver).
+ * emission. The provider owns execution; the output adapter owns decoding;
+ * the validator owns scoring; the driver owns the round policy.
  *
  * @experimental
  */
 
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  PlacementInfo,
+} from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../errors'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
-import { acquireSandbox } from './sandbox-acquire'
-import { buildBackendOptions } from './sandbox-backend'
-import { probeSandboxCapabilities } from './sandbox-capabilities'
-import { extractLlmCallEvent, notifySandboxEventObserver } from './sandbox-events'
+import { createEnvironmentForSpec } from './environment-create'
+import { extractLlmCallEvent, notifyAgentEnvironmentEventObserver } from './environment-events'
 import {
-  createSandboxLineage,
-  promptEvents,
-  type SandboxLineage,
-  type SandboxLineageHandle,
-} from './sandbox-lineage'
+  createEnvironmentLineage,
+  type EnvironmentLineage,
+  type EnvironmentLineageHandle,
+  turnEvents,
+} from './environment-lineage'
 import type {
   AgentRunSpec,
   Driver,
@@ -44,7 +44,6 @@ import type {
   Iteration,
   LoopLineageOptions,
   LoopResult,
-  LoopSandboxPlacement,
   LoopTokenUsage,
   LoopTraceEmitter,
   LoopTraceEvent,
@@ -52,13 +51,12 @@ import type {
   MountManifestEntry,
   MountRecorder,
   OutputAdapter,
-  SandboxClient,
   SelectionReceipt,
   Validator,
 } from './types'
 import {
   addTokenUsage,
-  deleteBoxSafe,
+  destroyEnvironmentSafe,
   randomSuffix,
   stringifySafe,
   throwAbort,
@@ -106,30 +104,14 @@ export interface RunAgentRoundsOptions<Task, Output, Decision> {
    * by earliest iteration).
    */
   selectWinner?: (iterations: Iteration<Task, Output>[]) => LoopWinner<Task, Output> | undefined
+  /** Keep completed workers alive for a driver that runs in their environment. */
+  onWorkerEnvironment?: (environment: AgentEnvironment | undefined) => void
   /**
-   * Same-sandbox driver mode — a kernel→caller out-channel, not a value handed
-   * in. When set, the kernel keeps each finished worker box alive across the
-   * `plan()` boundary and hands it here, so a same-sandbox planner
-   * (one that reuses the worker's box) can stream its move INTO the
-   * worker's live box — steering from the worker's real filesystem and state,
-   * not just a history summary. The kernel owns teardown: every box kept alive
-   * this way is destroyed at loop end (and the callback is invoked with
-   * `undefined` then as a teardown sentinel). Without it, worker boxes are torn
-   * down per-iteration (default) and a same-sandbox planner has nothing to
-   * reuse. Intended for single-worker (refine) loops: under fanout every box is
-   * still kept for teardown, but only the last-finishing box is handed here, so
-   * a planner sees an arbitrary branch's filesystem — pair it with refine.
-   */
-  onWorkerBox?: (box: SandboxInstance | undefined) => void
-  /**
-   * Opt-in box-lineage controls. Default OFF — unset means every iteration
-   * acquires a fresh box, streams once, and tears it down (today's behavior,
-   * byte-identical). With `sessionContinuity` on, a refine round continues the
-   * parent iteration's session on its live box; with `forkFanout` on (and a
+   * Opt-in environment lineage. With `sessionContinuity`, a refine round
+   * continues the parent session; with `forkFanout` on (and a
    * fork-capable platform), a fanout round forks the parent's checkpoint so the
-   * branches share a context prefix. The lineage owns every box it starts or
-   * forks and tears them all down at loop end — so these paths are mutually
-   * exclusive with `onWorkerBox`, which claims the same box-ownership channel.
+   * branches share a context prefix. The lineage owns every environment it
+   * creates and destroys them at loop end.
    * @experimental
    */
   lineage?: LoopLineageOptions
@@ -137,13 +119,13 @@ export interface RunAgentRoundsOptions<Task, Output, Decision> {
 
 /**
  * The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks
- * out to N sandboxes (bounded concurrency), parses + validates each output, and folds
+ * out to N environments (bounded concurrency), parses + validates each output, and folds
  * the round's results through `driver.decide` — fanout → validate → vote/select →
  * refine, repeated until the driver says stop. One call spans many agent sessions.
  *
  * Not to be confused with `runToolLoop` / `streamToolLoop` (package root entry): those
  * run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
- * folding the results back in until the model stops calling tools. No sandboxes, no
+ * folding the results back in until the model stops calling tools. No environments, no
  * rounds, no winner selection.
  *
  * @experimental
@@ -160,40 +142,32 @@ export async function runAgentRounds<Task, Output, Decision>(
   if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) {
     throw new ValidationError('runAgentRounds: maxConcurrency must be > 0')
   }
-  // Default fresh-box path streaming mode (read regardless of lineage activation,
-  // which gates on sessionContinuity/forkFanout — the bench uses neither).
-  const sandboxStreaming = options.lineage?.streaming ?? 'sse'
-  if (!options.ctx?.sandboxClient || typeof options.ctx.sandboxClient.create !== 'function') {
-    throw new ValidationError('runAgentRounds: ctx.sandboxClient.create is required')
+  const environmentStreaming = options.lineage?.streaming ?? 'sse'
+  if (
+    !options.ctx?.environmentProvider ||
+    typeof options.ctx.environmentProvider.create !== 'function'
+  ) {
+    throw new ValidationError('runAgentRounds: ctx.environmentProvider.create is required')
   }
   const now = options.now ?? Date.now
   const runId = options.runId ?? `loop-${randomSuffix()}`
   const loopStart = now()
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
-  // Per-run provenance manifest. `recordMount` is threaded into every box
-  // preparation path (fresh + lineage) so a `prepareBox` declares what it
-  // mounted. The kernel never inspects box contents — it only collects what the
-  // caller records.
+  // The caller records mounted resources during environment preparation.
   const mounts: MountManifestEntry[] = []
   const recordMount: MountRecorder = (entry) => {
     mounts.push(entry)
   }
   let round = 0
-  // Same-sandbox mode: worker boxes are kept alive (not torn down per-iteration)
-  // so the planner can stream into the latest; the kernel destroys them at loop end.
-  const ownedBoxes: SandboxInstance[] = []
-  const collectBox = options.onWorkerBox
-    ? (box: SandboxInstance) => {
-        ownedBoxes.push(box)
-        options.onWorkerBox?.(box)
+  const ownedEnvironments: AgentEnvironment[] = []
+  const collectEnvironment = options.onWorkerEnvironment
+    ? (environment: AgentEnvironment) => {
+        ownedEnvironments.push(environment)
+        options.onWorkerEnvironment?.(environment)
       }
     : undefined
 
-  // Opt-in box lineage: when either flag is set, a backend-blind lineage owns
-  // box+session handles so a refine continues the parent session and a fanout
-  // forks the parent checkpoint. Both flags off ⇒ lineage stays undefined and
-  // the per-iteration acquire/stream/teardown path is byte-identical to today.
   const lineageState = await setUpLineage(options, maxConcurrency, recordMount)
 
   emitRunLoopHook(options, {
@@ -303,8 +277,8 @@ export async function runAgentRounds<Task, Output, Decision>(
         })
       }
 
-      // Decide how this round acquires its sandbox streams. Without lineage it's
-      // a fresh box per iteration (today's path). With lineage it may continue
+      // Decide how this round acquires its environment streams. Without lineage
+      // it creates one environment per iteration. With lineage it may continue
       // the parent session (refine) or fork the parent checkpoint (fanout).
       const lineagePlan = lineageState
         ? planLineageRound(lineageState, specs, slice, parentIndex, controller.signal)
@@ -318,14 +292,14 @@ export async function runAgentRounds<Task, Output, Decision>(
         output: options.output,
         validator: options.validator,
         maxConcurrency,
-        streaming: sandboxStreaming,
+        streaming: environmentStreaming,
         signal: controller.signal,
         ctx: options.ctx,
         runId,
         now,
         roundIndex,
         parentIndex,
-        collectBox,
+        collectEnvironment,
         lineagePlan,
         lineageState,
         recordMount,
@@ -369,8 +343,8 @@ export async function runAgentRounds<Task, Output, Decision>(
           mounts,
         )
       }
-      // The loop continues: free any lineage boxes no future round can descend
-      // from, so the live-box set tracks the active frontier instead of growing
+      // The loop continues: free any lineage environments no future round can
+      // descend from, so the live set tracks the active frontier instead of growing
       // with every round. No-op unless pruning is provably safe (see canPrune).
       if (lineageState) await pruneLineage(lineageState, iterations)
     }
@@ -380,39 +354,20 @@ export async function runAgentRounds<Task, Output, Decision>(
     return await decideAndFinalize(options, iterations, loopStart, now, runId, mounts)
   } finally {
     if (options.ctx.signal) options.ctx.signal.removeEventListener('abort', onOuterAbort)
-    // Same-sandbox mode kept worker boxes alive across plan() so the planner could
-    // stream into them — the kernel owns their teardown. Destroy in parallel so a
-    // large fanout's deletes don't serialize, and bound each so a hung platform
-    // delete cannot wedge loop return after the caller aborted.
+    // A caller may retain completed worker environments across plan() calls.
+    // The kernel still owns their teardown. Destroy them concurrently and bound
+    // each operation so a stalled provider cannot block loop completion.
     await Promise.allSettled(
-      ownedBoxes.map((b) => destroySandboxSafe(b, options.ctx.traceEmitter, runId, now)),
+      ownedEnvironments.map((environment) =>
+        destroyEnvironmentWithTrace(environment, options.ctx.traceEmitter, runId, now),
+      ),
     )
-    if (options.onWorkerBox) options.onWorkerBox(undefined)
-    // The lineage owns every box it started or forked across all rounds; it tears
-    // them down at loop end (kept alive between rounds so a later round can
-    // continue/fork them).
+    if (options.onWorkerEnvironment) options.onWorkerEnvironment(undefined)
+    // The lineage owns every environment it started or forked across all rounds.
+    // They stay alive between rounds so later work can continue or fork them.
     if (lineageState) await lineageState.lineage.teardown()
   }
 }
-
-/**
- * Pre-rename name for {@link runAgentRounds}; identical function, kept so existing
- * call sites keep working.
- *
- * @deprecated Use {@link runAgentRounds}. The clearer name says what it is: the
- * multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
- * (`runToolLoop` / `streamToolLoop`, package root entry). `runLoop` shipped on `/loops`
- * next to `routerToolLoop`, which made the two read as variants of one thing. The alias
- * is removed in the next major.
- */
-export const runLoop = runAgentRounds
-
-/**
- * Pre-rename name for {@link RunAgentRoundsOptions}.
- *
- * @deprecated Use {@link RunAgentRoundsOptions}. Removed in the next major.
- */
-export type RunLoopOptions<Task, Output, Decision> = RunAgentRoundsOptions<Task, Output, Decision>
 
 /**
  * Per-loop lineage state: the backend-blind lineage, the caller's opt-in flags,
@@ -420,16 +375,16 @@ export type RunLoopOptions<Task, Output, Decision> = RunAgentRoundsOptions<Task,
  * or fork from it. `undefined` ⇒ no lineage; the kernel uses the fresh-box path.
  */
 interface LineageState {
-  lineage: SandboxLineage
+  lineage: EnvironmentLineage
   options: LoopLineageOptions
-  /** iteration index → its live box+session handle (kept alive across rounds). */
-  handles: Map<number, SandboxLineageHandle>
+  /** iteration index to its live environment and session handle. */
+  handles: Map<number, EnvironmentLineageHandle>
   /**
    * Whether the kernel may free non-frontier boxes after each round. Safe only
    * when the driver never authors its own branch point (`describePlan` absent),
    * so the kernel-inferred `branchPoint` — which moves monotonically toward
    * higher-scoring iterations — is the only descent source. A driver that
-   * declares `parentIndex` may descend from any prior iteration, so no box can
+   * declares `parentIndex` may descend from any prior iteration, so no environment can
    * be freed before loop end.
    */
   canPrune: boolean
@@ -438,8 +393,8 @@ interface LineageState {
 /**
  * Build the lineage when either lineage flag is set. Probes the platform's fork
  * capability once per run (the lineage degrades gracefully when it's absent).
- * Rejects the lineage + `onWorkerBox` combination: both claim the same
- * box-ownership channel, and silently honoring one would leak or double-free.
+ * Rejects the lineage + `onWorkerEnvironment` combination: both claim the same
+ * environment-ownership channel, and silently honoring one would leak or double-free.
  */
 async function setUpLineage<Task, Output, Decision>(
   options: RunAgentRoundsOptions<Task, Output, Decision>,
@@ -448,14 +403,19 @@ async function setUpLineage<Task, Output, Decision>(
 ): Promise<LineageState | undefined> {
   const lineageOpts = options.lineage
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
-  if (options.onWorkerBox) {
+  if (options.onWorkerEnvironment) {
     throw new ValidationError(
-      'runAgentRounds: `lineage` and `onWorkerBox` both own worker boxes — pass only one',
+      'runAgentRounds: `lineage` and `onWorkerEnvironment` both own worker environments; pass only one',
     )
   }
-  const capabilities = await probeSandboxCapabilities(options.ctx.sandboxClient)
+  const capabilities = await options.ctx.environmentProvider.capabilities()
+  if (lineageOpts.sessionContinuity && !capabilities.sessions.continue) {
+    throw new ValidationError(
+      `runAgentRounds: provider "${options.ctx.environmentProvider.name}" does not support session continuation`,
+    )
+  }
   return {
-    lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities, {
+    lineage: createEnvironmentLineage(options.ctx.environmentProvider, capabilities, {
       maxConcurrency,
       streaming: lineageOpts.streaming,
       recordMount,
@@ -467,14 +427,15 @@ async function setUpLineage<Task, Output, Decision>(
 }
 
 /**
- * One iteration's sandbox-stream source for a lineage round. The kernel awaits
- * `acquire()` inside the concurrency-bounded batch (so a fork's per-branch
- * `streamPrompt` and a continue's same-box stream are both rate-limited and
- * abort-checked like a fresh create). Returns the live event stream plus the
- * handle to record for the NEXT round to descend from.
+ * One iteration's event source for a lineage round. The kernel awaits
+ * `acquire()` inside the concurrency-bounded batch so forks, continuation, and
+ * fresh creation all share the same concurrency and cancellation rules.
  */
 interface LineageStreamSource {
-  acquire(): Promise<{ events: AsyncIterable<SandboxEvent>; handle: SandboxLineageHandle }>
+  acquire(): Promise<{
+    events: AsyncIterable<AgentEnvironmentEvent>
+    handle: EnvironmentLineageHandle
+  }>
 }
 
 /** The per-round lineage plan: a stream source per slice offset, or `undefined`
@@ -482,13 +443,13 @@ interface LineageStreamSource {
 type LineageRoundPlan = (LineageStreamSource | undefined)[]
 
 /**
- * Decide, for one round, how each iteration acquires its sandbox stream:
+ * Decide, for one round, how each iteration acquires its environment stream:
  *   - refine (1 task) + `sessionContinuity` + a live parent handle ⇒ continue
- *     the parent session on its box.
+ *     the parent session in its environment.
  *   - fanout (N tasks) + `forkFanout` + a live parent handle ⇒ fork the parent
  *     checkpoint once and stream each branch from a child box (degrades to fresh
- *     boxes inside the lineage when the platform can't fork).
- *   - otherwise (round 0, no parent, the off flag) ⇒ start a fresh box per
+ *     environments inside the lineage when the provider cannot fork).
+ *   - otherwise (round 0, no parent, the off flag) ⇒ start a fresh environment per
  *     iteration THROUGH the lineage so it's owned + a handle is recorded for a
  *     later round to descend from.
  * Round 0 (parentIndex undefined) always starts fresh — the independence of the
@@ -517,14 +478,14 @@ function planLineageRound<Task>(
   }
 
   // Continue the parent session: a single-task round descending from a live
-  // handle, with the flag on. Reuses the parent's box + session id.
+  // handle, with the flag on. Reuses the parent environment and session id.
   if (slice.length === 1 && parent && state.options.sessionContinuity) {
     return [
       {
         async acquire() {
           const events = await lineage.continue(parent, promptFor(0), signal)
           // Continuation threads the SAME handle forward — later rounds keep
-          // descending from this box's evolving session.
+          // descending from this environment's evolving session.
           return { events, handle: parent }
         },
       },
@@ -537,7 +498,9 @@ function planLineageRound<Task>(
   if (slice.length > 1 && parent && state.options.forkFanout) {
     const prompts = slice.map((_, offset) => promptFor(offset))
     const childSpecs = slice.map((_, offset) => specAt(offset))
-    let forked: Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
+    let forked: Promise<
+      { handle: EnvironmentLineageHandle; events: AsyncIterable<AgentEnvironmentEvent> }[]
+    >
     const ensureForked = () => {
       forked ??= lineage.fork(parent, prompts, childSpecs, signal)
       return forked
@@ -554,7 +517,7 @@ function planLineageRound<Task>(
   }
 
   // Fresh through the lineage (round 0, no parent, or the relevant flag off):
-  // start an owned box per iteration and record a handle for later descent.
+  // start an owned environment per iteration and record a handle for later descent.
   return slice.map((_, offset) => ({
     async acquire() {
       return lineage.start(specAt(offset), promptFor(offset), signal)
@@ -563,14 +526,14 @@ function planLineageRound<Task>(
 }
 
 /**
- * After a round, free lineage boxes no future round can descend from. The only
+ * After a round, free lineage environments no future round can descend from. The only
  * descent source for a kernel-inferred topology is `branchPoint`, which moves
  * monotonically toward higher-scoring iterations and never returns to one it has
  * passed — so every box except the current branch point's is unreachable and can
  * be torn down now instead of at loop end. Skipped entirely when the driver
  * authors its own branch point (`canPrune` false): it may descend from any prior
- * iteration. Also skipped when the branch point has no recorded handle (its
- * acquire failed) — that conservative case keeps every box.
+ * iteration. Also skipped when the branch point has no recorded handle because
+ * acquisition failed; that conservative case keeps every environment.
  */
 async function pruneLineage<Task, Output>(
   state: LineageState,
@@ -582,12 +545,10 @@ async function pruneLineage<Task, Output>(
   const keep = state.handles.get(keepIndex)
   if (!keep) return
   await state.lineage.prune([keep])
-  // Drop handle entries pointing at the now-freed boxes so the map never hands a
-  // later round a deleted box. Entries sharing the kept box (a refine chain)
-  // stay.
+  // Drop entries for environments destroyed by pruning.
   const stale: number[] = []
   for (const [index, handle] of state.handles) {
-    if (handle.box !== keep.box) stale.push(index)
+    if (handle.environment !== keep.environment) stale.push(index)
   }
   for (const index of stale) state.handles.delete(index)
 }
@@ -609,28 +570,28 @@ interface RunBatchArgs<Task, Output> {
   /** Iteration this round branched from — stamped as `parentIndex`. */
   parentIndex?: number
   /**
-   * Same-sandbox mode: when set, a finished iteration's box is handed here
+   * Retained-environment mode: when set, a finished iteration's environment is handed here
    * (kept alive for the planner) instead of being torn down. `undefined` =
    * default per-iteration teardown.
    */
-  collectBox?: (box: SandboxInstance) => void
+  collectEnvironment?: (environment: AgentEnvironment) => void
   /**
    * Lineage mode: per-offset stream sources for this round. When set, an
-   * iteration acquires its sandbox stream through the lineage (continue / fork /
-   * fresh) instead of `createSandboxForSpec`, and the lineage — not the
-   * iteration — owns box teardown (deferred to loop end).
+   * iteration acquires its environment stream through the lineage (continue / fork /
+   * fresh) instead of `createEnvironmentForSpec`, and the lineage — not the
+   * iteration — owns environment teardown (deferred to loop end).
    */
   lineagePlan?: LineageRoundPlan
   /** The loop's lineage state; iterations record their handle here for the next
    *  round to descend from. Set iff `lineagePlan` is. */
   lineageState?: LineageState
-  /** Sandbox streaming mode for the default fresh-box path. 'poll' fire-and-
+  /** Streaming mode for the default fresh-environment path. 'poll' fire-and-
    *  detaches + status-polls the terminal result (drop-resilient for long batch
    *  turns); 'sse' streams live (default). */
   streaming: 'sse' | 'poll'
-  /** The run's provenance recorder, forwarded to `prepareBox` on the default
-   *  fresh-box path so a mount declares itself into the manifest. (The lineage
-   *  path carries its own recorder from `createSandboxLineage`.) */
+  /** The run's provenance recorder, forwarded to `prepareEnvironment` on the default
+   *  fresh-environment path so a mount declares itself into the manifest. (The lineage
+   *  path carries its own recorder from `createEnvironmentLineage`.) */
   recordMount: MountRecorder
 }
 
@@ -696,36 +657,39 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     },
   })
 
-  let box: SandboxInstance | undefined
-  // Lineage-owned boxes are torn down by the lineage at loop end, not here. The
-  // flag tracks whether THIS iteration's box came from the lineage so the
+  let environment: AgentEnvironment | undefined
+  // Lineage-owned environments are torn down by the lineage at loop end, not here. The
+  // flag tracks whether this iteration's environment came from the lineage so the
   // teardown branch below skips it.
   let lineageOwned = false
   try {
-    // Stream source: the lineage (continue / fork / fresh) when this round runs
-    // under lineage, else a fresh box + a single `streamPrompt` (today's path,
-    // byte-identical when no lineage). The lineage path supplies a session id on
-    // the stream; the fresh path passes none — preserving N-independent-boxes.
-    let stream: AsyncIterable<SandboxEvent>
+    // Stream source: the lineage (continue / fork / fresh) when enabled, or a
+    // fresh provider environment for an independent iteration.
+    let stream: AsyncIterable<AgentEnvironmentEvent>
     const source = args.lineagePlan?.[args.item.index - args.baseIndex]
     if (source) {
       const acquired = await source.acquire()
-      box = acquired.handle.box
+      environment = acquired.handle.environment
       lineageOwned = true
       args.lineageState?.handles.set(args.item.index, acquired.handle)
       stream = acquired.events
     } else {
-      box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal, args.recordMount)
+      environment = await createEnvironmentForSpec(
+        args.ctx.environmentProvider,
+        spec,
+        args.signal,
+        args.recordMount,
+      )
       const prompt = spec.taskToPrompt(args.item.task)
-      // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
-      // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
-      // streams live — byte-identical to the prior path.
-      stream =
-        args.streaming === 'poll'
-          ? promptEvents('poll', box, prompt, `${args.runId}-i${args.item.index}`, args.signal)
-          : box.streamPrompt(prompt, { signal: args.signal })
+      stream = turnEvents(
+        args.streaming,
+        environment,
+        prompt,
+        `${args.runId}-i${args.item.index}`,
+        args.signal,
+      )
     }
-    const placement = describeSandboxPlacement(args.ctx.sandboxClient, box)
+    const placement = await describeEnvironmentPlacement(environment)
     await emitTrace(args.ctx.traceEmitter, {
       kind: 'loop.iteration.dispatch',
       runId: args.runId,
@@ -734,14 +698,17 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         iterationIndex: args.item.index,
         agentRunName: slot.agentRunName,
         placement: placement.kind,
-        sandboxId: placement.sandboxId,
+        environmentId: environment.id,
+        provider: environment.provider,
         fleetId: placement.fleetId,
         machineId: placement.machineId,
+        region: placement.region,
+        providerMetadata: placement.providerMetadata,
         groupId: args.roundIndex,
         parentIndex: args.parentIndex,
       },
     })
-    const events: SandboxEvent[] = []
+    const events: AgentEnvironmentEvent[] = []
     for await (const event of stream) {
       events.push(event)
       // Tee each raw event to an optional host observer so a caller can stream
@@ -749,7 +716,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // defensive copy (mutating it cannot corrupt the event the run itself
       // consumes for cost accounting + output parsing below), and a sync throw
       // or a rejected async result is swallowed — it can never break the run.
-      notifySandboxEventObserver(event, args.ctx.onSandboxEvent, {
+      notifyAgentEnvironmentEventObserver(event, args.ctx.onEnvironmentEvent, {
         iterationIndex: args.item.index,
         agentRunName: slot.agentRunName,
       })
@@ -765,7 +732,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     if (args.validator) {
       slot.verdict = await args.validator.validate(slot.output, {
         iteration: args.item.index,
-        ...(box ? { box } : {}),
+        ...(environment ? { environment } : {}),
         signal: args.signal,
         traceEmitter: args.ctx.traceEmitter,
       })
@@ -794,17 +761,17 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
           slot.output !== undefined ? stringifySafe(slot.output, { max: 280 }) : undefined,
       },
     })
-    // The loop owns the per-shot box lifecycle. Default: tear it down now so
-    // sandboxes don't leak. Same-sandbox mode: hand it to the kernel to keep
-    // alive for the planner. Lineage mode: the lineage owns the box and keeps it
+    // The loop owns the per-iteration environment lifecycle. By default it
+    // destroys the environment now. Retained-environment mode hands it to the
+    // kernel to keep alive for the planner. Lineage mode keeps it
     // alive across rounds (a later round may continue/fork it), tearing it down
     // at loop end — so skip per-iteration teardown here.
     if (lineageOwned) {
-      // no-op: lineage.teardown() reaps this box at loop end
-    } else if (args.collectBox && box) {
-      args.collectBox(box)
+      // no-op: lineage.teardown() destroys this environment at loop end
+    } else if (args.collectEnvironment && environment) {
+      args.collectEnvironment(environment)
     } else {
-      await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
+      await destroyEnvironmentWithTrace(environment, args.ctx.traceEmitter, args.runId, args.now)
     }
   }
   // An abort caught above is NOT a soft per-iteration failure — it must
@@ -828,33 +795,29 @@ function isAbortError(err: unknown): boolean {
 const TEARDOWN_TIMEOUT_MS = 15_000
 
 /**
- * Best-effort sandbox teardown. A failed delete must never surface as a loop
- * error, and instances without a `delete` (the loop's test fakes) are skipped.
- * A delete that throws or hangs (bounded by `TEARDOWN_TIMEOUT_MS`) is recorded
- * as a `loop.teardown.failed` trace so a silently-leaking box is observable —
- * distinct from a fake with no `delete`, which is expected and stays silent.
+ * Best-effort environment teardown. A failed destroy must never surface as a
+ * loop error. A destroy that fails or exceeds `TEARDOWN_TIMEOUT_MS` is recorded
+ * as `loop.teardown.failed`.
  */
-async function destroySandboxSafe(
-  box: SandboxInstance | undefined,
+async function destroyEnvironmentWithTrace(
+  environment: AgentEnvironment | undefined,
   trace?: LoopTraceEmitter,
   runId?: string,
   now?: () => number,
 ): Promise<void> {
-  if (!box || typeof (box as { delete?: unknown }).delete !== 'function') return
+  if (!environment?.destroy) return
   const emitFailed = async (reason: string) => {
     if (!trace || !runId) return
     await emitTrace(trace, {
       kind: 'loop.teardown.failed',
       runId,
       timestamp: (now ?? Date.now)(),
-      payload: { sandboxId: readSandboxId(box), reason },
+      payload: { environmentId: environment.id, reason },
     })
   }
-  // Bound the delete so a hung platform delete can't wedge loop return after an
-  // abort. `undefined` = timed out; `false` = delete threw; `true` = deleted.
-  const outcome = await withTimeout(deleteBoxSafe(box), TEARDOWN_TIMEOUT_MS)
+  const outcome = await withTimeout(destroyEnvironmentSafe(environment), TEARDOWN_TIMEOUT_MS)
   if (outcome === undefined) await emitFailed('timeout')
-  else if (outcome === false) await emitFailed('delete threw')
+  else if (outcome === false) await emitFailed('destroy failed')
 }
 
 /**
@@ -880,83 +843,16 @@ function branchPoint<Task, Output>(
   return best
 }
 
-export function describeSandboxPlacement(
-  client: SandboxClient,
-  box: SandboxInstance,
-): LoopSandboxPlacement {
-  if (typeof client.describePlacement === 'function') {
+async function describeEnvironmentPlacement(environment: AgentEnvironment): Promise<PlacementInfo> {
+  if (environment.placement) {
     try {
-      const result = client.describePlacement(box)
-      if (
-        result &&
-        typeof result === 'object' &&
-        (result.kind === 'sibling' || result.kind === 'fleet')
-      ) {
-        return {
-          kind: result.kind,
-          sandboxId: result.sandboxId ?? readSandboxId(box),
-          fleetId: result.fleetId,
-          machineId: result.machineId,
-        }
-      }
+      return await environment.placement()
     } catch {
-      // Adapter bug must not corrupt the iteration; fall through to default.
+      // Placement metadata is optional and must not fail an otherwise valid run.
     }
   }
-  return { kind: 'sibling', sandboxId: readSandboxId(box) }
+  return { kind: 'provider' }
 }
-
-function readSandboxId(box: SandboxInstance): string | undefined {
-  const raw = (box as unknown as { id?: unknown }).id
-  return typeof raw === 'string' && raw.length > 0 ? raw : undefined
-}
-
-/**
- * Instantiate a sandbox for an `AgentRunSpec`: sets `backend.profile` to the
- * spec's profile (inferring the backend type when the spec doesn't override
- * it) and merges `sandboxOverrides`. Shared by the loop kernel and the
- * `AgentRuntime.act` sandbox bridge so both boot the sandbox identically.
- *
- * `recordMount`, when supplied, is forwarded to `prepareBox` so the caller can
- * declare what it mounted into the box for the run's provenance manifest. The
- * loop kernel passes its per-run recorder; other callers (which have no
- * `LoopResult` to attach to) omit it and the prepareBox recorder is a no-op.
- */
-export async function createSandboxForSpec<Task>(
-  client: SandboxClient,
-  spec: AgentRunSpec<Task>,
-  signal: AbortSignal,
-  recordMount?: MountRecorder,
-): Promise<SandboxInstance> {
-  const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides)
-  // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
-  // host-agent registration) can't surface as a failure — readiness is observed
-  // from sandbox status, and a gateway-timed-out create is recovered by lookup.
-  if (signal.aborted) throwAbort()
-  const box = await acquireSandbox(client, opts, { signal })
-  await invokePrepareBox(spec, box, signal, recordMount)
-  return box
-}
-
-/**
- * Invoke a spec's `prepareBox` with a complete ctx. `recordMount` is the run's
- * provenance recorder when one is threaded down; absent, a no-op stands in so
- * the ctx shape is always satisfied and a caller that records mounts on a path
- * with no manifest (e.g. the `AgentRuntime.act` bridge) silently drops nothing
- * it cares about — it simply has nowhere to surface a manifest.
- */
-async function invokePrepareBox<Task>(
-  spec: AgentRunSpec<Task>,
-  box: SandboxInstance,
-  signal: AbortSignal,
-  recordMount?: MountRecorder,
-): Promise<void> {
-  if (!spec.prepareBox) return
-  await spec.prepareBox(box, { signal, recordMount: recordMount ?? noopMountRecorder })
-}
-
-/** Shared no-op recorder for box-preparation paths that have no run manifest. */
-const noopMountRecorder: MountRecorder = () => {}
 
 interface FinalizeArgs<Task, Output, Decision> {
   options: RunAgentRoundsOptions<Task, Output, Decision>

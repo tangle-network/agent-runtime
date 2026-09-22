@@ -27,6 +27,7 @@ import {
 // compiles. (The hidden-criteria port above is new in >=0.100 and lives at the root only,
 // which the devDependency floor now matches.)
 import { type JudgeConfig, type JudgeScore, llmJudge } from '@tangle-network/agent-eval/campaign'
+import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import type { CodingScenario, TestFile } from './scenarios'
 
 // ── the composite weighting ───────────────────────────────────────────────────
@@ -88,28 +89,25 @@ export const heldoutPassRateOf = (artifact: RunArtifact): number => artifact.hel
 
 // ── layer 1: the deterministic check pipeline (visible tests) ──────────────────
 
-/** The minimal box surface the checks need — a subset of the real `SandboxInstance`.
- *  The live sandbox satisfies it; the offline in-process box implements it too. `fs.write`
- *  is the structured write seam (both boxes expose it); we prefer it over a shell write so
- *  seeding never interpolates a path into a command string. */
-export interface CheckBox {
-  exec(command: string): Promise<{ exitCode: number; stdout: string; stderr: string }>
-  fs?: { write(path: string, content: string): Promise<unknown> }
-}
+/** Provider environment used by deterministic development and held-out checks. */
+export type CheckEnvironment = Pick<AgentEnvironment, 'exec' | 'write'>
 
-/** Seed a test file into the box. Prefers the structured `fs.write` seam so the path/
+/** Seed a test file into the environment. Prefers structured `write` so the path/
  *  content is never interpolated into a shell command (no injection surface for partners
  *  who later load scenario paths from config). Falls back to a base64 shell write with
- *  SINGLE-QUOTED path words on a box that only exposes `exec`. The file's CONTENT is never
+ *  SINGLE-QUOTED path words when only `exec` is available. The file's CONTENT is never
  *  described to the agent in the prompt — this is write-only scaffold (the firewall). */
-async function seedFile(box: CheckBox, file: TestFile): Promise<void> {
-  if (box.fs) {
-    await box.fs.write(file.path, file.content)
+async function seedFile(environment: CheckEnvironment, file: TestFile): Promise<void> {
+  if (environment.write) {
+    await environment.write(file.path, file.content)
     return
   }
   const b64 = Buffer.from(file.content, 'utf8').toString('base64')
   const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.'
-  await box.exec(`mkdir -p '${dir}' && printf %s '${b64}' | base64 -d > '${file.path}'`)
+  await execInEnvironment(
+    environment,
+    `mkdir -p '${dir}' && printf %s '${b64}' | base64 -d > '${file.path}'`,
+  )
 }
 
 /** One check command → a `Layer`. Pass/fail comes from the exit code. `advisory`
@@ -122,12 +120,12 @@ function checkLayer(
     dependsOn?: string[]
     advisory?: boolean
   },
-): Layer<CheckBox> {
+): Layer<CheckEnvironment> {
   return {
     name,
     ...(opts.dependsOn ? { dependsOn: opts.dependsOn } : {}),
-    async run({ env: box }) {
-      const r = await box.exec(command)
+    async run({ env: environment }) {
+      const r = await execInEnvironment(environment, command)
       const ok = r.exitCode === 0
       const output = `${r.stdout}\n${r.stderr}`.trim()
       const findings = ok
@@ -163,24 +161,24 @@ function checkLayer(
 }
 
 /**
- * Run the scenario's dev checks in the box as an ordered pipeline. Seeds the VISIBLE
+ * Run the scenario's dev checks in the environment as an ordered pipeline. Seeds the VISIBLE
  * example test first (the agent may read it, TDD-style), then typecheck → test → lint.
  * `report.allPass` is true only when typecheck AND test pass (lint is advisory). The
  * `report.layers[*].detail.output` is what the refine loop reads to build the next
  * prompt. The HELD-OUT test is NOT seeded here — that is the firewall.
  */
 export async function runChecks(
-  box: CheckBox,
+  environment: CheckEnvironment,
   scenario: CodingScenario,
   cmds: { typecheck: string; dev: string; lint: string },
 ): Promise<VerificationReport> {
-  await seedFile(box, scenario.visibleTest)
-  const verifier = new MultiLayerVerifier<CheckBox>([
+  await seedFile(environment, scenario.visibleTest)
+  const verifier = new MultiLayerVerifier<CheckEnvironment>([
     checkLayer('typecheck', cmds.typecheck, {}),
     checkLayer('test', cmds.dev, { dependsOn: ['typecheck'] }),
     checkLayer('lint', cmds.lint, { dependsOn: ['typecheck'], advisory: true }),
   ])
-  return verifier.run({ env: box, overallCapMs: 120_000 })
+  return verifier.run({ env: environment, overallCapMs: 120_000 })
 }
 
 /** Pull one check layer's captured output (for the refine prompt). `passed` is the
@@ -222,10 +220,10 @@ export interface CodingHiddenCriteria {
  * any test ran) is a 0/0 → `hiddenGrade` makes that an honest passRate 0, never a spurious
  * pass. The grader runs in the box (the `artifact`), so it sees the agent's real solution.
  */
-export function nodeTestGrader(): HiddenCriteriaGrader<CheckBox, CodingHiddenCriteria> {
-  return async (box, criteria): Promise<HiddenGradeResult> => {
-    await seedFile(box, criteria.heldoutTest)
-    const r = await box.exec(criteria.heldoutCmd)
+export function nodeTestGrader(): HiddenCriteriaGrader<CheckEnvironment, CodingHiddenCriteria> {
+  return async (environment, criteria): Promise<HiddenGradeResult> => {
+    await seedFile(environment, criteria.heldoutTest)
+    const r = await execInEnvironment(environment, criteria.heldoutCmd)
     const output = `${r.stdout}\n${r.stderr}`.trim()
     const { total, pass } = parseTestCounts(output)
     // `hiddenGrade` normalizes: total === 0 (the suite never ran — e.g. the solution
@@ -250,11 +248,13 @@ const codingGrader = nodeTestGrader()
  * is supplied explicitly (the smoke test grades the visible suite this way too).
  */
 export function runHeldout(
-  box: CheckBox,
+  environment: CheckEnvironment,
   scenario: CodingScenario,
   heldoutCmd: string,
 ): Promise<HiddenGradeResult> {
-  return Promise.resolve(codingGrader(box, { heldoutTest: scenario.heldoutTest, heldoutCmd }))
+  return Promise.resolve(
+    codingGrader(environment, { heldoutTest: scenario.heldoutTest, heldoutCmd }),
+  )
 }
 
 /**
@@ -264,19 +264,29 @@ export function runHeldout(
  * runs the coding grader. A breach throws — the firewall is enforcement, not a comment.
  */
 export function gradeOnHiddenCriteria(
-  box: CheckBox,
+  environment: CheckEnvironment,
   scenario: CodingScenario,
   heldoutCmd: string,
   firewall: { fields: readonly RoutedField[]; agentContext: string },
   signal?: AbortSignal,
 ): Promise<HiddenGradeResult> {
-  return gradeOnHidden<CheckBox, CodingHiddenCriteria>({
-    artifact: box,
+  return gradeOnHidden<CheckEnvironment, CodingHiddenCriteria>({
+    artifact: environment,
     hiddenCriteria: { heldoutTest: scenario.heldoutTest, heldoutCmd },
     grader: codingGrader,
     firewall,
     signal,
   })
+}
+
+async function execInEnvironment(
+  environment: CheckEnvironment,
+  command: string,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  if (!environment.exec) {
+    throw new Error('coding benchmark requires a provider with workspace command execution')
+  }
+  return environment.exec(command)
 }
 
 /** Parse `node --test`'s summary counts from its output. Reads the `tests`, `pass`, and

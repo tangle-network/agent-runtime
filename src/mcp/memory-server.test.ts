@@ -22,6 +22,11 @@ const ITEMS: MemoryItem[] = [
   { id: 'mem-3', text: 'Pin the schema version before migrating rows', tags: ['db'] },
 ]
 
+function resultOf<T>(response: { result?: unknown } | null | undefined): T {
+  if (response?.result === undefined) throw new Error('expected JSON-RPC result')
+  return response.result as T
+}
+
 describe('createMemoryToolServer', () => {
   const server = createMemoryToolServer({ items: ITEMS })
 
@@ -35,7 +40,7 @@ describe('createMemoryToolServer', () => {
 
   it('lists memory_search and memory_get with schemas', async () => {
     const res = await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
-    const tools = (res?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools
+    const tools = resultOf<{ tools: Array<{ name: string; inputSchema: unknown }> }>(res).tools
     expect(tools.map((t) => t.name)).toEqual(['memory_search', 'memory_get'])
     expect(tools[0]?.inputSchema).toMatchObject({ required: ['query'] })
   })
@@ -47,8 +52,9 @@ describe('createMemoryToolServer', () => {
       method: 'tools/call',
       params: { name: 'memory_search', arguments: { query: 'failing test run' } },
     })
-    const out = (res?.result as { structuredContent: { results: Array<{ id: string }> } })
-      .structuredContent
+    const out = resultOf<{ structuredContent: { results: Array<{ id: string }> } }>(
+      res,
+    ).structuredContent
     expect(out.results[0]?.id).toBe('mem-1')
   })
 
@@ -62,8 +68,9 @@ describe('createMemoryToolServer', () => {
         arguments: { query: 'schema version test', k: 1, tags: ['db'] },
       },
     })
-    const out = (res?.result as { structuredContent: { results: Array<{ id: string }> } })
-      .structuredContent
+    const out = resultOf<{ structuredContent: { results: Array<{ id: string }> } }>(
+      res,
+    ).structuredContent
     expect(out.results.map((r) => r.id)).toEqual(['mem-3'])
   })
 
@@ -84,7 +91,7 @@ describe('createMemoryToolServer', () => {
       method: 'tools/call',
       params: { name: 'memory_get', arguments: { id: 'mem-2' } },
     })
-    expect((hit?.result as { structuredContent: MemoryItem }).structuredContent).toEqual(ITEMS[1])
+    expect(resultOf<{ structuredContent: MemoryItem }>(hit).structuredContent).toEqual(ITEMS[1])
     const miss = await server.handle({
       jsonrpc: '2.0',
       id: 7,

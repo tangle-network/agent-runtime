@@ -1,3 +1,5 @@
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildLoopOtelSpans,
@@ -20,6 +22,31 @@ function attrMap(span: OtelSpan): Record<string, string | number | boolean | und
       v.boolValue
   }
   return out
+}
+
+async function listenOnLoopback(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  return (server.address() as AddressInfo).port
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()))
+  })
+}
+
+function testSpan(spanId: string, name = `span-${spanId}`): OtelSpan {
+  return {
+    traceId: 'a'.repeat(32),
+    spanId,
+    name,
+    startTimeUnixNano: '1000000000000',
+    endTimeUnixNano: '1000000000000',
+  }
 }
 
 describe('buildRuntimeEventOtelSpans', () => {
@@ -46,7 +73,7 @@ describe('buildRuntimeEventOtelSpans', () => {
       ],
       'a'.repeat(32),
       'b'.repeat(16),
-      { includeControlPayloads: true },
+      { includeEventData: true },
     )
 
     const tool = attrMap(spans[0]!)
@@ -77,22 +104,35 @@ describe('buildRuntimeEventOtelSpans', () => {
     expect(String(attrs['tangle.runtime.event'])).not.toContain('value')
   })
 
-  it('omits non-finite numeric attributes instead of emitting invalid OTLP JSON', () => {
-    const [span] = buildRuntimeEventOtelSpans(
-      [
-        {
-          type: 'llm_call',
-          model: 'test',
-          costUsd: Number.NaN,
-          latencyMs: Number.POSITIVE_INFINITY,
-        },
-      ],
-      'a'.repeat(32),
-    )
-    const attrs = attrMap(span!)
-    expect(attrs['tangle.cost.usd']).toBeUndefined()
-    expect(attrs['tangle.latency_ms']).toBeUndefined()
-    expect(JSON.stringify(span)).not.toContain('NaN')
+  it('rejects non-finite telemetry instead of silently deleting it', () => {
+    expect(() =>
+      buildRuntimeEventOtelSpans(
+        [
+          {
+            type: 'llm_call',
+            model: 'test',
+            costUsd: Number.NaN,
+            latencyMs: Number.POSITIVE_INFINITY,
+          },
+        ],
+        'a'.repeat(32),
+      ),
+    ).toThrow('OTLP attribute tangle.cost.usd must be finite')
+  })
+
+  it('rejects an invalid supplied event timestamp instead of replacing it with now', () => {
+    expect(() =>
+      buildRuntimeEventOtelSpans(
+        [
+          {
+            type: 'llm_call',
+            model: 'test',
+            timestamp: 'not-a-timestamp',
+          },
+        ],
+        'a'.repeat(32),
+      ),
+    ).toThrow('runtime event timestamp is invalid: not-a-timestamp')
   })
 })
 
@@ -210,6 +250,13 @@ describe('buildLoopOtelSpans — nested GenAI topology tree', () => {
     const root = byName('loop')
     expect(root).toHaveLength(1)
     expect(spans.every((s) => s.traceId === root[0]!.traceId)).toBe(true)
+    expect(root[0]!.traceId).toMatch(/^[0-9a-f]{32}$/)
+    expect(spans.every((span) => /^[0-9a-f]{16}$/.test(span.spanId))).toBe(true)
+    expect(
+      spans.every(
+        (span) => span.parentSpanId === undefined || /^[0-9a-f]{16}$/.test(span.parentSpanId),
+      ),
+    ).toBe(true)
     // real durations, not zero-width point spans
     expect(BigInt(root[0]!.endTimeUnixNano) - BigInt(root[0]!.startTimeUnixNano)).toBe(
       700n * 1_000_000n,
@@ -462,6 +509,59 @@ describe('otel-export', () => {
     await exporter.shutdown()
   })
 
+  it('rejects a cross-origin 307 without forwarding telemetry or authorization', async () => {
+    let sinkRequests = 0
+    let sinkBodyBytes = 0
+    let sinkAuthorization: string | undefined
+    const sink = createServer((request, response) => {
+      sinkRequests += 1
+      sinkAuthorization = request.headers.authorization
+      request.on('data', (chunk: Buffer) => {
+        sinkBodyBytes += chunk.byteLength
+      })
+      request.on('end', () => {
+        response.writeHead(204)
+        response.end()
+      })
+    })
+    const redirector = createServer((request, response) => {
+      request.resume()
+      response.writeHead(307, {
+        location: `http://127.0.0.1:${(sink.address() as AddressInfo).port}/collect`,
+      })
+      response.end()
+    })
+
+    try {
+      await listenOnLoopback(sink)
+      const redirectorPort = await listenOnLoopback(redirector)
+      const exporter = createOtelExporter({
+        endpoint: `http://127.0.0.1:${redirectorPort}`,
+        headers: { authorization: 'Bearer tenant-secret' },
+        batchSize: 100,
+      })!
+      exporter.exportSpan({
+        traceId: 'a'.repeat(32),
+        spanId: 'b'.repeat(16),
+        name: 'private-run',
+        startTimeUnixNano: '1000000000000',
+        endTimeUnixNano: '1000000000000',
+        attributes: [{ key: 'private.input', value: { stringValue: 'sensitive payload' } }],
+      })
+
+      await expect(exporter.shutdown()).resolves.toMatchObject({
+        succeeded: false,
+        undeliveredSpans: 1,
+        error: expect.stringMatching(/OTLP export request.*failed/),
+      })
+      expect(sinkRequests).toBe(0)
+      expect(sinkBodyBytes).toBe(0)
+      expect(sinkAuthorization).toBeUndefined()
+    } finally {
+      await Promise.all([closeServer(redirector), closeServer(sink)])
+    }
+  })
+
   it('parses OTEL_EXPORTER_OTLP_HEADERS from env correctly', async () => {
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318'
     process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Bearer secret,X-Org=my-org'
@@ -511,18 +611,18 @@ describe('otel-export', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('network failure does not crash the exporter', async () => {
-    const mockFetch = vi.fn(async () => {
-      throw new Error('ECONNREFUSED')
-    })
+  it('rejects a network failure and retains the batch for an explicit retry', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', mockFetch)
 
     const exporter = createOtelExporter({
       endpoint: 'http://localhost:4318',
-      batchSize: 1,
+      batchSize: 100,
     })!
 
-    // Should not throw
     exporter.exportSpan({
       traceId: 'a'.repeat(32),
       spanId: 'd'.repeat(16),
@@ -531,12 +631,293 @@ describe('otel-export', () => {
       endTimeUnixNano: '1000000000000',
     })
 
-    await new Promise((r) => setTimeout(r, 50))
-    await exporter.shutdown()
-    // If we get here without exception, test passes
+    await expect(exporter.flush()).resolves.toMatchObject({
+      succeeded: false,
+      undeliveredSpans: 1,
+      error: 'OTLP export request to http://localhost:4318/v1/traces failed: ECONNREFUSED',
+    })
+    await expect(exporter.shutdown()).resolves.toMatchObject({
+      succeeded: true,
+      deliveredSpans: 1,
+      undeliveredSpans: 0,
+    })
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
-  it('loopEventToOtelSpan formats correctly', () => {
+  it('automatically retries a failed export after a bounded delay', async () => {
+    const callTimes: number[] = []
+    const mockFetch = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        callTimes.push(Date.now())
+        return new Response('temporarily unavailable', { status: 503 })
+      })
+      .mockImplementationOnce(async () => {
+        callTimes.push(Date.now())
+        return new Response(null, { status: 204 })
+      })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 1,
+      flushIntervalMs: 60_000,
+      retryInitialDelayMs: 40,
+      retryMaxDelayMs: 40,
+    })!
+    exporter.exportSpan(testSpan('1'.repeat(16), 'retry-me'))
+
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2), { timeout: 1000 })
+    expect(callTimes[1]! - callTimes[0]!).toBeGreaterThanOrEqual(30)
+
+    await expect(exporter.shutdown()).resolves.toMatchObject({
+      succeeded: true,
+      deliveredSpans: 1,
+    })
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds retained spans, drops the newest, and reports each drop', async () => {
+    const bodies: any[] = []
+    const drops: unknown[] = []
+    const mockFetch = vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)))
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 100,
+      maxQueueSize: 2,
+      onDrop: (event) => drops.push(event),
+    })!
+    exporter.exportSpan(testSpan('1'.repeat(16), 'oldest'))
+    exporter.exportSpan(testSpan('2'.repeat(16), 'second'))
+    exporter.exportSpan(testSpan('3'.repeat(16), 'newest'))
+
+    const result = await exporter.shutdown()
+
+    const names = bodies[0].resourceSpans[0].scopeSpans[0].spans.map((span: OtelSpan) => span.name)
+    expect(names).toEqual(['oldest', 'second'])
+    expect(result).toEqual({
+      succeeded: false,
+      deliveredSpans: 2,
+      undeliveredSpans: 0,
+      droppedSpans: 1,
+      error: '1 span dropped',
+    })
+    expect(drops).toEqual([
+      {
+        reason: 'queue_full',
+        droppedCount: 1,
+        totalDropped: 1,
+        queueSize: 2,
+        maxQueueSize: 2,
+      },
+    ])
+  })
+
+  it('keeps one ignored-abort request in flight and returns bounded flush failures', async () => {
+    const signals: AbortSignal[] = []
+    const mockFetch = vi.fn(async (_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal)
+      return await new Promise<Response>(() => {})
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 100,
+      requestTimeoutMs: 25,
+      flushIntervalMs: 10,
+      retryInitialDelayMs: 10,
+      retryMaxDelayMs: 10,
+    })!
+    exporter.exportSpan(testSpan('4'.repeat(16), 'never-resolves'))
+
+    const flushStarted = Date.now()
+    await expect(exporter.flush()).resolves.toMatchObject({
+      succeeded: false,
+      deliveredSpans: 0,
+      undeliveredSpans: 1,
+      droppedSpans: 0,
+      error: expect.stringContaining('timed out after 25ms'),
+    })
+    expect(Date.now() - flushStarted).toBeLessThan(500)
+    expect(signals[0]?.aborted).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 75))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    const shutdownStarted = Date.now()
+    await expect(exporter.shutdown()).resolves.toMatchObject({
+      succeeded: false,
+      deliveredSpans: 0,
+      undeliveredSpans: 1,
+      droppedSpans: 0,
+      error: expect.stringContaining('remains in flight'),
+    })
+    expect(Date.now() - shutdownStarted).toBeLessThan(500)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('exports an immutable snapshot of each queued span', async () => {
+    const bodies: any[] = []
+    const mockFetch = vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)))
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 100,
+    })!
+    const span = testSpan('6'.repeat(16), 'original')
+    span.attributes = [{ key: 'state', value: { stringValue: 'queued' } }]
+    span.status = { code: 1, message: 'original-status' }
+    exporter.exportSpan(span)
+
+    span.name = 'mutated'
+    span.attributes[0]!.key = 'mutated'
+    span.attributes[0]!.value.stringValue = 'mutated'
+    span.status.message = 'mutated'
+
+    const result = await exporter.shutdown()
+    const exported = bodies[0].resourceSpans[0].scopeSpans[0].spans[0] as OtelSpan
+    expect(result.succeeded).toBe(true)
+    expect(exported).toMatchObject({
+      name: 'original',
+      attributes: [{ key: 'state', value: { stringValue: 'queued' } }],
+      status: { code: 1, message: 'original-status' },
+    })
+  })
+
+  it('caps response bytes and cancels an oversized error stream', async () => {
+    let cancellations = 0
+    const mockFetch = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('response is too large'))
+        },
+        cancel() {
+          cancellations += 1
+        },
+      })
+      return new Response(body, { status: 500 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 100,
+      maxResponseBytes: 8,
+    })!
+    exporter.exportSpan(testSpan('5'.repeat(16), 'large-response'))
+
+    await expect(exporter.shutdown()).resolves.toMatchObject({
+      succeeded: false,
+      undeliveredSpans: 1,
+      error: 'OTLP response exceeded the 8-byte response limit',
+    })
+    expect(cancellations).toBe(1)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a non-2xx response and retains the batch for an explicit retry', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('tenant rejected', { status: 403 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', mockFetch)
+
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 1,
+    })!
+    exporter.exportSpan({
+      traceId: 'a'.repeat(32),
+      spanId: 'e'.repeat(16),
+      name: 'test',
+      startTimeUnixNano: '1000000000000',
+      endTimeUnixNano: '1000000000000',
+    })
+
+    await expect(exporter.flush()).resolves.toMatchObject({
+      succeeded: false,
+      undeliveredSpans: 1,
+      error:
+        'OTLP export to http://localhost:4318/v1/traces was rejected with HTTP 403: tenant rejected',
+    })
+    await expect(exporter.shutdown()).resolves.toMatchObject({ succeeded: true })
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects partial OTLP acceptance and retains the batch for an explicit retry', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          partialSuccess: {
+            rejectedSpans: '1',
+            errorMessage: 'invalid span identity',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({}))
+    vi.stubGlobal('fetch', mockFetch)
+
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 100,
+    })!
+    exporter.exportSpan({
+      traceId: 'a'.repeat(32),
+      spanId: 'f'.repeat(16),
+      name: 'test',
+      startTimeUnixNano: '1000000000000',
+      endTimeUnixNano: '1000000000000',
+    })
+
+    await expect(exporter.flush()).resolves.toMatchObject({
+      succeeded: false,
+      undeliveredSpans: 1,
+      error:
+        'OTLP export to http://localhost:4318/v1/traces rejected 1 spans despite HTTP 200: invalid span identity',
+    })
+    await expect(exporter.shutdown()).resolves.toMatchObject({ succeeded: true })
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects malformed span identity and use after shutdown', async () => {
+    const exporter = createOtelExporter({
+      endpoint: 'http://localhost:4318',
+      batchSize: 100,
+    })!
+    const malformed: OtelSpan = {
+      traceId: 'not-a-trace-id',
+      spanId: 'not-a-span-id',
+      name: 'test',
+      startTimeUnixNano: '1000000000000',
+      endTimeUnixNano: '1000000000000',
+    }
+
+    expect(() => exporter.exportSpan(malformed)).toThrow(
+      'OTLP span traceId must be a non-zero lowercase hexadecimal identifier',
+    )
+    await exporter.shutdown()
+    expect(() =>
+      exporter.exportSpan({
+        ...malformed,
+        traceId: 'a'.repeat(32),
+        spanId: 'b'.repeat(16),
+      }),
+    ).toThrow('OTLP exporter is shut down')
+  })
+
+  it('loopEventToOtelSpan derives valid stable context ids from external labels', () => {
     const span = loopEventToOtelSpan(
       {
         kind: 'loop.iteration.started',
@@ -548,12 +929,23 @@ describe('otel-export', () => {
       'parent-span-456',
     )
 
-    // traceId: "trace-id-123" → strip dashes → "traceid123" → pad to 32
-    expect(span.traceId).toHaveLength(32)
-    expect(span.traceId).toMatch(/^traceid123/)
-    // parentSpanId: "parent-span-456" → strip dashes → "parentspan456" → pad to 16
-    expect(span.parentSpanId).toHaveLength(16)
-    expect(span.parentSpanId).toMatch(/^parentspan456/)
+    const repeated = loopEventToOtelSpan(
+      {
+        kind: 'loop.iteration.started',
+        runId: 'run-1',
+        timestamp: 1700000000000,
+        payload: {},
+      },
+      'trace-id-123',
+      'parent-span-456',
+    )
+
+    expect(span.traceId).toMatch(/^[0-9a-f]{32}$/)
+    expect(span.traceId).not.toBe('0'.repeat(32))
+    expect(span.parentSpanId).toMatch(/^[0-9a-f]{16}$/)
+    expect(span.parentSpanId).not.toBe('0'.repeat(16))
+    expect(repeated.traceId).toBe(span.traceId)
+    expect(repeated.parentSpanId).toBe(span.parentSpanId)
     expect(span.name).toBe('loop.iteration.started')
     // 1700000000000ms * 1_000_000 = 1700000000000000000000ns
     expect(span.startTimeUnixNano).toBe((BigInt(1700000000000) * 1_000_000n).toString())

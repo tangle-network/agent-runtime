@@ -254,7 +254,7 @@ function observedBestScore<D>(
   for (const s of settledSoFar) {
     if (s.kind !== 'done') continue
     const v: DefaultVerdict | undefined = s.verdict
-    if (!v || v.valid !== true || typeof v.score !== 'number') continue
+    if (v?.valid !== true || typeof v.score !== 'number') continue
     if (best === undefined || v.score > best) best = v.score
   }
   return best

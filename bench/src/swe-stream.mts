@@ -65,8 +65,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { applyKnowledgeWriteBlocks, buildKnowledgeIndex, initKnowledgeBase, searchKnowledge } from '@tangle-network/agent-knowledge'
-import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, EnvironmentTask, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
+import { refine, runStrategy } from '@tangle-network/agent-runtime/loops'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
 import {
@@ -260,7 +260,7 @@ const CAP_COMPLETION = {
   usage: { prompt_tokens: 0, completion_tokens: 0 },
 }
 
-/** Every model call flows through here (runAgentic's `complete` seam): judge separation asserted,
+/** Every model call flows through here (runStrategy's `complete` seam): judge separation asserted,
  *  turn cap + per-instance deadline enforced, usage counted — once, at the single chokepoint. */
 const makeTransport =
   (marks: readonly string[], counter: Counter, guard: AttemptGuard) =>
@@ -300,7 +300,7 @@ interface AttemptOut {
 }
 
 async function emitAttempt(
-  environment: AgenticSurface,
+  environment: TaskEnvironment,
   bt: BenchTask,
   cfg: {
     temperature: number
@@ -317,9 +317,9 @@ async function emitAttempt(
   // Capture the patch from inside score() (called during the refine loop, BEFORE the surface closes
   // and rms the checkout). Keep the LATEST non-empty diff — the emit-patch pattern.
   const capture = { patch: '' }
-  const proxy: AgenticSurface = {
+  const proxy: TaskEnvironment = {
     ...environment,
-    async open(t: AgenticTask): Promise<ArtifactHandle> {
+    async open(t: EnvironmentTask): Promise<ArtifactHandle> {
       const h = await environment.open(t)
       const pre = cfg.preApply
       if (pre?.trim()) {
@@ -333,7 +333,7 @@ async function emitAttempt(
       }
       return h
     },
-    async score(_t: AgenticTask, handle: ArtifactHandle): Promise<SurfaceScore> {
+    async score(_t: EnvironmentTask, handle: ArtifactHandle): Promise<EnvironmentScore> {
       try {
         const d = await exec('git', ['-C', handle.id, 'diff'], { maxBuffer: 40_000_000, timeout: 60_000 })
         if (d.stdout.trim()) capture.patch = d.stdout
@@ -343,7 +343,7 @@ async function emitAttempt(
       return { passes: capture.patch.trim() ? 1 : 0, total: 1, errored: 0 }
     },
   }
-  const task: AgenticTask = {
+  const task: EnvironmentTask = {
     id: bt.id,
     systemPrompt: SWE_SEED_PROMPT,
     userPrompt: cfg.promptAppendix ? `${bt.prompt}\n\n${cfg.promptAppendix}` : bt.prompt,
@@ -351,7 +351,7 @@ async function emitAttempt(
   }
   let error: string | undefined
   try {
-    const r = await runAgentic({
+    const r = await runStrategy({
       surface: proxy,
       task,
       strategy: refine,
@@ -621,7 +621,7 @@ async function acquireRepro(
   // validity retry), guarded by the same marks and the instance deadline. Model-visible inputs
   // only; gold is used strictly script-side in verify().
   out.source = 'stream-authored'
-  const handle = await env.environment.open({ id: bt.id, systemPrompt: '', userPrompt: '', meta: {} } as AgenticTask)
+  const handle = await env.environment.open({ id: bt.id, systemPrompt: '', userPrompt: '', meta: {} } as EnvironmentTask)
   try {
     const listing = String(await env.environment.call(handle, 'list_files', { dir: '' })).slice(0, 5_000)
     const issue = String(md.problem_statement ?? '').slice(0, 20_000)

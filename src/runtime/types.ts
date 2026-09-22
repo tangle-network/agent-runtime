@@ -13,12 +13,14 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
+  PlacementInfo,
+} from '@tangle-network/agent-interface/environment-provider'
 import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
 
@@ -33,12 +35,8 @@ export type { DefaultVerdict }
 export interface ValidationCtx {
   /** Iteration index this output came from (0-based). */
   iteration: number
-  /**
-   * Live sandbox for this iteration. Validators that need execution-grounded
-   * evidence can inspect files or run commands here instead of forcing callers
-   * to bypass the loop kernel with raw Sandbox SDK orchestration.
-   */
-  box?: SandboxInstance
+  /** Live environment for validators that inspect files or run commands. */
+  environment?: AgentEnvironment
   /** Cooperative cancellation channel. */
   signal: AbortSignal
   /**
@@ -55,13 +53,11 @@ export interface Validator<Output, Verdict = DefaultVerdict> {
 }
 
 /**
- * Sandbox-SDK-shaped agent specification.
+ * Provider-neutral agent run specification.
  *
- * The kernel uses `profile` to instantiate a sandbox per iteration, formats
- * `task` into a prompt via `taskToPrompt`, and merges `sandboxOverrides` into
- * the `CreateSandboxOptions` it passes to `client.create`. Heterogeneous
- * fanout supplies multiple `AgentRunSpec`s and the kernel round-robins
- * through them when the driver plans N tasks.
+ * The runtime uses `profile` to create an environment per iteration, formats
+ * `task` into a prompt via `taskToPrompt`, and passes `environment` fields
+ * directly to the selected {@link AgentEnvironmentProvider}.
  *
  * @experimental
  */
@@ -70,21 +66,9 @@ export interface AgentRunSpec<Task> {
   profile: AgentProfile
   /** Task → prompt formatter. Pure and deterministic. */
   taskToPrompt: (task: Task) => string
-  /**
-   * Optional pre-prompt sandbox provisioner. Runs after the sandbox is acquired
-   * and before the first prompt is streamed into that box. Use this for
-   * domain-agnostic setup such as repo snapshots, benchmark fixtures, policy
-   * files, or seed datasets. The hook is part of the runtime surface so loop
-   * consumers do not hand-roll Sandbox SDK orchestration just to prepare a
-   * workspace before the agent sees it.
-   *
-   * `ctx.recordMount` records what was placed into the box so the run carries a
-   * provenance manifest (`LoopResult.provenance.mounts`). It is optional and
-   * provenance-only — the kernel never reads box contents and attaches no
-   * meaning to the entries; not calling it simply leaves the manifest empty.
-   */
-  prepareBox?: (
-    box: SandboxInstance,
+  /** Optional setup after creation and before the first agent turn. */
+  prepareEnvironment?: (
+    environment: AgentEnvironment,
     ctx: { signal: AbortSignal; recordMount: MountRecorder },
   ) => Promise<void> | void
   /**
@@ -92,18 +76,12 @@ export interface AgentRunSpec<Task> {
    * selector tiebreak. Falls back to `profile.name ?? 'agent'`.
    */
   name?: string
-  /**
-   * Optional sandbox-SDK `CreateSandboxOptions` overrides merged on top of
-   * the kernel's defaults. `backend.profile` is set to `profile` by the
-   * kernel and cannot be overridden here — use `profile` itself for that.
-   */
-  sandboxOverrides?: Partial<Omit<CreateSandboxOptions, 'backend'>> & {
-    backend?: Omit<NonNullable<CreateSandboxOptions['backend']>, 'profile'>
-  }
+  /** Provider-neutral creation fields. `profile` and `signal` are runtime-owned. */
+  environment?: Omit<CreateAgentEnvironmentInput, 'profile' | 'signal'>
 }
 
 /**
- * Stream of `SandboxEvent`s → typed `Output`.
+ * Stream of provider-neutral environment events to typed output.
  *
  * Adapters are pure functions over the already-collected event array; they
  * do not receive the live AsyncIterable so they can be replayed against
@@ -112,7 +90,7 @@ export interface AgentRunSpec<Task> {
  * @experimental
  */
 export interface OutputAdapter<Output> {
-  parse(events: SandboxEvent[]): Output
+  parse(events: AgentEnvironmentEvent[]): Output
 }
 
 /** LLM token usage. Structurally maps into agent-eval's paid-call receipt so a
@@ -205,8 +183,8 @@ export interface Iteration<Task, Output> {
   output?: Output
   verdict?: DefaultVerdict
   error?: Error
-  /** Raw sandbox event stream collected for this iteration. */
-  events: SandboxEvent[]
+  /** Raw provider event stream collected for this iteration. */
+  events: AgentEnvironmentEvent[]
   startedAt: number
   endedAt: number
   costUsd: number
@@ -298,35 +276,6 @@ export interface LoopResult<Task, Output, Decision> {
 }
 
 /**
- * Minimal sandbox client surface the kernel calls. Satisfied structurally by
- * `new Sandbox({ apiKey, baseUrl })` — declared as a structural type so
- * tests can pass a stub without instantiating the SDK.
- *
- * `describePlacement` is optional. When present, the kernel calls it after
- * each `create()` so the `loop.iteration.dispatch` trace event carries fleet
- * coordinates (fleetId + machineId) instead of just the sibling sandboxId.
- * Fleet-aware adapters set this; the raw `Sandbox` SDK class does not, and
- * the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
- *
- * @experimental
- */
-export interface SandboxClient {
-  create(options?: CreateSandboxOptions): Promise<SandboxInstance>
-  describePlacement?(box: SandboxInstance): LoopSandboxPlacement
-  /**
-   * Optional CRIU capability probe. When present and it resolves
-   * `{ available: true }`, the loop's `lineage.fork` seam may checkpoint+fork a
-   * parent box so a fanout's branches inherit a shared context prefix; absent or
-   * `false`, the fanout degrades to independent fresh boxes. The kernel reads
-   * this ONLY through the capability probe — it never branches on backend kind.
-   * The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
-   * (⇒ `canFork = false`).
-   * @experimental
-   */
-  criuStatus?(): Promise<{ available: boolean; criuVersion?: string; reason?: string }>
-}
-
-/**
  * Opt-in box-lineage controls for `runAgentRounds`. Default OFF — with both flags
  * unset the kernel's per-iteration behavior is byte-identical to acquiring a
  * fresh box, streaming once, and tearing it down. The independence of N fresh
@@ -393,13 +342,6 @@ export interface LoopLineageOptions {
 }
 
 /** @experimental */
-export interface LoopSandboxPlacement {
-  kind: 'sibling' | 'fleet'
-  sandboxId?: string
-  fleetId?: string
-  machineId?: string
-}
-
 /** @experimental */
 export interface LoopTraceEmitter {
   emit(event: LoopTraceEvent): void | Promise<void>
@@ -483,9 +425,9 @@ export interface LoopIterationStartedPayload {
 }
 
 /**
- * Where the iteration's worker was placed. `sibling` = a fresh sandbox the
- * kernel created via `sandboxClient.create`. `fleet` = an existing machine in
- * a shared-workspace fleet — workers see the caller's filesystem and any diff
+ * Where the iteration's worker was placed. `sibling` means a fresh isolated
+ * environment. `fleet` means an existing machine in a shared workspace.
+ * Fleet workers see the caller's filesystem and any diff
  * they write lands on it directly.
  *
  * @experimental
@@ -493,13 +435,14 @@ export interface LoopIterationStartedPayload {
 export interface LoopIterationDispatchPayload {
   iterationIndex: number
   agentRunName: string
-  placement: 'sibling' | 'fleet'
-  /** Set on every placement. Lets analyst loops correlate per-iteration logs. */
-  sandboxId?: string
-  /** Set only when `placement === 'fleet'`. */
+  placement: PlacementInfo['kind']
+  /** Set on every placement. Lets analysis correlate per-iteration logs. */
+  environmentId: string
+  provider: string
   fleetId?: string
-  /** Set only when `placement === 'fleet'`. */
   machineId?: string
+  region?: string
+  providerMetadata?: Record<string, unknown>
   /** Plan round this iteration belongs to. */
   groupId?: number
   /** Iteration this one was planned from; `undefined` ⇒ root. */
@@ -545,19 +488,19 @@ export interface LoopEndedPayload {
  *  loop swallows the failure (platform reaps on expiry) but surfaces it here so
  *  a real leak (e.g. mid-loop auth expiry) is observable. @experimental */
 export interface LoopTeardownFailedPayload {
-  sandboxId?: string
+  environmentId?: string
   /** `'timeout'` or the delete error message. */
   reason: string
 }
 
 /**
- * Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
+ * Execution context for `runAgentRounds`.
  *
  * @experimental
  */
 export interface ExecCtx {
-  /** Sandbox SDK client — the kernel calls `.create()` per iteration. */
-  sandboxClient: SandboxClient
+  /** Provider used to create every agent environment in this run. */
+  environmentProvider: AgentEnvironmentProvider
   /** Optional runtime hooks. Execution-scoped; never part of `AgentProfile`. */
   hooks?: RuntimeHooks
   /** Optional trace emitter. When set, the kernel emits `loop.*` events. */
@@ -579,8 +522,8 @@ export interface ExecCtx {
    *
    * @experimental
    */
-  onSandboxEvent?: (
-    event: SandboxEvent,
+  onEnvironmentEvent?: (
+    event: AgentEnvironmentEvent,
     meta: { iterationIndex: number; agentRunName: string },
   ) => void | PromiseLike<void>
   /**

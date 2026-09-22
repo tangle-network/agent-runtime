@@ -1,5 +1,5 @@
 import type { AnalystFinding } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import type { AnalystRegistryLike } from '../../src/analyst-loop/types'
 import {

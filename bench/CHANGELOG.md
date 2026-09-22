@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- Consume Runtime 0.106.0, Eval 0.129.0, Interface 0.34.0, Knowledge 6.0.0, and Sandbox 0.13.0 through one checked dependency set.
+- Adopt the explicit Eval run evidence contract and the supported TypeScript 6 toolchain.
+
 ## 0.4.1
 
 - Read Runtime 0.105 candidate plans from their signed run cell, benchmark records, and profile activation.

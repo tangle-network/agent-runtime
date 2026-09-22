@@ -1,17 +1,19 @@
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import {
-  type AgentRunSpec,
   type CompletionAnalyst,
   type CompletionVerdict,
   completionAuthorizes,
   deterministicCompletion,
-  type OutputAdapter,
-  runLoop,
   sentinelCompletion,
   stopSentinel,
-  type Validator,
-} from '../../src/runtime'
+} from '../../src/runtime/completion'
+import { runAgentRounds } from '../../src/runtime/run-loop'
+import type { AgentRunSpec, OutputAdapter, Validator } from '../../src/runtime/types'
 import { type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
 const output: OutputAdapter<string> = {
@@ -24,8 +26,7 @@ const output: OutputAdapter<string> = {
     return a
   },
 }
-// Always-invalid validator: the ORACLE never stops the loop, so any stop is the completion
-// analyst's doing (the deployable, non-oracle stop) — not verdict short-circuit.
+// Always invalid so only the completion analyst can stop the loop.
 const validator: Validator<string> = {
   async validate() {
     return { valid: false, score: 0 }
@@ -34,14 +35,27 @@ const validator: Validator<string> = {
 const agentRuns: AgentRunSpec<string>[] = [
   { profile: { name: 'a' }, name: 'a', taskToPrompt: (t) => t },
 ]
-function echoClient() {
+function echoProvider(): AgentEnvironmentProvider {
+  let sequence = 0
   return {
-    async create(_o?: CreateSandboxOptions): Promise<SandboxInstance> {
+    name: 'echo',
+    capabilities() {
+      throw new Error('capabilities are not used without lineage')
+    },
+    async create(): Promise<AgentEnvironment> {
       return {
-        async *streamPrompt(message: string) {
-          yield { type: 'result', data: { answer: message } } satisfies SandboxEvent
+        id: `echo-${sequence++}`,
+        provider: 'echo',
+        async status() {
+          return 'running'
         },
-      } as unknown as SandboxInstance
+        async *stream(input) {
+          yield {
+            type: 'result',
+            data: { answer: input.prompt ?? '' },
+          } satisfies AgentEnvironmentEvent
+        },
+      }
     },
   }
 }
@@ -49,7 +63,7 @@ function echoClient() {
 const alwaysRefine: ScriptedPlanner<string, string> = () => ({ kind: 'refine', task: 'good' })
 
 const run = (complete?: CompletionAnalyst<string, string>) =>
-  runLoop<string, string, 'continue' | 'done'>({
+  runAgentRounds<string, string, 'continue' | 'done'>({
     driver: scriptedDriver<string, string>({
       planner: alwaysRefine,
       maxIterations: 5,
@@ -59,7 +73,7 @@ const run = (complete?: CompletionAnalyst<string, string>) =>
     output,
     validator,
     task: 'start',
-    ctx: { sandboxClient: echoClient() },
+    ctx: { environmentProvider: echoProvider() },
     maxIterations: 5,
   })
 

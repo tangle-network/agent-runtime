@@ -38,7 +38,7 @@ export type AgentProfileMaterializationAxis =
 
 /** Declares which AgentProfile axes a concrete run path really carries. */
 export interface ProfileMaterializationContract {
-  /** Human-readable run path, e.g. `createSandboxAct` or `prompt-only-message`. */
+  /** Human-readable run path, e.g. `createEnvironmentAct` or `prompt-only-message`. */
   name: string
   /** Profile axes this run path actually carries into execution. */
   axes: readonly AgentProfileMaterializationAxis[]
@@ -86,27 +86,6 @@ const AXIS_PARENTS: Partial<
   commands: 'resources',
   mcpConnections: 'mcp',
 }
-
-/** Materialization contract for `createSandboxAct`, which forwards the full AgentProfile. */
-export const sandboxActProfileMaterialization = defineProfileMaterializationContract({
-  name: 'createSandboxAct',
-  axes: [
-    'identity',
-    'model',
-    'prompt',
-    'resources',
-    'tools',
-    'permissions',
-    'mcp',
-    'connections',
-    'subagents',
-    'hooks',
-    'modes',
-    'confidential',
-    'metadata',
-    'extensions',
-  ],
-})
 
 /** Materialization contract for a run path that only injects prompt text. */
 export const promptOnlyProfileMaterialization = defineProfileMaterializationContract({

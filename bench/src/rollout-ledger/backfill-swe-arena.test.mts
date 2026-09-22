@@ -158,7 +158,7 @@ async function buildFixtureTree(): Promise<void> {
       candidateIndex: 0,
       shot: 1,
       maxShots: 3,
-      harness: 'claude',
+      harness: 'claude-code',
       model: null,
       promptSha256: 'sha256:abc',
       startedAt: '2026-07-22T19:27:18.350Z',
@@ -256,7 +256,7 @@ describe('backfillSweArena', () => {
     expect(proposer?.messages).toHaveLength(2)
     expect(proposer?.outcome.reward).toBe(1)
     expect(proposer?.outcome.reward_source).toBe('swe-arena-official-judge/candidate-resolved-fraction')
-    expect(proposer?.policy).toMatchObject({ harness: 'claude', model: 'claude-fable-5' })
+    expect(proposer?.policy).toMatchObject({ harness: 'claude-code', model: 'claude-fable-5' })
     expect(proposer?.cost.tokens_out).toBe(462)
     expect(proposer?.task).toMatchObject({ suite: 'swe-arena-proposer', rep: 1 })
 

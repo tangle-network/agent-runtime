@@ -16,10 +16,10 @@ import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/age
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { improve, officialGepa, type ReadonlyAgentProfile } from '@tangle-network/agent-runtime'
 import {
-  type AgenticSurface,
-  type AgenticTask,
+  type EnvironmentTask,
   failuresAnalyst,
   superviseSurface,
+  type TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 import {
   assertCompleteCost,
@@ -29,7 +29,7 @@ import {
 /** One TRAIN scenario: the coding task carried as the scenario's domain payload. The agent reads
  *  `scenario.task` to run the supervised rollout; the judge reads the artifact the rollout produced. */
 interface DriverPromptScenario extends Scenario {
-  task: AgenticTask
+  task: EnvironmentTask
 }
 
 /** The deployable outcome of one supervised candidate run — exactly what `superviseSurface`
@@ -45,8 +45,8 @@ interface SupervisedOutcome {
 const defaultReflectionModel = 'gemini-2.5-pro'
 
 export async function optimizeDriverPrompt(opts: {
-  surface: AgenticSurface
-  tasks: (offset: number, n: number) => Promise<AgenticTask[]>
+  surface: TaskEnvironment
+  tasks: (offset: number, n: number) => Promise<EnvironmentTask[]>
   trainOffset: number
   trainN: number
   selectionN?: number
@@ -105,7 +105,7 @@ export async function optimizeDriverPrompt(opts: {
       } satisfies DriverPromptScenario,
     ]),
   )
-  const mapScenarios = (items: AgenticTask[]): DriverPromptScenario[] =>
+  const mapScenarios = (items: EnvironmentTask[]): DriverPromptScenario[] =>
     items.map((task) => scenarios.get(task.id)!)
   const trainScenarios = mapScenarios(trainTasks)
   const selectionScenarios = mapScenarios(selectionTasks)
@@ -211,6 +211,9 @@ export async function optimizeDriverPrompt(opts: {
       supervisorEndpoint: new URL(supervisorRouter.baseUrl).origin,
     }),
     method: officialGepa<DriverPromptScenario, SupervisedOutcome>({
+      persistenceIdentity: canonicalCandidateDigest({
+        evaluation: 'supervisor-driver-prompt-v1',
+      }),
       objective:
         'Improve the complete standing prompt used by a supervisor that spawns, steers, and verifies coding workers.',
       background: [

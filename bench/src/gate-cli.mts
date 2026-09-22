@@ -15,9 +15,8 @@
  * single CLI run is the instrument, not the significance test).
  */
 
-import type { AgentProfile } from '@tangle-network/agent-runtime/loops'
 import { resolveAdapter } from './adapters'
-import { runGate } from './gate'
+import { type RunGateOptions, runGate } from './gate'
 
 const must = (k: string): string => {
   const v = process.env[k]
@@ -44,11 +43,14 @@ async function main(): Promise<void> {
   const strategies = defaultStrategies.slice(0, k)
   if (strategies.length < 2) throw new Error('K must be >= 2')
 
-  const profile = {
+  const profile: RunGateOptions['profile'] = {
     name: 'gate-solver',
     model: { default: model },
-    prompt: { systemPrompt: 'You are an expert agent. Produce the single best deliverable the task’s grader will accept.' },
-  } as unknown as AgentProfile
+    prompt: {
+      systemPrompt:
+        'You are an expert agent. Produce the single best deliverable the task’s grader will accept.',
+    },
+  }
 
   const report = await runGate({
     adapter,
@@ -61,7 +63,9 @@ async function main(): Promise<void> {
     n: Number(process.env.N ?? 20),
     ...(process.env.IDS ? { ids: process.env.IDS.split(',') } : {}),
     ...(process.env.SPLIT ? { split: process.env.SPLIT } : {}),
-    ...(process.env.PER_CHILD_TOKENS ? { perChildTokens: Number(process.env.PER_CHILD_TOKENS) } : {}),
+    ...(process.env.PER_CHILD_TOKENS
+      ? { perChildTokens: Number(process.env.PER_CHILD_TOKENS) }
+      : {}),
   })
 
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`
@@ -87,12 +91,18 @@ async function main(): Promise<void> {
   }
   const erroredFrac = (blind.errored + diverse.errored) / (2 * report.n)
   if (erroredFrac > 0.2) {
-    console.log(`\nWARNING: ${(erroredFrac * 100).toFixed(0)}% of runs ERRORED — this 0%/delta is NOT a clean gate result; fix the failure above first.`)
+    console.log(
+      `\nWARNING: ${(erroredFrac * 100).toFixed(0)}% of runs ERRORED — this 0%/delta is NOT a clean gate result; fix the failure above first.`,
+    )
   }
   if (!report.equalK.withinTolerance) {
-    console.log('\nWARNING: arms are NOT at equal compute — the delta is confounded, not a gate result.')
+    console.log(
+      '\nWARNING: arms are NOT at equal compute — the delta is confounded, not a gate result.',
+    )
   }
-  console.log(`\npaired (id: blind|diverse): ${report.perTask.map((t) => `${t.id}:${t.blind ? 1 : 0}|${t.diverse ? 1 : 0}`).join('  ')}`)
+  console.log(
+    `\npaired (id: blind|diverse): ${report.perTask.map((t) => `${t.id}:${t.blind ? 1 : 0}|${t.diverse ? 1 : 0}`).join('  ')}`,
+  )
 }
 
 main().catch((e) => {

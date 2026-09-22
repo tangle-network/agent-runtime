@@ -5,11 +5,10 @@
  * the task to the queue, and returns a taskId. Identical inputs return
  * the same taskId.
  *
- * The handler does not import the auditor profile directly — consumers
+ * The handler does not import the auditor profile directly. Consumers
  * inject a `UiAuditorDelegate` via `createMcpServer({ uiAuditorDelegate })`.
- * The delegate is the seam where the consumer chooses the judge (vision
- * model) and the `SandboxClient` (in-process Playwright vs fleet vs
- * remote browser). agent-runtime ships the in-process client under
+ * The delegate chooses the vision model and environment provider.
+ * agent-runtime ships the in-process provider under
  * `./profiles` so consumers who want the canonical setup can wire it
  * with a few lines.
  *

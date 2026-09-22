@@ -1,6 +1,15 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+  AgentSessionStatus,
+  AgentTurnInput,
+  AgentTurnResult,
+  PlacementInfo,
+} from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ValidationError } from '../../src/errors'
 import {
@@ -12,50 +21,16 @@ import {
 import { FileDelegationStore } from '../../src/mcp/delegation-store'
 import {
   createDetachedTurnResumeDriver,
-  type DriveTurnCapableBox,
-  type DriveTurnTick,
   formatDetachedSessionRef,
   parseDetachedSessionRef,
   runDetachedTurn,
 } from '../../src/mcp/detached-turn'
-import { createSiblingSandboxExecutor } from '../../src/mcp/executor'
+import type { DelegationExecutor } from '../../src/mcp/executor'
 import { DelegationTaskQueue } from '../../src/mcp/task-queue'
 import type { DelegateCodeArgs } from '../../src/mcp/types'
-import type { LoopTraceEvent, SandboxClient } from '../../src/runtime'
+import type { LoopTraceEvent } from '../../src/runtime/types'
 
 const codeArgs: DelegateCodeArgs = { goal: 'fix bug', repoRoot: '/repo' }
-
-/**
- * Submit a single-variant coder delegation to the queue exactly as the bin's `delegate` dispatch
- * does: a deterministic session-only detached ref (so a restart can resume), and a `run` closure
- * that hands the args + ctx to the coder delegate. `detachedDispatch:false` keeps the streaming path
- * (no ref recorded).
- */
-function submitCoder(
-  queue: DelegationTaskQueue,
-  delegate: CoderDelegate,
-  args: DelegateCodeArgs,
-  opts: { detachedDispatch?: boolean } = {},
-): { taskId: string } {
-  const variants = Math.max(1, Math.trunc(args.variants ?? 1))
-  const detached = opts.detachedDispatch && variants <= 1
-  return queue.submit<DelegateCodeArgs>({
-    profile: 'coder',
-    args,
-    ...(detached
-      ? { detachedSessionRef: formatDetachedSessionRef({ sessionId: detachedCoderSessionId() }) }
-      : {}),
-    run: (ctx) => delegate(args, ctx),
-  })
-}
-
-/** Deterministic single-variant detached session id, matching the `dlg-turn-coder-<8hex>` shape. */
-function detachedCoderSessionId(): string {
-  const hex = Math.floor(Math.random() * 0xffffffff)
-    .toString(16)
-    .padStart(8, '0')
-  return `dlg-turn-coder-${hex}`
-}
 
 const patchText = [
   'diff --git a/src/a.ts b/src/a.ts',
@@ -76,77 +51,199 @@ const coderResultJson = JSON.stringify({
 
 const completedText = ['All done.', '```json', coderResultJson, '```'].join('\n')
 
-interface FakeBoxOptions {
-  ticks: DriveTurnTick[]
-  id?: string
+function completedResult(overrides: Partial<AgentTurnResult> = {}): AgentTurnResult {
+  return {
+    text: completedText,
+    success: true,
+    ...overrides,
+  }
 }
 
-function fakeDriveTurnBox(options: FakeBoxOptions) {
-  let call = 0
-  const driveTurn = vi.fn(async (): Promise<DriveTurnTick> => {
-    const tick = options.ticks[Math.min(call, options.ticks.length - 1)]
-    call += 1
-    if (!tick) throw new Error('fakeDriveTurnBox: no scripted tick')
-    return tick
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
   })
-  const sessionCancel = vi.fn(async () => {})
-  const del = vi.fn(async () => {})
-  return {
-    box: {
-      id: options.id ?? 'box-1',
-      driveTurn,
-      _sessionCancel: sessionCancel,
-      delete: del,
+  return { promise, resolve, reject }
+}
+
+interface FakeProviderOptions {
+  id?: string
+  sessionId?: string
+  events?: AgentEnvironmentEvent[]
+  result?: AgentTurnResult
+  resultPromise?: Promise<AgentTurnResult>
+  statuses?: AgentSessionStatus[]
+  placement?: PlacementInfo
+  detach?: boolean
+  getMissing?: boolean
+  omitSession?: boolean
+  omitDispatch?: boolean
+}
+
+function fakeProvider(options: FakeProviderOptions = {}) {
+  const environmentId = options.id ?? 'environment-1'
+  const statuses = options.statuses ?? ['completed']
+  let statusIndex = 0
+  const captured: { create?: unknown; turn?: AgentTurnInput; requestedId?: string } = {}
+  const cancel = vi.fn(async () => {})
+  const destroy = vi.fn(async () => {})
+  const status = vi.fn(async () => {
+    const value = statuses[Math.min(statusIndex, statuses.length - 1)] ?? 'unknown'
+    statusIndex += 1
+    return value
+  })
+  const result = vi.fn(
+    async () => options.resultPromise ?? Promise.resolve(options.result ?? completedResult()),
+  )
+  const dispatch = vi.fn(async (input: AgentTurnInput) => {
+    captured.turn = input
+    return { id: options.sessionId ?? input.sessionId ?? 'session-1', provider: 'test-provider' }
+  })
+  const session = {
+    id: options.sessionId ?? 'session-1',
+    status,
+    async *events() {
+      for (const event of options.events ?? []) yield event
     },
-    driveTurn,
-    sessionCancel,
-    delete: del,
+    result,
+    prompt: async () => options.result ?? completedResult(),
+    cancel,
+  }
+  const environment: AgentEnvironment = {
+    id: environmentId,
+    provider: 'test-provider',
+    status: async () => 'running',
+    async *stream(input) {
+      captured.turn = input
+      for (const event of options.events ?? []) yield event
+    },
+    ...(options.omitDispatch ? {} : { dispatch }),
+    ...(options.omitSession
+      ? {}
+      : {
+          session(id: string) {
+            captured.requestedId = id
+            return { ...session, id }
+          },
+        }),
+    placement: async () => options.placement ?? { kind: 'provider' },
+    destroy,
+  }
+  const provider: AgentEnvironmentProvider = {
+    name: 'test-provider',
+    capabilities: () => ({
+      profile: {},
+      streaming: {
+        live: true,
+        replay: true,
+        detach: options.detach ?? true,
+        turnIdempotency: true,
+      },
+      sessions: { continue: true, list: true, messages: true },
+      workspace: {
+        read: true,
+        write: true,
+        exec: true,
+        git: true,
+        upload: true,
+        download: true,
+      },
+      branching: { checkpoint: false, fork: false },
+      placement: true,
+      usage: true,
+      confidential: false,
+    }),
+    create: vi.fn(async (input) => {
+      captured.create = input
+      return environment
+    }),
+    get: vi.fn(async (id) => {
+      captured.requestedId = id
+      return options.getMissing ? null : environment
+    }),
+  }
+  return {
+    provider,
+    environment,
+    captured,
+    cancel,
+    destroy,
+    dispatch,
+    result,
+    status,
   }
 }
 
-function fakeClient(box: unknown): SandboxClient {
+function delegationExecutor(provider: AgentEnvironmentProvider): DelegationExecutor {
   return {
-    async create() {
-      return box as never
-    },
+    provider,
+    placement: 'provider',
+    describe: () => provider.name,
   }
 }
 
-async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now()
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error('condition not met in time')
-    await new Promise((r) => setTimeout(r, 5))
+async function until(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const started = Date.now()
+  while (!condition()) {
+    if (Date.now() - started > timeoutMs) throw new Error('condition not met in time')
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
+}
+
+function submitCoder(
+  queue: DelegationTaskQueue,
+  delegate: CoderDelegate,
+  args: DelegateCodeArgs,
+  options: { detachedDispatch?: boolean } = {},
+): { taskId: string } {
+  const variants = Math.max(1, Math.trunc(args.variants ?? 1))
+  const detached = options.detachedDispatch && variants <= 1
+  return queue.submit<DelegateCodeArgs>({
+    profile: 'coder',
+    args,
+    ...(detached
+      ? { detachedSessionRef: formatDetachedSessionRef({ sessionId: detachedCoderSessionId() }) }
+      : {}),
+    run: (ctx) => delegate(args, ctx),
+  })
+}
+
+function detachedCoderSessionId(): string {
+  const hex = Math.floor(Math.random() * 0xffffffff)
+    .toString(16)
+    .padStart(8, '0')
+  return `dlg-turn-coder-${hex}`
 }
 
 describe('detached session ref codec', () => {
-  it('round-trips a session-only ref', () => {
-    const ref = formatDetachedSessionRef({ sessionId: 'dlg-turn-coder-abc' })
-    expect(ref).toBe('session=dlg-turn-coder-abc')
-    expect(parseDetachedSessionRef(ref)).toEqual({ sessionId: 'dlg-turn-coder-abc' })
+  it('round-trips unbound and environment-bound refs', () => {
+    const unbound = formatDetachedSessionRef({ sessionId: 'session-1' })
+    expect(unbound).toBe('session=session-1')
+    expect(parseDetachedSessionRef(unbound)).toEqual({ sessionId: 'session-1' })
+
+    const bound = formatDetachedSessionRef({
+      environmentId: 'environment-42',
+      sessionId: 'session-1',
+    })
+    expect(bound).toBe('environment=environment-42;session=session-1')
+    expect(parseDetachedSessionRef(bound)).toEqual({
+      environmentId: 'environment-42',
+      sessionId: 'session-1',
+    })
   })
 
-  it('round-trips a sandbox-bound ref', () => {
-    const ref = formatDetachedSessionRef({ sandboxId: 'sandbox_42', sessionId: 's-1' })
-    expect(ref).toBe('sandbox=sandbox_42;session=s-1')
-    expect(parseDetachedSessionRef(ref)).toEqual({ sandboxId: 'sandbox_42', sessionId: 's-1' })
-  })
-
-  it('rejects malformed refs loudly', () => {
+  it('rejects malformed, duplicate, retired, and delimiter-bearing fields', () => {
     expect(() => parseDetachedSessionRef('')).toThrow(ValidationError)
-    expect(() => parseDetachedSessionRef('garbage')).toThrow(ValidationError)
-    expect(() => parseDetachedSessionRef('sandbox=only')).toThrow(/no session id/)
+    expect(() => parseDetachedSessionRef('sandbox=old;session=s')).toThrow(ValidationError)
+    expect(() => parseDetachedSessionRef('environment=only')).toThrow(/no session id/)
     expect(() => parseDetachedSessionRef('session=a;session=b')).toThrow(ValidationError)
-    expect(() => parseDetachedSessionRef('other=x;session=s')).toThrow(ValidationError)
-  })
-
-  it('rejects ids containing the delimiters', () => {
     expect(() => formatDetachedSessionRef({ sessionId: 'a;b' })).toThrow(ValidationError)
-    expect(() => formatDetachedSessionRef({ sessionId: 'a', sandboxId: 'x=y' })).toThrow(
+    expect(() => formatDetachedSessionRef({ sessionId: 'a', environmentId: 'x=y' })).toThrow(
       ValidationError,
     )
-    expect(() => formatDetachedSessionRef({ sessionId: '' })).toThrow(ValidationError)
   })
 })
 
@@ -154,178 +251,212 @@ describe('runDetachedTurn', () => {
   const spec = {
     profile: { name: 'coder-test' },
     taskToPrompt: () => 'do the thing',
-  } as never
+    environment: { backend: 'codex' },
+  }
 
-  it('drives running ticks to completion, binds the sandbox id, tears the box down', async () => {
-    const fake = fakeDriveTurnBox({
-      ticks: [
-        { state: 'running', elapsedMs: 1200 },
-        { state: 'completed', text: completedText, result: { ok: true } },
-      ],
+  it('dispatches once, reports while waiting, binds both ids, and destroys the environment', async () => {
+    const terminal = deferred<AgentTurnResult>()
+    const fake = fakeProvider({
+      id: 'environment-7',
+      sessionId: 'session-resolved',
+      resultPromise: terminal.promise,
     })
-    const bound: string[] = []
+    const bindings: string[] = []
     const phases: string[] = []
-    const turn = await runDetachedTurn({
-      client: fakeClient(fake.box),
+    const pending = runDetachedTurn({
+      provider: fake.provider,
       spec,
       prompt: 'do the thing',
-      sessionId: 'sess-1',
-      bindSandbox: (id) => bound.push(id),
+      sessionId: 'session-requested',
+      bindEnvironment: (environmentId, sessionId) => bindings.push(`${environmentId}:${sessionId}`),
       signal: new AbortController().signal,
       report: (progress) => phases.push(progress.phase),
       tickIntervalMs: 1,
     })
+    await until(() => phases.length > 0)
+    terminal.resolve(completedResult())
+
+    const turn = await pending
     expect(turn.text).toBe(completedText)
-    expect(bound).toEqual(['box-1'])
-    expect(fake.driveTurn).toHaveBeenCalledTimes(2)
-    expect(fake.driveTurn.mock.calls[0]?.[1]).toMatchObject({
-      sessionId: 'sess-1',
-      turnId: 'sess-1',
+    expect(bindings).toEqual(['environment-7:session-resolved'])
+    expect(fake.dispatch).toHaveBeenCalledTimes(1)
+    expect(fake.captured.turn).toMatchObject({
+      prompt: 'do the thing',
+      sessionId: 'session-requested',
+      turnId: 'session-requested',
+      executionId: 'session-requested',
+      detach: true,
     })
-    expect(phases).toContain('detached-running 1s')
-    expect(fake.delete).toHaveBeenCalledTimes(1)
+    expect(phases[0]).toMatch(/^detached-running /)
+    expect(fake.destroy).toHaveBeenCalledTimes(1)
   })
 
-  it('throws on a failed tick with the SDK reason', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'failed', error: 'wall cap exceeded' }] })
+  it('fails on an unsuccessful provider result and still destroys the environment', async () => {
+    const fake = fakeProvider({
+      result: completedResult({ success: false, error: 'wall cap exceeded' }),
+    })
     await expect(
       runDetachedTurn({
-        client: fakeClient(fake.box),
+        provider: fake.provider,
         spec,
         prompt: 'p',
-        sessionId: 'sess-2',
-        bindSandbox: () => {},
+        sessionId: 'session-2',
+        bindEnvironment: () => {},
         signal: new AbortController().signal,
         report: () => {},
         tickIntervalMs: 1,
       }),
-    ).rejects.toThrow(/sess-2 failed: wall cap exceeded/)
-    expect(fake.delete).toHaveBeenCalledTimes(1)
+    ).rejects.toThrow(/wall cap exceeded/)
+    expect(fake.destroy).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels the remote session and aborts between ticks', async () => {
+  it('cancels the provider session and destroys the environment on abort', async () => {
+    const terminal = deferred<AgentTurnResult>()
     const controller = new AbortController()
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
+    const fake = fakeProvider({ resultPromise: terminal.promise })
     const pending = runDetachedTurn({
-      client: fakeClient(fake.box),
+      provider: fake.provider,
       spec,
       prompt: 'p',
-      sessionId: 'sess-3',
-      bindSandbox: () => {},
+      sessionId: 'session-3',
+      bindEnvironment: () => {},
       signal: controller.signal,
       report: () => {},
-      tickIntervalMs: 5,
+      tickIntervalMs: 1,
     })
-    await until(() => fake.driveTurn.mock.calls.length >= 1)
+    await until(() => fake.dispatch.mock.calls.length === 1)
     controller.abort()
     await expect(pending).rejects.toThrow(/abort/i)
-    expect(fake.sessionCancel).toHaveBeenCalledWith('sess-3')
-    expect(fake.delete).toHaveBeenCalledTimes(1)
+    expect(fake.cancel).toHaveBeenCalledTimes(1)
+    expect(fake.destroy).toHaveBeenCalledTimes(1)
   })
 
-  it('fails loud when the box exposes no driveTurn (in-process style placement)', async () => {
-    const box = { id: 'in-process-1', delete: vi.fn(async () => {}) }
+  it('fails before creation when the provider cannot detach', async () => {
+    const fake = fakeProvider({ detach: false })
     await expect(
       runDetachedTurn({
-        client: fakeClient(box),
+        provider: fake.provider,
         spec,
         prompt: 'p',
-        sessionId: 'sess-4',
-        bindSandbox: () => {},
+        sessionId: 'session-4',
+        bindEnvironment: () => {},
         signal: new AbortController().signal,
         report: () => {},
       }),
-    ).rejects.toThrow(/no driveTurn/)
+    ).rejects.toThrow(/does not support detached turns/)
+    expect(fake.provider.create).not.toHaveBeenCalled()
   })
 
-  it('fails loud when the box carries no id (unresumable)', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
-    const box = { ...fake.box, id: undefined }
+  it('fails when the created environment lacks dispatch or session lookup', async () => {
+    const noDispatch = fakeProvider({ omitDispatch: true })
     await expect(
       runDetachedTurn({
-        client: fakeClient(box),
+        provider: noDispatch.provider,
         spec,
         prompt: 'p',
-        sessionId: 'sess-5',
-        bindSandbox: () => {},
+        sessionId: 'session-5',
+        bindEnvironment: () => {},
         signal: new AbortController().signal,
         report: () => {},
       }),
-    ).rejects.toThrow(/no id/)
+    ).rejects.toThrow(/without dispatch\/session support/)
+
+    const noSession = fakeProvider({ omitSession: true })
+    await expect(
+      runDetachedTurn({
+        provider: noSession.provider,
+        spec,
+        prompt: 'p',
+        sessionId: 'session-6',
+        bindEnvironment: () => {},
+        signal: new AbortController().signal,
+        report: () => {},
+      }),
+    ).rejects.toThrow(/without dispatch\/session support/)
   })
 
-  it('synthesizes a single-iteration loop event stream for the trace sinks', async () => {
-    const fake = fakeDriveTurnBox({
-      ticks: [
-        { state: 'running', elapsedMs: 100 },
-        { state: 'completed', text: completedText, result: {} },
-      ],
-      id: 'sandbox_t1',
+  it('emits official provider placement fields in the loop trace', async () => {
+    const fake = fakeProvider({
+      id: 'environment-trace',
+      result: completedResult({
+        usage: { inputTokens: 9, outputTokens: 4, cost: 0.02 },
+      }),
+      placement: {
+        kind: 'fleet',
+        fleetId: 'fleet-1',
+        machineId: 'machine-2',
+        region: 'us-west',
+      },
     })
     const events: LoopTraceEvent[] = []
     await runDetachedTurn({
-      client: fakeClient(fake.box),
+      provider: fake.provider,
       spec,
       prompt: 'p',
-      sessionId: 'sess-trace-1',
-      bindSandbox: () => {},
+      sessionId: 'session-trace',
+      bindEnvironment: () => {},
       signal: new AbortController().signal,
       report: () => {},
-      tickIntervalMs: 1,
-      traceEmitter: { emit: (e) => void events.push(e) },
+      traceEmitter: { emit: (event) => void events.push(event) },
     })
-    expect(events.map((e) => e.kind)).toEqual([
+
+    expect(events.map((event) => event.kind)).toEqual([
       'loop.started',
       'loop.iteration.started',
       'loop.iteration.dispatch',
       'loop.iteration.ended',
       'loop.ended',
     ])
-    // runId = the deterministic session id, so the stream is attributable
-    expect(new Set(events.map((e) => e.runId))).toEqual(new Set(['sess-trace-1']))
-    const started = events[0]!.payload as { driver: string; agentRunNames: string[] }
-    expect(started.driver).toBe('detached-turn')
-    expect(started.agentRunNames).toEqual(['coder-test'])
-    const dispatch = events[2]!.payload as { placement: string; sandboxId: string }
-    expect(dispatch).toMatchObject({ placement: 'sibling', sandboxId: 'sandbox_t1' })
-    const ended = events[4]!.payload as { winnerIterationIndex?: number; iterations: number }
-    expect(ended.winnerIterationIndex).toBe(0)
-    expect(ended.iterations).toBe(1)
+    const dispatch = events[2]?.payload
+    expect(dispatch).toMatchObject({
+      placement: 'fleet',
+      environmentId: 'environment-trace',
+      provider: 'test-provider',
+      fleetId: 'fleet-1',
+      machineId: 'machine-2',
+      region: 'us-west',
+    })
+    expect(events[3]?.payload).toMatchObject({
+      costUsd: 0.02,
+      tokenUsage: { input: 9, output: 4 },
+    })
+    expect(events[4]?.payload).toMatchObject({ totalCostUsd: 0.02 })
   })
 
-  it('records the error on the synthesized stream when the turn fails', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'failed', error: 'wall cap exceeded' }] })
+  it('emits the official sandbox placement id', async () => {
+    const fake = fakeProvider({
+      placement: {
+        kind: 'sandbox',
+        sandboxId: 'sandbox-1',
+      },
+    })
     const events: LoopTraceEvent[] = []
-    await expect(
-      runDetachedTurn({
-        client: fakeClient(fake.box),
-        spec,
-        prompt: 'p',
-        sessionId: 'sess-trace-2',
-        bindSandbox: () => {},
-        signal: new AbortController().signal,
-        report: () => {},
-        tickIntervalMs: 1,
-        traceEmitter: { emit: (e) => void events.push(e) },
-      }),
-    ).rejects.toThrow(/wall cap exceeded/)
-    const iterationEnded = events.find((e) => e.kind === 'loop.iteration.ended')!
-    expect((iterationEnded.payload as { error?: string }).error).toMatch(/wall cap exceeded/)
-    expect(events[events.length - 1]!.kind).toBe('loop.ended')
-    expect(
-      (events[events.length - 1]!.payload as { winnerIterationIndex?: number })
-        .winnerIterationIndex,
-    ).toBeUndefined()
+
+    await runDetachedTurn({
+      provider: fake.provider,
+      spec,
+      prompt: 'p',
+      sessionId: 'session-sandbox-placement',
+      bindEnvironment: () => {},
+      signal: new AbortController().signal,
+      report: () => {},
+      traceEmitter: { emit: (event) => void events.push(event) },
+    })
+
+    expect(events[2]?.payload).toMatchObject({
+      placement: 'sandbox',
+      sandboxId: 'sandbox-1',
+    })
   })
 })
 
 describe('settleDetachedCoderTurn', () => {
-  it('parses and validates a completed turn payload', async () => {
+  it('parses and validates a completed provider result', async () => {
     const output = await settleDetachedCoderTurn(
-      { text: completedText, result: {} },
+      { text: completedText, result: completedResult() },
       {
         task: coderTaskFromArgs(codeArgs),
-        sessionId: 's',
+        sessionId: 'session-1',
         signal: new AbortController().signal,
       },
     )
@@ -333,7 +464,7 @@ describe('settleDetachedCoderTurn', () => {
     expect(output.patch).toBe(patchText)
   })
 
-  it('rejects a turn whose payload fails the mechanical validator', async () => {
+  it('rejects invalid output and reviewer rejection', async () => {
     const empty = JSON.stringify({
       branch: 'b',
       patch: '',
@@ -343,23 +474,24 @@ describe('settleDetachedCoderTurn', () => {
     })
     await expect(
       settleDetachedCoderTurn(
-        { text: `\`\`\`json\n${empty}\n\`\`\``, result: {} },
+        {
+          text: `\`\`\`json\n${empty}\n\`\`\``,
+          result: completedResult({ text: `\`\`\`json\n${empty}\n\`\`\`` }),
+        },
         {
           task: coderTaskFromArgs(codeArgs),
-          sessionId: 's',
+          sessionId: 'session-1',
           signal: new AbortController().signal,
         },
       ),
     ).rejects.toThrow(/no candidate passed validation/)
-  })
 
-  it('applies the reviewer gate', async () => {
     await expect(
       settleDetachedCoderTurn(
-        { text: completedText, result: {} },
+        { text: completedText, result: completedResult() },
         {
           task: coderTaskFromArgs(codeArgs),
-          sessionId: 's',
+          sessionId: 'session-1',
           signal: new AbortController().signal,
           reviewer: () => ({ approved: false, recommendation: 'reject', readiness: 0 }),
         },
@@ -372,7 +504,7 @@ describe('createDetachedTurnResumeDriver', () => {
   function makeRecord(ref: string) {
     return {
       record: {
-        taskId: 'dlg-1',
+        taskId: 'delegation-1',
         profile: 'coder' as const,
         args: codeArgs,
         status: 'running' as const,
@@ -392,125 +524,107 @@ describe('createDetachedTurnResumeDriver', () => {
       progress,
       ctx: {
         signal: controller.signal,
-        report: (p: { iteration: number; phase: string }) => progress.push(p.phase),
+        report: (value: { iteration: number; phase: string }) => progress.push(value.phase),
       },
     }
   }
 
-  it('maps completed → settled output payload', async () => {
-    const fake = fakeDriveTurnBox({
-      ticks: [{ state: 'completed', text: completedText, result: { usage: 1 } }],
-    })
-    const settle = vi.fn(async () => ({ done: true }) as never)
+  it('resolves a completed session and settles its provider result', async () => {
+    const fake = fakeProvider({ statuses: ['completed'] })
+    const settleOutput = vi.fn(async () => ({ done: true }) as never)
     const driver = createDetachedTurnResumeDriver({
-      resolveSandbox: async () => fake.box as DriveTurnCapableBox,
-      buildMessage: () => 'rebuilt prompt',
-      settleOutput: settle,
+      provider: fake.provider,
+      settleOutput,
     })
     const { ctx } = makeCtx()
-    const tick = await driver.tick(makeRecord('sandbox=box-1;session=sess-9'), ctx)
+    const tick = await driver.tick(makeRecord('environment=environment-1;session=session-9'), ctx)
     expect(tick).toEqual({ state: 'completed', output: { done: true } })
-    expect(settle).toHaveBeenCalledWith(
-      { text: completedText, result: { usage: 1 } },
-      expect.objectContaining({ taskId: 'dlg-1' }),
+    expect(fake.provider.get).toHaveBeenCalledWith('environment-1')
+    expect(fake.captured.requestedId).toBe('session-9')
+    expect(settleOutput).toHaveBeenCalledWith(
+      { text: completedText, result: completedResult() },
+      expect.objectContaining({ taskId: 'delegation-1' }),
       expect.objectContaining({ signal: ctx.signal }),
     )
-    expect(fake.driveTurn).toHaveBeenCalledWith('rebuilt prompt', {
-      sessionId: 'sess-9',
-      turnId: 'sess-9',
-    })
+    expect(fake.destroy).toHaveBeenCalledTimes(1)
   })
 
-  it('maps running → running tick and reports elapsed progress', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'running', elapsedMs: 64_000 }] })
+  it('reports a running session without redispatching it', async () => {
+    const fake = fakeProvider({ statuses: ['running'] })
     const driver = createDetachedTurnResumeDriver({
-      resolveSandbox: async () => fake.box as DriveTurnCapableBox,
-      buildMessage: () => 'p',
+      provider: fake.provider,
       settleOutput: () => {
         throw new Error('not reached')
       },
     })
     const { ctx, progress } = makeCtx()
-    const tick = await driver.tick(makeRecord('sandbox=box-1;session=s'), ctx)
+    const tick = await driver.tick(makeRecord('environment=environment-1;session=session-1'), ctx)
     expect(tick).toEqual({ state: 'running' })
-    expect(progress).toEqual(['detached-running 64s'])
+    expect(progress).toEqual(['detached-running'])
+    expect(fake.dispatch).not.toHaveBeenCalled()
+    expect(fake.destroy).not.toHaveBeenCalled()
   })
 
-  it('maps failed → terminal failed tick', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'failed', error: 'session evaporated' }] })
-    const driver = createDetachedTurnResumeDriver({
-      resolveSandbox: async () => fake.box as DriveTurnCapableBox,
-      buildMessage: () => 'p',
+  it('maps provider failures and missing bindings to explicit failed ticks', async () => {
+    const failed = fakeProvider({ statuses: ['failed'] })
+    const failedDriver = createDetachedTurnResumeDriver({
+      provider: failed.provider,
       settleOutput: () => {
         throw new Error('not reached')
       },
     })
     const { ctx } = makeCtx()
-    const tick = await driver.tick(makeRecord('sandbox=box-1;session=s'), ctx)
-    expect(tick).toMatchObject({
+    await expect(
+      failedDriver.tick(makeRecord('environment=environment-1;session=session-1'), ctx),
+    ).resolves.toMatchObject({
       state: 'failed',
-      error: { kind: 'DetachedTurnFailedError', message: expect.stringContaining('evaporated') },
+      error: { kind: 'DetachedTurnFailedError' },
     })
-  })
+    expect(failed.destroy).toHaveBeenCalledTimes(1)
 
-  it('fails an unbound ref without touching the sandbox', async () => {
-    const resolve = vi.fn()
-    const driver = createDetachedTurnResumeDriver({
-      resolveSandbox: resolve as never,
-      buildMessage: () => 'p',
-      settleOutput: () => {
-        throw new Error('not reached')
-      },
-    })
-    const { ctx } = makeCtx()
-    const tick = await driver.tick(makeRecord('session=never-bound'), ctx)
-    expect(tick).toMatchObject({
+    await expect(failedDriver.tick(makeRecord('session=never-bound'), ctx)).resolves.toMatchObject({
       state: 'failed',
       error: { kind: 'DetachedSessionUnboundError' },
     })
-    expect(resolve).not.toHaveBeenCalled()
+
+    const unknown = fakeProvider({ statuses: ['unknown'] })
+    const unknownDriver = createDetachedTurnResumeDriver({
+      provider: unknown.provider,
+      settleOutput: () => {
+        throw new Error('not reached')
+      },
+    })
+    await expect(
+      unknownDriver.tick(makeRecord('environment=environment-1;session=session-unknown'), ctx),
+    ).resolves.toMatchObject({
+      state: 'failed',
+      error: { kind: 'DetachedSessionStatusUnknownError' },
+    })
+    expect(unknown.destroy).toHaveBeenCalledTimes(1)
   })
 
-  it('hooks remote cancellation onto the abort signal', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
+  it('cancels the resumed provider session when the queue aborts', async () => {
+    const fake = fakeProvider({ statuses: ['running'] })
     const driver = createDetachedTurnResumeDriver({
-      resolveSandbox: async () => fake.box as DriveTurnCapableBox,
-      buildMessage: () => 'p',
+      provider: fake.provider,
       settleOutput: () => {
         throw new Error('not reached')
       },
     })
     const { ctx, controller } = makeCtx()
-    await driver.tick(makeRecord('sandbox=box-1;session=sess-c'), ctx)
+    await driver.tick(makeRecord('environment=environment-1;session=session-cancel'), ctx)
     controller.abort()
-    await until(() => fake.sessionCancel.mock.calls.length === 1)
-    expect(fake.sessionCancel).toHaveBeenCalledWith('sess-c')
-  })
-
-  it('propagates a settle failure as a thrown tick (queue settles failed)', async () => {
-    const fake = fakeDriveTurnBox({
-      ticks: [{ state: 'completed', text: 'no fenced result here', result: {} }],
-    })
-    const driver = createDetachedTurnResumeDriver({
-      resolveSandbox: async () => fake.box as DriveTurnCapableBox,
-      buildMessage: () => 'p',
-      settleOutput: () => {
-        throw new Error('resumed output failed validation')
-      },
-    })
-    const { ctx } = makeCtx()
-    await expect(driver.tick(makeRecord('sandbox=box-1;session=s'), ctx)).rejects.toThrow(
-      /failed validation/,
-    )
+    await until(() => fake.cancel.mock.calls.length === 1)
+    await until(() => fake.destroy.mock.calls.length === 1)
   })
 })
 
-describe('detachedSessionRef population on submit', () => {
-  it('records a deterministic session-only ref for single-variant detached submissions', async () => {
+describe('detached session queue integration', () => {
+  it('records a session-only ref only for single-variant detached submissions', async () => {
     const queue = new DelegationTaskQueue()
-    const seenRefs: (string | undefined)[] = []
+    const seen: Array<string | undefined> = []
     const delegate: CoderDelegate = async (_args, ctx) => {
-      seenRefs.push(ctx.detachedSessionRef)
+      seen.push(ctx.detachedSessionRef)
       return {
         branch: 'b',
         patch: patchText,
@@ -519,169 +633,91 @@ describe('detachedSessionRef population on submit', () => {
         diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
       }
     }
-    const { taskId } = submitCoder(
+
+    const detached = submitCoder(queue, delegate, codeArgs, { detachedDispatch: true })
+    await until(() => queue.status(detached.taskId)?.status === 'completed')
+    expect(parseDetachedSessionRef(seen[0] as string).environmentId).toBeUndefined()
+
+    const fanout = submitCoder(
       queue,
       delegate,
-      { goal: 'fix', repoRoot: '/r' },
-      {
-        detachedDispatch: true,
-      },
+      { ...codeArgs, variants: 2 },
+      { detachedDispatch: true },
     )
-    await until(() => queue.status(taskId)?.status === 'completed')
-    expect(seenRefs).toHaveLength(1)
-    const parsed = parseDetachedSessionRef(seenRefs[0] as string)
-    expect(parsed.sessionId).toMatch(/^dlg-turn-coder-[0-9a-f]{8}$/)
-    expect(parsed.sandboxId).toBeUndefined()
+    await until(() => queue.status(fanout.taskId)?.status === 'completed')
+    expect(seen[1]).toBeUndefined()
   })
 
-  it('never records a ref for fanout submissions (variants > 1)', async () => {
-    const queue = new DelegationTaskQueue()
-    const seenRefs: (string | undefined)[] = []
-    const delegate: CoderDelegate = async (_args, ctx) => {
-      seenRefs.push(ctx.detachedSessionRef)
-      return {
-        branch: 'b',
-        patch: patchText,
-        testResult: { passed: true, output: '' },
-        typecheckResult: { passed: true, output: '' },
-        diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
-      }
-    }
-    const { taskId } = submitCoder(
-      queue,
-      delegate,
-      { goal: 'fix', repoRoot: '/r', variants: 2 },
-      {
-        detachedDispatch: true,
-      },
-    )
-    await until(() => queue.status(taskId)?.status === 'completed')
-    expect(seenRefs).toEqual([undefined])
-  })
-
-  it('records no ref when detachedDispatch is off (default)', async () => {
-    const queue = new DelegationTaskQueue()
-    const seenRefs: (string | undefined)[] = []
-    const delegate: CoderDelegate = async (_args, ctx) => {
-      seenRefs.push(ctx.detachedSessionRef)
-      return {
-        branch: 'b',
-        patch: patchText,
-        testResult: { passed: true, output: '' },
-        typecheckResult: { passed: true, output: '' },
-        diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
-      }
-    }
-    const { taskId } = submitCoder(queue, delegate, { goal: 'fix', repoRoot: '/r' })
-    await until(() => queue.status(taskId)?.status === 'completed')
-    expect(seenRefs).toEqual([undefined])
-  })
-})
-
-describe('detachedSessionDelegate detached path', () => {
-  it('dispatches via driveTurn, rebinds the ref with the sandbox id, and settles the output', async () => {
-    const fake = fakeDriveTurnBox({
-      ticks: [{ state: 'running' }, { state: 'completed', text: completedText, result: {} }],
-      id: 'sandbox_77',
+  it('runs detached and streamed coder work through executor.provider', async () => {
+    const detached = fakeProvider({ id: 'environment-77', sessionId: 'session-77' })
+    const detachedDelegate = detachedSessionDelegate({
+      executor: delegationExecutor(detached.provider),
+      detachedTickIntervalMs: 1,
     })
-    const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
-    const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
     const rebinds: string[] = []
-    const sessionId = 'dlg-turn-coder-deadbeef'
-    const output = await delegate(codeArgs, {
+    const detachedOutput = await detachedDelegate(codeArgs, {
       signal: new AbortController().signal,
       report: () => {},
-      detachedSessionRef: formatDetachedSessionRef({ sessionId }),
+      detachedSessionRef: 'session=session-requested',
       updateDetachedSessionRef: (ref) => rebinds.push(ref),
     })
-    expect(output.branch).toBe('feat/detached')
-    expect(rebinds).toEqual([`sandbox=sandbox_77;session=${sessionId}`])
-    expect(fake.driveTurn.mock.calls[0]?.[1]).toMatchObject({ sessionId })
-    expect(fake.delete).toHaveBeenCalledTimes(1)
-  })
+    expect(detachedOutput.branch).toBe('feat/detached')
+    expect(rebinds).toEqual(['environment=environment-77;session=session-77'])
 
-  it('journals the detached turn onto the record when dispatched through the queue', async () => {
-    const fake = fakeDriveTurnBox({
-      ticks: [{ state: 'running' }, { state: 'completed', text: completedText, result: {} }],
-      id: 'sandbox_88',
-    })
-    const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
-    const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
-    const queue = new DelegationTaskQueue()
-    const { taskId } = submitCoder(
-      queue,
-      delegate,
-      { goal: 'fix', repoRoot: '/r' },
-      {
-        detachedDispatch: true,
-      },
-    )
-    await until(() => queue.status(taskId)?.status === 'completed')
-    const status = queue.status(taskId, { includeTrace: true })!
-    expect(status.trace?.map((s) => s.kind)).toEqual(['loop', 'branch'])
-    const root = status.trace!.find((s) => s.kind === 'loop')!
-    expect(root.meta?.['tangle.loop.driver']).toBe('detached-turn')
-    const branch = status.trace!.find((s) => s.kind === 'branch')!
-    expect(branch.parentSpanId).toBe(root.spanId)
-    expect(branch.meta?.['tangle.sandbox.id']).toBe('sandbox_88')
-    expect(queue.history().find((e) => e.taskId === taskId)?.hasTrace).toBe(true)
-  })
-
-  it('stays on the streaming runLoop path when no ref is present', async () => {
-    const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
-    const streamPrompt = vi.fn(async function* () {
-      yield {
-        type: 'result',
-        data: {
-          result: {
-            branch: 'feat/stream',
-            patch: patchText,
-            testResult: { passed: true, output: '' },
-            typecheckResult: { passed: true, output: '' },
-            diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
+    const streamed = fakeProvider({
+      events: [
+        {
+          type: 'result',
+          data: {
+            result: {
+              branch: 'feat/stream',
+              patch: patchText,
+              testResult: { passed: true, output: '' },
+              typecheckResult: { passed: true, output: '' },
+              diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
+            },
           },
         },
-      }
+      ],
     })
-    const box = { ...fake.box, streamPrompt }
-    const executor = createSiblingSandboxExecutor({ client: fakeClient(box) })
-    const delegate = detachedSessionDelegate({ executor })
-    const output = await delegate(codeArgs, {
+    const streamedOutput = await detachedSessionDelegate({
+      executor: delegationExecutor(streamed.provider),
+    })(codeArgs, {
       signal: new AbortController().signal,
       report: () => {},
     })
-    expect(output.branch).toBe('feat/stream')
-    expect(streamPrompt).toHaveBeenCalledTimes(1)
-    expect(fake.driveTurn).not.toHaveBeenCalled()
+    expect(streamedOutput.branch).toBe('feat/stream')
+    expect(streamed.dispatch).not.toHaveBeenCalled()
   })
 })
 
-describe('restored-record resume end-to-end', () => {
-  let dir: string
+describe('restored detached record', () => {
+  let directory: string
   let filePath: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'dlg-detached-'))
-    filePath = join(dir, 'delegations.json')
+    directory = await mkdtemp(join(tmpdir(), 'delegation-detached-'))
+    filePath = join(directory, 'delegations.json')
   })
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
   })
 
-  it('resumes a bound in-flight record through driveTurn and settles a validated coder output', async () => {
+  it('resumes a bound provider session and persists current ref fields', async () => {
     const first = await DelegationTaskQueue.restore({
       store: new FileDelegationStore({ filePath }),
     })
     const { taskId } = first.submit({
       profile: 'coder',
       args: codeArgs,
-      detachedSessionRef: formatDetachedSessionRef({ sessionId: 'sess-e2e' }),
+      detachedSessionRef: formatDetachedSessionRef({ sessionId: 'session-e2e' }),
       run: async (ctx) => {
-        // Mirror the detached delegate: bind the sandbox id, then "crash"
-        // (never resolve) so the record persists as running.
         ctx.updateDetachedSessionRef(
-          formatDetachedSessionRef({ sandboxId: 'sandbox_e2e', sessionId: 'sess-e2e' }),
+          formatDetachedSessionRef({
+            environmentId: 'environment-e2e',
+            sessionId: 'session-e2e',
+          }),
         )
         return new Promise<never>(() => {})
       },
@@ -689,70 +725,36 @@ describe('restored-record resume end-to-end', () => {
     await until(() => first.status(taskId)?.status === 'running')
     await first.flush()
 
-    const fake = fakeDriveTurnBox({
-      ticks: [
-        { state: 'running', elapsedMs: 500 },
-        { state: 'completed', text: completedText, result: {} },
-      ],
-      id: 'sandbox_e2e',
+    const fake = fakeProvider({
+      id: 'environment-e2e',
+      statuses: ['running', 'completed'],
     })
-    const resolved: string[] = []
     const second = await DelegationTaskQueue.restore({
       store: new FileDelegationStore({ filePath }),
       resumeDelegate: createDetachedTurnResumeDriver({
+        provider: fake.provider,
         intervalMs: 1,
-        resolveSandbox: async (sandboxId) => {
-          resolved.push(sandboxId)
-          return fake.box as DriveTurnCapableBox
-        },
-        buildMessage: (record) => `resume: ${(record.args as DelegateCodeArgs).goal}`,
         settleOutput: (turn, record, ctx) =>
           settleDetachedCoderTurn(turn, {
             task: coderTaskFromArgs(record.args as DelegateCodeArgs),
-            sessionId: 'sess-e2e',
+            sessionId: 'session-e2e',
             signal: ctx.signal,
           }),
       }),
     })
-    expect(['running', 'completed']).toContain(second.status(taskId)?.status)
     await until(() => second.status(taskId)?.status === 'completed')
-    expect(resolved.every((id) => id === 'sandbox_e2e')).toBe(true)
     const status = second.status(taskId, { includeTrace: true })
     expect(status?.result?.profile).toBe('coder')
-    expect((status?.result?.output as { branch: string }).branch).toBe('feat/detached')
-    expect(fake.driveTurn).toHaveBeenCalledWith('resume: fix bug', {
-      sessionId: 'sess-e2e',
-      turnId: 'sess-e2e',
-    })
-    // the resumed segment is journaled even though the original process's
-    // loop events died with it
-    const resumeSpan = status?.trace?.find(
-      (s) => s.meta?.['tangle.loop.driver'] === 'detached-resume',
-    )
-    expect(resumeSpan).toBeDefined()
-    expect(resumeSpan?.meta?.['tangle.loop.detached_session_ref']).toBe(
-      'sandbox=sandbox_e2e;session=sess-e2e',
-    )
+    expect((status!.result!.output as { branch: string }).branch).toBe('feat/detached')
+    expect(fake.provider.get).toHaveBeenCalledWith('environment-e2e')
+    expect(fake.destroy).toHaveBeenCalledTimes(1)
+    expect(
+      status?.trace?.some((span) => span.meta?.['tangle.loop.driver'] === 'detached-resume'),
+    ).toBe(true)
+    expect(
+      status?.trace?.find((span) => span.meta?.['tangle.loop.driver'] === 'detached-resume')
+        ?.meta?.['tangle.loop.detached_session_ref'],
+    ).toBe('environment=environment-e2e;session=session-e2e')
     await second.flush()
-  })
-
-  it('persists a mid-run ref rebind so a restart resumes against the bound sandbox', async () => {
-    const store = new FileDelegationStore({ filePath })
-    const queue = await DelegationTaskQueue.restore({ store })
-    const { taskId } = queue.submit({
-      profile: 'coder',
-      args: codeArgs,
-      detachedSessionRef: 'session=sess-bind',
-      run: async (ctx) => {
-        ctx.updateDetachedSessionRef('sandbox=box-9;session=sess-bind')
-        return new Promise<never>(() => {})
-      },
-    })
-    await until(() => queue.status(taskId)?.status === 'running')
-    await queue.flush()
-    const persisted = await new FileDelegationStore({ filePath }).loadAll()
-    expect(persisted.find((r) => r.taskId === taskId)?.detachedSessionRef).toBe(
-      'sandbox=box-9;session=sess-bind',
-    )
   })
 })

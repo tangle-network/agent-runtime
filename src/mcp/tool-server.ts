@@ -147,7 +147,7 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
           writeResponse(output, rpcError(null, -32700, `parse error: ${(err as Error).message}`))
           return
         }
-        if (!parsed || parsed.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
+        if (parsed?.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
           writeResponse(output, rpcError(parsed?.id ?? null, -32600, 'invalid request'))
           return
         }

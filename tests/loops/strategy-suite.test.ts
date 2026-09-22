@@ -22,12 +22,12 @@ import {
   runBenchmark,
 } from '../../src/runtime/run-benchmark'
 import {
-  type AgenticOptions,
-  type AgenticSurface,
-  type AgenticTask,
   defineStrategy,
+  type EnvironmentTask,
   refine,
-  runAgentic,
+  runStrategy,
+  type StrategyWorkerOptions,
+  type TaskEnvironment,
 } from '../../src/runtime/strategy'
 import {
   assertStrategyContract,
@@ -37,7 +37,7 @@ import {
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────────
 
-const task: AgenticTask = {
+const task: EnvironmentTask = {
   id: 'task-1',
   systemPrompt: 'You operate the fixture surface.',
   userPrompt: 'Bring the artifact to the target state.',
@@ -46,7 +46,7 @@ const task: AgenticTask = {
 /** An in-memory surface whose score is whatever the test sets per handle. */
 function fixtureSurface(
   scoreOf: (handleId: string) => { passes: number; total: number },
-): AgenticSurface {
+): TaskEnvironment {
   let seq = 0
   return {
     name: 'fixture',
@@ -99,7 +99,7 @@ function stubRouter(): CapturedChatRequest[] {
 
 function memoryComplete(
   capturedWorkers: CapturedChatRequest[],
-): NonNullable<AgenticOptions['complete']> {
+): NonNullable<StrategyWorkerOptions['complete']> {
   return async (body) => {
     const req = body as CapturedChatRequest & { model?: string }
     const text = req.messages.map((m) => m.content).join('\n')
@@ -156,7 +156,7 @@ describe('defineStrategy harness-verified scoring', () => {
       progression: [1],
       shots: 0,
     }))
-    const result = await runAgentic({ surface, task, ...worker, strategy: lying, budget: 2 })
+    const result = await runStrategy({ surface, task, ...worker, strategy: lying, budget: 2 })
     expect(result.score).toBe(0)
     expect(result.resolved).toBe(false)
   })
@@ -169,7 +169,7 @@ describe('defineStrategy harness-verified scoring', () => {
       expect(out?.score).toBeCloseTo(0.5)
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    const result = await runAgentic({ surface, task, ...worker, strategy: sandbagging, budget: 2 })
+    const result = await runStrategy({ surface, task, ...worker, strategy: sandbagging, budget: 2 })
     expect(result.score).toBeCloseTo(0.5)
   })
 })
@@ -184,7 +184,7 @@ describe('shot messages handling', () => {
       await shot({ messages: [] })
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    await runAgentic({ surface, task, ...worker, strategy: emptyMessages, budget: 1 })
+    await runStrategy({ surface, task, ...worker, strategy: emptyMessages, budget: 1 })
     expect(captured.length).toBeGreaterThan(0)
     const first = captured[0] as CapturedChatRequest
     expect(first.messages[0]).toMatchObject({ role: 'system', content: task.systemPrompt })
@@ -195,7 +195,7 @@ describe('shot messages handling', () => {
 // ── Active in-context memory read-back ───────────────────────────────────────────
 
 describe('refine corpus read-back', () => {
-  function twoShotSurface(): AgenticSurface {
+  function twoShotSurface(): TaskEnvironment {
     let scoreCalls = 0
     return fixtureSurface(() => {
       scoreCalls += 1
@@ -206,7 +206,7 @@ describe('refine corpus read-back', () => {
   it('injects trace-derived corpus facts into the next active attempt when opted in', async () => {
     const corpus = new InMemoryCorpus()
     const capturedWorkers: CapturedChatRequest[] = []
-    const result = await runAgentic({
+    const result = await runStrategy({
       surface: twoShotSurface(),
       task,
       ...worker,
@@ -231,7 +231,7 @@ describe('refine corpus read-back', () => {
   it('keeps corpus read-back disabled by default even when the observer writes facts', async () => {
     const corpus = new InMemoryCorpus()
     const capturedWorkers: CapturedChatRequest[] = []
-    await runAgentic({
+    await runStrategy({
       surface: twoShotSurface(),
       task,
       ...worker,
@@ -256,7 +256,7 @@ describe('strategy surface close', () => {
   it('double-close is a no-op; the domain close runs exactly once', async () => {
     stubRouter()
     let closes = 0
-    const surface: AgenticSurface = {
+    const surface: TaskEnvironment = {
       name: 'close-counter',
       async open() {
         return { id: 'h-1', surface: 'close-counter' }
@@ -285,7 +285,13 @@ describe('strategy surface close', () => {
       }
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    const result = await runAgentic({ surface, task, ...worker, strategy: doubleCloser, budget: 2 })
+    const result = await runStrategy({
+      surface,
+      task,
+      ...worker,
+      strategy: doubleCloser,
+      budget: 2,
+    })
     expect(closes).toBe(1)
     expect(result.score).toBeCloseTo(0.5)
   })
@@ -419,7 +425,7 @@ describe('addressable optimization coordinates', () => {
       if (out) await critique(out.messages)
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    await runAgentic({
+    await runStrategy({
       surface,
       task,
       ...worker,
@@ -480,7 +486,7 @@ describe('addressable optimization coordinates', () => {
 // ── Shot-level tool selection (restriction-only) ──────────────────────────────────
 
 describe('shot tool selection', () => {
-  const twoToolSurface = (): AgenticSurface & { seen: string[][] } => {
+  const twoToolSurface = (): TaskEnvironment & { seen: string[][] } => {
     const seen: string[][] = []
     return {
       name: 'two-tool',
@@ -511,7 +517,7 @@ describe('shot tool selection', () => {
       await shot({ tools: ['read_thing'] })
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    await runAgentic({ surface, task, ...worker, strategy: focused, budget: 1 })
+    await runStrategy({ surface, task, ...worker, strategy: focused, budget: 1 })
     const body = captured[0] as { tools?: Array<{ function: { name: string } }> }
     expect(body.tools?.map((t) => t.function.name)).toEqual(['read_thing'])
   })
@@ -523,7 +529,7 @@ describe('shot tool selection', () => {
       const out = await shot({ tools: ['read_thing', 'wirte_thing'] })
       return { score: out?.score ?? 0, resolved: false, completions: 0, progression: [], shots: 1 }
     })
-    const result = await runAgentic({ surface, task, ...worker, strategy: typo, budget: 1 })
+    const result = await runStrategy({ surface, task, ...worker, strategy: typo, budget: 1 })
     // The shot goes down (executor threw) → null → verified score stays 0.
     expect(result.score).toBe(0)
   })
@@ -566,7 +572,7 @@ describe('runBenchmark per-strategy isolation', () => {
 describe('listTools', () => {
   it('a strategy body reads the task-specific toolset (names + descriptions only)', async () => {
     stubRouter()
-    const surface: AgenticSurface = {
+    const surface: TaskEnvironment = {
       name: 'introspect',
       async open() {
         return { id: 'h-1', surface: 'introspect' }
@@ -601,7 +607,7 @@ describe('listTools', () => {
         return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
       },
     )
-    await runAgentic({ surface, task, ...worker, strategy: introspector, budget: 1 })
+    await runStrategy({ surface, task, ...worker, strategy: introspector, budget: 1 })
     expect(listed).toEqual([{ name: 'read_state', description: 'Read it.' }])
     expect(JSON.stringify(listed)).not.toContain('secret')
   })
@@ -749,7 +755,7 @@ describe('consult', () => {
         reply = await consult(out.messages, 'Reply with EXACTLY: VERDICT: STOP confidence=0.9')
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    await runAgentic({ surface, task, ...worker, strategy: controller, budget: 2 })
+    await runStrategy({ surface, task, ...worker, strategy: controller, budget: 2 })
     // The consult call is the SECOND router request; its system prompt is the raw instruction.
     const consultReq = captured[1] as { messages?: Array<{ role: string; content: string }> }
     expect(consultReq?.messages?.[0]?.role).toBe('system')

@@ -4,18 +4,11 @@
  * Intelligence send + receive.
  *
  * It does two things per call, both fail-open:
- *   1. RECEIVE — pull the tenant's certified profile from the deployed plane
- *      (cached + refreshed), hand the agent the certified prompt surface to fold
- *      (`applied.composePrompt`) and the promoted, gate-certified profile DIFFS
- *      as PROPOSALS (`applied.proposals` / `applied.applyProfile`).
+ *   1. RECEIVE — pull the tenant's certified context from the deployed plane
+ *      (cached + refreshed), and hand the agent the exact immutable context plus
+ *      a helper that folds its context into the system prompt.
  *   2. SEND — serialize a typed {@link RunRecord} for the call through the shipped
  *      OTLP builders to the plane's `/v1/otlp` ingest, best-effort.
- *
- * SAFETY — observe + deliver ONLY. This hook NEVER auto-applies a received diff
- * at runtime. A promoted diff is surfaced as a proposal; a human, or the gated
- * local `improve()` loop, turns a proposal into a shipped profile. That
- * preserves the held-out invariant the plane enforces — a runtime that silently
- * folded an un-gated diff into itself would defeat the very gate the diff cleared.
  *
  *   import { withIntelligence } from '@tangle-network/agent-runtime/intelligence'
  *
@@ -25,48 +18,38 @@
  *       applied.record({ success: true, usage: { inferenceUsd: 0.002, intelligenceUsd: 0 } })
  *       return out
  *     },
- *     { project: 'support-agent', target: 'support-agent' },
+ *     { tenantId: 'tenant-1', project: 'support-agent', target: 'support-agent' },
  *   )
  *
  * @experimental
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import {
-  type CertifiedProfile,
-  composeCertifiedPrompt,
-  createCertifiedPromptSource,
-  type ProposedProfileDiff,
+  type CertifiedContext,
+  type CertifiedContextCheckpointStore,
+  composeCertifiedContextPrompt,
+  createCertifiedContextSource,
 } from './delivery'
 import {
   createIntelligenceClient,
   type IntelligenceConfig,
+  type IntelligenceFlushResult,
   type RunRecord,
   type RunReport,
 } from './index'
 
-/** What the hook hands the agent each run. Additive over the prompt-only
- *  delivery: `composePrompt` folds the certified prompt surface (as before);
- *  `proposals`/`applyProfile` surface the promoted profile DIFFS — never
- *  auto-applied; `record` enriches the {@link RunRecord} that is sent. */
+/** What the hook hands the agent each run. `composePrompt` folds certified
+ * context and `record` enriches the {@link RunRecord} that is sent. */
 export interface AppliedIntelligence {
   /** Stable ids shared by the run span and every nested runtime/loop span. */
   runId: string
   traceId: string
-  /** The certified profile in effect (null when none promoted / pull failed —
+  /** The certified context in effect (null when none promoted / pull failed —
    *  fail-closed: the agent runs on its base surface). */
-  certified: CertifiedProfile | null
+  certifiedContext: CertifiedContext | null
   /** Fold the certified prompt surface into a base system prompt (the promoted
    *  prompt). The consumer opts in by calling it. */
   composePrompt(base: string): string
-  /** The promoted, gate-certified profile diffs — surfaced for a human or the
-   *  gated `improve()` loop. NEVER auto-applied by this hook. Empty when none. */
-  proposals: ProposedProfileDiff[]
-  /** Fold every proposal into `base` via `applyAgentProfileDiff`, in promotion
-   *  order, and return the result. The caller invokes this EXPLICITLY (it is the
-   *  human/gated apply step) — the hook never calls it on the run path. */
-  applyProfile(base: AgentProfile): AgentProfile
   /** Enrich the {@link RunRecord} sent for this call — outcome, usage split,
    *  model/provider, and the loop event stream. Optional; an un-recorded run
    *  still sends input/output with an inference-only zero usage split. */
@@ -77,30 +60,37 @@ export interface AppliedIntelligence {
  *  intelligence delivered for this run. */
 export type IntelligenceAgent<I, O> = (input: I, applied: AppliedIntelligence) => Promise<O>
 
-/** `withIntelligence` config = the Observe config plus the pull target, refresh
- *  cadence, and a proposals callback. One base URL (`baseUrl` /
+/** `withIntelligence` config = the Observe config plus tenant, pull target,
+ *  refresh cadence, and a certified-context callback. One base URL (`baseUrl` /
  *  `TANGLE_INTELLIGENCE_URL`) drives both the send and receive paths. */
 export interface IntelligenceHookConfig extends IntelligenceConfig {
+  /** Authenticated tenant expected in every context response. */
+  tenantId: string
   /** Pull target. Defaults to `project`. */
   target?: string
-  /** Min interval between certified-profile pulls. Default 5m. */
+  /** Min interval between certified-context pulls. Default 5m. */
   refreshMs?: number
   /** Per-pull timeout in ms (fail-closed on a hung plane). Default 10000. */
   timeoutMs?: number
   /** fetch impl for the pull (tests). Defaults to global fetch. */
   fetchImpl?: typeof fetch
-  /** Notified when a refresh delivers a NEW set of promoted proposals (by
-   *  provenance content hash). Surfaces diffs without auto-applying them. */
-  onProposals?: (proposals: ProposedProfileDiff[]) => void
+  /** Current time source for certified-context expiry checks. Defaults to `Date.now`. */
+  now?: () => number
+  /** Persist accepted context revisions across process restarts. */
+  checkpointStore?: CertifiedContextCheckpointStore
+  /** Observe rejected checkpoints, rollbacks, conflicts, and incompatible endpoints. */
+  onCertifiedContextReject?: (error: Error) => void
+  /** Notified when the exact certified context changes or is revoked. */
+  onCertifiedContext?: (context: CertifiedContext | null) => void
 }
 
 /** The wrapped agent — same `(input) => Promise<output>` shape, plus a manual
- *  `refresh()` and a `proposals()` accessor for the currently-promoted diffs. */
+ *  `refresh()` and certified-context accessor. */
 export type IntelligenceWrapped<I, O> = ((input: I) => Promise<O>) & {
   refresh(): Promise<void>
-  proposals(): ProposedProfileDiff[]
+  currentCertifiedContext(): CertifiedContext | null
   /** Flush buffered trace spans before a short-lived process exits. */
-  flush(): Promise<void>
+  flush(): Promise<IntelligenceFlushResult>
 }
 
 interface RuntimeEventSummary {
@@ -118,18 +108,18 @@ function summarizeRuntimeEvents(
 ): RuntimeEventSummary {
   const summary: RuntimeEventSummary = { inferenceUsd: 0, inputTokens: 0, outputTokens: 0 }
   for (const event of events) {
-    if ('session' in event && event.session) summary.sessionId = event.session.id
+    if ('sessionId' in event && event.sessionId) summary.sessionId = event.sessionId
     if (event.type === 'llm_call') {
       summary.model = event.model
       summary.inferenceUsd += event.costUsd ?? 0
       summary.inputTokens += event.tokensIn ?? 0
       summary.outputTokens += event.tokensOut ?? 0
-    } else if (event.type === 'backend_error') {
+    } else if (event.type === 'turn_error') {
       summary.success = false
       summary.error = {
-        name: event.error?.kind ?? 'BackendError',
+        name: event.error.kind,
         message: event.message,
-        ...(event.error?.status !== undefined ? { code: String(event.error.status) } : {}),
+        ...(event.error.status !== undefined ? { code: String(event.error.status) } : {}),
       }
     } else if (event.type === 'final') {
       summary.success = event.status === 'completed'
@@ -158,8 +148,8 @@ function runError(cause: unknown): NonNullable<RunRecord['error']> {
 }
 
 /**
- * Wrap an agent so it (a) RECEIVES the tenant's certified profile — the prompt
- * surface to fold and the promoted profile diffs as proposals — and (b) SENDS a
+ * Wrap an agent so it (a) RECEIVES the tenant's certified context — the prompt
+ * context to fold — and (b) SENDS a
  * typed {@link RunRecord} per call to the plane. The pull is cached and refreshed
  * at most every `refreshMs`; a failed pull is fail-closed (the agent runs on its
  * base surface, never breaks because Intelligence is unreachable). The send is
@@ -172,32 +162,44 @@ export function withIntelligence<I, O>(
 ): IntelligenceWrapped<I, O> {
   const client = createIntelligenceClient(config)
   const target = config.target ?? config.project
-  const source = createCertifiedPromptSource({
+  const now = config.now ?? Date.now
+  const source = createCertifiedContextSource({
+    tenantId: config.tenantId,
     target,
     ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
     ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+    ...(config.trustedBaseOrigins !== undefined
+      ? { trustedBaseOrigins: config.trustedBaseOrigins }
+      : {}),
+    ...(config.allowInsecureLoopback !== undefined
+      ? { allowInsecureLoopback: config.allowInsecureLoopback }
+      : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     ...(config.fetchImpl !== undefined ? { fetchImpl: config.fetchImpl } : {}),
     ...(config.refreshMs !== undefined ? { refreshMs: config.refreshMs } : {}),
+    ...(config.now !== undefined ? { now: config.now } : {}),
+    ...(config.checkpointStore !== undefined ? { checkpointStore: config.checkpointStore } : {}),
+    ...(config.onCertifiedContextReject !== undefined
+      ? { onReject: config.onCertifiedContextReject }
+      : {}),
   })
 
-  const currentProposals = (): ProposedProfileDiff[] => source.current()?.agentProfileDiffs ?? []
-
-  // Fire `onProposals` only when the promoted set actually changes (keyed by
-  // provenance content hash) — a refresh that re-delivers the same diffs is silent.
-  let lastSignal = ''
-  function signalProposals(): void {
-    const proposals = currentProposals()
-    if (proposals.length === 0) return
-    const sig = proposals.map((p) => p.provenance.contentHash).join('|')
+  let lastSignal = 'none'
+  function signalCertifiedContext(): void {
+    const context = source.current()
+    const sig = context ? `${context.revision}:${context.contentHash}` : 'none'
     if (sig === lastSignal) return
     lastSignal = sig
-    config.onProposals?.(proposals)
+    try {
+      config.onCertifiedContext?.(context)
+    } catch {
+      // Observers cannot alter context delivery or fail an agent run.
+    }
   }
 
   async function refresh(): Promise<void> {
     await source.refresh()
-    signalProposals()
+    signalCertifiedContext()
   }
 
   const wrapped = (async (input: I): Promise<O> => {
@@ -205,17 +207,20 @@ export function withIntelligence<I, O>(
     const traceId = client.freshTraceId()
     const startedAt = Date.now()
     await refresh()
-    const certified = source.current()
-    const proposals = currentProposals()
+    const certifiedContext = source.current()
+    const currentRunContext = (): CertifiedContext | null =>
+      certifiedContext && Date.parse(certifiedContext.expiresAt) > now() ? certifiedContext : null
     const report: RunReport = {}
     const applied: AppliedIntelligence = {
       runId,
       traceId,
-      certified,
-      composePrompt: (base: string) => composeCertifiedPrompt(base, certified),
-      proposals,
-      applyProfile: (base: AgentProfile) =>
-        proposals.reduce((profile, p) => applyAgentProfileDiff(profile, p.diff), base),
+      get certifiedContext() {
+        return currentRunContext()
+      },
+      composePrompt: (base: string) => {
+        const context = currentRunContext()
+        return context ? composeCertifiedContextPrompt(base, context) : base
+      },
       record: (r: RunReport) => Object.assign(report, r),
     }
 
@@ -283,7 +288,7 @@ export function withIntelligence<I, O>(
   }) as IntelligenceWrapped<I, O>
 
   wrapped.refresh = refresh
-  wrapped.proposals = currentProposals
+  wrapped.currentCertifiedContext = source.current
   wrapped.flush = client.flush
   return wrapped
 }

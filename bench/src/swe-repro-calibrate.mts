@@ -27,7 +27,7 @@ import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgenticTask, ArtifactHandle } from '@tangle-network/agent-runtime/loops'
+import type { EnvironmentTask, ArtifactHandle } from '@tangle-network/agent-runtime/loops'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata } from './swe-bench-env'
 import {
@@ -179,7 +179,7 @@ async function calibrateInstance(
     // canary-only image sweep skips the clone (and its network cost) entirely.
     let treeDir: string | null = null
     if (EXEC === 'mount' || !CANARY_ONLY) {
-      const h = await env.environment.open({ id, systemPrompt: '', userPrompt: '', meta: {} } as AgenticTask)
+      const h = await env.environment.open({ id, systemPrompt: '', userPrompt: '', meta: {} } as EnvironmentTask)
       handle = h
       treeDir = h.id
     }

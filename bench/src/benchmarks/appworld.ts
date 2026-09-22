@@ -22,7 +22,14 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { type OutputAdapter, routerToolLoop, type ToolSpec } from '@tangle-network/agent-runtime/loops'
+import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
+  inProcessEnvironmentProvider,
+  type OutputAdapter,
+  routerToolLoop,
+  type ToolSpec,
+} from '@tangle-network/agent-runtime/loops'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPython } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
@@ -60,7 +67,9 @@ const WORKER_CONTRACT = [
 function readMeta(task: BenchTask): AppWorldMeta {
   const md = task.metadata
   if (!md || typeof md.taskId !== 'string') {
-    throw new Error(`appworld task ${task.id} missing metadata.taskId — loadTasks did not populate it`)
+    throw new Error(
+      `appworld task ${task.id} missing metadata.taskId — loadTasks did not populate it`,
+    )
   }
   return md as unknown as AppWorldMeta
 }
@@ -77,7 +86,9 @@ async function driver(args: string[], input = ''): Promise<unknown> {
     stdout = await runVenvScriptStdin(DRIVER, args, input, { cwd: benchRoot })
   } catch (err) {
     const e = err as { message?: string }
-    throw new Error(`appworld driver failed (${args.join(' ')}): ${(e.message || String(err)).slice(0, 1500)}`)
+    throw new Error(
+      `appworld driver failed (${args.join(' ')}): ${(e.message || String(err)).slice(0, 1500)}`,
+    )
   }
   const last = stdout.trim().split('\n').at(-1) ?? '{}'
   const parsed = JSON.parse(last) as { error?: string }
@@ -106,13 +117,16 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
       const split = opts.split ?? DEFAULT_SPLIT
       const out = (await driver([
         'load',
-        '--split', split,
+        '--split',
+        split,
         ...(opts.limit !== undefined ? ['--limit', String(opts.limit)] : []),
         ...(opts.ids ? ['--ids', opts.ids.join(',')] : []),
       ])) as { tasks?: Array<{ task_id: string; instruction: string }> }
       const tasks = out.tasks ?? []
       if (tasks.length === 0) {
-        throw new Error(`appworld loadTasks returned no tasks for split=${split} ${JSON.stringify(opts)}`)
+        throw new Error(
+          `appworld loadTasks returned no tasks for split=${split} ${JSON.stringify(opts)}`,
+        )
       }
       return tasks.map(
         (t): BenchTask => ({
@@ -136,7 +150,10 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
       const meta = readMeta(task)
-      const out = (await driver(['evaluate', '--task-id', meta.taskId, '--split', meta.split], artifact)) as {
+      const out = (await driver(
+        ['evaluate', '--task-id', meta.taskId, '--split', meta.split],
+        artifact,
+      )) as {
         success?: boolean
         passes?: number
         fails?: number
@@ -221,7 +238,9 @@ const EXECUTE_TOOL: ToolSpec = {
       'Execute a Python snippet in the persistent AppWorld world. State persists across calls. Returns the execution output (API results or errors).',
     parameters: {
       type: 'object',
-      properties: { code: { type: 'string', description: 'Python code calling apis.<app>.<fn>(...)' } },
+      properties: {
+        code: { type: 'string', description: 'Python code calling apis.<app>.<fn>(...)' },
+      },
       required: ['code'],
     },
   },
@@ -231,7 +250,10 @@ const EXECUTE_TOOL: ToolSpec = {
 async function withWorldSession<T>(
   taskId: string,
   split: string,
-  fn: (call: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>, instruction: string) => Promise<T>,
+  fn: (
+    call: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    instruction: string,
+  ) => Promise<T>,
 ): Promise<T> {
   const child = spawn(venvPython, [DRIVER, 'session', '--task-id', taskId, '--split', split], {
     cwd: benchRoot,
@@ -253,7 +275,12 @@ async function withWorldSession<T>(
       const fromBacklog = backlog.shift()
       if (fromBacklog !== undefined) return resolve(fromBacklog)
       const t = setTimeout(
-        () => reject(new Error(`appworld session: no response in ${timeoutMs}ms; stderr: ${stderr.slice(-400)}`)),
+        () =>
+          reject(
+            new Error(
+              `appworld session: no response in ${timeoutMs}ms; stderr: ${stderr.slice(-400)}`,
+            ),
+          ),
         timeoutMs,
       )
       // One exit listener per await leaks (25-turn episodes blow the listener
@@ -270,8 +297,13 @@ async function withWorldSession<T>(
       child.once('exit', onExit)
     })
   try {
-    const ready = JSON.parse(await nextLine(120_000)) as { ready?: boolean; instruction?: string; error?: string }
-    if (!ready.ready) throw new Error(`appworld session failed to start: ${ready.error ?? 'no ready line'}`)
+    const ready = JSON.parse(await nextLine(120_000)) as {
+      ready?: boolean
+      instruction?: string
+      error?: string
+    }
+    if (!ready.ready)
+      throw new Error(`appworld session failed to start: ${ready.error ?? 'no ready line'}`)
     const call = async (cmd: Record<string, unknown>): Promise<Record<string, unknown>> => {
       child.stdin.write(`${JSON.stringify(cmd)}\n`)
       const res = JSON.parse(await nextLine(180_000)) as Record<string, unknown>
@@ -285,71 +317,72 @@ async function withWorldSession<T>(
   }
 }
 
-/** SandboxClient whose leaf is OUR routerToolLoop driving a persistent world session. */
-export function appworldToolLoopClient(cfg: {
+/** Provider whose turns run our routerToolLoop against a persistent AppWorld session. */
+export function appworldToolLoopProvider(cfg: {
   model: string
   routerBaseUrl: string
   routerKey: string
   maxTurns?: number
-}): unknown {
+}): AgentEnvironmentProvider {
   const maxTurns = cfg.maxTurns ?? Number(process.env.REACT_MAX_TURNS ?? 40)
-  let seq = 0
-  return {
-    async create() {
-      const id = `appworld-toolloop-${seq++}`
-      return {
-        id,
-        async *streamPrompt(prompt: string) {
-          const m = prompt.match(REACT_HEADER)
-          if (!m) {
-            throw new Error(
-              `appworld-react leaf: prompt missing '@appworld-react <taskId> <split>' header — got: ${prompt.slice(0, 120)}`,
-            )
-          }
-          const [, taskId, split] = m
-          const directive = prompt.replace(REACT_HEADER, '').trim()
-          const out = await withWorldSession(taskId as string, split as string, async (call, instruction) => {
-            const system = directive ? `${SESSION_SYSTEM}\n\n${directive}` : SESSION_SYSTEM
-            const loop = await routerToolLoop(
-              { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model },
-              system,
-              `Task: ${instruction}`,
-              [EXECUTE_TOOL],
-              async (name, args) => {
-                if (name !== 'execute_python') return `error: unknown tool ${name}`
-                const res = await call({ op: 'execute', code: String(args.code ?? '') })
-                const done = res.task_completed === true
-                return `${String(res.output ?? '')}${done ? '\n\n[TASK MARKED COMPLETE — reply with a final summary and do not call the tool again]' : ''}`
-              },
-              { maxTurns },
-            )
-            const verdict = (await call({ op: 'evaluate' })) as unknown as ReactResult
-            const transcript = loop.toolTrace
-              .slice(-3)
-              .map((t) => `CODE:\n${t.args.slice(0, 600)}\nOUTPUT:\n${t.result.slice(0, 600)}`)
-              .join('\n---\n')
-              .slice(0, 1600)
-            return {
-              ...verdict,
-              turns: loop.turns,
-              input_tokens: loop.usage.input,
-              output_tokens: loop.usage.output,
-              transcript,
-            } satisfies ReactResult
-          })
-          // Real usage from the episode — flat llm_call so the kernel meters it.
-          if (out.input_tokens || out.output_tokens) {
-            yield {
-              type: 'llm_call',
-              data: { tokensIn: out.input_tokens ?? 0, tokensOut: out.output_tokens ?? 0, model: cfg.model },
-            }
-          }
-          yield { type: 'result', data: { finalText: JSON.stringify(out) } }
-        },
-        async delete() {},
+  return inProcessEnvironmentProvider({
+    name: 'appworld-tool-loop',
+    id: (sequence) => `appworld-toolloop-${sequence}`,
+    async *onTurn(prompt): AsyncIterable<AgentEnvironmentEvent> {
+      const m = prompt.match(REACT_HEADER)
+      if (!m) {
+        throw new Error(
+          `appworld-react leaf: prompt missing '@appworld-react <taskId> <split>' header — got: ${prompt.slice(0, 120)}`,
+        )
       }
+      const [, taskId, split] = m
+      const directive = prompt.replace(REACT_HEADER, '').trim()
+      const out = await withWorldSession(
+        taskId as string,
+        split as string,
+        async (call, instruction) => {
+          const system = directive ? `${SESSION_SYSTEM}\n\n${directive}` : SESSION_SYSTEM
+          const loop = await routerToolLoop(
+            { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model },
+            system,
+            `Task: ${instruction}`,
+            [EXECUTE_TOOL],
+            async (name, args) => {
+              if (name !== 'execute_python') return `error: unknown tool ${name}`
+              const res = await call({ op: 'execute', code: String(args.code ?? '') })
+              const done = res.task_completed === true
+              return `${String(res.output ?? '')}${done ? '\n\n[TASK MARKED COMPLETE — reply with a final summary and do not call the tool again]' : ''}`
+            },
+            { maxTurns },
+          )
+          const verdict = (await call({ op: 'evaluate' })) as unknown as ReactResult
+          const transcript = loop.toolTrace
+            .slice(-3)
+            .map((t) => `CODE:\n${t.args.slice(0, 600)}\nOUTPUT:\n${t.result.slice(0, 600)}`)
+            .join('\n---\n')
+            .slice(0, 1600)
+          return {
+            ...verdict,
+            turns: loop.turns,
+            input_tokens: loop.usage.input,
+            output_tokens: loop.usage.output,
+            transcript,
+          } satisfies ReactResult
+        },
+      )
+      if (out.input_tokens || out.output_tokens) {
+        yield {
+          type: 'llm_call',
+          data: {
+            tokensIn: out.input_tokens ?? 0,
+            tokensOut: out.output_tokens ?? 0,
+            model: cfg.model,
+          },
+        }
+      }
+      yield { type: 'result', data: { finalText: JSON.stringify(out) } }
     },
-  }
+  })
 }
 
 /** Artifact = the episode's evaluation JSON, verbatim (no fence extraction). */
@@ -421,6 +454,6 @@ export function createAppWorldReactAdapter(): BenchmarkAdapter {
       }
     },
 
-    leafClient: (c) => appworldToolLoopClient(c),
+    leafProvider: (config) => appworldToolLoopProvider(config),
   }
 }

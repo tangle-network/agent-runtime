@@ -303,6 +303,9 @@ async function main(): Promise<void> {
       judgeModel: process.env.JUDGE_MODEL ?? 'adapter-default',
     }),
     method: officialGepa<TrataScenario, string>({
+      persistenceIdentity: canonicalCandidateDigest({
+        evaluation: 'trata-official-gepa-v1',
+      }),
       objective:
         'Improve the complete system instruction for a financial analyst that writes evidence-backed investment memos.',
       background:

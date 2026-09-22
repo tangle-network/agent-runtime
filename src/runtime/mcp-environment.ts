@@ -5,7 +5,7 @@
  * check, close it — and the tool plumbing is derived from the server).
  *
  * What the helper owns (the generic 80%, hardened on the EnterpriseOps gym):
- *   - JSON-RPC `tools/list` → `AgenticTool[]`, with schemas coerced to the
+ *   - JSON-RPC `tools/list` → `EnvironmentTool[]`, with schemas coerced to the
  *     OpenAI-tool-valid shape (top-level oneOf/anyOf/allOf/enum/not are rejected by
  *     tool-calling providers; nested combinators are fine).
  *   - JSON-RPC `tools/call` → the tool's text content (errors surfaced as `ERROR: …`
@@ -19,7 +19,7 @@
  */
 
 import type { Environment } from './run-benchmark'
-import type { AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from './strategy'
+import type { ArtifactHandle, EnvironmentScore, EnvironmentTask, EnvironmentTool } from './strategy'
 
 /** Where a handle's MCP server lives; headers carry per-artifact scoping. */
 export interface McpEndpoint {
@@ -30,13 +30,13 @@ export interface McpEndpoint {
 export interface McpEnvironmentOptions {
   name: string
   /** Create/seed the per-task artifact; return its handle + the MCP endpoint scoped to it. */
-  open(task: AgenticTask): Promise<{ handle: ArtifactHandle; endpoint: McpEndpoint }>
+  open(task: EnvironmentTask): Promise<{ handle: ArtifactHandle; endpoint: McpEndpoint }>
   /** The deployable check over the artifact's current state. */
-  score(task: AgenticTask, handle: ArtifactHandle): Promise<SurfaceScore>
+  score(task: EnvironmentTask, handle: ArtifactHandle): Promise<EnvironmentScore>
   /** Teardown (delete the seeded artifact). Optional — omit for stateless servers. */
   close?(handle: ArtifactHandle): Promise<void>
   /** Restrict/order the server's tools per task (e.g. the task's selected_tools). Default: all. */
-  selectTools?(task: AgenticTask, all: AgenticTool[]): AgenticTool[]
+  selectTools?(task: EnvironmentTask, all: EnvironmentTool[]): EnvironmentTool[]
   /** Cap on a tool result's text fed back to the worker. Default 1500 chars. */
   maxResultChars?: number
 }
@@ -93,7 +93,7 @@ export function sanitizeMcpToolSchema(s: unknown): Record<string, unknown> {
   return { type: 'object', properties: {} }
 }
 
-/** Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. */
+/** Wrap any MCP server as an `Environment`: `tools/list` becomes `EnvironmentTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. */
 export function createMcpEnvironment(opts: McpEnvironmentOptions): Environment {
   const endpoints = new Map<string, McpEndpoint>()
   const maxChars = opts.maxResultChars ?? 1500
@@ -125,7 +125,7 @@ export function createMcpEnvironment(opts: McpEnvironmentOptions): Environment {
           }
         ).result?.tools ?? []
       ).map(
-        (t): AgenticTool => ({
+        (t): EnvironmentTool => ({
           type: 'function',
           function: {
             name: t.name,

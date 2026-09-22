@@ -67,23 +67,28 @@ async function main() {
   const port = (server.address() as { port: number }).port
   const baseUrl = `http://127.0.0.1:${port}`
   const apiKey = process.env.TANGLE_API_KEY ?? 'sk-tan-demo'
+  const tenantId = process.env.TANGLE_TENANT_ID ?? 'tenant-demo'
   const project = 'support-agent'
 
-  // 1) THE ERGONOMICS — wrap any agent in one line; it receives the tenant's certified profile (fail-closed)
+  // 1) THE ERGONOMICS — wrap any agent in one line; it receives tenant-bound certified context (fail-closed)
   //    and ships a RunRecord best-effort (the call returns as soon as the agent does, the span flushes async).
   const wrapped = withIntelligence(async (input: { question: string }) => supportAgent(input), {
+    tenantId,
     project,
     apiKey,
     baseUrl,
+    allowInsecureLoopback: true,
   })
   const out = await wrapped({ question: 'how do I reset my password?' })
   console.log(`1) wrapped an agent, got its answer: ${JSON.stringify(out.answer).slice(0, 48)}…`)
 
   // 2) The agent still answers when Intelligence is dead — best-effort telemetry never breaks the app.
   const onDead = withIntelligence(async (input: { question: string }) => supportAgent(input), {
+    tenantId,
     project,
     apiKey,
     baseUrl: 'http://127.0.0.1:1', // nothing listening
+    allowInsecureLoopback: true,
   })
   const stillWorks = await onDead({ question: 'is intelligence down?' })
   console.log(`2) survived a dead endpoint: ${stillWorks.answer.length > 0}`)
@@ -93,7 +98,13 @@ async function main() {
   //    intelligence spawn, so only the base inference stream costs anything (we record just that); the
   //    span's intelligence_usd is 0 by construction — a `standard`-tier run would fill it itself.
   received.length = 0
-  const off = createIntelligenceClient({ project, apiKey, baseUrl, effort: 'off' })
+  const off = createIntelligenceClient({
+    project,
+    apiKey,
+    baseUrl,
+    allowInsecureLoopback: true,
+    effort: 'off',
+  })
   await off.traceRun({ input: { q: 'cheap turn' } }, async (trace) => {
     trace.recordOutcome({ usage: { inferenceUsd: 0.0008 } })
     return supportAgent({ question: 'cheap turn' })

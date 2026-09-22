@@ -184,6 +184,9 @@ async function main(): Promise<void> {
       checker: 'local-python',
     }),
     method: officialGepa<Scenario, string | null>({
+      persistenceIdentity: canonicalCandidateDigest({
+        evaluation: 'humaneval-official-gepa-v1',
+      }),
       objective:
         'Improve the complete instruction for a small model that writes Python functions which pass hidden unit tests.',
       background:

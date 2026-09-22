@@ -1,11 +1,11 @@
 /**
  * The LIVE observe→steer loop — the hard join, on real endpoints (no mocks).
  *
- * The facade-postmortem's standing rule (docs/research/loop-facade-postmortem.md):
- * prove the smallest real loop on LIVE paths, not mocks. This closes the join
+ * Run the smallest complete loop on live paths.
+ * This closes the join
  * with BOTH ends real — a real cloud worker and a real router-backed observer:
  *
- *   round → REAL cloud worker (openSandboxRun, opencode in a box) over the task +
+ *   round → REAL cloud worker (openEnvironmentRun, opencode in a box) over the task +
  *           accumulated steers → its real event trace
  *        → observe() with a REAL router LLM reads that trace → an AnalystFinding
  *        → the finding's recommended_action is injected as a STEER into the next
@@ -30,9 +30,10 @@
  *     env MODEL=gpt-4.1 ROUNDS=3 pnpm exec tsx src/cloud-loop.mts
  */
 import { createChatClient } from '@tangle-network/agent-eval'
-import { observe, openSandboxRun } from '@tangle-network/agent-runtime/loops'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import { observe, openEnvironmentRun } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
-import { answerOutput, sandboxAgentRun } from './sandbox-run'
+import { answerOutput, environmentAgentRun } from './environment-run'
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
@@ -71,10 +72,21 @@ async function main(): Promise<void> {
   const model = env('MODEL', 'gpt-4.1')
   const routerBaseUrl = env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1')
   const rounds = Number(env('ROUNDS', '3'))
-  const client = new Sandbox({ baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'), apiKey: routerKey })
-  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: routerBaseUrl, defaultModel: model })
+  const client = new Sandbox({
+    baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'),
+    apiKey: routerKey,
+  })
+  const provider = createTangleProvider({ client: client as never })
+  const chat = createChatClient({
+    transport: 'router',
+    apiKey: routerKey,
+    baseUrl: routerBaseUrl,
+    defaultModel: model,
+  })
 
-  console.error(`\n=== LIVE observe→steer loop · ${model} · real cloud worker + real observer ===\n`)
+  console.error(
+    `\n=== LIVE observe→steer loop · ${model} · real cloud worker + real observer ===\n`,
+  )
   const steers: string[] = []
   let solved = false
 
@@ -89,15 +101,21 @@ async function main(): Promise<void> {
     let output = ''
     let events: unknown[] = []
     try {
-      const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType: 'opencode', name: `worker-r${round}` })
-      const run = await openSandboxRun<string>(
-        client,
-        { agentRun, signal: controller.signal },
-        { kind: 'events', fromEvents: (e) => answerOutput.parse(e as never) },
-      )
+      const agentRun = environmentAgentRun({
+        model,
+        routerBaseUrl,
+        backendType: 'opencode',
+        name: `worker-r${round}`,
+      })
+      const run = await openEnvironmentRun<string>({
+        provider,
+        agentRun,
+        signal: controller.signal,
+        deliverable: { kind: 'events', fromEvents: (events) => answerOutput.parse(events) },
+      })
       try {
-        const turn = await run.start(prompt)
-        output = (turn.out ?? '').trim()
+        const turn = await run.turn(prompt)
+        output = turn.output.trim()
         events = turn.events
       } finally {
         await run.close().catch(() => {})
@@ -110,7 +128,9 @@ async function main(): Promise<void> {
     }
 
     solved = verify(output)
-    console.error(`   tools used: [${tools(events).join(', ') || 'none'}]   verifier: ${solved ? 'PASS ✓' : 'fail'}`)
+    console.error(
+      `   tools used: [${tools(events).join(', ') || 'none'}]   verifier: ${solved ? 'PASS ✓' : 'fail'}`,
+    )
     if (solved) break
 
     // THE JOIN: a REAL observer reads the REAL trace → a finding → next round's steer.
@@ -118,7 +138,9 @@ async function main(): Promise<void> {
       { task, output, trace: events, outcome: 'failed', runId: `r${round}` },
       { chat, model },
     )
-    const next = ob.findings.flatMap((f) => (f.recommended_action ? [f.recommended_action] : [])).slice(0, 3)
+    const next = ob.findings
+      .flatMap((f) => (f.recommended_action ? [f.recommended_action] : []))
+      .slice(0, 3)
     if (next.length === 0) {
       console.error('   observer found nothing actionable — stopping.')
       break
@@ -128,7 +150,9 @@ async function main(): Promise<void> {
     steers.push(...next)
   }
 
-  console.error(`\n=== ${solved ? '✅ SOLVED' : '✗ unsolved'} after ${steers.length ? 'steered ' : ''}rounds · observe→steer ran on LIVE endpoints ===`)
+  console.error(
+    `\n=== ${solved ? '✅ SOLVED' : '✗ unsolved'} after ${steers.length ? 'steered ' : ''}rounds · observe→steer ran on LIVE endpoints ===`,
+  )
   process.exit(solved ? 0 : 1)
 }
 

@@ -1,29 +1,15 @@
-/**
- * `@tangle-network/agent-runtime/agent` — declarative agent manifest +
- * substrate-default adapters.
- *
- * Every vertical agent (tax / legal / gtm / creative / N future
- * verticals) ships ONE `defineAgent({...})` call + a thin invocation
- * of `runAnalystLoop` wired through the substrate-default adapters.
- * No per-vertical glue. No fabricated paths. No theater.
- */
-
+/** Provider-backed evaluation and repository-improvement utilities. */
 export type {
-  AgentManifest,
-  AgentRubric,
   AgentRunContext,
   AgentRunInvocation,
-  AgentRuntime,
-  AnalystConfig,
-  JudgeConfig,
-  RubricDimension,
-} from './define-agent'
+  CreateEnvironmentActOptions,
+  EnvironmentActComposeOverrides,
+} from './environment-act'
 export {
-  AgentManifestError,
   collectAgentRun,
-  defineAgent,
-  unimplementedAgentRun,
-} from './define-agent'
+  createEnvironmentAct,
+  environmentActProfileMaterialization,
+} from './environment-act'
 export type {
   CreateSurfaceImprovementProposerOptions,
   DraftPatchInput,
@@ -31,6 +17,16 @@ export type {
   SurfaceImprovementEdit,
 } from './improvement-adapter'
 export { createSurfaceImprovementProposer } from './improvement-adapter'
+export type {
+  AgentImprovementPaths,
+  ImprovementPathIssue,
+  ResolvedImprovementPath,
+} from './improvement-paths'
+export {
+  renderImprovementPathIssues,
+  resolveSubjectPath,
+  validateImprovementPaths,
+} from './improvement-paths'
 export type {
   AgentProfileMaterializationAxis,
   AssertProfileMaterializationOptions,
@@ -47,10 +43,5 @@ export {
   promptOnlyProfileMaterialization,
   promptResourceProfileMaterialization,
   renderProfileMaterializationIssues,
-  sandboxActProfileMaterialization,
   validateProfileMaterialization,
 } from './profile-materialization'
-export type { CreateSandboxActOptions } from './sandbox-act'
-export { createSandboxAct } from './sandbox-act'
-export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
-export { renderSurfaceIssues, resolveSubjectPath, validateSurfaces } from './surfaces'

@@ -1,12 +1,8 @@
 /**
  *
- * Sandbox-session coder decode layer. The sandbox-session delegate (`./delegates`) and the
- * cross-restart resume driver run the in-box harness over a `SandboxClient` and need to
- * (a) build an `AgentRunSpec` from the caller-authored (or minimal model-only default) worker
- * profile, (b) decode the harness event stream into a structured `CoderOutput`, and (c) gate it with
- * the shared mechanical checks. This sandbox-session path is kept separate from the generic recursive
- * path: `worktreeFanout` instead settles the raw `WorktreePatchArtifact` and gates via
- * `patchDelivered`. Prefer `worktreeFanout` / `worktreeLoopRunner` for NEW local-repo coding.
+ * Decode an environment-backed coding run into `CoderOutput` and apply the
+ * shared mechanical checks. Local repository work should use
+ * `worktreeLoopRunner`.
  *
  * The decode tolerates two `result`-event shapes:
  *   1. the in-process executor's raw worktree-harness result (`{ branch, patch, stats, checks }`),
@@ -110,7 +106,7 @@ export interface MultiHarnessCoderFanoutOptions {
 
 /**
  * The multi-harness coder fanout driving the sandbox-session delegate's `variants>1` path.
- * (`worktreeFanout` is the local-repo generic counterpart for new code.)
+ * `worktreeLoopRunner` is the public local-repository entry point.
  *
  * @experimental
  */

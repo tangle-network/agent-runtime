@@ -1,115 +1,59 @@
 /**
+ * Detached provider turns and cross-process resume.
  *
- * Detached delegation turns over the sandbox SDK's `driveTurn` primitive.
- *
- * Two halves of one story:
- *
- *   - {@link runDetachedTurn} — the dispatch side. A single-session delegate
- *     (single-variant coder / researcher) acquires a box, binds the sandbox id
- *     into the record's `detachedSessionRef`, then advances the turn with
- *     repeated `driveTurn` ticks instead of holding a live SSE stream. The
- *     session id is deterministic and supplied at submit time, so a process
- *     crash between ticks loses nothing — the turn keeps running in the box.
- *
- *   - {@link createDetachedTurnResumeDriver} — the resume side. A
- *     `DelegationResumeDriver` that re-attaches restored in-flight records to
- *     their detached runs: parse the record's ref, resolve the box, advance the
- *     turn one `driveTurn` pass per `tick()`, and map the SDK's three states
- *     (`completed | running | failed`) onto `DelegationResumeTick`.
- *
- * Both sides type the box structurally ({@link DriveTurnCapableBox}) so tests
- * inject fakes and the module never requires the sandbox SDK at runtime — the
- * SDK stays an optional peer, exactly like the executors' `SandboxClient` seam.
- *
- * Tradeoffs of detached mode (why it is opt-in, not the default): a detached
- * turn yields one terminal payload instead of a live event stream, so kernel
- * token/cost aggregation is not produced for that turn. The trace sinks still
- * observe detached work — `runDetachedTurn` synthesizes a single-iteration
- * loop event stream (see `RunDetachedTurnOptions.traceEmitter`) so the span
- * topology joins the inherited trace context, with cost/tokens reported as 0
- * under the `'detached-turn'` driver tag. Multi-variant fanout stays on the
- * streaming `runAgentRounds` path — N concurrent sessions cannot be expressed as one
- * resume key, and winner selection needs every candidate.
+ * Dispatch creates one environment, starts one detached session, persists the
+ * environment and session ids, then waits without holding the live event
+ * stream. Resume resolves those ids through the provider and reads the same
+ * session. No provider-private methods are required.
  *
  * @experimental
  */
 
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+  AgentSession,
+  AgentSessionStatus,
+  AgentTurnResult,
+  PlacementInfo,
+} from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../errors'
-import type { AgentRunSpec, LoopTraceEmitter, LoopTraceEvent, SandboxClient } from '../runtime'
-import { createSandboxForSpec } from '../runtime/run-loop'
-import { deleteBoxSafe, sleep, throwAbort, throwIfAborted } from '../runtime/util'
+import { createEnvironmentForSpec } from '../runtime/environment-create'
+import type { AgentRunSpec, LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
+import { destroyEnvironmentSafe, sleep, throwAbort, throwIfAborted } from '../runtime/util'
 import type { DelegationRecord, DelegationResumeDriver, DelegationResumeTick } from './task-queue'
 import type { DelegationProgress, DelegationResultPayload } from './types'
 
 const DEFAULT_TICK_INTERVAL_MS = 5000
 
-/**
- * Structural mirror of the sandbox SDK's `TurnDriveResult` (>= 0.6).
- * Discriminated on `state`; `failed` is terminal and deterministic per the
- * SDK contract — re-invoking with the same ids returns the same outcome.
- *
- * @experimental
- */
-export type DriveTurnTick =
-  | { state: 'completed'; text: string; result: Record<string, unknown> }
-  | { state: 'running'; startedAt?: Date; elapsedMs?: number }
-  | { state: 'failed'; error: string }
-
-/**
- * The box surface detached turns need. `SandboxInstance`
- * (`@tangle-network/sandbox` >= 0.6) satisfies it structurally; tests pass
- * in-memory fakes. `_sessionCancel` is the SDK's remote-cancellation surface —
- * optional here because older SDKs / fakes may not expose it; when present it
- * is invoked on abort so the remote run actually stops.
- *
- * @experimental
- */
-export interface DriveTurnCapableBox {
-  driveTurn(
-    message: string,
-    opts: { sessionId: string; turnId?: string; wallCapMs?: number },
-  ): Promise<DriveTurnTick>
-  _sessionCancel?(id: string): Promise<void>
-}
-
-/**
- * Decoded `DelegationRecord.detachedSessionRef`. `sandboxId` is absent between
- * submit and box acquisition — a record restored in that window is not
- * resumable (there is no box to resume on) and the resume driver fails it
- * loud rather than dispatching onto a guessed box.
- *
- * @experimental
- */
+/** Decoded `DelegationRecord.detachedSessionRef`. */
 export interface DetachedSessionRefParts {
   sessionId: string
-  sandboxId?: string
+  environmentId?: string
 }
 
 /**
- * Encode ref parts into the JSON-safe string stored on the record:
- * `session=<id>` before the box exists, `sandbox=<id>;session=<id>` once
- * bound. Ids must not contain the `;`/`=` delimiters.
- *
- * @experimental
+ * Encode a detached session reference. The environment id is absent before
+ * dispatch and required for cross-process resume.
  */
 export function formatDetachedSessionRef(parts: DetachedSessionRefParts): string {
   assertRefComponent('sessionId', parts.sessionId)
-  if (parts.sandboxId === undefined) return `session=${parts.sessionId}`
-  assertRefComponent('sandboxId', parts.sandboxId)
-  return `sandbox=${parts.sandboxId};session=${parts.sessionId}`
+  if (parts.environmentId === undefined) return `session=${parts.sessionId}`
+  assertRefComponent('environmentId', parts.environmentId)
+  return `environment=${parts.environmentId};session=${parts.sessionId}`
 }
 
-/** Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. @experimental */
+/** Parse a detached session reference and reject retired wire names. */
 export function parseDetachedSessionRef(raw: string): DetachedSessionRefParts {
   const fields = new Map<string, string>()
   for (const pair of raw.split(';')) {
     const eq = pair.indexOf('=')
     const key = eq === -1 ? '' : pair.slice(0, eq)
     const value = eq === -1 ? '' : pair.slice(eq + 1)
-    if ((key !== 'session' && key !== 'sandbox') || value.length === 0 || fields.has(key)) {
+    if ((key !== 'session' && key !== 'environment') || value.length === 0 || fields.has(key)) {
       throw new ValidationError(
-        `parseDetachedSessionRef: malformed detachedSessionRef ${JSON.stringify(raw)} — expected "session=<id>" or "sandbox=<id>;session=<id>"`,
+        `parseDetachedSessionRef: malformed detachedSessionRef ${JSON.stringify(raw)}; expected "session=<id>" or "environment=<id>;session=<id>"`,
       )
     }
     fields.set(key, value)
@@ -120,8 +64,8 @@ export function parseDetachedSessionRef(raw: string): DetachedSessionRefParts {
       `parseDetachedSessionRef: detachedSessionRef ${JSON.stringify(raw)} carries no session id`,
     )
   }
-  const sandboxId = fields.get('sandbox')
-  return { sessionId, ...(sandboxId !== undefined ? { sandboxId } : {}) }
+  const environmentId = fields.get('environment')
+  return { sessionId, ...(environmentId !== undefined ? { environmentId } : {}) }
 }
 
 function assertRefComponent(name: string, value: string): void {
@@ -132,154 +76,146 @@ function assertRefComponent(name: string, value: string): void {
   }
 }
 
-/** @experimental The terminal payload of a finished detached turn. */
+/** Terminal payload of a detached provider turn. */
 export interface DetachedTurn {
-  /** Final assistant text. */
   text: string
-  /** The SDK's cached AgentExecutionResult-shape record for the turn. */
-  result: Record<string, unknown>
+  result: AgentTurnResult
 }
 
-/**
- * Synthesize the terminal event array a detached turn settles through. Shaped
- * so the existing event-stream output adapters (coder, researcher) parse it:
- * `data.result` for adapters that read a structured terminal record, `data.text`
- * for adapters that scan assistant text for the fenced result block.
- *
- * @experimental
- */
-export function detachedTurnEvents(sessionId: string, turn: DetachedTurn): SandboxEvent[] {
+/** Rebuild the terminal event shape consumed by ordinary output adapters. */
+export function detachedTurnEvents(sessionId: string, turn: DetachedTurn): AgentEnvironmentEvent[] {
+  const structured = turn.result.metadata?.result ?? turn.result.metadata ?? turn.result
   return [
+    ...(turn.result.events ?? []),
     {
       type: 'result',
       id: sessionId,
       data: {
         text: turn.text,
         finalText: turn.text,
-        success: true,
-        result: turn.result,
+        success: turn.result.success,
+        result: structured,
+        ...(turn.result.error ? { error: turn.result.error } : {}),
       },
-    } as SandboxEvent,
+      ...(turn.result.usage ? { usage: turn.result.usage } : {}),
+    },
   ]
 }
 
-/** @experimental */
 export interface RunDetachedTurnOptions {
-  /** Sandbox client used to acquire the box (the delegate's executor client). */
-  client: SandboxClient
-  /** Profile + overrides for box acquisition — same spec the streaming path uses. */
+  provider: AgentEnvironmentProvider
   spec: AgentRunSpec<unknown>
-  /** The full turn prompt; consumed by `driveTurn`'s dispatch leg. */
   prompt: string
-  /** Deterministic resume key, minted at submit time (`parseDetachedSessionRef(ref).sessionId`). */
+  /** Requested idempotent session id. */
   sessionId: string
-  /**
-   * Called once the box exists, with its sandbox id. Callers persist
-   * `formatDetachedSessionRef({ sandboxId, sessionId })` onto the record here so
-   * a restart can resolve the box again.
-   */
-  bindSandbox(sandboxId: string): void
+  /** Persist the environment id and provider-returned session id immediately after dispatch. */
+  bindEnvironment(environmentId: string, sessionId: string): void
   signal: AbortSignal
   report(progress: DelegationProgress): void
-  /** Delay between `running` ticks (ms). Default 5000. */
   tickIntervalMs?: number
-  /** Wall-clock cap forwarded to `driveTurn` — the SDK cancels and fails a session past it. */
+  /** Forwarded as the provider-neutral turn timeout. */
   wallCapMs?: number
-  /**
-   * Loop-trace sink. When set, the detached turn synthesizes a
-   * single-iteration loop span tree (`runId` = `sessionId`, driver
-   * `'detached-turn'`) so trace-context inheritance survives the detached
-   * path — the same events the streaming `runAgentRounds` path would emit, minus
-   * per-token telemetry: `driveTurn` yields one terminal payload, so token
-   * and cost figures are structurally unavailable and reported as 0 under
-   * this driver tag.
-   */
   traceEmitter?: LoopTraceEmitter
-  /** Physical placement stamped on the synthesized dispatch event. Default `'sibling'`. */
-  placement?: 'sibling' | 'fleet'
 }
 
 /**
- * Dispatch one detached turn and advance it to a terminal state with
- * `driveTurn` ticks. The first tick dispatches (idempotent on `sessionId`);
- * subsequent ticks poll. On abort the remote session is cancelled via
- * `_sessionCancel` when the box exposes it. The box is torn down on every
- * in-process exit path (success, failure, abort) — only a process death skips
- * teardown, which is exactly the case the resume driver re-attaches to.
+ * Dispatch one detached session and await its terminal result.
  *
- * @experimental
+ * Abort cancels the remote session. Every in-process exit destroys the
+ * environment; a process death leaves it available for the resume driver.
  */
 export async function runDetachedTurn(options: RunDetachedTurnOptions): Promise<DetachedTurn> {
   const intervalMs = options.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS
   const trace = createDetachedTurnTrace(options)
   trace.started()
-  const box = await createSandboxForSpec(options.client, options.spec, options.signal).catch(
-    (err) => {
-      trace.ended(err instanceof Error ? err.message : String(err))
-      throw err
-    },
-  )
-  const drive = box as Partial<DriveTurnCapableBox>
-  const onAbort = () => {
-    void drive._sessionCancel?.(options.sessionId).catch(() => {})
-  }
+
+  let environment: AgentEnvironment | undefined
+  let session: AgentSession | undefined
+  let abortListener: (() => void) | undefined
+  let cancellation: Promise<void> | undefined
+  let terminalUsage: AgentTurnResult['usage']
   try {
-    if (typeof drive.driveTurn !== 'function') {
+    const capabilities = await options.provider.capabilities()
+    if (!capabilities.streaming.detach) {
       throw new ValidationError(
-        'runDetachedTurn: the acquired sandbox exposes no driveTurn(message, { sessionId }) — ' +
-          'detached dispatch requires @tangle-network/sandbox >= 0.6 and a session-backed ' +
-          'placement (sibling/fleet); disable detached dispatch for this executor.',
+        `runDetachedTurn: provider "${options.provider.name}" does not support detached turns`,
       )
     }
-    const sandboxId = (box as { id?: unknown }).id
-    if (typeof sandboxId !== 'string' || sandboxId.length === 0) {
+    environment = await createEnvironmentForSpec(options.provider, options.spec, options.signal)
+    if (!environment.dispatch || !environment.session) {
       throw new ValidationError(
-        'runDetachedTurn: the acquired sandbox carries no id — without it the detached run ' +
-          'cannot be resumed after a restart, so refusing to dispatch detached.',
+        `runDetachedTurn: provider "${environment.provider}" created an environment without dispatch/session support`,
       )
     }
-    options.bindSandbox(sandboxId)
-    trace.dispatched(sandboxId)
-    options.signal.addEventListener('abort', onAbort, { once: true })
-    for (;;) {
-      throwIfAborted(options.signal)
-      const tick = await drive.driveTurn(options.prompt, {
-        sessionId: options.sessionId,
-        turnId: options.sessionId,
-        ...(options.wallCapMs !== undefined ? { wallCapMs: options.wallCapMs } : {}),
-      })
-      throwIfAborted(options.signal)
-      if (tick.state === 'completed') {
-        trace.ended()
-        return { text: tick.text, result: tick.result }
-      }
-      if (tick.state === 'failed') {
-        throw new Error(`detached turn ${options.sessionId} failed: ${tick.error}`)
-      }
-      options.report({ iteration: 0, phase: detachedRunningPhase(tick.elapsedMs) })
-      await sleep(intervalMs, options.signal)
+
+    throwIfAborted(options.signal)
+    const dispatched = await environment.dispatch({
+      prompt: options.prompt,
+      sessionId: options.sessionId,
+      turnId: options.sessionId,
+      executionId: options.sessionId,
+      detach: true,
+      ...(options.wallCapMs !== undefined ? { timeoutMs: options.wallCapMs } : {}),
+      signal: options.signal,
+    })
+    session = environment.session(dispatched.id)
+    options.bindEnvironment(environment.id, dispatched.id)
+    trace.dispatched(environment, await readPlacement(environment))
+
+    abortListener = () => {
+      cancellation ??= session?.cancel().catch(() => {})
     }
-  } catch (err) {
-    trace.ended(err instanceof Error ? err.message : String(err))
-    throw err
+    options.signal.addEventListener('abort', abortListener, { once: true })
+
+    const result = await waitForDetachedResult(session, intervalMs, options.signal, options.report)
+    terminalUsage = result.usage
+    if (!result.success) {
+      throw new Error(
+        `detached turn ${dispatched.id} failed: ${result.error ?? 'provider returned success=false'}`,
+      )
+    }
+    trace.ended(undefined, terminalUsage)
+    return { text: result.text, result }
+  } catch (error) {
+    trace.ended(error instanceof Error ? error.message : String(error), terminalUsage)
+    throw error
   } finally {
-    options.signal.removeEventListener('abort', onAbort)
-    if (options.signal.aborted) onAbort()
-    await deleteBoxSafe(box)
+    if (abortListener) options.signal.removeEventListener('abort', abortListener)
+    if (options.signal.aborted) abortListener?.()
+    await cancellation
+    await destroyEnvironmentSafe(environment)
   }
 }
 
-/**
- * Synthesize the single-iteration loop event stream for one detached turn so
- * the trace sinks (OTEL exporter, delegation journal) observe detached work
- * exactly like a streamed `runAgentRounds` run. `runId` = the deterministic session
- * id; cost/token figures are structurally unavailable on the `driveTurn`
- * surface and emitted as 0 under the `'detached-turn'` driver tag.
- */
+async function waitForDetachedResult(
+  session: AgentSession,
+  intervalMs: number,
+  signal: AbortSignal,
+  report: (progress: DelegationProgress) => void,
+): Promise<AgentTurnResult> {
+  const startedAt = Date.now()
+  const terminal = session.result().then(
+    (result) => ({ kind: 'result' as const, result }),
+    (error: unknown) => ({ kind: 'error' as const, error }),
+  )
+
+  for (;;) {
+    throwIfAborted(signal)
+    const next = await Promise.race([
+      terminal,
+      sleep(intervalMs, signal).then(() => ({ kind: 'tick' as const })),
+    ])
+    throwIfAborted(signal)
+    if (next.kind === 'result') return next.result
+    if (next.kind === 'error') throw next.error
+    report({ iteration: 0, phase: detachedRunningPhase(Date.now() - startedAt) })
+  }
+}
+
 function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
   started(): void
-  dispatched(sandboxId: string): void
-  ended(error?: string): void
+  dispatched(environment: AgentEnvironment, placement: PlacementInfo): void
+  ended(error?: string, usage?: AgentTurnResult['usage']): void
 } {
   const emitter = options.traceEmitter
   if (!emitter) {
@@ -312,7 +248,7 @@ function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
         payload: { iterationIndex: 0, agentRunName, taskHash: options.sessionId },
       })
     },
-    dispatched(sandboxId: string): void {
+    dispatched(environment, placement): void {
       emit({
         kind: 'loop.iteration.dispatch',
         runId,
@@ -320,15 +256,26 @@ function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
         payload: {
           iterationIndex: 0,
           agentRunName,
-          placement: options.placement ?? 'sibling',
-          sandboxId,
+          placement: placement.kind,
+          environmentId: environment.id,
+          provider: environment.provider,
+          ...(placement.sandboxId ? { sandboxId: placement.sandboxId } : {}),
+          ...(placement.fleetId ? { fleetId: placement.fleetId } : {}),
+          ...(placement.machineId ? { machineId: placement.machineId } : {}),
+          ...(placement.region ? { region: placement.region } : {}),
+          ...(placement.providerMetadata ? { providerMetadata: placement.providerMetadata } : {}),
         },
       })
     },
-    ended(error?: string): void {
+    ended(error?: string, usage?: AgentTurnResult['usage']): void {
       if (done) return
       done = true
       const endMs = Date.now()
+      const costUsd = usage?.cost ?? 0
+      const tokenUsage =
+        usage && (usage.inputTokens || usage.outputTokens)
+          ? { input: usage.inputTokens, output: usage.outputTokens }
+          : undefined
       emit({
         kind: 'loop.iteration.ended',
         runId,
@@ -336,8 +283,9 @@ function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
         payload: {
           iterationIndex: 0,
           agentRunName,
-          costUsd: 0,
+          costUsd,
           durationMs: endMs - startMs,
+          ...(tokenUsage ? { tokenUsage } : {}),
           ...(error !== undefined ? { error } : {}),
         },
       })
@@ -347,12 +295,20 @@ function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
         timestamp: endMs,
         payload: {
           ...(error === undefined ? { winnerIterationIndex: 0 } : {}),
-          totalCostUsd: 0,
+          totalCostUsd: costUsd,
           durationMs: endMs - startMs,
           iterations: 1,
         },
       })
     },
+  }
+}
+
+async function readPlacement(environment: AgentEnvironment): Promise<PlacementInfo> {
+  try {
+    return (await environment.placement?.()) ?? { kind: 'provider' }
+  } catch {
+    return { kind: 'provider' }
   }
 }
 
@@ -362,115 +318,199 @@ function detachedRunningPhase(elapsedMs: number | undefined): string {
     : `detached-running ${Math.round(elapsedMs / 1000)}s`
 }
 
-/** @experimental */
 export interface DetachedTurnResumeDriverOptions {
-  /**
-   * Resolve the live box owning a detached session. The bin wires this to the
-   * sandbox client's `get(sandboxId)`; throw when the box no longer exists —
-   * a thrown tick settles the record as failed, which is the truth.
-   */
-  resolveSandbox(sandboxId: string): Promise<DriveTurnCapableBox>
-  /**
-   * Rebuild the turn prompt from the persisted record. Only consumed by
-   * `driveTurn`'s dispatch leg — i.e. when the previous process died after
-   * binding the box but before the session was dispatched. Must reproduce the
-   * prompt the delegate would have sent.
-   */
-  buildMessage(record: DelegationRecord): string
-  /**
-   * Map a completed turn onto the delegation's typed output payload (parse +
-   * validate per profile). Throw when the resumed result does not pass the
-   * profile's gate — the queue settles the record as failed with that error.
-   */
+  /** Provider that created the persisted environment. `get` is required. */
+  provider: AgentEnvironmentProvider
   settleOutput(
     turn: DetachedTurn,
     record: DelegationRecord,
     ctx: { signal: AbortSignal },
   ): Promise<DelegationResultPayload['output']> | DelegationResultPayload['output']
-  /** Delay between `running` ticks (ms). Default 5000. */
   intervalMs?: number
-  /** Wall-clock cap forwarded to `driveTurn` on every tick. */
-  wallCapMs?: number
 }
 
 /**
- * Build the `driveTurn`-backed {@link DelegationResumeDriver}. Each `tick()`
- * is one settle/poll/dispatch pass:
- *
- *   - ref without a sandbox binding → `failed` (`DetachedSessionUnboundError`):
- *     the previous process died before a box existed; there is nothing to resume.
- *   - `driveTurn` `completed` → `settleOutput` → `completed` tick.
- *   - `running` → progress via `ctx.report`, `running` tick (queue re-ticks
- *     after `intervalMs`).
- *   - `failed` → `failed` tick (`DetachedTurnFailedError`) — terminal per the
- *     SDK's deterministic-failure contract.
- *
- * Abort: the queue stops ticking once `cancel()` flips the record, so remote
- * cancellation is hooked onto `ctx.signal` (once per task) and fires
- * `_sessionCancel` when the SDK surface exposes it. The driver never deletes
- * boxes — it cannot know whether `sandboxId` is a disposable sibling or a
- * fleet machine, and destroying a fleet machine would be unrecoverable.
- *
- * @experimental
+ * Resume detached work by resolving the persisted environment and session.
+ * Each queue tick performs one status read and settles only on a terminal state.
  */
 export function createDetachedTurnResumeDriver(
   options: DetachedTurnResumeDriverOptions,
 ): DelegationResumeDriver {
-  const cancelHooked = new Set<string>()
+  const cancellationHooks = new Map<string, ResumeCancellationHook>()
   return {
     intervalMs: options.intervalMs ?? DEFAULT_TICK_INTERVAL_MS,
     async tick({ record, detachedSessionRef }, ctx): Promise<DelegationResumeTick> {
-      const ref = parseDetachedSessionRef(detachedSessionRef)
-      if (ref.sandboxId === undefined) {
-        return {
-          state: 'failed',
-          error: {
-            message:
-              `detached session "${ref.sessionId}" was never bound to a sandbox — the previous ` +
-              'process died before the box was acquired, so the turn was never dispatched and ' +
-              'cannot be resumed',
-            kind: 'DetachedSessionUnboundError',
-          },
+      let environment: AgentEnvironment | undefined
+      try {
+        const ref = parseDetachedSessionRef(detachedSessionRef)
+        if (ref.environmentId === undefined) {
+          await releaseResumeCancellation(cancellationHooks, record.taskId)
+          return failedTick(
+            'DetachedSessionUnboundError',
+            `detached session "${ref.sessionId}" was never bound to an environment; it cannot be resumed`,
+          )
         }
-      }
-      const box = await options.resolveSandbox(ref.sandboxId)
-      if (!cancelHooked.has(record.taskId)) {
-        cancelHooked.add(record.taskId)
-        ctx.signal.addEventListener(
-          'abort',
-          () => {
-            void box._sessionCancel?.(ref.sessionId).catch(() => {})
-          },
-          { once: true },
-        )
-      }
-      if (ctx.signal.aborted) throwAbort()
-      const tick = await box.driveTurn(options.buildMessage(record), {
-        sessionId: ref.sessionId,
-        turnId: ref.sessionId,
-        ...(options.wallCapMs !== undefined ? { wallCapMs: options.wallCapMs } : {}),
-      })
-      if (tick.state === 'completed') {
-        const output = await options.settleOutput(
-          { text: tick.text, result: tick.result },
-          record,
-          {
-            signal: ctx.signal,
-          },
-        )
-        return { state: 'completed', output }
-      }
-      if (tick.state === 'failed') {
-        return {
-          state: 'failed',
-          error: {
-            message: `detached turn ${ref.sessionId} failed: ${tick.error}`,
-            kind: 'DetachedTurnFailedError',
-          },
+        if (!options.provider.get) {
+          await releaseResumeCancellation(cancellationHooks, record.taskId)
+          return failedTick(
+            'DetachedEnvironmentLookupUnsupportedError',
+            `provider "${options.provider.name}" cannot resolve environment "${ref.environmentId}"`,
+          )
         }
+
+        const resolvedEnvironment = await options.provider.get(ref.environmentId)
+        if (!resolvedEnvironment) {
+          await releaseResumeCancellation(cancellationHooks, record.taskId)
+          return failedTick(
+            'DetachedEnvironmentNotFoundError',
+            `environment "${ref.environmentId}" no longer exists`,
+          )
+        }
+        environment = resolvedEnvironment
+        if (!environment.session) {
+          return await finishResumeTick(
+            cancellationHooks,
+            record.taskId,
+            environment,
+            failedTick(
+              'DetachedSessionLookupUnsupportedError',
+              `environment "${ref.environmentId}" does not support session lookup`,
+            ),
+          )
+        }
+        const session = environment.session(ref.sessionId)
+        attachResumeCancellation(cancellationHooks, record.taskId, ctx.signal, environment, session)
+        if (ctx.signal.aborted) throwAbort()
+
+        const status = await session.status()
+        if (ctx.signal.aborted) throwAbort()
+        if (status === null) {
+          return await finishResumeTick(
+            cancellationHooks,
+            record.taskId,
+            environment,
+            failedTick(
+              'DetachedSessionNotFoundError',
+              `session "${ref.sessionId}" no longer exists in environment "${ref.environmentId}"`,
+            ),
+          )
+        }
+        if (!isTerminalSessionStatus(status)) {
+          if (status === 'unknown') {
+            return await finishResumeTick(
+              cancellationHooks,
+              record.taskId,
+              environment,
+              failedTick(
+                'DetachedSessionStatusUnknownError',
+                `provider "${options.provider.name}" returned unknown status for session "${ref.sessionId}"`,
+              ),
+            )
+          }
+          ctx.report({ iteration: 0, phase: detachedRunningPhase(undefined) })
+          return { state: 'running' }
+        }
+        if (status === 'failed' || status === 'cancelled' || status === 'expired') {
+          return await finishResumeTick(
+            cancellationHooks,
+            record.taskId,
+            environment,
+            failedTick(
+              'DetachedTurnFailedError',
+              `detached turn ${ref.sessionId} ended with status ${status}`,
+            ),
+          )
+        }
+
+        const result = await session.result()
+        if (ctx.signal.aborted) throwAbort()
+        if (!result.success) {
+          return await finishResumeTick(
+            cancellationHooks,
+            record.taskId,
+            environment,
+            failedTick(
+              'DetachedTurnFailedError',
+              `detached turn ${ref.sessionId} failed: ${result.error ?? 'provider returned success=false'}`,
+            ),
+          )
+        }
+        const turn = { text: result.text, result }
+        const output = await options.settleOutput(turn, record, { signal: ctx.signal })
+        if (ctx.signal.aborted) throwAbort()
+        return await finishResumeTick(cancellationHooks, record.taskId, environment, {
+          state: 'completed',
+          output,
+        })
+      } catch (error) {
+        const cleanedOnAbort = await releaseResumeCancellation(cancellationHooks, record.taskId)
+        if (!cleanedOnAbort) await destroyEnvironmentSafe(environment)
+        throw error
       }
-      ctx.report({ iteration: 0, phase: detachedRunningPhase(tick.elapsedMs) })
-      return { state: 'running' }
     },
   }
+}
+
+interface ResumeCancellationHook {
+  signal: AbortSignal
+  onAbort: () => void
+  cleanup?: Promise<void>
+}
+
+function attachResumeCancellation(
+  hooks: Map<string, ResumeCancellationHook>,
+  taskId: string,
+  signal: AbortSignal,
+  environment: AgentEnvironment,
+  session: AgentSession,
+): void {
+  if (hooks.has(taskId) || signal.aborted) return
+  const hook: ResumeCancellationHook = {
+    signal,
+    onAbort: () => {
+      hook.cleanup ??= Promise.allSettled([
+        Promise.resolve().then(() => session.cancel()),
+        destroyEnvironmentSafe(environment),
+      ]).then(() => {})
+    },
+  }
+  hooks.set(taskId, hook)
+  signal.addEventListener('abort', hook.onAbort, { once: true })
+}
+
+async function releaseResumeCancellation(
+  hooks: Map<string, ResumeCancellationHook>,
+  taskId: string,
+): Promise<boolean> {
+  const hook = hooks.get(taskId)
+  if (!hook) return false
+  hooks.delete(taskId)
+  hook.signal.removeEventListener('abort', hook.onAbort)
+  await hook.cleanup
+  return hook.cleanup !== undefined
+}
+
+async function finishResumeTick(
+  hooks: Map<string, ResumeCancellationHook>,
+  taskId: string,
+  environment: AgentEnvironment,
+  tick: DelegationResumeTick,
+): Promise<DelegationResumeTick> {
+  const cleanedOnAbort = await releaseResumeCancellation(hooks, taskId)
+  if (!cleanedOnAbort) await destroyEnvironmentSafe(environment)
+  return tick
+}
+
+function isTerminalSessionStatus(status: AgentSessionStatus): boolean {
+  return (
+    status === 'completed' ||
+    status === 'stopped' ||
+    status === 'failed' ||
+    status === 'cancelled' ||
+    status === 'expired'
+  )
+}
+
+function failedTick(kind: string, message: string): DelegationResumeTick {
+  return { state: 'failed', error: { kind, message } }
 }

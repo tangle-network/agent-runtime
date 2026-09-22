@@ -1,464 +1,193 @@
 # @tangle-network/agent-runtime
 
-A TypeScript runtime for chat agents, one-shot tasks, and agent teams.
-It records each run so you can measure changes against real pass/fail checks and improve the agent without changing your product integration.
+Run portable `AgentProfile` definitions through local, CLI, or sandbox providers.
+Compose one turn, persistent sessions, multi-agent interactions, worker supervision, and measured improvement without changing the profile format.
 
-Domain behavior (models, tools, knowledge) plugs in as adapters; the scoring statistics and the ship decision come from [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); sandboxed execution from [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
-
-```bash
-pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-network/sandbox
-```
-
-## Contents
-
-- [Quickstart](#quickstart-offline-no-api-keys)
-- [What you do with it](#what-you-do-with-it)
-- [Run a chat turn](#run-a-chat-turn)
-- [Supervise a team of agents](#supervise-a-team-of-agents)
-- [Improve an agent](#improve-an-agent)
-- [Improve a knowledge base](#improve-a-knowledge-base)
-- [Run on PrimeIntellect](#run-on-primeintellect)
-- [How it works](#how-it-works-the-short-version)
-- [Primitives](#primitives)
-- [Examples](#examples)
-- [Where to go next](#where-to-go-next)
-
-## Quickstart (offline, no API keys)
-
-A driver runs a worker, reads its output, and writes the next prompt until a check passes.
-This excerpt shows the driver from the runnable [`examples/quickstart/quickstart.ts`](./examples/quickstart/quickstart.ts).
-That file defines the scripted `worker`, `output`, and `validator` used below so it runs without credentials.
-Replace the scripted worker with a sandbox, CLI bridge, or router backend without changing the driver.
-
-```ts
-import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
-
-const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
-  task: { prompt: 'Write a one-line release note for one-click restore.' },
-  driver: {
-    name: 'refine',
-    plan: async (task, history) => {
-      const last = history[history.length - 1]
-      if (!last) return [task] // shot 0: run the task as written
-      if (last.verdict?.valid || history.length >= 3) return [] // done, or out of shots
-      // The core move: read the last worker's real output, write the next prompt FROM it.
-      return [{ prompt: `Rewrite "${last.output?.note}" to mention the rollback path.` }]
-    },
-    decide: (history) =>
-      history.some((shot) => shot.verdict?.valid) ? 'pick-winner' : history.length < 3 ? 'refine' : 'fail',
-  },
-  agentRun: { profile: { name: 'note-writer' } as AgentProfile, taskToPrompt: (t) => t.prompt },
-  output,    // parses the worker's event stream into { note }
-  validator, // pass/fail check: does the note mention "rollback"?
-  ctx: { sandboxClient: worker },
-  maxIterations: 3,
-})
-```
-
-Run it from a clone of this repo and you get exactly this:
+## Install
 
 ```bash
-$ pnpm i && pnpm build
-$ pnpm tsx examples/quickstart/quickstart.ts
-shot 0: reject: "Shipped one-click restore."
-shot 1: PASS: "Shipped one-click restore with an instant rollback path."
-decision: pick-winner: winner: shot 1
+pnpm add @tangle-network/agent-runtime @tangle-network/agent-interface
 ```
 
-The annotated version is [`examples/driver-loop`](./examples/driver-loop).
-
-## What you do with it
-
-| You want to… | Call |
-|---|---|
-| Run a **chat turn** for a production product agent | `handleChatTurn(...)` |
-| Have one agent **supervise a team of agents** toward a goal | `supervise(profile, task, opts)` |
-| **Improve** an agent and prove the gain on fresh tasks | `improve(profile, opts)` |
-| Produce a measured knowledge-base candidate with agents and checks | `runKnowledgeImprovementJob(...)` |
-| Evaluate or train the same agent on **PrimeIntellect** | `createPrimeIntellectPackage(...)` |
-
-### Run a chat turn
-
-A product agent is one `handleChatTurn` call inside a route. You give it how to produce the response and how to persist it; it streams, traces, and persists.
-
-```ts
-import { handleChatTurn } from '@tangle-network/agent-runtime'
-
-const result = handleChatTurn({
-  identity: { tenantId, sessionId: threadId, userId, turnIndex: 0 },
-  hooks: {
-    produce: () => ({ stream: box.streamPrompt(userMessage), finalText: () => box.lastResponse() }),
-    persistAssistantMessage: async ({ identity, finalText }) => db.insertMessage(identity, finalText),
-  },
-  waitUntil,
-})
-return new Response(result.body, { headers: { 'content-type': result.contentType } })
-```
-
-### Supervise a team of agents
-
-One supervisor spawns and steers workers toward a goal. Where the workers run (an in-process loop, or a sandboxed coding harness) is one data value; the budget, journaling, and stopping are handled for you.
-
-```ts
-import { supervise } from '@tangle-network/agent-runtime/loops'
-
-const result = await supervise(
-  { name: 'supervisor', harness: null, systemPrompt: 'Delegate to workers; do not solve the task yourself.' },
-  'Implement the feature and make the tests pass.',
-  { budget, router, backend }, // backend = where workers run: router-tools | sandbox+harness | bridge
-)
-```
-
-### Improve an agent
-
-`improve` runs one complete `OptimizationMethod` against one profile field.
-The method owns candidate generation and selection.
-Runtime keeps the final test set out of the method, scores the baseline and selected candidate on it, and returns `ship` only when the paired confidence interval clears `minimumLift`.
-The profile is never changed.
-
-```ts
-import { improve, officialGepa } from '@tangle-network/agent-runtime'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
-
-const executionRef = canonicalCandidateDigest({
-  deployment: process.env.AGENT_DEPLOYMENT_SHA!,
-  model: process.env.AGENT_MODEL!,
-  tools: process.env.AGENT_TOOLSET_SHA!,
-})
-
-const optimizer = {
-  model: process.env.OPTIMIZER_MODEL!,
-  baseUrl: process.env.OPTIMIZER_BASE_URL!,
-  apiKey: process.env.OPTIMIZER_API_KEY!,
-  budget: {
-    maxCostUsd: 10,
-    maxRequests: 50,
-    maxRequestBytes: 2_000_000,
-    maxResponseBytes: 2_000_000,
-    maxOutputTokensPerRequest: 16_384,
-    pricing: {
-      inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
-      outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
-    },
-  },
-}
-
-const result = await improve(baseProfile, {
-  surface: 'prompt',
-  executionRef,
-  method: officialGepa({
-    objective: 'Improve the complete support-agent prompt.',
-    recipe: {
-      kind: 'engine',
-      run: {
-        engine: 'gepa',
-        maxEvaluations: 40,
-        maxProposerCostUsd: 10,
-      },
-    },
-    optimizer,
-    resume: 'if-compatible',
-    trustResumeState: true,
-    describeScenario: ({ input }) => ({ input }),
-  }),
-  findings,
-  trainScenarios,
-  selectionScenarios,
-  testScenarios,
-  judges: [judge],
-  agent: (candidateProfile, scenario, ctx) =>
-    runProfile(candidateProfile, scenario, ctx),
-  runDir: '.runs/support-prompt',
-  costCeiling: 25,
-})
-
-if (result.decision === 'ship') {
-  console.log(result.candidate.profile, result.liftInterval)
-}
-```
-
-`officialGepa(...)` delegates the complete search to GEPA's upstream Optimize Anything API through agent-eval.
-Pass one explicit `engine`, `sequential`, `adaptive-sequential`, `best-of`, `vote`, or `omni` recipe.
-Runtime derives the upstream resume identity from `executionRef`, the complete baseline profile, and the selected surface.
-With `resume: 'if-compatible'`, agent-eval resumes only when the saved run identity matches the candidate, recipe, data, optimizer settings, runner, and derived execution identity.
-Set `trustResumeState: true` only when that run directory is private to the current operator.
-Use `resume: 'required'` to fail when no matching run exists.
-`result.provenance` reports the upstream package, run ID, resume status, evaluation count, and artifact directory.
-There is no local fallback.
-Install its optional Python process before using it:
+Add the provider used by your application.
+For Tangle Sandbox:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.126.6"
-python -m pip install "gepa[full]==0.1.4"
+pnpm add @tangle-network/agent-provider-tangle @tangle-network/sandbox
 ```
 
-The published GEPA 0.1.4 wheel supports the direct `gepa` engine.
-Sequential, adaptive, best-of, vote, Omni, AutoResearch, Meta Harness, and Best-of-N require the tested official source revision:
+## One Turn
 
-```bash
-python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
-```
-
-Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
-
-```bash
-python -m pip install "agent-eval-rpc==0.126.6"
-python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
-```
-
-SkillOpt 0.2.0's published wheel omits prompt files required by `ReflACTTrainer`, so the tested SkillOpt source revision remains necessary.
-SkillOpt and GEPA's standard reflection engine require `optimizer: { model, baseUrl, apiKey, budget }`.
-Agent-based GEPA engines may own their model connection instead.
-Agent Eval proxies those model calls, enforces the nested budget, and records their cost.
-`costCeiling` is the total limit for optimizer calls, candidate runs, judges, and final scoring.
-Runtime returns `hold` when any part of that cost is unknown.
-Runtime rejects a reported total above the limit.
-
-SkillOpt accepts one text surface.
-GEPA accepts text or named components.
-Any complete method from `@tangle-network/agent-eval` uses the same call.
-The `agent` callback receives the complete immutable candidate profile, not a raw prompt or component fragment.
-Runtime uses that exact profile for every candidate run and returns the same measured profile in `result.candidate.profile`.
-`executionRef` is a content digest of the agent callback, profile component mapping, model, tools, and closure settings.
-Runtime combines it with the complete baseline profile and selected surface for saved work.
-Changing any of them runs the affected work again.
-For a skill, set `surface: 'skills'` and `skills.resourceName`.
-For the complete profile, set `surface: 'agent-profile'`.
-To optimize several named profile fields together, also provide `profileComponents.read` and `profileComponents.apply`.
-Tools, MCP, hooks, subagents, curated instructions, and rollout policy are also exact profile coordinates.
-Runtime does not choose an optimizer for them.
-
-Without `describeScenario`, the external optimizer receives only each development case ID.
-Without `describeArtifact`, evaluation feedback contains no artifact body.
-When either descriptor is present, its result passes through `redact` together with findings, background text, profile name, and judge notes.
-The built-in redactor removes common credentials and email addresses.
-Supply a domain redactor for customer names, account IDs, or other private data the built-in rules cannot identify.
-Runtime applies that hook first and then still applies its built-in scrubber.
-Set `redact: false` only when every outbound value is public and already reviewed.
-
-The selected profile surface is the optimizer's candidate and cannot be redacted without changing the measured candidate.
-Runtime always rejects recognized credentials in those bytes.
-It also rejects structurally sensitive fields such as MCP env, headers, URLs, metadata, and extensions.
-For `tools`, `mcp`, `hooks`, `subagents`, and `agent-profile`, Runtime treats the entire selected coordinate as execution-capable.
-Use `authorizeSensitiveCandidate` to inspect and accept each exact immutable profile containing public values or safe references.
-The callback runs for the baseline and every distinct candidate before either reaches your agent.
-Its `sensitivePaths` includes `$` when the whole coordinate requires review.
-
-Code is the exception.
-It uses Runtime's isolated git worktrees and coding-agent candidate execution:
+This example runs offline.
+Replace the in-process provider with a production provider without changing the profile or `streamAgentTurn` call.
 
 ```ts
-const result = await improve({
-  surface: 'code',
-  code: { repoRoot, baseRef, generator },
-  scenarios,
-  judge,
-  agent,
-  budget,
-})
-```
-
-`improve` is the search call.
-For production, `proposeAgentImprovement` adds trace analysis and reruns the exact frozen baseline and winner before creating a reviewable proposal.
-Runtime rejects a candidate bundle that differs from the search winner.
-
-```ts
+import { defineAgentProfile } from '@tangle-network/agent-interface'
 import {
-  createAgentImprovementActivation,
-  executeAgentImprovementActivation,
-  proposeAgentImprovement,
-  reviewAgentImprovementProposal,
-} from '@tangle-network/agent-runtime/intelligence'
+  inProcessEnvironmentProvider,
+  streamAgentTurn,
+} from '@tangle-network/agent-runtime/loops'
 
-const baseline = freezeBaseline(liveProfile)
-const result = await proposeAgentImprovement({
-  runId,
-  profile: liveProfile,
-  analysis,
-  improvement: {
-    surface: 'prompt',
-    executionRef,
-    method,
-    trainScenarios,
-    selectionScenarios,
-    testScenarios,
-    judges: [judge],
-    agent,
-  },
-  buildExperiment: ({ improvement }) =>
-    buildExperimentMaterial({
-      baseline,
-      candidate: compileCandidateBundle({ baseline, improvement: improvement.candidate }),
-      benchmark: heldOutBenchmark,
-      policy: comparisonPolicy,
-    }),
-  placeCell,
+const profile = defineAgentProfile({
+  name: 'reviewer',
+  prompt: { systemPrompt: 'Review the input and return concrete findings.' },
 })
 
-const review = reviewAgentImprovementProposal(result.proposal, {
-  decision: 'approve',
-  reviewedBy: user.id,
-  reason: 'The measured gain is worth the cost.',
-})
-const activation = createAgentImprovementActivation(result.proposal, review, {
-  intent: 'activate-candidate',
-  targets: [{ surface: 'prompt', identity: profileId }],
-  fundingOwner: tenantId,
-  authorizedBy: user.id,
-  expiresAt,
-})
-const outcome = await executeAgentImprovementActivation(
-  { proposal: result.proposal, review, activation },
-  { transition: commitProfileTransaction, reconcile: readCommittedResult },
-)
-```
-
-`buildExperimentMaterial`, `placeCell`, and the transaction functions are application ports because storage and compute differ by product.
-The builder returns only baseline, candidate, tasks, and policy; Runtime adds the search ancestry and seals the final experiment.
-Runtime owns candidate identity, measurement, review binding, expiry, retry identity, and result validation; the application owns its atomic write.
-Official optimizer proposals carry the observed package versions, optimizer model, evaluation and token usage, separate optimization and final-test costs, and resumed-run identity.
-`createOptimizationActivationReceipt(result)` exposes the same detached record for callers that need to inspect an `improve()` result before building a proposal.
-
-### Improve a knowledge base
-
-`runKnowledgeImprovementJob` runs KB, wiki, memory-backed, and RAG improvement jobs.
-It creates a candidate copy, runs agents against it, checks it through `@tangle-network/agent-knowledge`, and returns frozen baseline and candidate snapshots with spend and timing.
-It never changes the live knowledge base.
-Use `improve(profile, { surface: 'memory', ... })` for the agent's curated lesson document.
-Use this job for source, retrieval, and knowledge-store changes.
-
-```ts
-import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowledge'
-
-const result = await runKnowledgeImprovementJob({
-  root: './kb',
-  goal: 'Improve support refund-policy knowledge',
-  implementationRef: 'git:0123456789abcdef0123456789abcdef01234567',
-  readinessSpecs,
-  budget: { maxIterations: 8, maxTokens: 120_000, maxUsd: 10 },
-  backend,
-})
-
-console.log(result.knowledge?.reference.candidateHash, result.measurement.supervisedSpent)
-```
-
-Use it when the product needs one knob for "make this knowledge base better" instead of wiring `improveKnowledgeBase`, a runtime supervisor, candidate workspaces, and readiness checks by hand.
-Set `implementationRef` to the deployed `git:<40 hex>` revision or a `sha256:<64 hex>` digest covering every callback, model, index, and external setting that can change the result.
-The same run ID resumes only when this identity still matches.
-Measure the returned bundle pair, record the review, then activate through `executeAgentImprovementActivation`; activation is the only write path.
-
-### Run on PrimeIntellect
-
-`@tangle-network/agent-runtime/primeintellect` packages typed train and eval tasks as a PrimeIntellect Verifiers environment.
-Prime launches your actual runtime program against an intercepted model endpoint, so `runPersonified`, `runAgentic`, product agents, tool calls, and multiple rounds stay intact.
-Reference answers remain in Prime's task process and never enter the agent workspace.
-The runner file must be one executable bundle containing the app and its runtime dependencies.
-
-```ts
-import { readFile } from 'node:fs/promises'
-import {
-  createPrimeIntellectPackage,
-  writePrimeIntellectPackage,
-} from '@tangle-network/agent-runtime/primeintellect'
-
-const bundledRunner = await readFile('./dist/prime-runner.mjs', 'utf8')
-const bundle = createPrimeIntellectPackage({
-  name: 'support-agent',
-  version: '1.0.0',
-  tasks: [
-    {
-      id: 'train-refund-policy',
-      split: 'train',
-      prompt: 'Can a subscription renewal be refunded?',
-      answer: 'No',
-    },
-    {
-      id: 'eval-final-sale',
-      split: 'eval',
-      prompt: 'Can a final-sale order be refunded?',
-      answer: 'No',
-    },
+const provider = inProcessEnvironmentProvider({
+  onTurn: (prompt) => [
+    { type: 'message.part.updated', data: { part: { type: 'text' }, delta: `Reviewed: ${prompt}` } },
+    { type: 'done', data: { tokenUsage: { inputTokens: 4, outputTokens: 3 } } },
   ],
-  scoring: { kind: 'exact', normalization: 'trim-casefold' },
-  runner: {
-    image: 'node:22-bookworm-slim',
-    files: { 'runner.mjs': bundledRunner },
-    command: ['node', 'runner.mjs'],
-  },
 })
 
-await writePrimeIntellectPackage(bundle, './prime/support-agent')
+for await (const event of streamAgentTurn(
+  { kind: 'provider', provider, profile },
+  'Check this change.',
+)) {
+  if (event.type === 'text_delta') process.stdout.write(event.text)
+  if (event.type === 'turn_error') throw new Error(event.message)
+}
 ```
 
-The runner reads the episode and uses the normal runtime APIs:
-Here, `runProductAgent` is the application's existing entry point, not another loop supplied by this adapter.
+`streamAgentTurn` creates and destroys an environment when given a provider.
+Pass `{ kind: 'environment', environment }` when the caller already owns one.
+
+## Tangle Sandbox
+
+```ts
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import { Sandbox } from '@tangle-network/sandbox'
+
+const provider = createTangleProvider({
+  client: new Sandbox({ apiKey: process.env.TANGLE_API_KEY! }),
+})
+```
+
+Providers own credentials, placement, and execution details.
+Profiles own agent behavior: prompts, models, tools, skills, MCP servers, permissions, hooks, and subagents.
+
+## Choose An Entry Point
+
+| Need | Function | Import |
+|---|---|---|
+| One streamed response | `streamAgentTurn` | `/loops` |
+| Several turns in one provider session | `openEnvironmentRun` | `/loops` |
+| Named agents taking turns | `runInteraction` | `/interaction` |
+| Deterministic code planning bounded rounds | `runAgentRounds` | `/loops` |
+| A model creating and steering workers | `supervise` | `/loops` |
+| A fixed refinement or search policy | `runStrategy` | `/loops` |
+| A production chat HTTP response | `handleChatTurn` | root |
+| Compare strategies on the same cases | `runBenchmark` | `/loops` |
+| Optimize a profile field or repository code | `improve` | root |
+| Build a measured knowledge-base candidate | `runKnowledgeImprovementJob` | `/knowledge` |
+
+Use the smallest function that owns the state you need.
+
+## Persistent Session
+
+`openEnvironmentRun` keeps the same environment and provider session across calls to `turn()`.
 
 ```ts
 import {
-  createPrimeIntellectBackend,
-  runPrimeIntellectProgram,
-} from '@tangle-network/agent-runtime/primeintellect'
+  extractEnvironmentTurnText,
+  openEnvironmentRun,
+} from '@tangle-network/agent-runtime/loops'
 
-await runPrimeIntellectProgram(async (episode) => {
-  const backend = createPrimeIntellectBackend(episode)
-  return runProductAgent({ task: episode.task, backend })
+const run = await openEnvironmentRun({
+  provider,
+  agentRun: {
+    profile,
+    taskToPrompt: (task: string) => task,
+  },
+  deliverable: {
+    kind: 'events',
+    fromEvents: extractEnvironmentTurnText,
+  },
+  signal: new AbortController().signal,
+})
+
+try {
+  await run.turn('Inspect the repository.')
+  const result = await run.turn('Now focus on the failing tests.')
+  console.log(result.output)
+} finally {
+  await run.close()
+}
+```
+
+The provider must support session continuation.
+Use `resumeFrom` to reattach a provider environment and session after a process restart.
+
+## Multi-Agent Interaction
+
+`runInteraction` gives each actor its own persistent environment and session.
+The latest transcript is included in each next turn.
+
+```ts
+import { runInteraction } from '@tangle-network/agent-runtime/interaction'
+
+const result = await runInteraction({
+  actors: [
+    { name: 'author', profile: authorProfile, provider },
+    { name: 'reviewer', profile: reviewerProfile, provider },
+  ],
+  prompt: 'Produce and review a migration plan.',
+  policy: {
+    maxTurns: 8,
+    turnOrder: 'alternate',
+    stopWhen: ({ lastTurn }) => lastTurn.text.startsWith('APPROVED:'),
+  },
 })
 ```
 
-Prime writes complete `traces.jsonl` rows.
-Use `importPrimeIntellectTraces(...)` to convert them to agent-eval `RunRecord`s for the existing reports and release checks.
+Add an `InteractionJournal`, stable `runId`, and stable `definitionId` to resume after a process restart.
+Runtime includes in-memory, file, and SQL journals.
 
-## How it works (the short version)
+## Improvement
 
-- **Roles are configuration.** Driver, worker, and coordinator describe what an agent does in a run. They are not separate agent types.
-- **Runs are recorded.** A run can report tokens, dollars, time, outputs, and scores.
-- **Candidates face fresh tasks.** The optimizer uses train and selection tasks. Promotion uses a separate final set.
-- **Scores come from executed attempts.** Runtime recomputes results from the recorded cells and rejects incomplete cost or source evidence.
+`improve` evaluates a baseline, lets an Agent Eval optimization method search candidates, and checks the selected candidate on separate cases.
+It returns a decision and measured candidate.
+It does not mutate the live profile or repository.
 
-## Primitives
+Use:
 
-The general-purpose pieces, by import path. Every export with its one-line summary lives in the generated [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md): check it before building anything new.
+- `@tangle-network/agent-eval` for cases, judges, comparisons, and official optimizer integrations such as GEPA and SkillOpt.
+- `@tangle-network/agent-knowledge` for sources, indexing, retrieval, memory adapters, and knowledge evaluation.
+- `runKnowledgeImprovementJob` when Runtime agents should research and edit an isolated knowledge-base candidate.
+- `@tangle-network/agent-runtime/primeintellect` to package the same multi-turn program for PrimeIntellect runs.
 
-| Primitive | What it does | Import |
-|---|---|---|
-| Chat-turn runtime | Stream, trace, and persist one production chat turn (`handleChatTurn`); normalize any backend's stream into one event shape (`streamAgentTurn`) | root · `/loops` |
-| Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/loops` · `/mcp` |
-| Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/loops` |
-| Improvement driver | Optimize one part of an agent and ship only if it wins on tasks it never practiced on (`improve`); production proposal/review/activation flow | root · `/intelligence` |
-| Benchmarks + leaderboards | Compare strategies with significance stats (`runBenchmark`), stand up a harness×model leaderboard (`defineLeaderboard`, `leaderboard`) | `/loops` |
-| Knowledge improvement | Produce a measured candidate copy of a KB/wiki/RAG corpus without touching the live one (`runKnowledgeImprovementJob`) | `/knowledge` |
-| MCP tool servers | Give an agent a `delegate` tool or live worker-coordination tools over MCP | `/mcp` |
-| Conversations + durability | Multi-turn two-agent sessions with SQL-backed resume (D1/pg/sqlite/libSQL adapters) | `/conversation` |
-| Training/eval adapter | Package the same runtime program as a PrimeIntellect Verifiers environment; import its traces back | `/primeintellect` |
+See [canonical-api.md](./docs/canonical-api.md) for entry-point examples and [the generated API](./docs/api/) for signatures.
 
-Remaining subpaths: `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`, `/testing` (validated fixture records for consumer tests).
+## Package Boundaries
+
+```text
+agent-interface   profiles and provider contracts
+agent-eval        cases, scoring, comparison, optimization
+agent-knowledge   knowledge state, retrieval, memory, evaluation
+agent-runtime     execution, coordination, and improvement workflows
+```
+
+Applications own authentication, storage, product policy, and UI.
 
 ## Examples
 
-Runnable, grouped by what they show. Copy the one nearest your task:
-
-| Do this | Example |
+| Task | Example |
 |---|---|
-| The smallest complete loop (start here) | [`quickstart`](./examples/quickstart) · [`driver-loop`](./examples/driver-loop) |
-| Run a product chat turn | [`chat-handler`](./examples/chat-handler) |
-| Drive a team of agents to a goal | [`supervise`](./examples/supervise) · [`recursive-supervisor`](./examples/recursive-supervisor) |
-| Benchmark strategies on your own domain | [`coding-benchmark`](./examples/coding-benchmark) |
-| Benchmark **harnesses × models** over a real task suite (the real WebCode dataset) | [`webcode-matrix`](./examples/webcode-matrix) |
-| Render a **multi-profile leaderboard** with ranked board, score matrix, and SVG/HTML charts | `leaderboard(records)` → `renderLeaderboardMarkdown` / `Svg` / `Html` |
-| Trace + bill + effort-gate the WebCode benchmark (the Intelligence SDK) | [`intelligence-webcode`](./examples/intelligence-webcode) |
-| Self-improve an agent, gated on a held-out set | [`improve`](./examples/improve) · [`self-improving-coder`](./examples/self-improving-coder) |
-| Improve a KB, wiki, or RAG corpus with runtime agents | [`docs/canonical-api.md`](./docs/canonical-api.md) |
-| Evaluate or train a runtime program on PrimeIntellect | `@tangle-network/agent-runtime/primeintellect` |
-| Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
+| One provider turn | [`quickstart`](./examples/quickstart) |
+| Persistent driver and worker rounds | [`driver-loop`](./examples/driver-loop) |
+| Two persistent agents | [`interaction`](./examples/interaction) |
+| Dynamic worker supervision | [`supervise`](./examples/supervise) |
+| Product chat response | [`chat-handler`](./examples/chat-handler) |
+| Strategy comparison | [`coding-benchmark`](./examples/coding-benchmark) |
+| Redacted telemetry | [`sanitized-telemetry-streaming`](./examples/sanitized-telemetry-streaming) |
 
-All 29 live in [`examples/`](./examples).
+Start with [Concepts](./docs/concepts.md), then use [Runtime API](./docs/canonical-api.md) to choose a function.
 
-## Where to go next
+## Development
 
-- New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
-- [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
-- [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- [`docs/design.md`](./docs/design.md), the design philosophy and the internal research docs behind it: background reading, not required to use the package.
-- [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
-
-**Contributing:** `pnpm i && pnpm build && pnpm test` gets you running; the full local gate is the [`package.json`](./package.json) scripts (`lint`, `typecheck`, `docs:check`).
+```bash
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm build
+```

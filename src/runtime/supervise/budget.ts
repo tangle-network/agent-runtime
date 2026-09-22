@@ -188,18 +188,37 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     if (!open.has(ticket.id)) {
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
-    open.delete(ticket.id)
 
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
+    const spentTokens = totalTokens(spent.tokens)
     if (usdCapped && spent.usdKnown === false) {
+      open.delete(ticket.id)
+
+      // The exact dollar charge is unknowable, so burn the ticket's full dollar
+      // reservation. Known token and iteration usage can still be reconciled
+      // normally, keeping every pool channel balanced before rejecting the run.
+      const committedTicketTokens = Math.min(spentTokens, rTokens)
+      reservedTokens -= rTokens
+      committedTokens += committedTicketTokens
+      freeTokens += rTokens - committedTicketTokens
+
+      const committedTicketIterations = Math.min(spent.iterations, rIterations)
+      reservedIterations -= rIterations
+      committedIterations += committedTicketIterations
+      freeIterations += rIterations - committedTicketIterations
+
+      if (rUsd > 0) {
+        reservedUsd -= rUsd
+        committedUsd += rUsd
+      }
       throw new Error(
         `budget pool: ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`,
       )
     }
+    open.delete(ticket.id)
 
     // Clamp actual spend to the reservation: a child must never commit more than it
     // reserved (that would overdraw the conserved pool). Over-spend is a fail-loud bug.
-    const spentTokens = totalTokens(spent.tokens)
     if (spentTokens > rTokens) {
       throw new Error(
         `budget pool: ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`,

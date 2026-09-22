@@ -1,48 +1,16 @@
-/**
- * Supervisor + coordinator MCP — workers on sandbox OR cli-bridge, ONE code path.
- *
- * A real coding-harness agent (opencode via the cli-bridge) IS the supervisor: it mounts the
- * coordination MCP (`serveCoordinationMcp`) over a LIVE `Scope` and calls the REAL `spawn_agent`
- * tool natively — a box driving boxes, not an emulated function-tool. Each spawned worker is a
- * leaf built by `workerFromBackend(backend, deliverable)`, gated on a DEPLOYABLE check (its
- * output must contain `ANSWER=42` — the completion oracle reads the worker's real output, never
- * the model's self-judgment).
- *
- * THE ONE KNOB — `WORKER_BACKEND`:
- * The worker leaf is `createExecutor({ backend: process.env.WORKER_BACKEND ?? 'bridge', ...seam })`.
- * Flip `WORKER_BACKEND=sandbox` and the SAME supervisor + SAME coordination MCP + SAME `spawn_agent`
- * flow + SAME deployable check spawn workers in a cloud box instead of behind the local cli-bridge —
- * with zero other changes. The worker backend is the ONLY variable; everything else is identical.
- *
- * Run it (cli-bridge workers — the proven local path):
- *   cd ~/code/cli-bridge && pnpm start          # → http://127.0.0.1:3344
- *   pnpm build                                   # examples resolve @tangle-network/agent-runtime from dist/
- *   WORKER_BACKEND=bridge WORKER_MODEL=opencode/zai-coding-plan/glm-5.1 \
- *     pnpm dlx tsx examples/supervisor-loop/run-supervisor-mcp.ts
- *
- * Same code, sandbox workers (needs a real SandboxClient — key + base URL):
- *   WORKER_BACKEND=sandbox SANDBOX_BASE_URL=https://... TANGLE_API_KEY=sk-... \
- *     pnpm dlx tsx examples/supervisor-loop/run-supervisor-mcp.ts
- *
- * The supervisor BRAIN is fixed (not a variable): a real cli-bridge harness agent with the
- * coordination MCP mounted, exactly like bench/src/atom-mcp-e2e.mts. The bridge fronts full
- * agents that do their own native tool-use, so the supervisor calls `spawn_agent` through its
- * OWN harness tool-loop — that is what makes this the real MCP path, not a scripted driver.
- */
-
+import { createCliBridgeProvider } from '@tangle-network/agent-provider-cli-bridge'
 import {
   type Agent,
-  createExecutorRegistry,
+  collectAgentTurn,
+  createInMemoryRunContext,
   createSupervisor,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
   type Scope,
   serveCoordinationMcp,
-  workerFromBackend,
+  streamAgentTurn,
+  workerFromEnvironment,
 } from '@tangle-network/agent-runtime/loops'
-import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
+import { buildWorkerEnvironment, demoCheck, expectedAnswer } from './shared'
 
-/** The supervisor's standing instructions — it delegates, it does not solve. */
 const supervisorTask =
   `A worker must produce the exact line "${expectedAnswer}".\n\n` +
   'You are a SUPERVISOR with a "coordination" MCP exposing spawn_agent, await_event, and stop. ' +
@@ -51,49 +19,56 @@ const supervisorTask =
   'spawn_agent with { profile, task }. Then call await_event to wait for it to settle, and call ' +
   'stop once a worker has delivered (valid:true).'
 
-/** One real bridge harness turn, with the coordination MCP mounted so the supervisor can call
- *  spawn_agent as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
-async function supervisorBridgeChat(opts: { mcpUrl: string }): Promise<string> {
+async function runSupervisorTurn(mcpUrl: string): Promise<string> {
   const bridgeUrl = process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344'
   const bridgeBearer = process.env.BRIDGE_BEARER ?? 'local'
   const model = process.env.SUPERVISOR_MODEL ?? process.env.WORKER_MODEL
   if (!model) throw new Error('supervisor needs SUPERVISOR_MODEL or WORKER_MODEL set')
-  const res = await fetch(`${bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${bridgeBearer}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: supervisorTask }],
-      // Mount the coordination MCP — the supervisor harness calls spawn_agent through it.
-      mcp: { mcpServers: { coordination: { type: 'http', url: opts.mcpUrl } } },
-    }),
+  const provider = createCliBridgeProvider({
+    baseUrl: bridgeUrl,
+    bearerToken: bridgeBearer,
+    defaultModel: model,
   })
-  if (!res.ok)
-    throw new Error(`supervisor bridge ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return j.choices?.[0]?.message?.content ?? ''
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      {
+        kind: 'provider',
+        provider,
+        profile: {
+          name: 'supervisor',
+          mcp: {
+            coordination: {
+              transport: 'http',
+              url: mcpUrl,
+            },
+          },
+        },
+      },
+      supervisorTask,
+      { timeoutMs: 900_000 },
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `supervisor turn ${turn.status}`)
+  }
+  return turn.finalText
 }
 
 async function main(): Promise<void> {
-  const backend = buildWorkerBackend()
-  const blobs = new InMemoryResultBlobStore()
+  const worker = buildWorkerEnvironment()
+  const workerProviderName = worker.provider.name
+  const context = createInMemoryRunContext()
+  const blobs = context.blobs
 
-  console.log(
-    `supervisor + coordination MCP · workers via createExecutor({ backend: "${backend.backend}" })` +
-      `${backend.backend === 'bridge' ? ` (model=${(backend as { model: string }).model})` : ''}`,
-  )
+  console.log(`supervisor + coordination MCP · workers=${workerProviderName}`)
 
-  // The supervisor agent: inside its act() we stand up the coordination MCP over the LIVE scope,
-  // then hand the harness a tool it can call. This is the keystone — the harness IS the supervisor.
   const supervisor: Agent<unknown, unknown> = {
     name: 'supervisor',
     async act(_task, scope: Scope<unknown>) {
       const mcp = await serveCoordinationMcp({
         scope,
         blobs,
-        // Every spawn_agent call lands here; workerFromBackend builds a createExecutor({ backend })
-        // leaf gated on the deployable check (output contains ANSWER=42 — a real artifact).
-        makeWorkerAgent: workerFromBackend(backend, {
+        makeWorkerAgent: workerFromEnvironment(worker, {
           check: demoCheck,
           describe: `worker output contains ${expectedAnswer}`,
         }),
@@ -101,8 +76,8 @@ async function main(): Promise<void> {
       })
       try {
         console.log(`[mcp] coordination server at ${mcp.url}`)
-        const said = await supervisorBridgeChat({ mcpUrl: mcp.url })
-        console.log(`\n── supervisor said ──\n${said.slice(0, 800)}`)
+        const said = await runSupervisorTurn(mcp.url)
+        console.log(`\nsupervisor said:\n${said.slice(0, 800)}`)
 
         const settled = mcp.settled()
         const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
@@ -122,21 +97,21 @@ async function main(): Promise<void> {
   const result = await createSupervisor<unknown, unknown>().run(supervisor, supervisorTask, {
     budget: { maxIterations: 100, maxTokens: 2_000_000, maxUsd: 1 },
     runId: 'supervisor-mcp',
-    journal: new InMemorySpawnJournal(),
+    journal: context.journal,
     blobs,
-    executors: createExecutorRegistry(),
+    executors: context.executors,
     maxDepth: 4,
     now: () => Date.now(),
   })
 
-  console.log('\n── verdict ──')
+  console.log('\nverdict:')
   if (result.kind === 'winner') {
     console.log(
-      `[OK] supervisor drove a worker via the coordination MCP to a CHECKED delivery on backend "${backend.backend}".`,
+      `[OK] supervisor delivered checked output through worker provider "${workerProviderName}".`,
     )
     console.log(`   winner output: ${JSON.stringify(result.out)}`)
   } else {
-    console.log(`[--] no delivery (result=${result.kind}) — see supervisor transcript above`)
+    console.log(`[--] no delivery (result=${result.kind}); see supervisor transcript above`)
     process.exitCode = 1
   }
 }

@@ -1,7 +1,7 @@
 /**
  *
- * Sandbox-event stream → UiAuditOutput decoder. The custom auditor
- * `SandboxClient` emits events of the form:
+ * Agent environment event stream to `UiAuditOutput` decoder. The UI audit
+ * environment provider emits events of the form:
  *
  *   { type: 'audit.capture', data: UiAuditCapture }
  *   { type: 'audit.finding', data: UiFinding }
@@ -15,7 +15,7 @@
  * @experimental
  */
 
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
 import { UI_LENSES, type UiFinding, type UiLens } from './substrate'
 import type { UiAuditCapture, UiAuditOutput } from './task'
 
@@ -29,8 +29,8 @@ function isUiLens(v: unknown): v is UiLens {
   return typeof v === 'string' && KNOWN_LENS_VALUES.has(v as UiLens)
 }
 
-/** Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAuditOutput`. @experimental */
-export function parseAuditorEvents(events: SandboxEvent[]): UiAuditOutput {
+/** Parse raw environment events from an audit iteration into structured `UiAuditOutput`. @experimental */
+export function parseAuditorEvents(events: AgentEnvironmentEvent[]): UiAuditOutput {
   const findings: UiFinding[] = []
   const captures: UiAuditCapture[] = []
   let lens: UiLens | undefined
@@ -100,7 +100,7 @@ export function parseAuditorEvents(events: SandboxEvent[]): UiAuditOutput {
         break
       }
       default:
-        // Tolerate cost/usage events and other backend chatter — extractLlmCallEvent
+        // Tolerate cost/usage events and other provider events. extractLlmCallEvent
         // in run-loop.ts handles cost accounting upstream from the adapter.
         break
     }

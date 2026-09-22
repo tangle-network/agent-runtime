@@ -1,8 +1,8 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
-  "description": "The unified benchmark suite for agent-runtime agents: 31 adapters (commit0, enterpriseops-gym, ragbench, crag, nomiracl, open-rag-bench, t2-ragbench, tau3-banking, bfcl, finresearchbench, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
+  "description": "Reusable benchmark adapters, execution, and reports for agent-runtime agents.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tangle-network/agent-runtime.git",
@@ -40,17 +40,18 @@
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "0.126.6",
-    "@tangle-network/agent-interface": "0.32.0",
-    "@tangle-network/agent-knowledge": "5.0.1",
+    "@tangle-network/agent-eval": "0.129.0",
+    "@tangle-network/agent-interface": "0.34.0",
+    "@tangle-network/agent-knowledge": "6.0.0",
+    "@tangle-network/agent-provider-tangle": "0.4.0",
     "@tangle-network/agent-runtime": "workspace:*",
-    "@tangle-network/sandbox": "^0.12.0"
+    "@tangle-network/sandbox": "0.13.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "tsx": "^4.22.4",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
     "tsup": "^8.5.1",
-    "typescript": "^5.7.0"
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": ">=20.19.0"

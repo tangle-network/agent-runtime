@@ -35,6 +35,11 @@ async function rpc(
   return server.handle({ jsonrpc: '2.0', id, method, params })
 }
 
+function resultOf<T>(response: JsonRpcResponse | null): T {
+  if (response?.result === undefined) throw new Error('expected JSON-RPC result')
+  return response.result as T
+}
+
 type ToolList = { tools: { name: string; description: string; inputSchema: unknown }[] }
 
 const auditArgs = {
@@ -45,7 +50,7 @@ const auditArgs = {
 describe('wire-contract — tools/list (the frozen tool names + schemas)', () => {
   it('advertises exactly delegate_ui_audit + the always-on queue trio', async () => {
     const listed = await rpc(fullServer(), 'tools/list')
-    const tools = (listed?.result as ToolList).tools
+    const tools = resultOf<ToolList>(listed).tools
     expect(tools.map((t) => t.name).sort()).toEqual([
       'delegate_feedback',
       'delegate_ui_audit',
@@ -56,7 +61,7 @@ describe('wire-contract — tools/list (the frozen tool names + schemas)', () =>
 
   it('every delegation tool exposes an object inputSchema with a non-empty description', async () => {
     const listed = await rpc(fullServer(), 'tools/list')
-    const tools = (listed?.result as ToolList).tools
+    const tools = resultOf<ToolList>(listed).tools
     for (const t of tools) {
       const schema = t.inputSchema as { type?: unknown; required?: unknown }
       expect(schema.type, `${t.name} schema.type`).toBe('object')
@@ -96,14 +101,13 @@ describe('wire-contract — tools/call envelope + payloads', () => {
       name: 'delegate_ui_audit',
       arguments: auditArgs,
     })
-    const taskId = (kicked?.result as { structuredContent: { taskId: string } }).structuredContent
+    const taskId = resultOf<{ structuredContent: { taskId: string } }>(kicked).structuredContent
       .taskId
     const statusRes = await rpc(server, 'tools/call', {
       name: 'delegation_status',
       arguments: { taskId },
     })
-    const sc = (statusRes?.result as { structuredContent: Record<string, unknown> })
-      .structuredContent
+    const sc = resultOf<{ structuredContent: Record<string, unknown> }>(statusRes).structuredContent
     expect(sc.taskId).toBe(taskId)
     expect(sc.profile).toBe('ui-auditor')
     expect(typeof sc.status).toBe('string')
@@ -114,7 +118,7 @@ describe('wire-contract — tools/call envelope + payloads', () => {
     const server = fullServer()
     await rpc(server, 'tools/call', { name: 'delegate_ui_audit', arguments: auditArgs })
     const res = await rpc(server, 'tools/call', { name: 'delegation_history', arguments: {} })
-    const sc = (res?.result as { structuredContent: { delegations?: unknown } }).structuredContent
+    const sc = resultOf<{ structuredContent: { delegations?: unknown } }>(res).structuredContent
     expect(Array.isArray(sc.delegations)).toBe(true)
   })
 

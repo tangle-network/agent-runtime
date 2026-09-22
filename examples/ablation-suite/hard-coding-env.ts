@@ -1,7 +1,7 @@
 /**
  * hard-coding-env — a MID-DIFFICULTY, contamination-proof generated coding task: the cheap iteration
  * substrate for optimizing the supervisor. Mirrors examples/self-improving-coder/self-improving-coder.ts
- * exactly in shape (an `AgenticSurface` open/tools/call/score/close + an exported `hardCodingTasks(offset,n)`
+ * exactly in shape (an `TaskEnvironment` open/tools/call/score/close + an exported `hardCodingTasks(offset,n)`
  * supplier, seed-derived + deterministic + graded by REAL host pytest) but the TASK has a genuinely hard
  * ALGORITHMIC CORE so a flash model lands in a CORRECTABLE MIDDLE BAND (~40-60% resolved), not 100%.
  *
@@ -27,11 +27,11 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  AgenticSurface,
-  AgenticTask,
-  AgenticTool,
   ArtifactHandle,
-  SurfaceScore,
+  EnvironmentScore,
+  EnvironmentTask,
+  EnvironmentTool,
+  TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 
 // ── Seed-derived dialect (the contract no model can recall) ──────────────────────
@@ -157,7 +157,7 @@ function refEval(expr: string, d: Dialect): { ok: true; value: number } | { ok: 
       p++
       const v = parseExpr(0)
       const r = peek()
-      if (!r || r.k !== 'rp') {
+      if (r?.k !== 'rp') {
         failed = true
         return 0
       }
@@ -175,7 +175,7 @@ function refEval(expr: string, d: Dialect): { ok: true; value: number } | { ok: 
     let left = parseAtom()
     for (;;) {
       const t = peek()
-      if (!t || t.k !== 'op') break
+      if (t?.k !== 'op') break
       const pr = prec[t.v]
       if (pr === undefined || pr < minPrec) break
       p++
@@ -290,7 +290,7 @@ function genTask(seed: number): { stub: string; test: string; total: number } {
   return { stub, test, total }
 }
 
-// ── The Environment (AgenticSurface) — host pytest, no Docker. ────────────────────
+// ── The Environment (TaskEnvironment) — host pytest, no Docker. ────────────────────
 interface Ws {
   dir: string
   total: number
@@ -350,7 +350,7 @@ function runTestsReport(dir: string): string {
   return failing.length ? `${head} FAILING: ${failing.join(', ')}` : head
 }
 
-export const hardCodingEnv: AgenticSurface = {
+export const hardCodingEnv: TaskEnvironment = {
   name: 'hard-generated-coding',
   async open(task) {
     const seed = Number((task.meta as { seed?: number })?.seed ?? 0)
@@ -406,7 +406,7 @@ export const hardCodingEnv: AgenticSurface = {
           parameters: { type: 'object', properties: {} },
         },
       },
-    ] satisfies AgenticTool[]
+    ] satisfies EnvironmentTool[]
   },
   async call(handle, name, args) {
     const ws = workspaces.get(handle.id)
@@ -435,7 +435,7 @@ export const hardCodingEnv: AgenticSurface = {
     if (name === 'run_tests') return runTestsReport(ws.dir)
     return `ERROR: unknown tool ${name}`
   },
-  async score(_task, handle): Promise<SurfaceScore> {
+  async score(_task, handle): Promise<EnvironmentScore> {
     const ws = workspaces.get(handle.id)
     if (!ws) return { passes: 0, total: 0, errored: 1 }
     const { passed, total } = pytestPassed(ws.dir)
@@ -452,7 +452,7 @@ export const hardCodingEnv: AgenticSurface = {
 }
 
 // ── The disjoint task supplier (train [offset, offset+n); holdout drawn past it) ──
-export const hardCodingTasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
+export const hardCodingTasks = async (offset: number, n: number): Promise<EnvironmentTask[]> =>
   Array.from({ length: n }, (_, i) => {
     const seed = offset + i
     return {
@@ -468,7 +468,7 @@ export const hardCodingTasks = async (offset: number, n: number): Promise<Agenti
       userPrompt:
         'Read test_calc.py, implement calc.py, then run_tests and fix the failing tests until every test passes.',
       meta: { seed },
-    } satisfies AgenticTask
+    } satisfies EnvironmentTask
   })
 
 /** The correct calc.py for a seed — used ONLY by the $0 calibration self-check (never by the agent).

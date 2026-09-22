@@ -1,25 +1,19 @@
 /**
  *
- * Resolve the `delegate` supervisor substrate (router brain + worker backend) from env, so the
- * `agent-runtime-mcp` bin can serve the ONE generic `delegate` verb by env, over the SAME stdio
- * invocation a consumer already mounts.
+ * Build the supervisor used by the MCP `delegate` tool.
  *
- * `delegate` is wired into `createMcpServer` via `McpServerOptions.delegateSupervisor`, which needs a
- * router (the supervisor brain's substrate) and a backend (WHERE the authored workers run). Inside a
- * sandbox child the natural backend is `sandbox`: authored workers run as sub-sandboxes through the
- * SAME `SandboxClient` the bin already loads from `TANGLE_API_KEY`. The brain's router reuses the
- * repo's `resolveRouterBaseUrl` convention
- * (`TANGLE_ROUTER_URL` / `TANGLE_ROUTER_BASE_URL`), normalised to an OpenAI-compatible `/v1` endpoint,
- * keyed by `TANGLE_API_KEY`.
+ * The supervisor uses the configured router for planning and the configured
+ * environment provider for workers. Tangle credentials configure both when
+ * the standalone MCP binary is used.
  *
  * @experimental
  */
 
-import type { BackendType } from '@tangle-network/sandbox'
+import type { HarnessType } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { type RouterEnv, resolveRouterBaseUrl } from '../model-resolution.js'
-import type { SandboxClient } from '../runtime'
 import type { RouterConfig } from '../runtime/router-client'
-import type { ExecutorConfig } from '../runtime/supervise/runtime'
+import type { EnvironmentWorkerOptions } from '../runtime/supervise/runtime'
 import type { DelegateHandlerOptions } from './tools/delegate'
 
 const DEFAULT_SUPERVISOR_MODEL = 'moonshotai/kimi-k2.6'
@@ -53,27 +47,25 @@ function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
 }
 
 /**
- * Build the `delegateSupervisor` substrate for `createMcpServer` from env + the bin's loaded
- * `SandboxClient`. Returns `undefined` when `delegate` is not opted in, so the caller mounts it only
- * when asked. The worker backend is `sandbox` (authored workers run as sub-sandboxes via the same
- * client) on the harness named by `MCP_DELEGATE_WORKER_HARNESS` (default `opencode`).
+ * Build `delegateSupervisor` for `createMcpServer` from environment settings
+ * and the loaded provider. Returns `undefined` unless delegation is enabled.
+ * Workers use the harness named by `MCP_DELEGATE_WORKER_HARNESS`.
  */
 export function resolveDelegateSupervisor(
-  sandboxClient: SandboxClient,
+  provider: AgentEnvironmentProvider,
   env: NodeJS.ProcessEnv = process.env,
 ): DelegateHandlerOptions | undefined {
   if (!delegateEnabled(env)) return undefined
   const router = resolveRouter(env)
   const harness = (trimmed(env.MCP_DELEGATE_WORKER_HARNESS) ??
-    DEFAULT_WORKER_HARNESS) as BackendType
-  const backend: ExecutorConfig = {
-    backend: 'sandbox',
-    harness,
-    sandboxClient,
+    DEFAULT_WORKER_HARNESS) as HarnessType
+  const worker: EnvironmentWorkerOptions = {
+    provider,
+    environment: { backend: harness },
   }
   return {
     router,
-    backend,
+    worker,
     model: router.model,
   }
 }

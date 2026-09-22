@@ -18,10 +18,10 @@ of guessing, and a 10-line way to add your own idea to the race.
 
 ## The three strategies in this run
 
-- **`sample`** — take N independent attempts, keep the one that passes the check. (Best-of-N.)
-- **`refine`** — take one attempt, a critic reads the failure trace and writes a hint, feed
+- **`sample`** - take N independent attempts, keep the one that passes the check. (Best-of-N.)
+- **`refine`** - take one attempt, a critic reads the failure trace and writes a hint, feed
   the hint into the next attempt, repeat until it passes.
-- **`doubleCheck`** — the one this file writes from scratch (in ~15 lines), to show how. Its
+- **`doubleCheck`** - the one this file writes from scratch (in ~15 lines), to show how. Its
   rule the built-ins don't have: never trust a single passing attempt, require the solution
   to pass **twice in a row** before stopping. That's a guard against a lucky pass on a flaky
   task (real tools, non-deterministic tests). On this deterministic toy task it just matches
@@ -38,7 +38,7 @@ pnpm tsx examples/strategy-suite/strategy-suite.ts
 
 No API key needed. Without one, the "model" is a small deterministic in-process responder
 (no network, no server) that drives the counter correctly on the first shot. Because it
-never fails, **all three strategies tie at 100%** — that is expected: the offline run proves
+never fails, **all three strategies tie at 100%** - that is expected: the offline run proves
 the *wiring* (equal budget, scored by your own check), not that the strategies differ. The
 run prints a banner saying exactly this, then a report table.
 

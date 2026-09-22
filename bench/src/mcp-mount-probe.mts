@@ -14,12 +14,10 @@ import {
   type Agent,
   type AgentProfile,
   type AgentSpec,
-  createExecutorRegistry,
+  createInMemoryRunContext,
   createSupervisor,
   type Executor,
   type ExecutorResult,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
   type Scope,
   type UsageEvent,
 } from '../../src/runtime/index'
@@ -68,7 +66,8 @@ async function bridgeChat(messages: Array<{ role: string; content: string }>, mc
 }
 
 async function main(): Promise<void> {
-  const blobs = new InMemoryResultBlobStore()
+  const context = createInMemoryRunContext()
+  const blobs = context.blobs
   let mounted = false
   const root: Agent<unknown, unknown> = {
     name: 'mcp-mount-probe',
@@ -107,9 +106,9 @@ async function main(): Promise<void> {
   const result = await createSupervisor<unknown, unknown>().run(root, 'probe', {
     budget: { maxIterations: 100, maxTokens: 400_000 },
     runId: 'mcp-probe',
-    journal: new InMemorySpawnJournal(),
+    journal: context.journal,
     blobs,
-    executors: createExecutorRegistry(),
+    executors: context.executors,
     maxDepth: 4,
     now: () => Date.now(),
   })

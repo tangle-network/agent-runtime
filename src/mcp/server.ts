@@ -70,9 +70,9 @@ export interface McpServerOptions {
   delegateSupervisor?: DelegateHandlerOptions
   /**
    * Required to enable delegate_ui_audit. Wire one that closes over your
-   * `runAgentRounds` + `uiAuditorProfile` + a `SandboxClient` (the
-   * canonical in-process choice is `createInProcessUiAuditClient` from
-   * `@tangle-network/agent-runtime/profiles`) + your vision judge.
+   * `runAgentRounds`, `uiAuditorProfile`, environment provider, and vision
+   * judge. Use `createInProcessUiAuditEnvironmentProvider` from
+   * `@tangle-network/agent-runtime/profiles` for local Playwright audits.
    */
   uiAuditorDelegate?: UiAuditorDelegate
   /** Override the default in-memory feedback store. */
@@ -275,7 +275,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
           writeResponse(output, rpcError(null, -32700, `parse error: ${(err as Error).message}`))
           return
         }
-        if (!parsed || parsed.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
+        if (parsed?.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
           writeResponse(output, rpcError(parsed?.id ?? null, -32600, 'invalid request'))
           return
         }

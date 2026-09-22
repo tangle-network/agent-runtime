@@ -13,7 +13,7 @@
  *      fails re-verification degrades to repro=none — recorded, never silent. Instances with no
  *      Stage-0 repro run repro=none and measure the no-signal path (selection = blind-first).
  *   3. k=4 independent patch attempts — each the swe-emit-patch protocol verbatim (SWE_SEED_PROMPT,
- *      list/read/edit tools on a fresh host clone, runAgentic refine budget=1, glm-5.2 temp 0.8;
+ *      list/read/edit tools on a fresh host clone, runStrategy refine budget=1, glm-5.2 temp 0.8;
  *      the candidate is the workspace `git diff`, captured from inside score()).
  *   4. selection — each candidate is scored in-image: `git apply` the candidate to the container's
  *      /testbed (writable layer, --rm discards), run the repro. Argmax: repro-pass first, then
@@ -49,8 +49,8 @@ import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, EnvironmentTask, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
+import { refine, runStrategy } from '@tangle-network/agent-runtime/loops'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
 import {
@@ -131,7 +131,7 @@ function leakMarks(md: Record<string, string>): string[] {
   return marks
 }
 
-/** Every model call in this driver flows through here (runAgentic's `complete` seam), so the judge
+/** Every model call in this driver flows through here (runStrategy's `complete` seam), so the judge
  *  separation is asserted once, at the single chokepoint, for every arm and every round. */
 const makeTransport =
   (marks: string[], counter: Counter) =>
@@ -161,7 +161,7 @@ interface AttemptOut {
 }
 
 async function emitAttempt(
-  environment: AgenticSurface,
+  environment: TaskEnvironment,
   bt: BenchTask,
   cfg: {
     temperature: number
@@ -176,9 +176,9 @@ async function emitAttempt(
   // Capture the patch from inside score() (called during the refine loop, BEFORE the surface closes
   // and rms the checkout). Keep the LATEST non-empty diff — the emit-patch pattern.
   const capture = { patch: '' }
-  const proxy: AgenticSurface = {
+  const proxy: TaskEnvironment = {
     ...environment,
-    async open(t: AgenticTask): Promise<ArtifactHandle> {
+    async open(t: EnvironmentTask): Promise<ArtifactHandle> {
       const h = await environment.open(t)
       const pre = cfg.preApply
       if (pre?.trim()) {
@@ -192,7 +192,7 @@ async function emitAttempt(
       }
       return h
     },
-    async score(_t: AgenticTask, handle: ArtifactHandle): Promise<SurfaceScore> {
+    async score(_t: EnvironmentTask, handle: ArtifactHandle): Promise<EnvironmentScore> {
       try {
         const d = await exec('git', ['-C', handle.id, 'diff'], { maxBuffer: 40_000_000, timeout: 60_000 })
         if (d.stdout.trim()) capture.patch = d.stdout
@@ -202,7 +202,7 @@ async function emitAttempt(
       return { passes: capture.patch.trim() ? 1 : 0, total: 1, errored: 0 }
     },
   }
-  const task: AgenticTask = {
+  const task: EnvironmentTask = {
     id: bt.id,
     systemPrompt: SWE_SEED_PROMPT,
     userPrompt: cfg.promptAppendix ? `${bt.prompt}\n\n${cfg.promptAppendix}` : bt.prompt,
@@ -210,7 +210,7 @@ async function emitAttempt(
   }
   let error: string | undefined
   try {
-    const r = await runAgentic({
+    const r = await runStrategy({
       surface: proxy,
       task,
       strategy: refine,

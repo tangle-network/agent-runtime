@@ -32,17 +32,18 @@ import {
   runProfileMatrix,
 } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import {
   leaderboard,
   pairwiseSignificance,
   renderLeaderboardMarkdown,
   renderPairwiseMarkdown,
-  type SandboxClient,
 } from '@tangle-network/agent-runtime/loops'
 import { codingDispatch } from './dispatch'
 import { ensembleCodeJudge, type RubricDim, type RunArtifact, singleCodeJudge } from './eval'
 import { csvParserSource, lruCacheSource } from './fixtures'
-import { type OfflineScript, offlineSandboxClient } from './offline-box'
+import { type OfflineScript, offlineEnvironmentProvider } from './offline-provider'
 import { harnessProfiles, type ToolPreset } from './profiles'
 import { type CodingScenario, scenarios } from './scenarios'
 
@@ -78,8 +79,8 @@ function parseArgs(argv: string[]): BenchmarkOptions {
 }
 
 // ── the offline AGENT SCRIPTS: a scripted, REFINING solution per scenario ─────
-// These stand in for a real coding agent ONLY offline (live, `--live` swaps a real harness box for
-// the scripted client). `rate-limiter` is the one deliberate-CHEAT pair: round 0 is a
+// These stand in for a real coding agent ONLY offline. Live mode swaps in a Tangle provider.
+// `rate-limiter` is the one deliberate-CHEAT pair: round 0 is a
 // HARDCODE-THE-VISIBLE cheat the held-out suite MUST catch (the smoke test asserts it fails held-out
 // while round 1+'s real token-bucket passes — the anti-cheat, by execution). `csv-parser`/`lru-cache`
 // have no honest hollow stub, so their offline agent writes the real impl from round 0 (source in
@@ -129,22 +130,28 @@ export const offlineAgentScripts: Record<string, OfflineScript> = {
   'lru-cache': { path: 'src/lru.ts', solutionFor: () => lruCacheSource },
 }
 
-// ── the box client: live (real harness) or offline (in-process) ───────────────
-function clientFor(
+type TangleClient = Parameters<typeof createTangleProvider>[0]['client']
+type TangleClientConstructor = new (opts: { apiKey: string; baseUrl: string }) => TangleClient
+
+// ── environment provider: live agent runtime or deterministic in-process worker ────────────
+function providerFor(
   live: boolean,
-  RealClient: (new (opts: { apiKey: string; baseUrl: string }) => unknown) | undefined,
-): (scenario: CodingScenario) => (profile: AgentProfile) => SandboxClient {
+  TangleClientClass: TangleClientConstructor | undefined,
+): (scenario: CodingScenario) => (profile: AgentProfile) => AgentEnvironmentProvider {
   return (scenario) => {
     if (live) {
       const apiKey = process.env.TANGLE_API_KEY
       const baseUrl = process.env.SANDBOX_BASE_URL
       if (!apiKey || !baseUrl) throw new Error('--live needs TANGLE_API_KEY + SANDBOX_BASE_URL')
-      if (!RealClient) throw new Error('@tangle-network/sandbox not loaded')
-      return () => new RealClient({ apiKey, baseUrl }) as unknown as SandboxClient
+      if (!TangleClientClass) throw new Error('@tangle-network/sandbox not loaded')
+      return () =>
+        createTangleProvider({
+          client: new TangleClientClass({ apiKey, baseUrl }),
+        })
     }
     const script = offlineAgentScripts[scenario.id]
     if (!script) throw new Error(`no offline script for scenario ${scenario.id}`)
-    return () => offlineSandboxClient(script)
+    return () => offlineEnvironmentProvider(script)
   }
 }
 
@@ -209,12 +216,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
 
   // Lazy dynamic import so the offline path never needs the SDK or its creds. (This
   // is an ESM "type":"module" package — a top-level `require` would throw.)
-  let RealClient: (new (o: { apiKey: string; baseUrl: string }) => unknown) | undefined
+  let TangleClientClass: TangleClientConstructor | undefined
   if (live) {
     const sdk = (await import('@tangle-network/sandbox')) as {
-      SandboxClient: new (o: never) => unknown
+      Sandbox: new (o: never) => unknown
     }
-    RealClient = sdk.SandboxClient as never
+    TangleClientClass = sdk.Sandbox as unknown as TangleClientConstructor
   }
 
   console.log(
@@ -224,18 +231,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
   )
 
   const chat = judgeChat(live)
-  const resolveClient = clientFor(live, RealClient)
+  const resolveProvider = providerFor(live, TangleClientClass)
 
   try {
     // The matrix runs one campaign per profile. The dispatch is per-scenario only in
-    // its CLIENT (offline scripts differ by scenario), so run each scenario's matrix
-    // and merge the records. (Live, one client serves all scenarios — collapse this.)
+    // its provider (offline scripts differ by scenario), so run each scenario's matrix
+    // and merge the records.
     const allRecords = []
     for (const scenario of scenarios) {
       const result = await runProfileMatrix<CodingScenario, RunArtifact>({
         profiles: harnessProfiles, // axis: harness × baseline
         scenarios: [scenario], // axis: tasks (one at a time so the offline client matches)
-        dispatch: codingDispatch(toolPreset, resolveClient(scenario)),
+        dispatch: codingDispatch(toolPreset, resolveProvider(scenario)),
         judges: judges(opts, chat),
         reps,
         integrity: live ? 'assert' : 'off', // offline mock has no real backend; live proves it

@@ -1,7 +1,7 @@
 /**
  * Bounded turn-level tool-dispatch loop.
  *
- * `runAgentTaskStream` runs ONE model turn; `runAgentRounds` orchestrates DELEGATED
+ * `streamAgentTurn` runs ONE model turn; `runAgentRounds` orchestrates DELEGATED
  * multi-agent topologies (refine / fanout-vote). Neither is the everyday
  * interactive shape: a chat turn where the model may emit tool calls, each is
  * executed, the results are folded back, and the turn re-runs until the model
@@ -9,7 +9,7 @@
  * as a reusable primitive.
  *
  * Substrate-neutral by design: the caller supplies `streamTurn` (wrapping
- * whatever backend / `runAgentTaskStream` it uses) and `executeToolCall`
+ * whatever provider / `streamAgentTurn` it uses) and `executeToolCall`
  * (routing to its executors). This module owns the LOOP; the caller owns the
  * model and the executors. `Raw` (streaming variant) is the caller's own
  * event type. The only imported contract is the runtime hook type: hooks are
@@ -122,8 +122,6 @@ export interface ToolLoopResult {
   toolResults: Array<{ call: ToolLoopCall; label: string; outcome: ToolCallOutcome }>
   turns: number
   stopReason: ToolLoopStopReason
-  /** @deprecated Use `stopReason !== 'completed'` instead. */
-  cappedOut: boolean
 }
 
 export interface RunToolLoopOptions {
@@ -181,7 +179,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
     // Wall-clock deadline check — before every new turn.
     if (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs) {
       observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'deadline' })
-      return { finalText, toolResults, turns, stopReason: 'deadline', cappedOut: true }
+      return { finalText, toolResults, turns, stopReason: 'deadline' }
     }
 
     let turnText = ''
@@ -210,7 +208,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
         stopReason: 'backstop',
       })
       observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'backstop' })
-      return { finalText, toolResults, turns, stopReason: 'backstop', cappedOut: true }
+      return { finalText, toolResults, turns, stopReason: 'backstop' }
     }
 
     // The assistant turn that emitted the calls, carrying its tool_calls array,
@@ -233,7 +231,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
           stopReason: 'stuck-loop',
         })
         observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'stuck-loop' })
-        return { finalText, toolResults, turns, stopReason: 'stuck-loop', cappedOut: true }
+        return { finalText, toolResults, turns, stopReason: 'stuck-loop' }
       }
 
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
@@ -261,7 +259,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
             stopReason: 'budget',
           })
           observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'budget' })
-          return { finalText, toolResults, turns, stopReason: 'budget', cappedOut: true }
+          return { finalText, toolResults, turns, stopReason: 'budget' }
         }
       }
 
@@ -290,7 +288,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
     })
   }
   observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'completed' })
-  return { finalText, toolResults, turns, stopReason: 'completed', cappedOut: false }
+  return { finalText, toolResults, turns, stopReason: 'completed' }
 }
 
 // ── Streaming variant (SSE chat runtimes + per-event telemetry) ────────────

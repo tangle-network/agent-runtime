@@ -1,31 +1,36 @@
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
+import { inProcessEnvironmentProvider } from './in-process-environment-provider'
 import { runAgentRounds } from './run-loop'
-import type { AgentRunSpec, Driver, OutputAdapter, SandboxClient } from './types'
+import type { AgentRunSpec, Driver, OutputAdapter } from './types'
 
-describe('runAgentRounds sandbox preparation', () => {
-  it('runs AgentRunSpec.prepareBox before the first prompt is streamed', async () => {
+describe('runAgentRounds environment preparation', () => {
+  it('runs AgentRunSpec.prepareEnvironment before the first turn is streamed', async () => {
     const order: string[] = []
-    const box = {
-      id: 'box-1',
-      name: 'box-1',
-      status: 'running',
-      async *streamPrompt(prompt: string): AsyncIterable<SandboxEvent> {
+    let createdEnvironment: AgentEnvironment | undefined
+    const baseProvider = inProcessEnvironmentProvider({
+      onTurn: (prompt) => {
         order.push(`stream:${prompt}`)
         expect(order).toContain('prepare')
-        yield { type: 'result', data: { finalText: 'done' } } as SandboxEvent
+        return [{ type: 'result', data: { finalText: 'done' } }]
       },
-    } as SandboxInstance
-    const client: SandboxClient = {
-      async create() {
+    })
+    const provider: AgentEnvironmentProvider = {
+      ...baseProvider,
+      async create(input) {
         order.push('create')
-        return box
+        createdEnvironment = await baseProvider.create(input)
+        return createdEnvironment
       },
     }
     const agentRun: AgentRunSpec<string> = {
       profile: { name: 'prepared-agent' },
       taskToPrompt: (task) => task,
-      async prepareBox() {
+      async prepareEnvironment() {
         order.push('prepare')
       },
     }
@@ -44,54 +49,42 @@ describe('runAgentRounds sandbox preparation', () => {
       },
     }
 
-    let validatorBox: SandboxInstance | undefined
+    let validatorEnvironment: AgentEnvironment | undefined
     const result = await runAgentRounds({
       driver,
       agentRun,
       output,
       validator: {
         async validate(_output, ctx) {
-          validatorBox = ctx.box
+          validatorEnvironment = ctx.environment
           return { valid: true, score: 1 }
         },
       },
       task: 'hello',
       maxIterations: 1,
-      ctx: { sandboxClient: client, signal: new AbortController().signal },
+      ctx: { environmentProvider: provider, signal: new AbortController().signal },
     })
 
     expect(result.iterations[0]?.output).toBe('done')
-    expect(validatorBox).toBe(box)
+    expect(validatorEnvironment).toBe(createdEnvironment)
     expect(order).toEqual(['create', 'prepare', 'stream:hello'])
   })
 })
 
-describe('runAgentRounds onSandboxEvent tee', () => {
+describe('runAgentRounds onEnvironmentEvent observation', () => {
   type Observer = (
-    event: SandboxEvent,
+    event: AgentEnvironmentEvent,
     meta: { iterationIndex: number; agentRunName: string },
   ) => void | PromiseLike<void>
 
-  const STREAM: SandboxEvent[] = [
-    { type: 'token', data: { text: 'hi' } } as SandboxEvent,
-    { type: 'token', data: { text: 'there' } } as SandboxEvent,
-    { type: 'result', data: { finalText: 'done' } } as SandboxEvent,
+  const STREAM: AgentEnvironmentEvent[] = [
+    { type: 'token', data: { text: 'hi' } },
+    { type: 'token', data: { text: 'there' } },
+    { type: 'result', data: { finalText: 'done' } },
   ]
 
-  function runWithObserver(onSandboxEvent: Observer, stream: SandboxEvent[] = STREAM) {
-    const box = {
-      id: 'box-1',
-      name: 'box-1',
-      status: 'running',
-      async *streamPrompt(_prompt: string): AsyncIterable<SandboxEvent> {
-        for (const event of stream) yield event
-      },
-    } as SandboxInstance
-    const client: SandboxClient = {
-      async create() {
-        return box
-      },
-    }
+  function runWithObserver(onEnvironmentEvent: Observer, stream: AgentEnvironmentEvent[] = STREAM) {
+    const provider = inProcessEnvironmentProvider({ onTurn: () => stream })
     const driver: Driver<string, string, 'done'> = {
       name: 'single-shot',
       async plan(_task, history) {
@@ -122,9 +115,9 @@ describe('runAgentRounds onSandboxEvent tee', () => {
       task: 'hello',
       maxIterations: 1,
       ctx: {
-        sandboxClient: client,
+        environmentProvider: provider,
         signal: new AbortController().signal,
-        onSandboxEvent,
+        onEnvironmentEvent,
       },
     })
   }
@@ -186,13 +179,13 @@ describe('runAgentRounds onSandboxEvent tee', () => {
     const nonCloneable = {
       type: 'tool',
       data: { fn: () => 'nope' },
-    } as unknown as SandboxEvent
+    } as unknown as AgentEnvironmentEvent
     const seen: string[] = []
     const result = await runWithObserver(
       (event) => {
         seen.push(event.type)
       },
-      [nonCloneable, { type: 'result', data: { finalText: 'done' } } as SandboxEvent],
+      [nonCloneable, { type: 'result', data: { finalText: 'done' } }],
     )
     expect(seen).toEqual(['tool', 'result'])
     expect(result.iterations[0]?.output).toBe('done')
@@ -210,7 +203,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
         usage: { inputTokens: 10, outputTokens: 5 },
         leak: () => 'nope',
       },
-    } as unknown as SandboxEvent
+    } as unknown as AgentEnvironmentEvent
     const result = await runWithObserver(
       (ev) => {
         const d = (
@@ -241,7 +234,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
         usageAlias: usage,
         leak: () => 'nope',
       },
-    } as unknown as SandboxEvent
+    } as unknown as AgentEnvironmentEvent
     const result = await runWithObserver(
       (ev) => {
         const d = (ev as unknown as { data: { usageAlias: { inputTokens: number } } }).data
@@ -262,7 +255,10 @@ describe('runAgentRounds onSandboxEvent tee', () => {
       usage = { inputTokens: 10, outputTokens: 5 }
       leak = () => 'nope'
     }
-    const event = { type: 'result', data: new CustomData() } as unknown as SandboxEvent
+    const event = {
+      type: 'result',
+      data: new CustomData(),
+    } as unknown as AgentEnvironmentEvent
     const result = await runWithObserver(
       (ev) => {
         const d = (ev as unknown as { data: { finalText?: string } }).data

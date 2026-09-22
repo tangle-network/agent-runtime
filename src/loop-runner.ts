@@ -25,17 +25,16 @@ import { runAnalystLoop } from './analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/types'
 import { ConfigError } from './errors'
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
+import { definePersona, runPersonaShape } from './runtime/personify/persona'
+import type { WinnerStrategy } from './runtime/personify/wave-types'
+import { createExecutorRegistry } from './runtime/supervise/runtime'
+import type { Budget } from './runtime/supervise/types'
+import type { WorktreePatchArtifact } from './runtime/supervise/worktree-cli-executor'
 import {
   type AuthoredHarness,
-  type Budget,
-  createExecutorRegistry,
-  definePersona,
-  runPersonified,
-  type WinnerStrategy,
   type WorktreeFanoutOptions,
-  type WorktreePatchArtifact,
   worktreeFanout,
-} from './runtime'
+} from './runtime/supervise/worktree-fanout'
 
 /** All valid delegated-loop mode names — used for validation and CLI surfaces. @experimental */
 export const DELEGATED_LOOP_MODES = ['code', 'review', 'research', 'audit', 'self-improve'] as const
@@ -140,16 +139,11 @@ export interface WorktreeLoopRunnerOptions {
 }
 
 /**
+ * Run coding profiles in isolated worktrees and return the selected valid patch.
  *
- * `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
- * `worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
- * `runPersonified` on the keystone Supervisor. The sandbox-session counterpart that drives the in-box
- * harness over a `SandboxClient` is `detachedSessionDelegate` (`./mcp/delegates`); here there is no
- * `runAgentRounds` driver, no role-coupled delegate — the harness list is the fanout, the gate is
- * `patchDelivered`,
- * the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
- * would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning
- * patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
+ * In `code` mode, each coding harness gets one `AgentProfile` and one isolated
+ * worktree. The runner accepts only patches that pass `patchDelivered`.
+ * It throws when no candidate delivers a valid patch.
  *
  * @experimental
  */
@@ -180,7 +174,7 @@ export function worktreeLoopRunner(
     executors: { registry: createExecutorRegistry() },
   })
   return async (signal) => {
-    const result = await runPersonified<string, WorktreePatchArtifact>({
+    const result = await runPersonaShape<string, WorktreePatchArtifact>({
       persona,
       shape,
       task: options.taskPrompt,

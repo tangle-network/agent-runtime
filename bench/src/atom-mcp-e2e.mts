@@ -22,13 +22,11 @@ import {
   type AgentProfile,
   type AgentSpec,
   contentAddress,
-  createExecutorRegistry,
+  createInMemoryRunContext,
   createSupervisor,
   type Executor,
   type ExecutorResult,
   gitWorkspace,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
   runInWorkspace,
   type Scope,
   type Workspace,
@@ -151,7 +149,8 @@ async function main(): Promise<void> {
   console.log(`atom-mcp-e2e: model=${MODEL}  (real boxes, real MCP, real test, shared workspace)`)
   const bareRef = seedWorkspaceRepo()
   const ws = gitWorkspace({ ref: bareRef })
-  const blobs = new InMemoryResultBlobStore()
+  const context = createInMemoryRunContext()
+  const blobs = context.blobs
   let n = 0
 
   const root: Agent<unknown, unknown> = {
@@ -196,9 +195,9 @@ async function main(): Promise<void> {
   const result = await createSupervisor<unknown, unknown>().run(root, TASK, {
     budget: { maxIterations: 100, maxTokens: 2_000_000 },
     runId: 'e2e',
-    journal: new InMemorySpawnJournal(),
+    journal: context.journal,
     blobs,
-    executors: createExecutorRegistry(),
+    executors: context.executors,
     maxDepth: 4,
     now: () => Date.now(),
   })

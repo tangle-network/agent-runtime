@@ -6,7 +6,11 @@
  * A real domain opens a repo / browser / MCP server the same way.
  */
 
-import type { AgenticTask, ArtifactHandle, Environment } from '@tangle-network/agent-runtime/loops'
+import type {
+  ArtifactHandle,
+  Environment,
+  EnvironmentTask,
+} from '@tangle-network/agent-runtime/loops'
 
 export const target = 5
 const counters = new Map<string, { count: number }>()
@@ -59,7 +63,7 @@ export const counterEnv: Environment = {
 }
 
 /** One counter task with the given id — the same prompt across both examples. */
-export const counterTask = (id: string): AgenticTask => ({
+export const counterTask = (id: string): EnvironmentTask => ({
   id,
   systemPrompt: 'You operate a counter with tools.',
   userPrompt: `Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,

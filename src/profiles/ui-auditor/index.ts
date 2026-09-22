@@ -3,7 +3,7 @@
  * `ui-auditor` profile — vision-driven UI audit iteration preset for
  * `runAgentRounds`. See `profile.ts` for the entry point.
  *
- * The in-process Playwright + judge client lives in `in-process-client.ts`
+ * The in-process Playwright + judge provider lives in `in-process-provider.ts`
  * under the optional `./ui-auditor` subpath export so consumers that only
  * want the profile types do not pay the Playwright peer dep.
  *
@@ -13,10 +13,11 @@
 export type {
   BrowserContextHandle,
   BrowserHandle,
-  InProcessUiAuditClientOptions,
+  InProcessUiAuditEnvironmentProvider,
+  InProcessUiAuditEnvironmentProviderOptions,
   PageHandle,
-} from './in-process-client'
-export { createInProcessUiAuditClient } from './in-process-client'
+} from './in-process-provider'
+export { createInProcessUiAuditEnvironmentProvider } from './in-process-provider'
 export type {
   UiJudge,
   UiJudgeInput,

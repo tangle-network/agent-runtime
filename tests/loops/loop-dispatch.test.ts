@@ -1,19 +1,13 @@
 import { CostLedger } from '@tangle-network/agent-eval'
 import type { CampaignCostMeter, DispatchContext } from '@tangle-network/agent-eval/campaign'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
-  CreateSandboxOptions,
-  AgentProfile as SandboxAgentProfile,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import {
-  type AgentRunSpec,
-  loopCampaignDispatch,
-  loopDispatch,
-  type OutputAdapter,
-  type Validator,
-} from '../../src/runtime'
+import { loopCampaignDispatch, loopDispatch } from '../../src/runtime/loop-dispatch'
+import type { AgentRunSpec, OutputAdapter, Validator } from '../../src/runtime/types'
 import { refineDriver } from './refine-driver'
 
 interface Task {
@@ -27,10 +21,10 @@ interface FakeScenario {
   kind: string
 }
 
-const sandboxProfile: SandboxAgentProfile = { name: 'stub', model: { default: 'm' } }
+const agentProfile: AgentProfile = { name: 'stub', model: { default: 'm' } }
 
 function spec(): AgentRunSpec<Task> {
-  return { profile: sandboxProfile, name: 'agent', taskToPrompt: (t) => t.goal }
+  return { profile: agentProfile, name: 'agent', taskToPrompt: (task) => task.goal }
 }
 
 const output: OutputAdapter<Output> = {
@@ -46,16 +40,31 @@ const passAlways: Validator<Output> = {
   },
 }
 
-function stubClient(events: SandboxEvent[]): {
-  create(opts?: CreateSandboxOptions): Promise<SandboxInstance>
-} {
+function stubProvider(
+  events: AgentEnvironmentEvent[],
+  options: { afterStream?: Error; onCreate?: () => void } = {},
+): AgentEnvironmentProvider {
+  let sequence = 0
   return {
+    name: 'stub-provider',
+    capabilities() {
+      throw new Error('capabilities are not used without lineage')
+    },
     async create() {
+      options.onCreate?.()
+      const id = `environment-${sequence++}`
       return {
-        async *streamPrompt() {
-          for (const e of events) yield e
+        id,
+        provider: 'stub-provider',
+        async status() {
+          return 'running'
         },
-      } as unknown as SandboxInstance
+        async *stream() {
+          for (const event of events) yield event
+          if (options.afterStream) throw options.afterStream
+        },
+        async destroy() {},
+      }
     },
   }
 }
@@ -104,13 +113,13 @@ function fakeDispatchContext(costCeilingUsd?: number): {
 }
 
 describe('loopDispatch', () => {
-  it('bridges runLoop into a plain runCampaign DispatchFn for fixture-style scenarios', async () => {
-    const sandboxClient = stubClient([
+  it('bridges runAgentRounds into a plain runCampaign DispatchFn for fixture-style scenarios', async () => {
+    const environmentProvider = stubProvider([
       { type: 'llm_call', data: { tokensIn: 120, tokensOut: 40, costUsd: 0.015, model: 'm' } },
       { type: 'result', data: { attempt: 3 } },
     ])
-    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
-      sandboxClient,
+    const dispatch = loopCampaignDispatch<Task, Output, 'continue' | 'stop', FakeScenario, Output>({
+      environmentProvider,
       toLoopOptions: (scenario) => ({
         driver: refineDriver<Task, Output>(),
         agentRun: spec(),
@@ -141,13 +150,13 @@ describe('loopDispatch', () => {
     expect(fake.spans).toContain('loop.ended')
   })
 
-  it('bridges runLoop into a ProfileDispatchFn: returns the winner artifact, reports usage, forwards trace', async () => {
-    const sandboxClient = stubClient([
+  it('bridges runAgentRounds into a ProfileDispatchFn: returns the winner artifact, reports usage, forwards trace', async () => {
+    const environmentProvider = stubProvider([
       { type: 'llm_call', data: { tokensIn: 150, tokensOut: 60, costUsd: 0.02, model: 'm' } },
       { type: 'result', data: { attempt: 2 } },
     ])
-    const dispatch = loopDispatch<Task, Output, 'stop', FakeScenario, Output>({
-      sandboxClient,
+    const dispatch = loopDispatch<Task, Output, 'continue' | 'stop', FakeScenario, Output>({
+      environmentProvider,
       toLoopOptions: (scenario) => ({
         driver: refineDriver<Task, Output>(),
         agentRun: spec(),
@@ -186,12 +195,12 @@ describe('loopDispatch', () => {
         return { valid: false, score: 0, scores: {}, notes: 'no' }
       },
     }
-    const sandboxClient = stubClient([
+    const environmentProvider = stubProvider([
       { type: 'llm_call', data: { tokensIn: 90, tokensOut: 20, costUsd: 0.01, model: 'm' } },
       { type: 'result', data: { attempt: 1 } },
     ])
-    const dispatch = loopDispatch<Task, Output, 'stop', FakeScenario, Output>({
-      sandboxClient,
+    const dispatch = loopDispatch<Task, Output, 'continue' | 'stop', FakeScenario, Output>({
+      environmentProvider,
       toLoopOptions: (scenario) => ({
         driver: refineDriver<Task, Output>(),
         agentRun: spec(),
@@ -219,21 +228,18 @@ describe('loopDispatch', () => {
     ])
   })
 
-  it('settles partial terminal usage when a sandbox stream fails after spending', async () => {
-    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
-      sandboxClient: {
-        async create() {
-          return {
-            async *streamPrompt() {
-              yield {
-                type: 'llm_call',
-                data: { tokensIn: 33, tokensOut: 7, costUsd: 0.004, model: 'm' },
-              } as SandboxEvent
-              throw new Error('sandbox stream failed')
-            },
-          } as unknown as SandboxInstance
+  it('settles partial terminal usage when a provider stream fails after spending', async () => {
+    const environmentProvider = stubProvider(
+      [
+        {
+          type: 'llm_call',
+          data: { tokensIn: 33, tokensOut: 7, costUsd: 0.004, model: 'm' },
         },
-      },
+      ],
+      { afterStream: new Error('provider stream failed') },
+    )
+    const dispatch = loopCampaignDispatch<Task, Output, 'continue' | 'stop', FakeScenario, Output>({
+      environmentProvider,
       toLoopOptions: () => ({
         driver: refineDriver<Task, Output>(),
         agentRun: spec(),
@@ -255,15 +261,15 @@ describe('loopDispatch', () => {
     ])
   })
 
-  it('refuses a capped cell before creating a sandbox when no hard maximum is supplied', async () => {
+  it('refuses a capped cell before creating an environment without a hard maximum', async () => {
     let creates = 0
-    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
-      sandboxClient: {
-        async create() {
-          creates += 1
-          throw new Error('must not dispatch')
-        },
+    const environmentProvider = stubProvider([], {
+      onCreate: () => {
+        creates += 1
       },
+    })
+    const dispatch = loopCampaignDispatch<Task, Output, 'continue' | 'stop', FakeScenario, Output>({
+      environmentProvider,
       toLoopOptions: () => ({
         driver: refineDriver<Task, Output>(),
         agentRun: spec(),
@@ -283,16 +289,19 @@ describe('loopDispatch', () => {
 
   it('admits a capped cell when the executor supplies an enforced maximum', async () => {
     let creates = 0
-    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
-      sandboxClient: {
-        async create() {
+    const environmentProvider = stubProvider(
+      [
+        { type: 'llm_call', data: { tokensIn: 10, tokensOut: 5, costUsd: 0.01 } },
+        { type: 'result', data: { attempt: 1 } },
+      ],
+      {
+        onCreate: () => {
           creates += 1
-          return stubClient([
-            { type: 'llm_call', data: { tokensIn: 10, tokensOut: 5, costUsd: 0.01 } },
-            { type: 'result', data: { attempt: 1 } },
-          ]).create()
         },
       },
+    )
+    const dispatch = loopCampaignDispatch<Task, Output, 'continue' | 'stop', FakeScenario, Output>({
+      environmentProvider,
       maximumCharge: { externallyEnforcedMaximumUsd: 0.02 },
       toLoopOptions: () => ({
         driver: refineDriver<Task, Output>(),

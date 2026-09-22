@@ -10,7 +10,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
-import { refine, runAgentic, runStrategyEvolution, sample } from '@tangle-network/agent-runtime/loops'
+import { refine, runStrategy, runStrategyEvolution, sample } from '@tangle-network/agent-runtime/loops'
 import { createSweBenchEnvironment } from './swe-bench-env'
 
 async function main(): Promise<void> {
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     let resolved = 0
     for (const t of ts) {
       const t0 = Date.now()
-      const r = await runAgentic({ surface: environment, task: t, strategy: refine, routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns, budget: 1 })
+      const r = await runStrategy({ surface: environment, task: t, strategy: refine, routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns, budget: 1 })
       if (r.resolved) resolved++
       console.log(`  ${t.id.padEnd(32)} resolved=${r.resolved} completions=${r.completions} shots=${r.shots} (${Math.round((Date.now() - t0) / 1000)}s)`)
     }

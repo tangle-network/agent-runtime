@@ -1,12 +1,16 @@
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createInProcessUiAuditEnvironmentProvider } from '../../src/profiles'
 import {
   type BrowserContextHandle,
   type BrowserHandle,
-  createInProcessUiAuditClient,
   encodeAuditTaskEnvelope,
   type PageHandle,
   type UiAuditTask,
@@ -25,6 +29,7 @@ interface MockHandles {
   log: MockPageLog
   newContextCalls: number
   contextCloseCalls: number
+  browserCloseCalls: number
   failNthScreenshot?: number
 }
 
@@ -33,6 +38,7 @@ function makeMockBrowser(): MockHandles {
   const state = { failNthScreenshot: undefined as number | undefined }
   let newContextCalls = 0
   let contextCloseCalls = 0
+  let browserCloseCalls = 0
 
   const page: PageHandle = {
     async setViewportSize(size) {
@@ -87,7 +93,7 @@ function makeMockBrowser(): MockHandles {
       return context
     },
     async close() {
-      /* no-op */
+      browserCloseCalls += 1
     },
   }
 
@@ -100,6 +106,9 @@ function makeMockBrowser(): MockHandles {
     get contextCloseCalls() {
       return contextCloseCalls
     },
+    get browserCloseCalls() {
+      return browserCloseCalls
+    },
     set failNthScreenshot(n: number | undefined) {
       state.failNthScreenshot = n
     },
@@ -109,7 +118,7 @@ function makeMockBrowser(): MockHandles {
 let workspaceDir: string
 
 beforeEach(async () => {
-  workspaceDir = await fs.mkdtemp(path.join(tmpdir(), 'ui-audit-client-'))
+  workspaceDir = await fs.mkdtemp(path.join(tmpdir(), 'ui-audit-provider-'))
 })
 
 afterEach(async () => {
@@ -131,16 +140,28 @@ function stubTask(overrides: Partial<UiAuditTask> = {}): UiAuditTask {
   }
 }
 
-async function drain(it: AsyncIterable<SandboxEvent>): Promise<SandboxEvent[]> {
-  const events: SandboxEvent[] = []
+async function drain(it: AsyncIterable<AgentEnvironmentEvent>): Promise<AgentEnvironmentEvent[]> {
+  const events: AgentEnvironmentEvent[] = []
   for await (const e of it) events.push(e)
   return events
 }
 
-describe('createInProcessUiAuditClient — viewport application', () => {
+function createEnvironment(provider: AgentEnvironmentProvider): Promise<AgentEnvironment> {
+  return provider.create({ profile: { name: 'ui-auditor' } })
+}
+
+function streamTurn(
+  environment: AgentEnvironment,
+  prompt: string,
+  signal = new AbortController().signal,
+): AsyncIterable<AgentEnvironmentEvent> {
+  return environment.stream({ prompt, signal })
+}
+
+describe('createInProcessUiAuditEnvironmentProvider — viewport application', () => {
   it('applies the per-capture viewport BEFORE navigation for every capture', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
@@ -164,11 +185,9 @@ describe('createInProcessUiAuditClient — viewport application', () => {
       ],
     })
 
-    const box = await client.create()
-    await drain(
-      box.streamPrompt(encodeAuditTaskEnvelope(task), { signal: new AbortController().signal }),
-    )
-    await client.close()
+    const environment = await createEnvironment(provider)
+    await drain(streamTurn(environment, encodeAuditTaskEnvelope(task)))
+    await provider.close()
 
     expect(mock.log.setViewports).toEqual([
       { width: 1440, height: 900 },
@@ -181,7 +200,7 @@ describe('createInProcessUiAuditClient — viewport application', () => {
   })
 })
 
-describe('createInProcessUiAuditClient — event order', () => {
+describe('createInProcessUiAuditEnvironmentProvider — event order', () => {
   it('yields lens → captures (in order) → findings → notes → done', async () => {
     const mock = makeMockBrowser()
     const judge: UiJudge = async () => ({
@@ -201,7 +220,7 @@ describe('createInProcessUiAuditClient — event order', () => {
       tokenUsage: { input: 3, output: 4 },
       costUsd: 0.0001,
     })
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge,
       launchBrowser: async () => mock.browser,
@@ -213,11 +232,9 @@ describe('createInProcessUiAuditClient — event order', () => {
       ],
     })
 
-    const box = await client.create()
-    const events = await drain(
-      box.streamPrompt(encodeAuditTaskEnvelope(task), { signal: new AbortController().signal }),
-    )
-    await client.close()
+    const environment = await createEnvironment(provider)
+    const events = await drain(streamTurn(environment, encodeAuditTaskEnvelope(task)))
+    await provider.close()
 
     const types = events.map((e) => e.type)
     expect(types).toEqual([
@@ -228,41 +245,43 @@ describe('createInProcessUiAuditClient — event order', () => {
       'audit.notes',
       'done',
     ])
-    const done = events[events.length - 1] as {
-      data: { tokenUsage: { inputTokens: number; outputTokens: number }; totalCostUsd: number }
-    }
-    expect(done.data.tokenUsage).toEqual({ inputTokens: 3, outputTokens: 4 })
-    expect(done.data.totalCostUsd).toBeCloseTo(0.0001, 6)
+    const done = events.at(-1)
+    expect(done?.data).toMatchObject({
+      tokenUsage: { inputTokens: 3, outputTokens: 4 },
+      totalCostUsd: 0.0001,
+    })
+    expect(events.at(-1)?.usage).toEqual({
+      inputTokens: 3,
+      outputTokens: 4,
+      totalTokens: 7,
+      cost: 0.0001,
+    })
   })
 })
 
-describe('createInProcessUiAuditClient — error handling', () => {
+describe('createInProcessUiAuditEnvironmentProvider — error handling', () => {
   it('closes the browser context even when the judge throws', async () => {
     const mock = makeMockBrowser()
     const judge: UiJudge = async () => {
       throw new Error('judge blew up')
     }
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge,
       launchBrowser: async () => mock.browser,
     })
-    const box = await client.create()
+    const environment = await createEnvironment(provider)
     await expect(
-      drain(
-        box.streamPrompt(encodeAuditTaskEnvelope(stubTask()), {
-          signal: new AbortController().signal,
-        }),
-      ),
+      drain(streamTurn(environment, encodeAuditTaskEnvelope(stubTask()))),
     ).rejects.toThrow(/judge blew up/)
     expect(mock.contextCloseCalls).toBe(1)
-    await client.close()
+    await provider.close()
   })
 
   it('closes the browser context even when a capture throws', async () => {
     const mock = makeMockBrowser()
     mock.failNthScreenshot = 2
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
@@ -273,85 +292,82 @@ describe('createInProcessUiAuditClient — error handling', () => {
         { route: 'home', url: 'https://example.test/b' },
       ],
     })
-    const box = await client.create()
-    await expect(
-      drain(
-        box.streamPrompt(encodeAuditTaskEnvelope(task), { signal: new AbortController().signal }),
-      ),
-    ).rejects.toThrow(/mock screenshot failure/)
+    const environment = await createEnvironment(provider)
+    await expect(drain(streamTurn(environment, encodeAuditTaskEnvelope(task)))).rejects.toThrow(
+      /mock screenshot failure/,
+    )
     expect(mock.contextCloseCalls).toBe(1)
-    await client.close()
+    await provider.close()
   })
 
   it('throws when the prompt is missing the UI_AUDIT_TASK envelope', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
-    const box = await client.create()
-    await expect(
-      drain(box.streamPrompt('no envelope here', { signal: new AbortController().signal })),
-    ).rejects.toThrow(/UI_AUDIT_TASK envelope/)
+    const environment = await createEnvironment(provider)
+    await expect(drain(streamTurn(environment, 'no envelope here'))).rejects.toThrow(
+      /UI_AUDIT_TASK envelope/,
+    )
     // The pre-envelope check is before any browser work; no context should
     // have been allocated.
     expect(mock.newContextCalls).toBe(0)
-    await client.close()
+    await provider.close()
   })
 
   it('throws when the task has zero captures', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
-    const box = await client.create()
+    const environment = await createEnvironment(provider)
     await expect(
       drain(
-        box.streamPrompt(encodeAuditTaskEnvelope({ lens: 'consistency', captures: [] }), {
-          signal: new AbortController().signal,
-        }),
+        streamTurn(environment, encodeAuditTaskEnvelope({ lens: 'consistency', captures: [] })),
       ),
     ).rejects.toThrow(/zero captures/)
-    await client.close()
+    await provider.close()
   })
 
-  it('rejects non-http(s) capture URLs as SSRF defense at the client boundary', async () => {
+  it('rejects non-http(s) navigation targets at the provider boundary', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
     for (const url of ['file:///etc/passwd', 'data:text/html,x', 'javascript:alert(1)']) {
-      const box = await client.create()
+      const environment = await createEnvironment(provider)
       await expect(
         drain(
-          box.streamPrompt(
+          streamTurn(
+            environment,
             encodeAuditTaskEnvelope(stubTask({ captures: [{ route: 'home', url }] })),
-            { signal: new AbortController().signal },
           ),
         ),
       ).rejects.toThrow(/must use http or https/)
     }
-    await client.close()
+    await provider.close()
   })
 
   it('honours AbortSignal — aborting before the first capture rejects the stream', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
     const controller = new AbortController()
     controller.abort()
-    const box = await client.create()
+    const environment = await createEnvironment(provider)
     await expect(
       drain(
-        box.streamPrompt(
+        streamTurn(
+          environment,
           encodeAuditTaskEnvelope(
             stubTask({
               captures: [
@@ -360,7 +376,7 @@ describe('createInProcessUiAuditClient — error handling', () => {
               ],
             }),
           ),
-          { signal: controller.signal },
+          controller.signal,
         ),
       ),
     ).rejects.toThrowError()
@@ -368,61 +384,153 @@ describe('createInProcessUiAuditClient — error handling', () => {
     expect(mock.log.gotoUrls).toHaveLength(0)
     // And the context was created then closed (cleanup ran).
     expect(mock.contextCloseCalls).toBe(1)
-    await client.close()
+    await provider.close()
+  })
+
+  it('propagates in-flight cancellation to the judge and closes the context', async () => {
+    const mock = makeMockBrowser()
+    let markJudgeEntered!: () => void
+    const judgeEntered = new Promise<void>((resolve) => {
+      markJudgeEntered = resolve
+    })
+    const judge: UiJudge = async ({ signal }) => {
+      markJudgeEntered()
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true })
+        })
+      }
+      signal.throwIfAborted()
+      return { findings: [] }
+    }
+    const provider = createInProcessUiAuditEnvironmentProvider({
+      workspaceDir,
+      judge,
+      launchBrowser: async () => mock.browser,
+    })
+    const environment = await createEnvironment(provider)
+    const controller = new AbortController()
+    const running = drain(
+      streamTurn(environment, encodeAuditTaskEnvelope(stubTask()), controller.signal),
+    )
+
+    await judgeEntered
+    controller.abort()
+
+    await expect(running).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mock.contextCloseCalls).toBe(1)
+    await provider.close()
   })
 })
 
-describe('createInProcessUiAuditClient — sandbox surface', () => {
-  it('describePlacement reports the synthetic sandbox id', async () => {
+describe('createInProcessUiAuditEnvironmentProvider — environment provider surface', () => {
+  it('reports local placement and a stable provider identity', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
-    const box = await client.create()
-    const placement = client.describePlacement?.(box)
-    expect(placement?.kind).toBe('sibling')
-    expect(typeof placement?.sandboxId).toBe('string')
-    expect(placement?.sandboxId).toMatch(/^ui-audit-/)
-    await client.close()
+    const environment = await createEnvironment(provider)
+    const placement = await environment.placement?.()
+    expect(environment.id).toMatch(/^ui-audit-/)
+    expect(environment.provider).toBe('in-process-ui-audit')
+    expect(placement).toEqual({
+      kind: 'local',
+      providerMetadata: { browser: 'playwright', mode: 'in-process' },
+    })
+    await provider.close()
+  })
+
+  it('reports official capabilities and rejects named profiles', async () => {
+    const mock = makeMockBrowser()
+    const provider = createInProcessUiAuditEnvironmentProvider({
+      workspaceDir,
+      judge: okJudgeFn,
+      launchBrowser: async () => mock.browser,
+    })
+
+    expect(await provider.capabilities()).toMatchObject({
+      streaming: { live: true },
+      placement: true,
+      usage: true,
+    })
+    await expect(provider.create({ profile: 'catalog-profile' })).rejects.toThrow(
+      /named profiles require a provider catalog/,
+    )
+    await provider.close()
+  })
+
+  it('reuses one browser and creates a fresh context for every turn', async () => {
+    const mock = makeMockBrowser()
+    const launchBrowser = vi.fn(async () => mock.browser)
+    const provider = createInProcessUiAuditEnvironmentProvider({
+      workspaceDir,
+      judge: okJudgeFn,
+      launchBrowser,
+    })
+    const first = await createEnvironment(provider)
+    const second = await createEnvironment(provider)
+
+    await drain(
+      streamTurn(
+        first,
+        encodeAuditTaskEnvelope(
+          stubTask({ captures: [{ route: 'first', url: 'https://example.test/first' }] }),
+        ),
+      ),
+    )
+    await drain(
+      streamTurn(
+        second,
+        encodeAuditTaskEnvelope(
+          stubTask({ captures: [{ route: 'second', url: 'https://example.test/second' }] }),
+        ),
+      ),
+    )
+    await first.destroy?.()
+    await second.destroy?.()
+    await provider.close()
+
+    expect(launchBrowser).toHaveBeenCalledTimes(1)
+    expect(mock.newContextCalls).toBe(2)
+    expect(mock.contextCloseCalls).toBe(2)
+    expect(mock.browserCloseCalls).toBe(1)
   })
 
   it('close() is idempotent', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
-    await client.close()
-    await client.close()
-    expect(mock.newContextCalls).toBe(0)
+    const environment = await createEnvironment(provider)
+    await drain(streamTurn(environment, encodeAuditTaskEnvelope(stubTask())))
+    await provider.close()
+    await provider.close()
+    expect(mock.browserCloseCalls).toBe(1)
   })
 
-  it('rejects streamPrompt after close instead of silently re-launching the browser', async () => {
+  it('rejects stream after close instead of silently re-launching the browser', async () => {
     const mock = makeMockBrowser()
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge: okJudgeFn,
       launchBrowser: async () => mock.browser,
     })
-    const box = await client.create()
-    await client.close()
+    const environment = await createEnvironment(provider)
+    await provider.close()
     await expect(
-      drain(
-        box.streamPrompt(encodeAuditTaskEnvelope(stubTask()), {
-          signal: new AbortController().signal,
-        }),
-      ),
-    ).rejects.toThrow(/client is closed/)
+      drain(streamTurn(environment, encodeAuditTaskEnvelope(stubTask()))),
+    ).rejects.toThrow(/destroyed/)
     // Nothing should have been newly allocated — the closed guard fires
     // before browser launch.
     expect(mock.newContextCalls).toBe(0)
   })
 })
 
-describe('createInProcessUiAuditClient — AggregateError on dual failure', () => {
+describe('createInProcessUiAuditEnvironmentProvider — AggregateError on dual failure', () => {
   it('throws AggregateError when both the judge and context.close() fail', async () => {
     const judge: UiJudge = async () => {
       throw new Error('judge blew up')
@@ -466,19 +574,15 @@ describe('createInProcessUiAuditClient — AggregateError on dual failure', () =
       },
       async close() {},
     }
-    const client = createInProcessUiAuditClient({
+    const provider = createInProcessUiAuditEnvironmentProvider({
       workspaceDir,
       judge,
       launchBrowser: async () => browser,
     })
-    const box = await client.create()
+    const environment = await createEnvironment(provider)
     let caught: unknown
     try {
-      await drain(
-        box.streamPrompt(encodeAuditTaskEnvelope(stubTask()), {
-          signal: new AbortController().signal,
-        }),
-      )
+      await drain(streamTurn(environment, encodeAuditTaskEnvelope(stubTask())))
     } catch (err) {
       caught = err
     }
@@ -487,6 +591,6 @@ describe('createInProcessUiAuditClient — AggregateError on dual failure', () =
     const messages = agg.errors.map((e) => (e instanceof Error ? e.message : String(e)))
     expect(messages).toContain('judge blew up')
     expect(messages).toContain('close blew up')
-    await client.close()
+    await provider.close()
   })
 })

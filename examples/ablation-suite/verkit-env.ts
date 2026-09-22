@@ -5,7 +5,7 @@
  * replaced by `raise NotImplementedError` (signatures + docstrings kept) plus the library's
  * REAL pytest suite (read-only), and must re-implement the bodies until the suite passes.
  * Graded by real host pytest (a deployable check, never an LLM judge) — exactly the
- * AgenticSurface shape of long-coding-env-lite (open / tools[list_files, read_file, write_file,
+ * TaskEnvironment shape of long-coding-env-lite (open / tools[list_files, read_file, write_file,
  * run_tests] / call / score / close + an exported tasks supplier; run_tests returns the pass
  * count + the names of the failing tests).
  *
@@ -43,11 +43,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
-  AgenticSurface,
-  AgenticTask,
-  AgenticTool,
   ArtifactHandle,
-  SurfaceScore,
+  EnvironmentScore,
+  EnvironmentTask,
+  EnvironmentTool,
+  TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'verkit')
@@ -147,7 +147,7 @@ function runTestsReport(dir: string): string {
   return parts.length ? `${head} ${parts.join(' | ')}` : head
 }
 
-export const verkitEnv: AgenticSurface = {
+export const verkitEnv: TaskEnvironment = {
   name: surfaceName,
   async open(_task) {
     const dir = mkdtempSync(join(tmpdir(), 'verkit-'))
@@ -204,7 +204,7 @@ export const verkitEnv: AgenticSurface = {
           parameters: { type: 'object', properties: {} },
         },
       },
-    ] satisfies AgenticTool[]
+    ] satisfies EnvironmentTool[]
   },
   async call(handle, name, args) {
     const ws = workspaces.get(handle.id)
@@ -232,7 +232,7 @@ export const verkitEnv: AgenticSurface = {
     if (name === 'run_tests') return runTestsReport(ws.dir)
     return `ERROR: unknown tool ${name}`
   },
-  async score(_task, handle): Promise<SurfaceScore> {
+  async score(_task, handle): Promise<EnvironmentScore> {
     const ws = workspaces.get(handle.id)
     if (!ws) return { passes: 0, total: 0, errored: 1 }
     const { passed, ran } = pytestResult(ws.dir)
@@ -250,7 +250,7 @@ export const verkitEnv: AgenticSurface = {
 
 // ── The task supplier (n independent TRIALS of the one fixed task; see the SINGLE-INSTANCE
 // caveat in the file header — these are NOT disjoint problems) ─────────────────────────────
-export const verkitTasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
+export const verkitTasks = async (offset: number, n: number): Promise<EnvironmentTask[]> =>
   Array.from({ length: n }, (_, i) => {
     const trial = offset + i
     return {
@@ -277,7 +277,7 @@ export const verkitTasks = async (offset: number, n: number): Promise<AgenticTas
         'Read the test files, implement verkit.py for the Release type and every module-level ' +
         'function, then run_tests and fix the failing tests until all pass.',
       meta: { seed: trial },
-    } satisfies AgenticTask
+    } satisfies EnvironmentTask
   })
 
 /** The correct verkit.py — used ONLY by the $0 calibration self-check (never by the agent). */

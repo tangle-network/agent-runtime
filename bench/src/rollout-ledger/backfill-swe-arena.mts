@@ -141,10 +141,13 @@ interface Ctx {
   stats: BackfillStats
 }
 
-function baseLine(ctx: Ctx): Pick<RolloutLine, 'schema' | 'run_id' | 'provenance'> {
+function baseLine(
+  ctx: Ctx,
+): Pick<RolloutLine, 'schema' | 'run_id' | 'experiment_id' | 'provenance'> {
   return {
     schema: ROLLOUT_SCHEMA,
     run_id: ctx.runId,
+    experiment_id: ctx.runId,
     provenance: { captured_at: ctx.capturedAt, capture: 'backfill' },
   }
 }
@@ -240,6 +243,7 @@ async function emitCellLines(
       is_completed: artifact !== null && cell.error === undefined,
       is_truncated: supStatus === 'running',
       error: cell.error ?? null,
+      realness_gated: false,
     },
     cost: {
       // The campaign CostLedger receipt for the whole episode.
@@ -347,6 +351,7 @@ function workerLine(
       is_completed: session !== null && messages.length > 0,
       is_truncated: false,
       error: null,
+      realness_gated: false,
     },
     cost: {
       usd: session?.costUsd ?? null,
@@ -516,6 +521,7 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
         is_completed: receipt !== null && receipt.exitCode === 0,
         is_truncated: receipt !== null && receipt.timedOut === true,
         error: receipt !== null && typeof receipt.error === 'string' ? receipt.error : null,
+        realness_gated: false,
       },
       cost: {
         usd: receipt !== null && typeof receipt.costUsd === 'number' ? receipt.costUsd : null,

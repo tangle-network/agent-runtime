@@ -1,8 +1,7 @@
 /**
- * The general agentic primitive — sequential (depth) and parallel (breadth) over a shared,
- * checkable artifact, driven through the keystone Supervisor as one recursive `Agent.act`.
+ * Execute sequential or parallel strategies over a scored task environment.
  *
- * The domain lives behind ONE seam — `AgenticSurface` (open an artifact, list tools, call a tool,
+ * The domain lives behind `TaskEnvironment` (open an artifact, list tools, call a tool,
  * score the artifact, close it). EnterpriseOps implements it (seed a gym DB, MCP tools, SQL
  * verifier); Commit0/AppWorld/terminal-bench implement it the same way (a repo workspace, shell
  * tools, the test suite). The drivers below are domain-blind: they run over any surface.
@@ -16,7 +15,7 @@
  *
  * Both are an `Agent` whose `act` spawns leaf shots through `scope.spawn` and reacts via
  * `scope.next()` — so the conserved budget pool meters them (equal-k by construction), the journal
- * records the tree, and the same primitive nests. `runAgentic` runs the chosen driver through
+ * records the tree, and the same primitive nests. `runStrategy` runs the chosen driver through
  * `createSupervisor().run`. The leaf (one shot over a handle) is resolved per-spawn from a
  * surface-closed registry — the open `Executor` seam, not bespoke per-benchmark glue.
  */
@@ -45,7 +44,7 @@ import type {
 
 // ── The general surface seam (the only thing a new benchmark implements) ─────────
 
-export interface AgenticTask {
+export interface EnvironmentTask {
   readonly id: string
   readonly systemPrompt: string
   readonly userPrompt: string
@@ -60,12 +59,12 @@ export interface ArtifactHandle {
   readonly ctx?: unknown
 }
 
-export interface AgenticTool {
+export interface EnvironmentTool {
   readonly type: 'function'
   readonly function: { name: string; description?: string; parameters: Record<string, unknown> }
 }
 
-export interface SurfaceScore {
+export interface EnvironmentScore {
   passes: number
   total: number
   /** Checks excluded as malformed (data defect, not the agent). `total === 0` ⇒ unscoreable. */
@@ -73,16 +72,16 @@ export interface SurfaceScore {
 }
 
 /** A stateful, checkable environment an agent operates over with tools. Open behind one interface. */
-export interface AgenticSurface {
+export interface TaskEnvironment {
   readonly name: string
-  open(task: AgenticTask): Promise<ArtifactHandle>
-  tools(task: AgenticTask, handle: ArtifactHandle): Promise<AgenticTool[]>
+  open(task: EnvironmentTask): Promise<ArtifactHandle>
+  tools(task: EnvironmentTask, handle: ArtifactHandle): Promise<EnvironmentTool[]>
   call(handle: ArtifactHandle, name: string, args: Record<string, unknown>): Promise<string>
-  score(task: AgenticTask, handle: ArtifactHandle): Promise<SurfaceScore>
+  score(task: EnvironmentTask, handle: ArtifactHandle): Promise<EnvironmentScore>
   close(handle: ArtifactHandle): Promise<void>
 }
 
-export interface AgenticOptions {
+export interface StrategyWorkerOptions {
   routerBaseUrl: string
   routerKey: string
   model: string
@@ -126,7 +125,7 @@ export interface CorpusReadbackOptions {
   includeOperatorFacts?: boolean
 }
 
-// ── The unit: one agentic shot (a bounded tool loop) over a handle ───────────────
+// ── The unit: one bounded tool loop over a handle ───────────────────────────
 
 type Msg = Record<string, unknown>
 interface ToolCall {
@@ -135,7 +134,7 @@ interface ToolCall {
 }
 
 interface ShotTask {
-  task: AgenticTask
+  task: EnvironmentTask
   handle?: ArtifactHandle // present ⇒ DEPTH (shared artifact); absent ⇒ BREADTH (open own)
   messages?: Msg[] // carried conversation (depth); fresh when absent
   steer?: string // analyst-derived steer injected before this shot (depth)
@@ -163,12 +162,12 @@ const taskNudge =
 /** One shot: run the agent's tool loop (≤ innerTurns) over the handle, mutating the artifact via
  *  `surface.call`, carrying `messages`. Returns the updated conversation + counts. */
 async function runShot(
-  surface: AgenticSurface,
-  _task: AgenticTask,
+  surface: TaskEnvironment,
+  _task: EnvironmentTask,
   handle: ArtifactHandle,
-  tools: AgenticTool[],
+  tools: EnvironmentTool[],
   messages: Msg[],
-  opts: AgenticOptions,
+  opts: StrategyWorkerOptions,
   modelOverride?: string,
 ): Promise<ShotOut> {
   // The canonical off-box tool loop (routerToolLoop) drives the turns; this shot supplies
@@ -246,7 +245,7 @@ function compactTrajectory(messages: Msg[]): string {
  *  serve both). The critic speaks the OpenAI request shape; we forward it to `complete` and lift
  *  the parsed `/chat/completions` JSON back into a `ChatResponse`. */
 function analystChat(
-  opts: AgenticOptions,
+  opts: StrategyWorkerOptions,
   defaultModel: string,
 ): ReturnType<typeof createChatClient> {
   if (!opts.complete) {
@@ -298,10 +297,10 @@ function analystChat(
  *  whose output format the findings protocol would strip. Same firewall as analyze():
  *  trajectory in, never scores. */
 async function consultAnalyst(
-  task: AgenticTask,
+  task: EnvironmentTask,
   messages: Msg[],
   instruction: string,
-  opts: AgenticOptions,
+  opts: StrategyWorkerOptions,
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
   const analystModel = opts.analystModel ?? opts.model
@@ -352,9 +351,9 @@ async function consultAnalyst(
 }
 
 async function analyze(
-  task: AgenticTask,
+  task: EnvironmentTask,
   messages: Msg[],
-  opts: AgenticOptions,
+  opts: StrategyWorkerOptions,
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
   const analystModel = opts.analystModel ?? opts.model
@@ -407,7 +406,7 @@ async function analyze(
   return { steer: steer || 'COMPLETE', tokens }
 }
 
-async function renderCorpusReadback(opts: AgenticOptions): Promise<string> {
+async function renderCorpusReadback(opts: StrategyWorkerOptions): Promise<string> {
   if (!opts.corpus || !opts.corpusReadback) return ''
   const maxFacts = opts.corpusReadback.maxFacts ?? 3
   if (!Number.isInteger(maxFacts) || maxFacts < 0) {
@@ -446,7 +445,7 @@ interface ShotResult {
 
 /** Resolve a shot: if `handle` given, operate on the SHARED artifact (depth); else open+score+close
  *  an OWN artifact (breadth). Always scores the artifact's final state as the deployable verdict. */
-function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<unknown> {
+function shotExecutor(surface: TaskEnvironment, opts: StrategyWorkerOptions): Executor<unknown> {
   let artifact: ExecutorResult<unknown> | undefined
   return {
     runtime: 'agentic-shot',
@@ -527,12 +526,12 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
   }
 }
 
-function analystExecutor(opts: AgenticOptions): Executor<unknown> {
+function analystExecutor(opts: StrategyWorkerOptions): Executor<unknown> {
   let artifact: ExecutorResult<unknown> | undefined
   return {
     runtime: 'agentic-analyst',
     async execute(task: unknown): Promise<ExecutorResult<unknown>> {
-      const t = task as { task: AgenticTask; messages: Msg[]; rawInstruction?: string }
+      const t = task as { task: EnvironmentTask; messages: Msg[]; rawInstruction?: string }
       const { steer, tokens } = t.rawInstruction
         ? await consultAnalyst(t.task, t.messages, t.rawInstruction, opts)
         : await analyze(t.task, t.messages, opts)
@@ -566,10 +565,10 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
  * agents) before this leaf dispatch; `shot`/`analyst` children resolve to their leaf
  * executors here unchanged.
  */
-function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): ExecutorRegistry {
+function strategyRegistry(surface: TaskEnvironment, opts: StrategyWorkerOptions): ExecutorRegistry {
   const leaves: ExecutorRegistry = {
     register() {
-      throw new Error('agenticRegistry: register unsupported')
+      throw new Error('strategyRegistry: register unsupported')
     },
     resolve<Out>(spec: AgentSpec) {
       const role = (spec.profile.metadata as { role?: string } | undefined)?.role
@@ -590,7 +589,7 @@ function leaf(name: string, role: 'shot' | 'analyst'): Agent<unknown, Outcome<un
       // the scope drives. `act` is never called for a spawned child; it fails loud if
       // mis-used as a root. A `role:'driver'` child instead resolves to the recursive
       // driver-executor (agents drive agents) — see `withDriverExecutor`.
-      throw new Error(`agentic: spawned child "${name}" was run directly (the executor drives it)`)
+      throw new Error(`strategy: spawned child "${name}" was run directly (the executor drives it)`)
     },
   }
   return agent as Agent<unknown, Outcome<unknown>>
@@ -599,13 +598,13 @@ function leaf(name: string, role: 'shot' | 'analyst'): Agent<unknown, Outcome<un
 /** Drain exactly one settlement (the just-spawned child). */
 async function drainOne(scope: Scope<Outcome<unknown>>): Promise<Settled<Outcome<unknown>>> {
   const s = await scope.next()
-  if (!s) throw new Error('agentic: spawned child never settled')
+  if (!s) throw new Error('strategy: spawned child never settled')
   return s
 }
 
 // ── The result + the two drivers (domain-blind Agents run by the Supervisor) ─────
 
-export interface AgenticRunResult {
+export interface StrategyRunResult {
   /** The strategy name (built-in 'depth'/'breadth' or a custom strategy's name). */
   mode: string
   score: number
@@ -614,7 +613,7 @@ export interface AgenticRunResult {
   /** DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-so-far per rollout. */
   progression: number[]
   shots: number
-  /** The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
+  /** The cost vector, stamped by `runStrategy` from the Supervisor's conserved pool: real
    *  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms. */
   usd: number
   ms: number
@@ -628,9 +627,9 @@ const perChild = (innerTurns: number): Budget => ({
 
 /** DEPTH: one persistent artifact, carried across analyst-steered shots. */
 export function depthStrategy(
-  surface: AgenticSurface,
-  task: AgenticTask,
-  opts: AgenticOptions,
+  surface: TaskEnvironment,
+  task: EnvironmentTask,
+  opts: StrategyWorkerOptions,
   cfg: { maxShots: number },
 ): Agent<unknown, Outcome<unknown>> {
   const innerTurns = opts.innerTurns ?? 4
@@ -699,9 +698,9 @@ export function depthStrategy(
 
 /** BREADTH: K independent rollouts (each own artifact), verifier picks the best. */
 export function breadthStrategy(
-  _surface: AgenticSurface,
-  task: AgenticTask,
-  opts: AgenticOptions,
+  _surface: TaskEnvironment,
+  task: EnvironmentTask,
+  opts: StrategyWorkerOptions,
   cfg: { width: number },
 ): Agent<unknown, Outcome<unknown>> {
   const innerTurns = opts.innerTurns ?? 4
@@ -762,9 +761,9 @@ export interface Strategy<Result extends StrategyResult = StrategyResult> {
   /** @internal Associates a strategy with its typed result without adding a runtime field. */
   readonly [strategyResult]?: Result
   driver(
-    surface: AgenticSurface,
-    task: AgenticTask,
-    opts: AgenticOptions,
+    surface: TaskEnvironment,
+    task: EnvironmentTask,
+    opts: StrategyWorkerOptions,
     budget: number,
   ): Agent<unknown, Outcome<unknown>>
 }
@@ -821,7 +820,7 @@ export interface StrategyResult {
  *  harness-verified channel), so a body cannot peek the check or fabricate around it. */
 export interface StrategyArtifacts {
   readonly name: string
-  open(task: AgenticTask): Promise<ArtifactHandle>
+  open(task: EnvironmentTask): Promise<ArtifactHandle>
   close(handle: ArtifactHandle): Promise<void>
 }
 
@@ -829,8 +828,8 @@ export interface StrategyArtifacts {
 export interface StrategyCtx {
   /** Open/close artifacts the body manages itself (e.g. one persistent handle for depth). */
   readonly surface: StrategyArtifacts
-  readonly task: AgenticTask
-  readonly opts: AgenticOptions
+  readonly task: EnvironmentTask
+  readonly opts: StrategyWorkerOptions
   readonly budget: number
   readonly scope: Scope<Outcome<unknown>>
   /** Run ONE worker shot; its harness-scored result, or null if it went down. */
@@ -1074,10 +1073,10 @@ export const sampleThenRefine = defineStrategy(
   },
 )
 
-export interface RunAgenticOptions<Result extends StrategyResult = StrategyResult>
-  extends AgenticOptions {
-  surface: AgenticSurface
-  task: AgenticTask
+export interface RunStrategyOptions<Result extends StrategyResult = StrategyResult>
+  extends StrategyWorkerOptions {
+  surface: TaskEnvironment
+  task: EnvironmentTask
   /** Lifecycle observability — every spawn/settle (shots, analysts) streams here live.
    *  The seam online watchdogs/route-auditors subscribe to. */
   hooks?: RuntimeHooks
@@ -1091,9 +1090,9 @@ export interface RunAgenticOptions<Result extends StrategyResult = StrategyResul
 }
 
 /** Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. */
-export async function runAgentic<Result extends StrategyResult = StrategyResult>(
-  opts: RunAgenticOptions<Result>,
-): Promise<AgenticRunResult & Result> {
+export async function runStrategy<Result extends StrategyResult = StrategyResult>(
+  opts: RunStrategyOptions<Result>,
+): Promise<StrategyRunResult & Result> {
   const strategy: Strategy = opts.strategy ?? (opts.mode === 'breadth' ? sample : refine)
   const driver = strategy.driver(opts.surface, opts.task, opts, opts.budget)
   const supervisor = createSupervisor<unknown, Outcome<unknown>>()
@@ -1104,10 +1103,10 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
   const started = Date.now()
   const result = await supervisor.run(driver, undefined, {
     budget: root,
-    runId: `agentic:${strategy.name}:${opts.task.id}`,
+    runId: `strategy:${strategy.name}:${opts.task.id}`,
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
-    executors: agenticRegistry(opts.surface, opts),
+    executors: strategyRegistry(opts.surface, opts),
     maxDepth: 3,
     ...(opts.hooks ? { hooks: opts.hooks } : {}),
   })
@@ -1116,15 +1115,15 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
       result.kind === 'winner'
         ? `blocked: ${(result.out as { blockers?: string[] }).blockers?.join('; ')}`
         : `no-winner: ${result.reason}`
-    throw new Error(`runAgentic(${strategy.name}) produced no result — ${reason}`)
+    throw new Error(`runStrategy(${strategy.name}) produced no result — ${reason}`)
   }
   // Drivers deliver the strategy outcome; the cost vector is stamped here from `result.spentTotal`
   // (the journal aggregate: settled child work + metered driver inference) + wall clock.
-  const core = result.out.deliverable as Omit<AgenticRunResult & Result, 'usd' | 'ms' | 'tokens'>
+  const core = result.out.deliverable as Omit<StrategyRunResult & Result, 'usd' | 'ms' | 'tokens'>
   return {
     ...core,
     usd: result.spentTotal.usd,
     tokens: result.spentTotal.tokens,
     ms: Date.now() - started,
-  } as AgenticRunResult & Result
+  } as StrategyRunResult & Result
 }

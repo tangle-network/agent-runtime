@@ -162,7 +162,7 @@ export type AgenticGeneratorShotDisposition =
     }
 
 export interface AgenticGeneratorOptions {
-  /** Local coding harness to run in the worktree. Default `claude`. */
+  /** Local coding harness to run in the worktree. Default `claude-code`. */
   harness?: LocalHarness
   /** Author profile rendered through the canonical harness mapper. Required
    *  for reproducible Codex so model and reasoning settings are explicit. */
@@ -211,7 +211,7 @@ export interface AgenticGeneratorOptions {
 
 /** Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. */
 export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateGenerator {
-  const harness = opts.harness ?? 'claude'
+  const harness = opts.harness ?? 'claude-code'
   if (opts.codexReproducible && harness !== 'codex') {
     throw new Error("agenticGenerator: codexReproducible requires harness 'codex'")
   }
@@ -275,7 +275,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         const taskPrompt = attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt
         const invocation = opts.profile
           ? harnessInvocation(harness, opts.profile, taskPrompt, {
-              dangerouslySkipPermissions: harness === 'claude',
+              dangerouslySkipPermissions: harness === 'claude-code',
               ...(opts.codexReproducible ? { codexReproducible: true } : {}),
             })
           : undefined
@@ -307,7 +307,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
                   // The candidate worktree is isolated and must be editable without an
                   // interactive permission prompt. Other runLocalHarness callers remain
                   // permission-safe by default.
-                  dangerouslySkipPermissions: harness === 'claude',
+                  dangerouslySkipPermissions: harness === 'claude-code',
                   ...(opts.codexReproducible ? { codexReproducible: true } : {}),
                   ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
                   timeoutMs: opts.timeoutMs,

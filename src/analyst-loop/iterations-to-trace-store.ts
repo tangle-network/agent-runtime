@@ -34,7 +34,7 @@ import {
 } from '@tangle-network/agent-eval'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { AnalystError } from '../errors'
-import { extractLlmCallEvent } from '../runtime/sandbox-events'
+import { extractLlmCallEvent } from '../runtime/environment-events'
 import type { Iteration } from '../runtime/types'
 
 /** ErrorCluster isn't re-exported from the agent-eval root; derive it from the overview. */

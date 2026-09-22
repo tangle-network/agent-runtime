@@ -68,7 +68,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
 ): Promise<ImproveResult<TScenario, TArtifact>> {
   if (opts === undefined) {
     const code = profileOrCode as ImproveCodeRunOptions<TScenario, TArtifact>
-    if (!code || code.surface !== 'code') {
+    if (code?.surface !== 'code') {
       throw new ConfigError("improve(): the one-argument form requires { surface: 'code', ... }")
     }
     return runCodeImprovement(code)

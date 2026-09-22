@@ -3,7 +3,7 @@
  * every spawn/settle (shots, analysts, nested agents) becomes one timed, billed span.
  * The sum of spans IS the run's cost story — what each step cost in dollars, tokens,
  * and wall-clock, rendered as a text waterfall or exported as structured rows for any
- * chart. Attach the collector's `hooks` to `runAgentic`/`runBenchmark`; spans accumulate
+ * chart. Attach the collector's `hooks` to `runStrategy`/`runBenchmark`; spans accumulate
  * across every task the hooks observe.
  */
 import type { RuntimeHookEvent, RuntimeHooks } from '../runtime-hooks'
@@ -47,7 +47,7 @@ interface SettlePayload {
 }
 
 export interface WaterfallCollector {
-  /** Attach these to RunAgenticOptions.hooks / BenchmarkConfig.hooks. */
+  /** Attach these to RunStrategyOptions.hooks / BenchmarkConfig.hooks. */
   hooks: RuntimeHooks
   report(): WaterfallReport
   /** The text waterfall — one row per span, bars scaled to the observed window. */

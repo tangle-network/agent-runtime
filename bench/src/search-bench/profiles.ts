@@ -17,9 +17,10 @@
  * shape — a `transport:'http'` server at the router's `/v1/search/mcp` endpoint,
  * provider pinned via the `?provider=` query param.
  */
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentRunSpec } from '@tangle-network/agent-runtime/loops'
 
 export type SearchArm = 'native' | 'off' | { provider: string }
+type RuntimeAgentProfile = AgentRunSpec<string>['profile']
 
 const routerSearchMcpUrl = (provider: string, routerBaseUrl: string): string => {
   // routerBaseUrl is typically https://router.tangle.tools/v1 — the search MCP
@@ -52,28 +53,34 @@ export interface BuildArmProfileArgs {
 
 /**
  * Build the AgentProfile fragment (tools / permission / mcp) for one search arm.
- * Returned as a partial profile to be spread into `sandboxAgentRun({ profile })`.
+ * Returned as a partial profile to be spread into `environmentAgentRun({ profile })`.
  */
-export function buildArmProfile(args: BuildArmProfileArgs): AgentProfile {
+export function buildArmProfile(args: BuildArmProfileArgs): RuntimeAgentProfile {
   const { arm, routerBaseUrl, tangleApiKey } = args
-  const base: AgentProfile = {
+  const base: RuntimeAgentProfile = {
     name: args.name ?? 'search-bench-worker',
     ...(args.metadata ? { metadata: args.metadata } : {}),
-  } as AgentProfile
+  } as RuntimeAgentProfile
 
   if (arm === 'native') {
     // Native web tools stay on (harness default). No search MCP. For codex,
     // whose web_search ships off, explicitly enable it so the native arm is real.
-    return { ...base, tools: { web_search: true } } as AgentProfile
+    return { ...base, tools: { web_search: true } } as RuntimeAgentProfile
   }
 
   if (arm === 'off') {
     // No web access at all — the parametric floor (search contributes nothing).
-    return { ...base, tools: { ...nativeWebToolsDisabled }, permission: { webfetch: 'deny' } } as AgentProfile
+    return {
+      ...base,
+      tools: { ...nativeWebToolsDisabled },
+      permission: { webfetch: 'deny' },
+    } as RuntimeAgentProfile
   }
 
   if (!tangleApiKey) {
-    throw new Error(`buildArmProfile: provider arm "${arm.provider}" requires a tangleApiKey for the search MCP`)
+    throw new Error(
+      `buildArmProfile: provider arm "${arm.provider}" requires a tangleApiKey for the search MCP`,
+    )
   }
   return {
     ...base,
@@ -87,7 +94,7 @@ export function buildArmProfile(args: BuildArmProfileArgs): AgentProfile {
         enabled: true,
       },
     },
-  } as AgentProfile
+  } as RuntimeAgentProfile
 }
 
 /** Stable condition label for the corpus: `<harness>:<arm>`. */

@@ -1,12 +1,11 @@
-import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import {
-  type AgentRunSpec,
-  type Driver,
-  type OutputAdapter,
-  runLoop,
-  type Validator,
-} from '../../src/runtime'
+import { runAgentRounds } from '../../src/runtime/run-loop'
+import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../../src/runtime/types'
 import { fanoutDriver, refineDriver } from './refine-driver'
 
 interface Task {
@@ -46,44 +45,65 @@ const outerValidator: Validator<Outer> = {
 const innerSpec: AgentRunSpec<Task> = {
   profile,
   name: 'inner',
-  taskToPrompt: (t) => t.goal,
+  taskToPrompt: (task) => task.goal,
 }
 
-function counterClient() {
-  let i = 0
+function testProvider(
+  name: string,
+  create: AgentEnvironmentProvider['create'],
+): AgentEnvironmentProvider {
   return {
-    async create() {
-      const attempt = ++i
-      return {
-        async *streamPrompt() {
-          yield { type: 'result', data: { attempt } } satisfies SandboxEvent
-        },
-      } as unknown as SandboxInstance
+    name,
+    capabilities() {
+      throw new Error('capabilities are not used without lineage')
     },
+    create,
   }
 }
 
-describe('runLoop composition — a Driver that nests runLoop inside plan()', () => {
-  it('wraps an inner refine loop and the outer driver gates on the inner winner', async () => {
-    const innerClient = counterClient()
+function counterProvider(): AgentEnvironmentProvider {
+  let attempt = 0
+  return testProvider('counter', async () => {
+    attempt += 1
+    const currentAttempt = attempt
+    return {
+      id: `counter-${currentAttempt}`,
+      provider: 'counter',
+      async status() {
+        return 'running'
+      },
+      async *stream() {
+        yield {
+          type: 'result',
+          data: { attempt: currentAttempt },
+        } satisfies AgentEnvironmentEvent
+      },
+    }
+  })
+}
 
-    // Outer driver: each iteration's plan kicks off a full inner refine loop
-    // and yields a *single* outer task whose output adapter just stamps the
-    // inner best score. The outer task never reaches the sandbox client
-    // because we hand the kernel a no-op spec that immediately yields a
-    // synthetic result mirroring the inner winner.
+function unavailableProvider(name: string): AgentEnvironmentProvider {
+  return testProvider(name, async () => {
+    throw new Error('provider must not run in this type-only branch')
+  })
+}
+
+describe('runAgentRounds composition with a nested run inside plan()', () => {
+  it('wraps an inner refine loop and the outer driver uses its winner', async () => {
+    const innerProvider = counterProvider()
+
     let innerBest = 0
     const outerDriver: Driver<Task, Outer, 'stop' | 'continue'> = {
       name: 'outer',
       async plan(task, history) {
         if (history.length >= 2) return []
-        const innerResult = await runLoop({
+        const innerResult = await runAgentRounds({
           driver: refineDriver<Task, Inner>(),
           agentRun: innerSpec,
           output: innerOutput,
           validator: innerValidator,
           task,
-          ctx: { sandboxClient: innerClient },
+          ctx: { environmentProvider: innerProvider },
         })
         innerBest = innerResult.winner?.verdict?.score ?? 0
         return [task]
@@ -97,16 +117,23 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
     }
 
     let outerCalls = 0
-    const outerClient = {
-      async create() {
-        outerCalls += 1
-        return {
-          async *streamPrompt() {
-            yield { type: 'result', data: { best: innerBest } } satisfies SandboxEvent
-          },
-        } as unknown as SandboxInstance
-      },
-    }
+    const outerProvider = testProvider('outer', async () => {
+      const id = `outer-${outerCalls}`
+      outerCalls += 1
+      return {
+        id,
+        provider: 'outer',
+        async status() {
+          return 'running'
+        },
+        async *stream() {
+          yield {
+            type: 'result',
+            data: { best: innerBest },
+          } satisfies AgentEnvironmentEvent
+        },
+      }
+    })
 
     const outerOutput: OutputAdapter<Outer> = {
       parse(events) {
@@ -116,63 +143,45 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
       },
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver: outerDriver,
       agentRun: {
         profile,
         name: 'outer-agent',
-        taskToPrompt: (t) => `outer:${t.goal}`,
+        taskToPrompt: (task) => `outer:${task.goal}`,
       },
       output: outerOutput,
       validator: outerValidator,
       task: { goal: 'compose' },
-      ctx: { sandboxClient: outerClient },
+      ctx: { environmentProvider: outerProvider },
     })
 
     expect(outerCalls).toBeGreaterThan(0)
-    // The inner refine produces attempt=2 on the second iteration (score=2/3),
-    // which fails outerValidator's `best >= 2` check, so the loop exhausts
-    // the outer cap and stops without winning — but the structure shows the
-    // nesting works end-to-end.
     expect(result.iterations.length).toBeGreaterThan(0)
     expect(result.decision).toBe('stop')
   })
 
-  it('static type check: a driver may compose multiple runLoops sequentially', () => {
-    // Compile-time proof that nested runLoop calls return well-typed results.
-    // The body is intentionally unreachable; the assertion is the type
-    // signature itself.
-    async function _typecheckOnly() {
-      const r1 = await runLoop({
+  it('allows a driver to compose multiple runAgentRounds calls sequentially', () => {
+    async function typecheckOnly() {
+      const first = await runAgentRounds({
         driver: refineDriver<Task, Inner>(),
         agentRun: innerSpec,
         output: innerOutput,
         validator: innerValidator,
         task: { goal: '' },
-        ctx: {
-          sandboxClient: {
-            async create() {
-              throw new Error()
-            },
-          },
-        },
+        ctx: { environmentProvider: unavailableProvider('first') },
       })
-      const r2 = await runLoop({
+      const second = await runAgentRounds({
         driver: fanoutDriver<Task, Inner>(2),
         agentRun: innerSpec,
         output: innerOutput,
         validator: innerValidator,
         task: { goal: '' },
-        ctx: {
-          sandboxClient: {
-            async create() {
-              throw new Error()
-            },
-          },
-        },
+        ctx: { environmentProvider: unavailableProvider('second') },
       })
-      return { r1, r2 }
+      return { first, second }
     }
-    expect(typeof _typecheckOnly).toBe('function')
+
+    expect(typeof typecheckOnly).toBe('function')
   })
 })

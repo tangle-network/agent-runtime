@@ -7,7 +7,7 @@
  * `Scope.spawn` — a real box driving real boxes, not emulated function-tools.
  *
  * Coordination vs DELEGATION (`../../mcp/delegates.ts`): coordination SPAWNS workers in a CHOSEN
- * backend (`createExecutor({ backend })` — sandbox OR cli-bridge) and live-drives them — observe /
+ * environment provider (sandbox, CLI bridge, or custom) and live-drives them: observe,
  * steer / resume, recursive sub-drivers, one conserved budget. To instead delegate a coding task
  * INSIDE the agent's OWN sandbox (a durable fire-and-poll job that survives an MCP restart), use the
  * delegation MCP. Coordination is the live, cross-backend supervisor; delegation is own-sandbox async.

@@ -1,15 +1,15 @@
 /**
  *
  * Prompt formatter for the auditor profile. `formatAuditorPrompt` produces
- * the user message handed to the iteration — describes the captures to be
+ * the user message handed to the environment turn. It describes the captures to be
  * taken and the lens to apply. The system prompt comes from
  * `buildAuditorSystemPrompt(lens)` (lens-prompts.ts).
  *
  * The formatter prepends a machine-readable envelope (`<<UI_AUDIT_TASK>>`
  * … `<<UI_AUDIT_TASK_END>>`) carrying a JSON-serialised task. The
- * in-process auditor client recovers the task from this envelope so the
- * iteration is self-describing — robust to concurrent fanout, where any
- * per-client side state (e.g. a "current task" register) would race.
+ * in-process auditor provider recovers the task from this envelope so the
+ * iteration is self-describing during concurrent fanout, where provider-side
+ * mutable task state would race.
  *
  * The formatter is pure and deterministic — re-run on the same task
  * produces the same prompt. Tests and trace replays rely on this.

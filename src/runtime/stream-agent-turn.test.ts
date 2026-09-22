@@ -1,46 +1,43 @@
-/**
- * Offline contract tests for `streamAgentTurn` / `collectAgentTurn` — one per
- * backend kind (box via `inProcessSandboxClient`, box-task via its `onTask`
- * seam, executor via a stub `ExecutorFactory`, chat via a stub
- * `AgentExecutionBackend`), plus the terminal-guarantee, abort, timeout,
- * tool-part-preservation, raw-event-tap, and pull-based mid-stream-lifecycle
- * paths. No network, no credentials.
- */
-
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
-import { inProcessSandboxClient } from './in-process-sandbox-client'
+import type { RuntimeStreamEvent } from '../types'
+import { inProcessEnvironmentProvider } from './in-process-environment-provider'
+import { inlineEnvironmentProvider } from './inline-environment-provider'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 
 function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'final' } {
   const final = events.at(-1)
-  if (!final || final.type !== 'final') throw new Error('no terminal final event')
+  if (final?.type !== 'final') throw new Error('no terminal final event')
   return final
 }
 
-describe('streamAgentTurn: box backend', () => {
-  async function makeBox(events: SandboxEvent[]) {
-    const client = inProcessSandboxClient({ onPrompt: () => events })
-    return client.create()
+const TEST_PROFILE = { name: 'turn-test' }
+
+describe('streamAgentTurn: environment', () => {
+  async function makeEnvironment(events: AgentEnvironmentEvent[]) {
+    const provider = inProcessEnvironmentProvider({ onTurn: () => events })
+    return provider.create({ profile: TEST_PROFILE })
   }
 
   it('streams incremental events and terminates with usage', async () => {
-    const box = await makeBox([
+    const environment = await makeEnvironment([
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'Hello ' } },
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'world' } },
       { type: 'llm_call', data: { model: 'kimi-k2', tokensIn: 100, tokensOut: 40, costUsd: 0.02 } },
       { type: 'result', data: { finalText: 'Hello world' } },
-    ] as SandboxEvent[])
+    ])
 
     const seen: RuntimeStreamEvent[] = []
-    for await (const event of streamAgentTurn({ kind: 'box', box }, 'say hello')) {
+    for await (const event of streamAgentTurn({ kind: 'environment', environment }, 'say hello')) {
       seen.push(event)
     }
     // Incremental events surface in order, before the terminal event.
     expect(seen.map((e) => e.type)).toEqual([
-      'backend_start',
+      'turn_start',
       'text_delta',
       'text_delta',
       'llm_call',
@@ -54,52 +51,55 @@ describe('streamAgentTurn: box backend', () => {
       costUsd: 0.02,
       model: 'kimi-k2',
     })
+    await expect(environment.status()).resolves.toBe('running')
+    await environment.destroy?.()
   })
 
   it('collectAgentTurn round-trips the terminal summary', async () => {
-    const box = await makeBox([
+    const environment = await makeEnvironment([
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: '42' } },
       { type: 'done', data: { tokenUsage: { inputTokens: 7, outputTokens: 3 } } },
-    ] as SandboxEvent[])
+    ])
 
-    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'answer'))
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'environment', environment }, 'answer'),
+    )
     expect(turn.finalText).toBe('42')
     expect(turn.usage).toEqual({ input: 7, output: 3 })
     expect(turn.status).toBe('completed')
     expect(turn.events.map((e) => e.type)).toEqual([
-      'backend_start',
+      'turn_start',
       'text_delta',
       'llm_call',
       'final',
     ])
   })
 
-  it('surfaces a throwing box as backend_error + final failed (never throws)', async () => {
-    const client = inProcessSandboxClient({
+  it('surfaces a provider failure as turn_error + final failed without throwing', async () => {
+    const provider = inProcessEnvironmentProvider({
       // biome-ignore lint/correctness/useYield: the throw-before-yield path is the test subject
-      onPrompt: async function* (): AsyncIterable<SandboxEvent> {
-        throw new Error('box exploded')
+      onTurn: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+        throw new Error('provider exploded')
       },
     })
-    const box = await client.create()
-    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'boom'))
+    const environment = await provider.create({ profile: TEST_PROFILE })
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'environment', environment }, 'boom'),
+    )
     expect(turn.status).toBe('failed')
-    expect(turn.error).toMatchObject({ kind: 'backend', message: 'box exploded' })
+    expect(turn.error).toMatchObject({ kind: 'execution', message: 'provider exploded' })
     const types = turn.events.map((e) => e.type)
-    expect(types).toContain('backend_error')
+    expect(types).toContain('turn_error')
     expect(types.at(-1)).toBe('final')
   })
 })
 
-describe('streamAgentTurn: box-task backend', () => {
-  it('drives box.streamTask (never streamPrompt) with per-task options and folds usage identically', async () => {
-    const calls: { mode?: string; options?: Record<string, unknown> }[] = []
-    const client = inProcessSandboxClient({
-      onPrompt: () => {
-        throw new Error('box-task must not drive streamPrompt')
-      },
-      onTask: (_prompt, ctx) => {
-        calls.push({ mode: ctx.mode, options: ctx.options })
+describe('streamAgentTurn: turn fields', () => {
+  it('forwards session, model, timeout, and provider fields through AgentTurnInput', async () => {
+    const calls: Record<string, unknown>[] = []
+    const provider = inProcessEnvironmentProvider({
+      onTurn: (_prompt, ctx) => {
+        calls.push(ctx.input)
         expect(ctx.signal).toBeInstanceOf(AbortSignal)
         return [
           { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'task output' } },
@@ -111,34 +111,45 @@ describe('streamAgentTurn: box-task backend', () => {
               model: 'kimi-k2',
             },
           },
-        ] as SandboxEvent[]
+        ]
       },
     })
-    const box = await client.create()
+    const environment = await provider.create({ profile: TEST_PROFILE })
     const turn = await collectAgentTurn(
       streamAgentTurn(
-        { kind: 'box-task', box, options: { maxTurns: 5, sessionId: 'sess-1', model: 'kimi-k2' } },
+        {
+          kind: 'environment',
+          environment,
+          turn: {
+            sessionId: 'sess-1',
+            model: 'kimi-k2',
+            timeoutMs: 1_000,
+            providerOptions: { maxTurns: 5 },
+          },
+        },
         'do the task',
       ),
     )
-    // The options passthrough arrives verbatim at the task verb.
     expect(calls).toHaveLength(1)
-    expect(calls[0]?.mode).toBe('task')
-    expect(calls[0]?.options).toMatchObject({ maxTurns: 5, sessionId: 'sess-1', model: 'kimi-k2' })
+    expect(calls[0]).toMatchObject({
+      prompt: 'do the task',
+      sessionId: 'sess-1',
+      model: 'kimi-k2',
+      timeoutMs: 1_000,
+      providerOptions: { maxTurns: 5 },
+    })
     const start = turn.events[0]
-    if (start?.type !== 'backend_start') throw new Error('expected backend_start')
-    expect(start.backend).toBe('box-task')
+    if (start?.type !== 'turn_start') throw new Error('expected turn_start')
+    expect(start.provider).toBe('in-process')
+    expect(start.sessionId).toBe('sess-1')
     expect(turn.finalText).toBe('task output')
     expect(turn.usage).toEqual({ input: 9, output: 4, costUsd: 0.01, model: 'kimi-k2' })
     expect(turn.status).toBe('completed')
   })
 
-  it('timeoutMs aborts a hanging task with final.status failed', async () => {
-    const client = inProcessSandboxClient({
-      onPrompt: () => {
-        throw new Error('box-task must not drive streamPrompt')
-      },
-      onTask: async function* (_prompt, ctx): AsyncIterable<SandboxEvent> {
+  it('timeoutMs aborts a hanging environment turn with final.status failed', async () => {
+    const provider = inProcessEnvironmentProvider({
+      onTurn: async function* (_prompt, ctx): AsyncIterable<AgentEnvironmentEvent> {
         await new Promise<never>((_resolve, reject) => {
           const onAbort = () => reject(ctx.signal.reason ?? new Error('aborted'))
           if (ctx.signal.aborted) onAbort()
@@ -146,9 +157,9 @@ describe('streamAgentTurn: box-task backend', () => {
         })
       },
     })
-    const box = await client.create()
+    const environment = await provider.create({ profile: TEST_PROFILE })
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box-task', box }, 'hang', { timeoutMs: 25 }),
+      streamAgentTurn({ kind: 'environment', environment }, 'hang', { timeoutMs: 25 }),
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
@@ -193,20 +204,22 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
     },
     { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'listed' } },
     { type: 'done', data: { tokenUsage: { inputTokens: 5, outputTokens: 2 } } },
-  ] as SandboxEvent[]
+  ] as AgentEnvironmentEvent[]
 
-  async function makeBox(events: SandboxEvent[]) {
-    const client = inProcessSandboxClient({ onPrompt: () => events })
-    return client.create()
+  async function makeEnvironment(events: AgentEnvironmentEvent[]) {
+    const provider = inProcessEnvironmentProvider({ onTurn: () => events })
+    return provider.create({ profile: TEST_PROFILE })
   }
 
   it('preserveToolParts: true surfaces deduped tool_call/tool_result in-stream', async () => {
-    const box = await makeBox(toolFrames)
+    const environment = await makeEnvironment(toolFrames)
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box', box }, 'list files', { preserveToolParts: true }),
+      streamAgentTurn({ kind: 'environment', environment }, 'list files', {
+        preserveToolParts: true,
+      }),
     )
     expect(turn.events.map((e) => e.type)).toEqual([
-      'backend_start',
+      'turn_start',
       'tool_call',
       'tool_result',
       'text_delta',
@@ -219,16 +232,17 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
     const result = turn.events[2]
     if (result?.type !== 'tool_result') throw new Error('expected tool_result')
     expect(result).toMatchObject({ toolName: 'bash', toolCallId: 'call-1', result: 'file.txt' })
-    // The projection is additive: text/usage folding is unchanged.
     expect(turn.finalText).toBe('listed')
     expect(turn.usage).toEqual({ input: 5, output: 2 })
   })
 
-  it('default (off) leaves the stream vocabulary unchanged — no tool events', async () => {
-    const box = await makeBox(toolFrames)
-    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'list files'))
+  it('leaves tool events out by default', async () => {
+    const environment = await makeEnvironment(toolFrames)
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'environment', environment }, 'list files'),
+    )
     expect(turn.events.map((e) => e.type)).toEqual([
-      'backend_start',
+      'turn_start',
       'text_delta',
       'llm_call',
       'final',
@@ -236,7 +250,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
   })
 
   it('a terminal failure status projects a tool_result carrying the error in-band', async () => {
-    const box = await makeBox([
+    const environment = await makeEnvironment([
       {
         type: 'message.part.updated',
         data: {
@@ -249,35 +263,36 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
         },
       },
       { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } } },
-    ] as SandboxEvent[])
+    ])
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box', box }, 'fetch', { preserveToolParts: true }),
+      streamAgentTurn({ kind: 'environment', environment }, 'fetch', {
+        preserveToolParts: true,
+      }),
     )
     const types = turn.events.map((e) => e.type)
-    expect(types).toEqual(['backend_start', 'tool_call', 'tool_result', 'llm_call', 'final'])
+    expect(types).toEqual(['turn_start', 'tool_call', 'tool_result', 'llm_call', 'final'])
     const result = turn.events[2]
     if (result?.type !== 'tool_result') throw new Error('expected tool_result')
     expect(result.result).toEqual({ error: 'connection refused', status: 'failed' })
   })
 
-  it('bare tool.* event types project statelessly (box-task kind)', async () => {
-    const client = inProcessSandboxClient({
-      onPrompt: () => {
-        throw new Error('box-task must not drive streamPrompt')
-      },
-      onTask: () =>
+  it('projects bare tool event types without cross-event state', async () => {
+    const provider = inProcessEnvironmentProvider({
+      onTurn: () =>
         [
           { type: 'tool.call', data: { id: 't-1', name: 'search', input: { q: 'tangle' } } },
           { type: 'tool.result', data: { id: 't-1', name: 'search', output: 'hit' } },
           { type: 'done', data: { tokenUsage: { inputTokens: 3, outputTokens: 1 } } },
-        ] as SandboxEvent[],
+        ] as AgentEnvironmentEvent[],
     })
-    const box = await client.create()
+    const environment = await provider.create({ profile: TEST_PROFILE })
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box-task', box }, 'search', { preserveToolParts: true }),
+      streamAgentTurn({ kind: 'environment', environment }, 'search', {
+        preserveToolParts: true,
+      }),
     )
     expect(turn.events.map((e) => e.type)).toEqual([
-      'backend_start',
+      'turn_start',
       'tool_call',
       'tool_result',
       'llm_call',
@@ -289,28 +304,26 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
 })
 
 describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
-  it('receives EVERY raw sandbox event — including unmapped ones — before its projection, awaited', async () => {
+  it('receives every provider event before projection and awaits the callback', async () => {
     const log: string[] = []
-    const client = inProcessSandboxClient({
-      onPrompt: () =>
+    const provider = inProcessEnvironmentProvider({
+      onTurn: () =>
         [
-          // `step-start` has no chat-UX projection — the tap must still see it.
           { type: 'message.part.updated', data: { part: { type: 'step-start' } } },
           { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'hi' } },
           { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 1 } } },
-        ] as SandboxEvent[],
+        ] as AgentEnvironmentEvent[],
     })
-    const box = await client.create()
-    const stream = streamAgentTurn({ kind: 'box', box }, 'go', {
+    const environment = await provider.create({ profile: TEST_PROFILE })
+    const stream = streamAgentTurn({ kind: 'environment', environment }, 'go', {
       onRawEvent: async (event) => {
-        // Async on purpose: the drive must AWAIT the tap before projecting.
         await Promise.resolve()
         log.push(`raw:${String(event.type)}`)
       },
     })
     for await (const event of stream) log.push(`mapped:${event.type}`)
     expect(log).toEqual([
-      'mapped:backend_start',
+      'mapped:turn_start',
       'raw:message.part.updated',
       'raw:message.part.updated',
       'mapped:text_delta',
@@ -324,36 +337,34 @@ describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
 describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () => {
   it('caller-side async work between events suspends production — nothing is produced past the held event', async () => {
     const log: string[] = []
-    const client = inProcessSandboxClient({
-      onPrompt: async function* (): AsyncIterable<SandboxEvent> {
+    const provider = inProcessEnvironmentProvider({
+      onTurn: async function* (): AsyncIterable<AgentEnvironmentEvent> {
         log.push('produced:a')
         yield {
           type: 'message.part.updated',
           data: { part: { type: 'text' }, delta: 'a' },
-        } as SandboxEvent
+        }
         log.push('produced:b')
         yield {
           type: 'message.part.updated',
           data: { part: { type: 'text' }, delta: 'b' },
-        } as SandboxEvent
+        }
         log.push('produced:done')
         yield {
           type: 'done',
           data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } },
-        } as SandboxEvent
+        }
       },
     })
-    const box = await client.create()
-    for await (const event of streamAgentTurn({ kind: 'box', box }, 'go')) {
+    const environment = await provider.create({ profile: TEST_PROFILE })
+    for await (const event of streamAgentTurn({ kind: 'environment', environment }, 'go')) {
       log.push(`consumed:${event.type}`)
-      // The mid-stream escape: arbitrary awaited work (a vault sync, a retry
-      // decision) runs here while the producer is suspended.
       await new Promise((resolve) => setTimeout(resolve, 1))
       log.push(`synced:${event.type}`)
     }
     expect(log).toEqual([
-      'consumed:backend_start',
-      'synced:backend_start',
+      'consumed:turn_start',
+      'synced:turn_start',
       'produced:a',
       'consumed:text_delta',
       'synced:text_delta',
@@ -369,34 +380,36 @@ describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () 
   })
 
   it('a consumer can run pre-done work on `final` and withhold/replace the terminal event downstream', async () => {
-    // The physim pattern: vault-sync BEFORE forwarding a terminal event, and a
-    // noop-retry that swallows the first turn's `final` and re-drives.
-    const client = inProcessSandboxClient({
-      onPrompt: (_prompt, ctx) =>
+    const provider = inProcessEnvironmentProvider({
+      onTurn: (_prompt, ctx) =>
         ctx.round === 0
           ? ([
               { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 0 } } },
-            ] as SandboxEvent[])
+            ] as AgentEnvironmentEvent[])
           : ([
               {
                 type: 'message.part.updated',
                 data: { part: { type: 'text' }, delta: 'real answer' },
               },
               { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 2 } } },
-            ] as SandboxEvent[]),
+            ] as AgentEnvironmentEvent[]),
     })
-    const box = await client.create()
+    const environment = await provider.create({ profile: TEST_PROFILE })
     const downstream: string[] = []
     let synced = false
 
     async function* withLifecycle(): AsyncGenerator<RuntimeStreamEvent> {
-      const first = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'attempt'))
+      const first = await collectAgentTurn(
+        streamAgentTurn({ kind: 'environment', environment }, 'attempt'),
+      )
       const noop = first.finalText === '' && first.status === 'completed'
       if (noop) {
-        // Retry with a steering prompt — the first `final` is never forwarded.
-        for await (const event of streamAgentTurn({ kind: 'box', box }, 'attempt (retry)')) {
+        for await (const event of streamAgentTurn(
+          { kind: 'environment', environment },
+          'attempt (retry)',
+        )) {
           if (event.type === 'final') {
-            synced = true // pre-done lifecycle work completes before forwarding
+            synced = true
           }
           yield event
         }
@@ -407,13 +420,12 @@ describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () 
 
     for await (const event of withLifecycle()) downstream.push(event.type)
     expect(synced).toBe(true)
-    // Exactly ONE terminal event reached downstream — the retry's, not the noop's.
     expect(downstream.filter((t) => t === 'final')).toHaveLength(1)
     expect(downstream).toContain('text_delta')
   })
 })
 
-describe('streamAgentTurn: executor backend', () => {
+describe('streamAgentTurn: provider-owned environment', () => {
   function stubFactory(opts?: {
     onTeardown?: () => void
     hangUntilAbort?: boolean
@@ -446,28 +458,35 @@ describe('streamAgentTurn: executor backend', () => {
     })
   }
 
-  it('runs the factory once and terminates with the executor usage', async () => {
+  it('runs an inline executor through the provider contract and reports usage', async () => {
     let toreDown = 0
-    const stream = streamAgentTurn(
-      { kind: 'executor', factory: stubFactory({ onTeardown: () => toreDown++ }) },
-      'ping',
-    )
+    const provider = inlineEnvironmentProvider(stubFactory({ onTeardown: () => toreDown++ }), {
+      name: 'executor-provider',
+    })
+    const stream = streamAgentTurn({ kind: 'provider', provider, profile: TEST_PROFILE }, 'ping')
     const turn = await collectAgentTurn(stream)
     expect(turn.finalText).toBe('echo: ping')
     expect(turn.usage).toEqual({ input: 11, output: 6, costUsd: 0.005 })
     expect(turn.status).toBe('completed')
-    // Incremental metering surfaces before the terminal event.
-    expect(turn.events.map((e) => e.type)).toEqual(['backend_start', 'llm_call', 'final'])
+    expect(turn.events.map((e) => e.type)).toEqual(['turn_start', 'llm_call', 'final'])
     expect(toreDown).toBe(1)
   })
 
-  it('abort reaches the executor signal and terminates with status aborted', async () => {
+  it('preserves preparation, cancellation, and provider-owned cleanup', async () => {
     let toreDown = 0
+    let preparedEnvironment: AgentEnvironment | undefined
     const controller = new AbortController()
+    const provider = inlineEnvironmentProvider(
+      stubFactory({ hangUntilAbort: true, onTeardown: () => toreDown++ }),
+    )
     const stream = streamAgentTurn(
       {
-        kind: 'executor',
-        factory: stubFactory({ hangUntilAbort: true, onTeardown: () => toreDown++ }),
+        kind: 'provider',
+        provider,
+        profile: TEST_PROFILE,
+        prepareEnvironment(environment) {
+          preparedEnvironment = environment
+        },
       },
       'hang',
       { signal: controller.signal },
@@ -477,88 +496,37 @@ describe('streamAgentTurn: executor backend', () => {
     expect(turn.status).toBe('aborted')
     expect(turn.error?.message).toBe('caller cancelled')
     expect(toreDown).toBe(1)
+    await expect(preparedEnvironment?.status()).resolves.toBe('stopped')
   })
-})
 
-describe('streamAgentTurn: chat backend', () => {
-  function stubChatBackend(opts?: { hangUntilAbort?: boolean }): AgentExecutionBackend {
-    return {
-      kind: 'stub-chat',
-      async *stream(_input, context): AsyncIterable<RuntimeStreamEvent> {
-        yield { type: 'text_delta', text: 'partial ' }
-        if (opts?.hangUntilAbort) {
-          await new Promise<never>((_resolve, reject) => {
-            const signal = context.signal
-            const onAbort = () => reject(signal?.reason ?? new Error('aborted'))
-            if (signal?.aborted) onAbort()
-            else signal?.addEventListener('abort', onAbort, { once: true })
-          })
-        }
-        yield { type: 'text_delta', text: 'answer' }
-        yield { type: 'llm_call', model: 'glm-4.6', tokensIn: 21, tokensOut: 9 }
+  it('destroys an environment when preparation fails', async () => {
+    let createdEnvironment: AgentEnvironment | undefined
+    const baseProvider = inProcessEnvironmentProvider({
+      onTurn: () => [{ type: 'result', data: { finalText: 'unused' } }],
+    })
+    const provider = {
+      ...baseProvider,
+      async create(input: Parameters<typeof baseProvider.create>[0]) {
+        createdEnvironment = await baseProvider.create(input)
+        return createdEnvironment
       },
     }
-  }
-
-  it('streams normalized events and terminates with usage + model', async () => {
-    const seen: RuntimeStreamEvent[] = []
-    for await (const event of streamAgentTurn({ kind: 'chat', backend: stubChatBackend() }, 'hi')) {
-      seen.push(event)
-    }
-    expect(seen.map((e) => e.type)).toEqual([
-      'backend_start',
-      'text_delta',
-      'text_delta',
-      'llm_call',
-      'final',
-    ])
-    // Normalization stamps task/session onto the backend's bare events.
-    const delta = seen.at(1)
-    if (delta?.type !== 'text_delta') throw new Error('expected text_delta')
-    expect(delta.task?.intent).toBe('hi')
-    expect(delta.session?.backend).toBe('stub-chat')
-    const final = finalOf(seen)
-    expect(final.text).toBe('partial answer')
-    expect(final.metadata).toMatchObject({
-      tokenUsage: { input: 21, output: 9 },
-      model: 'glm-4.6',
-    })
-    expect(final.metadata).not.toHaveProperty('costUsd')
-  })
-
-  it('abort mid-stream terminates with status aborted after partial deltas', async () => {
-    const controller = new AbortController()
-    const stream = streamAgentTurn(
-      { kind: 'chat', backend: stubChatBackend({ hangUntilAbort: true }) },
-      'hang',
-      { signal: controller.signal },
-    )
-    setTimeout(() => controller.abort(new Error('user stopped')), 20)
-    const turn = await collectAgentTurn(stream)
-    expect(turn.status).toBe('aborted')
-    expect(turn.error?.message).toBe('user stopped')
-    // The delta streamed before the abort is preserved on the terminal event.
-    expect(turn.finalText).toBe('partial ')
-    expect(turn.events.map((e) => e.type)).toEqual([
-      'backend_start',
-      'text_delta',
-      'backend_error',
-      'final',
-    ])
-  })
-
-  it('timeoutMs expiry terminates with status failed (not aborted)', async () => {
     const turn = await collectAgentTurn(
       streamAgentTurn(
-        { kind: 'chat', backend: stubChatBackend({ hangUntilAbort: true }) },
-        'slow',
         {
-          timeoutMs: 25,
+          kind: 'provider',
+          provider,
+          profile: TEST_PROFILE,
+          prepareEnvironment() {
+            throw new Error('preparation failed')
+          },
         },
+        'unused',
       ),
     )
     expect(turn.status).toBe('failed')
-    expect(turn.error?.message).toContain('timed out after 25ms')
+    expect(turn.error?.message).toBe('preparation failed')
+    await expect(createdEnvironment?.status()).resolves.toBe('stopped')
   })
 })
 

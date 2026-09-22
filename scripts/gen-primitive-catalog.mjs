@@ -61,20 +61,20 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
 // group label. The list of subpaths is DERIVED from package.json (so a new subpath shows
 // up automatically); only the label is curated.
 const ownSurfaceLabels = {
-  '.': 'Root — task lifecycle, conversation, RSI verbs, observability',
-  './agent': 'Vertical agent — manifest + surface proposal source',
-  './conversation': 'Multi-turn conversations',
-  './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
-  './loops': 'Recursive atom + loop kernel (alias of ./runtime)',
-  './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
-  './analyst-loop': 'Analyst loop — trace findings on a running loop',
-  './knowledge': 'Knowledge orchestration — supervised KB updates',
-  './primeintellect': 'PrimeIntellect: Verifiers package and trace adapter',
+  '.': 'Core agent execution and improvement',
+  './agent': 'Agent manifests and improvement proposals',
+  './interaction': 'Persistent multi-agent interactions',
+  './intelligence': 'Intelligence client and billing controls',
+  './loops': 'Loop execution and supervision',
+  './environment-provider': 'Agent environment provider adapters',
+  './analyst-loop': 'Live trace analysis',
+  './knowledge': 'Knowledge-base improvement workflows',
+  './primeintellect': 'PrimeIntellect packages, runs, and trace import',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
-  './candidate-execution': 'Candidate execution — immutable prepare, run, grade, and receipt',
-  './testing': 'Testing fixtures — validated Runtime wire records',
-  './mcp': 'MCP servers — delegate / coordination / detached-session',
+  './candidate-execution': 'Candidate preparation, execution, scoring, and receipts',
+  './testing': 'Validated Runtime test fixtures',
+  './mcp': 'Delegation and coordination MCP servers',
 }
 // ./loops is an intentional alias of ./runtime (same source) — list it once as ./loops,
 // since that is the public name the canonical doc and the codebase use.

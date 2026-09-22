@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { isRunRecord } from '@tangle-network/agent-eval'
 import {
   type AttemptRecord,
-  benchRecordToCorpusRecords,
   buildRunRecord,
   buildRunRecordFromAttempts,
+  type CorpusAttemptRecord,
+  type CorpusProjectionIdentity,
+  projectCorpusAttempts,
   type RunRecord,
 } from './corpus'
 import { createRuntimeHookRecorder } from './runtime-hook-recorder'
@@ -23,20 +25,33 @@ const measuredAttempt = (round: number, output: string, valid: boolean): Attempt
   eventTypes: { llm_call: 1, tool_call: 1 },
 })
 
-const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunRecord => ({
-  ts: '2026-06-03T00:00:00.000Z',
-  benchmark: 'finsearchcomp',
-  instanceId: 'i1',
-  condition: 'random@3',
-  // canonical RunRecord requires a snapshot-pinned model; bench writes bare
-  // aliases, so the happy path supplies the resolved snapshot via opts.model.
-  model: 'gpt-5',
-  blindResolved: attempts[0]?.valid === true,
-  resolved: attempts.some((a) => a.valid === true),
-  attempts,
-  infraError: false,
-  ...over,
+const corpusAttempt = (
+  round: number,
+  output: string,
+  valid: boolean,
+): CorpusAttemptRecord => ({
+  ...measuredAttempt(round, output, valid),
+  runId: `run-${round}`,
+  seed: 42 + round,
+  output,
+  score: valid ? 1 : 0,
+  costUsd: 0.01 + round / 1000,
+  costProvenance: { kind: 'observed', usd: 0.01 + round / 1000 },
+  tokensIn: 100 + round,
+  tokensOut: 30 + round,
+  wallMs: 500 + round,
+  terminalOutcome: 'succeeded',
 })
+
+const projectionIdentity: CorpusProjectionIdentity = {
+  commitSha: 'abc123',
+  experimentId: 'exp-1',
+  candidateId: 'random@3',
+  scenarioId: 'i1',
+  splitTag: 'search',
+  model: 'gpt-5-2025-08-07',
+  configHash: 'b'.repeat(64),
+}
 
 // --- runtime recorder snapshots decision points before persistent corpus storage ---
 {
@@ -85,16 +100,10 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
 
 // --- happy path: a measured run projects to one canonical CorpusRecord per attempt ---
 {
-  const rec = baseRec([
-    measuredAttempt(0, 'alpha', false),
-    measuredAttempt(1, 'beta', true),
-  ])
-  const { records, unmappable } = await benchRecordToCorpusRecords(rec, {
-    commitSha: 'abc123',
-    model: 'gpt-5-2025-08-07',
-    seed: 42,
-  })
-  assert.equal(unmappable.length, 0, 'all measured attempts map')
+  const records = await projectCorpusAttempts(
+    [corpusAttempt(0, 'alpha', false), corpusAttempt(1, 'beta', true)],
+    projectionIdentity,
+  )
   assert.equal(records.length, 2, 'one record per attempt')
   for (const r of records) {
     assert.ok(isRunRecord(r), 'each is a valid canonical RunRecord')
@@ -102,8 +111,8 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   const [r0, r1] = records
   assert.equal(r0?.candidateId, 'random@3', 'candidateId = condition (the gate-pairing arm)')
   assert.equal(r0?.scenarioId, 'i1', 'scenarioId = instanceId (the pairing key)')
-  assert.equal(r0?.seed, 42, 'opts.seed is the base seed for attempt 0')
-  assert.equal(r1?.seed, 43, 'each attempt offsets the base → DISTINCT seeds')
+  assert.equal(r0?.seed, 42, 'attempt seed is preserved')
+  assert.equal(r1?.seed, 43, 'each attempt carries its own seed')
   assert.notEqual(r0?.seed, r1?.seed, 'no (scenarioId, seed) collision across a run\'s attempts')
   assert.equal(r0?.model, 'gpt-5-2025-08-07', 'snapshot-pinned model override applied')
   assert.equal(r0?.commitSha, 'abc123')
@@ -117,36 +126,133 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   assert.notEqual(r0?.runId, r1?.runId, 'per-attempt runIds are distinct')
 }
 
-// --- unmeasured economics → unmappable, never forged with phantom zeros ---
+// --- unknown cost is retained as null, never converted to zero or dropped ---
 {
-  const bare: AttemptRecord = { round: 0, prompt: 'q', output: 'x', valid: true, eventCount: 0, eventTypes: {} }
-  const { records, unmappable } = await benchRecordToCorpusRecords(baseRec([bare]), {
-    commitSha: 'abc',
-    model: 'gpt-5-2025-08-07',
-  })
-  assert.equal(records.length, 0, 'no record forged from unmeasured economics')
-  assert.equal(unmappable.length, 1)
-  assert.match(unmappable[0]!.reason, /unmeasured/, 'reason names the missing measurement')
-  assert.match(unmappable[0]!.reason, /costUsd/, 'reason lists the missing fields')
+  const unknown = corpusAttempt(0, 'x', true)
+  unknown.costUsd = null
+  unknown.costProvenance = { kind: 'uncaptured', usd: null }
+  const records = await projectCorpusAttempts([unknown], projectionIdentity)
+  assert.equal(records.length, 1)
+  assert.equal(records[0]?.costUsd, null)
+  assert.deepEqual(records[0]?.costProvenance, { kind: 'uncaptured', usd: null })
 }
 
-// --- bare-alias model (no override) → unmappable with the validator's reason ---
+// --- estimated cost remains separate from observed billing data ---
 {
-  const { records, unmappable } = await benchRecordToCorpusRecords(
-    baseRec([measuredAttempt(0, 'alpha', true)]),
-    { commitSha: 'abc' },
+  const estimated = corpusAttempt(0, 'x', true)
+  estimated.costUsd = 0.02
+  estimated.costProvenance = { kind: 'estimated', usd: 0.02 }
+  const records = await projectCorpusAttempts([estimated], projectionIdentity)
+  assert.deepEqual(records[0]?.costProvenance, { kind: 'estimated', usd: 0.02 })
+}
+
+// --- canonical evidence is required; no field is inferred from order, validity, or errors ---
+{
+  for (const field of [
+    'runId',
+    'seed',
+    'score',
+    'costUsd',
+    'costProvenance',
+    'tokensIn',
+    'tokensOut',
+    'wallMs',
+    'terminalOutcome',
+    'output',
+  ] as const) {
+    const malformed = { ...corpusAttempt(0, 'x', true) } as Record<string, unknown>
+    delete malformed[field]
+    await assert.rejects(
+      projectCorpusAttempts(
+        [malformed as unknown as CorpusAttemptRecord],
+        projectionIdentity,
+      ),
+      Error,
+      `missing ${field} must reject the projection`,
+    )
+  }
+}
+
+// --- every cross-run identity is explicit ---
+{
+  for (const field of [
+    'commitSha',
+    'experimentId',
+    'candidateId',
+    'scenarioId',
+    'splitTag',
+    'model',
+    'configHash',
+  ] as const) {
+    const malformed = { ...projectionIdentity } as Record<string, unknown>
+    delete malformed[field]
+    await assert.rejects(
+      projectCorpusAttempts(
+        [corpusAttempt(0, 'x', true)],
+        malformed as unknown as CorpusProjectionIdentity,
+      ),
+      Error,
+      `missing ${field} must reject the projection`,
+    )
+  }
+}
+
+// --- duplicate run or pairing identities reject instead of double-counting ---
+{
+  const first = corpusAttempt(0, 'a', true)
+  const duplicateRun = { ...corpusAttempt(1, 'b', true), runId: first.runId }
+  await assert.rejects(
+    projectCorpusAttempts([first, duplicateRun], projectionIdentity),
+    /duplicate runId/,
   )
-  assert.equal(records.length, 0, 'a bare-alias model is not a reproducibility artifact')
-  assert.equal(unmappable.length, 1)
-  assert.match(unmappable[0]!.reason, /invalid RunRecord/, 'surfaces the validator rejection')
-  assert.match(unmappable[0]!.reason, /snapshot/, 'reason explains the snapshot-pin requirement')
+
+  const duplicateSeed = { ...corpusAttempt(1, 'b', true), seed: first.seed }
+  await assert.rejects(
+    projectCorpusAttempts([first, duplicateSeed], projectionIdentity),
+    /duplicate seed/,
+  )
+}
+
+// --- terminal outcome and score are preserved even when local hints disagree ---
+{
+  const explicit = corpusAttempt(0, 'x', false)
+  explicit.score = 0.75
+  explicit.error = 'child tool recovered'
+  explicit.terminalOutcome = 'succeeded'
+  delete explicit.valid
+  const records = await projectCorpusAttempts([explicit], projectionIdentity)
+  assert.equal(records[0]?.outcome.searchScore, 0.75)
+  assert.equal(records[0]?.outcome.raw.valid, undefined)
+  assert.equal(records[0]?.terminalOutcome, 'succeeded')
+  assert.equal(records[0]?.terminalFailureReason, undefined)
+}
+
+// --- contradictory cost evidence rejects the whole projection ---
+{
+  const contradictory = corpusAttempt(0, 'x', true)
+  contradictory.costUsd = null
+  contradictory.costProvenance = { kind: 'observed', usd: 0.01 }
+  await assert.rejects(
+    projectCorpusAttempts([contradictory], projectionIdentity),
+    /cost/i,
+  )
+}
+
+// --- bare model aliases reject the whole projection ---
+{
+  await assert.rejects(
+    projectCorpusAttempts([corpusAttempt(0, 'alpha', true)], {
+      ...projectionIdentity,
+      model: 'gpt-5',
+    }),
+    /snapshot/i,
+  )
 }
 
 // --- holdout split routes the score to holdoutScore ---
 {
-  const { records } = await benchRecordToCorpusRecords(baseRec([measuredAttempt(0, 'alpha', true)]), {
-    commitSha: 'abc',
-    model: 'gpt-5-2025-08-07',
+  const records = await projectCorpusAttempts([corpusAttempt(0, 'alpha', true)], {
+    ...projectionIdentity,
     splitTag: 'holdout',
   })
   assert.equal(records.length, 1)

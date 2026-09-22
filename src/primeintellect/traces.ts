@@ -63,8 +63,6 @@ export interface PrimeIntellectTraceImportOptions {
   commitSha: string
 }
 
-export type PrimeIntellectImportDefaults = PrimeIntellectTraceImportOptions
-
 /** Parse Prime's durable `traces.jsonl` and reject malformed rows with a line number. */
 export function parsePrimeIntellectTraces(jsonl: string): PrimeIntellectTrace[] {
   const traces: PrimeIntellectTrace[] = []
@@ -89,10 +87,10 @@ export function parsePrimeIntellectTraces(jsonl: string): PrimeIntellectTrace[] 
 /** Convert all Prime traces to agent-eval RunRecords while retaining one shared run config. */
 export function importPrimeIntellectTraces(
   jsonl: string,
-  defaults: PrimeIntellectImportDefaults,
+  options: PrimeIntellectTraceImportOptions,
 ): RunRecord[] {
   return parsePrimeIntellectTraces(jsonl).map((trace) =>
-    primeIntellectTraceToRunRecord(trace, defaults),
+    primeIntellectTraceToRunRecord(trace, options),
   )
 }
 
@@ -113,6 +111,7 @@ export function primeIntellectTraceToRunRecord(
   const errors = trace.errors ?? []
   const raw: Record<string, number> = {
     reward,
+    execution_error_count: errors.length,
     'prime.turns': trace.nodes.filter((node) => node.sampled === true).length,
     'prime.branches': countBranches(trace.nodes),
     'prime.errors': errors.length,
@@ -126,6 +125,20 @@ export function primeIntellectTraceToRunRecord(
   for (const [name, value] of Object.entries(trace.metrics)) {
     raw[`metric.${name}`] = finite(value, `trace ${trace.id} metric ${name}`)
   }
+  const terminalOutcome: RunRecord['terminalOutcome'] =
+    trace.is_completed === true
+      ? 'succeeded'
+      : errors.length > 0
+        ? 'failed'
+        : trace.is_completed === false
+          ? 'incomplete'
+          : 'unknown'
+  const terminalFailureReason =
+    terminalOutcome === 'failed'
+      ? `${errors[0]!.type}: ${errors[0]!.message}`
+      : terminalOutcome === 'incomplete' && trace.stop_condition
+        ? trace.stop_condition
+        : undefined
 
   const record: RunRecord = {
     runId: trace.id,
@@ -137,7 +150,7 @@ export function primeIntellectTraceToRunRecord(
     configHash: options.configHash,
     commitSha: options.commitSha,
     wallMs: traceWallMs(trace),
-    costUsd: usage.costComplete ? usage.reportedCostUsd : 0,
+    costUsd: usage.costComplete ? usage.reportedCostUsd : null,
     costProvenance: usage.costComplete
       ? { kind: 'observed', usd: usage.reportedCostUsd }
       : { kind: 'uncaptured', usd: null },
@@ -147,10 +160,11 @@ export function primeIntellectTraceToRunRecord(
       ...(usage.reasoning !== undefined ? { reasoning: usage.reasoning } : {}),
       ...(usage.cached !== undefined ? { cached: usage.cached } : {}),
     },
+    terminalOutcome,
+    ...(terminalFailureReason !== undefined ? { terminalFailureReason } : {}),
     outcome: split === 'eval' ? { holdoutScore: reward, raw } : { searchScore: reward, raw },
     splitTag: split === 'eval' ? 'holdout' : 'search',
     scenarioId: trace.task.data.name ?? String(trace.task.data.idx),
-    ...(errors[0] ? { failureMode: `primeintellect:${errors[0].type}:${errors[0].message}` } : {}),
   }
   return validateRunRecord(record)
 }

@@ -14,7 +14,7 @@
  * every default is overridable:
  *
  *   - LEVEL 0 (declarative): `cases` / `prompt` / `score` / `axis`.
- *   - LEVEL 1 (seams): `backends`, `flags`, `parseOutput`, `onCellEvents`,
+ *   - LEVEL 1 (configuration): `providers`, `flags`, `parseOutput`, `onCellEvents`,
  *     `resolveModel`, `setup`/`teardown`, `export`, `modelBackend`, `matrix`
  *     passthrough.
  *   - LEVEL 2 (replacement): `dispatch` and `judges` swap out the whole
@@ -49,12 +49,16 @@ import {
   runProfileMatrix,
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import { collectAgentResponseText, type SandboxEvent } from '@tangle-network/sandbox'
+import { harnessTypeSchema } from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
+import { createCliBridgeProvider } from '@tangle-network/agent-provider-cli-bridge'
 import { leaderboard, renderLeaderboardMarkdown } from './benchmark-report'
 import { loopDispatch } from './loop-dispatch'
-import { resolveSandboxClient } from './resolve-sandbox-client'
 import { naiveDriver, type SteeringDecision } from './steering-drivers'
-import type { LoopResult, SandboxClient } from './types'
+import type { LoopResult } from './types'
 
 /** Structured per-case verdict a `score` function may return (a bare number is
  *  shorthand for `{ composite }`). `composite` is the [0,1] leaderboard score;
@@ -81,8 +85,8 @@ export interface LeaderboardFlagSpec {
 /** Resolved run configuration handed to `setup` / `teardown` / `export`. */
 export interface LeaderboardRunContext {
   name: string
-  /** Execution backend name (`--backend`), a key of `backends`. */
-  backend: string
+  /** Environment provider name selected by `--provider`. */
+  provider: string
   runDir: string
   exportDir: string
   /** Every parsed flag (standard + `spec.flags`), by name without `--`. */
@@ -168,51 +172,44 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
    *  Default: a minimal `{ name, model: { default: <first model> } }`. */
   baseProfile?: AgentProfile
   /**
-   * Execution-backend registry: `--backend <name>` picks the factory that
-   * yields the `SandboxClient` every cell runs on. Merged over the defaults:
-   *   - `sandbox` — throws with guidance (a product must supply its real
-   *     Sandbox-backed client; the facade has no credentials).
-   *   - `cli-bridge` — `resolveSandboxClient({ backend: 'bridge' })` reading
-   *     `CLI_BRIDGE_URL` + `BRIDGE_BEARER`/`CLI_BRIDGE_BEARER`; the per-cell
-   *     harness/model ride in via `sandboxOverrides.backend`.
+   * Provider registry: `--provider <name>` picks the official
+   * `AgentEnvironmentProvider` used by every cell. `cli-bridge` is available by
+   * default and reads `CLI_BRIDGE_URL` plus `BRIDGE_BEARER` or
+   * `CLI_BRIDGE_BEARER`. Product providers extend or replace that default.
    */
-  backends?: Record<string, (() => SandboxClient) | undefined>
+  providers?: Record<string, (() => AgentEnvironmentProvider) | undefined>
   /** Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`. */
   flags?: Record<string, LeaderboardFlagSpec>
-  /** Extra fields merged into each cell's `backend.model` create override —
-   *  e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
-   *  sandbox. The cell's bare model id is set by the facade from the axis. */
-  modelBackend?: Record<string, unknown>
   /** Runs once before the matrix (fetch fixtures, warm caches). */
   setup?: (ctx: LeaderboardRunContext) => Promise<void> | void
   /** Runs once after the matrix, even on failure (reap boxes, close handles). */
   teardown?: (ctx: LeaderboardRunContext) => Promise<void> | void
-  /** Per-cell event tap: the raw sandbox events of EVERY shot, with the case —
+  /** Per-cell event tap: the raw provider events of every shot, with the case.
    *  the seam for domain metric capture (search counts, citations) without a
    *  substrate change. Fires once per shot after the cell's loop settles, in
    *  shot order, including thrown shots (whose events may be partial or empty);
    *  the third argument carries the shot's index + error/verdict outcome. */
   onCellEvents?: (
-    events: readonly SandboxEvent[],
+    events: readonly AgentEnvironmentEvent[],
     c: TCase,
     iteration?: LeaderboardIterationInfo,
   ) => void
-  /** Output decode override: raw events → the scored artifact. Default: the
-   *  sandbox SDK's `collectAgentResponseText` (final answer text; empty string
-   *  when the stream carried none — which then scores 0). The default only
+  /** Output decode override: raw events to the scored artifact. Default:
+   *  `collectEnvironmentResponseText` (final answer text; empty string when the
+   *  stream carried none, which then scores 0). The default only
    *  produces `string`, so a spec with a structured `TArtifact` MUST supply
    *  this (or a LEVEL-2 `dispatch`). */
-  parseOutput?: (events: readonly SandboxEvent[], c: TCase) => TArtifact
+  parseOutput?: (events: readonly AgentEnvironmentEvent[], c: TCase) => TArtifact
   /**
-   * Resolve the model the backend ACTUALLY served off a shot's raw events.
+   * Resolve the model the provider actually served from a shot's raw events.
    * Required for HARNESS_NATIVE_MODEL-snapped cells (a vendor-locked harness ×
    * an out-of-family model expands to the `default` sentinel): the RunRecord
-   * must pin a real snapshot-bearing model id, which only the dispatch —
-   * reading the backend's usage/terminal events — can know. When this returns
+   * must pin a real snapshot-bearing model id, which only the dispatch,
+   * reading the provider's usage and terminal events, can know. When this returns
    * a value the default dispatch records it on the paid-call receipt;
    * in-family cells (concrete declared model) never need it.
    */
-  resolveModel?: (events: readonly SandboxEvent[]) => string | undefined
+  resolveModel?: (events: readonly AgentEnvironmentEvent[]) => string | undefined
   /** Result export. Default: write `matrix-result.json` under the run dir and
    *  print (+ write) the ranked leaderboard markdown under the export dir. */
   export?: (
@@ -220,7 +217,7 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
     ctx: LeaderboardRunContext,
   ) => Promise<void> | void
   /** LEVEL 2 — full dispatch replacement (in-process products bring their own).
-   *  The default is `loopDispatch` + `naiveDriver` over the resolved backend. */
+   *  The default is `loopDispatch` + `naiveDriver` over the resolved provider. */
   dispatch?: ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact>
   /** LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge. */
   judges?: JudgeConfig<TArtifact, LeaderboardScenario<TCase>>[]
@@ -243,7 +240,7 @@ export interface DefinedLeaderboard<TCase, TArtifact = string> {
   /**
    * Parse flags, run the matrix, export, and return the raw result.
    *
-   * Standard flags: `--backend <name>` (default `sandbox`), `--harnesses a,b`,
+   * Standard flags: `--provider <name>` (default `cli-bridge`), `--harnesses a,b`,
    * `--models m1,m2`, `--cases id1,id2`, `--shots N`, `--reps N`,
    * `--model-snapshot <tag>`, `--run-dir <path>`, `--export-dir <path>`,
    * plus every `spec.flags` entry. `argv` defaults to `process.argv.slice(2)`.
@@ -280,7 +277,7 @@ function withSnapshot(model: string, snapshot: string): string {
   return model.includes('@') ? model : `${model}@${snapshot}`
 }
 
-/** The bare model id the backend actually serves (identity snapshot stripped). */
+/** The bare model id the provider actually serves (identity snapshot stripped). */
 function bareModel(model: string): string {
   return model.split('@')[0] ?? model
 }
@@ -295,6 +292,29 @@ function gitSha(): string {
 
 function normalizeScore(s: number | LeaderboardScore): LeaderboardScore {
   return typeof s === 'number' ? { composite: s } : s
+}
+
+function collectEnvironmentResponseText(events: readonly AgentEnvironmentEvent[]): string {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (!event) continue
+    for (const key of ['finalText', 'response', 'text', 'content']) {
+      const value = event.data[key]
+      if (typeof value === 'string') return value
+    }
+  }
+  let text = ''
+  for (const event of events) {
+    if (
+      event.normalized?.type === 'message.part.updated' &&
+      typeof event.normalized.delta === 'string'
+    ) {
+      text += event.normalized.delta
+    } else if (typeof event.data.delta === 'string') {
+      text += event.data.delta
+    }
+  }
+  return text
 }
 
 /**
@@ -348,7 +368,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
   ): Promise<RunProfileMatrixResult<TArtifact, LeaderboardScenario<TCase>>> {
     const args: Record<string, string | undefined> = {}
     for (const name of [
-      'backend',
+      'provider',
       'harnesses',
       'models',
       'cases',
@@ -364,7 +384,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       args[name] = argOf(argv, name) ?? flag.default
     }
 
-    const backendName = args.backend ?? 'sandbox'
+    const providerName = args.provider ?? 'cli-bridge'
     const shots = Number(args.shots ?? spec.shots ?? 1)
     const reps = Number(args.reps ?? spec.reps ?? 1)
     const snapshot = args['model-snapshot'] ?? 'leaderboard'
@@ -384,8 +404,15 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       case: c,
     }))
 
+    const requestedHarnesses = splitList(args.harnesses)
     const harnesses =
-      (splitList(args.harnesses) as HarnessType[] | undefined) ??
+      requestedHarnesses?.map((harness) => {
+        const parsed = harnessTypeSchema.safeParse(harness)
+        if (!parsed.success) {
+          throw new Error(`defineLeaderboard(${spec.name}): invalid harness "${harness}"`)
+        }
+        return parsed.data
+      }) ??
       spec.axis?.harnesses ??
       CODING_HARNESSES
     const rawModels =
@@ -409,7 +436,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
 
     const ctx: LeaderboardRunContext = {
       name: spec.name,
-      backend: backendName,
+      provider: providerName,
       runDir,
       exportDir,
       args,
@@ -420,41 +447,30 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       reps,
     }
 
-    // Backend registry: defaults + spec overrides (spec wins). Factories are
-    // lazy so an unused backend never resolves credentials.
-    const backends: Record<string, (() => SandboxClient) | undefined> = {
-      sandbox: () => {
-        throw new Error(
-          `defineLeaderboard(${spec.name}): the 'sandbox' backend needs your product's real ` +
-            'SandboxClient — supply spec.backends.sandbox (e.g. () => new SandboxClient({ apiKey, baseUrl }))',
-        )
-      },
+    // Factories are lazy so an unused provider never resolves credentials.
+    const providers: Record<string, (() => AgentEnvironmentProvider) | undefined> = {
       'cli-bridge': () => {
         const bearer = process.env.BRIDGE_BEARER ?? process.env.CLI_BRIDGE_BEARER
         if (!bearer) {
           throw new Error(
-            `defineLeaderboard(${spec.name}): backend 'cli-bridge' needs BRIDGE_BEARER or CLI_BRIDGE_BEARER set`,
+            `defineLeaderboard(${spec.name}): provider 'cli-bridge' needs BRIDGE_BEARER or CLI_BRIDGE_BEARER`,
           )
         }
-        return resolveSandboxClient({
-          backend: 'bridge',
-          bridge: {
-            url: process.env.CLI_BRIDGE_URL,
-            bearer,
-            model: bareModel(models[0] ?? ''),
-            timeoutMs: 900_000,
-          },
+        return createCliBridgeProvider({
+          baseUrl: process.env.CLI_BRIDGE_URL ?? 'http://127.0.0.1:3355',
+          bearerToken: bearer,
+          defaultModel: bareModel(models[0] ?? ''),
         })
       },
-      ...spec.backends,
+      ...spec.providers,
     }
-    const makeClient = backends[backendName]
-    if (!makeClient) {
+    const makeProvider = providers[providerName]
+    if (!makeProvider) {
       throw new Error(
-        `defineLeaderboard(${spec.name}): unknown backend "${backendName}" (have: ${Object.keys(backends).join(', ')})`,
+        `defineLeaderboard(${spec.name}): unknown provider "${providerName}" (have: ${Object.keys(providers).join(', ')})`,
       )
     }
-    const sandboxClient = makeClient()
+    const environmentProvider = makeProvider()
 
     // Prompts resolve ONCE per case, up front — spec.prompt may be async
     // (shelling out to a reference implementation) but the loop kernel's
@@ -488,7 +504,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
         LeaderboardScenario<TCase>,
         TArtifact
       >({
-        sandboxClient,
+        environmentProvider,
         maximumCharge:
           typeof maximumCharge === 'function'
             ? (cellScenario, cellProfile) => maximumCharge(cellProfile, cellScenario)
@@ -508,11 +524,9 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           return [...served][0] ?? cellProfile.model?.default
         },
         toLoopOptions: (cellScenario, cellProfile) => {
-          // The cell's harness + model come off the profile's axis stamp set
-          // by expandProfileAxes; the sandbox create override carries them to
-          // whichever backend client runs the cell.
+          // The cell's harness and model come from the profile axis. The
+          // provider receives the harness as its environment backend.
           const axis = harnessAxisOf(cellProfile)
-          const modelId = bareModel(axis?.model ?? models[0] ?? '')
           return {
             // naiveDriver = the no-signal retry floor: re-run the same case as
             // an independent attempt until one scores (>0) or the shot cap.
@@ -526,12 +540,9 @@ export function defineLeaderboard<TCase, TArtifact = string>(
               taskToPrompt: (s) => `${promptOf(s)}\n\n<!-- independent-attempt:${shotNonce++} -->`,
               ...(axis
                 ? {
-                    sandboxOverrides: {
-                      backend: {
-                        type: axis.harness,
-                        model: { ...spec.modelBackend, model: modelId },
-                      },
-                    } as never,
+                    environment: {
+                      backend: axis.harness,
+                    },
                   }
                 : {}),
             },
@@ -542,7 +553,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
                   : // The default decode produces string — the TArtifact
                     // default. A structured-TArtifact spec supplies parseOutput
                     // (documented on the field), so this cast never lies.
-                    ((collectAgentResponseText(events) ?? '') as TArtifact),
+                    (collectEnvironmentResponseText(events) as TArtifact),
             },
             validator: {
               validate: async (output: TArtifact) => {
@@ -589,7 +600,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
         mkdirSync(exportDir, { recursive: true })
         writeFileSync(join(runDir, 'matrix-result.json'), `${JSON.stringify(result, null, 2)}\n`)
         const table = renderLeaderboardMarkdown(
-          leaderboard(result.records, { title: spec.name, meta: { backend: backendName } }),
+          leaderboard(result.records, { title: spec.name, meta: { provider: providerName } }),
         )
         writeFileSync(join(exportDir, 'leaderboard.md'), table)
         console.log(table)

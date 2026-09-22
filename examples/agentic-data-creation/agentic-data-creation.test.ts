@@ -7,9 +7,9 @@ import {
 import {
   baseInstruction,
   buildRubricJudge,
-  challengerClient,
+  challengerProvider,
   groundingDoc,
-  solverClient,
+  solverProvider,
 } from './offline-fixtures'
 
 describe('discriminativeAcceptRule (the new piece)', () => {
@@ -77,9 +77,9 @@ describe('createDataCreationLoop (offline)', () => {
     const result = await createDataCreationLoop({
       doc: groundingDoc,
       baseInstruction,
-      challenger: challengerClient(),
-      weakSolver: solverClient('weak'),
-      strongSolver: solverClient('strong'),
+      challengerProvider: challengerProvider(),
+      weakSolverProvider: solverProvider('weak'),
+      strongSolverProvider: solverProvider('strong'),
       judge: buildRubricJudge(),
       target: 2,
       samples: 3,
@@ -113,9 +113,9 @@ describe('createDataCreationLoop (offline)', () => {
     const result = await createDataCreationLoop({
       doc: groundingDoc,
       baseInstruction,
-      challenger: challengerClient(),
-      weakSolver: solverClient('weak'),
-      strongSolver: solverClient('strong'),
+      challengerProvider: challengerProvider(),
+      weakSolverProvider: solverProvider('weak'),
+      strongSolverProvider: solverProvider('strong'),
       judge: buildRubricJudge(),
       target: 2,
       samples: 2,

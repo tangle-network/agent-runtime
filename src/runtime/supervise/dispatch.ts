@@ -15,18 +15,14 @@
  * recorded and STOPS further admission — the loop then drains what is already live and returns.
  * It never retries a rejected spawn against the same pool, and it never spawns past `width`.
  *
- * ── The concurrency-cap ledger (read this before adding a fourth cap) ──────────────────────────
- *
- * Three unrelated caps bound "how much runs at once" in this stack, at three different layers.
- * They are NOT aware of each other, and the smallest one silently wins:
+ * Three independent limits bound concurrent work:
  *
  *   1. `CoordinationToolsOptions.maxLiveWorkers` (`src/mcp/tools/coordination.ts`) — supervisor
  *      level. How many workers may be spawned-but-not-settled at once; `spawn_agent` fails closed
  *      with `error: 'max-live-workers'` past it. Unset by default ⇒ NO cap at this layer.
- *   2. `SandboxLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`
- *      (`src/runtime/sandbox-lineage.ts`) — kernel level. How many BOXES one `runAgentRounds` fork wave
- *      provisions at once. It bounds a single leaf's fanout, not the supervisor's worker count.
- *   3. A host's own live-box governor (e.g. loops' `ComputeGovernor`, `maxSandboxes = 4`) — fleet
+ *   2. `EnvironmentLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`
+ *      limits environments inside one `runAgentRounds` fork wave.
+ *   3. A host's own live-environment governor (for example `maxSandboxes = 4`) limits fleet
  *      level. How many sandboxes may exist across the whole host process.
  *
  * The honest effective limit on simultaneous WORKERS is the minimum of the caps that apply to the
@@ -210,8 +206,9 @@ export interface ConcurrencyCaps {
  * bound the worker layer. Ignores unset/non-positive caps; returns `undefined` when no cap applies
  * (uncapped — the conserved pool remains the only fence).
  *
- * Deliberately does NOT fold in `SandboxLineage`'s fork concurrency: that bounds boxes inside ONE
- * leaf's fork wave, a different unit. Folding it in would report a 4-worker ceiling for what is
+ * Deliberately does not include `EnvironmentLineage` fork concurrency. It
+ * limits environments inside one leaf's fork wave, not supervisor workers.
+ * Including it would report a four-worker limit for what is
  * really a 4-box fanout inside a single worker.
  *
  * Use it once, at the top of a run, and pass the result to BOTH `maxLiveWorkers` and a

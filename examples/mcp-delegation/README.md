@@ -1,72 +1,68 @@
 # Give your agent a "hand this off" button
 
-This shows how to bolt a delegation toolkit onto any agent so that, mid-conversation, it can fan a
-piece of work out to a fresh worker agent instead of blocking the chat — then check on it and read the
-result later. The toolkit ships as an MCP server (a standard side-process an agent talks to over
-stdio), and this example both prints the exact config you paste into your agent and then boots the
-server to prove the tools are really there. It runs offline in a diagnostic mode with no API key.
+This shows how to add delegation tools to an agent so it can send work to a fresh worker, continue the conversation, and read the result later.
+The tools run as an MCP server, a standard side process that communicates over stdio.
+The example prints the exact profile config for delegate mode, then starts the server in queue-only mode with no API key and checks its tools.
 
 ## Why it matters
 
-Long tasks kill chat UX: the user asks for something slow, and the agent goes silent for two minutes.
-Delegation lets the agent say "I'll start that and keep talking," dispatch it to a worker, and surface
-the result when it's done. You don't build any of that — you mount one MCP entry into your agent's
-profile and the delegation verbs show up as tools the agent can call on its own.
+Long tasks make an agent stop responding while work runs.
+Delegation lets it dispatch that work, keep talking, and return the result when it is ready.
+Mount one MCP entry in the agent profile and the delegation operations become tools the agent can call.
 
 ## How it works
 
 The example has two blocks:
 
-1. **Profile** — builds the literal `mcp` entry you drop into your agent's `AgentProfile`. It launches
-   the toolkit via `npx -y @tangle-network/agent-runtime mcp` and passes it env vars. That's the whole
-   integration — copy the printed block.
-2. **Smoke test** — spawns the locally-built server (`dist/mcp/bin.js`), asks it to list its tools over
-   stdio, and asserts the always-on ones are present.
+1. **Profile** builds the `mcp` entry for an `AgentProfile`.
+   It launches `npx -y @tangle-network/agent-runtime mcp` with delegate mode and a real `TANGLE_API_KEY`.
+2. **Smoke test** starts the locally built server (`dist/mcp/bin.js`) in queue-only mode, lists its tools over stdio, and checks the always-on tools.
 
 The tools it exposes:
 
-- `delegate` — the one generic verb: an agent that authors and drives its own worker, then returns the
-  worker's output plus what it really spent. Only registers when `MCP_ENABLE_DELEGATE=1` **and** a real
-  sandbox key resolves.
-- `delegate_feedback` — rate a past delegation (always on).
-- `delegation_status` — poll a job: pending / running / completed (always on).
-- `delegation_history` — read past delegations, newest first (always on).
+- `delegate`: author and drive a worker, then return its output and usage.
+  It is registered only when `MCP_ENABLE_DELEGATE=1` and `TANGLE_API_KEY` is set.
+- `delegate_feedback`: rate a past delegation.
+- `delegation_status`: poll a pending, running, or completed job.
+- `delegation_history`: read past delegations, newest first.
 
-## See it work — no API key needed
+## Run queue-only mode
 
 ```bash
 pnpm build                                          # produces dist/mcp/bin.js
 pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 ```
 
-With no `TANGLE_API_KEY` set, the example runs the server in a diagnostic mode
-(`AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1`, set for you) so it still lists tools. You'll see:
+The smoke process leaves `MCP_ENABLE_DELEGATE` unset and removes `TANGLE_API_KEY`.
+This selects queue-only mode, which does not need an API key.
+You will see:
 
 ```
-— PROFILE ————————————————————————————————
+PROFILE
 profile.name: demo-product-agent
 profile.mcp[agent-runtime-delegation]:
 { ...the config block to copy... }
 
-— SMOKE ———————————————————————————————————
+SMOKE
 server: agent-runtime-mcp@<version>
 tools: [delegate_feedback, delegation_history, delegation_status]
-OK — the always-on queue-bound delegation tools are exposed.
+OK: the queue-only delegation tools are exposed.
 ```
 
-The generic `delegate` verb is absent here on purpose — it needs a live sandbox key.
+The `delegate` tool is absent because queue-only mode does not enable it.
+If `MCP_ENABLE_DELEGATE=1` is set without `TANGLE_API_KEY`, the server exits immediately.
 
 ## Files
 
 | File | What's in it |
 |---|---|
-| `mcp-delegation.ts` | Builds the profile MCP entry, then spawns and smoke-tests the server |
+| `mcp-delegation.ts` | Builds the profile MCP entry, then starts and checks the server |
 | `README.md` | This file |
 
 ## Wiring it into your own product
 
-Set `MCP_ENABLE_DELEGATE=1` and a real `TANGLE_API_KEY` in the mounted entry's `env`, then pass your
-profile to `sandboxClient.create({ backend: { profile } })`. The agent then sees the delegation tools
-mid-turn and can fan work out without blocking the chat. Omit `MCP_ENABLE_DELEGATE` and only the
-always-on trio is exposed. For the multi-machine variant where delegations dispatch into a shared
-workspace, see `../fleet-delegation/`.
+Set `MCP_ENABLE_DELEGATE=1` and a real `TANGLE_API_KEY` in the mounted entry's `env`.
+Then pass your profile to `provider.create({ profile, backend: 'opencode' })`, where `provider` comes from `createTangleProvider({ client: new Sandbox({ apiKey }) })`.
+The agent then sees the delegation tools mid-turn and can fan work out without blocking the chat.
+Omit `MCP_ENABLE_DELEGATE` and only the always-on trio is exposed.
+For the multi-machine variant where delegations dispatch into a shared workspace, see `../fleet-delegation/`.

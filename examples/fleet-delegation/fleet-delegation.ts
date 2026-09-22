@@ -1,12 +1,16 @@
 // TANGLE_FLEET_ID flips delegation from sibling-sandbox to fleet-workspace dispatch. See README.md.
 
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import {
+  createDelegationExecutor,
   createFleetWorkspaceExecutor,
-  createSiblingSandboxExecutor,
   type FleetHandle,
 } from '@tangle-network/agent-runtime/mcp'
-import type { SandboxInstance } from '@tangle-network/sandbox'
+
+type FleetMachine = Awaited<ReturnType<FleetHandle['sandbox']>>
+type TangleClient = Parameters<typeof createTangleProvider>[0]['client']
+const demoProfile: AgentProfile = { name: 'placement-demo' }
 
 // ── 1. ENV WIRING ─────────────────────────────────────────────────────────
 //
@@ -15,8 +19,7 @@ import type { SandboxInstance } from '@tangle-network/sandbox'
 const siblingEnv = {
   TANGLE_API_KEY: 'sk_sb_demo_placeholder',
   SANDBOX_BASE_URL: 'https://sandbox.tangle.tools',
-  // No TANGLE_FLEET_ID → sibling-sandbox mode. Each delegation spawns a
-  // fresh sandbox via `sandboxClient.create()`.
+  // No TANGLE_FLEET_ID means each delegation creates a fresh environment.
 }
 const fleetEnv = {
   TANGLE_API_KEY: 'sk_sb_demo_placeholder',
@@ -30,23 +33,14 @@ const fleetEnv = {
 // ── 2. EXECUTOR DEMO ──────────────────────────────────────────────────────
 //
 // Structural stub for the `FleetHandle` surface. The real
-// `@tangle-network/sandbox` `SandboxFleet` satisfies this interface
-// one-for-one (`fleetId`, `ids`, `sandbox(id) → Promise<SandboxInstance>`).
+// The Tangle fleet SDK satisfies this interface directly.
 function makeFleetStub(): FleetHandle {
   const machines = ['coordinator-0', 'worker-a', 'worker-b', 'worker-c']
   return {
     fleetId: 'test-fleet',
     ids: machines,
-    async sandbox(machineId: string): Promise<SandboxInstance> {
-      // The real implementation returns a SandboxInstance bound to the
-      // shared workspace; here we synthesize one with just the field the
-      // executor reads (`id`). `inProcessSandboxClient` owns the offline
-      // box seam (no `SandboxInstance` cast); the placement demo only needs
-      // the id, so the prompt callback is a no-op.
-      return inProcessSandboxClient({
-        id: `sandbox-${machineId}`,
-        onPrompt: () => [],
-      }).create()
+    async sandbox(machineId: string): Promise<FleetMachine> {
+      return syntheticMachine(`sandbox-${machineId}`)
     },
   }
 }
@@ -54,20 +48,15 @@ function makeFleetStub(): FleetHandle {
 async function demoSiblingMode(): Promise<void> {
   console.log('— SIBLING MODE ————————————————————————————————')
   console.log(`env: ${describeEnv(siblingEnv)}`)
-  // Sibling mode wraps an existing SandboxClient (the raw sandbox SDK).
-  // We synthesise a tiny stub here just to show the tagging shape; in
-  // production this is `new Sandbox({ apiKey })`. `inProcessSandboxClient`
-  // gives a properly-typed offline box (no `SandboxInstance` cast); the
-  // placement demo only reads the id, so the prompt callback is a no-op.
-  const underlying: SandboxClient = inProcessSandboxClient({
-    id: 'sibling-sandbox-xyz',
-    onPrompt: () => [],
-  })
-  const executor = createSiblingSandboxExecutor({ client: underlying })
+  const client: TangleClient = {
+    create: async () => syntheticMachine('sibling-sandbox-xyz'),
+  }
+  const executor = createDelegationExecutor(createTangleProvider({ client }))
   console.log(`describe: ${executor.describe()}`)
-  const box = await executor.client.create()
-  const placement = executor.client.describePlacement?.(box)
+  const environment = await executor.provider.create({ profile: demoProfile })
+  const placement = await environment.placement?.()
   console.log(`dispatch[0] → placement=${placement?.kind} sandboxId=${placement?.sandboxId}`)
+  await environment.destroy?.()
   console.log()
 }
 
@@ -82,14 +71,22 @@ async function demoFleetMode(): Promise<void> {
   console.log(`describe: ${executor.describe()}`)
   // Three delegations — show the round-robin across worker-a/b/c.
   for (let i = 0; i < 3; i++) {
-    const box = await executor.client.create()
-    const placement = executor.client.describePlacement?.(box)
+    const environment = await executor.provider.create({ profile: demoProfile })
+    const placement = await environment.placement?.()
     console.log(
       `dispatch[${i}] → placement=${placement?.kind} fleetId=${placement?.fleetId} ` +
         `machineId=${placement?.machineId} sandboxId=${placement?.sandboxId}`,
     )
+    await environment.destroy?.()
   }
   console.log()
+}
+
+function syntheticMachine(id: string): FleetMachine {
+  return {
+    id,
+    async *streamPrompt() {},
+  }
 }
 
 function describeEnv(env: Record<string, string>): string {

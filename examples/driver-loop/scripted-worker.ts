@@ -14,13 +14,13 @@
  */
 
 import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
   type DefaultVerdict,
-  inProcessSandboxClient,
+  inProcessEnvironmentProvider,
   type OutputAdapter,
-  type SandboxClient,
   type Validator,
 } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // The task must draft a one-line release note that mentions the word "rollback". A real product
 // would validate something richer; the required word keeps the example deterministic.
@@ -35,12 +35,12 @@ export interface NoteOutput {
 export const requiredWord = 'rollback'
 
 // A worker is just something that takes a prompt and streams back events. Here we fake it via
-// the `inProcessSandboxClient` primitive: the first prompt produces a draft that forgets the
+// `inProcessEnvironmentProvider`: the first prompt produces a draft that forgets the
 // required word; any prompt that mentions it produces a corrected draft. The `onPrompt` callback
-// IS the worker — no `SandboxInstance` cast (the primitive owns the one offline seam).
-export function scriptedWorkerClient(): SandboxClient {
-  return inProcessSandboxClient({
-    onPrompt: (prompt): SandboxEvent[] => {
+// is the worker, with no platform-specific adapter.
+export function scriptedWorkerProvider(): AgentEnvironmentProvider {
+  return inProcessEnvironmentProvider({
+    onTurn: (prompt): AgentEnvironmentEvent[] => {
       // The worker "obeys" the prompt: if the driver's corrective prompt told it to mention
       // the required word, it does; otherwise it ships the naive first draft.
       const note = prompt.toLowerCase().includes(requiredWord)
@@ -59,7 +59,7 @@ export function scriptedWorkerClient(): SandboxClient {
 
 // Raw event stream → typed output.
 export const output: OutputAdapter<NoteOutput> = {
-  parse(events: SandboxEvent[]): NoteOutput {
+  parse(events: AgentEnvironmentEvent[]): NoteOutput {
     for (const ev of events) {
       if (ev.type === 'result') {
         const r = (ev as { data?: { result?: unknown } }).data?.result

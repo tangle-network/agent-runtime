@@ -24,7 +24,7 @@ import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import { supervisorInstructions } from './authoring'
 import type { DeliverableSpec } from './completion-gate'
-import type { ExecutorConfig } from './runtime'
+import type { EnvironmentWorkerOptions } from './runtime'
 import { supervise } from './supervise'
 import type { SupervisorProfile } from './supervisor-agent'
 import type { Budget, SupervisedResult } from './types'
@@ -34,17 +34,14 @@ import type { Budget, SupervisedResult } from './types'
  *  bounded enough that an unsupervised intent cannot run away. Callers override via `opts.budget`. */
 export const defaultDelegateBudget: Budget = { maxIterations: 50, maxTokens: 200_000 }
 
-/** Inputs to {@link delegate}. The intent is the first positional arg; everything here is optional
- *  with sensible defaults, so the common call is `delegate(intent, { backend, router })`. */
+/** Inputs to {@link delegate}. */
 export interface DelegateOptions<Out = unknown> {
   /** The completion oracle (settled ⟺ delivered) the authored workers settle against. Strongly
    *  recommended — without it the supervisor trusts a worker's self-report. For a code intent,
    *  `patchDelivered()` is the canonical example; for a free-form answer, a content check. */
   readonly deliverable?: DeliverableSpec<Out>
-  /** WHERE the authored workers run — the worker-execution backend (`router-tools` / `sandbox` /
-   *  `cli-worktree` / …). The supervisor authors the worker PROFILE; this is the substrate it runs
-   *  on. Provide this OR `makeWorkerAgent`-style wiring through `supervise()` is unavailable. */
-  readonly backend?: ExecutorConfig
+  /** Environment provider and creation options used by authored workers. */
+  readonly worker: EnvironmentWorkerOptions
   /** The conserved compute pool for the whole delegation. Defaults to {@link defaultDelegateBudget}. */
   readonly budget?: Budget
   /** The model the supervisor BRAIN runs on (the router model). The brain must tool-call
@@ -88,7 +85,7 @@ function authoringSupervisorProfile(
  */
 export async function delegate<Out = unknown>(
   intent: string,
-  opts: DelegateOptions<Out> = {},
+  opts: DelegateOptions<Out>,
 ): Promise<SupervisedResult<Out>> {
   if (typeof intent !== 'string' || intent.trim().length === 0) {
     throw new ConfigError('delegate: `intent` must be a non-empty string')
@@ -103,7 +100,7 @@ export async function delegate<Out = unknown>(
 
   return supervise(profile, intent, {
     budget: opts.budget ?? defaultDelegateBudget,
-    ...(opts.backend ? { backend: opts.backend } : {}),
+    worker: opts.worker,
     ...(opts.deliverable ? { deliverable: opts.deliverable as DeliverableSpec<unknown> } : {}),
     ...(opts.router ? { router: opts.router } : {}),
     ...(opts.brain ? { brain: opts.brain } : {}),

@@ -3,115 +3,56 @@
  * Tangle Intelligence — the RECEIVE half of the loop (pull-by-default).
  *
  * The sibling Observe path (`./index`) sends run records UP to the plane. This
- * module pulls certified artifacts DOWN: it reads the tenant's promoted,
- * gate-certified profile from the deployed Intelligence plane so an approved
- * improvement actually reaches the running agent. The pull carries three things
- * the plane already composes:
- *   - the certified PROMPT surface + prompt-folding artifacts (delivered into the
- *     system prompt via {@link composeCertifiedPrompt} — the promoted prompt);
- *   - the typed profile DIFFS the plane has promoted, each with its held-out
- *     provenance (surfaced as PROPOSALS — never auto-applied at runtime);
- *   - the composed `agentProfile` those diffs fold to, for inspection.
+ * module pulls certified context DOWN: it reads the tenant's promoted prompts,
+ * skills, instructions, and safe files from the deployed Intelligence plane so
+ * an approved improvement reaches the running agent.
  *
- * Pull contract (deployed plane): GET /v1/profiles/:target/composed →
- *   { target, generatedAt,
- *     promptSurface: {surface,surfaceHash,version,lift}|null,
- *     artifacts: { <artifactType>: [{path,content,contentHash,version,lift,promotedAt}] },
- *     capabilities: [{id,iface:{surface},binding:{path,content},provenance}],
- *     agentProfileDiffs: [{diff, provenance:{version,lift,contentHash,promotedAt}}],
- *     agentProfile: AgentProfile|null }
+ * Pull contract (deployed plane): GET /v1/contexts/:target/certified →
+ *   { tenantId, target, state, revision, generatedAt, expiresAt, entries, contentHash }
  * Auth: Bearer <apiKey> (the one TANGLE_API_KEY shared by router + sandbox +
  * intelligence), resolved to a tenant by platform-api's key-verify S2S contract.
  *
  * @experimental
  */
 
-import type {
-  AgentImprovementProposal,
-  AgentProfile,
-  AgentProfileDiff,
-} from '@tangle-network/agent-interface'
-import { verifyAgentImprovementProposal } from './improvement-cycle'
+import { type CertifiedContext, parseCertifiedContext } from '@tangle-network/agent-interface'
+import { type AgentImprovementProposal, verifyAgentImprovementProposal } from './improvement-cycle'
 
 const defaultPlaneBaseUrl = 'https://intelligence.tangle.tools'
 const defaultRefreshMs = 300_000
+const maxCertifiedContextResponseBytes = 16_777_216
+const maxProposalResponseBytes = 1_048_576
+const maxPlaneErrorResponseBytes = 4_096
+const maxGeneratedAtClockSkewMs = 300_000
 
-/** A promoted, certified artifact (one entry in the composed profile). */
-export interface CertifiedArtifact {
-  path: string | null
-  content: string
-  contentHash: string
-  version: number | null
-  /** Held-out gate lift attached at certification, e.g. "+3.1pp" — never a
-   *  within-run claim. `null` when the promotion carried no lift record. */
-  lift: string | null
-  promotedAt: string
-}
+export type {
+  CertifiedContext,
+  CertifiedContextDelivery,
+  CertifiedContextEntry,
+  CertifiedContextKind,
+  CertifiedContextProvenance,
+} from '@tangle-network/agent-interface'
 
-/** The active promoted prompt surface for a target. */
-export interface CertifiedPromptSurface {
-  surface: string
-  surfaceHash: string
-  version: number | null
-  lift: string | null
-}
-
-/** The held-out provenance the plane's certify step stamps on a promoted diff.
- *  `lift` is the held-out gate lift (e.g. "+3.1pp"), never a within-run claim. */
-export interface DiffProvenance {
-  version: number | null
-  lift: string | null
-  contentHash: string
-  promotedAt: string
-}
-
-/**
- * A gate-certified profile diff the plane has already promoted, plus the
- * held-out provenance it carries. This is the previously-DROPPED typed diff the
- * composed endpoint returns; `withIntelligence` deserializes it and surfaces it
- * as a PROPOSAL — a human, or the gated local `improve()` loop, turns a proposal
- * into a shipped profile. It is NEVER auto-applied at runtime.
- */
-export interface ProposedProfileDiff {
-  diff: AgentProfileDiff
-  provenance: DiffProvenance
-}
-
-/** The composed endpoint's per-capability summary — the narrow shape on the
- *  wire (id + surface + path/content + provenance). Distinct from the richer
- *  `CertifiedCapability` the capability resolver lowers a manifest into. */
-export interface CertifiedCapabilitySummary {
-  id: string
-  iface: { surface: string }
-  binding: { path: string | null; content: string }
-  provenance: DiffProvenance
-}
-
-/** The composed certified profile — exactly the shape the plane's
- *  `GET /v1/profiles/:target/composed` returns. */
-export interface CertifiedProfile {
-  target: string
-  generatedAt: string
-  promptSurface: CertifiedPromptSurface | null
-  artifacts: Record<string, CertifiedArtifact[]>
-  /** The typed profile diffs the plane has promoted, each with held-out
-   *  provenance. Surfaced as proposals; never auto-applied. Empty when none. */
-  agentProfileDiffs: ProposedProfileDiff[]
-  /** The composed capability summaries the plane returns. Empty when none. */
-  capabilities: CertifiedCapabilitySummary[]
-  /** The composed profile the promoted diffs fold to, for inspection. `null`
-   *  when no diffs are promoted. */
-  agentProfile: AgentProfile | null
-}
-
-/** Typed outcome for the pull — inspect `succeeded` before `value`. A 404
- *  (nothing promoted yet) is a normal, non-error `succeeded: false`. */
-export type PullOutcome =
-  | { succeeded: true; value: CertifiedProfile }
+/** Typed outcome for the pull. Inspect `succeeded` before reading `value`. */
+export type PullCertifiedContextOutcome =
+  | { succeeded: true; value: CertifiedContext }
   | { succeeded: false; error: string; status?: number }
 
-export interface PullCertifiedOptions {
-  /** The agent target certified artifacts are promoted under. */
+export interface IntelligenceEndpointPolicy {
+  /**
+   * Exact HTTPS origins trusted in addition to the default Tangle
+   * Intelligence origin. A custom `baseUrl` is rejected unless its origin is
+   * listed here.
+   */
+  trustedBaseOrigins?: readonly string[]
+  /** Permit explicit loopback HTTP endpoints for local development and tests. */
+  allowInsecureLoopback?: boolean
+}
+
+export interface PullCertifiedContextOptions extends IntelligenceEndpointPolicy {
+  /** Authenticated tenant expected in the signed response. */
+  tenantId: string
+  /** Agent target the certified context is promoted under. */
   target: string
   /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */
   apiKey?: string
@@ -122,6 +63,8 @@ export interface PullCertifiedOptions {
   fetchImpl?: typeof fetch
   /** Abort the request after this many ms. Default 10000. */
   timeoutMs?: number
+  /** Current time source for expiry checks. Defaults to `Date.now`. */
+  now?: () => number
 }
 
 /** What Runtime knows about a failed proposal submission.
@@ -131,7 +74,7 @@ export interface PullCertifiedOptions {
 export type AgentImprovementProposalSubmissionState = 'not-sent' | 'rejected' | 'unconfirmed'
 
 /** Submit a completed measured proposal for product-side review. */
-export interface SubmitAgentImprovementProposalOptions {
+export interface SubmitAgentImprovementProposalOptions extends IntelligenceEndpointPolicy {
   proposal: AgentImprovementProposal
   /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */
   apiKey?: string
@@ -157,11 +100,17 @@ export type SubmitAgentImprovementProposalOutcome =
     }
 
 const defaultPlaneRequestTimeoutMs = 10_000
+const maxPlaneRequestTimeoutMs = 300_000
 const maxPlaneErrorTextLength = 200
+const maxApiKeyLength = 16_384
+const maxPlaneIdentityLength = 256
+const maxCheckpointRevision = 9_223_372_036_854_775_807n
+const checkpointRevisionPattern = /^(0|[1-9]\d{0,18})$/
+const checkpointContentHashPattern = /^sha256:[0-9a-f]{64}$/
 
 type PlaneRequestOptions = Pick<
-  PullCertifiedOptions,
-  'apiKey' | 'baseUrl' | 'fetchImpl' | 'timeoutMs'
+  PullCertifiedContextOptions,
+  'apiKey' | 'baseUrl' | 'fetchImpl' | 'timeoutMs' | 'trustedBaseOrigins' | 'allowInsecureLoopback'
 >
 
 interface PlaneRequestInput extends PlaneRequestOptions {
@@ -169,25 +118,70 @@ interface PlaneRequestInput extends PlaneRequestOptions {
   method?: 'POST'
   headers?: Record<string, string>
   body?: string
+  maxSuccessResponseBytes: number
 }
 
 type PlaneRequestResult =
-  | { succeeded: true; response: Response }
-  | { succeeded: false; attempted: false; error: string }
-  | { succeeded: false; attempted: true; error: string }
+  | { succeeded: true; status: number; ok: boolean; body: string }
+  | { succeeded: false; attempted: false; error: string; status?: number }
+  | { succeeded: false; attempted: true; error: string; status?: number }
 
-/** Resolve the ONE Intelligence base URL — the single knob both the send and
- *  receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`. */
-export function resolveIntelligenceBaseUrl(baseUrl: string | undefined): string {
-  if (baseUrl) return baseUrl.replace(/\/+$/, '')
-  if (typeof process !== 'undefined' && process.env.TANGLE_INTELLIGENCE_URL) {
-    return process.env.TANGLE_INTELLIGENCE_URL.replace(/\/+$/, '')
+function trustedOrigins(values: readonly string[] | undefined): ReadonlySet<string> {
+  const origins = new Set<string>([new URL(defaultPlaneBaseUrl).origin])
+  for (const value of values ?? []) {
+    const parsed = new URL(value)
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error('trustedBaseOrigins entries must be HTTPS origins without paths')
+    }
+    origins.add(parsed.origin)
   }
-  return defaultPlaneBaseUrl
+  return origins
+}
+
+/** Resolve the Intelligence base URL used by both send and receive paths. */
+export function resolveIntelligenceBaseUrl(
+  baseUrl: string | undefined,
+  policy: IntelligenceEndpointPolicy = {},
+): string {
+  const raw =
+    baseUrl ??
+    (typeof process !== 'undefined' ? process.env.TANGLE_INTELLIGENCE_URL : undefined) ??
+    defaultPlaneBaseUrl
+  const parsed = new URL(raw)
+  const loopback =
+    parsed.hostname === 'localhost' ||
+    parsed.hostname === '127.0.0.1' ||
+    parsed.hostname === '[::1]'
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('Intelligence baseUrl cannot include credentials, query, or fragment')
+  }
+  if (parsed.protocol === 'http:' && loopback) {
+    if (policy.allowInsecureLoopback !== true) {
+      throw new Error('loopback HTTP requires allowInsecureLoopback: true')
+    }
+  } else {
+    if (parsed.protocol !== 'https:') {
+      throw new Error('Intelligence baseUrl must use HTTPS')
+    }
+    if (!trustedOrigins(policy.trustedBaseOrigins).has(parsed.origin)) {
+      throw new Error(
+        `Intelligence baseUrl origin '${parsed.origin}' is not trusted; add it to trustedBaseOrigins`,
+      )
+    }
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/, '')
+  return parsed.toString().replace(/\/+$/, '')
 }
 
 function resolveApiKey(apiKey: string | undefined): string {
-  if (apiKey) return apiKey
+  if (apiKey !== undefined) return apiKey
   if (typeof process !== 'undefined' && process.env.TANGLE_API_KEY)
     return process.env.TANGLE_API_KEY
   return ''
@@ -207,24 +201,76 @@ async function requestPlane(input: PlaneRequestInput): Promise<PlaneRequestResul
       error: 'no apiKey (set TANGLE_API_KEY or opts.apiKey)',
     }
   }
+  if (apiKey.length > maxApiKeyLength || /[\r\n]/.test(apiKey)) {
+    return { succeeded: false, attempted: false, error: 'apiKey is not a valid header value' }
+  }
+
+  let url: string
+  let timeoutMs: number
+  try {
+    const configuredTimeout = input.timeoutMs ?? defaultPlaneRequestTimeoutMs
+    if (
+      !Number.isInteger(configuredTimeout) ||
+      configuredTimeout <= 0 ||
+      configuredTimeout > maxPlaneRequestTimeoutMs
+    ) {
+      throw new Error(`timeoutMs must be an integer from 1 through ${maxPlaneRequestTimeoutMs}`)
+    }
+    timeoutMs = configuredTimeout
+    url = `${resolveIntelligenceBaseUrl(input.baseUrl, input)}${input.path}`
+  } catch (error) {
+    return {
+      succeeded: false,
+      attempted: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let responseStatus: number | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new Error(`request timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+  })
 
   try {
-    const response = await doFetch(`${resolveIntelligenceBaseUrl(input.baseUrl)}${input.path}`, {
-      ...(input.method === undefined ? {} : { method: input.method }),
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        ...(input.headers ?? {}),
-      },
-      ...(input.body === undefined ? {} : { body: input.body }),
-      signal: AbortSignal.timeout(input.timeoutMs ?? defaultPlaneRequestTimeoutMs),
-    })
-    return { succeeded: true, response }
+    const result = await Promise.race([
+      (async () => {
+        const response = await doFetch(url, {
+          ...(input.method === undefined ? {} : { method: input.method }),
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            ...(input.headers ?? {}),
+          },
+          ...(input.body === undefined ? {} : { body: input.body }),
+          redirect: 'error',
+          signal: controller.signal,
+        })
+        responseStatus = response.status
+        return {
+          status: response.status,
+          ok: response.ok,
+          body: await readBoundedResponseText(
+            response,
+            response.ok ? input.maxSuccessResponseBytes : maxPlaneErrorResponseBytes,
+          ),
+        }
+      })(),
+      timeout,
+    ])
+    return { succeeded: true, ...result }
   } catch (err) {
     return {
       succeeded: false,
       attempted: true,
       error: err instanceof Error ? err.message : String(err),
+      ...(responseStatus === undefined ? {} : { status: responseStatus }),
     }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 
@@ -236,86 +282,106 @@ function capPlaneErrorText(value: string): string {
   return value.slice(0, maxPlaneErrorTextLength)
 }
 
-function toDiffProvenance(value: unknown): DiffProvenance {
-  const p = asRecord(value)
-  return {
-    version: typeof p.version === 'number' ? p.version : null,
-    lift: typeof p.lift === 'string' ? p.lift : null,
-    contentHash: typeof p.contentHash === 'string' ? p.contentHash : '',
-    promotedAt: typeof p.promotedAt === 'string' ? p.promotedAt : '',
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code <= 0x1f || code === 0x7f) return true
+  }
+  return false
+}
+
+function encodePlaneIdentity(value: string, name: 'tenantId' | 'target'): string {
+  if (
+    value.trim().length === 0 ||
+    value.length > maxPlaneIdentityLength ||
+    hasControlCharacter(value)
+  ) {
+    throw new Error(`${name} must be a non-blank identifier of at most 256 characters`)
+  }
+  try {
+    return encodeURIComponent(value)
+  } catch {
+    throw new Error(`${name} must contain well-formed Unicode`)
   }
 }
 
 /**
- * Deserialize the composed-endpoint response into a `CertifiedProfile`. The
- * previously-dropped `agentProfileDiffs`/`capabilities`/`agentProfile` are read
- * here so they round-trip to the consumer; a plane that has not yet promoted any
- * diffs simply yields empty arrays / a null profile (fail-closed, never a crash).
- */
-export function normalizeCertifiedProfile(raw: unknown): CertifiedProfile {
-  const r = asRecord(raw)
-  const promptSurface = r.promptSurface ? (r.promptSurface as CertifiedPromptSurface) : null
-  const artifacts = (r.artifacts as Record<string, CertifiedArtifact[]> | undefined) ?? {}
-  const agentProfileDiffs: ProposedProfileDiff[] = Array.isArray(r.agentProfileDiffs)
-    ? r.agentProfileDiffs.map((entry) => {
-        const e = asRecord(entry)
-        return { diff: e.diff as AgentProfileDiff, provenance: toDiffProvenance(e.provenance) }
-      })
-    : []
-  const capabilities: CertifiedCapabilitySummary[] = Array.isArray(r.capabilities)
-    ? (r.capabilities as CertifiedCapabilitySummary[])
-    : []
-  return {
-    target: typeof r.target === 'string' ? r.target : '',
-    generatedAt: typeof r.generatedAt === 'string' ? r.generatedAt : '',
-    promptSurface,
-    artifacts,
-    agentProfileDiffs,
-    capabilities,
-    agentProfile: (r.agentProfile as AgentProfile | null | undefined) ?? null,
-  }
-}
-
-/**
- * Pull the certified composed profile for a target. Fail-closed: a network
+ * Pull certified context for a target. Fail-closed: a network
  * error or a non-2xx returns a typed `succeeded: false` (never throws), so a
- * caller can run on its base surface when Intelligence is unreachable. A 404 is
- * the normal "nothing promoted yet" signal, carried as `status: 404`.
+ * caller can run on its base surface when Intelligence is unreachable. A
+ * conforming endpoint always returns a revisioned active or revoked response.
  */
-export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOutcome> {
+export async function pullCertifiedContext(
+  opts: PullCertifiedContextOptions,
+): Promise<PullCertifiedContextOutcome> {
+  let path: string
+  try {
+    encodePlaneIdentity(opts.tenantId, 'tenantId')
+    path = `/v1/contexts/${encodePlaneIdentity(opts.target, 'target')}/certified`
+  } catch (error) {
+    return {
+      succeeded: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
   const request = await requestPlane({
     ...opts,
-    path: `/v1/profiles/${encodeURIComponent(opts.target)}/composed`,
+    path,
+    maxSuccessResponseBytes: maxCertifiedContextResponseBytes,
   })
+  if (request.status === 404) {
+    return {
+      succeeded: false,
+      error:
+        'incompatible certified-context endpoint: expected a revisioned response, received 404',
+      status: 404,
+    }
+  }
   if (!request.succeeded) {
     return {
       succeeded: false,
       error: request.attempted ? `pull request failed: ${request.error}` : request.error,
+      ...(request.status === undefined ? {} : { status: request.status }),
     }
   }
-  const res = request.response
-  if (res.status === 404) {
+  if (!request.ok) {
     return {
       succeeded: false,
-      error: 'no certified artifacts promoted for target yet',
-      status: 404,
-    }
-  }
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    return {
-      succeeded: false,
-      error: `pull ${res.status}: ${body.slice(0, 200)}`,
-      status: res.status,
+      error: `pull ${request.status}: ${request.body.slice(0, 200)}`,
+      status: request.status,
     }
   }
   try {
-    return { succeeded: true, value: normalizeCertifiedProfile(await res.json()) }
+    const context = parseCertifiedContext(JSON.parse(request.body))
+    if (context.tenantId !== opts.tenantId) {
+      throw new Error(
+        `response tenant '${context.tenantId}' does not match authenticated tenant '${opts.tenantId}'`,
+      )
+    }
+    if (context.target !== opts.target) {
+      throw new Error(
+        `response target '${context.target}' does not match requested target '${opts.target}'`,
+      )
+    }
+    assertCertifiedContextCurrent(context, (opts.now ?? Date.now)())
+    return { succeeded: true, value: context }
   } catch (err) {
     return {
       succeeded: false,
       error: `pull response parse failed: ${err instanceof Error ? err.message : String(err)}`,
     }
+  }
+}
+
+/** Reject context that is not valid at the supplied wall-clock instant. */
+export function assertCertifiedContextCurrent(context: CertifiedContext, nowMs: number): void {
+  const generatedAt = Date.parse(context.generatedAt)
+  const expiresAt = Date.parse(context.expiresAt)
+  if (generatedAt > nowMs + maxGeneratedAtClockSkewMs) {
+    throw new Error('certified context was generated too far in the future')
+  }
+  if (expiresAt <= nowMs) {
+    throw new Error('certified context has expired')
   }
 }
 
@@ -346,24 +412,31 @@ export async function submitAgentImprovementProposal(
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ proposal }),
+    maxSuccessResponseBytes: maxProposalResponseBytes,
   })
   if (!request.succeeded) {
+    const definitivelyRejected =
+      request.status !== undefined && request.status >= 400 && request.status < 500
     return {
       succeeded: false,
-      submission: request.attempted ? 'unconfirmed' : 'not-sent',
-      error: request.attempted
-        ? `proposal submission request failed: ${request.error}`
-        : request.error,
+      submission: definitivelyRejected
+        ? 'rejected'
+        : request.attempted
+          ? 'unconfirmed'
+          : 'not-sent',
+      error: definitivelyRejected
+        ? `proposal submission ${request.status}: ${request.error}`
+        : request.attempted
+          ? `proposal submission request failed: ${request.error}`
+          : request.error,
+      ...(request.status === undefined ? {} : { status: request.status }),
     }
   }
-  const res = request.response
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
+  if (!request.ok) {
     let code: string | undefined
-    let message = capPlaneErrorText(body)
+    let message = capPlaneErrorText(request.body)
     try {
-      const parsed = asRecord(JSON.parse(body))
+      const parsed = asRecord(JSON.parse(request.body))
       if (typeof parsed.error === 'string') code = capPlaneErrorText(parsed.error)
       if (typeof parsed.message === 'string') message = capPlaneErrorText(parsed.message)
     } catch {
@@ -371,25 +444,25 @@ export async function submitAgentImprovementProposal(
     }
     return {
       succeeded: false,
-      submission: res.status >= 400 && res.status < 500 ? 'rejected' : 'unconfirmed',
-      error: `proposal submission ${res.status}: ${message}`,
-      status: res.status,
+      submission: request.status >= 400 && request.status < 500 ? 'rejected' : 'unconfirmed',
+      error: `proposal submission ${request.status}: ${message}`,
+      status: request.status,
       ...(code === undefined ? {} : { code }),
     }
   }
 
   try {
-    const response = asRecord(await res.json())
+    const response = asRecord(JSON.parse(request.body))
     const recorded = verifyAgentImprovementProposal(response.proposal)
     if (recorded.digest !== proposal.digest) {
       return {
         succeeded: false,
         submission: 'unconfirmed',
         error: 'proposal submission returned a different proposal digest',
-        status: res.status,
+        status: request.status,
       }
     }
-    return { succeeded: true, value: recorded, status: res.status }
+    return { succeeded: true, value: recorded, status: request.status }
   } catch (err) {
     return {
       succeeded: false,
@@ -397,90 +470,342 @@ export async function submitAgentImprovementProposal(
       error: `proposal submission response parse failed: ${capPlaneErrorText(
         err instanceof Error ? err.message : String(err),
       )}`,
-      status: res.status,
+      status: request.status,
     }
   }
 }
 
-/** Artifact-type buckets that fold into the system prompt, in fold order. A
- *  certified `context` capability whose content is free text (`instructions`)
- *  is delivered here so it actually reaches the agent — never bucketed into a
- *  type the fold then silently skips. The resolver reuses this exact set so its
- *  `promptAdditions` slot matches the folded prompt byte-for-byte. */
-export const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as const
+const contextKindOrder = {
+  prompt: 0,
+  skill: 1,
+  instructions: 2,
+} as const
 
-/**
- * Fold the certified prompt surface (and any certified prompt-folding artifacts:
- * `prompt-surface` / `skill` / `instructions`) into a base system prompt under a
- * marked section, so the deployed agent prompt == base + the gate-certified
- * additions. Order is stable (prompt surface first, then artifact buckets in
- * `promptFoldTypes` order, then by path within a bucket) so the same profile
- * renders byte-identically each call. Returns `base` unchanged when there is no
- * usable certified content. Reads only the prompt-folding slice of a profile.
- */
-export function composeCertifiedPrompt(
+/** Fold inline certified context into a base system prompt. */
+export function composeCertifiedContextPrompt(
   base: string,
-  certified: Pick<CertifiedProfile, 'promptSurface' | 'artifacts'> | null,
+  certified: Pick<CertifiedContext, 'entries'> | null,
 ): string {
-  if (!certified) return base
-  const parts: string[] = []
-  if (certified.promptSurface?.surface.trim()) parts.push(certified.promptSurface.surface.trim())
-  for (const type of promptFoldTypes) {
-    const bucket = certified.artifacts[type] ?? []
-    for (const a of [...bucket].sort((x, y) => (x.path ?? '').localeCompare(y.path ?? ''))) {
-      if (a.content.trim()) parts.push(a.content.trim())
-    }
-  }
+  const parts = inlineCertifiedContextEntries(certified)
   if (parts.length === 0) return base
   return `${base.trim()}\n\n## Certified guidance (Tangle Intelligence)\n\n${parts.join('\n\n')}`
 }
 
-/** A cached, self-refreshing source of a target's certified prompt additions —
- *  the prompt-only delivery lane for callers that assemble their OWN system
- *  prompt (product chat routes) rather than wrapping an agent fn. Same
- *  fail-closed semantics as {@link pullCertified}: pulls at most every
- *  `refreshMs`, coalesces concurrent pulls, keeps the last-known profile on a
- *  failed/404 pull, never throws, never blocks past the pull timeout. */
-export interface CertifiedPromptSource {
+/** Return the context additions in the exact order used by prompt composition. */
+function inlineCertifiedContextEntries(
+  certified: Pick<CertifiedContext, 'entries'> | null,
+): readonly string[] {
+  if (!certified) return []
+  return Object.freeze(
+    certified.entries
+      .filter((entry) => entry.delivery.kind === 'inline')
+      .sort((left, right) => {
+        return (
+          contextKindOrder[left.kind] - contextKindOrder[right.kind] ||
+          left.name.localeCompare(right.name) ||
+          left.id.localeCompare(right.id)
+        )
+      })
+      .map((entry) => entry.delivery.content.trim())
+      .filter((content) => content.length > 0),
+  )
+}
+
+/** Return immutable safe files from certified context. */
+function certifiedContextFileEntries(
+  certified: Pick<CertifiedContext, 'entries'> | null,
+): readonly Readonly<{ path: string; content: string }>[] {
+  if (!certified) return []
+  return Object.freeze(
+    certified.entries
+      .filter(
+        (
+          entry,
+        ): entry is typeof entry & {
+          delivery: { kind: 'file'; path: string; content: string }
+        } => entry.delivery.kind === 'file',
+      )
+      .sort(
+        (left, right) =>
+          left.delivery.path.localeCompare(right.delivery.path) || left.id.localeCompare(right.id),
+      )
+      .map((entry) =>
+        Object.freeze({ path: entry.delivery.path, content: entry.delivery.content }),
+      ),
+  )
+}
+
+export interface ComposedCertifiedContext {
+  readonly systemPrompt: string
+  readonly promptAdditions: readonly string[]
+  readonly files: readonly Readonly<{ path: string; content: string }>[]
+}
+
+/** Materialize current certified context without creating executable behavior. */
+export function composeCertifiedContext(
+  base: { systemPrompt: string },
+  certified: CertifiedContext | null,
+  now: () => number = Date.now,
+): ComposedCertifiedContext {
+  if (!certified) {
+    return Object.freeze({
+      systemPrompt: base.systemPrompt,
+      promptAdditions: Object.freeze([]),
+      files: Object.freeze([]),
+    })
+  }
+  const checked = parseCertifiedContext(certified)
+  assertCertifiedContextCurrent(checked, now())
+  if (checked.state === 'revoked') {
+    return Object.freeze({
+      systemPrompt: base.systemPrompt,
+      promptAdditions: Object.freeze([]),
+      files: Object.freeze([]),
+    })
+  }
+  return Object.freeze({
+    systemPrompt: composeCertifiedContextPrompt(base.systemPrompt, checked),
+    promptAdditions: inlineCertifiedContextEntries(checked),
+    files: certifiedContextFileEntries(checked),
+  })
+}
+
+/** A cached, self-refreshing source of one certified context bundle. */
+export interface CertifiedContextSource {
   /** Refresh (window-respecting) then fold the certified additions into a
-   *  base system prompt. Returns `base` unchanged when nothing is promoted. */
+   *  base system prompt. Returns `base` unchanged when context is unavailable. */
   compose(base: string): Promise<string>
-  /** The certified profile currently in effect (`null` = none pulled yet). */
-  current(): CertifiedProfile | null
+  /** The immutable certified context currently in effect. */
+  current(): CertifiedContext | null
   /** Pull now if the refresh window has elapsed; coalesced and fail-closed. */
   refresh(): Promise<void>
 }
 
-/** Options for {@link createCertifiedPromptSource} — the pull coordinates plus
- *  the refresh cadence. */
-export interface CertifiedPromptSourceOptions extends PullCertifiedOptions {
-  /** Min interval between certified-profile pulls. Default 5m. */
-  refreshMs?: number
+export interface CertifiedContextCheckpointKey {
+  readonly tenantId: string
+  readonly target: string
+}
+
+/** Durable rollback state for one tenant and target. It contains no delivered content. */
+export interface CertifiedContextCheckpoint extends CertifiedContextCheckpointKey {
+  readonly revision: string
+  readonly contentHash: CertifiedContext['contentHash']
+  readonly state: CertifiedContext['state']
 }
 
 /**
- * Create the cached certified-prompt source — the ONE module-scope-cache +
- * coalesced-refresh + keep-last-known implementation. Product wiring uses this
- * rather than hand-rolling the same lines around `pullCertified`. The
- * `withIntelligence` hook rides this same source for its prompt delivery.
+ * Caller-owned durable storage for certified-context rollback protection.
+ * `save` must atomically retain the highest revision and reject rollback or an
+ * equal-revision content/state conflict when multiple sources write concurrently.
  */
-export function createCertifiedPromptSource(
-  opts: CertifiedPromptSourceOptions,
-): CertifiedPromptSource {
+export interface CertifiedContextCheckpointStore {
+  load(key: CertifiedContextCheckpointKey): Promise<CertifiedContextCheckpoint | null>
+  save(checkpoint: CertifiedContextCheckpoint): Promise<void>
+}
+
+/** Options for {@link createCertifiedContextSource} plus
+ *  the refresh cadence. */
+export interface CertifiedContextSourceOptions extends PullCertifiedContextOptions {
+  /** Min interval between certified-context pulls. Default 5m. */
+  refreshMs?: number
+  /**
+   * Persist the highest accepted revision across source recreation and process
+   * restarts. Without a store, rollback protection lasts for this source only.
+   */
+  checkpointStore?: CertifiedContextCheckpointStore
+  /** Observe rollback, conflicting revision, or incompatible endpoint responses. */
+  onReject?: (error: Error) => void
+}
+
+function checkpointError(message: string): Error {
+  return new Error(`certified context checkpoint ${message}`)
+}
+
+function parseCertifiedContextCheckpoint(
+  value: unknown,
+  key: CertifiedContextCheckpointKey,
+): CertifiedContextCheckpoint {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw checkpointError('must be an object')
+  }
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record).sort()
+  const expectedKeys = ['contentHash', 'revision', 'state', 'target', 'tenantId']
+  if (
+    keys.length !== expectedKeys.length ||
+    keys.some((entry, index) => entry !== expectedKeys[index])
+  ) {
+    throw checkpointError('must contain exactly tenantId, target, revision, contentHash, and state')
+  }
+  if (typeof record.tenantId !== 'string' || typeof record.target !== 'string') {
+    throw checkpointError('tenantId and target must be strings')
+  }
+  encodePlaneIdentity(record.tenantId, 'tenantId')
+  encodePlaneIdentity(record.target, 'target')
+  if (record.tenantId !== key.tenantId || record.target !== key.target) {
+    throw checkpointError('does not match the requested tenantId and target')
+  }
+  if (
+    typeof record.revision !== 'string' ||
+    !checkpointRevisionPattern.test(record.revision) ||
+    BigInt(record.revision) > maxCheckpointRevision
+  ) {
+    throw checkpointError('revision must be a signed 64-bit non-negative decimal string')
+  }
+  if (
+    typeof record.contentHash !== 'string' ||
+    !checkpointContentHashPattern.test(record.contentHash)
+  ) {
+    throw checkpointError('contentHash must be a lowercase SHA-256 digest')
+  }
+  if (record.state !== 'active' && record.state !== 'revoked') {
+    throw checkpointError("state must be 'active' or 'revoked'")
+  }
+  return Object.freeze({
+    tenantId: record.tenantId,
+    target: record.target,
+    revision: record.revision,
+    contentHash: record.contentHash as CertifiedContext['contentHash'],
+    state: record.state,
+  })
+}
+
+/** Create one coalesced cache that keeps the last valid context response. */
+export function createCertifiedContextSource(
+  opts: CertifiedContextSourceOptions,
+): CertifiedContextSource {
   const refreshMs = opts.refreshMs ?? defaultRefreshMs
-  let certified: CertifiedProfile | null = null
+  const now = opts.now ?? Date.now
+  let certified: CertifiedContext | null = null
   let lastPullAt = 0
+  let hasPulled = false
   let inflight: Promise<void> | null = null
+  let refreshAfterExpiry = false
+  let highestRevision: bigint | null = null
+  let highestContentHash: string | null = null
+  let highestState: CertifiedContext['state'] | null = null
+  let checkpointLoaded = opts.checkpointStore === undefined
+  const checkpointKey = Object.freeze({ tenantId: opts.tenantId, target: opts.target })
+
+  function reject(error: Error): void {
+    try {
+      opts.onReject?.(error)
+    } catch {
+      // Observers cannot change checkpoint or context state transitions.
+    }
+  }
+
+  async function loadCheckpoint(): Promise<boolean> {
+    if (checkpointLoaded) return true
+    try {
+      encodePlaneIdentity(checkpointKey.tenantId, 'tenantId')
+      encodePlaneIdentity(checkpointKey.target, 'target')
+      const stored = await opts.checkpointStore!.load(checkpointKey)
+      if (stored !== null) {
+        const checkpoint = parseCertifiedContextCheckpoint(stored, checkpointKey)
+        highestRevision = BigInt(checkpoint.revision)
+        highestContentHash = checkpoint.contentHash
+        highestState = checkpoint.state
+      }
+      checkpointLoaded = true
+      return true
+    } catch (cause) {
+      reject(
+        checkpointError(`load failed: ${cause instanceof Error ? cause.message : String(cause)}`),
+      )
+      return false
+    }
+  }
+
+  async function persistCheckpoint(context: CertifiedContext): Promise<boolean> {
+    if (!opts.checkpointStore) return true
+    const checkpoint: CertifiedContextCheckpoint = Object.freeze({
+      tenantId: context.tenantId,
+      target: context.target,
+      revision: context.revision,
+      contentHash: context.contentHash,
+      state: context.state,
+    })
+    try {
+      await opts.checkpointStore.save(checkpoint)
+      return true
+    } catch (cause) {
+      reject(
+        checkpointError(`save failed: ${cause instanceof Error ? cause.message : String(cause)}`),
+      )
+      return false
+    }
+  }
+
+  function current(): CertifiedContext | null {
+    if (certified && Date.parse(certified.expiresAt) <= now()) {
+      certified = null
+      refreshAfterExpiry = true
+    }
+    return certified
+  }
 
   async function refresh(): Promise<void> {
-    if (Date.now() - lastPullAt < refreshMs) return
+    const checkedAt = now()
+    const hadExpiredContext = certified !== null && Date.parse(certified.expiresAt) <= checkedAt
+    if (hadExpiredContext) {
+      certified = null
+      refreshAfterExpiry = true
+    }
+    if (!refreshAfterExpiry && hasPulled && checkedAt - lastPullAt < refreshMs) return
     if (inflight) return inflight
     inflight = (async () => {
-      const outcome = await pullCertified(opts)
-      lastPullAt = Date.now()
-      // Only replace the cache on a real pull; a 404/error keeps the last-known
-      // certified profile (or null) — fail-closed, never wipe a good surface.
-      if (outcome.succeeded) certified = outcome.value
+      if (!checkpointLoaded && !(await loadCheckpoint())) return
+      const outcome = await pullCertifiedContext(opts)
+      lastPullAt = now()
+      hasPulled = true
+      refreshAfterExpiry = false
+      if (outcome.succeeded) {
+        const nextRevision = BigInt(outcome.value.revision)
+        if (highestRevision !== null && nextRevision < highestRevision) {
+          reject(
+            new Error(
+              `certified context revision rolled back from ${highestRevision} to ${nextRevision}`,
+            ),
+          )
+          current()
+          return
+        }
+        if (
+          highestRevision !== null &&
+          nextRevision === highestRevision &&
+          (highestContentHash !== outcome.value.contentHash || highestState !== outcome.value.state)
+        ) {
+          reject(
+            new Error(
+              `certified context revision ${nextRevision} has conflicting content or state`,
+            ),
+          )
+          current()
+          return
+        }
+        if (
+          (highestRevision === null || nextRevision > highestRevision) &&
+          !(await persistCheckpoint(outcome.value))
+        ) {
+          refreshAfterExpiry = true
+          current()
+          return
+        }
+        highestRevision = nextRevision
+        highestContentHash = outcome.value.contentHash
+        highestState = outcome.value.state
+        certified = outcome.value.state === 'active' ? outcome.value : null
+      } else if (outcome.status === 401 || outcome.status === 403) {
+        certified = null
+      } else {
+        if (outcome.status === 404) {
+          reject(
+            new Error('certified context endpoint returned 404 instead of a revisioned response'),
+          )
+        }
+        current()
+      }
     })()
     try {
       await inflight
@@ -491,10 +816,38 @@ export function createCertifiedPromptSource(
 
   return {
     refresh,
-    current: () => certified,
+    current,
     async compose(base: string): Promise<string> {
       await refresh()
-      return composeCertifiedPrompt(base, certified)
+      return composeCertifiedContextPrompt(base, current())
     },
+  }
+}
+
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
+  const length = response.headers.get('content-length')
+  if (length !== null && /^\d+$/.test(length) && Number(length) > maxBytes) {
+    throw new Error(`response exceeds ${maxBytes} bytes`)
+  }
+  if (!response.body) return ''
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      if (bytes > maxBytes) throw new Error(`response exceeds ${maxBytes} bytes`)
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    return text + decoder.decode()
+  } catch (cause) {
+    await reader.cancel().catch(() => {})
+    throw cause
+  } finally {
+    reader.releaseLock()
   }
 }

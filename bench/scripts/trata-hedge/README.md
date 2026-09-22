@@ -1,4 +1,4 @@
-# trata-hedge-bench — evaluating our system against an LLM-judge benchmark
+# trata-hedge-bench - evaluating our system against an LLM-judge benchmark
 
 [trata-hedge-bench](https://github.com/Trata-Inc/trata-hedge-bench) is a 102-task
 financial-analyst benchmark (Harbor format): the agent reads a company's data corpus
@@ -6,7 +6,7 @@ financial-analyst benchmark (Harbor format): the agent reads a company's data co
 verifier is a **Gemini-3.1-pro 3-task cascade** (hallucination-check → per-move-hit →
 synthesis) that grades *concept match* against the expert analyst's documented moves
 (`ground_truth.txt`). Graded `score` is 0–4 (themes fully covered); `reward.txt` is
-sparse (1 iff all themes). No deployable ground-truth checker — it's an **oracle judge**.
+sparse (1 iff all themes). No deployable ground-truth checker - it's an **oracle judge**.
 
 ## What's admissible here (and what isn't)
 
@@ -23,10 +23,10 @@ sparse (1 iff all themes). No deployable ground-truth checker — it's an **orac
 
 Our solver → their **real** Gemini-3.1-pro judge → a genuine graded result. Every link
 works. The naive **single-shot** baseline (gpt-4o, ~3 of N corpus files in one context
-window) scores **0/4** — a floor: it hit only 1/3 moves on a few themes with
+window) scores **0/4** - a floor: it hit only 1/3 moves on a few themes with
 hallucinations flagged, because it could not explore the full corpus. The bench is built
 for **agentic** exploration; a fair baseline needs our sandbox runtime as the solver
-(browse + cite selectively), like the commit0 gate — pending sandbox-gateway health.
+(browse + cite selectively), like the commit0 gate - pending sandbox-gateway health.
 
 ## Run it
 
@@ -40,7 +40,7 @@ dotenvx run -f ~/company/devops/secrets/.env.keys -f ~/company/devops/secrets/ag
 
 ## Gotchas (each cost a debugging cycle)
 
-- **Use `GOOGLE_AI_KEY`, not `GEMINI_API_KEY`** — the latter in the secrets is
+- **Use `GOOGLE_AI_KEY`, not `GEMINI_API_KEY`** - the latter in the secrets is
   `API_KEY_INVALID`; `GOOGLE_AI_KEY` is the working Gemini key (`gemini-3.1-pro-preview`
   returns 200). `run.sh` maps `GOOGLE_API_KEY=$GOOGLE_AI_KEY` for `grade.py`.
 - The router is behind Cloudflare bot-fight: a default urllib User-Agent → 403 (CF 1010)

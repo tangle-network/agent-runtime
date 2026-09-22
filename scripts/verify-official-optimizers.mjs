@@ -12,8 +12,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const agentEvalVersion = '0.126.6'
-const agentKnowledgeVersion = '5.0.1'
+const agentEvalVersion = '0.129.0'
+const agentKnowledgeVersion = '6.0.0'
 const gepaVersion = '0.1.4'
 const gepaSourceRevision = 'f919db0a622e2e9f9204779b81fe00cc1b2d808f'
 const skillOptRevision = '61735e3922efc2b90c6d6cab561e62e98452ca90'
@@ -33,7 +33,7 @@ assertVersion(
 )
 assertVersion(
   packageJson.peerDependencies?.['@tangle-network/agent-eval'],
-  `>=${agentEvalVersion} <0.127.0`,
+  agentEvalVersion,
   '@tangle-network/agent-eval peer dependency',
 )
 

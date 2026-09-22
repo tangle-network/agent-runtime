@@ -18,15 +18,15 @@
  */
 import { pairedBootstrap } from '@tangle-network/agent-eval'
 import {
-  type AgenticSurface,
-  type AgenticTask,
+  type EnvironmentTask,
   failuresAnalyst,
   refine,
-  runAgentic,
+  runStrategy,
   type Strategy,
   sample,
   sampleThenRefine,
   superviseSurface,
+  type TaskEnvironment,
 } from '@tangle-network/agent-runtime/loops'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
 import { countingSurface } from './counting-surface'
@@ -64,7 +64,7 @@ export interface AblationKnobs {
    *  selection, and final-test partitions, and an executable judge. */
   optimize?: 'off' | 'gepa'
   halo?: boolean // HALO analyst option
-  persistentArtifact?: boolean // multi-round persistent artifact (openSandboxRun resume)
+  persistentArtifact?: boolean // multi-round persistent artifact (openEnvironmentRun resume)
 }
 
 const topologyStrategy: Record<AblationKnobs['topology'], Strategy> = {
@@ -81,7 +81,7 @@ const unwiredKnobs: Array<{
   prim: string
 }> = [
   { k: 'halo', isSet: (v) => v === true, prim: 'HALO analyst option' },
-  { k: 'persistentArtifact', isSet: (v) => v === true, prim: 'openSandboxRun resume' },
+  { k: 'persistentArtifact', isSet: (v) => v === true, prim: 'openEnvironmentRun resume' },
 ]
 
 export interface ArmResult {
@@ -107,8 +107,8 @@ export interface ArmResult {
 }
 
 export async function runAblation(opts: {
-  environment: AgenticSurface
-  tasks: (offset: number, n: number) => Promise<AgenticTask[]>
+  environment: TaskEnvironment
+  tasks: (offset: number, n: number) => Promise<EnvironmentTask[]>
   holdoutOffset: number
   holdoutN: number
   base: AblationKnobs
@@ -245,7 +245,7 @@ export async function runAblation(opts: {
           ms += sup.ms
           comps += sup.completions
         } else {
-          const r = await runAgentic({
+          const r = await runStrategy({
             surface: counter,
             task: t,
             strategy: topologyStrategy[arm.knobs.topology],

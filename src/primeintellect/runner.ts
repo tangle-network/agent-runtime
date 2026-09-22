@@ -1,4 +1,3 @@
-import { createOpenAICompatibleBackend } from '../backends'
 import type {
   PrimeIntellectEpisodeContext,
   PrimeIntellectPublicTask,
@@ -17,11 +16,6 @@ const ENV = {
 export interface RunPrimeIntellectProgramOptions {
   env?: NodeJS.ProcessEnv
 }
-
-export type PrimeIntellectBackendOptions = Omit<
-  Parameters<typeof createOpenAICompatibleBackend>[0],
-  'apiKey' | 'baseUrl' | 'model'
->
 
 /** Read and validate the private process contract installed by the generated Prime harness. */
 export function readPrimeIntellectEpisodeContext(
@@ -45,23 +39,22 @@ export function readPrimeIntellectEpisodeContext(
   }
 }
 
-/** Build the existing runtime backend against Prime's intercepted model endpoint. */
-export function createPrimeIntellectBackend(
-  context: PrimeIntellectEpisodeContext,
-  options: PrimeIntellectBackendOptions = {},
-) {
-  return createOpenAICompatibleBackend({
-    ...options,
-    apiKey: context.model.apiKey,
-    baseUrl: context.model.baseUrl,
+/** Return Prime's intercepted model endpoint for the product's normal provider. */
+export function primeIntellectModelEndpoint(context: PrimeIntellectEpisodeContext): {
+  model: string
+  baseUrl: string
+  apiKey: string
+} {
+  return {
     model: context.model.name,
-    kind: options.kind ?? 'primeintellect',
-  })
+    baseUrl: context.model.baseUrl,
+    apiKey: context.model.apiKey,
+  }
 }
 
 /**
  * Execute the caller's canonical runtime program inside a Prime rollout.
- * The callback may call runPersonified, runAgentic, runAgentRounds, or any product wrapper.
+ * The callback runs the product's normal provider-backed program.
  */
 export async function runPrimeIntellectProgram<Result>(
   run: (context: PrimeIntellectEpisodeContext) => Promise<Result>,

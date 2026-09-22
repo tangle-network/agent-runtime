@@ -35,10 +35,10 @@ import {
   runBenchmark,
 } from './run-benchmark'
 import {
-  type AgenticOptions,
-  type AgenticTask,
+  type EnvironmentTask,
   refine,
   type Strategy,
+  type StrategyWorkerOptions,
   sample,
   sampleThenRefine,
 } from './strategy'
@@ -60,12 +60,12 @@ export interface StrategyEvolutionConfig {
   /** Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
    *  offset range. Train draws [0, trainN); the holdout draws [trainN + holdoutOffset,
    *  …) — tasks the search never touched. */
-  tasks: (offset: number, n: number) => Promise<AgenticTask[]>
+  tasks: (offset: number, n: number) => Promise<EnvironmentTask[]>
   trainN: number
   holdoutN: number
   /** Extra offset past the train slice for the holdout draw (rotate across runs). */
   holdoutOffset?: number
-  worker: AgenticOptions
+  worker: StrategyWorkerOptions
   /**
    * Model availability check before the first benchmark phase.
    *
@@ -415,7 +415,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   }
 
   let modelsPreflighted = false
-  const bench = async (phase: string, tasks: AgenticTask[], strategies: Strategy[]) => {
+  const bench = async (phase: string, tasks: EnvironmentTask[], strategies: Strategy[]) => {
     await cfg.onPhase?.(phase)
     const report = await runBenchmark({
       environment: cfg.environment,
@@ -608,7 +608,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   // The promotion decision: ONE fresh slice the search never touched, drawn after all
   // authoring is done. The gate, not the search policy, owns this verdict.
   const holdoutOffset = cfg.trainN + (cfg.holdoutOffset ?? 0)
-  let holdoutTasks: AgenticTask[] = []
+  let holdoutTasks: EnvironmentTask[] = []
   let bandInfo: EvolutionBandInfo | undefined
   if (ckpt?.holdout && ckpt.verdict) {
     // Gate already settled before the restart. Reconstruct the exact gate tasks only if

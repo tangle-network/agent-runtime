@@ -1,14 +1,14 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import {
   defineLeaderboard,
   type LeaderboardIterationInfo,
   type LeaderboardRunContext,
 } from './define-leaderboard'
-import { inProcessSandboxClient } from './in-process-sandbox-client'
+import { inProcessEnvironmentProvider } from './in-process-environment-provider'
 
 interface FakeCase {
   id: string
@@ -20,14 +20,17 @@ const CASES: FakeCase[] = [
   { id: 'case-beta', answer: 'BETA-7' },
 ]
 
-/** Offline backend: echoes the prompt's embedded answer + meters an llm_call,
- *  so the matrix integrity guard sees a real (non-stub) backend. */
-function fakeBackend() {
-  return inProcessSandboxClient({
-    onPrompt: (prompt): SandboxEvent[] => {
+/** Offline provider that echoes the embedded answer and records model usage. */
+function fakeProvider() {
+  return inProcessEnvironmentProvider({
+    onTurn: (prompt): AgentEnvironmentEvent[] => {
       const answer = /answer=(\S+)/.exec(prompt)?.[1] ?? 'missing'
       return [
-        { type: 'llm_call', data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 } },
+        {
+          type: 'llm_call',
+          data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 },
+          usage: { inputTokens: 12, outputTokens: 6, cost: 0.002 },
+        },
         { type: 'result', data: { finalText: `final answer=${answer}` } },
       ]
     },
@@ -40,13 +43,20 @@ function board(overrides: Partial<Parameters<typeof defineLeaderboard<FakeCase>>
     cases: CASES,
     prompt: async (c) => `solve the task. answer=${c.answer}`,
     score: (output, c) => (output.includes(c.answer) ? 1 : 0),
-    backends: { inproc: fakeBackend },
+    providers: { inproc: fakeProvider },
     export: async () => {}, // silence the default table print in tests
     ...overrides,
   })
 }
 
-const AXIS = ['--backend', 'inproc', '--harnesses', 'opencode', '--models', 'test-model@2026-01-01']
+const AXIS = [
+  '--provider',
+  'inproc',
+  '--harnesses',
+  'opencode',
+  '--models',
+  'test-model@2026-01-01',
+]
 
 describe('defineLeaderboard', () => {
   it('runs the matrix end-to-end offline and scores every (profile, case) cell', async () => {
@@ -58,7 +68,7 @@ describe('defineLeaderboard', () => {
     expect(summaries).toHaveLength(1)
     expect(summaries[0]?.meanComposite).toBe(1)
     expect(summaries[0]?.model).toBe('test-model@2026-01-01')
-    // The fake backend's llm_call events were metered — the run is REAL, not a stub.
+    // The provider's llm_call events make this a metered run.
     expect(result.integrity.verdict).toBe('real')
     for (const r of result.records) expect(r.tokenUsage.input).toBeGreaterThan(0)
   })
@@ -96,9 +106,22 @@ describe('defineLeaderboard', () => {
     await expect(board().run([...AXIS, '--cases', 'nope'])).rejects.toThrow(/unknown case "nope"/)
   })
 
+  it('rejects removed runner aliases', async () => {
+    await expect(
+      board().run([
+        '--provider',
+        'inproc',
+        '--harnesses',
+        'claude',
+        '--models',
+        'test-model@2026-01-01',
+      ]),
+    ).rejects.toThrow('invalid harness "claude"')
+  })
+
   it('stamps a snapshot onto bare model ids (RunRecord identity requirement)', async () => {
     const result = await board().run([
-      '--backend',
+      '--provider',
       'inproc',
       '--harnesses',
       'opencode',
@@ -136,19 +159,23 @@ describe('defineLeaderboard', () => {
     // Shot 0 throws before producing events; shot 1 succeeds. Before the
     // iteration-metadata seam, the thrown shot was invisible through the facade.
     let attempts = 0
-    const throwingBackend = inProcessSandboxClient({
-      onPrompt: (prompt): SandboxEvent[] => {
+    const throwingProvider = inProcessEnvironmentProvider({
+      onTurn: (prompt): AgentEnvironmentEvent[] => {
         if (attempts++ === 0) throw new Error('upstream harness terminated')
         const answer = /answer=(\S+)/.exec(prompt)?.[1] ?? 'missing'
         return [
-          { type: 'llm_call', data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 } },
+          {
+            type: 'llm_call',
+            data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 },
+            usage: { inputTokens: 12, outputTokens: 6, cost: 0.002 },
+          },
           { type: 'result', data: { finalText: `final answer=${answer}` } },
         ]
       },
     })
     const shots: Array<{ id: string; info: LeaderboardIterationInfo | undefined }> = []
     await board({
-      backends: { inproc: () => throwingBackend },
+      providers: { inproc: () => throwingProvider },
       shots: 2,
       onCellEvents: (_events, c, info) => {
         shots.push({ id: c.id, info })
@@ -165,7 +192,7 @@ describe('defineLeaderboard', () => {
     // axis to the 'default' sentinel, and the RunRecord then REQUIRES a
     // dispatch-reported served model.
     const snappedAxis = [
-      '--backend',
+      '--provider',
       'inproc',
       '--harnesses',
       'claude-code',
@@ -178,8 +205,7 @@ describe('defineLeaderboard', () => {
 
     const result = await board({
       resolveModel: (events) => {
-        // The served model rides the backend's own usage events — here the fake
-        // backend's llm_call stands in for the harness's terminal event.
+        // The served model rides the provider's usage events.
         const call = events.find((e) => (e as { type: string }).type === 'llm_call')
         return call ? 'kimi-k2@2026-01-01' : undefined
       },
@@ -204,7 +230,7 @@ describe('defineLeaderboard', () => {
         return { answer: /answer=(\S+)/.exec(text)?.[1] ?? '', confidence: 0.9 }
       },
       score: (output, c) => (output.answer === c.answer ? output.confidence : 0),
-      backends: { inproc: fakeBackend },
+      providers: { inproc: fakeProvider },
       export: async () => {},
     }).run([...AXIS, '--cases', 'case-alpha'])
 
@@ -220,19 +246,30 @@ describe('defineLeaderboard', () => {
       },
     }).run([...AXIS, '--cases', 'case-alpha', '--split', 'holdout'])
     expect(args.split).toBe('holdout')
-    expect(args.backend).toBe('inproc')
+    expect(args.provider).toBe('inproc')
     expect(args.harnesses).toBe('opencode')
   })
 
-  it("fails loud on the default 'sandbox' backend with guidance to supply a real client", async () => {
-    await expect(
-      defineLeaderboard<FakeCase>({
-        name: 'no-backend',
-        cases: CASES,
-        prompt: (c) => c.id,
-        score: () => 0,
-      }).run(['--models', 'm@1']),
-    ).rejects.toThrow(/backends\.sandbox/)
+  it("fails clearly when the default 'cli-bridge' provider has no bearer token", async () => {
+    const bridgeBearer = process.env.BRIDGE_BEARER
+    const cliBridgeBearer = process.env.CLI_BRIDGE_BEARER
+    delete process.env.BRIDGE_BEARER
+    delete process.env.CLI_BRIDGE_BEARER
+    try {
+      await expect(
+        defineLeaderboard<FakeCase>({
+          name: 'no-provider',
+          cases: CASES,
+          prompt: (c) => c.id,
+          score: () => 0,
+        }).run(['--models', 'm@1']),
+      ).rejects.toThrow(/provider 'cli-bridge' needs BRIDGE_BEARER or CLI_BRIDGE_BEARER/)
+    } finally {
+      if (bridgeBearer === undefined) delete process.env.BRIDGE_BEARER
+      else process.env.BRIDGE_BEARER = bridgeBearer
+      if (cliBridgeBearer === undefined) delete process.env.CLI_BRIDGE_BEARER
+      else process.env.CLI_BRIDGE_BEARER = cliBridgeBearer
+    }
   })
 
   it('toBenchmarkAdapter(): loadTasks/judge round-trip in the structural BenchmarkAdapter shape', async () => {

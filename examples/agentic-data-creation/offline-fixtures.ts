@@ -20,8 +20,11 @@
 
 import { createChatClient, llmJudge } from '@tangle-network/agent-eval'
 import type { JudgeConfig } from '@tangle-network/agent-eval/campaign'
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import {
+  type AgentEnvironmentEvent,
+  type AgentEnvironmentProvider,
+  inProcessEnvironmentProvider,
+} from '@tangle-network/agent-runtime/loops'
 import type { DataExample, SolverArtifact } from './agentic-data-creation'
 
 // ── The grounding document + the two drafts the challenger chooses between ──────────────────
@@ -105,10 +108,10 @@ const hardQuestionPattern = /\b(why|explain|under what|what happens if|reason)\b
 // First draft (no "REJECTED" in the prompt) → the EASY example. Once the refine driver folds a
 // "too easy" reject into the prompt, the challenger ships the next HARD example — proving the loop's
 // behavior changed BECAUSE of the fold. Stateful so successive accepted targets get DISTINCT examples.
-export function challengerClient(): SandboxClient {
+export function challengerProvider(): AgentEnvironmentProvider {
   let hardServed = 0
-  return inProcessSandboxClient({
-    onPrompt: (prompt): SandboxEvent[] => {
+  return inProcessEnvironmentProvider({
+    onTurn: (prompt): AgentEnvironmentEvent[] => {
       const wantsHarder = /rejected|too easy/i.test(prompt)
       const example = wantsHarder ? hardExamples[hardServed++ % hardExamples.length] : easyExample
       return [
@@ -127,9 +130,9 @@ export function challengerClient(): SandboxClient {
 // A solver answers the rendered example and tags the answer with a grade marker the offline judge
 // reads. The weak solver produces a thin answer; the strong solver a complete one. The marker
 // (offline only) carries strength + difficulty + the sample index for the judge's deterministic score.
-export function solverClient(strength: 'weak' | 'strong'): SandboxClient {
-  return inProcessSandboxClient({
-    onPrompt: (prompt): SandboxEvent[] => {
+export function solverProvider(strength: 'weak' | 'strong'): AgentEnvironmentProvider {
+  return inProcessEnvironmentProvider({
+    onTurn: (prompt): AgentEnvironmentEvent[] => {
       const hard = hardQuestionPattern.test(prompt)
       const sample = Number(/\[sample (\d+)\]/.exec(prompt)?.[1] ?? '0')
       const body =

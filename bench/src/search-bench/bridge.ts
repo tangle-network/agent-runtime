@@ -1,6 +1,5 @@
 /**
- * cli-bridge cell executor — the unblocked path to the head-to-head numbers
- * while the sandbox sidecar image is pending #1810.
+ * CLI Bridge provider wiring for the search comparison.
  *
  * Same arms, same deterministic oracle, same export. The only difference from
  * the sandbox path is HOW the harness runs: a single OpenAI-compatible chat call
@@ -9,10 +8,19 @@
  * provider search MCP via `mcp` — both PROVEN to work on the bridge. Native arm
  * leaves the harness untouched.
  *
- * The bridge model id IS the harness selector (e.g. `claude-code/sonnet`,
- * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is just the label.
+ * The bridge model id selects the harness (for example `claude-code/sonnet` or
+ * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is only the result label.
  */
-import { createExecutor } from '@tangle-network/agent-runtime/loops'
+import { createCliBridgeProvider } from '@tangle-network/agent-provider-cli-bridge'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentEnvironmentEvent,
+  collectAgentTurn,
+  extractLlmCallEvent,
+  streamAgentTurn,
+  sumEnvironmentUsage,
+} from '@tangle-network/agent-runtime/loops'
+import { answerOutput } from '../environment-run'
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'
@@ -22,7 +30,12 @@ const nativeWebDisallowed = ['WebSearch', 'WebFetch', 'web_search', 'web_fetch',
 
 /** Build the cli-bridge `agent_profile` for one arm (bridge dialect: disable via
  *  `metadata.disallowedTools`, search MCP via `mcp.<name>.transport:'http'`). */
-function bridgeProfile(arm: SearchArm, routerSearchMcp: string, tangleApiKey: string, label: string): Record<string, unknown> {
+function bridgeProfile(
+  arm: SearchArm,
+  routerSearchMcp: string,
+  tangleApiKey: string,
+  label: string,
+): AgentProfile {
   if (arm === 'native') return { name: `search-bench-${label}` }
   const base = { name: `search-bench-${label}`, metadata: { disallowedTools: nativeWebDisallowed } }
   if (arm === 'off') return base
@@ -42,6 +55,24 @@ function bridgeProfile(arm: SearchArm, routerSearchMcp: string, tangleApiKey: st
 const urlRe = /https?:\/\/[^\s)\]}"'<>]+/gi
 function citationsOf(answer: string): string[] {
   return [...new Set((answer.match(urlRe) ?? []).map((u) => u.replace(/[.,;]+$/, '')))]
+}
+
+function toolNamesOf(events: ReadonlyArray<AgentEnvironmentEvent>): string[] {
+  const calls = new Map<string, string>()
+  for (const event of events) {
+    const part = event.data.part
+    if (!part || typeof part !== 'object') continue
+    const record = part as Record<string, unknown>
+    if (record.type !== 'tool' || typeof record.tool !== 'string') continue
+    const callId =
+      typeof record.callID === 'string'
+        ? record.callID
+        : typeof record.id === 'string'
+          ? record.id
+          : `${calls.size}`
+    calls.set(callId, record.tool)
+  }
+  return [...calls.values()]
 }
 
 export interface BridgeCfg {
@@ -74,32 +105,49 @@ export async function runBridgeCell(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 300_000)
   try {
-    // One harness turn through the unified bridge executor — same backend the
-    // loop path uses; this cell scorer just adds oracle scoring + citations.
-    const exec = createExecutor({
-      backend: 'bridge',
-      bridgeUrl: cfg.bridgeUrl,
-      bridgeBearer: cfg.bridgeBearer,
-      model: cfg.bridgeModels[harness] ?? harness,
-      agentProfile: bridgeProfile(arm, cfg.routerSearchMcp, cfg.tangleApiKey, `${harness}-${armId}`),
-      timeoutMs: cfg.timeoutMs ?? 300_000,
-    })({ profile: { name: `${harness}-${armId}` }, harness: null }, { signal: controller.signal, seams: {} })
-    // bridgeExecutor is one-shot (async execute resolves an ExecutorResult).
-    const artifact = (await exec.execute(taskToPrompt(task), controller.signal)) as {
-      out: unknown
-      spent: { tokens: { input: number; output: number }; usd: number }
+    const provider = createCliBridgeProvider({
+      baseUrl: cfg.bridgeUrl,
+      bearerToken: cfg.bridgeBearer,
+      defaultModel: cfg.bridgeModels[harness] ?? harness,
+    })
+    const events: AgentEnvironmentEvent[] = []
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'provider',
+          provider,
+          profile: bridgeProfile(
+            arm,
+            cfg.routerSearchMcp,
+            cfg.tangleApiKey,
+            `${harness}-${armId}`,
+          ),
+        },
+        taskToPrompt(task),
+        {
+          signal: controller.signal,
+          onRawEvent: (event) => events.push(event),
+        },
+      ),
+    )
+    if (turn.status !== 'completed') {
+      throw new Error(turn.error?.message ?? `bridge turn ${turn.status}`)
     }
-    const out = artifact.out as { content?: string; toolCalls?: string[] }
-    const answer = out.content ?? ''
-    const names = out.toolCalls ?? []
+    const usage = sumEnvironmentUsage(events, base.model)
+    const calls = events
+      .map((event) => extractLlmCallEvent(event, base.model))
+      .filter((call) => call !== undefined)
+    const costKnown = calls.length > 0 && calls.every((call) => call.costUsd !== undefined)
+    const answer = answerOutput.parse(events)
+    const names = toolNamesOf(events)
     const { score, reasons } = scoreTask(task, answer)
     return {
       ...base,
       score,
       reasons,
-      ...(artifact.spent.usd ? { costUsd: artifact.spent.usd } : {}),
-      ...(artifact.spent.tokens.input ? { tokensIn: artifact.spent.tokens.input } : {}),
-      ...(artifact.spent.tokens.output ? { tokensOut: artifact.spent.tokens.output } : {}),
+      ...(costKnown ? { costUsd: usage.costUsd } : {}),
+      ...(usage.input ? { tokensIn: usage.input } : {}),
+      ...(usage.output ? { tokensOut: usage.output } : {}),
       wallMs: Date.now() - startedAt,
       toolCalls: names.length,
       toolNames: [...new Set(names)],

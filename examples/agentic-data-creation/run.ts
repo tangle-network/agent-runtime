@@ -15,9 +15,9 @@ import { createDataCreationLoop } from './agentic-data-creation'
 import {
   baseInstruction,
   buildRubricJudge,
-  challengerClient,
+  challengerProvider,
   groundingDoc,
-  solverClient,
+  solverProvider,
 } from './offline-fixtures'
 
 function mean(xs: number[]): number {
@@ -30,9 +30,9 @@ async function main(): Promise<void> {
   const result = await createDataCreationLoop({
     doc: groundingDoc,
     baseInstruction,
-    challenger: challengerClient(),
-    weakSolver: solverClient('weak'),
-    strongSolver: solverClient('strong'),
+    challengerProvider: challengerProvider(),
+    weakSolverProvider: solverProvider('weak'),
+    strongSolverProvider: solverProvider('strong'),
     judge: buildRubricJudge(),
     target: 3,
     samples: 3,

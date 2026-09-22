@@ -20,11 +20,11 @@ import type {
   AgentImprovementActivation,
   AgentImprovementActivationIntent,
   AgentImprovementMeasuredComparison,
-  AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementReviewDecision,
   AgentProfile,
   CandidateExecutionEvidence,
+  AgentImprovementProposal as InterfaceAgentImprovementProposal,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
@@ -88,11 +88,15 @@ import {
 export type {
   AgentImprovementActivation,
   AgentImprovementMeasuredComparison,
-  AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementReviewDecision,
   CandidateExecutionEvidence,
 } from '@tangle-network/agent-interface'
+
+/** A Runtime proposal backed by an exact candidate-bundle experiment. */
+export type AgentImprovementProposal = Omit<InterfaceAgentImprovementProposal, 'evaluation'> & {
+  evaluation: AgentImprovementMeasuredComparison
+}
 
 export interface AgentCandidateExperimentCellPlacement {
   executionId: string
@@ -454,7 +458,7 @@ export function createAgentImprovementProposal(
     evaluation.experiment.baseline,
     evaluation.experiment.candidate,
   )
-  return agentImprovementProposalSchema.parse(
+  const proposal = agentImprovementProposalSchema.parse(
     canonicalCandidateDocument<AnalystImprovementProposal>({
       kind: 'agent-improvement-proposal',
       runId: options.runId,
@@ -464,6 +468,8 @@ export function createAgentImprovementProposal(
       evaluation,
     }).value,
   )
+  assertRuntimeAgentImprovementProposal(proposal)
+  return proposal
 }
 
 /** Persist a human or tenant-policy decision bound to one exact proposal. */
@@ -525,7 +531,7 @@ export function createAgentImprovementActivation(
       proposalDigest: proposal.digest,
       reviewDigest: review.digest,
       experimentDigest: experiment.digest,
-      candidateBundleDigest: experiment.candidate.digest,
+      candidateDigest: experiment.candidate.digest,
       intent: options.intent,
       targets,
       fundingOwner: options.fundingOwner,
@@ -542,6 +548,7 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
     agentImprovementProposalSchema.parse(input),
     'agent improvement proposal',
   )
+  assertRuntimeAgentImprovementProposal(proposal)
   const evaluation = verifyCandidateExperimentComparison(proposal.evaluation)
   optimizationActivationReceiptFromMetadata(evaluation.metadata)
   if (evaluation.decision.outcome !== 'ship') {
@@ -559,6 +566,14 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
   }
   assertNoJudgeDerivedProposalFindings(proposal.findings)
   return proposal
+}
+
+function assertRuntimeAgentImprovementProposal(
+  proposal: InterfaceAgentImprovementProposal,
+): asserts proposal is AgentImprovementProposal {
+  if (proposal.evaluation.kind !== 'agent-improvement-measured-comparison') {
+    throw new Error('Runtime requires a proposal backed by an exact candidate-bundle experiment')
+  }
 }
 
 /** Validate the canonical identity and wire shape of an improvement review. */
@@ -588,7 +603,7 @@ export function verifyAgentImprovementActivation(input: {
     activation.proposalDigest !== proposal.digest ||
     activation.reviewDigest !== review.digest ||
     activation.experimentDigest !== experiment.digest ||
-    activation.candidateBundleDigest !== experiment.candidate.digest ||
+    activation.candidateDigest !== experiment.candidate.digest ||
     Date.parse(review.reviewedAt) < Date.parse(proposal.proposedAt) ||
     Date.parse(activation.authorizedAt) < Date.parse(review.reviewedAt)
   ) {

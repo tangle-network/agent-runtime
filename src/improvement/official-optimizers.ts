@@ -8,6 +8,7 @@ import {
   type SkillOptOptimizationMethodConfig,
   skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
+import { type Sha256Digest, sha256DigestSchema } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import {
@@ -25,7 +26,7 @@ import { withMethodRuntimeControls } from './method-controls'
 
 const defaultMaxFindingsChars = 50_000
 const pythonClientDocs = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
-const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.126.6"`'
+const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.129.0"`'
 const gepaWheelInstall = '`python -m pip install "gepa[full]==0.1.4"`'
 const gepaSourceInstall =
   '`python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"`'
@@ -35,6 +36,12 @@ const skillOptInstall =
 
 /** Runtime context appended to an official optimizer's own configuration. */
 export interface OfficialOptimizerContextOptions {
+  /**
+   * Caller-owned identity for persisted optimizer work. Change this digest
+   * whenever descriptor, authorization, redaction, or evaluation behavior
+   * changes. Runtime never guesses callback identity from function source.
+   */
+  persistenceIdentity: Sha256Digest
   /** Context supplied to the optimizer before Runtime appends the profile surface and findings. */
   background?: string
   /** Include current trace or analyst findings in the optimizer background. Default true. */
@@ -111,12 +118,14 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
     background,
     includeFindings = true,
     maxFindingsChars,
+    persistenceIdentity: inputPersistenceIdentity,
     describeScenario,
     describeArtifact,
     redact,
     authorizeSensitiveCandidate,
     ...config
   } = options
+  const persistenceIdentity = parsePersistenceIdentity('officialGepa', inputPersistenceIdentity)
   const redactor = resolveRedactor(redact)
   const redactionPolicyRef = optimizerRedactionPolicyRef(redact)
   assertMaxFindingsChars('officialGepa', maxFindingsChars)
@@ -125,9 +134,7 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
     const externalEvaluationRef = optimizerEvidencePolicyRef({
       runtimeEvaluationRef: context.evaluationRef,
       redactionPolicyRef,
-      describeScenario,
-      describeArtifact,
-      authorizeSensitiveCandidate,
+      persistenceIdentity,
     })
     const method = withDependencyHelp(
       'gepa',
@@ -189,12 +196,14 @@ export function officialSkillOpt<
     background,
     includeFindings = true,
     maxFindingsChars,
+    persistenceIdentity: inputPersistenceIdentity,
     describeScenario,
     describeArtifact,
     redact,
     authorizeSensitiveCandidate,
     ...config
   } = options
+  const persistenceIdentity = parsePersistenceIdentity('officialSkillOpt', inputPersistenceIdentity)
   const redactor = resolveRedactor(redact)
   const redactionPolicyRef = optimizerRedactionPolicyRef(redact)
   assertMaxFindingsChars('officialSkillOpt', maxFindingsChars)
@@ -203,9 +212,7 @@ export function officialSkillOpt<
     const externalEvaluationRef = optimizerEvidencePolicyRef({
       runtimeEvaluationRef: context.evaluationRef,
       redactionPolicyRef,
-      describeScenario,
-      describeArtifact,
-      authorizeSensitiveCandidate,
+      persistenceIdentity,
     })
     const method = withDependencyHelp(
       'skillopt',
@@ -260,6 +267,16 @@ function assertMaxFindingsChars(label: string, value: number | undefined): void 
   if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
     throw new ConfigError(`${label}: maxFindingsChars must be a positive safe integer`)
   }
+}
+
+function parsePersistenceIdentity(label: string, value: unknown): Sha256Digest {
+  const parsed = sha256DigestSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new ConfigError(
+      `${label}: persistenceIdentity must be a lowercase sha256:<64 hex> digest`,
+    )
+  }
+  return parsed.data
 }
 
 function methodBackground(options: {
@@ -429,33 +446,19 @@ export function optimizerRedactionPolicyRef(
   return canonicalCandidateDigest({
     kind: redact === undefined ? 'default-redactor' : 'caller-redactor-with-default',
     builtIn: builtInIdentity,
-    ...(redact === undefined
-      ? {}
-      : {
-          callerSource: Function.prototype.toString.call(redact),
-          composition: Function.prototype.toString.call(resolveRedactor),
-        }),
   })
 }
 
 function optimizerEvidencePolicyRef(input: {
   runtimeEvaluationRef: ImproveMethodContext['evaluationRef']
   redactionPolicyRef: string
-  describeScenario: unknown
-  describeArtifact: unknown
-  authorizeSensitiveCandidate: unknown
+  persistenceIdentity: Sha256Digest
 }): ReturnType<typeof canonicalCandidateDigest> {
   return canonicalCandidateDigest({
     runtimeEvaluationRef: input.runtimeEvaluationRef,
     redactionPolicyRef: input.redactionPolicyRef,
-    describeScenario: callbackSource(input.describeScenario),
-    describeArtifact: callbackSource(input.describeArtifact),
-    authorizeSensitiveCandidate: callbackSource(input.authorizeSensitiveCandidate),
+    persistenceIdentity: input.persistenceIdentity,
   })
-}
-
-function callbackSource(callback: unknown): string | null {
-  return typeof callback === 'function' ? Function.prototype.toString.call(callback) : null
 }
 
 function withDependencyHelp<TScenario extends { id: string; kind: string }, TArtifact>(

@@ -1,6 +1,6 @@
 /**
- * SWE-bench Verified as an `AgenticSurface` — the PROPER, no-cheating way to run a coding agent on real
- * GitHub bugs through the substrate (`runAgentic`/`runBenchmark`/`runStrategyEvolution` drive the loop;
+ * SWE-bench Verified as an `TaskEnvironment` — the PROPER, no-cheating way to run a coding agent on real
+ * GitHub bugs through the substrate (`runStrategy`/`runBenchmark`/`runStrategyEvolution` drive the loop;
  * we only provide tools + a deployable score). The agent clones the repo at base_commit, explores +
  * edits SOURCE via tools (never tests — path-jailed), and `score()` grades the resulting `git diff`
  * with the OFFICIAL swebench Docker harness (apply patch → FAIL_TO_PASS + PASS_TO_PASS → resolved).
@@ -16,7 +16,7 @@ import { execFile } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, EnvironmentTask, EnvironmentTool, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
 import { runVenvPython } from './benchmarks/_harness'
 import { createSweBenchAdapter, type SweBenchAdapterOptions } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
@@ -289,8 +289,8 @@ export async function createSweBenchEnvironment(
     adapterOptions?: SweBenchAdapterOptions
   } = {},
 ): Promise<{
-  environment: AgenticSurface
-  tasks: (offset: number, n: number) => Promise<AgenticTask[]>
+  environment: TaskEnvironment
+  tasks: (offset: number, n: number) => Promise<EnvironmentTask[]>
   adapter: ReturnType<typeof createSweBenchAdapter>
 }> {
   const adapter = createSweBenchAdapter(opts.adapterOptions)
@@ -330,7 +330,7 @@ export async function createSweBenchEnvironment(
     return pending
   }
 
-  const environment: AgenticSurface = {
+  const environment: TaskEnvironment = {
     name: 'swe-bench-verified',
     async open(task) {
       const bt = byId.get(task.id)
@@ -349,7 +349,7 @@ export async function createSweBenchEnvironment(
       }
     },
     async tools() {
-      const tools: AgenticTool[] = [
+      const tools: EnvironmentTool[] = [
         { type: 'function', function: { name: 'list_files', description: 'List source files under a repo subdirectory (recursive, bounded). "" = repo root.', parameters: { type: 'object', properties: { dir: { type: 'string' } }, required: ['dir'] } } },
         { type: 'function', function: { name: 'read_file', description: 'Read a repo file by path.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'edit_file', description: 'Surgical fix: replace the EXACT old_string (must occur once — copy whitespace precisely) with new_string in a SOURCE file. Minimal changes, never whole-file rewrites. Test files are rejected.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['path', 'old_string', 'new_string'] } } },
@@ -513,7 +513,7 @@ export async function createSweBenchEnvironment(
       }
       return `ERROR: unknown tool ${name}`
     },
-    async score(_task, handle): Promise<SurfaceScore> {
+    async score(_task, handle): Promise<EnvironmentScore> {
       const ws = workspaces.get(handle.id)
       if (!ws) return { passes: 0, total: 1, errored: 1 }
       let patch = ''
@@ -539,7 +539,7 @@ export async function createSweBenchEnvironment(
     },
   }
 
-  const tasks = async (offset: number, n: number): Promise<AgenticTask[]> => {
+  const tasks = async (offset: number, n: number): Promise<EnvironmentTask[]> => {
     const slice = pool.slice(offset, offset + n)
     if (slice.length < n) throw new Error(`swe-bench-env: pool exhausted at offset ${offset} (need ${n}, have ${slice.length}; raise poolN)`)
     return slice.map((bt) => ({

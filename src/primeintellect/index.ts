@@ -4,15 +4,13 @@ export {
   writePrimeIntellectPackage,
 } from './package'
 export {
-  createPrimeIntellectBackend,
-  type PrimeIntellectBackendOptions,
+  primeIntellectModelEndpoint,
   type RunPrimeIntellectProgramOptions,
   readPrimeIntellectEpisodeContext,
   runPrimeIntellectProgram,
 } from './runner'
 export {
   importPrimeIntellectTraces,
-  type PrimeIntellectImportDefaults,
   type PrimeIntellectTrace,
   type PrimeIntellectTraceImportOptions,
   parsePrimeIntellectTraces,

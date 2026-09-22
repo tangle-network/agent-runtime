@@ -1,12 +1,11 @@
 /**
- * ui-audit — smallest end-to-end UI audit run.
+ * ui-audit: smallest complete UI audit run.
  *
  * Wires:
- *   - `uiAuditorProfile()` — output adapter + validator + envelope-prefixed prompt
- *   - `createInProcessUiAuditClient({ workspaceDir, judge })` — the in-process
- *     `SandboxClient` that drives Playwright + a vision judge
- *   - `runAgentRounds({ ... })` — one iteration per (lens × route), validator-gated
- *   - `appendFindings(...)` + `writeAuditIndex(...)` — persist self-contained
+ *   - `uiAuditorProfile()` provides output parsing, validation, and prompts
+ *   - `createInProcessUiAuditEnvironmentProvider(...)` drives Playwright and a judge
+ *   - `runAgentRounds(...)` runs one iteration per lens and route
+ *   - `appendFindings(...)` and `writeAuditIndex(...)` persist self-contained
  *     GitHub-issue Markdown
  *
  * The example uses a STUB judge so it runs without an API key. Replace
@@ -23,7 +22,7 @@ import type { Driver } from '@tangle-network/agent-runtime/loops'
 import { runAgentRounds } from '@tangle-network/agent-runtime/loops'
 import {
   appendFindings,
-  createInProcessUiAuditClient,
+  createInProcessUiAuditEnvironmentProvider,
   initAuditWorkspace,
   type UiAuditOutput,
   type UiAuditTask,
@@ -101,7 +100,10 @@ async function main(): Promise<void> {
   await initAuditWorkspace(workspaceDir)
 
   const { output, validator, agentRunSpec } = uiAuditorProfile()
-  const client = createInProcessUiAuditClient({ workspaceDir, judge: stubJudge })
+  const environmentProvider = createInProcessUiAuditEnvironmentProvider({
+    workspaceDir,
+    judge: stubJudge,
+  })
 
   try {
     const task: UiAuditTask = {
@@ -116,7 +118,7 @@ async function main(): Promise<void> {
       output,
       validator,
       task,
-      ctx: { sandboxClient: client },
+      ctx: { environmentProvider },
       maxIterations: lensesToRun.length,
     })
 
@@ -134,7 +136,7 @@ async function main(): Promise<void> {
     const indexPath = await writeAuditIndex(workspaceDir)
     console.log(`index: ${indexPath}`)
   } finally {
-    await client.close()
+    await environmentProvider.close()
   }
 }
 

@@ -314,7 +314,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
 
       // The child's abort chains off this scope's signal (a scope abort reaps every child)
       // AND off its own handle.abort(). Aborting mid-acquire cascades through the executor's
-      // signal into its acquireSandbox find-by-name reap, so an acquiring node never leaks.
+      // signal into environment acquisition cleanup, so an acquiring node never leaks.
       const childAbort = new AbortController()
       const cascadeAbort = () => childAbort.abort()
       if (args.signal.aborted) childAbort.abort()

@@ -79,37 +79,37 @@ function repository(objectFormat: 'sha1' | 'sha256' = 'sha1'): string {
 }
 
 describe('candidate workspace archive', () => {
-  it.each([
-    'sha1',
-    'sha256',
-  ] as const)('captures and restores exact Git HEAD files for %s repositories', async (objectFormat) => {
-    const source = repository(objectFormat)
-    writeFileSync(join(source, 'README.md'), 'uncommitted change\n', { mode: 0o644 })
-    const expectedHead = git(source, ['rev-parse', 'HEAD'])
-    const expectedTree = git(source, ['rev-parse', 'HEAD^{tree}'])
-    const captured = await captureAgentCandidateWorkspace(source, {
-      includeRepository: true,
-    })
-    const destination = join(temporaryRoot('candidate-workspace-parent-'), 'restored')
+  it.each(['sha1', 'sha256'] as const)(
+    'captures and restores exact Git HEAD files for %s repositories',
+    async (objectFormat) => {
+      const source = repository(objectFormat)
+      writeFileSync(join(source, 'README.md'), 'uncommitted change\n', { mode: 0o644 })
+      const expectedHead = git(source, ['rev-parse', 'HEAD'])
+      const expectedTree = git(source, ['rev-parse', 'HEAD^{tree}'])
+      const captured = await captureAgentCandidateWorkspace(source, {
+        includeRepository: true,
+      })
+      const destination = join(temporaryRoot('candidate-workspace-parent-'), 'restored')
 
-    await createAgentCandidateWorkspacePort().materialize({
-      role: 'task',
-      snapshot: captured.snapshot,
-      archive: captured.archive,
-      destination,
-    })
+      await createAgentCandidateWorkspacePort().materialize({
+        role: 'task',
+        snapshot: captured.snapshot,
+        archive: captured.archive,
+        destination,
+      })
 
-    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe('workspace\n')
-    expect([...readFileSync(join(destination, 'bin', 'run'))]).toEqual([0, 1, 2, 255])
-    expect(git(destination, ['rev-parse', 'HEAD'])).toBe(expectedHead)
-    expect(git(destination, ['rev-parse', 'HEAD^{tree}'])).toBe(expectedTree)
-    expect(git(destination, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
-    expect(captured.snapshot.material.files.map((file) => file.path)).toEqual([
-      '.gitignore',
-      'README.md',
-      'bin/run',
-    ])
-  })
+      expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe('workspace\n')
+      expect([...readFileSync(join(destination, 'bin', 'run'))]).toEqual([0, 1, 2, 255])
+      expect(git(destination, ['rev-parse', 'HEAD'])).toBe(expectedHead)
+      expect(git(destination, ['rev-parse', 'HEAD^{tree}'])).toBe(expectedTree)
+      expect(git(destination, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('')
+      expect(captured.snapshot.material.files.map((file) => file.path)).toEqual([
+        '.gitignore',
+        'README.md',
+        'bin/run',
+      ])
+    },
+  )
 
   it('restores a non-repository workspace and rejects archive drift', async () => {
     const source = temporaryRoot('candidate-workspace-files-')

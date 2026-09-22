@@ -40,11 +40,11 @@ describe('structural provenance', () => {
 
   it('binds actual runtime callables, run settings, scorer version, and immutable image identity', () => {
     const runtime = runtimeImplementationFingerprint({
-      runAgentic: function runAgenticA() { return 'a' },
+      runStrategy: function runStrategyA() { return 'a' },
       refine: { name: 'refine', driver: function refineA() { return 'a' } },
     })
     const changedRuntime = runtimeImplementationFingerprint({
-      runAgentic: function runAgenticB() { return 'b' },
+      runStrategy: function runStrategyB() { return 'b' },
       refine: { name: 'refine', driver: function refineA() { return 'a' } },
     })
     assert.notEqual(changedRuntime, runtime)

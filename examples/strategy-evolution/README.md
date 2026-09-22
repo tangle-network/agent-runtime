@@ -1,7 +1,7 @@
 # Let an AI invent better ways to solve a task, and gate out the ones that only got lucky
 
 Instead of you hand-picking how an agent spends its attempts, this loop has an AI *write* new
-approaches, race them in a tournament, and keep the champion — but it only declares the
+approaches, race them in a tournament, and keep the champion - but it only declares the
 champion an actual improvement if it beats the starting point on a fresh set of tasks the
 search never saw, by a margin too large to be noise. It's automated strategy search with an
 anti-overfitting gate bolted to the end.
@@ -9,8 +9,8 @@ anti-overfitting gate bolted to the end.
 ## Why it matters
 
 Any search that optimizes against tasks it can see will eventually cheat: it finds tricks
-that work on *those* tasks and fall apart on new ones. The fix is a **held-out** exam —
-tasks locked away from the search — plus a statistical test so a champion that squeaked ahead
+that work on *those* tasks and fall apart on new ones. The fix is a **held-out** exam -
+tasks locked away from the search - plus a statistical test so a champion that squeaked ahead
 by chance doesn't get promoted. This example shows both: an AI proposing strategies, and a
 gate strict enough to say "no, not proven" and mean it.
 
@@ -27,14 +27,14 @@ gate strict enough to say "no, not proven" and mean it.
 
 You supply three things:
 
-- an **Environment** — five small functions (`open` / `tools` / `call` / `score` / `close`)
+- an **Environment** - five small functions (`open` / `tools` / `call` / `score` / `close`)
   that let the engine start your task, expose its tools, run them, and score the result with
   *your own* check. This example reuses the toy counter domain from
   [`../strategy-suite/counter-env.ts`](../strategy-suite/counter-env.ts).
-- a **task supplier** `tasks(offset, n)` that hands back *non-overlapping* slices — practice
-  tasks are drawn from `[0, trainN)`, the held-out exam from indices past that — so a good
+- a **task supplier** `tasks(offset, n)` that hands back *non-overlapping* slices - practice
+  tasks are drawn from `[0, trainN)`, the held-out exam from indices past that - so a good
   exam score can't be memorization of the practice set.
-- an **author model** — the LLM that writes the candidate strategies.
+- an **author model** - the LLM that writes the candidate strategies.
 
 The engine owns the tournament, the champion selection, and the gate.
 
@@ -54,7 +54,7 @@ tasks `n`, and the held-out lift with its confidence interval, e.g.:
 ```
 gen0 champion:  sample
 final champion: refine
-promoted:       false  (held-out CI includes 0 — lift not beyond noise)
+promoted:       false  (held-out CI includes 0 - lift not beyond noise)
 paired tasks:   n=8
 held-out lift:  mean 0.125 [-0.100, 0.375]
 ```

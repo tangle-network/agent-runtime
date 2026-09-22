@@ -46,22 +46,22 @@ Expected output:
 ```
 ═══ self-improving-loop demo ═══
 
-— Phase 1: v0 baseline run
+- Phase 1: v0 baseline run
   v0 mean: 3.17 (over 3 personas)
     cpg-founder    composite=3.50
     b2b-saas       composite=2.50
     creator        composite=3.50
 
-— Phase 2: analyst proposes mutation
-  root cause: Theo run scored 2.5 — output was too generic, no concrete posts.
+- Phase 2: analyst proposes mutation
+  root cause: Theo run scored 2.5 - output was too generic, no concrete posts.
   mutation:   Always include 2 ready-to-post examples tailored to the persona's exact domain...
 
-— Phase 3: apply mutation → v1 profile
+- Phase 3: apply mutation → v1 profile
 
-— Phase 4: v1 re-run
+- Phase 4: v1 re-run
   v1 mean: 8.50 (over 3 personas)
 
-— Phase 5: gate decision
+- Phase 5: gate decision
   ship: true | paired median delta: +5.00 | paired median +5.00, 95% CI [5.00, 6.00] clears 0 (n=3)
 
 ═══ PROMOTED v1 → production ═══
@@ -76,11 +76,11 @@ TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-impr
 ## Honest scope
 
 Two things are stubbed so the demo is reproducible, and only two: the model's replies and
-*which* fix the analyst picks. The parts that make the loop trustworthy — the judge, and the
-paired-bootstrap gate — are the real functions used in production (`runJudge` and
+*which* fix the analyst picks. The parts that make the loop trustworthy - the judge, and the
+paired-bootstrap gate - are the real functions used in production (`runJudge` and
 `pairedBootstrap` from `@tangle-network/agent-eval`).
 
 One caveat the demo makes on purpose: it gates on **3** paired points to stay small. That is
-too few to trust. A confidence interval on 3 pairs can clear 0 by accident — a near-constant
+too few to trust. A confidence interval on 3 pairs can clear 0 by accident - a near-constant
 gap looks significant when it isn't. A real gate refuses to decide below ~8 pairs and wants
 20-50. Treat the `ship: true` here as showing the *mechanism*, not a defensible promotion.

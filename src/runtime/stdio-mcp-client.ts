@@ -42,7 +42,7 @@ import {
 import { ValidationError } from '../errors'
 import { type KeyProvider, resolveSecretEnv, secretEnvOfMcpServer } from './key-provider'
 import { sanitizeMcpToolSchema } from './mcp-environment'
-import type { AgenticTool } from './strategy'
+import type { EnvironmentTool } from './strategy'
 
 const PROTOCOL_VERSION = '2024-11-05'
 
@@ -311,7 +311,7 @@ export interface MaterializeLocalMcpOptions {
 /** The live same-host materialization of a profile's `mcp` surface. */
 export interface LocalMcpMaterialization {
   /** Worker-facing tool specs: namespaced `<server>__<tool>`, provider-safe schemas. */
-  tools: AgenticTool[]
+  tools: EnvironmentTool[]
   /** Whether `name` is one of this materialization's namespaced tools. */
   owns(name: string): boolean
   /** Route a namespaced call to its server's live stdio child. */
@@ -340,7 +340,7 @@ export async function materializeLocalMcp(
   const maxResultChars = opts.maxResultChars ?? 2000
   const connections: StdioMcpConnection[] = []
   const routes = new Map<string, { conn: StdioMcpConnection; tool: string }>()
-  const tools: AgenticTool[] = []
+  const tools: EnvironmentTool[] = []
 
   const close = async (): Promise<void> => {
     await Promise.all(connections.map((c) => c.close()))

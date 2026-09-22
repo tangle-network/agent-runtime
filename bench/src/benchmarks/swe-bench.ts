@@ -19,16 +19,16 @@ import {
   readJsonReport,
   runStagedJudge,
   runVenvPython,
+  type StagedRunCaptureSpec,
   safeRunId,
   stageFile,
-  type StagedRunCaptureSpec,
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 /**
  * Fixed in-box path the agent clones the instance repo into. It is the SINGLE
  * source of truth shared by the prompt template (which tells the agent to clone
- * here) and `boxExtract` (which runs `git diff` here after the shot) — so the
+ * here) and `environmentExtract` (which runs `git diff` here after the shot) — so the
  * harness always knows exactly where the agent's edits live, for any instance.
  */
 const SWE_REPO_DIR = '/work'
@@ -36,7 +36,7 @@ const SWE_REPO_DIR = '/work'
 /**
  * The SWE deliverable's FALLBACK parser, from the agent's event STREAM.
  *
- * The PRIMARY deliverable is `boxExtract` below: a `git diff` of the agent's
+ * The PRIMARY deliverable is `environmentExtract` below: a `git diff` of the agent's
  * actual edits, read from the cloned repo's STATE inside the box (standard
  * SWE-bench practice). This event-stream parse only runs when that diff is empty
  * — a model that edited the source correctly but never printed a fenced diff (the
@@ -137,8 +137,8 @@ export function scoreSweReport(taskId: string, value: unknown): BenchScore {
   const submitted = stringIds(report, 'submitted_ids')
   const mentioned = Object.values(statusIds).flat()
   if (
-    mentioned.some((id) => id !== taskId)
-    || (submitted.length > 0 && (submitted.length !== 1 || submitted[0] !== taskId))
+    mentioned.some((id) => id !== taskId) ||
+    (submitted.length > 0 && (submitted.length !== 1 || submitted[0] !== taskId))
   ) {
     throw new Error(`swe-bench: report identity mismatch for ${taskId}`)
   }
@@ -168,14 +168,22 @@ export function sweEvaluationArgv(args: {
   readonly namespace?: 'swebench' | 'none'
 }): string[] {
   return [
-    '-m', 'swebench.harness.run_evaluation',
-    '--dataset_name', DATASET,
-    '--predictions_path', args.predictionsPath,
-    '--run_id', args.runId,
-    '--instance_ids', args.instanceId,
-    '--max_workers', '1',
-    '--namespace', args.namespace ?? scorerNamespace(),
-    '--cache_level', args.cacheLevel,
+    '-m',
+    'swebench.harness.run_evaluation',
+    '--dataset_name',
+    DATASET,
+    '--predictions_path',
+    args.predictionsPath,
+    '--run_id',
+    args.runId,
+    '--instance_ids',
+    args.instanceId,
+    '--max_workers',
+    '1',
+    '--namespace',
+    args.namespace ?? scorerNamespace(),
+    '--cache_level',
+    args.cacheLevel,
   ]
 }
 
@@ -197,15 +205,17 @@ function sweMetadata(task: BenchTask): { repo: string; base: string } {
 
 export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): BenchmarkAdapter {
   if (
-    options.timeoutMs !== undefined
-    && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
-  ) throw new Error('swe-bench: timeoutMs must be a positive integer')
+    options.timeoutMs !== undefined &&
+    (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
+  )
+    throw new Error('swe-bench: timeoutMs must be a positive integer')
   const cacheLevel = options.cacheLevel ?? 'env'
   if (!SWE_CACHE_LEVELS.has(cacheLevel)) throw new Error('swe-bench: invalid cacheLevel')
   if (
-    options.captureEvaluatorArtifacts !== undefined
-    && typeof options.captureEvaluatorArtifacts !== 'function'
-  ) throw new Error('swe-bench: captureEvaluatorArtifacts must be a function')
+    options.captureEvaluatorArtifacts !== undefined &&
+    typeof options.captureEvaluatorArtifacts !== 'function'
+  )
+    throw new Error('swe-bench: captureEvaluatorArtifacts must be a function')
   let attemptSequence = 0
   return {
     name: 'swe-bench-verified',
@@ -220,13 +230,13 @@ export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): Ben
     // Pre-stage: clone the instance repo at base_commit into SWE_REPO_DIR so the
     // agent only edits (the harness owns the checkout — a stochastic model can't be
     // trusted to clone to an exact path). `--quiet` keeps the exec output small.
-    boxSetup(task) {
+    environmentSetup(task) {
       const { repo, base } = sweMetadata(task)
       return {
         command: `rm -rf ${shellQuote(SWE_REPO_DIR)} && git clone --quiet ${shellQuote(`https://github.com/${repo}`)} ${shellQuote(SWE_REPO_DIR)} && git -C ${shellQuote(SWE_REPO_DIR)} checkout --quiet ${shellQuote(base)}`,
       }
     },
-    boxExtract() {
+    environmentExtract() {
       return {
         command: `git -C ${shellQuote(SWE_REPO_DIR)} add -A && git -C ${shellQuote(SWE_REPO_DIR)} diff --cached -- . ${TEST_FILE_EXCLUDES}`,
       }
@@ -310,22 +320,29 @@ print(json.dumps(out))
           await stageFile(
             join(dir, 'preds.json'),
             JSON.stringify([
-              { instance_id: task.id, model_name_or_path: 'agent-runtime-bench', model_patch: artifact },
+              {
+                instance_id: task.id,
+                model_name_or_path: 'agent-runtime-bench',
+                model_patch: artifact,
+              },
             ]),
           )
         },
         // The official evaluation harness. Pulls/builds the instance image, applies
         // the patch, runs the test spec, writes a per-run report JSON in cwd.
-        argv: (dir) => sweEvaluationArgv({
-          predictionsPath: join(dir, 'preds.json'),
-          runId,
-          instanceId: task.id,
-          cacheLevel,
-          namespace: scorerNamespace(),
-        }),
+        argv: (dir) =>
+          sweEvaluationArgv({
+            predictionsPath: join(dir, 'preds.json'),
+            runId,
+            instanceId: task.id,
+            cacheLevel,
+            namespace: scorerNamespace(),
+          }),
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json
-          const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
+          const report = await readJsonReport<SweReport>(
+            join(dir, `agent-runtime-bench.${runId}.json`),
+          )
           return scoreSweReport(task.id, report)
         },
       })

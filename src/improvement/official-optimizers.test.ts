@@ -6,9 +6,11 @@ import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/age
 import { afterEach, describe, expect, it } from 'vitest'
 import { improve } from './improve'
 import {
+  officialGepa as createOfficialGepa,
+  officialSkillOpt as createOfficialSkillOpt,
+  type OfficialGepaOptions,
   OfficialOptimizerUnavailableError,
-  officialGepa,
-  officialSkillOpt,
+  type OfficialSkillOptOptions,
   optimizerRedactionPolicyRef,
 } from './official-optimizers'
 import type { ReadonlyAgentProfile } from './profile-types'
@@ -76,6 +78,29 @@ const testCases: OptimizerScenario[] = [
   { id: 'test-b', kind: 'fixture', prompt: 'private test b', privateNote: 'TEST_SECRET_B' },
 ]
 const executionRef = canonicalCandidateDigest({ fixture: 'official-optimizer-method' })
+const persistenceIdentity = canonicalCandidateDigest({
+  fixture: 'official-optimizer-evaluation-v1',
+})
+
+function officialGepa<TScenario extends { id: string; kind: string }, TArtifact = unknown>(
+  options: Omit<OfficialGepaOptions<TScenario, TArtifact>, 'persistenceIdentity'> & {
+    persistenceIdentity?: OfficialGepaOptions<TScenario, TArtifact>['persistenceIdentity']
+  },
+) {
+  return createOfficialGepa<TScenario, TArtifact>({
+    persistenceIdentity,
+    ...options,
+  })
+}
+
+function officialSkillOpt<TScenario extends { id: string; kind: string }, TArtifact = unknown>(
+  options: Omit<OfficialSkillOptOptions<TScenario, TArtifact>, 'persistenceIdentity'>,
+) {
+  return createOfficialSkillOpt<TScenario, TArtifact>({
+    persistenceIdentity,
+    ...options,
+  })
+}
 
 const runDirs: string[] = []
 
@@ -302,13 +327,15 @@ describe('official optimizer methods', () => {
     expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
   })
 
-  it('changes upstream identity when feedback transformation logic changes', async () => {
+  it('uses the explicit persistence identity instead of callback source text', async () => {
     const describeArtifactA = (artifact: Artifact) => ({ answer: artifact.text })
     const describeArtifactB = (artifact: Artifact) => ({ output: artifact.text })
-    const rawRedactor = (value: unknown) => value
+    const rawRedactorA = (value: unknown) => value
+    const rawRedactorB = (value: unknown) => (value === undefined ? null : value)
     const observe = async (options: {
       describeArtifact: (artifact: Artifact) => unknown
-      redact: typeof rawRedactor | false
+      redact: typeof rawRedactorA | false
+      persistenceIdentity: `sha256:${string}`
     }) => {
       const root = runDir()
       const observedInputPath = join(root, 'input.json')
@@ -323,6 +350,7 @@ describe('official optimizer methods', () => {
             optimizer: testOptimizer,
             describeArtifact: options.describeArtifact,
             redact: options.redact,
+            persistenceIdentity: options.persistenceIdentity,
             runner: fakeRunner('gepa', observedInputPath),
           }),
         ),
@@ -334,11 +362,41 @@ describe('official optimizer methods', () => {
       return observed.evaluationId
     }
 
-    const baseline = await observe({ describeArtifact: describeArtifactA, redact: false })
-    expect(await observe({ describeArtifact: describeArtifactB, redact: false })).not.toBe(baseline)
-    expect(await observe({ describeArtifact: describeArtifactA, redact: rawRedactor })).not.toBe(
-      baseline,
-    )
+    const firstIdentity = canonicalCandidateDigest({ evaluation: 'v1' })
+    const secondIdentity = canonicalCandidateDigest({ evaluation: 'v2' })
+    const baseline = await observe({
+      describeArtifact: describeArtifactA,
+      redact: rawRedactorA,
+      persistenceIdentity: firstIdentity,
+    })
+    expect(
+      await observe({
+        describeArtifact: describeArtifactB,
+        redact: rawRedactorB,
+        persistenceIdentity: firstIdentity,
+      }),
+    ).toBe(baseline)
+    expect(
+      await observe({
+        describeArtifact: describeArtifactA,
+        redact: rawRedactorA,
+        persistenceIdentity: secondIdentity,
+      }),
+    ).not.toBe(baseline)
+  })
+
+  it('rejects a missing or malformed persistence identity before starting Python', () => {
+    expect(() =>
+      createOfficialGepa<OptimizerScenario, Artifact>({
+        persistenceIdentity: 'not-a-digest' as `sha256:${string}`,
+        objective: 'Improve the agent prompt.',
+        recipe: {
+          kind: 'engine',
+          run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+        },
+        runner: failingRunner('runner must not start'),
+      }),
+    ).toThrow(/persistenceIdentity must be a lowercase sha256/)
   })
 
   it('changes saved-work identity when built-in redaction behavior changes', () => {
@@ -767,21 +825,24 @@ describe('official optimizer methods', () => {
           },
         }),
     ],
-  ] as const)('fails clearly instead of falling back when %s is unavailable', async (optimizer, installFragment, method) => {
-    await expect(
-      improve(profile, {
-        ...commonOptions(method()),
-      }),
-    ).rejects.toMatchObject({
-      name: 'OfficialOptimizerUnavailableError',
-      optimizer,
-      message: expect.stringMatching(
-        new RegExp(
-          `Runtime did not use a local fallback[\\s\\S]*${installFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+  ] as const)(
+    'fails clearly instead of falling back when %s is unavailable',
+    async (optimizer, installFragment, method) => {
+      await expect(
+        improve(profile, {
+          ...commonOptions(method()),
+        }),
+      ).rejects.toMatchObject({
+        name: 'OfficialOptimizerUnavailableError',
+        optimizer,
+        message: expect.stringMatching(
+          new RegExp(
+            `Runtime did not use a local fallback[\\s\\S]*${installFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+          ),
         ),
-      ),
-    } satisfies Partial<OfficialOptimizerUnavailableError>)
-  })
+      } satisfies Partial<OfficialOptimizerUnavailableError>)
+    },
+  )
 
   it('does not relabel an unrelated optimizer process failure as a missing dependency', async () => {
     const method = officialGepa<OptimizerScenario, Artifact>({

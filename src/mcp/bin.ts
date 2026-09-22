@@ -5,17 +5,17 @@
  * `agent-runtime-mcp` — stdio MCP server entry point.
  *
  * Serves the ONE generic `delegate` verb (opt-in via `MCP_ENABLE_DELEGATE=1`): one intent → a
- * supervisor that authors + drives its own worker over `supervise()`, returning the delivered output
- * with its cost. The supervisor brain runs on the router; authored workers run as sub-sandboxes
- * through the same `SandboxClient` the bin loads from `TANGLE_API_KEY`. The queue-bound tools
+ * supervisor that authors and drives its own worker over `supervise()`, returning the delivered output
+ * with its cost. The supervisor brain runs on the router; authored workers run through the
+ * Tangle environment provider configured by `TANGLE_API_KEY`. The queue-bound tools
  * (`delegate_feedback`, `delegation_status`, `delegation_history`) are always served.
  *
  * Environment variables:
- *   TANGLE_API_KEY                   required — passed to `new Sandbox({ apiKey })`
+ *   TANGLE_API_KEY                   required when delegation is enabled
  *   SANDBOX_BASE_URL                 optional — sandbox-SDK base URL override
  *   MCP_ENABLE_DELEGATE              set to `1` to serve the generic `delegate` verb. Its authoring
  *                                    supervisor runs the brain on the router and spawns authored
- *                                    workers as sub-sandboxes via the same client; needs TANGLE_API_KEY.
+ *                                    workers through the Tangle provider; needs TANGLE_API_KEY.
  *   MCP_SUPERVISOR_MODEL             supervisor brain model id (falls back to MCP_WORKER_MODEL, then
  *                                    WORKER_MODEL, then a default). Must be a tool-calling model.
  *   MCP_SUPERVISOR_ROUTER_KEY        router key for the supervisor brain (defaults to TANGLE_API_KEY)
@@ -39,7 +39,8 @@
  * @experimental
  */
 
-import type { SandboxClient } from '../runtime'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { delegateEnabled, resolveDelegateSupervisor } from './delegate-supervisor-provisioning'
 import { FileDelegationStore } from './delegation-store'
 import { createMcpServer } from './server'
@@ -51,22 +52,23 @@ const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
 async function main(): Promise<void> {
   const wantDelegate = delegateEnabled(process.env)
 
-  // The generic `delegate` verb needs the sandbox client: its authored workers run as sub-sandboxes
-  // (the `sandbox` backend). When `delegate` is not opted in, the server runs the queue-only subset
-  // (feedback + status + history) with no sandbox.
-  let sandboxClient: SandboxClient | undefined
+  // Delegation needs a provider for authored workers. Without delegation,
+  // the server exposes only feedback, status, and history.
+  let environmentProvider: AgentEnvironmentProvider | undefined
   if (wantDelegate) {
     const apiKey = process.env.TANGLE_API_KEY
-    if (!apiKey && !process.env.AGENT_RUNTIME_MCP_ALLOW_NO_KEY) {
+    if (!apiKey) {
       process.stderr.write(
-        'agent-runtime-mcp: TANGLE_API_KEY is required to serve `delegate`. Set AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 to run without it for diagnostics, or unset MCP_ENABLE_DELEGATE to run the queue-only subset.\n',
+        'agent-runtime-mcp: TANGLE_API_KEY is required to serve `delegate`; unset MCP_ENABLE_DELEGATE to run the queue-only tools.\n',
       )
       process.exit(2)
     }
-    sandboxClient = await loadSandboxClient(apiKey)
+    environmentProvider = createTangleProvider({
+      client: await loadTangleClient(apiKey),
+    })
   }
 
-  // The supervisor's loop topology spans export to the OTLP / Tangle Intelligence sink when
+  // The supervisor's loop trace exports to the OTLP or Tangle Intelligence sink when
   // OTEL_EXPORTER_OTLP_ENDPOINT is set (+ TRACE_ID / PARENT_SPAN_ID for correlation). The same
   // context is stamped onto every delegation record so journal consumers join records into the
   // caller's trace.
@@ -77,12 +79,10 @@ async function main(): Promise<void> {
     )
   }
 
-  // The ONE generic `delegate` verb — opt-in via MCP_ENABLE_DELEGATE=1. Its authoring supervisor
-  // runs the brain on the router and spawns authored workers as sub-sandboxes through the SAME
-  // client, so it needs the loaded `sandboxClient`. Gated on the client resolving (no key → no
-  // delegate, fail-closed).
+  // The generic `delegate` verb is opt-in. Its supervisor runs on the router
+  // and starts workers through the same provider.
   const delegateSupervisor =
-    wantDelegate && sandboxClient ? resolveDelegateSupervisor(sandboxClient) : undefined
+    wantDelegate && environmentProvider ? resolveDelegateSupervisor(environmentProvider) : undefined
   if (wantDelegate && delegateSupervisor) {
     process.stderr.write('agent-runtime-mcp: delegate enabled — generic authoring supervisor\n')
   }
@@ -151,20 +151,7 @@ function parseRetention(raw: string | undefined): number | undefined {
   return n
 }
 
-async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxClient> {
-  // Diagnostic mode: AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 enables tools/list + the
-  // queue-bound tools (status / history / feedback) without sandbox creds.
-  // `delegate` requires a real client; the stub fails loud at create() so the
-  // agent observes the cause instead of silent success.
-  if (!apiKey) {
-    return {
-      async create() {
-        throw new Error(
-          'agent-runtime-mcp: TANGLE_API_KEY is unset; `delegate` is disabled in diagnostic mode. Set TANGLE_API_KEY or unset MCP_ENABLE_DELEGATE to remove the unsupported tool from the tool list.',
-        )
-      },
-    } satisfies SandboxClient
-  }
+async function loadTangleClient(apiKey: string) {
   // Dynamic import keeps the bin importable in environments that haven't
   // installed `@tangle-network/sandbox` yet (the runtime package lists it
   // as a peer dep, not a hard dep).
@@ -174,18 +161,11 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxCli
     )
     process.exit(2)
   })
-  const SandboxCtor = (mod as { Sandbox?: new (config: unknown) => SandboxClient }).Sandbox
-  if (!SandboxCtor) {
-    process.stderr.write(
-      'agent-runtime-mcp: @tangle-network/sandbox does not export Sandbox; cannot construct client\n',
-    )
-    process.exit(2)
-  }
   // @tangle-network/sandbox ≥0.6 makes baseUrl required; default it so the MCP server
   // starts without forcing every caller to set SANDBOX_BASE_URL. Treat empty/whitespace as
   // unset (|| not ??) so `SANDBOX_BASE_URL=` still resolves to the default.
   const baseUrl = process.env.SANDBOX_BASE_URL?.trim() || DEFAULT_SANDBOX_BASE_URL
-  return new SandboxCtor({ apiKey, baseUrl })
+  return new mod.Sandbox({ apiKey, baseUrl })
 }
 
 main().catch((err) => {

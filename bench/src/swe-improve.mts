@@ -5,7 +5,7 @@
  *   1. `improve({ method: officialGepa(...) })` runs GEPA's upstream
  *      Optimize Anything engine on explicit train and selection partitions.
  *   2. Per candidate + scenario, the `agent` fn runs the LOCAL SWE env
- *      (`createSweBenchEnvironment` + `runAgentic`): clone the instance repo to a
+ *      (`createSweBenchEnvironment` + `runStrategy`): clone the instance repo to a
  *      host tmpdir, run the jailed list/read/edit tool loop with the CANDIDATE
  *      prompt as the system prompt, and return the `git diff` as the artifact.
  *   3. The `judge` scores that patch with the OFFICIAL swebench Docker harness
@@ -32,8 +32,8 @@ import {
   canonicalCandidateDigest,
   type AgentProfile,
 } from '@tangle-network/agent-interface'
-import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { TaskEnvironment, ArtifactHandle, EnvironmentScore } from '@tangle-network/agent-runtime/loops'
+import { refine, runStrategy } from '@tangle-network/agent-runtime/loops'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   if (process.env.DRYRUN) {
     // Import + wiring smoke: prove every module resolves and the plan is well-formed
     // WITHOUT paying for a clone / model call / Docker judge.
-    console.log(`DRYRUN: imports OK (improve=${typeof improve}, officialGepa=${typeof officialGepa}, runAgentic=${typeof runAgentic}, refine=${typeof refine})`)
+    console.log(`DRYRUN: imports OK (improve=${typeof improve}, officialGepa=${typeof officialGepa}, runStrategy=${typeof runStrategy}, refine=${typeof refine})`)
     return
   }
   const workerPricing = requiredTokenPricing(process.env, 'WORKER')
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
 
   // The agent under improvement: run the LOCAL SWE env with the CANDIDATE prompt on
   // one instance, return the git-diff patch. A per-call proxy captures the patch in
-  // score() BEFORE runAgentic closes (rm) the workspace; its score is a cheap
+  // score() BEFORE runStrategy closes (rm) the workspace; its score is a cheap
   // patch-exists proxy so the ONLY Docker run per cell is the improve judge.
   const agent = async (candidate: ReadonlyAgentProfile, scenario: Scenario, ctx: DispatchContext): Promise<string | null> => {
     const promptText = candidate.prompt?.systemPrompt
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     const task = { id: bt.id, systemPrompt: promptText, userPrompt: bt.prompt, meta: { instanceId: bt.id } }
     let capturedPatch = ''
     const stats = { list: 0, read: 0, edit_ok: 0, edit_fail: 0, run: 0, run_err: 0 }
-    const proxy: AgenticSurface = {
+    const proxy: TaskEnvironment = {
       ...environment,
       async call(handle, name, args) {
         const res = await environment.call(handle, name, args)
@@ -121,7 +121,7 @@ async function main(): Promise<void> {
         else if (name === 'run') r.startsWith('ERROR:') ? (stats.run_err += 1) : (stats.run += 1)
         return res
       },
-      async score(_t, handle: ArtifactHandle): Promise<SurfaceScore> {
+      async score(_t, handle: ArtifactHandle): Promise<EnvironmentScore> {
         try {
           const diff = await exec('git', ['-C', handle.id, 'diff'], { maxBuffer: 40_000_000, timeout: 60_000 })
           if (!capturedPatch.trim() && diff.stdout.trim()) capturedPatch = diff.stdout
@@ -137,7 +137,7 @@ async function main(): Promise<void> {
       actor: 'swe-worker',
       model: workerModel,
       execute: () =>
-        runAgentic({
+        runStrategy({
           surface: proxy,
           task,
           strategy: refine,
@@ -216,6 +216,9 @@ async function main(): Promise<void> {
       enableRun,
     }),
     method: officialGepa<Scenario, string | null>({
+      persistenceIdentity: canonicalCandidateDigest({
+        evaluation: 'swe-official-gepa-v1',
+      }),
       objective:
         'Improve the system prompt of a coding agent that fixes real GitHub bugs with list_files, read_file, edit_file, and optional run tools.',
       background:

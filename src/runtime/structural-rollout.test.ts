@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { type AgenticSurface, type AgenticTask, runAgentic } from './strategy'
+import { type EnvironmentTask, runStrategy, type TaskEnvironment } from './strategy'
 import {
   type CheckOutcome,
   type CheckRunner,
@@ -85,7 +85,7 @@ describe('repair keep-best guard', () => {
 })
 
 describe('modelAuthoredChecks — the assert filter (visible info only, frozen per task)', () => {
-  const task: AgenticTask = { id: 't', systemPrompt: 's', userPrompt: 'Write add.' }
+  const task: EnvironmentTask = { id: 't', systemPrompt: 's', userPrompt: 'Write add.' }
 
   it('keeps only single-line paren-balanced asserts mentioning the entry symbol, capped', async () => {
     const reply = [
@@ -139,13 +139,13 @@ describe('modelAuthoredChecks — the assert filter (visible info only, frozen p
 describe('officialChecksFromMeta', () => {
   it('lifts string checks from task.meta as official; anything else means none', async () => {
     const source = officialChecksFromMeta()
-    const withMeta: AgenticTask = {
+    const withMeta: EnvironmentTask = {
       id: 't',
       systemPrompt: 's',
       userPrompt: 'u',
       meta: { visibleChecks: ['assert f() == 1', 42, '  '] },
     }
-    const bare: AgenticTask = { id: 't', systemPrompt: 's', userPrompt: 'u' }
+    const bare: EnvironmentTask = { id: 't', systemPrompt: 's', userPrompt: 'u' }
     const ctx = { count: 0, consult: async () => null }
     expect(await source.generate(withMeta, ctx)).toEqual([
       { code: 'assert f() == 1', kind: 'official' },
@@ -155,7 +155,7 @@ describe('officialChecksFromMeta', () => {
 })
 
 describe('sandboxCheckRunner', () => {
-  const task: AgenticTask = { id: 't', systemPrompt: 's', userPrompt: 'u' }
+  const task: EnvironmentTask = { id: 't', systemPrompt: 's', userPrompt: 'u' }
   const checks: VisibleCheck[] = [
     { code: 'assert f() == 1', kind: 'official' },
     { code: 'assert f() != 2', kind: 'authored' },
@@ -258,7 +258,7 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
   })
 
   it('returns a typed null artifact when the pool cannot admit a candidate', async () => {
-    const surface: AgenticSurface = {
+    const surface: TaskEnvironment = {
       name: 'starved',
       async open() {
         return { id: 'unused', surface: 'starved' }
@@ -275,7 +275,7 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
       async close() {},
     }
 
-    const result = await runAgentic({
+    const result = await runStrategy({
       surface,
       task: { id: 'starved', systemPrompt: 'Solve it.', userPrompt: 'Solve it.' },
       routerBaseUrl: 'http://offline.test/v1',
@@ -307,7 +307,7 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
     // shot's artifact scores 0 so nothing here can leak a hidden signal into selection —
     // only the fake CheckRunner speaks.
     let handles = 0
-    const surface: AgenticSurface = {
+    const surface: TaskEnvironment = {
       name: 'inert',
       async open() {
         handles += 1
@@ -392,7 +392,7 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
       },
     }
 
-    const result = await runAgentic({
+    const result = await runStrategy({
       surface,
       task: { id: 't1', systemPrompt: 'Solve it.', userPrompt: 'Write f.\n\ndef f():\n    ...' },
       routerBaseUrl: 'http://offline.test/v1',

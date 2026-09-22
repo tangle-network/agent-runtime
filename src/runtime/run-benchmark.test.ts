@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runBenchmark } from './run-benchmark'
 import {
-  type AgenticOptions,
-  type AgenticSurface,
-  type AgenticTask,
   defineStrategy,
+  type EnvironmentTask,
+  type StrategyWorkerOptions,
+  type TaskEnvironment,
 } from './strategy'
 
 interface ChatRequest {
@@ -15,13 +15,13 @@ interface ChatRequest {
   reasoning_effort?: string
 }
 
-const task: AgenticTask = {
+const task: EnvironmentTask = {
   id: 'task-1',
   systemPrompt: 'Use the test surface.',
   userPrompt: 'Complete the task.',
 }
 
-const worker: AgenticOptions = {
+const worker: StrategyWorkerOptions = {
   routerBaseUrl: 'http://router.test/v1',
   routerKey: 'test-key',
   model: 'worker-model',
@@ -39,7 +39,7 @@ const oneShot = defineStrategy('one-shot', async ({ shot }) => {
   }
 })
 
-function surface(events: string[]): AgenticSurface {
+function surface(events: string[]): TaskEnvironment {
   let sequence = 0
   return {
     name: 'test',
@@ -267,7 +267,7 @@ describe('runBenchmark model availability', () => {
     expect(events.indexOf('open')).toBe(2)
   })
 
-  it('retries at temperature one when the provider requires it', async () => {
+  it('retries model preflight at temperature one when the provider requires it', async () => {
     const requests: ChatRequest[] = []
     const events: string[] = []
     stubRouter(requests, events, (_request, index) =>
@@ -286,5 +286,37 @@ describe('runBenchmark model availability', () => {
 
     expect(requests.slice(0, 2).map((request) => request.temperature)).toEqual([0.2, 1])
     expect(events.indexOf('open')).toBe(2)
+  })
+
+  it('retries a generated strategy analyst call at temperature one', async () => {
+    const requests: ChatRequest[] = []
+    const events: string[] = []
+    stubRouter(requests, events, (_request, index) =>
+      index === 0
+        ? new Response('invalid temperature: only 1 is allowed for this model', { status: 400 })
+        : okResponse(),
+    )
+    const analystOnly = defineStrategy('analyst-only', async ({ consult }) => {
+      const steer = await consult([], 'Inspect the task and recommend one next action.')
+      return {
+        score: 0,
+        resolved: false,
+        completions: steer ? 1 : 0,
+        progression: [],
+        shots: 0,
+      }
+    })
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task],
+      worker,
+      strategies: [analystOnly],
+      budget: 1,
+      modelPreflight: false,
+    })
+
+    expect(requests.map((request) => request.temperature)).toEqual([0.2, 1])
+    expect(requests.every((request) => request.model === 'worker-model')).toBe(true)
   })
 })

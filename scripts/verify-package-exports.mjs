@@ -37,7 +37,7 @@ try {
   const requiredSubpaths = [
     '.',
     './agent',
-    './conversation',
+    './interaction',
     './intelligence',
     './loops',
     './environment-provider',
@@ -66,6 +66,28 @@ try {
   }
 
   const repoPackageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
+  const benchPackageJson = JSON.parse(
+    readFileSync(join(repoRoot, 'bench', 'package.json'), 'utf8'),
+  )
+  for (const [name, runtimeVersion] of [
+    ['@tangle-network/agent-eval', repoPackageJson.devDependencies['@tangle-network/agent-eval']],
+    [
+      '@tangle-network/agent-interface',
+      repoPackageJson.devDependencies['@tangle-network/agent-interface'],
+    ],
+    [
+      '@tangle-network/agent-knowledge',
+      repoPackageJson.dependencies['@tangle-network/agent-knowledge'],
+    ],
+    ['@tangle-network/sandbox', repoPackageJson.devDependencies['@tangle-network/sandbox']],
+  ]) {
+    const benchVersion = benchPackageJson.dependencies?.[name]
+    if (benchVersion !== runtimeVersion) {
+      throw new Error(
+        `Runtime and Bench dependency drift for ${name}: runtime=${runtimeVersion}, bench=${benchVersion}`,
+      )
+    }
+  }
   const knowledgePackageDir = join(
     repoRoot,
     'node_modules',
@@ -131,8 +153,9 @@ try {
           strict: true,
           noEmit: true,
           skipLibCheck: false,
+          types: ['node'],
         },
-        include: ['consumer.ts'],
+        include: ['*.ts'],
       },
       null,
       2,
@@ -150,6 +173,10 @@ try {
         Sha256Digest,
       } from '@tangle-network/agent-interface'
       import { loadAgentImprovementProposalFixture } from '@tangle-network/agent-runtime/testing'
+      import type {
+        OtelDropEvent,
+        OtelFlushResult,
+      } from '@tangle-network/agent-runtime'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
         createExactProcessCandidateExperimentExecutor,
@@ -162,6 +189,7 @@ try {
         prepareAgentImprovementProfileActivation,
         verifyCandidateExecutionEvidence,
         type AgentImprovementActivationTransitionInput,
+        type CertifiedContextCheckpointStore,
         type CreateExactProcessCandidateExperimentExecutorOptions,
         type ExactProcessCandidateExperimentExecution,
         type VerifyCandidateExecutionEvidenceOptions,
@@ -178,7 +206,16 @@ try {
       declare const storedEvidence: unknown
       declare const transitionInput: AgentImprovementActivationTransitionInput
       declare const activeProfile: AgentProfile
+      declare const dropEvent: OtelDropEvent
+      declare const flushResult: OtelFlushResult
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
+      const droppedSpans: number = dropEvent.totalDropped + flushResult.droppedSpans
+      const checkpointStore: CertifiedContextCheckpointStore = {
+        async load() {
+          return null
+        },
+        async save() {},
+      }
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -248,6 +285,221 @@ try {
       void currentDigest
       void profileDiffs
       void proposalFixture
+      void droppedSpans
+      void checkpointStore
+    `,
+  )
+  writeFileSync(
+    join(appDir, 'environment-api.ts'),
+    `
+      import type { AgentProfile } from '@tangle-network/agent-interface'
+      import type {
+        AgentEnvironmentProvider,
+      } from '@tangle-network/agent-interface/environment-provider'
+      import {
+        createAgentEnvironmentProviderRegistry,
+        resolveAgentEnvironmentProvider,
+      } from '@tangle-network/agent-runtime/environment-provider'
+      import {
+        createEnvironmentForSpec,
+        createEnvironmentLineage,
+        createEnvironmentToolPartState,
+        createSteerableEnvironmentSession,
+        inProcessEnvironmentProvider,
+        inlineEnvironmentProvider,
+        localEnvironmentProvider,
+        mapAgentEnvironmentEvent,
+        mapEnvironmentToolEvent,
+        notifyAgentEnvironmentEventObserver,
+        openEnvironmentRun,
+        sumEnvironmentUsage,
+        turnEvents,
+        type EnvironmentDeliverable,
+        type EnvironmentLineage,
+        type EnvironmentLineageHandle,
+        type EnvironmentRun,
+        type EnvironmentSteeringOptions,
+        type EnvironmentToolPartState,
+        type EnvironmentTurnOptions,
+        type EnvironmentTurnResult,
+        type InProcessEnvironmentProviderOptions,
+        type InlineEnvironmentProviderOptions,
+        type LocalEnvironmentProviderOptions,
+        type OpenEnvironmentRunOptions,
+        type SteerableEnvironmentArgs,
+        type SteerableEnvironmentSession,
+      } from '@tangle-network/agent-runtime/loops'
+
+      declare const profile: AgentProfile
+      declare const provider: AgentEnvironmentProvider
+      const registry = createAgentEnvironmentProviderRegistry([provider])
+      const resolved = resolveAgentEnvironmentProvider(provider, registry)
+      const inline = inlineEnvironmentProvider(() => ({
+        runtime: 'compile-check',
+        execute: async () => ({
+          outRef: 'compile-check',
+          out: { content: 'ok' },
+          spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+        }),
+        teardown: async () => ({ destroyed: true }),
+        resultArtifact: () => ({
+          outRef: 'compile-check',
+          out: { content: 'ok' },
+          spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+        }),
+      }))
+      const inProcess = inProcessEnvironmentProvider({
+        onTurn: async () => [{ type: 'result', data: { finalText: 'ok' } }],
+      })
+      const pendingEnvironment = createEnvironmentForSpec(
+        resolved,
+        { profile, taskToPrompt: String },
+        new AbortController().signal,
+      )
+
+      void createEnvironmentLineage
+      void createEnvironmentToolPartState
+      void createSteerableEnvironmentSession
+      void localEnvironmentProvider
+      void mapAgentEnvironmentEvent
+      void mapEnvironmentToolEvent
+      void notifyAgentEnvironmentEventObserver
+      void openEnvironmentRun
+      void sumEnvironmentUsage
+      void turnEvents
+      void inline
+      void inProcess
+      void pendingEnvironment
+      void (0 as unknown as EnvironmentDeliverable<unknown>)
+      void (0 as unknown as EnvironmentLineage)
+      void (0 as unknown as EnvironmentLineageHandle)
+      void (0 as unknown as EnvironmentRun<unknown>)
+      void (0 as unknown as EnvironmentSteeringOptions)
+      void (0 as unknown as EnvironmentToolPartState)
+      void (0 as unknown as EnvironmentTurnOptions)
+      void (0 as unknown as EnvironmentTurnResult<unknown>)
+      void (0 as unknown as InProcessEnvironmentProviderOptions)
+      void (0 as unknown as InlineEnvironmentProviderOptions)
+      void (0 as unknown as LocalEnvironmentProviderOptions)
+      void (0 as unknown as OpenEnvironmentRunOptions<unknown>)
+      void (0 as unknown as SteerableEnvironmentArgs)
+      void (0 as unknown as SteerableEnvironmentSession)
+    `,
+  )
+  writeFileSync(
+    join(appDir, 'removed-api.ts'),
+    `
+      import type { CertifiedContext } from '@tangle-network/agent-interface'
+      import type { DetachedSessionDelegateOptions } from '@tangle-network/agent-runtime/mcp'
+      import type { ToolLoopResult } from '@tangle-network/agent-runtime'
+      import * as intelligence from '@tangle-network/agent-runtime/intelligence'
+      import * as loops from '@tangle-network/agent-runtime/loops'
+      import * as mcp from '@tangle-network/agent-runtime/mcp'
+      import * as prime from '@tangle-network/agent-runtime/primeintellect'
+      import * as environment from '@tangle-network/agent-runtime/environment-provider'
+
+      declare const certified: CertifiedContext
+      declare const detached: DetachedSessionDelegateOptions
+      declare const toolLoop: ToolLoopResult
+
+      // @ts-expect-error runLoop was removed; runAgentRounds is the current entry point.
+      loops.runLoop
+      // @ts-expect-error RunLoopOptions was removed with runLoop.
+      type OldLoopOptions = loops.RunLoopOptions
+      // @ts-expect-error AgentProfile is owned by @tangle-network/agent-interface.
+      type OldLoopAgentProfile = loops.AgentProfile
+      // @ts-expect-error detached delegates require an explicit executor.
+      detached.sandboxClient
+      // @ts-expect-error stopReason replaces the ambiguous cappedOut flag.
+      toolLoop.cappedOut
+      // @ts-expect-error PrimeIntellectImportDefaults was removed.
+      type OldPrimeDefaults = prime.PrimeIntellectImportDefaults
+      // @ts-expect-error certified delivery no longer carries profile patches.
+      certified.profileDiffs
+      // @ts-expect-error CertifiedProfile was replaced by the exact CertifiedContext contract.
+      type OldCertifiedProfile = intelligence.CertifiedProfile
+      // @ts-expect-error remote tool composition was removed from certified context delivery.
+      intelligence.composeCertifiedProfile
+      // @ts-expect-error old profile pull was replaced by tenant-bound context pull.
+      intelligence.pullCertified
+      // @ts-expect-error raw prompt rendering is internal; use composeCertifiedContext.
+      intelligence.composeCertifiedPrompt
+      // @ts-expect-error partial context extraction is internal.
+      intelligence.certifiedPromptAdditions
+      // @ts-expect-error partial file extraction is internal.
+      intelligence.certifiedContextFiles
+      // @ts-expect-error the old manifest converter was removed.
+      intelligence.manifestFromProfile
+      // @ts-expect-error the old admission error was removed with manifests.
+      intelligence.CapabilityNotAdmittedError
+      // @ts-expect-error reverse adaptation to the old SandboxClient contract was removed.
+      environment.providerAsSandboxClient
+      // @ts-expect-error reverse adapter options were removed with the adapter.
+      type OldProviderAdapter = environment.ProviderAsSandboxClientOptions
+      // @ts-expect-error provider execution is consumed directly by runtime entry points.
+      environment.providerAsExecutor
+      // @ts-expect-error duplicate provider executor options were removed.
+      type OldProviderExecutorOptions = environment.ProviderExecutorOptions
+      // @ts-expect-error SandboxClient was replaced by AgentEnvironmentProvider.
+      type OldSandboxClient = loops.SandboxClient
+      // @ts-expect-error Sandbox placement is reported as provider PlacementInfo.
+      type OldSandboxPlacement = loops.LoopSandboxPlacement
+      // @ts-expect-error persistent runs use openEnvironmentRun.
+      loops.openSandboxRun
+      // @ts-expect-error persistent run types use EnvironmentRun.
+      type OldSandboxRun = loops.SandboxRun
+      // @ts-expect-error persistent run options use OpenEnvironmentRunOptions.
+      type OldSandboxRunOptions = loops.OpenSandboxRunOptions
+      // @ts-expect-error in-process execution is an environment provider.
+      loops.inProcessSandboxClient
+      // @ts-expect-error executor adaptation is an environment provider.
+      loops.inlineSandboxClient
+      // @ts-expect-error same-host execution is an environment provider.
+      loops.localSandboxClient
+      // @ts-expect-error product transport resolution returns an environment provider.
+      loops.resolveSandboxClient
+      // @ts-expect-error provider-to-Sandbox reverse adaptation was removed.
+      loops.sandboxClientAsProvider
+      // @ts-expect-error Tangle adaptation lives in @tangle-network/agent-provider-tangle.
+      loops.createTangleSandboxExactProcessProvider
+      // @ts-expect-error environment creation replaces direct Sandbox acquisition.
+      loops.acquireSandbox
+      // @ts-expect-error capabilities come from AgentEnvironmentProvider.capabilities().
+      loops.probeSandboxCapabilities
+      // @ts-expect-error event mapping uses mapAgentEnvironmentEvent.
+      loops.mapSandboxEvent
+      // @ts-expect-error tool event mapping uses mapEnvironmentToolEvent.
+      loops.mapSandboxToolEvent
+      // @ts-expect-error event state uses createEnvironmentToolPartState.
+      loops.createSandboxToolPartState
+      // @ts-expect-error usage folding uses sumEnvironmentUsage.
+      loops.sumSandboxUsage
+      // @ts-expect-error lineage uses createEnvironmentLineage.
+      loops.createSandboxLineage
+      // @ts-expect-error steering uses createSteerableEnvironmentSession.
+      loops.createSteerableSandboxSession
+      // @ts-expect-error MCP delegation accepts an AgentEnvironmentProvider.
+      mcp.createSiblingSandboxExecutor
+      // @ts-expect-error MCP no longer exposes sibling Sandbox options.
+      type OldSiblingOptions = mcp.SiblingSandboxExecutorOptions
+      // @ts-expect-error detached turns use AgentEnvironment directly.
+      type OldDriveTurnBox = mcp.DriveTurnCapableBox
+      // @ts-expect-error in-process placement is reported by the provider.
+      type OldInProcessPlacement = mcp.InProcessExecutorDescribePlacement
+
+      void (0 as unknown as OldLoopOptions)
+      void (0 as unknown as OldLoopAgentProfile)
+      void (0 as unknown as OldPrimeDefaults)
+      void (0 as unknown as OldCertifiedProfile)
+      void (0 as unknown as OldProviderAdapter)
+      void (0 as unknown as OldProviderExecutorOptions)
+      void (0 as unknown as OldSandboxClient)
+      void (0 as unknown as OldSandboxPlacement)
+      void (0 as unknown as OldSandboxRun)
+      void (0 as unknown as OldSandboxRunOptions)
+      void (0 as unknown as OldSiblingOptions)
+      void (0 as unknown as OldDriveTurnBox)
+      void (0 as unknown as OldInProcessPlacement)
     `,
   )
   run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
@@ -284,7 +536,6 @@ try {
           'createPrimeIntellectPackage',
           'writePrimeIntellectPackage',
           'readPrimeIntellectEpisodeContext',
-          'createPrimeIntellectBackend',
           'runPrimeIntellectProgram',
           'parsePrimeIntellectTraces',
           'primeIntellectTraceToRunRecord',
@@ -306,13 +557,12 @@ try {
         const expectedIntelligence = [
           'createIntelligenceClient',
           'withIntelligence',
-          'pullCertified',
+          'pullCertifiedContext',
           'resolveEffort',
           'isIntelligenceOff',
           'defaultRedactor',
-          'composeCertifiedProfile',
-          'manifestFromProfile',
-          'CapabilityNotAdmittedError',
+          'composeCertifiedContext',
+          'createCertifiedContextSource',
           'createExactProcessCandidateExperimentExecutor',
           'agentImprovementProfileSurfaceDigest',
           'agentImprovementProfileSurfaceInput',
@@ -449,13 +699,81 @@ try {
         const provider = await import('@tangle-network/agent-runtime/environment-provider')
         const expectedProvider = [
           'createAgentEnvironmentProviderRegistry',
-          'providerAsExecutor',
-          'providerAsSandboxClient',
           'resolveAgentEnvironmentProvider',
-          'sandboxClientAsProvider',
         ]
         for (const name of expectedProvider) {
           if (typeof provider[name] !== 'function') throw new Error('missing environment-provider export ' + name)
+        }
+        for (const name of [
+          'createTangleSandboxExactProcessProvider',
+          'providerAsExecutor',
+          'providerAsSandboxClient',
+          'sandboxClientAsProvider',
+        ]) {
+          if (name in provider) throw new Error('retired environment-provider export leaked: ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const loops = await import('@tangle-network/agent-runtime/loops')
+        for (const name of [
+          'createAgentEnvironmentProviderRegistry',
+          'createEnvironmentForSpec',
+          'createEnvironmentLineage',
+          'createEnvironmentToolPartState',
+          'createSteerableEnvironmentSession',
+          'inProcessEnvironmentProvider',
+          'inlineEnvironmentProvider',
+          'localEnvironmentProvider',
+          'mapAgentEnvironmentEvent',
+          'mapEnvironmentToolEvent',
+          'notifyAgentEnvironmentEventObserver',
+          'openEnvironmentRun',
+          'resolveAgentEnvironmentProvider',
+          'sumEnvironmentUsage',
+          'turnEvents',
+        ]) {
+          if (typeof loops[name] !== 'function') throw new Error('missing loops export ' + name)
+        }
+        for (const name of [
+          'acquireSandbox',
+          'createSandboxLineage',
+          'createSandboxToolPartState',
+          'createSteerableSandboxSession',
+          'createTangleSandboxExactProcessProvider',
+          'inProcessSandboxClient',
+          'inlineSandboxClient',
+          'localSandboxClient',
+          'mapSandboxEvent',
+          'mapSandboxToolEvent',
+          'openSandboxRun',
+          'probeSandboxCapabilities',
+          'providerAsExecutor',
+          'resolveEnvironmentProvider',
+          'resolveSandboxClient',
+          'sandboxClientAsProvider',
+          'sumSandboxUsage',
+        ]) {
+          if (name in loops) throw new Error('retired loops export leaked: ' + name)
+        }
+
+        const mcp = await import('@tangle-network/agent-runtime/mcp')
+        for (const name of [
+          'createDelegationExecutor',
+          'createFleetWorkspaceExecutor',
+          'createInProcessExecutor',
+        ]) {
+          if (typeof mcp[name] !== 'function') throw new Error('missing MCP export ' + name)
+        }
+        if ('createSiblingSandboxExecutor' in mcp) {
+          throw new Error('retired MCP export leaked: createSiblingSandboxExecutor')
         }
       `,
     ],

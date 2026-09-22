@@ -86,7 +86,7 @@ export async function readCandidateGitHubResource(
     throw new Error(`GitHub resource path is not one exact file: ${resource.path}`)
   }
   const entry = entries[0]
-  if (!entry || entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
+  if (entry?.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
     throw new Error(`GitHub resource path is not a regular Git blob: ${resource.path}`)
   }
   const bytes = (await runCandidateGit(repositoryRoot, ['cat-file', 'blob', entry.object])).stdout

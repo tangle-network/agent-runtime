@@ -31,7 +31,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
+import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
+import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { Sandbox } from '@tangle-network/sandbox'
 import { composeStrategies } from './directives'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
@@ -114,22 +115,54 @@ interface Shot {
  *  error becomes a recorded infra failure (ran=false), never a throw that kills the pool. */
 async function runRollout(inst: Instance, lens: string | undefined, cfg: ShotCfg): Promise<Shot> {
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.routerKey })
-  let box: Awaited<ReturnType<typeof acquireSandbox>> | undefined
+  const environmentProvider = createTangleProvider({ client })
+  let environment: AgentEnvironment | undefined
   try {
-    box = await acquireSandbox(client, {
-      name: `clbench-cb-${inst.instanceId}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-      environment: 'universal',
-      // backend.model pins provider/model/baseUrl only — in-box model auth is the
-      // box-provisioned OPENCODE_MODEL_API_KEY (foreign keys are 403'd at egress).
-      backend: { type: 'opencode', model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl } },
+    const name = `clbench-cb-${inst.instanceId}-${randomSuffix()}`
+      .replace(/[^a-zA-Z0-9_.-]/g, '_')
+      .slice(0, 60)
+    environment = await environmentProvider.create({
+      profile: { name: 'clbench-codebase-worker' },
+      backend: 'opencode',
+      workspace: { environment: 'universal' },
+      name,
+      idempotencyKey: name,
+      providerOptions: {
+        sandboxCreateOptions: {
+          backend: {
+            type: 'opencode',
+            model: {
+              provider: cfg.provider,
+              model: cfg.model,
+              baseUrl: cfg.routerBaseUrl,
+            },
+          },
+        },
+      },
     })
+    let status = await environment.status()
+    if (status !== 'running' && environmentProvider.get) {
+      environment = (await environmentProvider.get(environment.id)) ?? environment
+      status = await environment.status()
+    }
+    if (status !== 'running') {
+      throw new Error(
+        `${environmentProvider.name} environment "${environment.id}" is ${status} after creation`,
+      )
+    }
+    if (!environment.read) {
+      throw new Error(`${environmentProvider.name} does not provide workspace reads`)
+    }
     const signal = cfg.timeoutMs > 0 ? AbortSignal.timeout(cfg.timeoutMs) : undefined
-    for await (const _ev of box.streamPrompt(rolloutPrompt(inst, lens), signal ? { signal } : {})) {
+    for await (const _event of environment.stream({
+      prompt: rolloutPrompt(inst, lens),
+      ...(signal ? { signal } : {}),
+    })) {
       // drain; the deliverable is the patch FILE, not the stream
     }
     let patch = ''
     try {
-      patch = await box.fs.read(PATCH_PATH)
+      patch = await environment.read(PATCH_PATH)
     } catch {
       patch = '' // missing patch file ⇒ the agent produced nothing (a real empty, ran=true)
     }
@@ -137,11 +170,7 @@ async function runRollout(inst: Instance, lens: string | undefined, cfg: ShotCfg
   } catch (err) {
     return { patch: '', ran: false, detail: `rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}` }
   } finally {
-    try {
-      if (box) await box.delete()
-    } catch {
-      // staging reaps on expiry
-    }
+    await environment?.destroy?.().catch(() => undefined)
   }
 }
 

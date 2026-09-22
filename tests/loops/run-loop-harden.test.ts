@@ -1,17 +1,22 @@
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import {
-  type AgentRunSpec,
-  type LoopTraceEmitter,
-  type LoopTraceEvent,
-  type OutputAdapter,
-  runLoop,
-} from '../../src/runtime'
+import { runAgentRounds } from '../../src/runtime/run-loop'
+import type {
+  AgentRunSpec,
+  LoopTraceEmitter,
+  LoopTraceEvent,
+  OutputAdapter,
+} from '../../src/runtime/types'
 import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
 interface Task {
   goal: string
 }
+
 interface Out {
   ok: boolean
 }
@@ -23,90 +28,130 @@ const output: OutputAdapter<Out> = {
   },
 }
 
-function spec(name: string, taskToPrompt = (t: Task) => JSON.stringify(t)): AgentRunSpec<Task> {
+function spec(
+  name: string,
+  taskToPrompt = (task: Task) => JSON.stringify(task),
+): AgentRunSpec<Task> {
   return { profile: { name }, name, taskToPrompt }
 }
 
-describe('runLoop — abort short-circuits before launching a fresh batch', () => {
-  it('an abort during plan() prevents the next round of workers from dispatching', async () => {
-    const ctrl = new AbortController()
+function testProvider(
+  name: string,
+  create: AgentEnvironmentProvider['create'],
+): AgentEnvironmentProvider {
+  return {
+    name,
+    capabilities() {
+      throw new Error('capabilities are not used without lineage')
+    },
+    create,
+  }
+}
+
+function successfulEnvironment(id: string): AgentEnvironment {
+  return {
+    id,
+    provider: 'test-provider',
+    async status() {
+      return 'running'
+    },
+    async *stream() {
+      yield { type: 'result', data: { ok: true } } satisfies AgentEnvironmentEvent
+    },
+    async destroy() {},
+  }
+}
+
+describe('runAgentRounds cancellation before a fresh batch', () => {
+  it('prevents worker dispatch when plan cancels the run', async () => {
+    const controller = new AbortController()
     let created = 0
-    const client = {
-      async create(): Promise<SandboxInstance> {
-        created += 1
-        return {
-          async *streamPrompt() {
-            yield { type: 'result', data: { ok: true } } satisfies SandboxEvent
-          },
-          async delete() {},
-        } as unknown as SandboxInstance
-      },
-    }
-    // The planner aborts the loop during its own (async) plan() call. The kernel
-    // must observe the abort right after plan() returns and NOT reserve+dispatch.
+    const environmentProvider = testProvider('test-provider', async () => {
+      created += 1
+      return successfulEnvironment(`environment-${created}`)
+    })
     const planner: ScriptedPlanner<Task, Out> = async () => {
-      ctrl.abort()
+      controller.abort()
       return { kind: 'refine', task: { goal: 'x' } }
     }
+
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
-        agentRun: spec('w'),
+        agentRun: spec('worker'),
         output,
         task: { goal: 'x' },
-        ctx: { sandboxClient: client, signal: ctrl.signal },
+        ctx: { environmentProvider, signal: controller.signal },
       }),
     ).rejects.toThrow(/aborted/)
     expect(created).toBe(0)
   })
 })
 
-// A box whose stream aborts the loop and then throws an AbortError on its first
-// pull — exercises the kernel's catch -> rethrow-on-abort fail-loud path.
-function abortingBox(ctrl: AbortController): SandboxInstance {
+function abortingEnvironment(controller: AbortController): AgentEnvironment {
   return {
-    async *streamPrompt() {
-      ctrl.abort()
-      const err = new Error('aborted')
-      err.name = 'AbortError'
-      yield await Promise.reject(err)
+    id: 'aborting-environment',
+    provider: 'test-provider',
+    async status() {
+      return 'running'
     },
-    async delete() {},
-  } as unknown as SandboxInstance
+    async *stream() {
+      controller.abort()
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      yield await Promise.reject(error)
+    },
+    async destroy() {},
+  }
 }
 
-describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)', () => {
-  it('an AbortError thrown during streamPrompt rejects the loop, not a recorded empty iteration', async () => {
-    const ctrl = new AbortController()
-    const client = { create: async () => abortingBox(ctrl) }
-    const planner: ScriptedPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
+describe('runAgentRounds cancellation during an iteration', () => {
+  it('rejects instead of recording an empty iteration', async () => {
+    const controller = new AbortController()
+    const environmentProvider = testProvider('test-provider', async () =>
+      abortingEnvironment(controller),
+    )
+    const planner: ScriptedPlanner<Task, Out> = () => ({
+      kind: 'refine',
+      task: { goal: 'x' },
+    })
+
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
-        agentRun: spec('w'),
+        agentRun: spec('worker'),
         output,
         task: { goal: 'x' },
-        ctx: { sandboxClient: client, signal: ctrl.signal },
+        ctx: { environmentProvider, signal: controller.signal },
       }),
     ).rejects.toThrow(/aborted/)
   })
 
-  it('the iteration.ended trace is still emitted before the abort propagates', async () => {
-    const ctrl = new AbortController()
-    const client = { create: async () => abortingBox(ctrl) }
+  it('emits the iteration result before cancellation propagates', async () => {
+    const controller = new AbortController()
+    const environmentProvider = testProvider('test-provider', async () =>
+      abortingEnvironment(controller),
+    )
     const events: LoopTraceEvent[] = []
-    const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
-    const planner: ScriptedPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
+    const traceEmitter: LoopTraceEmitter = {
+      emit: (event) => void events.push(event),
+    }
+    const planner: ScriptedPlanner<Task, Out> = () => ({
+      kind: 'refine',
+      task: { goal: 'x' },
+    })
+
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
-        agentRun: spec('w'),
+        agentRun: spec('worker'),
         output,
         task: { goal: 'x' },
-        ctx: { sandboxClient: client, traceEmitter, signal: ctrl.signal },
+        ctx: { environmentProvider, traceEmitter, signal: controller.signal },
       }),
     ).rejects.toThrow(/aborted/)
-    const ended = events.find((e) => e.kind === 'loop.iteration.ended')
+
+    const ended = events.find((event) => event.kind === 'loop.iteration.ended')
     expect(ended?.kind).toBe('loop.iteration.ended')
     if (ended?.kind === 'loop.iteration.ended') {
       expect(ended.payload.error).toMatch(/aborted/)
@@ -114,47 +159,42 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
   })
 })
 
-describe('runLoop — teardown observability + parallelism', () => {
-  it('emits loop.teardown.failed when a kept-alive worker box delete throws', async () => {
+describe('runAgentRounds environment cleanup', () => {
+  it('reports a retained environment that fails to destroy', async () => {
     const moves: ScriptedMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
     let round = 0
     const planner: ScriptedPlanner<Task, Out> = () => moves[round++]!
-    const client = {
-      async create(): Promise<SandboxInstance> {
-        return {
-          id: 'box-1',
-          async *streamPrompt() {
-            yield { type: 'result', data: { ok: true } } satisfies SandboxEvent
-          },
-          async delete() {
-            throw new Error('auth expired')
-          },
-        } as unknown as SandboxInstance
+    const environmentProvider = testProvider('test-provider', async () => ({
+      ...successfulEnvironment('environment-1'),
+      async destroy() {
+        throw new Error('auth expired')
       },
-    }
+    }))
     const events: LoopTraceEvent[] = []
-    const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
-    // onWorkerBox keeps the box alive across plan(); teardown runs at loop end,
-    // and the throwing delete must surface as a loop.teardown.failed span.
-    await runLoop({
+    const traceEmitter: LoopTraceEmitter = {
+      emit: (event) => void events.push(event),
+    }
+
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner }),
-      agentRun: spec('w'),
+      agentRun: spec('worker'),
       output,
       task: { goal: 'g' },
-      ctx: { sandboxClient: client, traceEmitter },
-      onWorkerBox: () => {},
+      ctx: { environmentProvider, traceEmitter },
+      onWorkerEnvironment: () => {},
     })
-    const failed = events.filter((e) => e.kind === 'loop.teardown.failed')
+
+    const failed = events.filter((event) => event.kind === 'loop.teardown.failed')
     expect(failed).toHaveLength(1)
     if (failed[0]?.kind === 'loop.teardown.failed') {
-      expect(failed[0].payload.sandboxId).toBe('box-1')
-      expect(failed[0].payload.reason).toBe('delete threw')
+      expect(failed[0].payload.environmentId).toBe('environment-1')
+      expect(failed[0].payload.reason).toBe('destroy failed')
     }
   })
 
-  it('tears down all kept-alive boxes even when one delete throws', async () => {
-    const deleted: string[] = []
-    let n = 0
+  it('destroys every retained environment when one destroy call fails', async () => {
+    const destroyed: string[] = []
+    let sequence = 0
     const moves: ScriptedMove<Task>[] = [
       {
         kind: 'fanout',
@@ -164,30 +204,26 @@ describe('runLoop — teardown observability + parallelism', () => {
     ]
     let round = 0
     const planner: ScriptedPlanner<Task, Out> = () => moves[round++]!
-    const client = {
-      async create(): Promise<SandboxInstance> {
-        const id = `box-${n++}`
-        return {
-          id,
-          async *streamPrompt() {
-            yield { type: 'result', data: { ok: true } } satisfies SandboxEvent
-          },
-          async delete() {
-            if (id === 'box-1') throw new Error('flaky delete')
-            deleted.push(id)
-          },
-        } as unknown as SandboxInstance
-      },
-    }
-    await runLoop({
+    const environmentProvider = testProvider('test-provider', async () => {
+      const id = `environment-${sequence++}`
+      return {
+        ...successfulEnvironment(id),
+        async destroy() {
+          if (id === 'environment-1') throw new Error('flaky destroy')
+          destroyed.push(id)
+        },
+      }
+    })
+
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'a' },
-      ctx: { sandboxClient: client },
-      onWorkerBox: () => {},
+      ctx: { environmentProvider },
+      onWorkerEnvironment: () => {},
     })
-    // box-1's delete threw but the other two were still deleted (parallel, allSettled).
-    expect(deleted.sort()).toEqual(['box-0', 'box-2'])
+
+    expect(destroyed.sort()).toEqual(['environment-0', 'environment-2'])
   })
 })

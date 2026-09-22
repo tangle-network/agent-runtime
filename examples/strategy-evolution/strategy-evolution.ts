@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
 import {
-  type AgenticTask,
+  type EnvironmentTask,
   refine,
   runStrategyEvolution,
   sample,
@@ -37,7 +37,7 @@ import { counterEnv, counterTask } from '../strategy-suite/counter-env'
 // for the held-back exam. Returning ids keyed on the offset is what keeps the two sets disjoint, so a
 // good holdout score cannot be memorization of the practice tasks.
 
-const tasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
+const tasks = async (offset: number, n: number): Promise<EnvironmentTask[]> =>
   Array.from({ length: n }, (_, i) => counterTask(`counter-${offset + i}`))
 
 async function main(): Promise<void> {
