@@ -171,6 +171,8 @@ export interface RunCancelRequest {
   /** Requested observation target, measured by the acknowledgement's deadlineExceeded field.
    * The observer always cascades eagerly. This does not guarantee scheduler latency or cleanup. */
   readonly deadlineMs?: number
+  /** Stable operator/requester identity for audit trails. */
+  readonly operator?: string
   readonly reason?: string
 }
 
@@ -202,6 +204,7 @@ export interface RunCancellation {
   readonly observedAt: string
   /** The caller's reason, carried verbatim from the request. */
   readonly reason?: string
+  readonly operator?: string
   /** The runtime's explanation of how it arrived at `effect`. */
   readonly detail?: string
 }
@@ -766,6 +769,7 @@ export function cancelRun(
     readonly reason?: string
     readonly source?: string
     readonly deadlineMs?: number
+    readonly operator?: string
   } = {},
 ): RunCancellation {
   if (
@@ -788,6 +792,7 @@ export function cancelRun(
     source: options.source ?? 'human',
     ...(options.reason === undefined ? {} : { reason: options.reason }),
     ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
+    ...(options.operator === undefined ? {} : { operator: options.operator }),
   }
   if (pending !== undefined) assertSameRunCancelRequest(pending, candidate)
   const acknowledged = readRunCancellation(eventDir, opId)
@@ -807,6 +812,7 @@ export function cancelRun(
     source,
     ...(options.reason === undefined ? {} : { reason: options.reason }),
     ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
+    ...(options.operator === undefined ? {} : { operator: options.operator }),
   }
   if (pending === undefined) {
     const dir = workerCancellationsDir(eventDir)
@@ -940,7 +946,8 @@ function isRunCancelRequest(value: Partial<RunCancelRequest>): value is RunCance
     typeof value.source === 'string' &&
     (value.deadlineMs === undefined ||
       (Number.isFinite(value.deadlineMs) && value.deadlineMs >= 0)) &&
-    (value.reason === undefined || typeof value.reason === 'string')
+    (value.reason === undefined || typeof value.reason === 'string') &&
+    (value.operator === undefined || typeof value.operator === 'string')
   )
 }
 

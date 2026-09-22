@@ -17348,6 +17348,12 @@ Who asked — 'human', a brain label, a tool name. Provenance, not authorization
 Requested observation target, measured by the acknowledgement's deadlineExceeded field.
 The observer always cascades eagerly. This does not guarantee scheduler latency or cleanup.
 
+##### operator?
+
+> `readonly` `optional` **operator?**: `string`
+
+Stable operator/requester identity for audit trails.
+
 ##### reason?
 
 > `readonly` `optional` **reason?**: `string`
@@ -17413,6 +17419,10 @@ ISO timestamp of the runtime's most recent observation of this operation.
 > `readonly` `optional` **reason?**: `string`
 
 The caller's reason, carried verbatim from the request.
+
+##### operator?
+
+> `readonly` `optional` **operator?**: `string`
 
 ##### detail?
 
@@ -36437,6 +36447,10 @@ rather than silently replacing the pending one, because both would claim the sam
 ###### deadlineMs?
 
 `number`
+
+###### operator?
+
+`string`
 
 #### Returns
 
