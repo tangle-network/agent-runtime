@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.251.0.**
+> **Version 0.252.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.183.0 <0.184.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.46.0`.
@@ -238,6 +238,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Run one bounded unit under a protected model grant | `runProtectedAgentCandidateModelGrant(...)`: `/candidate-execution` (Runtime resolves, reserves, activates, and settles the grant around the caller's callback) | a product-owned reserve/activate/settle wrapper or a grant spanning a whole run |
 | Authorize and execute writes only for the exact measured and approved candidate | `createAgentImprovementActivation(...)`, then `executeAgentImprovementActivation(...)` with one idempotent transition in `/intelligence`; opaque profile changes use `prepareAgentImprovementProfileActivation({ stateDigest, resolveState? })`, target one complete profile identity, and restore only from product-retained state by exact digest; use `createKnowledgeImprovementActivationExecutor(...)` from root `.` for one local KB | a mutable approval flag, a second per-surface approval path, a best-effort profile restore, or a write that does not persist an exact result |
 | Capture and restore exact task, candidate, or memory workspace bytes | `captureAgentCandidateWorkspace(...)` + `createAgentCandidateWorkspacePort(...)`: `/candidate-execution` | a product-specific archive format, ambient `git checkout`, or a materializer that skips byte/path/mode verification |
+| Retain a provider worker's executable files before its environment is deleted | `createExecutor({ backend: 'provider', workspaceRetention: { capture, artifacts, timeoutMs } })`: `/kernel`; capture supported workspace bytes while the environment is live, persist the standard archive and manifest through the caller's artifact service, and restore a later worker through `createAgentCandidateWorkspacePort(...)`. An unverified or timed-out capture keeps the source alive. A failed worker without a settled result also keeps its source because it has no result carrying the receipt. Declare native session state separately: a file archive alone cannot prove same-session continuation. | a post-delete snapshot, a digest without retrievable bytes, or a provider-native checkpoint that still requires the deleted source environment |
 | Fold **certified prompt additions into a system prompt you assemble yourself** (product chat routes) | `createCertifiedPromptSource({ target })` → `source.compose(base)`: `/intelligence` (cached, coalesced, fail-closed; `withIntelligence` rides the same source) | a module-scope cache + refresh-window + keep-last-known loop around `pullCertified` in product wiring |
 | Produce a frozen KB candidate with runtime agents, readiness checks, and measured supervised spend | `runKnowledgeImprovementJob(options)` from root `.`, then the shared activation path above after review | hand-wiring `improveKnowledgeBase` + a supervised updater, or letting candidate search write live knowledge |
 

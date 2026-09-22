@@ -227,17 +227,7 @@ async function materializeAgentCandidateWorkspace(input: {
   destination: string
   limits: AgentCandidateWorkspaceArchiveLimits
 }): Promise<void> {
-  verifyBytes(
-    input.archive,
-    input.snapshot.archive.sha256,
-    input.snapshot.archive.byteLength,
-    'candidate workspace archive',
-  )
-  const decoded = await parseWorkspaceArchive(input.archive, input.limits)
-  if (decoded.repository && input.role !== 'task') {
-    throw new Error('only task workspaces may carry a Git repository')
-  }
-  assertArchiveMatchesSnapshot(decoded.files, input.snapshot)
+  const decoded = await decodeVerifiedWorkspaceArchive(input)
   const destination = resolve(input.destination)
   await prepareEmptyDestination(destination)
   const staging = await mkdtemp(`${destination}.materializing-`)
@@ -255,6 +245,36 @@ async function materializeAgentCandidateWorkspace(input: {
     await rm(destination, { recursive: true, force: true })
     throw error
   }
+}
+
+/** Verify a portable archive before its source environment may be discarded. */
+export async function verifyAgentCandidateWorkspaceArchive(input: {
+  role: 'task' | 'candidate' | 'knowledge' | 'memory'
+  snapshot: AgentCandidateWorkspaceSnapshotEvidence
+  archive: Uint8Array
+  limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
+}): Promise<void> {
+  await decodeVerifiedWorkspaceArchive({ ...input, limits: workspaceLimits(input.limits) })
+}
+
+async function decodeVerifiedWorkspaceArchive(input: {
+  role: 'task' | 'candidate' | 'knowledge' | 'memory'
+  snapshot: AgentCandidateWorkspaceSnapshotEvidence
+  archive: Uint8Array
+  limits: AgentCandidateWorkspaceArchiveLimits
+}): Promise<DecodedWorkspaceArchive> {
+  verifyBytes(
+    input.archive,
+    input.snapshot.archive.sha256,
+    input.snapshot.archive.byteLength,
+    'candidate workspace archive',
+  )
+  const decoded = await parseWorkspaceArchive(input.archive, input.limits)
+  if (decoded.repository && input.role !== 'task') {
+    throw new Error('only task workspaces may carry a Git repository')
+  }
+  assertArchiveMatchesSnapshot(decoded.files, input.snapshot)
+  return decoded
 }
 
 async function captureRepository(

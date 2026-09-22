@@ -9,6 +9,7 @@ import { type ProviderPlacement, selectProviderPlacement } from './provider-plac
 export type { ProviderPlacement } from './provider-placement'
 
 import {
+  type AgentCandidateWorkspaceSnapshotEvidence,
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
   type AgentInteractiveSession,
@@ -71,6 +72,11 @@ import type {
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { defaultRedactor } from '../redact'
 import {
+  assertProviderWorkspaceRetentionPort,
+  captureProviderWorkspaceSnapshot,
+  type ProviderWorkspaceRetentionPort,
+} from './provider-workspace-retention'
+import {
   assertEventBinding,
   awaitAbortable,
   exactSession,
@@ -101,6 +107,7 @@ import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
   newExecutionAttemptId,
+  runtimeOwnedExecutorMaterialization,
 } from './supervise/materialization'
 import {
   concreteProfileModel,
@@ -164,6 +171,11 @@ export type {
   ResourceRequest,
   WorkspaceRequest,
 } from '@tangle-network/agent-interface/environment-provider'
+
+export type {
+  ProviderWorkspaceRetentionContext,
+  ProviderWorkspaceRetentionPort,
+} from './provider-workspace-retention'
 
 export {
   type CreateTangleSandboxExactProcessProviderOptions,
@@ -478,6 +490,8 @@ export function sandboxClientAsProvider(
 export interface ProviderLeafOut {
   content: string
   events: AgentEnvironmentEvent[]
+  /** Portable executable workspace evidence accepted before the source environment was deleted. */
+  workspaceSnapshot?: AgentCandidateWorkspaceSnapshotEvidence
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
 }
@@ -563,6 +577,8 @@ export interface ProviderExecutorOptions {
    * back to its own settle verdict.
    */
   validator?: Validator<ProviderLeafOut>
+  /** Capture and verify a portable executable workspace before Runtime destroys the environment. */
+  workspaceRetention?: ProviderWorkspaceRetentionPort
   /** Transform only the profile sent to `provider.create`. The original profile
    * remains the input to `taskToTurn`, so execution-only normalization cannot
    * rewrite the caller's task mapping. */
@@ -640,6 +656,12 @@ function createProviderExecutor(
   options: ProviderExecutorOptions,
   placement?: { id: string; digest: string },
 ): Executor<unknown> {
+  if (options.workspaceRetention !== undefined) {
+    assertProviderWorkspaceRetentionPort(
+      options.workspaceRetention,
+      `providerAsExecutor(${provider.name})`,
+    )
+  }
   const controller = new AbortController()
   const node =
     ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
@@ -666,6 +688,16 @@ function createProviderExecutor(
   // SECOND delete against a resource that is already gone. That second call is what the provider
   // answered 409 to.
   let destroyed = false
+  let workspaceEnvironmentId: string | undefined
+  let workspaceSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
+  let workspacePublishedSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
+  let workspaceCaptureFailure: unknown
+  let workspaceCapturePromise: Promise<AgentCandidateWorkspaceSnapshotEvidence> | undefined
+  let workspaceCleanupPromise: Promise<{ destroyed: boolean; detail?: string }> | undefined
+  let retainedReleasePromise: Promise<ReadonlyArray<EnvironmentTeardownReceipt>> | undefined
+  let workspaceOutcome: AgentRunOutcome | undefined
+  let workspacePreservationRequired = false
+  let workspaceRunActive = false
 
   const runtime = options.runtime ?? (provider.name as Runtime)
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
@@ -681,6 +713,170 @@ function createProviderExecutor(
     )
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
+
+  const resetWorkspaceState = (next: AgentEnvironment): void => {
+    if (workspaceEnvironmentId === next.id) return
+    workspaceEnvironmentId = next.id
+    workspaceSnapshot = undefined
+    workspacePublishedSnapshot = undefined
+    workspaceCaptureFailure = undefined
+    workspaceCapturePromise = undefined
+    workspaceCleanupPromise = undefined
+    retainedReleasePromise = undefined
+    workspaceOutcome = undefined
+    workspacePreservationRequired = false
+    destroyed = false
+  }
+
+  // One executor may be retried. A retry is a new capture generation even when a provider
+  // reuses its environment id; otherwise the prior turn's archive could authorize deleting a
+  // workspace whose files changed during the retry. A failed generation stays fail-closed until
+  // the caller constructs a fresh executor after resolving its unreceipted source.
+  const beginWorkspaceExecution = (): void => {
+    if (workspaceRunActive) {
+      throw new ValidationError(`providerAsExecutor(${provider.name}): executor is already running`)
+    }
+    if (options.workspaceRetention !== undefined) {
+      if (workspacePreservationRequired) {
+        throw new ValidationError(
+          `providerAsExecutor(${provider.name}): a prior failed execution has no retrievable workspace receipt; source remains preserved and this executor cannot be reused`,
+        )
+      }
+      if (environment !== undefined && !destroyed) {
+        throw new ValidationError(
+          `providerAsExecutor(${provider.name}): the prior workspace environment is still live; teardown must release it before this executor can be reused`,
+        )
+      }
+    }
+    if (runtimeOwnedExecutorMaterialization(executor) !== undefined) {
+      throw new ValidationError(
+        `providerAsExecutor(${provider.name}): this executor has already materialized; create a new executor for another run`,
+      )
+    }
+    if (environment !== undefined && destroyed) {
+      // Do not leave a confirmed-destroyed handle in the next generation. If the new create fails
+      // before onEnvironment runs, a later teardown must not retry deletion of the old source.
+      environment = undefined
+      workspaceEnvironmentId = undefined
+    }
+    workspaceRunActive = true
+    workspaceSnapshot = undefined
+    workspacePublishedSnapshot = undefined
+    workspaceCaptureFailure = undefined
+    workspaceCapturePromise = undefined
+    workspaceCleanupPromise = undefined
+    retainedReleasePromise = undefined
+    workspaceOutcome = undefined
+    workspacePreservationRequired = false
+    destroyed = false
+  }
+
+  const captureWorkspace = async (
+    next: AgentEnvironment,
+    outcome: AgentRunOutcome | undefined,
+  ): Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined> => {
+    const workspaceRetention = options.workspaceRetention
+    if (workspaceRetention === undefined) return undefined
+    resetWorkspaceState(next)
+    if (workspaceSnapshot !== undefined) return workspaceSnapshot
+    if (workspaceCapturePromise === undefined) {
+      workspaceOutcome = outcome
+      workspaceCapturePromise = captureProviderWorkspaceSnapshot(workspaceRetention, {
+        environment: next,
+        executionId,
+        profile: createProfile,
+        ...(outcome === undefined ? {} : { outcome }),
+      })
+        .then((snapshot) => {
+          workspaceSnapshot = snapshot
+          return snapshot
+        })
+        .catch((error: unknown) => {
+          workspaceCaptureFailure = error
+          throw error
+        })
+    }
+    return await workspaceCapturePromise
+  }
+
+  const workspaceFailureDetail = (): string => {
+    const reason =
+      workspaceCaptureFailure instanceof Error
+        ? workspaceCaptureFailure.message
+        : String(workspaceCaptureFailure ?? 'capture was not accepted')
+    return `providerAsExecutor(${provider.name}): workspace retention failed — ${reason}; source environment preserved`
+  }
+
+  const destroyEnvironment = async (
+    cleanupSignal?: AbortSignal,
+  ): Promise<{ destroyed: boolean; detail?: string }> => {
+    if (workspaceCleanupPromise !== undefined) return await workspaceCleanupPromise
+    const cleanupPromise = (async () => {
+      const target = environment
+      if (target === undefined) return { destroyed: true }
+      if (workspacePreservationRequired) {
+        return {
+          destroyed: false,
+          detail:
+            'provider workspace retention: source preserved because execution failed before a retrievable settled workspace receipt existed',
+        }
+      }
+      if (options.workspaceRetention !== undefined) {
+        try {
+          const currentSnapshot = await captureWorkspace(target, workspaceOutcome)
+          if (
+            workspacePublishedSnapshot !== undefined &&
+            currentSnapshot !== undefined &&
+            currentSnapshot.digest !== workspacePublishedSnapshot.digest
+          ) {
+            workspacePreservationRequired = true
+            return {
+              destroyed: false,
+              detail:
+                'provider workspace retention: live workspace changed after the published receipt; source preserved',
+            }
+          }
+        } catch {
+          return { destroyed: false, detail: workspaceFailureDetail() }
+        }
+      }
+      if (destroyed) return { destroyed: true }
+      try {
+        await awaitAbortable(Promise.resolve(target.destroy?.()), cleanupSignal)
+        destroyed = true
+        return { destroyed: true }
+      } catch (error) {
+        return {
+          destroyed: false,
+          detail: `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+    })()
+    let cleanupReference!: Promise<{ destroyed: boolean; detail?: string }>
+    cleanupReference = cleanupPromise.then((result) => {
+      // A provider destroy can fail transiently after a verified capture. Keep the snapshot
+      // single-flight, but allow a later caller to retry the release. Capture failures and
+      // unsettled execution failures stay cached so retries cannot bypass preservation.
+      if (
+        !result.destroyed &&
+        workspaceCleanupPromise === cleanupReference &&
+        !workspacePreservationRequired &&
+        workspaceCaptureFailure === undefined
+      ) {
+        // The live workspace may have changed while the provider rejected the delete. A retry
+        // must capture the current bytes instead of reusing the prior receipt as authority.
+        if (options.workspaceRetention !== undefined) {
+          workspaceSnapshot = undefined
+          workspaceCapturePromise = undefined
+          workspaceOutcome = undefined
+        }
+        workspaceCleanupPromise = undefined
+      }
+      return result
+    })
+    workspaceCleanupPromise = cleanupReference
+    return await cleanupReference
+  }
   const attemptId = node?.attemptId ?? newExecutionAttemptId(executionId)
   const trace = createPushTraceSource({ runId: executionId })
   const providerModel = concreteProfileModel(createProfile)
@@ -733,6 +929,7 @@ function createProviderExecutor(
     signal: AbortSignal,
     recovering = false,
   ): AsyncIterable<UsageEvent> {
+    beginWorkspaceExecution()
     const linked = linkAbort(ctx.signal, signal, controller.signal)
     try {
       yield* streamProviderExecutor({
@@ -755,6 +952,7 @@ function createProviderExecutor(
         },
         onEnvironment: (env) => {
           environment = env
+          resetWorkspaceState(env)
           // A box now exists, so `execution-never-started` has stopped being true. Until the
           // capture reports, the honest answer is that nobody read it.
           if (
@@ -786,12 +984,18 @@ function createProviderExecutor(
         onHarnessTranscript: (next) => {
           harnessTranscript = next
         },
-        onDestroyed: () => {
-          destroyed = true
+        onUnsettledFailure: () => {
+          workspacePreservationRequired = true
         },
+        onPublishedSnapshot: (snapshot) => {
+          workspacePublishedSnapshot = snapshot
+        },
+        captureWorkspace,
+        destroyEnvironment,
       })
     } finally {
       linked.release()
+      workspaceRunActive = false
     }
   }
   executor = {
@@ -831,23 +1035,17 @@ function createProviderExecutor(
     },
     async teardown(_grace): Promise<{ destroyed: boolean; detail?: string }> {
       controller.abort()
-      if (pending) return { destroyed: false, detail: 'retained execution requires reconciliation' }
-      // Already released by the stream's own settle path: re-deleting is the double call that
-      // produced the 409, and the resource is provably gone, so this is a confirmed teardown.
-      if (destroyed || environment === undefined) return { destroyed: true }
-      try {
-        await environment.destroy?.()
-        destroyed = true
-        return { destroyed: true }
-      } catch (error) {
-        // A cleanup this process could not complete is UNCONFIRMED, not a run failure. `destroyed:
-        // false` is exactly what the barrier journals as `teardown-unconfirmed`; throwing here
-        // would instead surface as a failure of the work the executor already finished.
+      if (options.workspaceRetention !== undefined && workspaceRunActive) {
         return {
           destroyed: false,
-          detail: `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
+          detail:
+            'provider workspace retention: source preserved while the execution is still active',
         }
       }
+      if (pending) return { destroyed: false, detail: 'retained execution requires reconciliation' }
+      // A failed or timed-out capture keeps the source alive. The shared cleanup promise also
+      // means a stream-finally teardown and a caller teardown cannot race two provider deletes.
+      return await destroyEnvironment()
     },
     async releaseRetained(signal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
       controller.abort()
@@ -865,23 +1063,37 @@ function createProviderExecutor(
         destroyed,
         ...(detail === undefined ? {} : { detail }),
       })
-      try {
-        const target =
-          environment ??
-          (provider.get === undefined
-            ? undefined
-            : await awaitAbortable(provider.get(environmentId), signal))
-        if (target === undefined) {
-          return [
-            receipt(
-              false,
-              `providerAsExecutor(${provider.name}): no environment handle and the provider exposes no get()`,
-            ),
-          ]
-        }
-        // `null` is the provider saying it no longer holds the environment: nothing remains to
-        // destroy, which is the same answer `recoverRetainedRun` reads as `not_found`.
-        if (target !== null) {
+      if (options.workspaceRetention !== undefined && workspaceRunActive) {
+        return [
+          receipt(
+            false,
+            'provider workspace retention: source preserved while execution is still active',
+          ),
+        ]
+      }
+      if (retainedReleasePromise !== undefined) return await retainedReleasePromise
+      const releasePromise = (async () => {
+        try {
+          const target =
+            environment ??
+            (provider.get === undefined
+              ? undefined
+              : await awaitAbortable(provider.get(environmentId), signal))
+          if (target === undefined) {
+            return [
+              receipt(
+                false,
+                `providerAsExecutor(${provider.name}): no environment handle and the provider exposes no get()`,
+              ),
+            ]
+          }
+          // `null` is the provider saying it no longer holds the environment: nothing remains to
+          // destroy, which is the same answer `recoverRetainedRun` reads as `not_found`.
+          if (target === null) {
+            pending = false
+            destroyed = true
+            return [receipt(true)]
+          }
           if (target.destroy === undefined) {
             return [
               receipt(
@@ -890,19 +1102,37 @@ function createProviderExecutor(
               ),
             ]
           }
-          await awaitAbortable(target.destroy(), signal)
+          if (environment === undefined) {
+            environment = target
+            resetWorkspaceState(target)
+          }
+          const result = await destroyEnvironment(signal)
+          if (!result.destroyed) return [receipt(false, result.detail)]
+          pending = false
+          return [receipt(true)]
+        } catch (error) {
+          return [
+            receipt(
+              false,
+              `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          ]
         }
-        pending = false
-        destroyed = true
-        return [receipt(true)]
-      } catch (error) {
-        return [
-          receipt(
-            false,
-            `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        ]
-      }
+      })()
+      let releaseReference!: Promise<ReadonlyArray<EnvironmentTeardownReceipt>>
+      releaseReference = releasePromise.then((receipts) => {
+        if (
+          retainedReleasePromise === releaseReference &&
+          !receipts.every((receipt) => receipt.destroyed) &&
+          !workspacePreservationRequired &&
+          workspaceCaptureFailure === undefined
+        ) {
+          retainedReleasePromise = undefined
+        }
+        return receipts
+      })
+      retainedReleasePromise = releaseReference
+      return await releaseReference
     },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
@@ -945,12 +1175,16 @@ interface StreamProviderExecutorArgs {
   onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
   onArtifact: (artifact: ExecutorResult<unknown>) => void
+  onUnsettledFailure: () => void
+  onPublishedSnapshot: (snapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined) => void
+  captureWorkspace: (
+    environment: AgentEnvironment,
+    outcome: AgentRunOutcome | undefined,
+  ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
+  destroyEnvironment: (signal?: AbortSignal) => Promise<{ destroyed: boolean; detail?: string }>
   /** The harness transcript read out of the live environment, reported on the settled path AND
    *  on the drop path. One channel for both, so a reader never has to know which path ran. */
   onHarnessTranscript: (capture: HarnessTranscriptCapture) => void
-  /** The environment was destroyed here, so `teardown` must not DELETE it a second time — the
-   *  double delete is what produced the 409 that used to fail a completed run. */
-  onDestroyed: () => void
 }
 
 async function* streamProviderExecutor(
@@ -1006,6 +1240,7 @@ async function* streamProviderExecutor(
   let usd = 0
   let text = ''
   let terminal = false
+  const failures = createProviderFailureLedger()
   // The artifact this turn settled with, once it exists. Its presence is what separates "the work
   // finished and the resource would not release" from "the work never finished".
   let settled: ExecutorResult<unknown> | undefined
@@ -1016,7 +1251,6 @@ async function* streamProviderExecutor(
   let failed = false
   try {
     const toolParts = createSandboxToolPartState()
-    const failures = createProviderFailureLedger()
     for await (const event of source.events) {
       archive.append(event)
       text += textFromEnvironmentEvent(event)
@@ -1135,6 +1369,12 @@ async function* streamProviderExecutor(
       }),
       signal: linked,
     })
+    const retainedWorkspace = await args.captureWorkspace(environment, outcome)
+    args.onPublishedSnapshot(retainedWorkspace)
+    const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
+      ...result,
+      ...(retainedWorkspace === undefined ? {} : { workspaceSnapshot: retainedWorkspace }),
+    }
     settled = {
       ...(result.outcome?.status === 'failed'
         ? {
@@ -1146,8 +1386,8 @@ async function* streamProviderExecutor(
             },
           }
         : {}),
-      outRef: contentRef(`provider:${args.provider.name}`, result),
-      out: result,
+      outRef: contentRef(`provider:${args.provider.name}`, settledResult),
+      out: settledResult,
       ...(verdict ? { verdict } : {}),
       spent,
     }
@@ -1157,6 +1397,27 @@ async function* streamProviderExecutor(
   } catch (error) {
     failure = source.retained ? new RetainedExecutionPendingError(error) : error
     failed = true
+    // A failed or cancelled stream has no ProviderLeafOut for the caller to retrieve. Keep the
+    // live source even when capture succeeds, so its executable state remains the receipt boundary.
+    if (args.options.workspaceRetention !== undefined) args.onUnsettledFailure()
+    const failureOutcome =
+      failures.finish() ??
+      ({
+        success: false,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        ...(linked.aborted ? { errorCode: 'cancelled' } : {}),
+      } satisfies AgentRunOutcome)
+    try {
+      await args.captureWorkspace(environment, failureOutcome)
+    } catch (captureError) {
+      // The portable preservation error is the actionable failure, while the original stream
+      // error remains available as its cause for callers that need both diagnostics.
+      failure =
+        captureError instanceof Error
+          ? Object.assign(captureError, { cause: captureError.cause ?? failure })
+          : captureError
+    }
     // THE LAST POINT THE ENVIRONMENT IS STILL LIVE. The `finally` below destroys it for a
     // non-retained source, and a retained one is released later by `releaseRetained` — either
     // way nothing downstream can read it again. Measured 2026-09-15 on the
@@ -1180,10 +1441,9 @@ async function* streamProviderExecutor(
       !(source.retained && args.retention?.preserveEnvironment) &&
       (args.options.destroyOnSettle ?? true)
     ) {
-      try {
-        await environment.destroy?.()
-        args.onDestroyed()
-      } catch (error) {
+      const cleanup = await args.destroyEnvironment()
+      if (!cleanup.destroyed) {
+        const error = new Error(cleanup.detail ?? 'provider environment teardown was not confirmed')
         // ONCE THE TURN HAS SETTLED, TEARDOWN CANNOT CHANGE THE OUTCOME. Measured: a second DELETE
         // answered 409, the rejection escaped this `finally`, and a run whose turn had completed
         // (`spent.iterations: 1`, artifact produced) was reported as a failure. The resource fact is
@@ -1196,7 +1456,7 @@ async function* streamProviderExecutor(
             ...settled,
             teardown: {
               failed: true,
-              error: error instanceof Error ? error.message : String(error),
+              error: error.message,
               at: new Date().toISOString(),
             },
           })

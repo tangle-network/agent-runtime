@@ -26,6 +26,7 @@ import {
 } from '../src/candidate-execution'
 import { embeddedCandidateArtifact, sha256Bytes } from '../src/candidate-execution/digest'
 import { runCandidateGit } from '../src/candidate-execution/git-materialize'
+import { verifyAgentCandidateWorkspaceArchive } from '../src/candidate-execution/workspace-archive'
 
 const roots: string[] = []
 
@@ -161,6 +162,11 @@ describe('candidate workspace archive', () => {
     writeFileSync(join(source, 'input.txt'), 'exact bytes', { mode: 0o664 })
     chmodSync(join(source, 'input.txt'), 0o664)
     const captured = await captureAgentCandidateWorkspace(source)
+    await verifyAgentCandidateWorkspaceArchive({
+      role: 'candidate',
+      snapshot: captured.snapshot,
+      archive: captured.archive,
+    })
     const port = createAgentCandidateWorkspacePort()
     const destination = join(temporaryRoot('candidate-workspace-parent-'), 'restored')
     await port.materialize({
@@ -176,6 +182,13 @@ describe('candidate workspace archive', () => {
     const contentOffset = Buffer.from(tampered).indexOf('exact bytes')
     if (contentOffset < 0) throw new Error('fixture tar does not contain the file payload')
     tampered[contentOffset] = 'E'.charCodeAt(0)
+    await expect(
+      verifyAgentCandidateWorkspaceArchive({
+        role: 'candidate',
+        snapshot: { ...captured.snapshot, archive: embeddedCandidateArtifact(tampered) },
+        archive: tampered,
+      }),
+    ).rejects.toThrow('manifest')
     await expect(
       port.materialize({
         role: 'candidate',
