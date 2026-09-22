@@ -13176,6 +13176,23 @@ The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves tr
 
 What the spawn was supposed to produce — surfaced in traces/reports.
 
+##### explainFailure?
+
+> `optional` **explainFailure?**: (`out`) => `string` \| `Promise`\<`string` \| `undefined`\> \| `undefined`
+
+Explain a refused submission after `check` returns false. This diagnostic cannot accept
+ a result or replace the check. A missing explanation retains the generic refusal.
+
+###### Parameters
+
+###### out
+
+`Out`
+
+###### Returns
+
+`string` \| `Promise`\<`string` \| `undefined`\> \| `undefined`
+
 ***
 
 ### ExecutorResultMapping

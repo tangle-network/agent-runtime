@@ -251,6 +251,8 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
   it('uses a child-specific completion check when a managed child submits its own result', async () => {
     let childCheckCalls = 0
+    let childRefusal: unknown
+    let childExplanations = 0
     const journal = new InMemorySpawnJournal()
     const child = testAgentProfile('specialist', {
       harness: 'opencode',
@@ -275,6 +277,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         await call(coordinationMcpUrl, 'await_event', {})
         return
       }
+      childRefusal = await call(coordinationMcpUrl, 'submit_result', { result: { answer: 0 } })
       await call(coordinationMcpUrl, 'submit_result', { result: { answer: 42 } })
     }
 
@@ -293,7 +296,10 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runId: 'parent-contract',
         // The run-wide check deliberately rejects the child's output. A profile-managed child
         // must instead receive the check selected for its exact authorized assignment.
-        deliverable: { check: () => false },
+        deliverable: {
+          check: () => false,
+          explainFailure: () => 'root obligation remains incomplete',
+        },
         resolveDeliverable: (input) =>
           input.profile.name === 'specialist'
             ? {
@@ -305,13 +311,20 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
                     (value as { answer?: unknown }).answer === 42
                   )
                 },
+                explainFailure: () => {
+                  childExplanations += 1
+                  return 'child answer must equal 42'
+                },
               }
             : undefined,
       },
     )
 
-    // The child's own check is what judged the child: consulted exactly once, and it passed.
-    expect(childCheckCalls).toBe(1)
+    // The child receives its own refusal before its corrected submission passes.
+    expect(childCheckCalls).toBe(2)
+    expect(childExplanations).toBe(1)
+    expect(JSON.stringify(childRefusal)).toContain('child answer must equal 42')
+    expect(JSON.stringify(childRefusal)).not.toContain('root obligation')
     expect(await journal.loadTree('parent-contract')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

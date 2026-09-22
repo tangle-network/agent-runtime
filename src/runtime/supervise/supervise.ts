@@ -2044,9 +2044,18 @@ function captureDeliverable(
   if (typeof deliverable.check !== 'function') {
     throw new ValidationError(`${context}: deliverable.check must be a function`)
   }
+  if (
+    deliverable.explainFailure !== undefined &&
+    typeof deliverable.explainFailure !== 'function'
+  ) {
+    throw new ValidationError(`${context}: deliverable.explainFailure must be a function`)
+  }
   return Object.freeze({
     ...detachedSnapshot({ describe: deliverable.describe }, `${context} configuration`),
     check: deliverable.check,
+    ...(deliverable.explainFailure === undefined
+      ? {}
+      : { explainFailure: deliverable.explainFailure }),
   })
 }
 

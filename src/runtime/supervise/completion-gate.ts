@@ -35,6 +35,9 @@ export interface DeliverableSpec<Out = unknown> {
   check: (out: Out) => boolean | Promise<boolean>
   /** What the spawn was supposed to produce — surfaced in traces/reports. */
   describe?: string
+  /** Explain a refused submission after `check` returns false. This diagnostic cannot accept
+   *  a result or replace the check. A missing explanation retains the generic refusal. */
+  explainFailure?: (out: Out) => string | undefined | Promise<string | undefined>
 }
 
 /**

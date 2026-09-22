@@ -3607,13 +3607,24 @@ export function createCoordinationToolsForManager(
                 thrown = error instanceof Error ? error.message : String(error)
               }
               if (!accepted) {
+                let explanation: string | undefined
+                let diagnosticError: string | undefined
+                if (thrown === undefined && deliverable.explainFailure) {
+                  try {
+                    const detail = await deliverable.explainFailure(result)
+                    if (typeof detail === 'string' && detail.trim()) explanation = detail.trim()
+                  } catch (error) {
+                    diagnosticError = error instanceof Error ? error.message : String(error)
+                  }
+                }
                 return {
                   accepted: false,
                   stop: false,
                   reason:
                     thrown === undefined
-                      ? `the independent check did not pass on this result${deliverable.describe ? `. Expected: ${deliverable.describe}` : ''}`
+                      ? `the independent check did not pass on this result${explanation ? `. ${explanation}` : deliverable.describe ? `. Expected: ${deliverable.describe}` : ''}`
                       : `the independent check THREW, so nothing was accepted: ${thrown}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`,
+                  ...(diagnosticError === undefined ? {} : { diagnosticError }),
                 }
               }
               // Two remote callers may submit concurrently. Whichever passing check completes

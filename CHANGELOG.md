@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.250.0
+
+`DeliverableSpec.explainFailure` is an optional hook that explains a refused submission. A submission the coordination `submit` tool refuses now carries the explainer's specific reason, or a `diagnosticError` when the explainer itself throws, instead of only the generic refusal. Also carries a bridge-executor test flake fix.
+
 ## 0.249.1
 
 Verify retry backoff through request-attempt timing on a controlled clock.
