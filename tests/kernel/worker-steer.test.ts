@@ -13,7 +13,7 @@ import {
 import {
   readWorkerSteerAcknowledgement,
   supervisorRunDir,
-  writeWorkerSteer,
+  writeWorkerSteerToRun,
 } from '../../src/runtime/supervise/run-layout'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -108,13 +108,13 @@ describe('durable external worker steer', () => {
     let turn = 0
     const brain: ToolLoopChat = async (messages, tools, context) => {
       if (turn === 1) {
-        const first = writeWorkerSteer(rootDir, runId, `${runId}:s0`, {
+        const first = writeWorkerSteerToRun(controlDir, `${runId}:s0`, {
           operationId: 'external-steer-1',
           message: 'inspect the failing test first',
           source: 'operator',
           interrupt: true,
         })
-        const retry = writeWorkerSteer(rootDir, runId, `${runId}:s0`, {
+        const retry = writeWorkerSteerToRun(controlDir, `${runId}:s0`, {
           operationId: 'external-steer-1',
           message: 'inspect the failing test first',
           source: 'operator',

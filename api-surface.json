@@ -1978,7 +1978,8 @@
       "workerTraceHeaders": "value 9255e2658723",
       "workerTraceSeamKey": "value a8ce01735cb8",
       "worktreeFanout": "value d3180f64e42b",
-      "writeWorkerSteer": "value fb0f7dc950d1"
+      "writeWorkerSteer": "value fb0f7dc950d1",
+      "writeWorkerSteerToRun": "value ab5bfeeaf05c"
     },
     "./knowledge": {
       "AgentKnowledgeReadinessCheckOptions": "type f77a5ab2faa6",

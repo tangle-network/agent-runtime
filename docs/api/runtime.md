@@ -31625,6 +31625,57 @@ and control log are readable projections written only by the admission winner.
 
 ***
 
+### writeWorkerSteerToRun()
+
+> **writeWorkerSteerToRun**(`eventDir`, `worker`, `options`): `object`
+
+**`Stable`**
+
+Admit one steer into an already-known durable run directory.
+
+Use this form with `SuperviseOptions.runDir`. The runtime reads the same directory through its
+external-control acknowledger, so callers do not need to reproduce the workspace run layout.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+##### options
+
+[`WriteWorkerSteerOptions`](#writeworkersteeroptions)
+
+#### Returns
+
+`object`
+
+##### worker
+
+> **worker**: `string`
+
+##### file
+
+> **file**: `string`
+
+##### request
+
+> **request**: [`WorkerSteerRequest`](#workersteerrequest)
+
+##### acknowledgement?
+
+> `optional` **acknowledgement?**: [`WorkerSteerAcknowledgement`](#workersteeracknowledgement)
+
+##### replayed
+
+> **replayed**: `boolean`
+
+***
+
 ### readWorkerSteerRequests()
 
 > **readWorkerSteerRequests**(`eventDir`, `worker?`): [`WorkerSteerRequest`](#workersteerrequest)[]

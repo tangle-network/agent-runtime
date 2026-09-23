@@ -299,6 +299,27 @@ export function writeWorkerSteer(
   acknowledgement?: WorkerSteerAcknowledgement
   replayed: boolean
 } {
+  return writeWorkerSteerToRun(supervisorRunDir(rootDir, supervisorId), worker, options)
+}
+
+/**
+ * Admit one steer into an already-known durable run directory.
+ *
+ * Use this form with `SuperviseOptions.runDir`. The runtime reads the same directory through its
+ * external-control acknowledger, so callers do not need to reproduce the workspace run layout.
+ * @stable
+ */
+export function writeWorkerSteerToRun(
+  eventDir: string,
+  worker: string,
+  options: WriteWorkerSteerOptions,
+): {
+  worker: string
+  file: string
+  request: WorkerSteerRequest
+  acknowledgement?: WorkerSteerAcknowledgement
+  replayed: boolean
+} {
   const workerId = worker.trim()
   if (!workerId) throw new Error('writeWorkerSteer: worker id is empty')
   const operationId = options.operationId.trim()
@@ -307,7 +328,7 @@ export function writeWorkerSteer(
   if (!trimmed) throw new Error('steer message is empty')
   const source = options.source?.trim() || 'human'
   const interrupt = options.interrupt === true
-  const dir = supervisorRunDir(rootDir, supervisorId)
+  const dir = resolve(eventDir)
   const requestDigest = workerSteerRequestDigest({
     operationId,
     worker: workerId,
@@ -342,7 +363,7 @@ export function writeWorkerSteer(
     }
   }
   mkdirSync(supervisorWorkersDir(dir), { recursive: true })
-  const projection = workerInboxFile(rootDir, supervisorId, workerId)
+  const projection = workerInboxFileFromEventDir(dir, workerId)
   try {
     appendFileSync(projection, `${JSON.stringify(request)}\n`, 'utf8')
   } catch {

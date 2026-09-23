@@ -20,11 +20,13 @@ import {
   supervisorRunDir,
   supervisorRunsRoot,
   workerInboxFile,
+  workerInboxFileFromEventDir,
   workerSteerAcknowledgementFile,
   workerSteerRequestFile,
   workerSteerRequestsDir,
   writeWorkerSteer,
   writeWorkerSteerAcknowledgement,
+  writeWorkerSteerToRun,
 } from '../src/runtime/supervise/run-layout'
 
 const childScript = new URL('./helpers/worker-steer-child.ts', import.meta.url).pathname
@@ -87,6 +89,32 @@ describe('supervisor run layout', () => {
         message: 'change the request body',
       }),
     ).toThrow(/conflicts/)
+  })
+
+  it('writes a steer into an exact durable run directory', () => {
+    const dir = tempRoot()
+    const written = writeWorkerSteerToRun(dir, 'run-direct:s0', {
+      operationId: 'steer-direct',
+      message: 'continue from the checked artifact',
+      source: 'operator',
+      interrupt: true,
+    })
+
+    expect(readWorkerSteerRequests(dir, 'run-direct:s0')).toEqual([written.request])
+    expect(readFileSync(workerInboxFileFromEventDir(dir, 'run-direct:s0'), 'utf8')).toBe(
+      `${JSON.stringify(written.request)}\n`,
+    )
+    expect(written.request.interrupt).toBe(true)
+    expect(written.replayed).toBe(false)
+
+    const replay = writeWorkerSteerToRun(dir, 'run-direct:s0', {
+      operationId: 'steer-direct',
+      message: 'continue from the checked artifact',
+      source: 'operator',
+      interrupt: true,
+    })
+    expect(replay.replayed).toBe(true)
+    expect(readWorkerSteerRequests(dir)).toHaveLength(1)
   })
 
   it('rejects an empty steer instead of writing a blank line', () => {

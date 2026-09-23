@@ -571,7 +571,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 921 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 922 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -843,6 +843,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 921 exports.
 | `workerTraceHeaders` | function | The trace request headers for a worker dispatched over the cli-bridge HTTP transport — W3C |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `writeWorkerSteer` | function | Admit one steer exactly once under a caller-owned operation id. |
+| `writeWorkerSteerToRun` | function | Admit one steer into an already-known durable run directory. |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |
 | `analyzesFindingsReportPrompt` | const | Default ANALYZES-edge directive: what the RECEIVING node should do with an analyst's findings. |
 | `assertTraceDerivedFindings` | const | Reject analyst findings derived from evaluation scores instead of execution traces. |
