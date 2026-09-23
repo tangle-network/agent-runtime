@@ -886,6 +886,14 @@ export interface CoordinationToolsOptions {
    */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /**
+   * OPT-IN composition of the profile a manager authored, applied right after it parses and before
+   * continuity, pre-flight, authorization, or the journal see it. The composed profile is the
+   * child's profile: its identity, its receipt, and what runs. Pure and synchronous; its output is
+   * re-validated against the canonical schema. `supervise({ profileGuidance: 'profile-kb' })`
+   * installs `withProfileKb` here so each child carries its harness and model guidance.
+   */
+  readonly composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /**
    * Directory the coordination server may read on the manager's behalf when a spawn names an
    * inline resource by path (`{ kind: 'inline', name, path }` under `profile.resources`). The
    * server substitutes the file's bytes as `content` BEFORE the canonical schema sees the
@@ -3034,7 +3042,11 @@ export function createCoordinationToolsForManager(
             })),
           })
         }
-        const profile = detachedFrozen(parsedProfile.data)
+        const profile = detachedFrozen(
+          opts.composeSpawnProfile
+            ? agentProfileSchema.parse(opts.composeSpawnProfile(parsedProfile.data))
+            : parsedProfile.data,
+        )
         // Continuity resolves BEFORE any assignment is minted or budget reserved, so a refused
         // resume touches nothing — same fail-closed discipline as the fences above.
         const continuity = resolveContinuity(parseContinuity(a.continuity), profile.name, key)

@@ -1,5 +1,6 @@
 import type { ToolSpan, TraceAnalysisStore } from '@tangle-network/agent-eval'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
+import { withProfileKb } from '@tangle-network/agent-interface/profile-kb'
 import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
 import {
@@ -72,6 +73,7 @@ async function traceSummary(trace: TraceAnalysisStore) {
 function mockScope() {
   const sent: Array<{ id: string; msg: unknown }> = []
   const spawns: Array<{ task: unknown; opts: { budget: unknown; label: string } }> = []
+  const spawnedAgents: unknown[] = []
   const nodes = [
     {
       id: 'w0',
@@ -99,8 +101,9 @@ function mockScope() {
   let admit = true
   let refusal: 'budget-exhausted' | 'usd-unbudgeted' = 'budget-exhausted'
   const scope = {
-    spawn: (_agent: unknown, task: unknown, opts: { budget: unknown; label: string }) => {
+    spawn: (agent: unknown, task: unknown, opts: { budget: unknown; label: string }) => {
       spawns.push({ task, opts })
+      spawnedAgents.push(agent)
       return admit
         ? {
             ok: true as const,
@@ -126,6 +129,7 @@ function mockScope() {
     scope,
     sent,
     spawns,
+    spawnedAgents,
     setAdmit: (v: boolean) => (admit = v),
     setRefusal: (r: typeof refusal) => (refusal = r),
   }
@@ -242,6 +246,49 @@ describe('coordination tools', () => {
       { name: 'unrouted', label: 'refused' },
       { name: 'routed', label: 'admitted' },
     ])
+  })
+
+  it('composes the authored profile before pre-flight and spawn see it', async () => {
+    const { scope, spawns, spawnedAgents } = mockScope()
+    const preflightSeen: unknown[] = []
+    const workerSeen: unknown[] = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent: (profile) => {
+        workerSeen.push(profile)
+        return makeWorkerAgent()
+      },
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      composeSpawnProfile: withProfileKb,
+      preflightSpawn: async (profile) => {
+        preflightSeen.push(profile)
+        return undefined
+      },
+    })
+    expect(
+      await tool(tb, 'spawn_worker').handler({
+        profile: {
+          name: 'coder',
+          harness: 'claude-code',
+          model: { default: 'claude-opus-5-5' },
+          prompt: { appendSystemPrompt: 'Cite the file you read.' },
+        },
+        task: 'go',
+        label: 'composed',
+      }),
+    ).toMatchObject({ workerId: 'w0' })
+    expect(spawns).toHaveLength(1)
+    ;(spawnedAgents[0] as () => unknown)()
+    const expected = withProfileKb({
+      name: 'coder',
+      harness: 'claude-code',
+      model: { default: 'claude-opus-5-5' },
+      prompt: { appendSystemPrompt: 'Cite the file you read.' },
+    })
+    expect(expected.prompt?.appendSystemPrompt).toContain('source="model" id="claude-opus-5-5"')
+    expect(preflightSeen).toEqual([expected])
+    expect(workerSeen).toEqual([expected])
   })
 
   it('publishes no preflight ledger when no gate is installed', () => {

@@ -9,6 +9,7 @@
  *
  * @stable
  */
+
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import {
@@ -21,6 +22,7 @@ import {
   type Sha256Digest,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
+import { withProfileKb } from '@tangle-network/agent-interface/profile-kb'
 import {
   type HarnessId,
   isMaterializerHarness,
@@ -1626,6 +1628,12 @@ export interface SuperviseOptions {
    *  sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
    *  canonical profile. Identity-free and synchronous; throw to refuse. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** OPT-IN standing guidance from the profile knowledge base
+   *  (`@tangle-network/agent-interface/profile-kb`). `'profile-kb'` composes harness guidance,
+   *  then model guidance, then the profile's own text into the root profile and into every
+   *  profile a manager spawns, before identity is fixed, so receipts bind the prompt that ran.
+   *  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself. */
+  readonly profileGuidance?: 'profile-kb'
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -1953,6 +1961,7 @@ const superviseOptionKeys = [
   'peerMail',
   'perWorker',
   'probes',
+  'profileGuidance',
   'profileSecurity',
   'registry',
   'resolveDeliverable',
@@ -2634,7 +2643,17 @@ function superviseInternal(
   if (!parsedProfile.success) {
     throw new ValidationError(`supervise: invalid AgentProfile: ${parsedProfile.error.message}`)
   }
-  const canonicalProfile = freezeDetachedProfile(parsedProfile.data)
+  if (options.profileGuidance !== undefined && options.profileGuidance !== 'profile-kb') {
+    throw new ValidationError(
+      `supervise: profileGuidance must be 'profile-kb' when set, got ${JSON.stringify(options.profileGuidance)}`,
+    )
+  }
+  const composeSpawnProfile = options.profileGuidance === 'profile-kb' ? withProfileKb : undefined
+  const canonicalProfile = freezeDetachedProfile(
+    composeSpawnProfile
+      ? agentProfileSchema.parse(composeSpawnProfile(parsedProfile.data))
+      : parsedProfile.data,
+  )
   assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   const canonicalTask = freezeDetached(task)
   if (options.makeWorkerAgent && options.authorizeSpawn) {
@@ -3125,6 +3144,7 @@ function superviseInternal(
           ...(options.resolveSpawnProfile
             ? { resolveSpawnProfile: options.resolveSpawnProfile }
             : {}),
+          ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -3284,6 +3304,7 @@ function superviseInternal(
         : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
+      ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
       ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),

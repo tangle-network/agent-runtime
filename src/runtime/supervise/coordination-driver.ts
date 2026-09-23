@@ -158,6 +158,9 @@ export interface DriverAgentOptions {
   /** Pre-journal profile resolution for `preflightSpawn`; see
    *  `CoordinationToolsOptions.resolveSpawnProfile`. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** Composition of each authored child profile before identity is fixed —
+   *  `CoordinationToolsOptions.composeSpawnProfile`. */
+  readonly composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** See `CoordinationToolsOptions.spawnResourceRoot`. */
   readonly spawnResourceRoot?: string
   /** See `CoordinationToolsOptions.spawnResourceReader`. */
@@ -962,6 +965,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
+        ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
         ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
         ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
         ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),

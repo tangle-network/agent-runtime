@@ -133,3 +133,14 @@ describe('runGraph option keys', () => {
     ).not.toThrow()
   })
 })
+
+describe('supervise profileGuidance', () => {
+  it('refuses a guidance source it does not know before any compute', () => {
+    expect(() =>
+      supervise(rootProfile(), 'task', {
+        budget,
+        profileGuidance: 'profile-kb-v2' as unknown as 'profile-kb',
+      }),
+    ).toThrow(/profileGuidance must be 'profile-kb'/)
+  })
+})
