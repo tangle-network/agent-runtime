@@ -90,6 +90,7 @@ import type {
   UsageEvent,
   WorkerInteractiveSession,
 } from './types'
+import { workerLineage } from './worker-lineage'
 import { workerTraceHeaders } from './worker-trace'
 
 /** Resolve the exact bridge wire id from the profile and nowhere else. */
@@ -165,8 +166,18 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(sessionId)
   // The bridge's trace channel is the request, not an env field: the `traceparent` (+ legacy
   // pair) headers ride every turn POST, and the bridge stamps them into the harness child's
-  // environment at spawn. Empty when the run records no spans, adding no header at all.
-  const traceHeaders = workerTraceHeaders(ctx)
+  // environment at spawn. Empty when the run records no spans, adding no header at all. Session
+  // lineage (`x-tangle-*`, see `worker-lineage.ts`) rides the same headers when this process
+  // carries a `TANGLE_RUN_ID`; one spawn is one run across all of its turns.
+  const traceHeaders = {
+    ...workerLineage({
+      harness: harness ?? null,
+      nodeId: ctx.node?.nodeId,
+      label: spec.profile.name,
+      local: false,
+    }).headers,
+    ...workerTraceHeaders(ctx),
+  }
 
   const controller = linkAbort(ctx.signal)
 

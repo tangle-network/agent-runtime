@@ -334,6 +334,41 @@ describe('bridgeExecutor over node:http', () => {
     })
   })
 
+  it('stamps session lineage as x-tangle-* headers when the supervisor carries a run id', async () => {
+    bridgeHttpHandler = () => sse('lineage turn', 1, 1)
+    const saved = { run: process.env.TANGLE_RUN_ID, home: process.env.LINEAGE_HOME }
+    process.env.TANGLE_RUN_ID = `run_${'c'.repeat(32)}`
+    // A home with no events directory: the runtime never creates operator state itself.
+    process.env.LINEAGE_HOME = '/nonexistent/lineage-home'
+    try {
+      const profile: AgentProfile = {
+        name: 'lineage-worker',
+        harness: 'pi',
+        model: { provider: 'tangle-router', default: 'safe-model' },
+      }
+      const executor = bridgeExecutor(
+        { profile, harness: null },
+        {
+          signal: new AbortController().signal,
+          seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+        },
+      )
+      await drainExecutor(executor)
+      expect(lastBridgePostHeaders).toMatchObject({
+        'x-tangle-parent-run-id': `run_${'c'.repeat(32)}`,
+        'x-tangle-harness': 'pi',
+        'x-tangle-edge-kind': 'spawned',
+      })
+      expect(lastBridgePostHeaders?.['x-tangle-run-id']).toMatch(/^run_[0-9a-f]{32}$/)
+      expect(lastBridgePostHeaders).not.toHaveProperty('x-tangle-host')
+    } finally {
+      if (saved.run === undefined) delete process.env.TANGLE_RUN_ID
+      else process.env.TANGLE_RUN_ID = saved.run
+      if (saved.home === undefined) delete process.env.LINEAGE_HOME
+      else process.env.LINEAGE_HOME = saved.home
+    }
+  })
+
   it('sends no trace headers when the run records no spans', async () => {
     bridgeHttpHandler = () => sse('untraced turn', 1, 1)
     const profile: AgentProfile = {

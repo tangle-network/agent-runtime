@@ -183,15 +183,19 @@ function printerFactory(env?: Record<string, string>): ExecutorFactory<unknown> 
 // The supervisor process's OWN ambient ids must not leak into these assertions: the whole point of
 // the precedence rule is that they are NOT what a child inherits. TRACEPARENT included — an
 // ambient W3C wire from the shell/CI that launched vitest would leak into every untraced child.
+// Session lineage (`worker-lineage.ts`) keys on an ambient TANGLE_RUN_ID, which an operator's
+// launcher sets on every agent shell; it would add env keys these byte-identity cases forbid.
 const saved = {
   trace: process.env.TRACE_ID,
   parent: process.env.PARENT_SPAN_ID,
   traceparent: process.env.TRACEPARENT,
+  lineage: process.env.TANGLE_RUN_ID,
 }
 beforeEach(() => {
   delete process.env.TRACE_ID
   delete process.env.PARENT_SPAN_ID
   delete process.env.TRACEPARENT
+  delete process.env.TANGLE_RUN_ID
 })
 afterEach(() => {
   if (saved.trace === undefined) delete process.env.TRACE_ID
@@ -200,6 +204,8 @@ afterEach(() => {
   else process.env.PARENT_SPAN_ID = saved.parent
   if (saved.traceparent === undefined) delete process.env.TRACEPARENT
   else process.env.TRACEPARENT = saved.traceparent
+  if (saved.lineage === undefined) delete process.env.TANGLE_RUN_ID
+  else process.env.TANGLE_RUN_ID = saved.lineage
 })
 
 // ── The wire ──────────────────────────────────────────────────────────────────
