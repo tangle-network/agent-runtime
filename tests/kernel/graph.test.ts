@@ -312,6 +312,56 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     expect(received[0]!.prompt?.instructions).toContain(delegatesWorkerBriefPrompt.text)
   })
 
+  it('profileGuidance composes the pinned node profile, not only the driver-authored stub', async () => {
+    const graph = twoNodeGraph()
+    const worker = graph.nodes.find((node) => node.id === 'worker')!
+    const pinnedWorker = {
+      ...worker,
+      profile: {
+        ...worker.profile,
+        harness: 'claude-code' as const,
+        model: { default: 'claude-opus-5-5' },
+      },
+    }
+    const run = async (profileGuidance?: 'profile-kb') => {
+      const received: AgentProfile[] = []
+      const res = await runGraph(
+        {
+          ...graph,
+          nodes: graph.nodes.map((node) => (node.id === 'worker' ? pinnedWorker : node)),
+        },
+        {
+          makeLeafAgent: leafSeam(received),
+          ...(profileGuidance ? { profileGuidance } : {}),
+          brain: scriptedBrain([
+            {
+              toolCalls: [
+                {
+                  name: 'spawn_worker',
+                  arguments: { profile: { name: 'worker' }, task: 'build it' },
+                },
+              ],
+            },
+            { toolCalls: [{ name: 'await_event', arguments: {} }] },
+            { content: 'done' },
+          ]),
+        },
+      )
+      expect(res.result.kind).toBe('winner')
+      expect(received).toHaveLength(1)
+      return received[0]!
+    }
+    const plain = await run()
+    expect(JSON.stringify(plain.prompt)).not.toContain('profile-guidance')
+    const guided = await run('profile-kb')
+    const appended = guided.prompt?.appendSystemPrompt ?? ''
+    expect(appended).toContain('source="harness" id="claude-code"')
+    expect(appended).toContain('source="model" id="claude-opus-5-5"')
+    // The pinned role and the delegates directive survive composition.
+    expect(guided.prompt?.systemPrompt).toBe('You build what the driver asks.')
+    expect(guided.prompt?.instructions).toContain(delegatesWorkerBriefPrompt.text)
+  })
+
   it('a driver-authored profile beyond `name` cannot smuggle capabilities — the node is pinned', async () => {
     const received: AgentProfile[] = []
     const res = await runGraph(twoNodeGraph(), {
