@@ -6,6 +6,9 @@ import {
   sandboxPeerRange,
 } from './dependency-contract.mjs'
 
+import { realpathSync } from 'node:fs'
+import { join } from 'node:path'
+
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
 
 export {
@@ -186,4 +189,26 @@ export function createStrictNodeConsumerTsconfig(options = {}) {
     },
     include: ['consumer.ts'],
   }
+}
+
+/**
+ * A registry-installed peer counts only when the consumer holds one physical copy at the
+ * exact version: every resolved occurrence, and the consumer's own top-level link, must
+ * name that version and resolve to the same directory.
+ */
+export function assertSingleRegistryInstall(appDir, resolved, packageName, version) {
+  const occurrences = resolved.get(packageName) ?? []
+  if (occurrences.length === 0) throw new Error(`consumer did not resolve ${packageName}`)
+  const physicalPaths = new Set()
+  for (const occurrence of occurrences) {
+    if (occurrence.version !== version) {
+      throw new Error(`consumer resolved ${packageName}@${occurrence.version}, expected ${version}`)
+    }
+    physicalPaths.add(realpathSync(occurrence.path))
+  }
+  physicalPaths.add(realpathSync(join(appDir, 'node_modules', ...packageName.split('/'))))
+  if (physicalPaths.size !== 1) {
+    throw new Error(`consumer installed ${physicalPaths.size} physical copies of ${packageName}`)
+  }
+  return version
 }

@@ -22,6 +22,7 @@ import {
   assertFirstPartyRangeSpecs,
   assertPeerMatchesDevelopmentDependency,
   assertPublishableDependencySpecs,
+  assertSingleRegistryInstall,
   createStrictNodeConsumerTsconfig,
   evalCompatibilityVersions,
   peerCompatibility,
@@ -535,23 +536,6 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
     exactArchiveResolution: true,
     proposal,
   }
-}
-
-function assertSingleRegistryInstall(appDir, resolved, packageName, version) {
-  const occurrences = resolved.get(packageName) ?? []
-  if (occurrences.length === 0) throw new Error(`consumer did not resolve ${packageName}`)
-  const physicalPaths = new Set()
-  for (const occurrence of occurrences) {
-    if (occurrence.version !== version) {
-      throw new Error(`consumer resolved ${packageName}@${occurrence.version}, expected ${version}`)
-    }
-    physicalPaths.add(realpathSync(occurrence.path))
-  }
-  physicalPaths.add(realpathSync(join(appDir, 'node_modules', ...packageName.split('/'))))
-  if (physicalPaths.size !== 1) {
-    throw new Error(`consumer installed ${physicalPaths.size} physical copies of ${packageName}`)
-  }
-  return version
 }
 
 function verifyPublicImports(appDir, artifacts) {

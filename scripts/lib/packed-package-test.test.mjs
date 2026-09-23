@@ -1,13 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   assertFirstPartyRangeSpecs,
   assertPeerMatchesDevelopmentDependency,
+  assertSingleRegistryInstall,
   cohortRange,
   currentMinorPeerRange,
   isExactVersionSpec,
   rangeAdmits,
 } from './packed-package-test.mjs'
-import { readFileSync } from 'node:fs'
 import {
   evalCompatibilityVersions,
   evalPeerRange,
@@ -238,5 +241,46 @@ describe('Eval peer window', () => {
         /must match its resolved development dependency/,
       )
     }
+  })
+})
+
+describe('registry peer install', () => {
+  const name = '@tangle-network/agent-eval'
+  const roots = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  // A pnpm-shaped consumer: store copies under .pnpm, the top-level entry a symlink into one.
+  function consumer(storeVersions, linked) {
+    const appDir = mkdtempSync(join(tmpdir(), 'registry-install-'))
+    roots.push(appDir)
+    const copies = storeVersions.map((version, index) => {
+      const dir = join(appDir, 'node_modules', '.pnpm', `copy-${index}`, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      return { version, path: dir }
+    })
+    mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
+    symlinkSync(copies[linked].path, join(appDir, 'node_modules', name))
+    return { appDir, copies }
+  }
+
+  it('accepts one physical copy at the exact version, reached by every occurrence', () => {
+    const { appDir, copies } = consumer(['0.183.0'], 0)
+    const resolved = new Map([[name, [copies[0], { ...copies[0], path: join(appDir, 'node_modules', name) }]]])
+    expect(assertSingleRegistryInstall(appDir, resolved, name, '0.183.0')).toBe('0.183.0')
+  })
+
+  it('refuses a missing, mismatched or duplicated install', () => {
+    const { appDir, copies } = consumer(['0.183.0', '0.183.0'], 0)
+    expect(() => assertSingleRegistryInstall(appDir, new Map(), name, '0.183.0')).toThrow(
+      /did not resolve @tangle-network\/agent-eval/,
+    )
+    expect(() =>
+      assertSingleRegistryInstall(appDir, new Map([[name, [{ ...copies[0], version: '0.184.0' }]]]), name, '0.183.0'),
+    ).toThrow(/resolved @tangle-network\/agent-eval@0\.184\.0, expected 0\.183\.0/)
+    expect(() => assertSingleRegistryInstall(appDir, new Map([[name, [copies[1]]]]), name, '0.183.0')).toThrow(
+      /installed 2 physical copies/,
+    )
   })
 })
