@@ -292,6 +292,8 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       budget,
       runDir: dir,
       runId: 'unconfirmed',
+      // The leaf never confirms, so a short retry window ends where one attempt used to.
+      teardownConfirmMs: 30,
       makeWorkerAgent: () => hangingLeaf('w', started, false),
       brain: scriptedBrain([
         {

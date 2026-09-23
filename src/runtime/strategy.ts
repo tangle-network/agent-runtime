@@ -1129,6 +1129,9 @@ export interface RunAgenticOptions<Result extends StrategyResult = StrategyResul
   /** budget: refine→max shots; sample→rollout width. */
   budget: number
   rootBudget?: Budget
+  /** Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
+   *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000. */
+  teardownConfirmMs?: number
 }
 
 /** Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. */
@@ -1165,6 +1168,7 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
     executors: withDriverExecutor(createExecutorRegistry()),
     maxDepth: 3,
     ...(opts.hooks ? { hooks: opts.hooks } : {}),
+    ...(opts.teardownConfirmMs === undefined ? {} : { teardownConfirmMs: opts.teardownConfirmMs }),
   })
   if (result.kind !== 'winner' || result.out.kind !== 'done') {
     const reason =

@@ -66,6 +66,8 @@ it.each([true, false])(
     const pending = run(dir, 'cancel-after-director', {
       signal: cleanup.signal,
       childSettleGraceMs: 5_000,
+      // An unconfirmed leaf never confirms, so a short retry window ends where one attempt did.
+      teardownConfirmMs: 30,
       finalizer: async () => {
         finalized()
         return undefined

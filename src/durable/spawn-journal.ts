@@ -983,6 +983,8 @@ const outsideCursorNamespaceKinds = [
   'reconciled',
   'edge',
   'teardown-unconfirmed',
+  'teardown-pending',
+  'teardown-confirmed',
   'environment-teardown',
   'trace-unpropagated',
   'node-inputs-resolved',
@@ -1086,6 +1088,7 @@ export async function replaySpawnTree(
       continue
     if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement
     if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
+    if (ev.kind === 'teardown-pending' || ev.kind === 'teardown-confirmed') continue // cleanup retry
     if (ev.kind === 'environment-teardown') continue // release receipt, not a settlement
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
     if (ev.kind === 'node-inputs-resolved') continue // graph-engine fold input, not a settlement

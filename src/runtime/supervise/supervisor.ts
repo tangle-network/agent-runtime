@@ -12,8 +12,10 @@
  *  - Join barrier: when `act()` settles (resolve OR reject), every still-live child is
  *    torn down before `run` returns — the generalization of the kernel's
  *    `finally{ Promise.allSettled(destroy) }` barrier (run-loop.ts) from boxes to the
- *    whole sub-tree. A teardown failure is `allSettled`'d and journaled per node as a
- *    `teardown-unconfirmed` event; it NEVER masks act()'s own outcome. act()'s rejection is the
+ *    whole sub-tree. An unconfirmed teardown is retried with backoff for `teardownConfirmMs`.
+ *    Each node pending when the window opens is journaled first as `teardown-pending`, then as
+ *    `teardown-confirmed` or, still unconfirmed when the window closes, `teardown-unconfirmed`
+ *    naming its provider environments; it NEVER masks act()'s own outcome. act()'s rejection is the
  *    PRIMARY error (the kernel's firstError precedence), so a teardown throw during the
  *    barrier can never overwrite the real failure.
  *  - Abort cascade: a root abort (caller signal, `RootHandle.abort`, a tripped breaker,
@@ -67,8 +69,11 @@ import {
   closeScopeAdmission,
   createScope,
   finalizeScopeOwnerMaterialization,
+  hasRetriableTeardowns,
   releaseRetainedEnvironments,
+  retryUnconfirmedTeardowns,
   startScopeRecoveries,
+  unconfirmedTeardowns,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type {
@@ -373,6 +378,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       maxRestarts,
       withinMs,
       childSettleGraceMs,
+      teardownConfirmMs,
       resume,
       retainedAtSettlement: requestedRetainedAtSettlement,
       ownerWorkspaceRetention,
@@ -396,6 +402,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(maxRestarts === undefined ? {} : { maxRestarts }),
           ...(withinMs === undefined ? {} : { withinMs }),
           ...(childSettleGraceMs === undefined ? {} : { childSettleGraceMs }),
+          ...(teardownConfirmMs === undefined ? {} : { teardownConfirmMs }),
           ...(resume === undefined ? {} : { resume }),
           ...(requestedRetainedAtSettlement === undefined
             ? {}
@@ -406,6 +413,16 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       },
       'supervisor.run',
     )
+    if (
+      teardownConfirmMs !== undefined &&
+      (typeof teardownConfirmMs !== 'number' ||
+        !Number.isFinite(teardownConfirmMs) ||
+        teardownConfirmMs < 0)
+    ) {
+      throw new ValidationError(
+        `supervisor: teardownConfirmMs must be a nonnegative finite number of milliseconds, got ${JSON.stringify(teardownConfirmMs)}`,
+      )
+    }
     if (
       requestedRetainedAtSettlement !== undefined &&
       requestedRetainedAtSettlement !== 'release' &&
@@ -730,15 +747,50 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           if (retainedAtSettlement === 'release') {
             teardownUnconfirmed = await releaseRetainedEnvironments(openScope)
           }
+          // A first teardown that failed or answered late is not the provider's last word, and a
+          // run that settles over it leaves the sandbox running: measured 2026-09-20, cancelling
+          // 20 Discovery lanes left 2 workers running. Ask again until confirmed or out of time.
+          const confirmWindowMs = opts.teardownConfirmMs ?? DEFAULT_TEARDOWN_CONFIRM_MS
+          const releasing = retainedAtSettlement === 'release'
+          if (
+            teardownUnconfirmed.length > 0 &&
+            confirmWindowMs > 0 &&
+            hasRetriableTeardowns(openScope, releasing)
+          ) {
+            // The window can last minutes, and a process that dies inside it must not lose the
+            // environment ids: the pending set is durable before the first retry.
+            const pending = teardownUnconfirmed
+            for (const node of pending) {
+              await opts.journal.appendEvent(opts.runId, {
+                kind: 'teardown-pending',
+                ...unconfirmedRecord(node),
+                seq: teardownSeq++,
+                at: new Date(now()).toISOString(),
+              })
+            }
+            teardownUnconfirmed = await confirmSettledTeardowns(
+              openScope,
+              confirmWindowMs,
+              releasing,
+            )
+            const still = new Set(teardownUnconfirmed.map((node) => node.id))
+            for (const node of pending) {
+              if (still.has(node.id)) continue
+              await opts.journal.appendEvent(opts.runId, {
+                kind: 'teardown-confirmed',
+                id: node.id,
+                seq: teardownSeq++,
+                at: new Date(now()).toISOString(),
+              })
+            }
+          }
           // The leak is real and must surface, so it is journaled per node — durable evidence a
-          // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping.
+          // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping,
+          // naming the environment ids an operator's sweeper deletes.
           for (const node of teardownUnconfirmed) {
             await opts.journal.appendEvent(opts.runId, {
               kind: 'teardown-unconfirmed',
-              id: node.id,
-              label: node.label,
-              runtime: node.runtime,
-              status: node.status,
+              ...unconfirmedRecord(node),
               seq: teardownSeq++,
               at: new Date(now()).toISOString(),
             })
@@ -1126,17 +1178,92 @@ async function drainLiveChildren(
   return unconfirmedTeardowns(scope)
 }
 
+/** Five minutes: long enough to outlast a provider's transient delete failures and a slow
+ *  acknowledgement, short enough that a cancelled run still settles promptly. */
+const DEFAULT_TEARDOWN_CONFIRM_MS = 300_000
+
+/** The fields a `teardown-pending` or `teardown-unconfirmed` record carries for one node. */
+function unconfirmedRecord(node: UnconfirmedTeardown) {
+  return {
+    id: node.id,
+    label: node.label,
+    runtime: node.runtime,
+    status: node.status,
+    ...(node.environments === undefined ? {} : { environments: node.environments }),
+    ...(node.kept === undefined ? {} : { kept: node.kept }),
+    ...(node.attempts === undefined ? {} : { attempts: node.attempts }),
+    ...(node.detail === undefined ? {} : { detail: node.detail }),
+  }
+}
+
 /**
- * The settled children whose executor teardown was never acknowledged.
+ * Retry every unconfirmed teardown in the settled tree until each executor confirms destruction
+ * or `windowMs` passes, and return what is still unconfirmed.
  *
- * They still hold their capacity slot — the ledger stays poisoned, so replacement work can never
- * exceed the physical live count — but every one of them has already reached a terminal state and
- * journaled its work. That is evidence about an EXECUTOR, not a cause of run failure, so the
- * barrier NAMES them and lets the run reach its real terminal state. Live work after the drain is
- * a different fault and still fails loud.
+ * Settled children are evidence about an EXECUTOR, not a cause of run failure, so the barrier
+ * never fails the run over them; it asks again and then NAMES what it could not confirm. Backoff
+ * starts at 1/300 of the window and doubles up to 1/10 of it, so the default window gives about
+ * fourteen attempts. A request still running is awaited by later passes and never sent twice,
+ * including a settlement request that missed its acknowledgement window, and it never holds up
+ * another child's retry. Under `release`, a retained environment whose release
+ * failed is released again; otherwise it is kept for a resume and not retried. The window is wall
+ * clock, like the timers that pace it, so an injected `now` cannot stall it.
  */
-function unconfirmedTeardowns(scope: Scope<unknown>): ReadonlyArray<UnconfirmedTeardown> {
-  return scope.workerCapacity.unconfirmed
+async function confirmSettledTeardowns(
+  scope: Scope<unknown>,
+  windowMs: number,
+  release: boolean,
+): Promise<ReadonlyArray<UnconfirmedTeardown>> {
+  const closesAt = Date.now() + windowMs
+  const maxDelayMs = windowMs / 10
+  let delayMs = windowMs / 300
+  let releasing: Promise<unknown> | undefined
+  let failure: { error: unknown } | undefined
+  while (failure === undefined && hasRetriableTeardowns(scope, release)) {
+    if (closesAt - Date.now() <= 0) break
+    await pause(Math.min(delayMs, closesAt - Date.now()))
+    delayMs = Math.min(delayMs * 2, maxDelayMs)
+    // One release in flight at a time: each one journals its receipts.
+    if (release && releasing === undefined) {
+      releasing = releaseRetainedEnvironments(scope).finally(() => {
+        releasing = undefined
+      })
+    }
+    const pass = Promise.all([releasing, retryUnconfirmedTeardowns(scope)]).catch(
+      (error: unknown) => {
+        failure ??= { error }
+      },
+    )
+    const answerWindow = pausable(Math.min(delayMs, Math.max(0, closesAt - Date.now())))
+    await Promise.race([pass, answerWindow.elapsed])
+    answerWindow.cancel()
+  }
+  // A release still in flight journals its receipts; let it finish (each destroy it asks for is
+  // bounded) so nothing writes to this run's journal after the run has settled.
+  const inFlight: Promise<unknown> | undefined = releasing
+  if (inFlight !== undefined) {
+    await inFlight.catch((error: unknown) => {
+      failure ??= { error }
+    })
+  }
+  // A journal write that failed inside a release is a real fault; it is the barrier's to report.
+  if (failure !== undefined) throw failure.error
+  return unconfirmedTeardowns(scope)
+}
+
+/** A wall-clock wait that keeps the process alive until it ends. */
+function pause(ms: number): Promise<void> {
+  return pausable(ms).elapsed
+}
+
+/** A wall-clock wait that can be cancelled, so a wait that lost a race holds no timer open. */
+function pausable(ms: number): { elapsed: Promise<void>; cancel: () => void } {
+  if (ms <= 0) return { elapsed: Promise.resolve(), cancel: () => {} }
+  let cancel = (): void => {}
+  const elapsed = new Promise<void>((resolve) => {
+    cancel = armDeadlineTimer(ms, resolve, true)
+  })
+  return { elapsed, cancel }
 }
 
 /** The unconfirmed set as one error clause: the count plus the node ids behind it. One integer is
@@ -1144,7 +1271,17 @@ function unconfirmedTeardowns(scope: Scope<unknown>): ReadonlyArray<UnconfirmedT
 function describeUnconfirmed(scope: Scope<unknown>): string {
   const unconfirmed = scope.workerCapacity.unconfirmed
   const named = unconfirmed
-    .map((node) => `${node.id} (${node.label}, ${node.runtime}, ${node.status})`)
+    .map(
+      (node) =>
+        `${node.id} (${[
+          node.label,
+          node.runtime,
+          node.status,
+          ...(node.environments ?? []).map(
+            (environment) => `${environment.provider}:${environment.environmentId}`,
+          ),
+        ].join(', ')})`,
+    )
     .join(', ')
   return `${scope.workerCapacity.live} executor resource(s) not confirmed destroyed${
     named.length > 0 ? `: ${named}` : ''

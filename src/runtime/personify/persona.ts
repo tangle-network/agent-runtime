@@ -159,6 +159,9 @@ export async function runPersonified<Task, D>(
     ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
     ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
     ...(options.withinMs !== undefined ? { withinMs: options.withinMs } : {}),
+    ...(options.teardownConfirmMs !== undefined
+      ? { teardownConfirmMs: options.teardownConfirmMs }
+      : {}),
     ...(options.resume !== undefined ? { resume: options.resume } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.signal ? { signal: options.signal } : {}),

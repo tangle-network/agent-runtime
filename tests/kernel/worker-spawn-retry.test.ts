@@ -238,6 +238,49 @@ describe('withWorkerSpawnRetry', () => {
     expect(leaf.attempts()).toBe(2)
   })
 
+  it('forwards the teardown surfaces, so a wrapped retained worker is still released at settlement', async () => {
+    // A wrapper that dropped `releaseRetained` left every retained worker it wrapped running after
+    // its run settled, and one that dropped `heldEnvironments` left the leak without an id.
+    const receipt = { provider: 'fake', environmentId: 'env-1', destroyed: true }
+    const released: AbortSignal[] = []
+    const leaf = flakyLeaf({ name: 'w1', failures: 0, reason: ACQUIRE_TIMEOUT })
+    const inner = (leaf.agent as { executorSpec: AgentSpec }).executorSpec.executorFactory?.(
+      (leaf.agent as { executorSpec: AgentSpec }).executorSpec,
+      { signal: new AbortController().signal, seams: {} },
+    )
+    if (!inner) throw new Error('expected an executor factory')
+    const retained: Executor<unknown> = {
+      ...inner,
+      teardownTimeoutMs: 30_000,
+      releaseRetained: async (signal) => {
+        released.push(signal)
+        return [receipt]
+      },
+      heldEnvironments: () => [{ provider: 'fake', environmentId: 'env-1' }],
+    }
+    const agent = {
+      ...leaf.agent,
+      executorSpec: {
+        ...(leaf.agent as { executorSpec: AgentSpec }).executorSpec,
+        executorFactory: () => retained,
+      },
+    } as Agent<unknown, unknown>
+    const make = withWorkerSpawnRetry(() => agent, {}, fakeClock())
+    const spec = (make(workerProfile('w1'), undefined) as { executorSpec: AgentSpec }).executorSpec
+    const wrapped = spec.executorFactory?.(spec, {
+      signal: new AbortController().signal,
+      seams: {},
+    })
+    if (!wrapped) throw new Error('expected a wrapped executor factory')
+
+    expect(wrapped).not.toBe(retained)
+    expect(wrapped.teardownTimeoutMs).toBe(30_000)
+    const signal = new AbortController().signal
+    expect(await wrapped.releaseRetained?.(signal)).toEqual([receipt])
+    expect(released).toEqual([signal])
+    expect(wrapped.heldEnvironments?.()).toEqual([{ provider: 'fake', environmentId: 'env-1' }])
+  })
+
   it('passes an unwrapped agent through when the policy is off', () => {
     const leaf = flakyLeaf({ name: 'w1', failures: 0, reason: ACQUIRE_TIMEOUT })
     const make = withWorkerSpawnRetry(() => leaf.agent, { enabled: false })

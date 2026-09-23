@@ -36,6 +36,9 @@ interface OwnerState {
    *  `environment` admission exists only on the retained one. */
   liveEnvironmentId?: () => string | undefined
   nextSequence: () => number
+  /** Whether the last release left an environment that another release could still destroy: a
+   *  failed or unanswered destroy, not a source preserved on purpose. */
+  releaseRetriable?: boolean
   taskRef?: string
   accepted?: ExecutorResult<unknown>
   acceptedRef?: Extract<SpawnEvent, { kind: 'execution-result' }>
@@ -261,6 +264,11 @@ export function scopeRetainedOwnerResourceReader(
   }
 }
 
+/** @internal Whether another owner release could still destroy what the last one left. */
+export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
+  return owners.get(scope)?.releaseRetriable ?? false
+}
+
 /** The existing scope settlement barrier releases the owner's environment after all its turns. */
 export async function releaseScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
@@ -299,7 +307,11 @@ export async function releaseScopeRetainedOwnerEnvironment(
   const retentionFailures = retentionConfigured
     ? await ownerWorkspaceRetentionFailures(events, args.nodeId, args.blobs)
     : new Set<string>()
-  let unconfirmed = false
+  const unconfirmed: string[] = []
+  // Sources preserved for lack of a verified workspace receipt: evidence, never swept.
+  const preserved: string[] = []
+  let lastDetail: string | undefined
+  let retriable = false
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
@@ -307,20 +319,29 @@ export async function releaseScopeRetainedOwnerEnvironment(
     if (retentionFailures.has(environmentId)) {
       detail =
         'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
-      unconfirmed = true
+      preserved.push(environmentId)
+      lastDetail = detail
     } else {
+      // A provider that cannot reconstruct or destroy the environment answers the same way every
+      // time; only a destroy that failed or went unanswered is worth asking again.
+      let permanent = false
       try {
         await runAbortable(
           async () => {
-            if (!provider.get)
+            if (!provider.get) {
+              permanent = true
               throw new Error('provider cannot reconstruct the retained environment')
+            }
             const environment = await provider.get(environmentId)
             if (environment === null) return
             if (environment.id !== environmentId || environment.provider !== provider.name) {
+              permanent = true
               throw new Error('provider returned another retained environment')
             }
-            if (!environment.destroy)
+            if (!environment.destroy) {
+              permanent = true
               throw new Error('provider cannot destroy the retained environment')
+            }
             await environment.destroy()
           },
           AbortSignal.timeout(30_000),
@@ -329,7 +350,9 @@ export async function releaseScopeRetainedOwnerEnvironment(
         destroyed = true
       } catch {
         detail = 'retained owner environment cleanup was not confirmed'
-        unconfirmed = true
+        unconfirmed.push(environmentId)
+        lastDetail = detail
+        if (!permanent) retriable = true
       }
     }
     await args.journal.appendEvent(args.rootId, {
@@ -343,8 +366,34 @@ export async function releaseScopeRetainedOwnerEnvironment(
       at: new Date(args.now()).toISOString(),
     })
   }
-  return unconfirmed
-    ? [{ id: args.nodeId, label: 'scope owner', runtime: provider.name, status: 'done' }]
+  state.releaseRetriable = retriable
+  return unconfirmed.length > 0 || preserved.length > 0
+    ? [
+        {
+          id: args.nodeId,
+          label: 'scope owner',
+          runtime: provider.name,
+          status: 'done',
+          ...(unconfirmed.length === 0
+            ? {}
+            : {
+                environments: unconfirmed.map((environmentId) => ({
+                  provider: provider.name,
+                  environmentId,
+                })),
+              }),
+          ...(preserved.length === 0
+            ? {}
+            : {
+                kept: preserved.map((environmentId) => ({
+                  provider: provider.name,
+                  environmentId,
+                  keptFor: 'evidence' as const,
+                })),
+              }),
+          ...(lastDetail === undefined ? {} : { detail: lastDetail }),
+        },
+      ]
     : []
 }
 

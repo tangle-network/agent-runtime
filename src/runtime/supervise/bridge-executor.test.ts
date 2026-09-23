@@ -1237,6 +1237,9 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const runId = 'bridge-abort-provider-identity'
     await createSupervisor<unknown, unknown>().run(root, 'root task', {
       budget: { maxIterations: 10, maxTokens: 10_000 },
+      // This fake bridge answers the cancel without the run identity, so the child's teardown can
+      // never confirm; the test reads the settlement record, not the cleanup retry.
+      teardownConfirmMs: 0,
       runId,
       journal,
       blobs: new InMemoryResultBlobStore(),

@@ -36,6 +36,7 @@
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
 import { sleep } from '../util'
+import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type {
   Agent,
@@ -271,6 +272,7 @@ export function retryPreSpawnRefusals<Out>(
         : retryOneShot(first, restart, signal)
     },
     teardown: (grace) => inner.teardown(grace),
+    ...teardownSurfaces(inner),
     resultArtifact: () => inner.resultArtifact(),
   }
 

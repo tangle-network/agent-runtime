@@ -426,7 +426,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 960 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 961 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -878,6 +878,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 960 exports.
 | `Handle` | interface | A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into |
 | `HarnessUsage` | interface | One harness's own token-usage report for one turn, in the runtime's field names. |
 | `HarvestSurfaceDiffsOptions` | interface | Inputs to {@link harvestSurfaceDiffs}: the run's mount manifest, the read seam, and optional |
+| `HeldEnvironment` | interface | One provider environment an executor holds, named by the provider's own id. |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
 | `InMemoryRunContextOptions` | interface | Options for a supervised run context. |
 | `InPlaceHarnessResult` | interface | The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch: |

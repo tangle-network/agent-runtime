@@ -313,6 +313,11 @@ describe('a root harness turn that ends with a failed outcome', () => {
     ])
     expect(ofKind(events, 'teardown-unconfirmed')).toHaveLength(1)
     expect(result.teardownUnconfirmed).toHaveLength(1)
+    // The preserved source is evidence: named as kept, never as an environment a sweeper deletes.
+    expect(result.teardownUnconfirmed?.[0]).not.toHaveProperty('environments')
+    expect(result.teardownUnconfirmed?.[0]?.kept).toMatchObject([
+      { environmentId: fixture.environmentIds[0], keptFor: 'evidence' },
+    ])
   })
 
   it('stops with no-progress once failed outcomes exceed maxConsecutiveFailures', async () => {

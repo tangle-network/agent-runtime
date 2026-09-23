@@ -179,6 +179,8 @@ describe('supervise tree-wide worker capacity', () => {
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 2, maxTokens: 20 },
       maxLiveWorkers: 1,
+      // The teardown never answers; the settlement retry waits out a short window, not forever.
+      teardownConfirmMs: 30,
       runId: 'retain-unconfirmed-capacity',
       journal,
       blobs: new InMemoryResultBlobStore(),

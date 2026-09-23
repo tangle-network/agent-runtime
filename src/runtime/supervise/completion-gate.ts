@@ -21,6 +21,7 @@
  * @experimental
  */
 
+import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'
 
@@ -137,6 +138,7 @@ export function gateOnDeliverable<Out>(
       })()
     },
     teardown: (grace) => inner.teardown(grace),
+    ...teardownSurfaces(inner),
     resultArtifact() {
       const art = inner.resultArtifact()
       return { ...art, verdict: gated ?? art.verdict }
@@ -200,6 +202,7 @@ export function mapExecutorResult<In, Out>(
       return (async () => settle(await execution, task))()
     },
     teardown: (grace) => inner.teardown(grace),
+    ...teardownSurfaces(inner),
     resultArtifact() {
       if (!mapped) throw new Error('mapExecutorResult: resultArtifact() read before execute()')
       return mapped

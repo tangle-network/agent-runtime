@@ -25,7 +25,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination'
-import { destroyInteractiveEnvironment } from '../retained-interactive-lifecycle'
+import { destroyInteractiveEnvironment, environmentGone } from '../retained-interactive-lifecycle'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import { claimRetainedInteractiveControl, startRetainedInteractiveRun } from '../retained-run'
 import { retainedCreateMaterial } from '../retained-run-intent'
@@ -53,6 +53,7 @@ import type {
   ExecutorCancellation,
   ExecutorContext,
   ExecutorResult,
+  HeldEnvironment,
   Runtime,
   Spend,
   UsageEvent,
@@ -329,6 +330,11 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
         },
       )
       return teardownPromise
+    },
+    heldEnvironments(): ReadonlyArray<HeldEnvironment> {
+      if (teardownComplete || input.destroyEnvironmentOnTeardown === false) return []
+      const held = createdEnvironment?.id ?? environmentId ?? handle?.ref.run.environmentId
+      return held === undefined ? [] : [{ provider: input.provider.name, environmentId: held }]
     },
     resultArtifact(): ExecutorResult<InteractiveWorkerResult> {
       if (!artifact) {
@@ -633,7 +639,7 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
   async function destroyEnvironment(): Promise<void> {
     if (input.destroyEnvironmentOnTeardown === false) return
     if (createdEnvironment !== undefined) {
-      await destroyInteractiveEnvironment(createdEnvironment)
+      await destroyConfirmed(createdEnvironment)
       return
     }
     if (!input.provider.get) return
@@ -644,7 +650,17 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
     if (!cleanupEnvironmentId) return
     const environment = await input.provider.get(cleanupEnvironmentId)
     if (environment !== undefined && environment !== null) {
+      await destroyConfirmed(environment)
+    }
+  }
+
+  async function destroyConfirmed(environment: AgentEnvironment): Promise<void> {
+    try {
       await destroyInteractiveEnvironment(environment)
+    } catch (error) {
+      // A delete whose answer was lost fails not-found on every later attempt; the provider's
+      // lookup confirming the environment gone is the destroy's confirmation.
+      if (!(await environmentGone(input.provider, environment.id))) throw error
     }
   }
 

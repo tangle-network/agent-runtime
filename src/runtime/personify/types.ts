@@ -238,6 +238,9 @@ export interface RunPersonifiedOptions<Task, D> {
   /** OTP intensity breaker bounds, forwarded to the supervisor verbatim. */
   readonly maxRestarts?: number
   readonly withinMs?: number
+  /** Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
+   *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000. */
+  readonly teardownConfirmMs?: number
   /** Forwarded to `SupervisorOpts.maxLiveWorkers`: the hard tree-wide cap on simultaneously
    *  executing spawned workers. Omit to leave the worker count uncapped. */
   readonly maxLiveWorkers?: number
