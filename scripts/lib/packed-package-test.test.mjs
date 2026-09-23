@@ -207,8 +207,22 @@ describe('Eval peer window', () => {
       /reaches back more than one minor/,
     )
     expect(() => peerWindowVersions(name, '>=0.183.0 <0.185.0', '>=0.184.0')).toThrow(
-      /must be developed against an exact version/,
+      /must be developed against an exact stable version/,
     )
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.185.0', '0.184.1-rc.1')).toThrow(
+      /must be developed against an exact stable version, found 0\.184\.1-rc\.1/,
+    )
+  })
+
+  it('refuses a floor above the development pin', () => {
+    expect(() => peerWindowVersions(name, '>=0.184.5 <0.185.0', '0.184.0')).toThrow(
+      /peer >=0\.184\.5 <0\.185\.0 does not admit its development pin 0\.184\.0/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.185.0 <0.185.0', '0.184.0')).toThrow(
+      /does not admit its development pin/,
+    )
+    expect(peerWindowVersions(name, '>=0.184.1 <0.185.0', '0.184.1')).toEqual([])
+    expect(peerWindowVersions(name, '>=0.184.0 <0.185.0', '0.184.3')).toEqual(['0.184.0'])
   })
 
   it("accepts Runtime's own manifest only through the declared window", () => {

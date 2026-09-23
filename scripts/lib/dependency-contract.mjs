@@ -24,13 +24,11 @@ const sandboxPeerRange = declaredPeerRange('@tangle-network/sandbox')
 
 export { sandboxPeerRange }
 // Registry checks require published artifacts, so this matrix names only versions npm serves.
-// The peer ceiling runs ahead of it: 0.47.0 is admitted on its source diff against 0.46.0 —
-// 325 insertions, 0 deletions, a new delete-matching module plus additions to client, index and
-// types — so nothing this runtime consumes can have changed. Add 0.47.0 here once it publishes.
 export const sandboxCompatibilityVersions = Object.freeze([
   peerFloor('@tangle-network/sandbox', sandboxPeerRange),
   '0.43.0',
   '0.46.0',
+  '0.47.0',
 ])
 
 /**
@@ -41,20 +39,26 @@ export const sandboxCompatibilityVersions = Object.freeze([
  * installs only that floor, so a wider window would leave its middle minors unrun.
  */
 export function peerWindowVersions(name, range, developmentVersion) {
-  const development = /^(\d+)\.(\d+)\.\d+$/u.exec(developmentVersion ?? '')
+  const development = /^(\d+)\.(\d+)\.(\d+)$/u.exec(developmentVersion ?? '')
   if (development === null) {
-    throw new Error(`${name} must be developed against an exact version, found ${String(developmentVersion)}`)
+    throw new Error(
+      `${name} must be developed against an exact stable version, found ${String(developmentVersion)}`,
+    )
   }
+  const [devMajor, devMinor, devPatch] = development.slice(1).map(Number)
   const floor = peerFloor(name, range)
-  const window = `>=${floor} <${development[1]}.${Number(development[2]) + 1}.0`
+  const window = `>=${floor} <${devMajor}.${devMinor + 1}.0`
   if (range !== window) {
     throw new Error(`${name} peer must end at its development minor: expected ${window}, found ${range}`)
   }
-  const [floorMajor, floorMinor] = floor.split('.').map(Number)
-  if (floorMajor !== Number(development[1]) || floorMinor < Number(development[2]) - 1) {
+  const [floorMajor, floorMinor, floorPatch] = floor.split('.').map(Number)
+  if (floorMajor !== devMajor || floorMinor < devMinor - 1) {
     throw new Error(
       `${name} peer ${range} reaches back more than one minor from ${developmentVersion}; only its floor would be installed`,
     )
+  }
+  if (floorMinor > devMinor || (floorMinor === devMinor && floorPatch > devPatch)) {
+    throw new Error(`${name} peer ${range} does not admit its development pin ${developmentVersion}`)
   }
   return floor === developmentVersion ? [] : [floor]
 }
