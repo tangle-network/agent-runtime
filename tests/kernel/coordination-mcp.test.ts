@@ -1547,6 +1547,130 @@ describe('method tools on the coordination MCP are single-flight within one fenc
   })
 })
 
+// ── Fenced submit_result ────────────────────────────────────────────────────────
+//
+// The failure this closes, from a 2026-09-22 factory run: the injected check re-ran the product
+// build and asked a model reviewer, so it ran for minutes inside the submit_result request. The
+// transport answered 504 at 30 s while the check kept running, and 25 of 25 submits reached the
+// director as "Streamable HTTP error" with no verdict and no reason.
+
+async function withSlowCheck<T>(
+  body: (input: {
+    mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>
+    checks: () => number
+    verdicts: ReadonlyArray<ReturnType<typeof deferred<boolean>>>
+  }) => Promise<T>,
+  transport: { maxConcurrentRequests?: number } = {},
+): Promise<T> {
+  let checks = 0
+  const verdicts: Array<ReturnType<typeof deferred<boolean>>> = []
+  const mcp = await serveCoordinationMcp({
+    scope: { signal: new AbortController().signal } as Scope<unknown>,
+    blobs: new InMemoryResultBlobStore(),
+    makeWorkerAgent: () => deliveringLeaf('unused', {}),
+    perWorker: { maxIterations: 1, maxTokens: 1 },
+    // 500 ms request timeout ⇒ a 250 ms fence, the same half the 30 s default gives 15 s. The
+    // pending answer leaves 250 ms before the transport's 504, room for a loaded CI runner.
+    requestTimeoutMs: 500,
+    ...transport,
+    toolNames: ['submit_result'],
+    deliverable: {
+      describe: 'a verified product packet',
+      check: () => {
+        checks++
+        const verdict = deferred<boolean>()
+        verdicts.push(verdict)
+        return verdict.promise
+      },
+      explainFailure: () => 'verify_product failed: testCommand exited 1',
+    },
+  })
+  try {
+    return await body({ mcp, checks: () => checks, verdicts })
+  } finally {
+    for (const verdict of verdicts) verdict.resolve(false)
+    await mcp.close()
+  }
+}
+
+const submit = (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>, result: unknown) =>
+  fetch(mcp.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...mcp.headers },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'submit_result', arguments: { result } },
+    }),
+  })
+
+const structured = async (response: Response) => {
+  expect(response.status).toBe(200)
+  const body = (await response.json()) as { result?: { structuredContent?: unknown } }
+  return body.result?.structuredContent as Record<string, unknown>
+}
+
+describe('submit_result on the coordination MCP is single-flight and fenced', () => {
+  it('answers pending instead of 504 while the check runs, then hands the verdict and its reason to the resubmission', async () => {
+    await withSlowCheck(async ({ mcp, checks, verdicts }) => {
+      const first = await structured(await submit(mcp, { status: 'complete', evidence: ['a'] }))
+      expect(first).toMatchObject({ pending: true, tool: 'submit_result' })
+      expect(String(first.instruction)).toContain('same arguments')
+      // The resubmission re-emits the packet with its keys in another order.
+      const second = await structured(await submit(mcp, { evidence: ['a'], status: 'complete' }))
+      expect(second).toMatchObject({ pending: true, tool: 'submit_result' })
+      expect(checks()).toBe(1)
+
+      verdicts[0]!.resolve(false)
+      await tick()
+      const collected = await structured(await submit(mcp, { status: 'complete', evidence: ['a'] }))
+      expect(collected).toMatchObject({ accepted: false, stop: false })
+      expect(String(collected.reason)).toContain('verify_product failed: testCommand exited 1')
+      expect(checks()).toBe(1)
+      expect(mcp.submittedResult()).toBeUndefined()
+    })
+  })
+
+  it('accepts a passing verdict collected after the fence, and checks again once a verdict was returned', async () => {
+    await withSlowCheck(async ({ mcp, checks, verdicts }) => {
+      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
+      verdicts[0]!.resolve(false)
+      await tick()
+      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ accepted: false })
+      // Identity ended with that verdict: the same packet after a repair is a fresh check.
+      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
+      expect(checks()).toBe(2)
+      verdicts[1]!.resolve(true)
+      await tick()
+      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({
+        accepted: true,
+        retained: 'this-result',
+        stop: true,
+      })
+      expect(mcp.submittedResult()).toMatchObject({ result: { n: 1 } })
+    })
+  })
+
+  it('keeps a check that outlived its request charged against the concurrency bound until it settles', async () => {
+    await withSlowCheck(
+      async ({ mcp, checks, verdicts }) => {
+        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
+        // Answering pending freed the request, not the work: the running check holds the one slot.
+        expect((await submit(mcp, { n: 2 })).status).toBe(429)
+        expect(checks()).toBe(1)
+        verdicts[0]!.resolve(false)
+        await tick()
+        // Settled, it no longer holds the slot, and its verdict still waits for its own resubmission.
+        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ accepted: false })
+        expect(await structured(await submit(mcp, { n: 2 }))).toMatchObject({ pending: true })
+        expect(checks()).toBe(2)
+      },
+      { maxConcurrentRequests: 1 },
+    )
+  })
+})
+
 describe('the coordination HTTP boundary keeps its own deadline', () => {
   it('answers 504 and holds the slot until a still-executing action settles', async () => {
     // A coordination verb can still outrun the request deadline — a slow spawn preflight, an

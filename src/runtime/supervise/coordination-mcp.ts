@@ -188,8 +188,16 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
 }
 
 /**
+ * The coordination verb that runs an injected deliverable's check inside its request, so its work
+ * can outlast one request and it is served like `nodeTools`. src/mcp/tools/coordination.ts builds it
+ * exactly when a deliverable is injected.
+ */
+const DELIVERABLE_VERB = 'submit_result'
+
+/**
  * The longest one coordination call holds its HTTP response before it answers with a re-pollable
- * pending result instead: `await_event` by default, and every method-supplied node tool always.
+ * pending result instead: `await_event` by default, and `submit_result` and every method-supplied
+ * node tool always.
  *
  * It is half of `requestTimeoutMs`, so the answer leaves before the transport's own 504 at
  * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization.
@@ -211,7 +219,10 @@ export async function serveCoordinationMcp(
     makeWorkerAgent: MakeWorkerAgent
     authorizeDownMessage?: AuthorizeDownMessage
     perWorker: Budget
-    /** Independent completion check exposed to the driver as `submit_result`. */
+    /** Independent completion check exposed to the driver as `submit_result`. The check runs
+     *  inside that call, so the call is served single-flight and fenced like `nodeTools`: a check
+     *  still running at the fence returns a pending result, and an identical resubmission joins
+     *  that check and returns its verdict. */
     deliverable?: DeliverableSpec<unknown>
     /** Called once when the external manager accepts a result or declares completion. */
     onStop?: (reason: string | undefined) => void
@@ -482,7 +493,27 @@ export async function serveCoordinationMcpForManager(
     reservedNames.add(tool.name)
   }
   const nodeTools = singleFlightTools(opts.nodeTools ?? [], { fenceMs: responseFenceMs })
-  const availableTools = [...coord.tools, ...nodeTools.tools]
+  // `submit_result` runs the injected completion check inside its request, and a product check can
+  // re-run a build and a model review for minutes. Unfenced, the transport answered 504 at
+  // `requestTimeoutMs` while the check kept running, so the manager never saw the verdict or its
+  // reason: 25 of 25 submits in one 2026-09-22 factory run. Fenced, the call answers pending and an
+  // identical resubmission collects the verdict from the same check instead of starting another.
+  const fencedVerbs = singleFlightTools(
+    coord.tools.filter((tool) => tool.name === DELIVERABLE_VERB),
+    { fenceMs: responseFenceMs },
+  )
+  // A rename in src/mcp/tools/coordination.ts must fail here, not leave the check unfenced and bring
+  // back the 504. The test is the one that passed the deliverable to the coordination tools above.
+  if (opts.deliverable && fencedVerbs.tools.length !== 1) {
+    throw new ValidationError(
+      `serveCoordinationMcp: a deliverable is injected but the coordination verbs lack ${DELIVERABLE_VERB}, so its check would run unfenced`,
+    )
+  }
+  const fencedByName = new Map(fencedVerbs.tools.map((tool) => [tool.name, tool]))
+  const availableTools = [
+    ...coord.tools.map((tool) => fencedByName.get(tool.name) ?? tool),
+    ...nodeTools.tools,
+  ]
   const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
   if (!Array.isArray(opts.toolNames)) {
     throw new ValidationError(
@@ -518,7 +549,7 @@ export async function serveCoordinationMcpForManager(
       identity,
       toolNames: new Set(servedTools.map((tool) => tool.name)),
       handle: (message) => mcp.handle(message),
-      backgroundActions: nodeTools.background,
+      backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
       authorize: (req) => {
         if (!paths.has(req.url ?? '')) return 404
         // A proxy may use the destination IP as Host. A wildcard bind must

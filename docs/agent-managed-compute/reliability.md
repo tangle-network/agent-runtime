@@ -285,6 +285,8 @@ An unconfirmed release remains explicit in the journal and final result.
 The HTTP adapter bounds request bytes, body and action deadlines, concurrent work, and request rates.
 A timed-out action keeps its admission slot until execution settles.
 A 504 response does not prove the action had no effects; reuse existing semantic spawn keys when reconciling.
+`submit_result` and method node tools do not wait for that deadline: at half the request timeout, and at most 15 s, they return a pending result.
+An identical call joins the running action and returns its outcome, so a long completion check still reaches the manager with its verdict and reason.
 A separate bounded admission path preserves owner status and cancellation during normal work saturation.
 Audit records contain trusted run and actor IDs, known action names, outcome, and HTTP status.
 Admission audit failure prevents action execution.
