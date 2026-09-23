@@ -39,6 +39,7 @@ const PACKAGES = {
   agentRuntime: '@tangle-network/agent-runtime',
 }
 const PACKAGE_NAMES = Object.values(PACKAGES)
+const SANDBOX_PACKAGE = '@tangle-network/sandbox'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
 if (args[0] === '--') args.shift()
@@ -49,6 +50,8 @@ const { values } = parseArgs({
     'agent-eval-repo': { type: 'string' },
     'agent-knowledge-repo': { type: 'string' },
     'agent-runtime-repo': { type: 'string' },
+    'sandbox-repo': { type: 'string' },
+    'sandbox-archive': { type: 'string' },
     'cohort-manifest': { type: 'string' },
     'keep-temp': { type: 'boolean', default: false },
     report: { type: 'string' },
@@ -67,6 +70,8 @@ if (values.help) {
       '  --agent-eval-repo <path>       Clean agent-eval Git checkout',
       '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
       '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
+      '  --sandbox-repo <path>          Clean ADC Git checkout for the pending Sandbox release',
+      '  --sandbox-archive <path>       Publisher-built Sandbox archive for the pending release',
       '  --cohort-manifest <path>       Require dependency versions and commits from this manifest',
       '  --keep-temp                    Retain the generated archives and consumer',
       '  --report <path>                Also write the verified cohort report to this file',
@@ -89,6 +94,9 @@ const sourceRepos = {
     values['agent-knowledge-repo'] ?? join(repoRoot, '..', 'agent-knowledge'),
   ),
   [PACKAGES.agentRuntime]: resolve(values['agent-runtime-repo'] ?? repoRoot),
+}
+if (values['sandbox-repo'] && values['sandbox-archive']) {
+  throw new Error('Choose either --sandbox-repo or --sandbox-archive')
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-package-cohort-'))
 const artifactsDir = join(tempRoot, 'artifacts')
@@ -148,7 +156,24 @@ try {
     agentKnowledge,
     agentRuntime,
   })
-  const consumer = verifyConsumer(artifacts)
+  const sandboxCandidate = values['sandbox-repo']
+    ? buildAndPack({
+        packageName: SANDBOX_PACKAGE,
+        sourceRepo: resolve(values['sandbox-repo']),
+        packageDirectory: 'products/sandbox/sdk',
+        buildWorkspaceDependencies: true,
+        verifyDist: true,
+      })
+    : values['sandbox-archive']
+      ? useSandboxArchive(values['sandbox-archive'])
+    : packRegistrySandbox(sandboxCompatibilityVersions.at(-1))
+  if (sandboxCandidate.version !== sandboxCompatibilityVersions.at(-1)) {
+    throw new Error(
+      `Sandbox candidate is ${sandboxCandidate.version}, expected ${sandboxCompatibilityVersions.at(-1)}`,
+    )
+  }
+  registerArtifact(sandboxCandidate)
+  const consumer = verifyConsumer(artifacts, sandboxCandidate)
 
   process.stdout.write('Packed package cohort verified.\n')
   for (const artifact of artifacts) {
@@ -163,6 +188,12 @@ try {
       sourceCommit,
       sha256,
     })),
+    sandboxCandidate: {
+      name: sandboxCandidate.name,
+      version: sandboxCandidate.version,
+      sourceCommit: sandboxCandidate.sourceCommit,
+      sha256: sandboxCandidate.sha256,
+    },
     consumer,
   }
   process.stdout.write(`${JSON.stringify(report)}\n`)
@@ -196,6 +227,8 @@ function buildAndPack({
   sourceRepo,
   packageDirectory = '.',
   localPackages = [],
+  buildWorkspaceDependencies = false,
+  verifyDist = false,
 }) {
   assertCleanGitCheckout(sourceRepo, packageName)
   const sourceCommit = captured('git', ['rev-parse', 'HEAD'], sourceRepo).trim()
@@ -269,11 +302,25 @@ function buildAndPack({
     `${packageName} build`,
     ignoreAncestorWorkspace,
   )
-  captured(
-    'corepack',
-    ['pnpm', ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []), 'run', 'build'],
-    buildDir,
-  )
+  if (buildWorkspaceDependencies) {
+    if (!workspaceRoot) {
+      throw new Error(`${packageName} requires a pnpm workspace to build its dependencies`)
+    }
+    captured(
+      'corepack',
+      ['pnpm', '--filter', `${packageName}...`, 'build'],
+      workspaceRoot,
+    )
+  } else {
+    captured(
+      'corepack',
+      ['pnpm', ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []), 'run', 'build'],
+      buildDir,
+    )
+  }
+  if (verifyDist) {
+    captured('corepack', ['pnpm', 'run', 'verify-dist'], buildDir)
+  }
 
   writeFileSync(packagePath, packageText)
   const before = new Set(readdirSync(artifactsDir))
@@ -304,15 +351,57 @@ function buildAndPack({
     throw new Error(`${packageName} produced ${created.length} archives, expected exactly one`)
   }
 
-  const archivePath = join(artifactsDir, created[0])
+  return inspectArchive({
+    packageName,
+    expectedVersion: packageJson.version,
+    sourceCommit,
+    archivePath: join(artifactsDir, created[0]),
+  })
+}
+
+function useSandboxArchive(sourcePath) {
+  const archivePath = resolve(sourcePath)
+  if (!existsSync(archivePath)) throw new Error(`Sandbox archive is missing: ${archivePath}`)
+  const destination = join(artifactsDir, basename(archivePath))
+  copyFileSync(archivePath, destination)
+  return inspectArchive({
+    packageName: SANDBOX_PACKAGE,
+    expectedVersion: sandboxCompatibilityVersions.at(-1),
+    sourceCommit: null,
+    archivePath: destination,
+  })
+}
+
+function packRegistrySandbox(version) {
+  const before = new Set(readdirSync(artifactsDir))
+  captured(
+    'npm',
+    ['pack', `${SANDBOX_PACKAGE}@${version}`, '--ignore-scripts', '--json', '--pack-destination', artifactsDir],
+    repoRoot,
+  )
+  const created = readdirSync(artifactsDir).filter(
+    (name) => name.endsWith('.tgz') && !before.has(name),
+  )
+  if (created.length !== 1) {
+    throw new Error(`${SANDBOX_PACKAGE}@${version} produced ${created.length} archives, expected one`)
+  }
+  return inspectArchive({
+    packageName: SANDBOX_PACKAGE,
+    expectedVersion: version,
+    sourceCommit: null,
+    archivePath: join(artifactsDir, created[0]),
+  })
+}
+
+function inspectArchive({ packageName, expectedVersion, sourceCommit, archivePath }) {
   const extractedDir = join(tempRoot, 'extracted', packageName.replace('@tangle-network/', ''))
   mkdirSync(extractedDir, { recursive: true })
-  captured('tar', ['-xzf', archivePath, '-C', extractedDir], buildDir)
+  captured('tar', ['-xzf', archivePath, '-C', extractedDir], repoRoot)
   const extractedPackageDir = join(extractedDir, 'package')
   const packedPackageJson = JSON.parse(
     readFileSync(join(extractedPackageDir, 'package.json'), 'utf8'),
   )
-  if (packedPackageJson.name !== packageName || packedPackageJson.version !== packageJson.version) {
+  if (packedPackageJson.name !== packageName || packedPackageJson.version !== expectedVersion) {
     throw new Error(
       `${packageName} archive identity changed: ${packedPackageJson.name}@${packedPackageJson.version}`,
     )
@@ -340,16 +429,20 @@ function findPnpmWorkspaceRoot(startDirectory, sourceRoot) {
   }
 }
 
-function verifyConsumer(artifacts) {
+function verifyConsumer(artifacts, sandboxCandidate) {
   // Every Sandbox version runs with the packed Eval. Each earlier Eval minor that Runtime's
   // peer window admits runs from the registry beside the newest verified Sandbox.
   const latestSandboxVersion = sandboxCompatibilityVersions.at(-1)
   const consumers = [
     ...sandboxCompatibilityVersions.map((sandboxVersion) =>
-      verifyConsumerFor(artifacts, { sandboxVersion }),
+      verifyConsumerFor(artifacts, { sandboxVersion, sandboxCandidate }),
     ),
     ...evalCompatibilityVersions.map((registryEvalVersion) =>
-      verifyConsumerFor(artifacts, { sandboxVersion: latestSandboxVersion, registryEvalVersion }),
+      verifyConsumerFor(artifacts, {
+        sandboxVersion: latestSandboxVersion,
+        registryEvalVersion,
+        sandboxCandidate,
+      }),
     ),
   ]
   return {
@@ -370,7 +463,7 @@ function verifyConsumer(artifacts) {
   }
 }
 
-function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersion }) {
+function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersion, sandboxCandidate }) {
   const appDir = join(
     tempRoot,
     `consumer-sandbox-${sandboxVersion.replaceAll('.', '-')}${
@@ -379,9 +472,11 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
   )
   mkdirSync(appDir, { recursive: true })
   // A registry Eval replaces the packed one, so the archive checks below cover the rest.
-  const artifacts = registryEvalVersion
+  const coreArtifacts = registryEvalVersion
     ? cohortArtifacts.filter((artifact) => artifact.name !== PACKAGES.agentEval)
     : cohortArtifacts
+  const packedSandbox = sandboxCandidate.version === sandboxVersion ? sandboxCandidate : undefined
+  const artifacts = packedSandbox ? [...coreArtifacts, packedSandbox] : coreArtifacts
   const byName = new Map(artifacts.map((artifact) => [artifact.name, artifact]))
   const runtime = byName.get('@tangle-network/agent-runtime')
   if (!runtime) throw new Error('Runtime artifact is missing')
@@ -413,7 +508,7 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
         dependencies: {
           ...fileSpecs,
           ...runtimePeers,
-          '@tangle-network/sandbox': sandboxVersion,
+          ...(packedSandbox ? {} : { [SANDBOX_PACKAGE]: sandboxVersion }),
           ...(registryEvalVersion ? { [PACKAGES.agentEval]: registryEvalVersion } : {}),
         },
         devDependencies: {
@@ -471,7 +566,10 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
       appDir,
     ),
   )
-  const resolved = collectTargetDependencies(dependencyTree)
+  const resolved = collectTargetDependencies(dependencyTree, [
+    ...artifacts.map(({ name }) => name),
+    ...(registryEvalVersion ? [PACKAGES.agentEval] : []),
+  ])
   for (const artifact of artifacts) {
     const occurrences = resolved.get(artifact.name) ?? []
     if (occurrences.length === 0) {
@@ -608,8 +706,8 @@ function assertArchiveResolution(artifact, occurrence, context) {
   }
 }
 
-function collectTargetDependencies(dependencyTree) {
-  const targets = new Map(PACKAGE_NAMES.map((name) => [name, []]))
+function collectTargetDependencies(dependencyTree, packageNames = PACKAGE_NAMES) {
+  const targets = new Map(packageNames.map((name) => [name, []]))
   const visit = (node) => {
     if (!node || typeof node !== 'object') return
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {

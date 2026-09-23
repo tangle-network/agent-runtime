@@ -65,6 +65,13 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('^1.0.0', '2.0.0')).toBe(false)
   })
 
+  it('admits a zero-major caret only within its minor', () => {
+    expect(rangeAdmits('^0.49.0', '0.49.0')).toBe(true)
+    expect(rangeAdmits('^0.49.0', '0.49.1')).toBe(true)
+    expect(rangeAdmits('^0.49.0', '0.50.0')).toBe(false)
+    expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0', '0.48.0')).toBe(false)
+  })
+
   it('admits inside a minor window and refuses the next minor', () => {
     expect(rangeAdmits('>=0.145.21 <0.146.0', '0.145.22')).toBe(true)
     expect(rangeAdmits('>=0.145.21 <0.146.0', '0.145.20')).toBe(false)

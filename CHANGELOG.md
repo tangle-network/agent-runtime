@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.259.0
+
+Admit Sandbox SDK 0.49 while retaining the verified older minors and excluding 0.48.
+The Sandbox peer range is `>=0.36.4 <0.48.0 || ^0.49.0`.
+The packed cohort installs Sandbox 0.49.0 from npm with strict peers, checks 374 public imports, and runs six proposal probes.
+The registry archive matches the publisher candidate byte-for-byte: SHA-256 `772ebce96877ac7f2e3507e8bd4dfe5641414884a6b560f69e6f2bc8a5ee0d91`.
+For unpublished candidates, the same gate accepts a supplied archive or packs a clean ADC checkout after building its workspace dependencies.
+
 ## 0.258.0
 
 `supervise()` and `runGraph` accept `awaitTimeoutMs`, the longest one `await_event` of an in-process Router driver waits for a running worker.

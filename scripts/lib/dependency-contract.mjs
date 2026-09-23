@@ -15,7 +15,7 @@ function declaredPeerRange(name) {
 }
 
 function peerFloor(name, range) {
-  const floor = /^>=(\d+\.\d+\.\d+)\b/u.exec(range)?.[1]
+  const floor = /^(?:>=|\^)(\d+\.\d+\.\d+)\b/u.exec(range)?.[1]
   if (floor === undefined) throw new Error(`cannot derive ${name} compatibility version from ${range}`)
   return floor
 }
@@ -23,12 +23,13 @@ function peerFloor(name, range) {
 const sandboxPeerRange = declaredPeerRange('@tangle-network/sandbox')
 
 export { sandboxPeerRange }
-// Registry checks require published artifacts, so this matrix names only versions npm serves.
+// The newest Sandbox may be packed from a pinned ADC cut before npm serves it.
 export const sandboxCompatibilityVersions = Object.freeze([
   peerFloor('@tangle-network/sandbox', sandboxPeerRange),
   '0.43.0',
   '0.46.0',
   '0.47.0',
+  '0.49.0',
 ])
 
 /**
@@ -77,8 +78,8 @@ export const evalCompatibilityVersions = Object.freeze(
 )
 
 /**
- * The declared window and verified versions for each peer whose range is wider than the
- * development minor. Every other first-party peer must equal its development minor.
+ * The declared range and verified versions for peers admitted beyond the development pin.
+ * Every other first-party peer must equal its development minor.
  */
 export const peerCompatibility = Object.freeze({
   '@tangle-network/agent-eval': Object.freeze({
