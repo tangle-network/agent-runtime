@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.12
+
+Accept Eval 0.185 and 0.186 and require Knowledge 17.1.2 through the shared dependency catalog.
+Benchmark behavior is unchanged.
+
 ## 0.13.11
 
 Accept Eval 0.184 and require Knowledge 17.1.1 through the shared dependency catalog.
