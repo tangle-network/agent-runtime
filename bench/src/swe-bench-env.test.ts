@@ -47,6 +47,11 @@ const makeRelativeSymlinkRepo = (): { root: string; source: string; destination:
     `core.hooksPath=${hooksDir}`,
     '-c',
     'commit.gpgsign=false',
+    // A commit starts `git maintenance run --auto` in the background, which creates and removes
+    // .git/objects/maintenance.lock while the test copies the checkout. The copy then fails with
+    // ENOENT on a file that vanished: 5 of 240 copies on Node 22.23 and 24.11, 0 of 400 without it.
+    '-c',
+    'maintenance.auto=false',
     'commit',
     '--quiet',
     '-m',
