@@ -12,8 +12,9 @@ import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../../src/errors'
 import type { AgentGraph, RunGraphOptions } from '../../src/runtime/supervise/graph'
 import { assertRunGraphAuthoring } from '../../src/runtime/supervise/graph'
-import { supervise } from '../../src/runtime/supervise/supervise'
+import { supervise, superviseWithTestBrain } from '../../src/runtime/supervise/supervise'
 import type { SupervisorProfile } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const budget = { maxIterations: 4, maxTokens: 10_000 }
 
@@ -131,5 +132,50 @@ describe('runGraph option keys', () => {
         }),
       ),
     ).not.toThrow()
+  })
+})
+
+describe('supervise profileGuidance', () => {
+  it('refuses a guidance source it does not know before any compute', () => {
+    expect(() =>
+      supervise(rootProfile(), 'task', {
+        budget,
+        profileGuidance: 'profile-kb-v2' as unknown as 'profile-kb',
+      }),
+    ).toThrow(/profileGuidance must be 'profile-kb'/)
+  })
+})
+
+describe('supervise profileGuidance composes the root profile', () => {
+  it('the root brain reads model guidance from profile-kb', async () => {
+    const seen: string[] = []
+    const profile = testAgentProfile('root', { harness: 'cli-base' })
+    const root = {
+      ...profile,
+      model: { ...profile.model, default: 'deepseek/deepseek-v4.1-flash' },
+    }
+    const brain = async (...args: unknown[]) => {
+      seen.push(JSON.stringify(args))
+      return {
+        content: 'done',
+        toolCalls: [],
+        usage: { input: 1, output: 1 },
+        costUsd: 0,
+        costProvenance: 'provider-receipt' as const,
+      }
+    }
+    const makeWorkerAgent = () => {
+      throw new Error('worker must not run')
+    }
+    await superviseWithTestBrain(root, 'work', { budget, brain, makeWorkerAgent })
+    expect(seen.join('')).not.toContain('profile-guidance')
+    seen.length = 0
+    await superviseWithTestBrain(root, 'work', {
+      budget,
+      brain,
+      makeWorkerAgent,
+      profileGuidance: 'profile-kb',
+    })
+    expect(seen.join('')).toContain('source=\\"model\\" id=\\"deepseek-v4.1-flash\\"')
   })
 })

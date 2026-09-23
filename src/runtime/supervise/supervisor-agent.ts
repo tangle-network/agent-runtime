@@ -580,6 +580,9 @@ export interface SupervisorAgentDeps {
    *  will run, so the gate judges the canonical profile. See
    *  `CoordinationToolsOptions.resolveSpawnProfile`. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** Composition of each authored child profile before identity is fixed —
+   *  `CoordinationToolsOptions.composeSpawnProfile`. */
+  readonly composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
    *  `path` resolves under. Set only for a manager whose workspace this process can read. */
   readonly spawnResourceRoot?: string
@@ -821,6 +824,7 @@ function buildSupervisorAgent(
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
+        ...(deps.composeSpawnProfile ? { composeSpawnProfile: deps.composeSpawnProfile } : {}),
         ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
         ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
@@ -984,6 +988,7 @@ function buildSupervisorAgent(
           ...(deps.replaySettlements ? { replaySettlements: true } : {}),
           ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
           ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
+          ...(deps.composeSpawnProfile ? { composeSpawnProfile: deps.composeSpawnProfile } : {}),
           ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
           ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
           ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),

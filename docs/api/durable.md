@@ -1670,6 +1670,20 @@ Pre-journal profile resolution for the spawn pre-flight: the profile a driver au
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSpawnProfile`](runtime.md#resolvespawnprofile)
 
+##### profileGuidance?
+
+> `readonly` `optional` **profileGuidance?**: `"profile-kb"`
+
+OPT-IN standing guidance from the profile knowledge base
+ (`@tangle-network/agent-interface/profile-kb`). `'profile-kb'` composes harness guidance,
+ then model guidance, then the profile's own text into the root profile and into every
+ profile a manager spawns, before identity is fixed, so receipts bind the prompt that ran.
+ Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`profileGuidance`](runtime.md#profileguidance-1)
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)

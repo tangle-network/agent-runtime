@@ -4071,6 +4071,26 @@ because both are minted AFTER the pre-journal point. Omit = the authored profile
 
 `AgentProfile`
 
+##### composeSpawnProfile?
+
+> `readonly` `optional` **composeSpawnProfile?**: (`profile`) => `AgentProfile`
+
+OPT-IN composition of the profile a manager authored, applied right after it parses and before
+continuity, pre-flight, authorization, or the journal see it. The composed profile is the
+child's profile: its identity, its receipt, and what runs. Pure and synchronous; its output is
+re-validated against the canonical schema. `supervise({ profileGuidance: 'profile-kb' })`
+installs `withProfileKb` here so each child carries its harness and model guidance.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
 ##### spawnResourceRoot?
 
 > `readonly` `optional` **spawnResourceRoot?**: `string`

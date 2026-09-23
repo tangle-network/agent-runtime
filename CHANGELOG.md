@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.254.0
+
+`supervise({ profileGuidance: 'profile-kb' })` composes standing guidance from `@tangle-network/agent-interface/profile-kb` into the root profile and into every profile a manager spawns.
+Guidance is the harness's, then the model's, then the profile's own text, and it is composed before identity is fixed, so receipts bind the prompt that ran.
+Omit the option to run profiles exactly as authored.
+`CoordinationToolsOptions.composeSpawnProfile` is the underlying seam, applied after parsing and before continuity, pre-flight, authorization, and the journal.
+The agent-interface floor moves to 2.11.0.
+
 ## 0.253.0
 
 `supervisePursuit` now reads root steers from the same run directory used by the public `writeWorkerSteer` API.
