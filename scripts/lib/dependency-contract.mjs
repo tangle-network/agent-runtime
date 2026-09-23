@@ -17,11 +17,8 @@ if (sandboxFloor === undefined) {
 
 export { sandboxPeerRange }
 // Registry checks require published artifacts, so this matrix names only versions npm serves.
-// The peer ceiling runs ahead of it: 0.47.0 is admitted on its source diff against 0.46.0 —
-// 325 insertions, 0 deletions, a new delete-matching module plus additions to client, index and
-// types — so nothing this runtime consumes can have changed. Add 0.47.0 here once it publishes.
 export const sandboxCompatibilityVersions = Object.freeze([
   sandboxFloor,
   '0.43.0',
-  '0.46.0',
+  '0.47.0',
 ])
