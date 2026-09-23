@@ -2629,6 +2629,32 @@ export function superviseWithTestBrain(
   return superviseInternal(profile, task, runtimeOptions, brain)
 }
 
+/**
+ * The composer `profileGuidance` selects, or `undefined` when no guidance is selected. The result
+ * is re-validated as an AgentProfile, and a composition that breaks the schema is refused as a
+ * ValidationError. `supervise` applies it to the root and to authored spawns; `runGraph` applies
+ * it to pinned node profiles.
+ */
+export function profileGuidanceComposer(
+  guidance: SuperviseOptions['profileGuidance'],
+): ((profile: AgentProfile) => AgentProfile) | undefined {
+  if (guidance === undefined) return undefined
+  if (guidance !== 'profile-kb') {
+    throw new ValidationError(
+      `supervise: profileGuidance must be 'profile-kb' when set, got ${JSON.stringify(guidance)}`,
+    )
+  }
+  return (profile) => {
+    const composed = agentProfileSchema.safeParse(withProfileKb(profile))
+    if (!composed.success) {
+      throw new ValidationError(
+        `supervise: profile-kb guidance produced an invalid AgentProfile: ${composed.error.message}`,
+      )
+    }
+    return composed.data
+  }
+}
+
 function superviseInternal(
   profile: SupervisorProfile,
   task: unknown,
@@ -2643,16 +2669,9 @@ function superviseInternal(
   if (!parsedProfile.success) {
     throw new ValidationError(`supervise: invalid AgentProfile: ${parsedProfile.error.message}`)
   }
-  if (options.profileGuidance !== undefined && options.profileGuidance !== 'profile-kb') {
-    throw new ValidationError(
-      `supervise: profileGuidance must be 'profile-kb' when set, got ${JSON.stringify(options.profileGuidance)}`,
-    )
-  }
-  const composeSpawnProfile = options.profileGuidance === 'profile-kb' ? withProfileKb : undefined
+  const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
   const canonicalProfile = freezeDetachedProfile(
-    composeSpawnProfile
-      ? agentProfileSchema.parse(composeSpawnProfile(parsedProfile.data))
-      : parsedProfile.data,
+    composeSpawnProfile ? composeSpawnProfile(parsedProfile.data) : parsedProfile.data,
   )
   assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   const canonicalTask = freezeDetached(task)

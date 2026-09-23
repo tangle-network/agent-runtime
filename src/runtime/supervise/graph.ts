@@ -51,7 +51,6 @@ import {
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
-import { withProfileKb } from '@tangle-network/agent-interface/profile-kb'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { ConfigError, ValidationError } from '../../errors'
 import type {
@@ -71,7 +70,12 @@ import {
   type PromptHandle,
   type PromptRegistry,
 } from './prompt-registry'
-import { type SuperviseOptions, supervise, superviseWithTestBrain } from './supervise'
+import {
+  profileGuidanceComposer,
+  type SuperviseOptions,
+  supervise,
+  superviseWithTestBrain,
+} from './supervise'
 import { coordinationProfileToolPrefix } from './supervisor-agent'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
@@ -1000,10 +1004,9 @@ export function superviseAgentGraph(
   // `profileGuidance` composes the profile a manager authors, but a graph then swaps that `{ name }`
   // stub for the pinned node profile. Compose the pinned profile too, so every node that runs
   // carries its harness and model guidance. Composition is idempotent, so identity stays stable.
+  const guidance = profileGuidanceComposer(opts.profileGuidance)
   const composeGuidance = (profile: AgentProfile): AgentProfile =>
-    opts.profileGuidance === 'profile-kb'
-      ? agentProfileSchema.parse(withProfileKb(profile))
-      : profile
+    guidance ? guidance(profile) : profile
   const resolveSpawnProfile = (authored: AgentProfile): AgentProfile => {
     const requested = typeof authored.name === 'string' ? authored.name : undefined
     const node =
