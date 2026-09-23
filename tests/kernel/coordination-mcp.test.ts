@@ -1560,6 +1560,7 @@ async function withSlowCheck<T>(
     checks: () => number
     verdicts: ReadonlyArray<ReturnType<typeof deferred<boolean>>>
   }) => Promise<T>,
+  transport: { maxConcurrentRequests?: number } = {},
 ): Promise<T> {
   let checks = 0
   const verdicts: Array<ReturnType<typeof deferred<boolean>>> = []
@@ -1570,6 +1571,7 @@ async function withSlowCheck<T>(
     perWorker: { maxIterations: 1, maxTokens: 1 },
     // 200 ms request timeout ⇒ a 100 ms fence, the same half the 30 s default gives 15 s.
     requestTimeoutMs: 200,
+    ...transport,
     toolNames: ['submit_result'],
     deliverable: {
       describe: 'a verified product packet',
@@ -1647,6 +1649,24 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
       })
       expect(mcp.submittedResult()).toMatchObject({ result: { n: 1 } })
     })
+  })
+
+  it('keeps a check that outlived its request charged against the concurrency bound until it settles', async () => {
+    await withSlowCheck(
+      async ({ mcp, checks, verdicts }) => {
+        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
+        // Answering pending freed the request, not the work: the running check holds the one slot.
+        expect((await submit(mcp, { n: 2 })).status).toBe(429)
+        expect(checks()).toBe(1)
+        verdicts[0]!.resolve(false)
+        await tick()
+        // Settled, it no longer holds the slot, and its verdict still waits for its own resubmission.
+        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ accepted: false })
+        expect(await structured(await submit(mcp, { n: 2 }))).toMatchObject({ pending: true })
+        expect(checks()).toBe(2)
+      },
+      { maxConcurrentRequests: 1 },
+    )
   })
 })
 

@@ -498,6 +498,13 @@ export async function serveCoordinationMcpForManager(
     coord.tools.filter((tool) => FENCED_VERBS.has(tool.name)),
     { fenceMs: responseFenceMs },
   )
+  // The verb is built in src/mcp/tools/coordination.ts, whenever a deliverable is injected. A rename
+  // there must fail here, not leave the check unfenced and bring back the 504.
+  if (opts.deliverable !== undefined && fencedVerbs.tools.length !== FENCED_VERBS.size) {
+    throw new ValidationError(
+      `serveCoordinationMcp: a deliverable is injected but the coordination verbs lack ${[...FENCED_VERBS].join(', ')}, so its check would run unfenced`,
+    )
+  }
   const fencedByName = new Map(fencedVerbs.tools.map((tool) => [tool.name, tool]))
   const availableTools = [
     ...coord.tools.map((tool) => fencedByName.get(tool.name) ?? tool),
