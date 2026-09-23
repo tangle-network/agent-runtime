@@ -7,7 +7,15 @@ import {
   isExactVersionSpec,
   rangeAdmits,
 } from './packed-package-test.mjs'
-import { sandboxCompatibilityVersions, sandboxPeerRange } from './dependency-contract.mjs'
+import { readFileSync } from 'node:fs'
+import {
+  evalCompatibilityVersions,
+  evalPeerRange,
+  peerCompatibility,
+  peerWindowVersions,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
+} from './dependency-contract.mjs'
 
 const sandboxVersion = sandboxCompatibilityVersions[0]
 if (sandboxVersion === undefined) throw new Error('Sandbox compatibility version is missing')
@@ -174,5 +182,41 @@ describe('compatibility peer ranges', () => {
         },
       ),
     ).toThrow(new RegExp(`does not admit ${sandboxVersion.replaceAll('.', '\\.')}`))
+  })
+})
+
+describe('Eval peer window', () => {
+  const name = '@tangle-network/agent-eval'
+  const runtimeManifest = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  )
+
+  it('adds each earlier floor to the development pin and nothing past its minor', () => {
+    expect(peerWindowVersions(name, '>=0.183.0 <0.185.0', '0.184.0')).toEqual(['0.183.0'])
+    expect(peerWindowVersions(name, '>=0.184.0 <0.185.0', '0.184.0')).toEqual([])
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.186.0', '0.184.0')).toThrow(
+      /must end at its development minor: expected >=0\.183\.0 <0\.185\.0/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.184.0', '0.184.0')).toThrow(
+      /must end at its development minor/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.185.0', '>=0.184.0')).toThrow(
+      /must be developed against an exact version/,
+    )
+  })
+
+  it("accepts Runtime's own manifest only through the declared window", () => {
+    expect(evalPeerRange).toBe(runtimeManifest.peerDependencies[name])
+    for (const version of [runtimeManifest.devDependencies[name], ...evalCompatibilityVersions]) {
+      expect(rangeAdmits(evalPeerRange, version)).toBe(true)
+    }
+    expect(() =>
+      assertPeerMatchesDevelopmentDependency(runtimeManifest, name, peerCompatibility[name]),
+    ).not.toThrow()
+    if (evalCompatibilityVersions.length > 0) {
+      expect(() => assertPeerMatchesDevelopmentDependency(runtimeManifest, name)).toThrow(
+        /must match its resolved development dependency/,
+      )
+    }
   })
 })

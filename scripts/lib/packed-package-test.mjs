@@ -1,8 +1,20 @@
-import { sandboxCompatibilityVersions, sandboxPeerRange } from './dependency-contract.mjs'
+import {
+  evalCompatibilityVersions,
+  evalPeerRange,
+  peerCompatibility,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
+} from './dependency-contract.mjs'
 
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
 
-export { sandboxCompatibilityVersions, sandboxPeerRange }
+export {
+  evalCompatibilityVersions,
+  evalPeerRange,
+  peerCompatibility,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
+}
 
 export function assertPublishableDependencySpecs(packageJson) {
   const packageName =
