@@ -81,6 +81,50 @@ function refusingProvider(options: { refusals: number; turn: 'completes' | 'wait
   return { provider, destroys: () => destroys, live: () => live }
 }
 
+/**
+ * A provider whose delete runs on the server but whose answer is lost: the first delete removes
+ * the environment and still throws, and every later delete answers not-found, as the Tangle SDK
+ * does on a 404. `get` answers `null` once the environment is gone; its first `lookupFailures`
+ * calls fail, so the first attempts cannot confirm through it either.
+ */
+function lostAnswerProvider(options: { lookupFailures: number }) {
+  let destroys = 0
+  let lookups = 0
+  let live = false
+  const environment: AgentEnvironment = {
+    id: 'env-gone',
+    provider: 'fake-provider',
+    status: async () => (live ? 'running' : 'stopped'),
+    destroy: async () => {
+      destroys += 1
+      if (!live) throw new Error('404 Not Found: sandbox env-gone does not exist')
+      live = false
+      throw new Error('socket hang up')
+    },
+    stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+      yield {
+        type: 'result',
+        data: { finalText: 'the patch applied' },
+        usage: { inputTokens: 7, outputTokens: 11, cost: 0.03 },
+      }
+    },
+  }
+  const provider = {
+    name: 'fake-provider',
+    capabilities: async () => ({}),
+    create: async () => {
+      live = true
+      return environment
+    },
+    get: async (id: string) => {
+      lookups += 1
+      if (lookups <= options.lookupFailures) throw new Error('503 Service Unavailable')
+      return live && id === environment.id ? environment : null
+    },
+  } as unknown as AgentEnvironmentProvider
+  return { provider, destroys: () => destroys, lookups: () => lookups, live: () => live }
+}
+
 /** A worker whose executor the scope builds per spawn. */
 function worker(name: string, factory: ExecutorFactory<unknown>): Agent<unknown, unknown> {
   return Object.assign(
@@ -145,6 +189,17 @@ async function spawnAll(scope: Scope<unknown>, workers: ReadonlyArray<Agent<unkn
 const unconfirmedEvents = (events: ReadonlyArray<SpawnEvent>) =>
   events.filter((event) => event.kind === 'teardown-unconfirmed')
 
+/** The cleanup records the barrier journaled for one node, in order. */
+const teardownRecords = (events: ReadonlyArray<SpawnEvent>, id: string) =>
+  events.flatMap((event) =>
+    (event.kind === 'teardown-pending' ||
+      event.kind === 'teardown-confirmed' ||
+      event.kind === 'teardown-unconfirmed') &&
+    event.id === id
+      ? [event.kind]
+      : [],
+  )
+
 describe('the join barrier retries unconfirmed child teardown', () => {
   it('deletes a settled child sandbox the provider refused three times, and names no leak', async () => {
     const fleet = refusingProvider({ refusals: 3, turn: 'completes' })
@@ -181,7 +236,17 @@ describe('the join barrier retries unconfirmed child teardown', () => {
     // Stream delete, settlement teardown, one refused retry, one retry the provider accepted.
     expect(fleet.destroys()).toBe(4)
     expect(result.teardownUnconfirmed).toBeUndefined()
-    expect(unconfirmedEvents((await context.journal.loadTree('settled')) ?? [])).toEqual([])
+    const events = (await context.journal.loadTree('settled')) ?? []
+    expect(unconfirmedEvents(events)).toEqual([])
+    // The environment was on record before the window opened, and the retry's success follows it.
+    expect(teardownRecords(events, 'settled:s0')).toEqual([
+      'teardown-pending',
+      'teardown-confirmed',
+    ])
+    expect(events.find((event) => event.kind === 'teardown-pending')).toMatchObject({
+      environments: [{ provider: 'fake-provider', environmentId: 'env-1' }],
+      attempts: 1,
+    })
   })
 
   it('deletes the sandbox of a child the run cancelled, after the provider refused twice', async () => {
@@ -290,9 +355,122 @@ describe('the join barrier retries unconfirmed child teardown', () => {
     expect(result.kind, JSON.stringify(result)).toBe('winner')
     expect(Date.now() - started).toBeLessThan(2_000)
     expect(flaky.teardowns()).toBe(3)
-    // The hung attempt is awaited by later passes rather than asked again beside itself.
-    expect(hung.teardowns()).toBe(2)
+    // The settlement's own request missed its acknowledgement window and never answered. Every
+    // retry awaits that request instead of sending a second one beside it.
+    expect(hung.teardowns()).toBe(1)
     expect(result.teardownUnconfirmed?.map((node) => node.label)).toEqual(['hung'])
+    expect(result.teardownUnconfirmed?.[0]?.attempts).toBe(1)
+  })
+
+  it('counts a late answer to the settlement’s own request without sending another', async () => {
+    // Answers after the 250 ms brutal-kill acknowledgement window, as a slow provider delete does.
+    const late = leaf(
+      'late',
+      () => new Promise((resolve) => setTimeout(() => resolve({ destroyed: true }), 600)),
+    )
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          await spawnAll(scope, [late])
+          expect(scope.workerCapacity.unconfirmed.map((node) => node.label)).toEqual(['late'])
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...createInMemoryRunContext(),
+        runId: 'late',
+        budget: { maxIterations: 2, maxTokens: 200 },
+        teardownConfirmMs: 3_000,
+      },
+    )
+
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(late.teardowns()).toBe(1)
+    expect(result.teardownUnconfirmed).toBeUndefined()
+  })
+
+  it('confirms a sandbox an earlier delete removed although every later delete answers not found', async () => {
+    // The first delete ran on the server and its answer was lost. The provider's lookup failed
+    // while the child settled, so settlement could not confirm; each later delete answers 404.
+    const fleet = lostAnswerProvider({ lookupFailures: 2 })
+    const context = createInMemoryRunContext()
+    const started = Date.now()
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          await spawnAll(scope, [worker('worker', providerAsExecutor(fleet.provider))])
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'gone',
+        budget: { maxIterations: 2, maxTokens: 200 },
+        teardownConfirmMs: 3_000,
+      },
+    )
+
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(fleet.live()).toBe(false)
+    // Confirmed by the provider's lookup, long before the window closes, and no id that no
+    // longer exists is handed to a sweeper.
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(result.teardownUnconfirmed).toBeUndefined()
+    expect(fleet.lookups()).toBeGreaterThan(2)
+    expect(unconfirmedEvents((await context.journal.loadTree('gone')) ?? [])).toEqual([])
+  })
+
+  it('journals the environment ids before the retry window, so a process that dies inside it loses none', async () => {
+    const fleet = refusingProvider({ refusals: Number.POSITIVE_INFINITY, turn: 'completes' })
+    const context = createInMemoryRunContext()
+    let settled = false
+    const running = createSupervisor<unknown, unknown>()
+      .run(
+        {
+          name: 'root',
+          async act(_task, scope) {
+            await spawnAll(scope, [worker('worker', providerAsExecutor(fleet.provider))])
+            return 'finished'
+          },
+        },
+        'task',
+        {
+          ...context,
+          runId: 'durable',
+          budget: { maxIterations: 2, maxTokens: 200 },
+          teardownConfirmMs: 1_500,
+        },
+      )
+      .finally(() => {
+        settled = true
+      })
+
+    // Read the journal as a sweeper would after a crash: while the retry is still running.
+    await expect
+      .poll(
+        async () =>
+          ((await context.journal.loadTree('durable')) ?? []).filter(
+            (event) => event.kind === 'teardown-pending',
+          ),
+        { timeout: 1_000, interval: 20 },
+      )
+      .toMatchObject([
+        {
+          id: 'durable:s0',
+          environments: [{ provider: 'fake-provider', environmentId: 'env-1' }],
+        },
+      ])
+    expect(settled).toBe(false)
+
+    const result = await running
+    expect(result.teardownUnconfirmed?.map((node) => node.id)).toEqual(['durable:s0'])
+    expect(
+      teardownRecords((await context.journal.loadTree('durable')) ?? [], 'durable:s0'),
+    ).toEqual(['teardown-pending', 'teardown-unconfirmed'])
   })
 
   it('stops asking once the executor says its answer is permanent', async () => {

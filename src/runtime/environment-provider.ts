@@ -76,6 +76,7 @@ import {
   captureProviderWorkspaceSnapshot,
   type ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
+import { environmentGone } from './retained-interactive-lifecycle'
 import {
   assertEventBinding,
   awaitAbortable,
@@ -847,6 +848,12 @@ function createProviderExecutor(
         destroyed = true
         return { destroyed: true }
       } catch (error) {
+        // An earlier delete may have run on the server with its answer lost; every later delete
+        // then fails not-found, so the provider's own lookup is what confirms the environment gone.
+        if (await environmentGone(provider, target.id, cleanupSignal)) {
+          destroyed = true
+          return { destroyed: true }
+        }
         return {
           destroyed: false,
           detail: `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
@@ -1059,7 +1066,16 @@ function createProviderExecutor(
       // still named by its durable admission, which is the id a sweeper deletes.
       const environmentId =
         environment?.id ?? retained?.controlRef.environmentId ?? admittedEnvironmentId(retention)
-      return environmentId === undefined ? [] : [{ provider: provider.name, environmentId }]
+      if (environmentId === undefined) return []
+      // A source that workspace retention preserved is evidence, kept on purpose.
+      const preserved = workspacePreservationRequired || workspaceCaptureFailure !== undefined
+      return [
+        {
+          provider: provider.name,
+          environmentId,
+          ...(preserved ? { keptFor: 'evidence' as const } : {}),
+        },
+      ]
     },
     async releaseRetained(signal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
       controller.abort()

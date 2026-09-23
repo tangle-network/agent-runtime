@@ -5756,6 +5756,13 @@ OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 
 > `readonly` `optional` **withinMs?**: `number`
 
+##### teardownConfirmMs?
+
+> `readonly` `optional` **teardownConfirmMs?**: `number`
+
+Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
+ teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000.
+
 ##### maxLiveWorkers?
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
@@ -11609,6 +11616,13 @@ budget: refine→max shots; sample→rollout width.
 
 > `optional` **rootBudget?**: [`Budget`](#budget-18)
 
+##### teardownConfirmMs?
+
+> `optional` **teardownConfirmMs?**: `number`
+
+Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
+ teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000.
+
 ***
 
 ### StreamAgentTurnOptions
@@ -15212,7 +15226,7 @@ See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`teardownConfirmMs`](#teardownconfirmms-1)
+[`SuperviseOptions`](#superviseoptions).[`teardownConfirmMs`](#teardownconfirmms-3)
 
 ##### retainedAtSettlement?
 
@@ -21606,6 +21620,15 @@ One provider environment an executor holds, named by the provider's own id.
 
 The provider-issued environment id — the id a fleet listing shows and a delete takes.
 
+##### keptFor?
+
+> `readonly` `optional` **keptFor?**: `"resume"` \| `"evidence"`
+
+Why the environment is held on purpose; absent when it is held only because its destroy was
+not confirmed. A sweeper never deletes a kept environment.
+- `resume`: a retained execution kept so a resumed run can reconcile the paid work inside it.
+- `evidence`: a workspace preserved because the execution has no verified workspace receipt.
+
 ***
 
 ### EnvironmentTeardownReceipt
@@ -22637,15 +22660,23 @@ One settled child whose executor teardown was never acknowledged: the run cannot
 
 > `readonly` `optional` **environments?**: readonly [`HeldEnvironment`](#heldenvironment)[]
 
-The provider environments the node may still hold, by the provider's own id: what an
- operator's sweeper deletes. Present when the executor names at least one
- (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is held".
+The provider environments the node may still hold and nothing keeps on purpose, by the
+ provider's own id: what an operator's sweeper deletes. Present when the executor names at
+ least one (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is
+ held". Never contains a kept environment.
+
+##### kept?
+
+> `readonly` `optional` **kept?**: readonly [`HeldEnvironment`](#heldenvironment)[]
+
+The environments the node holds on purpose, each with `keptFor` set: a retained execution
+ a resume reconciles, or a workspace preserved as evidence. A sweeper never deletes these.
 
 ##### attempts?
 
 > `readonly` `optional` **attempts?**: `number`
 
-How many times Runtime asked the executor to tear the node down.
+How many teardown requests Runtime sent the executor.
 
 ##### detail?
 
@@ -23189,9 +23220,11 @@ across that campaign ended with teardown unconfirmed. The barrier re-asks each u
 child with exponential backoff (starting at 1/300 of this window, doubling, capped at 1/10 of
 it) and releases a failed retained environment again under `retainedAtSettlement:
 'release'`. A child still unconfirmed when the window closes is named in
-`teardownUnconfirmed` with the environment ids its executor reports, and journaled. A
-retained environment kept for a resume is not retried, and neither is an answer the executor
-marks `permanent`. The window runs after the run's deadline too: a deadline stops work, not
+`teardownUnconfirmed` with the environment ids its executor reports, and journaled. The
+nodes pending when the window opens are journaled first as `teardown-pending`, so a process
+that dies inside the window still leaves their environment ids on record. A retained
+environment kept for a resume is not retried, and neither is an answer the executor marks
+`permanent`. The window runs after the run's deadline too: a deadline stops work, not
 cleanup, so settlement can return up to this long after it. `0` makes one attempt only.
 Default: 300000 (5 minutes).
 
@@ -29212,7 +29245,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-6); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -30033,7 +30066,7 @@ Present iff the child had a `RunCancellationReason` when it settled; decides `se
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30070,17 +30103,115 @@ The node's terminal status when the barrier read it.
 
 See `UnconfirmedTeardown.environments`: the ids a sweeper deletes.
 
+###### kept?
+
+> `optional` **kept?**: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>
+
+See `UnconfirmedTeardown.kept`: environments held on purpose, never swept.
+
 ###### attempts?
 
 > `optional` **attempts?**: `number`
 
-How many times Runtime asked the executor to tear the node down.
+How many teardown requests Runtime sent the executor.
 
 ###### detail?
 
 > `optional` **detail?**: `string`
 
 Why the last attempt did not confirm destruction.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"teardown-pending"`
+
+A settled node whose teardown was unconfirmed when the join barrier opened its
+ settlement retry window (`teardownConfirmMs`). Written before the window, so the
+ environment ids reach durable storage even if the process dies inside it. Each is
+ followed by `teardown-confirmed` when a retry confirms the node, or by
+ `teardown-unconfirmed` when the window closes first. A sweeper reading a journal whose
+ run never settled deletes the `environments` of each pending node with neither.
+ Informational: replay and cost readers skip it, and its `seq` lives outside the
+ cursor-uniqueness namespace.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### label
+
+> **label**: `string`
+
+###### runtime
+
+> **runtime**: [`Runtime`](#runtime-7)
+
+###### status
+
+> **status**: [`NodeStatus`](#nodestatus)
+
+###### environments?
+
+> `optional` **environments?**: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>
+
+See `UnconfirmedTeardown.environments`: the ids a sweeper deletes.
+
+###### kept?
+
+> `optional` **kept?**: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>
+
+See `UnconfirmedTeardown.kept`: environments held on purpose, never swept.
+
+###### attempts?
+
+> `optional` **attempts?**: `number`
+
+How many teardown requests Runtime had sent the executor when the window opened.
+
+###### detail?
+
+> `optional` **detail?**: `string`
+
+Why the last attempt before the window did not confirm destruction.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-6); `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"teardown-confirmed"`
+
+A `teardown-pending` node whose teardown a retry inside the settlement window confirmed:
+ the executor destroyed what it held. Informational, outside the cursor namespace.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
 
 ###### seq
 

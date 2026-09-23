@@ -12,8 +12,9 @@
  *  - Join barrier: when `act()` settles (resolve OR reject), every still-live child is
  *    torn down before `run` returns — the generalization of the kernel's
  *    `finally{ Promise.allSettled(destroy) }` barrier (run-loop.ts) from boxes to the
- *    whole sub-tree. An unconfirmed teardown is retried with backoff for `teardownConfirmMs`;
- *    one still unconfirmed after that is journaled per node as a `teardown-unconfirmed` event
+ *    whole sub-tree. An unconfirmed teardown is retried with backoff for `teardownConfirmMs`.
+ *    Each node pending when the window opens is journaled first as `teardown-pending`, then as
+ *    `teardown-confirmed` or, still unconfirmed when the window closes, `teardown-unconfirmed`
  *    naming its provider environments; it NEVER masks act()'s own outcome. act()'s rejection is the
  *    PRIMARY error (the kernel's firstError precedence), so a teardown throw during the
  *    barrier can never overwrite the real failure.
@@ -749,12 +750,39 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // A first teardown that failed or answered late is not the provider's last word, and a
           // run that settles over it leaves the sandbox running: measured 2026-09-20, cancelling
           // 20 Discovery lanes left 2 workers running. Ask again until confirmed or out of time.
-          if (teardownUnconfirmed.length > 0) {
+          const confirmWindowMs = opts.teardownConfirmMs ?? DEFAULT_TEARDOWN_CONFIRM_MS
+          const releasing = retainedAtSettlement === 'release'
+          if (
+            teardownUnconfirmed.length > 0 &&
+            confirmWindowMs > 0 &&
+            hasRetriableTeardowns(openScope, releasing)
+          ) {
+            // The window can last minutes, and a process that dies inside it must not lose the
+            // environment ids: the pending set is durable before the first retry.
+            const pending = teardownUnconfirmed
+            for (const node of pending) {
+              await opts.journal.appendEvent(opts.runId, {
+                kind: 'teardown-pending',
+                ...unconfirmedRecord(node),
+                seq: teardownSeq++,
+                at: new Date(now()).toISOString(),
+              })
+            }
             teardownUnconfirmed = await confirmSettledTeardowns(
               openScope,
-              opts.teardownConfirmMs ?? DEFAULT_TEARDOWN_CONFIRM_MS,
-              retainedAtSettlement === 'release',
+              confirmWindowMs,
+              releasing,
             )
+            const still = new Set(teardownUnconfirmed.map((node) => node.id))
+            for (const node of pending) {
+              if (still.has(node.id)) continue
+              await opts.journal.appendEvent(opts.runId, {
+                kind: 'teardown-confirmed',
+                id: node.id,
+                seq: teardownSeq++,
+                at: new Date(now()).toISOString(),
+              })
+            }
           }
           // The leak is real and must surface, so it is journaled per node — durable evidence a
           // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping,
@@ -762,13 +790,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           for (const node of teardownUnconfirmed) {
             await opts.journal.appendEvent(opts.runId, {
               kind: 'teardown-unconfirmed',
-              id: node.id,
-              label: node.label,
-              runtime: node.runtime,
-              status: node.status,
-              ...(node.environments === undefined ? {} : { environments: node.environments }),
-              ...(node.attempts === undefined ? {} : { attempts: node.attempts }),
-              ...(node.detail === undefined ? {} : { detail: node.detail }),
+              ...unconfirmedRecord(node),
               seq: teardownSeq++,
               at: new Date(now()).toISOString(),
             })
@@ -1160,6 +1182,20 @@ async function drainLiveChildren(
  *  acknowledgement, short enough that a cancelled run still settles promptly. */
 const DEFAULT_TEARDOWN_CONFIRM_MS = 300_000
 
+/** The fields a `teardown-pending` or `teardown-unconfirmed` record carries for one node. */
+function unconfirmedRecord(node: UnconfirmedTeardown) {
+  return {
+    id: node.id,
+    label: node.label,
+    runtime: node.runtime,
+    status: node.status,
+    ...(node.environments === undefined ? {} : { environments: node.environments }),
+    ...(node.kept === undefined ? {} : { kept: node.kept }),
+    ...(node.attempts === undefined ? {} : { attempts: node.attempts }),
+    ...(node.detail === undefined ? {} : { detail: node.detail }),
+  }
+}
+
 /**
  * Retry every unconfirmed teardown in the settled tree until each executor confirms destruction
  * or `windowMs` passes, and return what is still unconfirmed.
@@ -1167,8 +1203,9 @@ const DEFAULT_TEARDOWN_CONFIRM_MS = 300_000
  * Settled children are evidence about an EXECUTOR, not a cause of run failure, so the barrier
  * never fails the run over them; it asks again and then NAMES what it could not confirm. Backoff
  * starts at 1/300 of the window and doubles up to 1/10 of it, so the default window gives about
- * fourteen attempts. An attempt that hangs is awaited by later passes, never duplicated, and
- * never holds up another child's retry. Under `release`, a retained environment whose release
+ * fourteen attempts. A request still running is awaited by later passes and never sent twice,
+ * including a settlement request that missed its acknowledgement window, and it never holds up
+ * another child's retry. Under `release`, a retained environment whose release
  * failed is released again; otherwise it is kept for a resume and not retried. The window is wall
  * clock, like the timers that pace it, so an injected `now` cannot stall it.
  */

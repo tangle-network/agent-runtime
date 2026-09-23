@@ -722,10 +722,18 @@ describe('retained environments at root settlement', () => {
     // environment for the resume below, and the barrier names the node as unconfirmed.
     expect(fleet.environments()).toHaveLength(1)
     expect(interrupted.teardownUnconfirmed?.map((node) => node.id)).toEqual(['interrupt:s0'])
+    // The environment is kept for the resume below: named as kept, never as one a sweeper deletes.
+    const [keptNode] = interrupted.teardownUnconfirmed ?? []
+    expect(keptNode).not.toHaveProperty('environments')
+    expect(keptNode?.kept).toMatchObject([
+      { environmentId: fleet.environments()[0], keptFor: 'resume' },
+    ])
     const interruptedEvents =
       (await createFileRunContext(runDirectory).journal.loadTree('interrupt')) ?? []
     expect(releaseReceipts(interruptedEvents)).toEqual([])
-    expect(interruptedEvents.some((event) => event.kind === 'teardown-unconfirmed')).toBe(true)
+    const keptRecord = interruptedEvents.find((event) => event.kind === 'teardown-unconfirmed')
+    expect(keptRecord).not.toHaveProperty('environments')
+    expect(keptRecord).toMatchObject({ kept: [{ keptFor: 'resume' }] })
     // `resume: true` defaults to `keep`, so the sweep never runs: the slot is still open, and
     // the yield names the node never-settled, not released.
     expect(terminalRecords(interruptedEvents, 'interrupt:s0')).toEqual([])

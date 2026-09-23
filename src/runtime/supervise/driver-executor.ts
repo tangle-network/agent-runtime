@@ -409,7 +409,12 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         : { destroyed: true }
     },
     heldEnvironments() {
-      return unconfirmedDescendants().flatMap((node) => node.environments ?? [])
+      // Kept descendants stay marked `keptFor`, so the parent scope keeps them out of what a
+      // sweeper deletes.
+      return unconfirmedDescendants().flatMap((node) => [
+        ...(node.environments ?? []),
+        ...(node.kept ?? []),
+      ])
     },
     async releaseRetained(): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
       // The nested scope releases its retained owner and children and journals their receipts.

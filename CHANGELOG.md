@@ -6,7 +6,13 @@ The join barrier now retries an unconfirmed child teardown with backoff until th
 A provider delete that failed once or answered late no longer leaves a settled or cancelled run's sandbox running.
 Under `retainedAtSettlement: 'release'`, a refused retained release is released again in the same window.
 A child still unconfirmed is named in `teardownUnconfirmed` and the `teardown-unconfirmed` journal event with `environments` (provider and environment id for a sweeper), `attempts`, and the last `detail`.
+Environments held on purpose are named in `kept` instead, each with `keptFor`: `resume` for a retained execution a resume reconciles, `evidence` for a preserved workspace.
+A sweeper deletes `environments` only.
+Each node still unconfirmed when the window opens is journaled first as `teardown-pending`, and then as `teardown-confirmed` or `teardown-unconfirmed`, so a process that dies inside the window leaves the environment ids on record.
+A destroy that fails is followed by a provider lookup, and `get` answering `null` confirms the environment gone, so a delete whose answer was lost no longer fails every later not-found retry.
+Runtime sends an executor one teardown at a time: a retry awaits a request that is still running, including a settlement request that missed its acknowledgement window.
 Executors report held environments through the new optional `Executor.heldEnvironments`, and mark an answer that cannot change with `permanent`, which ends its retries.
+`runAgentic` and `runPersonified` accept and forward `teardownConfirmMs`.
 `withWorkerSpawnRetry` and the completion-gate wrappers now forward `releaseRetained`, `teardownTimeoutMs`, and `heldEnvironments`, so a wrapped retained worker is released at settlement.
 
 `supervise({ profileGuidance: 'profile-kb' })` composes standing guidance from `@tangle-network/agent-interface/profile-kb` into the root profile and into every profile a manager spawns.

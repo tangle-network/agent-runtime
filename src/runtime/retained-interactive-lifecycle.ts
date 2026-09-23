@@ -1,7 +1,40 @@
-import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
-import { abortError } from './retained-run-binding'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
+import { abortError, awaitAbortable } from './retained-run-binding'
 
 const INTERACTIVE_CLEANUP_TIMEOUT_MS = 30_000
+/** Bound on one lookup that asks the provider whether it still holds an environment. */
+const ENVIRONMENT_LOOKUP_TIMEOUT_MS = 30_000
+
+/**
+ * Whether the provider no longer holds `environmentId`, asked after a destroy failed.
+ *
+ * A delete that ran on the server but whose answer was lost, or that a cancel aborted in flight,
+ * fails on every later delete with not-found: the Tangle SDK throws `NotFoundError` on a 404. A
+ * retry that only re-sends the delete then never confirms, and names for a sweeper an environment
+ * that no longer exists. The provider's lookup is the confirmation left: `get` answering `null`
+ * means the environment is gone, the same rule a retained release applies. A lookup that fails,
+ * times out or finds the environment confirms nothing.
+ */
+export async function environmentGone(
+  provider: Pick<AgentEnvironmentProvider, 'get'>,
+  environmentId: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (provider.get === undefined) return false
+  const bound = AbortSignal.timeout(ENVIRONMENT_LOOKUP_TIMEOUT_MS)
+  try {
+    const found = await awaitAbortable(
+      Promise.resolve().then(() => provider.get!(environmentId)),
+      signal === undefined ? bound : AbortSignal.any([signal, bound]),
+    )
+    return found === null
+  } catch {
+    return false
+  }
+}
 
 /** Create one environment while retaining ownership if cancellation wins the race. */
 export async function createInteractiveEnvironment(

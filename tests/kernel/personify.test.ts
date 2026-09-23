@@ -918,3 +918,60 @@ describe('runPersonified · resume, rootIdentity and maxLiveWorkers forwarding',
     if (out.kind === 'done') expect(out.deliverable).toBe('thesis-0')
   })
 })
+
+// ── runPersonified · teardownConfirmMs forwarding ─────────────────────────────────
+//
+// Settlement retries an unconfirmed child teardown for `teardownConfirmMs` (default 5 minutes).
+// A runPersonified caller that could not pass it waited out the whole default window whenever a
+// child's teardown never confirmed, and could not ask for a single attempt.
+
+describe('runPersonified · teardownConfirmMs forwarding', () => {
+  it('teardownConfirmMs: 0 reaches the supervisor: a refusing teardown is asked once per child', async () => {
+    let teardowns = 0
+    const base = mockRegistry((task) => ({
+      out: `thesis-${indexOf(task)}`,
+      events: ev(5, 5),
+      verdict: { valid: true, score: 0.5 },
+    }))
+    const persona = definePersona<string>({
+      name: 'refusing',
+      root: { profile: testAgentProfile('equity analyst'), harness: null },
+      directive: 'act as equity analyst',
+      context: { role: 'equity analyst' },
+      executors: {
+        registry: {
+          register: base.register,
+          resolve<Out>(spec: AgentSpec) {
+            const resolved = base.resolve<Out>(spec)
+            if (!resolved.succeeded) return resolved
+            const mint = resolved.value as () => Executor<Out>
+            return {
+              succeeded: true as const,
+              value: (): Executor<Out> => ({
+                ...mint(),
+                teardown: async () => {
+                  teardowns += 1
+                  return { destroyed: false, detail: 'provider refused the delete' }
+                },
+              }),
+            }
+          },
+        },
+      },
+    })
+    const started = Date.now()
+    const result = await runPersonified<{ topic: string }, string>({
+      persona,
+      shape: angleFanout<string>(),
+      task: { topic: 'ACME' },
+      budget: wideBudget,
+      shapeBudget: wideShapeBudget,
+      runId: 'analyst:refusing-teardown',
+      teardownConfirmMs: 0,
+    })
+
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(teardowns).toBe(3)
+    expect(result.teardownUnconfirmed?.map((node) => node.attempts)).toEqual([1, 1, 1])
+  })
+})

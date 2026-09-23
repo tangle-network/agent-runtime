@@ -308,6 +308,8 @@ export async function releaseScopeRetainedOwnerEnvironment(
     ? await ownerWorkspaceRetentionFailures(events, args.nodeId, args.blobs)
     : new Set<string>()
   const unconfirmed: string[] = []
+  // Sources preserved for lack of a verified workspace receipt: evidence, never swept.
+  const preserved: string[] = []
   let lastDetail: string | undefined
   let retriable = false
   for (const environmentId of environments) {
@@ -317,7 +319,7 @@ export async function releaseScopeRetainedOwnerEnvironment(
     if (retentionFailures.has(environmentId)) {
       detail =
         'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
-      unconfirmed.push(environmentId)
+      preserved.push(environmentId)
       lastDetail = detail
     } else {
       // A provider that cannot reconstruct or destroy the environment answers the same way every
@@ -365,17 +367,30 @@ export async function releaseScopeRetainedOwnerEnvironment(
     })
   }
   state.releaseRetriable = retriable
-  return unconfirmed.length > 0
+  return unconfirmed.length > 0 || preserved.length > 0
     ? [
         {
           id: args.nodeId,
           label: 'scope owner',
           runtime: provider.name,
           status: 'done',
-          environments: unconfirmed.map((environmentId) => ({
-            provider: provider.name,
-            environmentId,
-          })),
+          ...(unconfirmed.length === 0
+            ? {}
+            : {
+                environments: unconfirmed.map((environmentId) => ({
+                  provider: provider.name,
+                  environmentId,
+                })),
+              }),
+          ...(preserved.length === 0
+            ? {}
+            : {
+                kept: preserved.map((environmentId) => ({
+                  provider: provider.name,
+                  environmentId,
+                  keptFor: 'evidence' as const,
+                })),
+              }),
           ...(lastDetail === undefined ? {} : { detail: lastDetail }),
         },
       ]

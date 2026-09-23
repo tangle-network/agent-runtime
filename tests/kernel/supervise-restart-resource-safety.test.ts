@@ -1028,10 +1028,10 @@ describe('supervision restart and resource safety', () => {
       kind: 'no-winner',
       reason: 'budget-exhausted',
       tree: { inFlight: 0 },
-      teardownUnconfirmed: [{ label: 'ignores-teardown', attempts: 2 }],
+      teardownUnconfirmed: [{ label: 'ignores-teardown', attempts: 1 }],
     })
-    // The settlement's own attempt and one retry; later passes await that retry, never re-ask.
-    expect(teardownCalls).toBe(2)
+    // The settlement's own request never answers; every retry awaits it and never sends another.
+    expect(teardownCalls).toBe(1)
   })
 
   it('turns unknown accounting from a crashing nested driver into a terminal down node', async () => {

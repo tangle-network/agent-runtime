@@ -304,7 +304,8 @@ describe('retained scope owner input and result', () => {
           label: 'scope owner',
           runtime: provider.name,
           status: 'done',
-          environments: [{ provider: provider.name, environmentId }],
+          // Preserved on purpose as evidence, so it is kept, never offered to a sweeper.
+          kept: [{ provider: provider.name, environmentId, keptFor: 'evidence' }],
           detail: expect.stringContaining('no verified workspace receipt'),
         },
       ])

@@ -1846,7 +1846,7 @@ See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-3)
 
 ##### resolveDriveHarness?
 

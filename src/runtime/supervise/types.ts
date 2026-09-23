@@ -403,6 +403,13 @@ export interface HeldEnvironment {
   readonly provider: string
   /** The provider-issued environment id — the id a fleet listing shows and a delete takes. */
   readonly environmentId: string
+  /**
+   * Why the environment is held on purpose; absent when it is held only because its destroy was
+   * not confirmed. A sweeper never deletes a kept environment.
+   * - `resume`: a retained execution kept so a resumed run can reconcile the paid work inside it.
+   * - `evidence`: a workspace preserved because the execution has no verified workspace receipt.
+   */
+  readonly keptFor?: 'resume' | 'evidence'
 }
 
 /**
@@ -1204,11 +1211,15 @@ export interface UnconfirmedTeardown {
   readonly label: string
   readonly runtime: Runtime
   readonly status: NodeStatus
-  /** The provider environments the node may still hold, by the provider's own id: what an
-   *  operator's sweeper deletes. Present when the executor names at least one
-   *  (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is held". */
+  /** The provider environments the node may still hold and nothing keeps on purpose, by the
+   *  provider's own id: what an operator's sweeper deletes. Present when the executor names at
+   *  least one (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is
+   *  held". Never contains a kept environment. */
   readonly environments?: ReadonlyArray<HeldEnvironment>
-  /** How many times Runtime asked the executor to tear the node down. */
+  /** The environments the node holds on purpose, each with `keptFor` set: a retained execution
+   *  a resume reconciles, or a workspace preserved as evidence. A sweeper never deletes these. */
+  readonly kept?: ReadonlyArray<HeldEnvironment>
+  /** How many teardown requests Runtime sent the executor. */
   readonly attempts?: number
   /** Why the last attempt did not confirm destruction. */
   readonly detail?: string
@@ -1628,10 +1639,45 @@ export type SpawnEvent =
       status: NodeStatus
       /** See `UnconfirmedTeardown.environments`: the ids a sweeper deletes. */
       environments?: ReadonlyArray<HeldEnvironment>
-      /** How many times Runtime asked the executor to tear the node down. */
+      /** See `UnconfirmedTeardown.kept`: environments held on purpose, never swept. */
+      kept?: ReadonlyArray<HeldEnvironment>
+      /** How many teardown requests Runtime sent the executor. */
       attempts?: number
       /** Why the last attempt did not confirm destruction. */
       detail?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** A settled node whose teardown was unconfirmed when the join barrier opened its
+       *  settlement retry window (`teardownConfirmMs`). Written before the window, so the
+       *  environment ids reach durable storage even if the process dies inside it. Each is
+       *  followed by `teardown-confirmed` when a retry confirms the node, or by
+       *  `teardown-unconfirmed` when the window closes first. A sweeper reading a journal whose
+       *  run never settled deletes the `environments` of each pending node with neither.
+       *  Informational: replay and cost readers skip it, and its `seq` lives outside the
+       *  cursor-uniqueness namespace. */
+      kind: 'teardown-pending'
+      id: NodeId
+      label: string
+      runtime: Runtime
+      status: NodeStatus
+      /** See `UnconfirmedTeardown.environments`: the ids a sweeper deletes. */
+      environments?: ReadonlyArray<HeldEnvironment>
+      /** See `UnconfirmedTeardown.kept`: environments held on purpose, never swept. */
+      kept?: ReadonlyArray<HeldEnvironment>
+      /** How many teardown requests Runtime had sent the executor when the window opened. */
+      attempts?: number
+      /** Why the last attempt before the window did not confirm destruction. */
+      detail?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** A `teardown-pending` node whose teardown a retry inside the settlement window confirmed:
+       *  the executor destroyed what it held. Informational, outside the cursor namespace. */
+      kind: 'teardown-confirmed'
+      id: NodeId
       seq: number
       at: string
     }
@@ -1795,9 +1841,11 @@ export interface SupervisorOpts {
    * child with exponential backoff (starting at 1/300 of this window, doubling, capped at 1/10 of
    * it) and releases a failed retained environment again under `retainedAtSettlement:
    * 'release'`. A child still unconfirmed when the window closes is named in
-   * `teardownUnconfirmed` with the environment ids its executor reports, and journaled. A
-   * retained environment kept for a resume is not retried, and neither is an answer the executor
-   * marks `permanent`. The window runs after the run's deadline too: a deadline stops work, not
+   * `teardownUnconfirmed` with the environment ids its executor reports, and journaled. The
+   * nodes pending when the window opens are journaled first as `teardown-pending`, so a process
+   * that dies inside the window still leaves their environment ids on record. A retained
+   * environment kept for a resume is not retried, and neither is an answer the executor marks
+   * `permanent`. The window runs after the run's deadline too: a deadline stops work, not
    * cleanup, so settlement can return up to this long after it. `0` makes one attempt only.
    * Default: 300000 (5 minutes).
    */
