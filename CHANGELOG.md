@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.254.1
+
+`runGraph` with `profileGuidance: 'profile-kb'` now composes guidance into every pinned node profile.
+Before, pinning replaced the composed `{ name }` stub, so worker and analyst nodes ran without harness and model guidance.
+The pre-flight gate and a product's `authorizeSpawn` see the composed node profile, which is what runs.
+
 ## 0.254.0
 
 The join barrier now retries an unconfirmed child teardown with backoff until the executor confirms destruction or `teardownConfirmMs` passes (default 5 minutes).

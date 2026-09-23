@@ -70,7 +70,12 @@ import {
   type PromptHandle,
   type PromptRegistry,
 } from './prompt-registry'
-import { type SuperviseOptions, supervise, superviseWithTestBrain } from './supervise'
+import {
+  profileGuidanceComposer,
+  type SuperviseOptions,
+  supervise,
+  superviseWithTestBrain,
+} from './supervise'
 import { coordinationProfileToolPrefix } from './supervisor-agent'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
@@ -252,8 +257,8 @@ const GRAPH_REFUSED_SUPERVISE_OPTIONS = ['registry'] as const
  */
 const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'backend',
-  // Forwarded: composes guidance into the root and into profiles a manager authors. Graph nodes are
-  // pinned by name, so a graph composes its node profiles when it declares them.
+  // Forwarded: composes guidance into the root and into profiles a manager authors. The graph also
+  // composes each PINNED node profile, because pinning replaces the composed `{ name }` stub.
   'profileGuidance',
   // Forwarded, not graph-owned: a graph pins WHICH nodes run, never who answers a question one of
   // them raises. Without it a graph run's `ask_parent` would always report `no-parent` even when
@@ -997,6 +1002,12 @@ export function superviseAgentGraph(
   // will run, not the `{ name }` stub — otherwise every graph spawn over a bridge is refused
   // `model-route` before the graph ever pins it. This resolver is PURE: it answers "which node"
   // without ledgering, because the gate may refuse and nothing may be journaled for a refusal.
+  // `profileGuidance` composes the profile a manager authors, but a graph then swaps that `{ name }`
+  // stub for the pinned node profile. Compose the pinned profile too, so every node that runs
+  // carries its harness and model guidance. Composition is idempotent, so identity stays stable.
+  const guidance = profileGuidanceComposer(opts.profileGuidance)
+  const composeGuidance = (profile: AgentProfile): AgentProfile =>
+    guidance ? guidance(profile) : profile
   const resolveSpawnProfile = (authored: AgentProfile): AgentProfile => {
     const requested = typeof authored.name === 'string' ? authored.name : undefined
     const node =
@@ -1004,12 +1015,12 @@ export function superviseAgentGraph(
       (requested !== undefined ? analystNodes.get(requested) : undefined)
     // Unknown names fall through to authorizeSpawn, which refuses them with the full message and
     // a ledger row; the gate just sees the stub and lets that later refusal speak.
-    return node?.profile ?? authored
+    return node ? composeGuidance(node.profile) : authored
   }
   // Graph authority first, then the caller's: a product authorizing spawns sees the CANONICAL
   // node profile (what will actually run), never the driver's `{ name }` stub.
   const graphAuthorizeSpawn: NonNullable<SuperviseOptions['authorizeSpawn']> = (input) => {
-    const pinned = pinNode(input)
+    const pinned = composeGuidance(pinNode(input))
     if (!opts.authorizeSpawn) return { profile: pinned }
     return opts.authorizeSpawn({ ...input, profile: pinned })
   }
