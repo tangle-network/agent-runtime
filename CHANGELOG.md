@@ -5,8 +5,7 @@
 `supervisePursuit` now reads root steers from the same run directory used by the public `writeWorkerSteer` API.
 The root acknowledges and consumes admitted corrections while pursuit records and cancellation stay at their existing paths.
 Admit Sandbox SDK 0.46 while retaining the existing 0.36.4 floor.
-The peer range is `>=0.36.4 <0.47.0`, and the compatibility matrix checks 0.36.4, 0.43.0, and 0.45.0.
-The matrix installs each version from the registry, so it tracks the newest published release; 0.45.0 is that release until 0.46.0 ships.
+The peer range is `>=0.36.4 <0.47.0`, and the compatibility matrix checks 0.36.4, 0.43.0, and 0.46.0.
 The packed-consumer check qualifies the exact Sandbox archive before publication.
 Agent Bench 0.13.8 carries the same catalog range; its benchmark behavior is unchanged.
 
