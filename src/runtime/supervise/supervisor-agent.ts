@@ -525,6 +525,9 @@ export interface SupervisorAgentDeps {
   readonly watchWorkers?: WorkerWatchOptions
   /** Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default. */
   readonly stallAfterMs?: number
+  /** Router-driver arm only: max ms one `await_event` blocks before returning `{ pending }`. The
+   *  harness arm keeps the fence derived from its MCP request timeout. Omit = runtime default. */
+  readonly awaitTimeoutMs?: number
   /** Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
    *  that name to the node's latest settled worker; `spawn_worker`'s per-call `continuity`
    *  overrides. Omit = every spawn fresh (status quo). */
@@ -821,6 +824,7 @@ function buildSupervisorAgent(
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
+        ...(deps.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: deps.awaitTimeoutMs } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),

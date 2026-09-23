@@ -135,6 +135,15 @@ Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `fi
 Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
  killed). Omit = the runtime default.
 
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Max wall-clock ms one `await_event` blocks before it returns a re-pollable `{ pending, live }`
+ snapshot. Every return is one driver turn, so a driver whose workers run for hours spends a
+ turn per interval. This driver runs in process with no transport timeout; a larger value
+ trades liveness reads for fewer turns. Omit = `DEFAULT_AWAIT_EVENT_TIMEOUT_MS`.
+
 ##### continuityByProfile?
 
 > `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
@@ -1125,6 +1134,19 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`stallAfterMs`](runtime.md#stallafterms-3)
 
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
+ re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
+ workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
+ supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`awaitTimeoutMs`](runtime.md#awaittimeoutms-1)
+
 ##### runDir?
 
 > `readonly` `optional` **runDir?**: `string`
@@ -2062,6 +2084,19 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`stallAfterMs`](runtime.md#stallafterms-3)
 
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
+ re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
+ workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
+ supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`awaitTimeoutMs`](runtime.md#awaittimeoutms-1)
+
 ##### continuityByProfile?
 
 > `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
@@ -2647,6 +2682,17 @@ Idle time after which `observe_agent` reports a worker as stalled. Omit = runtim
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`stallAfterMs`](runtime.md#stallafterms-4)
+
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Router-driver arm only: max ms one `await_event` blocks before returning `{ pending }`. The
+ harness arm keeps the fence derived from its MCP request timeout. Omit = runtime default.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`awaitTimeoutMs`](runtime.md#awaittimeoutms-2)
 
 ##### continuityByProfile?
 

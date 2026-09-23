@@ -2042,6 +2042,19 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`stallAfterMs`](runtime.md#stallafterms-3)
 
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
+ re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
+ workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
+ supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`awaitTimeoutMs`](runtime.md#awaittimeoutms-1)
+
 ##### continuityByProfile?
 
 > `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>

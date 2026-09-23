@@ -147,6 +147,11 @@ export interface DriverAgentOptions {
   /** Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
    *  killed). Omit = the runtime default. */
   readonly stallAfterMs?: number
+  /** Max wall-clock ms one `await_event` blocks before it returns a re-pollable `{ pending, live }`
+   *  snapshot. Every return is one driver turn, so a driver whose workers run for hours spends a
+   *  turn per interval. This driver runs in process with no transport timeout; a larger value
+   *  trades liveness reads for fewer turns. Omit = `DEFAULT_AWAIT_EVENT_TIMEOUT_MS`. */
+  readonly awaitTimeoutMs?: number
   /** Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
    *  to the node's latest settled worker (see
    *  `CoordinationToolsOptions.continuityByProfile`); `spawn_worker`'s per-call `continuity`
@@ -962,6 +967,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+        ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),

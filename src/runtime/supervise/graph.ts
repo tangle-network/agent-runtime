@@ -293,6 +293,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'maxLiveWorkers',
   'watchWorkers',
   'stallAfterMs',
+  'awaitTimeoutMs',
   'runDir',
   'steerDir',
   'probes',

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.257.0
+
+`supervise()` and `runGraph` accept `awaitTimeoutMs`, the longest one `await_event` of an in-process Router driver waits for a running worker.
+Before, that driver always used the 15 s default, so each 15 s of a worker's run cost the driver one turn.
+A graph whose workers run for hours needed a turn cap of several hundred and paid for each polling turn.
+A harness-driven supervisor keeps the fence derived from its MCP request timeout, because a longer wait would outlive the client's request.
+Omitting the option keeps the previous behavior.
+
 ## 0.256.0
 
 Admit Eval 0.184 while retaining 0.183: the peer range is `>=0.183.0 <0.185.0`, and Runtime develops against 0.184.0.
