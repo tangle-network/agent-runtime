@@ -16,11 +16,10 @@ import {
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
   isExactVersionSpec,
+  peerCompatibility,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
-  sandboxCompatibilityVersions,
-  sandboxPeerRange,
 } from './lib/packed-package-test.mjs'
 import {
   findLiteralModuleSpecifiers,
@@ -79,13 +78,7 @@ try {
     '@tangle-network/agent-interface',
     '@tangle-network/sandbox',
   ]) {
-    assertPeerMatchesDevelopmentDependency(
-      packageJson,
-      name,
-      name === '@tangle-network/sandbox'
-        ? { expectedRange: sandboxPeerRange, admittedVersions: sandboxCompatibilityVersions }
-        : undefined,
-    )
+    assertPeerMatchesDevelopmentDependency(packageJson, name, peerCompatibility[name])
   }
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
     throw new Error('@tangle-network/agent-eval must stay required: root and ./kernel import it at runtime')

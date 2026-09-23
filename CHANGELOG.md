@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.256.0
+
+Admit Eval 0.184 while retaining 0.183: the peer range is `>=0.183.0 <0.185.0`, and Runtime develops against 0.184.0.
+Require Knowledge 17.1.1, the first Knowledge release whose Eval peer admits 0.184.
+The release cohort pins Eval 0.184.0, Knowledge 17.1.1 and Interface 2.12.0 to their exact sources.
+The Interface peer stays `^2.11.0`; development and the packed cohort now run Interface 2.12.0.
+The packed cohort also runs Sandbox 0.47.0, which 0.255.0 admitted before npm served it.
+
+An Eval window may now reach back to an earlier minor, but it must end at the development minor and admit the development pin.
+The packed cohort gate installs each earlier floor from the registry beside the packed Runtime, Knowledge and Interface, then type-checks and runs the consumer against it.
+Runtime APIs and execution code are unchanged.
+
 ## 0.255.0
 
 Admit Sandbox SDK 0.47 while retaining the existing 0.36.4 floor.

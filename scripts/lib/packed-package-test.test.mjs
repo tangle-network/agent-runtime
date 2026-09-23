@@ -1,13 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   assertFirstPartyRangeSpecs,
   assertPeerMatchesDevelopmentDependency,
+  assertSingleRegistryInstall,
   cohortRange,
   currentMinorPeerRange,
   isExactVersionSpec,
   rangeAdmits,
 } from './packed-package-test.mjs'
-import { sandboxCompatibilityVersions, sandboxPeerRange } from './dependency-contract.mjs'
+import {
+  evalCompatibilityVersions,
+  evalPeerRange,
+  peerCompatibility,
+  peerWindowVersions,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
+} from './dependency-contract.mjs'
 
 const sandboxVersion = sandboxCompatibilityVersions[0]
 if (sandboxVersion === undefined) throw new Error('Sandbox compatibility version is missing')
@@ -174,5 +185,102 @@ describe('compatibility peer ranges', () => {
         },
       ),
     ).toThrow(new RegExp(`does not admit ${sandboxVersion.replaceAll('.', '\\.')}`))
+  })
+})
+
+describe('Eval peer window', () => {
+  const name = '@tangle-network/agent-eval'
+  const runtimeManifest = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  )
+
+  it('adds one earlier floor to the development pin and nothing past its minor', () => {
+    expect(peerWindowVersions(name, '>=0.183.0 <0.185.0', '0.184.0')).toEqual(['0.183.0'])
+    expect(peerWindowVersions(name, '>=0.184.0 <0.185.0', '0.184.0')).toEqual([])
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.186.0', '0.184.0')).toThrow(
+      /must end at its development minor: expected >=0\.183\.0 <0\.185\.0/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.184.0', '0.184.0')).toThrow(
+      /must end at its development minor/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.182.0 <0.185.0', '0.184.0')).toThrow(
+      /reaches back more than one minor/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.99.0 <1.1.0', '1.0.0')).toThrow(
+      /reaches back more than one minor/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.185.0', '>=0.184.0')).toThrow(
+      /must be developed against an exact stable version/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.183.0 <0.185.0', '0.184.1-rc.1')).toThrow(
+      /must be developed against an exact stable version, found 0\.184\.1-rc\.1/,
+    )
+  })
+
+  it('refuses a floor above the development pin', () => {
+    expect(() => peerWindowVersions(name, '>=0.184.5 <0.185.0', '0.184.0')).toThrow(
+      /peer >=0\.184\.5 <0\.185\.0 does not admit its development pin 0\.184\.0/,
+    )
+    expect(() => peerWindowVersions(name, '>=0.185.0 <0.185.0', '0.184.0')).toThrow(
+      /does not admit its development pin/,
+    )
+    expect(peerWindowVersions(name, '>=0.184.1 <0.185.0', '0.184.1')).toEqual([])
+    expect(peerWindowVersions(name, '>=0.184.0 <0.185.0', '0.184.3')).toEqual(['0.184.0'])
+  })
+
+  it("accepts Runtime's own manifest only through the declared window", () => {
+    expect(evalPeerRange).toBe(runtimeManifest.peerDependencies[name])
+    for (const version of [runtimeManifest.devDependencies[name], ...evalCompatibilityVersions]) {
+      expect(rangeAdmits(evalPeerRange, version)).toBe(true)
+    }
+    expect(() =>
+      assertPeerMatchesDevelopmentDependency(runtimeManifest, name, peerCompatibility[name]),
+    ).not.toThrow()
+    if (evalCompatibilityVersions.length > 0) {
+      expect(() => assertPeerMatchesDevelopmentDependency(runtimeManifest, name)).toThrow(
+        /must match its resolved development dependency/,
+      )
+    }
+  })
+})
+
+describe('registry peer install', () => {
+  const name = '@tangle-network/agent-eval'
+  const roots = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  // A pnpm-shaped consumer: store copies under .pnpm, the top-level entry a symlink into one.
+  function consumer(storeVersions, linked) {
+    const appDir = mkdtempSync(join(tmpdir(), 'registry-install-'))
+    roots.push(appDir)
+    const copies = storeVersions.map((version, index) => {
+      const dir = join(appDir, 'node_modules', '.pnpm', `copy-${index}`, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      return { version, path: dir }
+    })
+    mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
+    symlinkSync(copies[linked].path, join(appDir, 'node_modules', name))
+    return { appDir, copies }
+  }
+
+  it('accepts one physical copy at the exact version, reached by every occurrence', () => {
+    const { appDir, copies } = consumer(['0.183.0'], 0)
+    const resolved = new Map([[name, [copies[0], { ...copies[0], path: join(appDir, 'node_modules', name) }]]])
+    expect(assertSingleRegistryInstall(appDir, resolved, name, '0.183.0')).toBe('0.183.0')
+  })
+
+  it('refuses a missing, mismatched or duplicated install', () => {
+    const { appDir, copies } = consumer(['0.183.0', '0.183.0'], 0)
+    expect(() => assertSingleRegistryInstall(appDir, new Map(), name, '0.183.0')).toThrow(
+      /did not resolve @tangle-network\/agent-eval/,
+    )
+    expect(() =>
+      assertSingleRegistryInstall(appDir, new Map([[name, [{ ...copies[0], version: '0.184.0' }]]]), name, '0.183.0'),
+    ).toThrow(/resolved @tangle-network\/agent-eval@0\.184\.0, expected 0\.183\.0/)
+    expect(() => assertSingleRegistryInstall(appDir, new Map([[name, [copies[1]]]]), name, '0.183.0')).toThrow(
+      /installed 2 physical copies/,
+    )
   })
 })

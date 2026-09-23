@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.11
+
+Accept Eval 0.184 and require Knowledge 17.1.1 through the shared dependency catalog.
+Benchmark behavior is unchanged.
+
 ## 0.13.10
 
 Accept Sandbox SDK 0.47 through the shared dependency catalog.

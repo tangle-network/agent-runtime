@@ -22,11 +22,13 @@ import {
   assertFirstPartyRangeSpecs,
   assertPeerMatchesDevelopmentDependency,
   assertPublishableDependencySpecs,
+  assertSingleRegistryInstall,
   createStrictNodeConsumerTsconfig,
+  evalCompatibilityVersions,
+  peerCompatibility,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   sandboxCompatibilityVersions,
-  sandboxPeerRange,
 } from './lib/packed-package-test.mjs'
 import { assertReleaseCohortArtifacts, readReleaseCohort } from './release-cohort.mjs'
 
@@ -339,25 +341,47 @@ function findPnpmWorkspaceRoot(startDirectory, sourceRoot) {
 }
 
 function verifyConsumer(artifacts) {
-  const consumers = sandboxCompatibilityVersions.map((sandboxVersion) =>
-    verifyConsumerForSandbox(artifacts, sandboxVersion),
-  )
+  // Every Sandbox version runs with the packed Eval. Each earlier Eval minor that Runtime's
+  // peer window admits runs from the registry beside the newest verified Sandbox.
+  const latestSandboxVersion = sandboxCompatibilityVersions.at(-1)
+  const consumers = [
+    ...sandboxCompatibilityVersions.map((sandboxVersion) =>
+      verifyConsumerFor(artifacts, { sandboxVersion }),
+    ),
+    ...evalCompatibilityVersions.map((registryEvalVersion) =>
+      verifyConsumerFor(artifacts, { sandboxVersion: latestSandboxVersion, registryEvalVersion }),
+    ),
+  ]
   return {
     install: 'pnpm install --frozen-lockfile',
     packageCount: artifacts.length,
-    sandboxVersions: consumers.map(({ sandboxVersion }) => sandboxVersion),
+    sandboxVersions: sandboxCompatibilityVersions,
+    registryEvalVersions: evalCompatibilityVersions,
     exactArchiveResolution: consumers.every(({ exactArchiveResolution }) => exactArchiveResolution),
     publicImportCount: consumers.reduce(
       (total, { publicImportCount }) => total + publicImportCount,
       0,
     ),
-    proposals: consumers.map(({ sandboxVersion, proposal }) => ({ sandboxVersion, proposal })),
+    proposals: consumers.map(({ sandboxVersion, evalVersion, proposal }) => ({
+      sandboxVersion,
+      evalVersion,
+      proposal,
+    })),
   }
 }
 
-function verifyConsumerForSandbox(artifacts, sandboxVersion) {
-  const appDir = join(tempRoot, `consumer-sandbox-${sandboxVersion.replaceAll('.', '-')}`)
+function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersion }) {
+  const appDir = join(
+    tempRoot,
+    `consumer-sandbox-${sandboxVersion.replaceAll('.', '-')}${
+      registryEvalVersion ? `-eval-${registryEvalVersion.replaceAll('.', '-')}` : ''
+    }`,
+  )
   mkdirSync(appDir, { recursive: true })
+  // A registry Eval replaces the packed one, so the archive checks below cover the rest.
+  const artifacts = registryEvalVersion
+    ? cohortArtifacts.filter((artifact) => artifact.name !== PACKAGES.agentEval)
+    : cohortArtifacts
   const byName = new Map(artifacts.map((artifact) => [artifact.name, artifact]))
   const runtime = byName.get('@tangle-network/agent-runtime')
   if (!runtime) throw new Error('Runtime artifact is missing')
@@ -390,6 +414,7 @@ function verifyConsumerForSandbox(artifacts, sandboxVersion) {
           ...fileSpecs,
           ...runtimePeers,
           '@tangle-network/sandbox': sandboxVersion,
+          ...(registryEvalVersion ? { [PACKAGES.agentEval]: registryEvalVersion } : {}),
         },
         devDependencies: {
           '@types/node': nodeTypesVersion,
@@ -482,6 +507,9 @@ function verifyConsumerForSandbox(artifacts, sandboxVersion) {
       `consumer resolved @tangle-network/sandbox@${installedSandbox.version}, expected ${sandboxVersion}`,
     )
   }
+  const evalVersion = registryEvalVersion
+    ? assertSingleRegistryInstall(appDir, resolved, PACKAGES.agentEval, registryEvalVersion)
+    : byName.get(PACKAGES.agentEval)?.version
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
   captured(
@@ -501,6 +529,7 @@ function verifyConsumerForSandbox(artifacts, sandboxVersion) {
   const proposal = JSON.parse(proposalReport.slice('PACKED_COHORT_PROPOSAL='.length))
   return {
     sandboxVersion,
+    evalVersion,
     install: 'pnpm install --frozen-lockfile',
     packageCount: artifacts.length,
     publicImportCount,
@@ -644,7 +673,7 @@ function assertCohortPackageContracts({
   assertPeerMatchesDevelopmentDependency(
     agentRuntime.packageJson,
     '@tangle-network/sandbox',
-    { expectedRange: sandboxPeerRange, admittedVersions: sandboxCompatibilityVersions },
+    peerCompatibility['@tangle-network/sandbox'],
   )
 }
 
@@ -678,11 +707,14 @@ function assertSharedContractPeer(owner, dependency) {
   // peer dependencies removed. The strict packed install below proves the selected version is
   // admitted and resolves to one physical package; this check verifies its development and selected versions.
   requiredPackedDevelopmentDependency(owner.packageJson, dependency.name)
+  const window =
+    owner.name === PACKAGES.agentRuntime ? peerCompatibility[dependency.name] : undefined
   assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name, {
     ...(owner.name === '@tangle-network/agent-knowledge'
       ? { expectedRange: owner.packageJson.peerDependencies?.[dependency.name] }
       : {}),
-    admittedVersions: [dependency.version],
+    ...(window ? { expectedRange: window.expectedRange } : {}),
+    admittedVersions: [dependency.version, ...(window?.admittedVersions ?? [])],
   })
   assertRequiredPeer(owner, dependency)
 }
