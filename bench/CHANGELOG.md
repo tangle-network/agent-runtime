@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.10
+
+Accept Sandbox SDK 0.47 through the shared dependency catalog.
+Benchmark behavior is unchanged.
+
 ## 0.13.9
 
 Accept agent-interface 2.11.0 through the shared dependency catalog.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.255.0
+
+Admit Sandbox SDK 0.47 while retaining the existing 0.36.4 floor.
+The peer range is `>=0.36.4 <0.48.0`, and the compatibility matrix still checks 0.36.4, 0.43.0 and 0.46.0.
+The matrix installs each version from the registry, so it names only published releases; 0.47.0 is admitted on evidence instead.
+That evidence is its source diff against 0.46.0: 325 insertions and 0 deletions, adding a `delete-matching` module and additions to the client, index and type surfaces, so no API this runtime consumes changed.
+Agent Bench carries the same catalog range; its benchmark behavior is unchanged.
+
+A consumer that pins Sandbox 0.47.x can now install this runtime.
+
 ## 0.254.1
 
 `runGraph` with `profileGuidance: 'profile-kb'` now composes guidance into every pinned node profile.
