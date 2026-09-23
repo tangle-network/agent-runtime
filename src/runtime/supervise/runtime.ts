@@ -125,6 +125,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
+import { workerLineage } from './worker-lineage'
 import { WORKER_TRACE_PROPAGATION, workerTraceEnv } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
@@ -1107,8 +1108,17 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // The cross-MACHINE case this exists for: the box gets `TRACE_ID` / `PARENT_SPAN_ID` through
   // `CreateSandboxOptions.env`, so whatever the remote worker emits lands in this run's trace under
   // the spawning node's span. Empty when the run records no spans, and an empty record adds no
-  // `env` key to the create options at all.
-  const traceEnv = workerTraceEnv(ctx)
+  // `env` key to the create options at all. Session lineage rides the same env when this process
+  // was launched with a `TANGLE_RUN_ID` (see `worker-lineage.ts`); the box's host is not ours.
+  const traceEnv = {
+    ...workerLineage({
+      harness,
+      nodeId: ctx.node?.nodeId,
+      label: spec.profile.name,
+      local: false,
+    }).env,
+    ...workerTraceEnv(ctx),
+  }
 
   const controller = linkAbort(ctx.signal)
 
@@ -1488,11 +1498,20 @@ function verdictForOutputMarker(marker: SandboxOutputMarker): DefaultVerdict {
  * `0` is indistinguishable from one that measured zero, and every ceiling downstream then reads
  * as enforced while enforcing nothing.
  */
-export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
+export const cliExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<CliSeam>(ctx, cliSeamKey, 'cli')
   if (!seam.bin) throw new ValidationError('cliExecutor: CliSeam.bin required')
   // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise.
-  const traceEnv = workerTraceEnv(ctx)
+  // Session lineage (`TANGLE_*`) joins it when this process carries a `TANGLE_RUN_ID`.
+  const traceEnv = {
+    ...workerLineage({
+      harness: seam.bin,
+      nodeId: ctx.node?.nodeId,
+      label: spec.profile.name,
+      local: true,
+    }).env,
+    ...workerTraceEnv(ctx),
+  }
 
   const controller = linkAbort(ctx.signal)
 
@@ -1538,7 +1557,7 @@ export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
       },
     },
     {
-      effectiveProfile: _spec.profile,
+      effectiveProfile: spec.profile,
       backend: 'cli',
       model: { status: 'unknown', reason: 'raw subprocess has no model identity contract' },
       execution: { kind: 'process-attempt', id: executionId },
