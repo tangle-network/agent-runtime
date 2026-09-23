@@ -2232,7 +2232,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                 await child.confirmTeardown!()
                 child.cleanupConfirmed = true
               } catch {
-                // Still unconfirmed; the barrier names the node as it did before.
+                // Still unconfirmed; the barrier names the node as it did before. A leaf that
+                // named no environment to release has nothing a later release could destroy.
+                if (receipts.length === 0 && child.ownedTreeRoot === undefined) {
+                  child.teardownPermanent = true
+                }
               }
             }
             return { child, receipts }

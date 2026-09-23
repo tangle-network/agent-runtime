@@ -21,6 +21,7 @@ import {
   providerAsExecutor,
 } from '../../src/runtime/environment-provider'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
+import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -324,6 +325,51 @@ describe('the join barrier retries unconfirmed child teardown', () => {
     expect(result.teardownUnconfirmed).toMatchObject([
       { label: 'preserved', attempts: 2, detail: expect.stringContaining('source preserved') },
     ])
+  })
+
+  it('stops releasing a retained child that names no environment to release', async () => {
+    // An admission that never got an environment id has nothing a later release can destroy, so
+    // the run names the node and settles instead of re-asking for the whole window.
+    let releases = 0
+    const artifact: ExecutorResult<unknown> = {
+      outRef: 'never',
+      out: 'never',
+      spent: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+    }
+    const unnamed = worker('unnamed', () => ({
+      runtime: 'router',
+      execute: async () => {
+        throw new RetainedExecutionPendingError(new Error('provider result read lost'))
+      },
+      teardown: async () => ({ destroyed: false, detail: 'retained execution pending' }),
+      releaseRetained: async () => {
+        releases += 1
+        return []
+      },
+      resultArtifact: () => artifact,
+    }))
+    const started = Date.now()
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          await spawnAll(scope, [unnamed])
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...createInMemoryRunContext(),
+        runId: 'unnamed',
+        budget: { maxIterations: 2, maxTokens: 200 },
+        teardownConfirmMs: 60_000,
+      },
+    )
+
+    expect(Date.now() - started).toBeLessThan(5_000)
+    // The settlement's own release already learned that nothing can change; no retry follows.
+    expect(releases).toBe(1)
+    expect(result.teardownUnconfirmed?.map((node) => node.id)).toEqual(['unnamed:s0'])
   })
 
   it('asks once when teardownConfirmMs is 0', async () => {
