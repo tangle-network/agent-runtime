@@ -1569,8 +1569,9 @@ async function withSlowCheck<T>(
     blobs: new InMemoryResultBlobStore(),
     makeWorkerAgent: () => deliveringLeaf('unused', {}),
     perWorker: { maxIterations: 1, maxTokens: 1 },
-    // 200 ms request timeout ⇒ a 100 ms fence, the same half the 30 s default gives 15 s.
-    requestTimeoutMs: 200,
+    // 500 ms request timeout ⇒ a 250 ms fence, the same half the 30 s default gives 15 s. The
+    // pending answer leaves 250 ms before the transport's 504, room for a loaded CI runner.
+    requestTimeoutMs: 500,
     ...transport,
     toolNames: ['submit_result'],
     deliverable: {

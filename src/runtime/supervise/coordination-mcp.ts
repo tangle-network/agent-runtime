@@ -187,8 +187,12 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   coordinationHttpLimits(options)
 }
 
-/** Coordination verbs whose work can outlast one request, served like `nodeTools`. */
-const FENCED_VERBS: ReadonlySet<string> = new Set(['submit_result'])
+/**
+ * The coordination verb that runs an injected deliverable's check inside its request, so its work
+ * can outlast one request and it is served like `nodeTools`. src/mcp/tools/coordination.ts builds it
+ * exactly when a deliverable is injected.
+ */
+const DELIVERABLE_VERB = 'submit_result'
 
 /**
  * The longest one coordination call holds its HTTP response before it answers with a re-pollable
@@ -495,14 +499,14 @@ export async function serveCoordinationMcpForManager(
   // reason: 25 of 25 submits in one 2026-09-22 factory run. Fenced, the call answers pending and an
   // identical resubmission collects the verdict from the same check instead of starting another.
   const fencedVerbs = singleFlightTools(
-    coord.tools.filter((tool) => FENCED_VERBS.has(tool.name)),
+    coord.tools.filter((tool) => tool.name === DELIVERABLE_VERB),
     { fenceMs: responseFenceMs },
   )
-  // The verb is built in src/mcp/tools/coordination.ts, whenever a deliverable is injected. A rename
-  // there must fail here, not leave the check unfenced and bring back the 504.
-  if (opts.deliverable !== undefined && fencedVerbs.tools.length !== FENCED_VERBS.size) {
+  // A rename in src/mcp/tools/coordination.ts must fail here, not leave the check unfenced and bring
+  // back the 504. The test is the one that passed the deliverable to the coordination tools above.
+  if (opts.deliverable && fencedVerbs.tools.length !== 1) {
     throw new ValidationError(
-      `serveCoordinationMcp: a deliverable is injected but the coordination verbs lack ${[...FENCED_VERBS].join(', ')}, so its check would run unfenced`,
+      `serveCoordinationMcp: a deliverable is injected but the coordination verbs lack ${DELIVERABLE_VERB}, so its check would run unfenced`,
     )
   }
   const fencedByName = new Map(fencedVerbs.tools.map((tool) => [tool.name, tool]))
