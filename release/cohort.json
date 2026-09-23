@@ -10,14 +10,14 @@
     "agentEval": {
       "name": "@tangle-network/agent-eval",
       "repository": "tangle-network/agent-eval",
-      "version": "0.184.0",
-      "ref": "6345a0fe20b1bb0182abf6910137b24c48656d5f"
+      "version": "0.186.0",
+      "ref": "0fc0e709783ba9703d668bb451776386e33b91d9"
     },
     "agentKnowledge": {
       "name": "@tangle-network/agent-knowledge",
       "repository": "tangle-network/agent-knowledge",
-      "version": "17.1.1",
-      "ref": "d65e66a01bbc3232d70db3beb1d5061e22519658"
+      "version": "17.1.2",
+      "ref": "bd973e2d5927642b178f27688aafe3327875bf7c"
     }
   }
 }
