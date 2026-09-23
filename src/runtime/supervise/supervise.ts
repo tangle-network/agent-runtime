@@ -718,17 +718,21 @@ function driveHarnessFromBackend(
         `driveHarnessFromBackend: profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved`,
       )
     }
+    // Runtime consumes its reserved coordination declarations to decide which live MCP verbs to
+    // mount. A native harness receives only the remaining authored surface; otherwise a harness
+    // can reject a Runtime verb as an unknown native tool after the run already started.
+    const providerDriverProfile = profileWithoutRuntimeCoordinationTools(canonicalDriverProfile)
     const stableCoordinationTools = detachedSnapshot(
       coordinationTools,
       'driveHarnessFromBackend coordination tools',
     )
-    // The authored profile travels unchanged. The coordination server is a Runtime-owned
-    // attachment: it rides the executor's attachment seam, so a resumed run that rebinds the
-    // port keeps the profile digest a durable bridge session is bound to.
+    // The bridge receives the provider-safe view. The canonical authored profile is restored in
+    // `ownerDeclaration`, where Runtime records the mounted coordination schema and preserves
+    // the admitted profile identity across a resumed bridge session.
     const spec: AgentSpec = {
-      profile: canonicalDriverProfile,
+      profile: providerDriverProfile,
       harness:
-        boundBackend.backend === 'sandbox' ? (canonicalDriverProfile.harness as BackendType) : null,
+        boundBackend.backend === 'sandbox' ? (providerDriverProfile.harness as BackendType) : null,
     }
     // The turn cap rides the SAME stop lever the coordination stop uses: the harness runs its own
     // loop, so the only honest bound is "stop at the next turn boundary". Composing the two
@@ -909,10 +913,10 @@ function driveHarnessFromBackend(
         }
         if (
           canonicalAgentProfileDigest(pending.declaration.effectiveProfile) !==
-          canonicalAgentProfileDigest(canonicalDriverProfile)
+          canonicalAgentProfileDigest(providerDriverProfile)
         ) {
           throw new ValidationError(
-            'driveHarnessFromBackend: pending executor changed the authored AgentProfile before execution',
+            'driveHarnessFromBackend: pending executor changed the provider-safe AgentProfile before execution',
           )
         }
       } else {

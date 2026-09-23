@@ -8,6 +8,7 @@ import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import { materializeProfile, type HarnessId } from '@tangle-network/agent-profile-materialize'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { RuntimeRunStateError } from '../../src/errors'
@@ -674,6 +675,105 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           tools: servedToolSets[0],
         },
       }),
+    )
+  })
+
+  it('removes Runtime coordination declarations before native bridge materialization while preserving the canonical receipt', async () => {
+    const harnesses = ['codex', 'claude-code', 'pi', 'opencode'] as const satisfies readonly HarnessId[]
+    const requests: BridgeRequest[] = []
+    const nativePlans: Array<{
+      harness: HarnessId
+      unsupported: ReadonlyArray<{ dimension: string; reason: string }>
+    }> = []
+    const servedTools: Array<{ harness: HarnessId; names: string[] }> = []
+    const journal = new InMemorySpawnJournal()
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      requests.push(body)
+      const harness = body.agent_profile.harness
+      if (!harnesses.includes(harness as (typeof harnesses)[number])) {
+        throw new Error(`unexpected bridge harness ${JSON.stringify(harness)}`)
+      }
+      const nativeHarness = harness as HarnessId
+      nativePlans.push({
+        harness: nativeHarness,
+        unsupported: materializeProfile(body.agent_profile, nativeHarness, { skip: ['mcp'] }).unsupported,
+      })
+      const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+      if (coordination?.url === undefined) {
+        throw new Error('recursive bridge manager did not receive the coordination MCP')
+      }
+      const response = await fetch(coordination.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: `tools-${nativeHarness}`,
+          method: 'tools/list',
+          params: {},
+        }),
+      })
+      const payload = (await response.json()) as { result?: { tools?: Array<{ name: string }> } }
+      servedTools.push({
+        harness: nativeHarness,
+        names: payload.result?.tools?.map((tool) => tool.name) ?? [],
+      })
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    for (const harness of harnesses) {
+      const profile: AgentProfile = {
+        name: `provider-safe-${harness}`,
+        harness,
+        prompt: { instructions: ['Lead the pursuit.'] },
+        model: { provider: 'openai', default: 'gpt-5.6' },
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+          agent_runtime_coordination_steer_agent: true,
+        },
+      }
+      const runId = `provider-safe-${harness}`
+      await supervise(profile, 'Choose.', {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        journal,
+        runId,
+      })
+      const events = await journal.loadTree(runId)
+      const receipt = events?.find(
+        (event) => event.kind === 'materialized' && event.id === runId,
+      )
+      expect(receipt).toMatchObject({
+        receipt: {
+          status: 'known',
+          authoredProfileDigest: canonicalAgentProfileDigest(profile),
+          effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+        },
+      })
+    }
+
+    expect(requests).toHaveLength(harnesses.length)
+    expect(requests.map((request) => request.agent_profile.tools)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ])
+    expect(nativePlans).toEqual(
+      harnesses.map((harness) => ({ harness, unsupported: [] })),
+    )
+    expect(servedTools).toEqual(
+      harnesses.map((harness) => ({
+        harness,
+        names: ['spawn_worker', 'await_event', 'steer_agent'],
+      })),
     )
   })
 
@@ -1768,8 +1868,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const pi = requests[0]!.agent_profile
     expect(pi.tools).toEqual({
       web: true,
-      agent_runtime_coordination_spawn_worker: true,
-      agent_runtime_coordination_await_event: true,
     })
     expect(pi.mcp).toEqual({
       literature: { transport: 'http', url: 'https://papers.example.test/mcp' },
@@ -1781,8 +1879,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const nested = requests[1]!.agent_profile
     expect(nested.tools).toEqual({
       shell: true,
-      agent_runtime_coordination_spawn_worker: true,
-      agent_runtime_coordination_await_event: true,
     })
     expect(nested.resources?.skills?.[0]).toMatchObject({ name: 'experimental-method' })
     expect(nested.subagents?.critic?.prompt).toBe('Challenge the result.')
