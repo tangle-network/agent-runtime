@@ -36,8 +36,9 @@ export const sandboxCompatibilityVersions = Object.freeze([
 /**
  * The registry versions a peer window adds to its exact development pin.
  *
- * A window may reach back to minors that consumers still hold, but it ends at the minor
- * Runtime develops against: no later minor has run this code.
+ * A window ends at the minor Runtime develops against: no later minor has run this code.
+ * It may reach back one minor, to a floor that consumers still hold. The packed cohort
+ * installs only that floor, so a wider window would leave its middle minors unrun.
  */
 export function peerWindowVersions(name, range, developmentVersion) {
   const development = /^(\d+)\.(\d+)\.\d+$/u.exec(developmentVersion ?? '')
@@ -48,6 +49,12 @@ export function peerWindowVersions(name, range, developmentVersion) {
   const window = `>=${floor} <${development[1]}.${Number(development[2]) + 1}.0`
   if (range !== window) {
     throw new Error(`${name} peer must end at its development minor: expected ${window}, found ${range}`)
+  }
+  const [floorMajor, floorMinor] = floor.split('.').map(Number)
+  if (floorMajor !== Number(development[1]) || floorMinor < Number(development[2]) - 1) {
+    throw new Error(
+      `${name} peer ${range} reaches back more than one minor from ${developmentVersion}; only its floor would be installed`,
+    )
   }
   return floor === developmentVersion ? [] : [floor]
 }
