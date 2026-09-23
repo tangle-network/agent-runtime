@@ -2,6 +2,13 @@
 
 ## 0.254.0
 
+The join barrier now retries an unconfirmed child teardown with backoff until the executor confirms destruction or `teardownConfirmMs` passes (default 5 minutes).
+A provider delete that failed once or answered late no longer leaves a settled or cancelled run's sandbox running.
+Under `retainedAtSettlement: 'release'`, a refused retained release is released again in the same window.
+A child still unconfirmed is named in `teardownUnconfirmed` and the `teardown-unconfirmed` journal event with `environments` (provider and environment id for a sweeper), `attempts`, and the last `detail`.
+Executors report held environments through the new optional `Executor.heldEnvironments`, and mark an answer that cannot change with `permanent`, which ends its retries.
+`withWorkerSpawnRetry` and the completion-gate wrappers now forward `releaseRetained`, `teardownTimeoutMs`, and `heldEnvironments`, so a wrapped retained worker is released at settlement.
+
 `supervise({ profileGuidance: 'profile-kb' })` composes standing guidance from `@tangle-network/agent-interface/profile-kb` into the root profile and into every profile a manager spawns.
 Guidance is the harness's, then the model's, then the profile's own text, and it is composed before identity is fixed, so receipts bind the prompt that ran.
 Omit the option to run profiles exactly as authored.

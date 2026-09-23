@@ -1098,6 +1098,7 @@ export type {
   ExecutorToolCall,
   FleetYield,
   Handle,
+  HeldEnvironment,
   MaterializedExecutionIdentity,
   MaterializedModelIdentity,
   NodeExecutionIdentity,

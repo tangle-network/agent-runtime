@@ -150,6 +150,8 @@ async function runWithALateSpawn(): Promise<LateSpawnRun> {
       {
         budget: { maxIterations: 50, maxTokens: 100_000 },
         runId: 'spawn-after-join-barrier',
+        // The leaf never confirms; this suite reads the barrier's first answer.
+        teardownConfirmMs: 0,
         journal,
         blobs: new InMemoryResultBlobStore(),
         executors: createExecutorRegistry(),
@@ -210,6 +212,8 @@ describe('a spawn issued after the join barrier has drained', () => {
       {
         budget: { maxIterations: 50, maxTokens: 100_000 },
         runId: 'spawn-before-return',
+        // The leaf never confirms; this suite reads the barrier's first answer.
+        teardownConfirmMs: 0,
         journal: new InMemorySpawnJournal(),
         blobs: new InMemoryResultBlobStore(),
         executors: createExecutorRegistry(),
@@ -263,6 +267,8 @@ describe('a spawn issued after the join barrier has drained', () => {
         {
           budget: { maxIterations: 50, maxTokens: 100_000 },
           runId: 'still-loud-on-a-real-leak',
+          // The leaf never confirms; this suite reads the barrier's first answer.
+          teardownConfirmMs: 0,
           journal: new InMemorySpawnJournal(),
           blobs: new InMemoryResultBlobStore(),
           executors: createExecutorRegistry(),

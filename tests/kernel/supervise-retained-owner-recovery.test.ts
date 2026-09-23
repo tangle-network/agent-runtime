@@ -294,6 +294,8 @@ describe('retained external supervisor recovery', () => {
           driverRetry: { enabled: false },
           repromptOnUnmet: continuations,
           retainedAtSettlement: cleanup === 'keep' ? 'keep' : 'release',
+          // One release, as the assertions below count it.
+          teardownConfirmMs: 0,
           deliverable: {
             describe: 'an answer from the final reprompt',
             check: (value) => (value as { answer?: unknown }).answer === 'final reprompt',
@@ -334,7 +336,14 @@ describe('retained external supervisor recovery', () => {
       )
       if (cleanup === 'release-failed') {
         expect(result.teardownUnconfirmed).toEqual([
-          { id: 'reprompt-root', label: 'scope owner', runtime: provider.name, status: 'done' },
+          {
+            id: 'reprompt-root',
+            label: 'scope owner',
+            runtime: provider.name,
+            status: 'done',
+            environments: [{ provider: provider.name, environmentId: turns[0]?.environmentId }],
+            detail: 'retained owner environment cleanup was not confirmed',
+          },
         ])
         expect(events.filter((event) => event.kind === 'teardown-unconfirmed')).toHaveLength(1)
       } else {

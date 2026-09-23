@@ -53,8 +53,10 @@ import {
   finalizeScopeOwnerMaterialization,
   type NestedScopeSeam,
   nestedScopeSeamKey,
+  registerNestedTeardownScope,
   releaseRetainedEnvironments,
   startScopeRecoveries,
+  unconfirmedTeardowns,
 } from './scope'
 import type { TraceSource } from './trace-source'
 import { attestNestedDriverTreeOwner, driverRuntime, nestedDriverTreeRoot } from './tree-key'
@@ -198,7 +200,6 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
   let recovering = false
   let previouslyMetered = zeroSpend()
   let cleanupFailure: unknown
-  let unconfirmedDescendants: readonly string[] = []
   let active:
     | {
         readonly controller: AbortController
@@ -206,18 +207,20 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         close?: Promise<void>
       }
     | undefined
-  // The nested scope outlives `active`: it is what the root's settlement release reaches this
-  // manager's retained children through, after the manager itself has settled.
+  // The nested scope outlives `active`: it is what the root's settlement release and teardown
+  // retry reach this manager's children through, after the manager itself has settled.
   let nestedScopeHeld: Scope<unknown> | undefined
+  // Read live rather than cached at close, so a descendant the settlement retry confirmed later
+  // no longer holds this manager's own teardown unconfirmed.
+  const unconfirmedDescendants = () =>
+    nestedScopeHeld === undefined ? [] : unconfirmedTeardowns(nestedScopeHeld)
 
   const closeActive = (reason: string): Promise<void> => {
     if (active === undefined) return Promise.resolve()
     if (!active.close) {
       const { scope, controller } = active
       active.close = closeNestedScope(scope, controller, reason).then(
-        () => {
-          unconfirmedDescendants = scope.workerCapacity.unconfirmed.map((node) => node.id)
-        },
+        () => undefined,
         (error: unknown) => {
           cleanupFailure = error
           throw error
@@ -397,19 +400,22 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     async teardown(): Promise<{ destroyed: boolean; detail?: string }> {
       await closeActive('driver executor teardown')
       if (cleanupFailure !== undefined) throw cleanupFailure
-      return unconfirmedDescendants.length > 0
+      const unconfirmed = unconfirmedDescendants()
+      return unconfirmed.length > 0
         ? {
             destroyed: false,
-            detail: `Nested executor cleanup is unconfirmed: ${unconfirmedDescendants.join(', ')}`,
+            detail: `Nested executor cleanup is unconfirmed: ${unconfirmed.map((node) => node.id).join(', ')}`,
           }
         : { destroyed: true }
+    },
+    heldEnvironments() {
+      return unconfirmedDescendants().flatMap((node) => node.environments ?? [])
     },
     async releaseRetained(): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
       // The nested scope releases its retained owner and children and journals their receipts.
       // The executor's next teardown reports any release that remains unconfirmed.
       if (nestedScopeHeld === undefined) return []
-      const unconfirmed = await releaseRetainedEnvironments(nestedScopeHeld)
-      unconfirmedDescendants = unconfirmed.map((node) => node.id)
+      await releaseRetainedEnvironments(nestedScopeHeld)
       return []
     },
     resultArtifact(): ExecutorResult<unknown> {
@@ -419,6 +425,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
       return artifact
     },
   }
+  registerNestedTeardownScope(executor, () => nestedScopeHeld)
   const treeOwner = attestNestedDriverTreeOwner(executor)
   const ownerRuntime = runtimeOwnedScopeOwnerRuntime(driver)
   return ownerRuntime === undefined

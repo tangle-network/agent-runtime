@@ -1710,6 +1710,13 @@ export interface SuperviseOptions {
    */
   readonly childSettleGraceMs?: number | null
   /**
+   * How long settlement keeps retrying a child teardown the executor has not confirmed, with
+   * exponential backoff, before naming the child in `teardownUnconfirmed` with the provider
+   * environment ids a sweeper deletes. `0` makes one attempt only. Default: 300000 (5 minutes).
+   * See `SupervisorOpts.teardownConfirmMs`.
+   */
+  readonly teardownConfirmMs?: number
+  /**
    * What root settlement does with provider environments that settled children still hold for a
    * retained execution: `'release'` them with one `environment-teardown` receipt each and close
    * each released child's cursor slot with a terminal record marked `retainedExecution:
@@ -1932,6 +1939,7 @@ const superviseOptionKeys = [
   'blobs',
   'budget',
   'childSettleGraceMs',
+  'teardownConfirmMs',
   'retainedAtSettlement',
   'compaction',
   'continuityByProfile',
@@ -2424,7 +2432,13 @@ function recordRunCancellationOutcome(
     writeRunCancellation(dir, {
       ...base,
       effect: 'unknown',
-      detail: `run aborted but teardown remains unconfirmed for: ${result.teardownUnconfirmed.map((node) => node.id).join(', ')}`,
+      detail: `run aborted but teardown remains unconfirmed for: ${result.teardownUnconfirmed
+        .map((node) =>
+          node.environments?.length
+            ? `${node.id} (${node.environments.map((environment) => `${environment.provider}:${environment.environmentId}`).join(', ')})`
+            : node.id,
+        )
+        .join(', ')}`,
     })
     return
   }
@@ -3398,6 +3412,9 @@ function superviseInternal(
       maxDepth: options.maxDepth ?? 8,
       ...(options.childSettleGraceMs !== undefined
         ? { childSettleGraceMs: options.childSettleGraceMs }
+        : {}),
+      ...(options.teardownConfirmMs !== undefined
+        ? { teardownConfirmMs: options.teardownConfirmMs }
         : {}),
       ...(options.retainedAtSettlement !== undefined
         ? { retainedAtSettlement: options.retainedAtSettlement }

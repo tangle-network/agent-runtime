@@ -193,6 +193,11 @@ export interface Executor<Out> {
     /** Why the resource could not be proven destroyed. Present only with `destroyed: false`, so a
      *  caller reporting an unconfirmed teardown can name the cause instead of a bare flag. */
     detail?: string
+    /** With `destroyed: false`: asking again cannot change this answer, because the executor
+     *  keeps the resource on purpose (a workspace preserved for lack of a verified receipt, an
+     *  execution held for reconciliation) or cannot destroy it at all. The settlement retry stops
+     *  asking. */
+    permanent?: boolean
   }>
   /**
    * Optional acknowledgement window for a remote cleanup requested as `'brutalKill'`.
@@ -212,6 +217,13 @@ export interface Executor<Out> {
    * `destroyed: true` receipt the executor's `teardown` must answer `destroyed: true` as well.
    */
   releaseRetained?(signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>>
+  /**
+   * The provider environments this executor still holds and has not confirmed destroyed. Read
+   * synchronously when a teardown stays unconfirmed, so the run can name each environment a
+   * sweeper must delete even when the provider never answered. Never throws. An executor that
+   * holds no provider environment omits the method.
+   */
+  heldEnvironments?(): ReadonlyArray<HeldEnvironment>
   /**
    * The replay source (B1): the content-addressed `outRef` + the materialized output the
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
@@ -386,6 +398,13 @@ export interface ExecutorTeardownWarning {
   readonly at: string
 }
 
+/** One provider environment an executor holds, named by the provider's own id. */
+export interface HeldEnvironment {
+  readonly provider: string
+  /** The provider-issued environment id — the id a fleet listing shows and a delete takes. */
+  readonly environmentId: string
+}
+
 /**
  * The receipt for one provider environment an executor held for a RETAINED execution and was
  * asked to release at root settlement (see {@link Executor.releaseRetained}). One receipt per
@@ -400,6 +419,10 @@ export interface EnvironmentTeardownReceipt {
   /** Why the environment could not be proven destroyed; present exactly when `destroyed` is
    *  false. */
   readonly detail?: string
+  /** With `destroyed: false`: another release cannot change this answer, because the executor
+   *  keeps the environment on purpose or cannot destroy it at all. The settlement retry stops
+   *  asking. */
+  readonly permanent?: boolean
 }
 
 /**
@@ -1175,12 +1198,20 @@ export interface Scope<Out> {
 }
 
 /** One settled child whose executor teardown was never acknowledged: the run cannot prove the
- *  resource is gone, so its capacity slot stays charged. Named so an operator can act on it. */
+ *  resource is gone. Named so an operator can act on it. */
 export interface UnconfirmedTeardown {
   readonly id: NodeId
   readonly label: string
   readonly runtime: Runtime
   readonly status: NodeStatus
+  /** The provider environments the node may still hold, by the provider's own id: what an
+   *  operator's sweeper deletes. Present when the executor names at least one
+   *  (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is held". */
+  readonly environments?: ReadonlyArray<HeldEnvironment>
+  /** How many times Runtime asked the executor to tear the node down. */
+  readonly attempts?: number
+  /** Why the last attempt did not confirm destruction. */
+  readonly detail?: string
 }
 
 /**
@@ -1583,9 +1614,10 @@ export type SpawnEvent =
       at: string
     }
   | {
-      /** A settled child whose executor teardown was never acknowledged: the run cannot prove the
-       *  resource is gone, so its capacity slot stays charged for the rest of the run. Recorded so
-       *  the leak is durable evidence about the EXECUTOR rather than a cause of run failure.
+      /** A settled child whose executor teardown stayed unconfirmed after the settlement retry
+       *  window: the run cannot prove the resource is gone. Recorded so the leak is durable
+       *  evidence about the EXECUTOR, and the environment ids a sweeper deletes, rather than a
+       *  cause of run failure.
        *  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` lives
        *  outside the cursor-uniqueness namespace. */
       kind: 'teardown-unconfirmed'
@@ -1594,6 +1626,12 @@ export type SpawnEvent =
       runtime: Runtime
       /** The node's terminal status when the barrier read it. */
       status: NodeStatus
+      /** See `UnconfirmedTeardown.environments`: the ids a sweeper deletes. */
+      environments?: ReadonlyArray<HeldEnvironment>
+      /** How many times Runtime asked the executor to tear the node down. */
+      attempts?: number
+      /** Why the last attempt did not confirm destruction. */
+      detail?: string
       seq: number
       at: string
     }
@@ -1748,6 +1786,22 @@ export interface SupervisorOpts {
    * teardown.
    */
   readonly childSettleGraceMs?: number | null
+  /**
+   * How long the join barrier keeps retrying a settled child's teardown until the executor
+   * confirms its resources are destroyed. A child's first teardown gets a short acknowledgement
+   * window, and a provider delete that fails or answers late then left the sandbox running: on
+   * 2026-09-20, cancelling 20 Discovery lanes left 2 workers running, and 136 of 612 agents
+   * across that campaign ended with teardown unconfirmed. The barrier re-asks each unconfirmed
+   * child with exponential backoff (starting at 1/300 of this window, doubling, capped at 1/10 of
+   * it) and releases a failed retained environment again under `retainedAtSettlement:
+   * 'release'`. A child still unconfirmed when the window closes is named in
+   * `teardownUnconfirmed` with the environment ids its executor reports, and journaled. A
+   * retained environment kept for a resume is not retried, and neither is an answer the executor
+   * marks `permanent`. The window runs after the run's deadline too: a deadline stops work, not
+   * cleanup, so settlement can return up to this long after it. `0` makes one attempt only.
+   * Default: 300000 (5 minutes).
+   */
+  readonly teardownConfirmMs?: number
   /**
    * Load prior journal state and expose committed settlements through `Scope.resume`.
    * Use persistent journal and blob stores to recover across process restarts.
@@ -1994,10 +2048,11 @@ export type SupervisedResult<Out> =
       readonly rootStream?: RootStreamReceipt
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
-      /** Settled children whose executor teardown was never acknowledged — the resources this run
-       *  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
-       *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
-       *  healthy run never carries it. */
+      /** Settled children whose teardown stayed unconfirmed after the settlement retry window
+       *  (`teardownConfirmMs`) — the resources this run could not prove destroyed. Each names the
+       *  provider environments a sweeper deletes when its executor reports them, and each is
+       *  journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a healthy run
+       *  never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
@@ -2034,10 +2089,11 @@ export type SupervisedResult<Out> =
       readonly rootStream?: RootStreamReceipt
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
-      /** Settled children whose executor teardown was never acknowledged — the resources this run
-       *  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
-       *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
-       *  healthy run never carries it. */
+      /** Settled children whose teardown stayed unconfirmed after the settlement retry window
+       *  (`teardownConfirmMs`) — the resources this run could not prove destroyed. Each names the
+       *  provider environments a sweeper deletes when its executor reports them, and each is
+       *  journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a healthy run
+       *  never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       /** Budget reservations still open when the run reached its join barrier, each named by the
        *  assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
@@ -2108,10 +2164,11 @@ export type SupervisedResult<Out> =
       readonly rootStream?: RootStreamReceipt
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
-      /** Settled children whose executor teardown was never acknowledged — the resources this run
-       *  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
-       *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
-       *  healthy run never carries it. */
+      /** Settled children whose teardown stayed unconfirmed after the settlement retry window
+       *  (`teardownConfirmMs`) — the resources this run could not prove destroyed. Each names the
+       *  provider environments a sweeper deletes when its executor reports them, and each is
+       *  journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a healthy run
+       *  never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       /** Budget reservations still open when the run reached its join barrier, each named by the
        *  assignment, child id, and lifecycle stage that holds it. The conserved-pool identity

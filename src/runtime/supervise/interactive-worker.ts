@@ -53,6 +53,7 @@ import type {
   ExecutorCancellation,
   ExecutorContext,
   ExecutorResult,
+  HeldEnvironment,
   Runtime,
   Spend,
   UsageEvent,
@@ -329,6 +330,11 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
         },
       )
       return teardownPromise
+    },
+    heldEnvironments(): ReadonlyArray<HeldEnvironment> {
+      if (teardownComplete || input.destroyEnvironmentOnTeardown === false) return []
+      const held = createdEnvironment?.id ?? environmentId ?? handle?.ref.run.environmentId
+      return held === undefined ? [] : [{ provider: input.provider.name, environmentId: held }]
     },
     resultArtifact(): ExecutorResult<InteractiveWorkerResult> {
       if (!artifact) {

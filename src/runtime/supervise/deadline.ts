@@ -119,3 +119,26 @@ export async function teardownExecutor<Out>(
     )
   }
 }
+
+/**
+ * The optional teardown surfaces a wrapping executor forwards, so wrapping never changes how a
+ * child is released: the acknowledgement window a remote teardown needs, the release of a
+ * retained execution at root settlement, and the environments an unconfirmed teardown names for
+ * a sweeper. A wrapper that dropped `releaseRetained` left every retained child it wrapped
+ * running after settlement. Each surface is present only when the inner executor implements it.
+ */
+export function teardownSurfaces(
+  inner: Executor<unknown>,
+): Pick<Executor<unknown>, 'teardownTimeoutMs' | 'releaseRetained' | 'heldEnvironments'> {
+  return {
+    ...(inner.teardownTimeoutMs === undefined
+      ? {}
+      : { teardownTimeoutMs: inner.teardownTimeoutMs }),
+    ...(inner.releaseRetained === undefined
+      ? {}
+      : { releaseRetained: (signal: AbortSignal) => inner.releaseRetained!(signal) }),
+    ...(inner.heldEnvironments === undefined
+      ? {}
+      : { heldEnvironments: () => inner.heldEnvironments!() }),
+  }
+}

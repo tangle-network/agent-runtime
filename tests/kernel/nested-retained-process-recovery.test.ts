@@ -371,7 +371,14 @@ it('keeps nested cleanup uncertainty after the driver scope closes', async () =>
       },
     },
     'task',
-    { ...context, runId: 'root', maxLiveWorkers: 2, budget: { maxIterations: 4, maxTokens: 100 } },
+    {
+      ...context,
+      runId: 'root',
+      maxLiveWorkers: 2,
+      budget: { maxIterations: 4, maxTokens: 100 },
+      // The leaf never confirms, so a short retry window reaches the same named uncertainty.
+      teardownConfirmMs: 30,
+    },
   )
   expect(result.kind, JSON.stringify(result)).toBe('winner')
   expect(result.teardownUnconfirmed?.map((node) => node.id)).toContain('root:s0')

@@ -366,8 +366,15 @@ export async function provisionSupervisor(
         throw new Error(`Runtime supervisor worker '${workerId}' did not reach a terminal state`)
       }
       if (runResult?.teardownUnconfirmed?.length) {
+        const environments = runResult.teardownUnconfirmed.flatMap((node) =>
+          (node.environments ?? []).map(
+            (environment) => `${environment.provider}:${environment.environmentId}`,
+          ),
+        )
         throw new Error(
-          `Runtime supervisor cleanup could not confirm ${runResult.teardownUnconfirmed.length} resource(s) released`,
+          `Runtime supervisor cleanup could not confirm ${runResult.teardownUnconfirmed.length} resource(s) released${
+            environments.length > 0 ? `; environments still held: ${environments.join(', ')}` : ''
+          }`,
         )
       }
       const supervisorStatus = state.status

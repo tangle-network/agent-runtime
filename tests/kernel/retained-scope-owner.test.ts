@@ -299,7 +299,14 @@ describe('retained scope owner input and result', () => {
       bindScopeRetainedOwnerWorkspaceRetention(scope, true)
 
       expect(await releaseScopeRetainedOwnerEnvironment(scope)).toEqual([
-        { id: 'owner-test', label: 'scope owner', runtime: provider.name, status: 'done' },
+        {
+          id: 'owner-test',
+          label: 'scope owner',
+          runtime: provider.name,
+          status: 'done',
+          environments: [{ provider: provider.name, environmentId }],
+          detail: expect.stringContaining('no verified workspace receipt'),
+        },
       ])
     })
 

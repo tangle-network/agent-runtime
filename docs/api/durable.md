@@ -1835,6 +1835,19 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
 
+##### teardownConfirmMs?
+
+> `readonly` `optional` **teardownConfirmMs?**: `number`
+
+How long settlement keeps retrying a child teardown the executor has not confirmed, with
+exponential backoff, before naming the child in `teardownUnconfirmed` with the provider
+environment ids a sweeper deletes. `0` makes one attempt only. Default: 300000 (5 minutes).
+See `SupervisorOpts.teardownConfirmMs`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`teardownConfirmMs`](runtime.md#teardownconfirmms-1)
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)

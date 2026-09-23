@@ -1013,6 +1013,8 @@ describe('supervision restart and resource safety', () => {
 
     const running = createSupervisor<unknown, string>().run(root, 'task', {
       budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 15 },
+      // A deadline stops work, not cleanup: settlement still asks again, inside this window.
+      teardownConfirmMs: 100,
       runId: 'ignores-teardown-deadline',
       journal: new InMemorySpawnJournal(),
       blobs: new InMemoryResultBlobStore(),
@@ -1026,8 +1028,10 @@ describe('supervision restart and resource safety', () => {
       kind: 'no-winner',
       reason: 'budget-exhausted',
       tree: { inFlight: 0 },
+      teardownUnconfirmed: [{ label: 'ignores-teardown', attempts: 2 }],
     })
-    expect(teardownCalls).toBe(1)
+    // The settlement's own attempt and one retry; later passes await that retry, never re-ask.
+    expect(teardownCalls).toBe(2)
   })
 
   it('turns unknown accounting from a crashing nested driver into a terminal down node', async () => {

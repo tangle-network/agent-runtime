@@ -559,7 +559,13 @@ describe('retained environments at root settlement', () => {
         },
       },
       'task',
-      { ...context, runId: 'unconfirmed', budget: { maxIterations: 2, maxTokens: 20 } },
+      {
+        ...context,
+        runId: 'unconfirmed',
+        budget: { maxIterations: 2, maxTokens: 20 },
+        // One release, as the assertions below read it.
+        teardownConfirmMs: 0,
+      },
     )
     expect(result.kind, JSON.stringify(result)).toBe('winner')
     expect(fleet.environments()).toEqual([])
@@ -824,7 +830,13 @@ describe('retained environments at root settlement', () => {
         },
       },
       'task',
-      { ...context, runId: 'refused', budget: { maxIterations: 2, maxTokens: 20 } },
+      {
+        ...context,
+        runId: 'refused',
+        budget: { maxIterations: 2, maxTokens: 20 },
+        // One release, as the assertions below read it; the retry has its own test.
+        teardownConfirmMs: 0,
+      },
     )
     expect(result.kind, JSON.stringify(result)).toBe('winner')
     // The attempt was made once, refused, and the environment is still held.
@@ -868,6 +880,49 @@ describe('retained environments at root settlement', () => {
       neverSettled: 1,
       releasedUnrecovered: 0,
     })
+  })
+
+  it('releases a refused environment again until the provider destroys it', async () => {
+    // A refusal like the one above is usually transient: the environment was still stopping.
+    // Settlement asks again with backoff, so the provider's third answer is the one that counts.
+    const fleet = retainedProvider(directory)
+    const refusal = new Error('409 Conflict: environment is still stopping')
+    Object.defineProperty(fleet.state, 'destroyFailure', {
+      get: () => (fleet.state.destroys <= 2 ? refusal : undefined),
+    })
+    const context = createInMemoryRunContext()
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'retried',
+        budget: { maxIterations: 2, maxTokens: 20 },
+        teardownConfirmMs: 3_000,
+      },
+    )
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(fleet.state.destroys).toBe(3)
+    expect(fleet.environments()).toEqual([])
+    expect(result.teardownUnconfirmed).toBeUndefined()
+
+    const events = (await context.journal.loadTree('retried')) ?? []
+    // Every release is receipted; the last receipt names the environment the provider destroyed.
+    expect(releaseReceipts(events).map((receipt) => receipt.destroyed)).toEqual([
+      false,
+      false,
+      true,
+    ])
+    // The released environment closes the slot once, and nothing is named as a leak.
+    expect(terminalRecords(events, 'retried:s0')).toHaveLength(1)
+    expect(events.some((event) => event.kind === 'teardown-unconfirmed')).toBe(false)
+    expect(result.fleetYield).toMatchObject({ neverSettled: 0, releasedUnrecovered: 1 })
   })
 
   it("reaches a nested manager's retained children and receipts them in the nested tree", async () => {
@@ -1361,6 +1416,8 @@ describe('a crash between the receipt and the released record heals on the next 
     const refused = await createSupervisor<unknown, unknown>().run(root, 'task', {
       ...first,
       ...common('refused-heal'),
+      // The refusal must survive settlement so the resume below can heal it.
+      teardownConfirmMs: 0,
     })
     expect(refused.kind, JSON.stringify(refused)).toBe('winner')
     expect(fleet.environments()).toHaveLength(1)

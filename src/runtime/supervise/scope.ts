@@ -101,6 +101,7 @@ import {
   bindScopeRetainedOwnerWorkspaceRetention,
   registerScopeRetainedOwner,
   releaseScopeRetainedOwnerEnvironment,
+  retainedOwnerReleaseRetriable,
   retainedOwnerWorkspaceRetentionSeamKey,
 } from './retained-scope-owner'
 import { detachedSnapshot } from './snapshot'
@@ -133,6 +134,7 @@ import type {
   ExecutorRegistry,
   ExecutorResult,
   Handle,
+  HeldEnvironment,
   NodeExecutionIdentity,
   NodeId,
   NodeSnapshot,
@@ -152,6 +154,7 @@ import type {
   SpawnRejection,
   Spend,
   TreeView,
+  UnconfirmedTeardown,
   UsageEvent,
   WaitOpts,
   WorkerInteractiveSession,
@@ -285,10 +288,47 @@ type RuntimeOwnedProviderMeter = (
 const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+const teardownRetriers = new WeakMap<object, () => Promise<void>>()
+const teardownRetriable = new WeakMap<object, (release: boolean) => boolean>()
+/** The retained owner environments a scope's last release could not confirm destroyed. */
+const ownerUnconfirmedByScope = new WeakMap<object, ReadonlyArray<UnconfirmedTeardown>>()
+/** The scope a recursive executor owns, so the settlement retry reaches its descendants. */
+const nestedTeardownScopes = new WeakMap<object, () => Scope<unknown> | undefined>()
 const admissionSeals = new WeakMap<object, () => void>()
 
 /** Per-child bound on a retained release: one remote destroy, answered or abandoned. */
 const RETAINED_RELEASE_TIMEOUT_MS = 30_000
+
+/** One unconfirmed child as the run names it: the node, the environments its executor still
+ *  reports holding, and what the last teardown attempt answered. */
+function unconfirmedTeardownOf(child: LiveChild): UnconfirmedTeardown {
+  let environments: ReadonlyArray<HeldEnvironment> | undefined
+  try {
+    const held = child.readHeldEnvironments?.()
+    if (held !== undefined && held.length > 0) {
+      environments = Object.freeze(
+        held.map((environment) =>
+          Object.freeze({
+            provider: environment.provider,
+            environmentId: environment.environmentId,
+          }),
+        ),
+      )
+    }
+  } catch {
+    // The read is contractually non-throwing; one that throws names nothing rather than failing
+    // the barrier that reports the leak.
+  }
+  return Object.freeze({
+    id: child.id,
+    label: child.label,
+    runtime: child.runtime,
+    status: child.status,
+    ...(environments === undefined ? {} : { environments }),
+    ...(child.teardownAttempts > 0 ? { attempts: child.teardownAttempts } : {}),
+    ...(child.teardownDetail === undefined ? {} : { detail: child.teardownDetail }),
+  })
+}
 
 /** @internal Admit original children before the parent acts; do not wait for their results. */
 export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void> {
@@ -310,11 +350,59 @@ export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void>
  * per environment, on this scope's own tree; a nested manager reaches its children through
  * `Executor.releaseRetained`, and its nested scope journals theirs.
  */
-export async function releaseRetainedEnvironments(scope: Scope<unknown>) {
+export async function releaseRetainedEnvironments(
+  scope: Scope<unknown>,
+): Promise<ReadonlyArray<UnconfirmedTeardown>> {
   const release = retainedReleasers.get(scope)
   if (release) await release()
-  const ownerUnconfirmed = await releaseScopeRetainedOwnerEnvironment(scope)
-  return [...scope.workerCapacity.unconfirmed, ...ownerUnconfirmed]
+  ownerUnconfirmedByScope.set(scope, await releaseScopeRetainedOwnerEnvironment(scope))
+  return unconfirmedTeardowns(scope)
+}
+
+/**
+ * @internal Everything this scope cannot prove destroyed: its settled children whose teardown is
+ * unconfirmed and, after a release, the retained owner environment that release could not
+ * confirm. Read live, so a later retry that confirms a node removes it.
+ */
+export function unconfirmedTeardowns(scope: Scope<unknown>): ReadonlyArray<UnconfirmedTeardown> {
+  return [...scope.workerCapacity.unconfirmed, ...(ownerUnconfirmedByScope.get(scope) ?? [])]
+}
+
+/** @internal Let the settlement retry reach the scope a recursive executor owns. */
+export function registerNestedTeardownScope(
+  executor: object,
+  read: () => Scope<unknown> | undefined,
+): void {
+  nestedTeardownScopes.set(executor, read)
+}
+
+/**
+ * @internal Ask each settled child whose teardown is still unconfirmed to tear down once more,
+ * and resolve when every attempt has answered.
+ *
+ * A child's first teardown runs inside its settlement with a short acknowledgement window, and a
+ * provider delete that fails once or answers late then leaves its sandbox running for good. This
+ * is one retry pass; the supervisor paces passes with backoff inside a bounded window, and a
+ * nested manager runs one pass over its own scope each time its teardown is asked again, so the
+ * retry reaches every level of the tree.
+ *
+ * A retained-pending child is skipped: its executor answers `destroyed: false` by construction
+ * while a resume may still reconcile it, and `releaseRetainedEnvironments` owns its release. An
+ * attempt still in flight from an earlier pass is awaited, never duplicated. Never rejects.
+ */
+export async function retryUnconfirmedTeardowns(scope: Scope<unknown>): Promise<void> {
+  const retry = teardownRetriers.get(scope)
+  if (retry) await retry()
+}
+
+/**
+ * @internal Whether another retry can still change this scope's unconfirmed set. With `release`
+ * the run releases retained environments at settlement, so a retained child or owner whose
+ * release failed can still be released again; without it those are kept for a resume, and only
+ * an ordinary unconfirmed teardown counts.
+ */
+export function hasRetriableTeardowns(scope: Scope<unknown>, release: boolean): boolean {
+  return teardownRetriable.get(scope)?.(release) ?? false
 }
 
 /**
@@ -427,6 +515,27 @@ interface LiveChild {
   /** Re-ask the executor's teardown verb after a retained release; resolves only on
    *  `destroyed: true`, so confirmation always comes from the same verb every other path uses. */
   readonly confirmTeardown?: () => Promise<void>
+  /** Ask the executor's teardown verb again, with no acknowledgement bound of its own: the
+   *  settlement retry window bounds it. Absent on a wait-state node, which holds no executor. */
+  readonly retryTeardown?: () => Promise<{
+    destroyed: boolean
+    detail?: string
+    permanent?: boolean
+  }>
+  /** The executor's `heldEnvironments` read, captured at spawn: what a sweeper must delete when
+   *  this child's teardown stays unconfirmed. */
+  readonly readHeldEnvironments?: () => ReadonlyArray<HeldEnvironment>
+  /** The scope this child's recursive executor owns, once it has mounted one. */
+  readonly readNestedScope?: () => Scope<unknown> | undefined
+  /** How many times this child's executor was asked to tear down. */
+  teardownAttempts: number
+  /** Why the last teardown attempt did not confirm destruction. */
+  teardownDetail?: string
+  /** The executor answered that asking again cannot change its answer. */
+  teardownPermanent?: boolean
+  /** The settlement retry's attempt still in flight, so a slow provider is never asked twice at
+   *  once. */
+  teardownRetry?: Promise<void>
   /** Abort this child's own signal — the local half of `scope.cancel`. */
   readonly abortChild: (reason?: unknown) => void
   /** Kernel-owned declaration of the exact execution plan, durable before `execute` starts. */
@@ -1083,6 +1192,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               confirmTeardown: () => teardownExecutor(executor, 'brutalKill', undefined, now),
             }
           : {}),
+        retryTeardown: async () => await executor.teardown('brutalKill'),
+        ...(executor.heldEnvironments
+          ? { readHeldEnvironments: executor.heldEnvironments.bind(executor) }
+          : {}),
+        ...(nestedTeardownScopes.has(executor)
+          ? { readNestedScope: nestedTeardownScopes.get(executor)! }
+          : {}),
+        teardownAttempts: 0,
         abortChild: (reason?: unknown): void => controller.abort(reason),
       }
       const recordCancellation = (): void => {
@@ -1603,6 +1720,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       delivered: false,
       executorDone: false,
       cleanupConfirmed: true,
+      teardownAttempts: 0,
       executionBindings: [],
       startedAt: armedAt,
       lastActivityAt: now(),
@@ -1891,14 +2009,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         unconfirmed: Object.freeze(
           [...children.values()]
             .filter((child) => isTerminalNodeStatus(child.status) && !child.cleanupConfirmed)
-            .map((child) =>
-              Object.freeze({
-                id: child.id,
-                label: child.label,
-                runtime: child.runtime,
-                status: child.status,
-              }),
-            ),
+            .map(unconfirmedTeardownOf),
         ),
       }
     },
@@ -2008,18 +2119,91 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     })
   }
-  retainedReleasers.set(scope, async () => {
-    // Settled children whose cleanup is unconfirmed because they hold a retained execution
-    // themselves, or because a nested manager's descendants do. Any other unconfirmed child (a
-    // destroy that failed on the ordinary path) is named exactly as before and not retried here.
-    const held = [...children.values()].filter(
+  // Settled children whose cleanup is unconfirmed because they hold a retained execution
+  // themselves, or because a nested manager's descendants do: what a retained release reaches.
+  const retainedHeld = (): LiveChild[] =>
+    [...children.values()].filter(
       (child) =>
         isTerminalNodeStatus(child.status) &&
         !child.cleanupConfirmed &&
         (child.recoveryPending === true || child.ownedTreeRoot !== undefined) &&
+        child.teardownPermanent !== true &&
         child.releaseRetained !== undefined &&
         child.confirmTeardown !== undefined,
     )
+  // The children one settlement retry pass re-asks: settled, teardown unconfirmed, and not a
+  // retained execution (its executor answers `destroyed: false` by construction while a resume may
+  // still reconcile it; its release is `retainedReleasers`' job). A nested manager whose only
+  // unconfirmed descendants are such retained executions is skipped for the same reason: asking
+  // it again cannot change its answer.
+  const retriableTeardowns = (): LiveChild[] =>
+    [...children.values()].filter((child) => {
+      if (
+        !isTerminalNodeStatus(child.status) ||
+        child.cleanupConfirmed ||
+        child.recoveryPending === true ||
+        child.teardownPermanent === true ||
+        child.retryTeardown === undefined
+      ) {
+        return false
+      }
+      const nested = child.readNestedScope?.()
+      return (
+        nested === undefined ||
+        unconfirmedTeardowns(nested).length === 0 ||
+        hasRetriableTeardowns(nested, false)
+      )
+    })
+  // Of those a release reaches, the ones another release could still change: a retained
+  // execution, or a manager whose own tree still holds something a release or retry can change.
+  const releasable = (): LiveChild[] =>
+    retainedHeld().filter((child) => {
+      const nested = child.readNestedScope?.()
+      return (
+        child.ownedTreeRoot === undefined ||
+        nested === undefined ||
+        hasRetriableTeardowns(nested, true)
+      )
+    })
+  teardownRetriable.set(
+    scope,
+    (release) =>
+      retriableTeardowns().length > 0 ||
+      (release && (releasable().length > 0 || retainedOwnerReleaseRetriable(scope))),
+  )
+  teardownRetriers.set(scope, async () => {
+    await Promise.all(
+      retriableTeardowns().map((child) => {
+        child.teardownRetry ??= (async () => {
+          try {
+            // Descendants first: a manager's teardown confirms only once its own tree has.
+            const nested = child.readNestedScope?.()
+            if (nested !== undefined) await retryUnconfirmedTeardowns(nested)
+            child.teardownAttempts += 1
+            const receipt = await child.retryTeardown!()
+            if (receipt.destroyed) {
+              child.cleanupConfirmed = true
+              child.teardownDetail = undefined
+            } else {
+              child.teardownDetail = `executor teardown reported destroyed=false${
+                receipt.detail ? `: ${receipt.detail}` : ''
+              }`
+              if (receipt.permanent === true) child.teardownPermanent = true
+            }
+          } catch (error) {
+            child.teardownDetail = errMessage(error)
+          } finally {
+            child.teardownRetry = undefined
+          }
+        })()
+        return child.teardownRetry
+      }),
+    )
+  })
+  retainedReleasers.set(scope, async () => {
+    // Any other unconfirmed child (a destroy that failed on the ordinary path) is retried by
+    // `teardownRetriers`, not here.
+    const held = retainedHeld()
     const released = await Promise.all(
       held.map(
         async (
@@ -2038,6 +2222,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           timer.unref?.()
           try {
             const receipts = await child.releaseRetained!(bound.signal)
+            // An environment the executor keeps on purpose, or cannot destroy, is not released by
+            // asking again.
+            if (receipts.some((receipt) => !receipt.destroyed && receipt.permanent === true)) {
+              child.teardownPermanent = true
+            }
             if (receipts.every((receipt) => receipt.destroyed)) {
               try {
                 await child.confirmTeardown!()
@@ -2999,11 +3188,13 @@ async function runChild<C>(
   const teardownOnce = async (grace: number | 'brutalKill' | 'infinity'): Promise<void> => {
     if (teardownStarted) return
     teardownStarted = true
+    live.teardownAttempts += 1
     try {
       await teardownExecutor(executor, grace, deadlineAtMs, now)
       live.cleanupConfirmed = true
     } catch (error) {
       teardownFailure = error
+      live.teardownDetail = errMessage(error)
       throw error
     }
   }
