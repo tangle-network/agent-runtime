@@ -39,6 +39,7 @@ const OTEL_KEYS: Record<string, string> = {
   TANGLE_RUN_ID: 'tangle.run.id',
   TANGLE_PARENT_RUN_ID: 'tangle.parent_run.id',
   TANGLE_ROOT_RUN_ID: 'tangle.root_run.id',
+  TANGLE_EDGE_KIND: 'tangle.edge.kind',
   TANGLE_OPERATOR: 'tangle.operator',
   TANGLE_PROJECT: 'tangle.project',
   TANGLE_ACCOUNT: 'tangle.account',

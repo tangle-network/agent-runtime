@@ -121,6 +121,7 @@ describe('workerLineage', () => {
     expect(otel).toContain('service.name=sup')
     expect(otel).not.toContain('tangle.run.id=stale')
     expect(otel).toContain(`tangle.run.id=${first.env.TANGLE_RUN_ID}`)
+    expect(otel).toContain('tangle.edge.kind=spawned')
     expect(first.headers['x-tangle-run-id']).toBe(first.env.TANGLE_RUN_ID)
     expect(first.headers['x-tangle-parent-run-id']).toBe(PARENT)
 
