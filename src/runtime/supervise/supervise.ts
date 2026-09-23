@@ -1818,6 +1818,8 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Durable steer directory when it differs from the run-control directory. */
+  readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
    *  with `blobs` — a journal whose result payloads live in a different store cannot replay. */
   readonly journal?: SpawnJournal
@@ -1964,6 +1966,7 @@ const superviseOptionKeys = [
   'runId',
   'signal',
   'stallAfterMs',
+  'steerDir',
   'stopRule',
   'watchWorkers',
   'repromptOnUnmet',
@@ -3150,16 +3153,18 @@ function superviseInternal(
               }
             : {}),
           ...(finalizer ? { finalizer } : {}),
-          // A nested manager acknowledges cancels for ITS direct children from the same layout
-          // dir as the root — subtree-scoped, so exact node ids route to the one manager that
-          // parents them and label references stay the root's alone.
+          // A nested manager owns only its subtree's durable controls. Root-level labels remain
+          // the root's even when steering uses a separate directory from cancellation.
           ...(options.runDir === undefined
             ? {}
             : {
                 controlDir: resolve(options.runDir),
-                controlScope: 'subtree' as const,
                 abortRun: cancelDurableRun,
               }),
+          ...(options.steerDir === undefined ? {} : { steerDir: resolve(options.steerDir) }),
+          ...(options.runDir === undefined && options.steerDir === undefined
+            ? {}
+            : { controlScope: 'subtree' as const }),
         })
         return driverChild(
           authorized,
@@ -3324,6 +3329,7 @@ function superviseInternal(
             controlDir: resolve(options.runDir),
             abortRun: cancelDurableRun,
           }),
+      ...(options.steerDir === undefined ? {} : { steerDir: resolve(options.steerDir) }),
     } satisfies SupervisorAgentDeps
     const agent =
       testBrain === undefined

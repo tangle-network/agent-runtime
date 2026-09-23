@@ -21,4 +21,5 @@ export { sandboxPeerRange }
 export const sandboxCompatibilityVersions = Object.freeze([
   sandboxFloor,
   '0.43.0',
+  '0.46.0',
 ])

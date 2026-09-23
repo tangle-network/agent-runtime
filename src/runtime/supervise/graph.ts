@@ -285,6 +285,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'watchWorkers',
   'stallAfterMs',
   'runDir',
+  'steerDir',
   'probes',
   'stopRule',
   'onProgressStop',

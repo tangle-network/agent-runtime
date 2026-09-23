@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { readRootStreamReceipt } from '../runtime/supervise/root-stream'
+import { supervisorRunDir } from '../runtime/supervise/run-layout'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
@@ -126,6 +127,10 @@ export async function supervisePursuit(
     try {
       result = await supervise(profile, task, {
         ...superviseOptions,
+        // `runDir` owns the pursuit journal and terminal records. The public steer writer addresses
+        // the canonical per-run event directory beneath that root, so keep its control plane there
+        // without moving the durable pursuit records.
+        steerDir: superviseOptions.steerDir ?? supervisorRunDir(runDir, runId),
         // The settle record written below makes this settlement final, so the environments a
         // retained child holds are released at the barrier instead of kept for a resume that the
         // record will refuse (measured 2026-09-11: 18 of a 60-slot fleet held 19 to 37 hours).

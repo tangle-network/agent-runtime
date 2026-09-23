@@ -595,6 +595,8 @@ export interface SupervisorAgentDeps {
   /** Durable control directory. Both arms acknowledge worker requests; external managers observe
    *  them throughout the harness invocation. See `DriverAgentOptions.controlDir`. */
   readonly controlDir?: string
+  /** Durable steer directory when it differs from the run-control directory. */
+  readonly steerDir?: string
   /** Which cancel requests this manager's acknowledger owns: `'run'` (default; the tree root —
    *  its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
    *  manager — exact direct-child node ids only). Exactly one manager owns any request, so two
@@ -831,6 +833,7 @@ function buildSupervisorAgent(
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
         ...(slot ? { onCoordinationTools: (tools) => slot.bind(tools) } : {}),
         ...(deps.controlDir === undefined ? {} : { controlDir: deps.controlDir }),
+        ...(deps.steerDir === undefined ? {} : { steerDir: deps.steerDir }),
         ...(deps.controlScope === undefined ? {} : { controlScope: deps.controlScope }),
         ...(deps.abortRun ? { abortRun: deps.abortRun } : {}),
         inbox,
@@ -1011,9 +1014,10 @@ function buildSupervisorAgent(
       )
       let controlObserver: ReturnType<typeof observeWorkerControls> | undefined
       try {
-        if (deps.controlDir !== undefined) {
+        if (deps.controlDir !== undefined || deps.steerDir !== undefined) {
           controlObserver = observeWorkerControls({
-            dir: deps.controlDir,
+            ...(deps.controlDir === undefined ? {} : { dir: deps.controlDir }),
+            ...(deps.steerDir === undefined ? {} : { steerDir: deps.steerDir }),
             coord: controls,
             scope,
             signal: coordinationLifetime.signal,

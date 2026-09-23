@@ -15373,6 +15373,16 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](#superviseoptions).[`runDir`](#rundir-2)
 
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`steerDir`](#steerdir-1)
+
 ##### probes?
 
 > `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](#waitproberegistry)
@@ -19562,6 +19572,12 @@ exact prior execution is recovered, so restart cannot duplicate work or slide th
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
 
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
+
 ##### journal?
 
 > `readonly` `optional` **journal?**: [`SpawnJournal`](#spawnjournal)
@@ -20713,6 +20729,12 @@ OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` pos
 
 Durable control directory. Both arms acknowledge worker requests; external managers observe
  them throughout the harness invocation. See `DriverAgentOptions.controlDir`.
+
+##### steerDir?
+
+> `readonly` `optional` **steerDir?**: `string`
+
+Durable steer directory when it differs from the run-control directory.
 
 ##### controlScope?
 
