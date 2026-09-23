@@ -571,7 +571,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 921 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 924 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -894,6 +894,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 921 exports.
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
+| `TangleSandboxCodeModeRunner` | class | Execute code mode in a fresh egress-blocked Tangle Sandbox. |
 | `ActivityLog` | interface | A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. |
 | `ActivityNote` | interface | The most recent activity the executor can name — one tool call, one turn, or a free-form note. |
 | `Agent` | interface | One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver |
@@ -1178,6 +1179,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 921 exports.
 | `SurfaceReadBox` | interface | The minimal box surface the box-backed reader needs — structurally typed so the real |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
+| `TangleSandboxCodeModeRunnerOptions` | interface | Bounds for the terminal protocol. They limit untrusted terminal output, not |
 | `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |
@@ -1314,6 +1316,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 921 exports.
 | `SupervisorSpanAttributes` | type | OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and |
 | `SurfaceReader` | type | The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's |
 | `SurfaceReadOutcome` | type | Outcome of reading one surface back at settle. `missing: true` means the path no longer exists |
+| `TangleSandboxCodeModeClient` | type | The caller owns credentials and supplies the published Sandbox client. |
 | `TerminalDecision` | type | One of the kernel's terminal decision values. |
 | `TokenUsageProvenance` | type | How a token count was obtained. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |

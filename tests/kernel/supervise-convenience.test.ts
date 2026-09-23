@@ -24,12 +24,17 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 
 function rootProfile(overrides: Parameters<typeof testAgentProfile>[1] = {}): AgentProfile {
-  return testAgentProfile('root', { harness: 'cli-base', ...overrides })
+  return withRuntimeTools(
+    testAgentProfile('root', { harness: 'cli-base', ...overrides }),
+    'spawn_worker',
+    'await_event',
+    'stop',
+  )
 }
 
 function workerProfile(name = 'worker'): AgentProfile {
@@ -217,7 +222,10 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { content: 'must not need another turn' },
     ])
     const result = await supervise(
-      rootProfile({ prompt: { systemPrompt: 'solve or delegate' } }),
+      withRuntimeTools(
+        rootProfile({ prompt: { systemPrompt: 'solve or delegate' } }),
+        'submit_result',
+      ),
       'solve it directly',
       {
         budget,
@@ -1144,17 +1152,21 @@ describe('supervise — the code-valued options are nameable, so a run configura
       { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
       { content: 'must not need another turn' },
     ])
-    const result = await supervise(rootProfile(), 'solve it directly', {
-      budget,
-      makeWorkerAgent: () => deliveringLeaf('unused', {}),
-      brain,
-      deliverable: 'answer-is-42',
-      registry: {
-        deliverables: table({
-          'answer-is-42': { check: (v) => (v as { answer?: unknown }).answer === 42 },
-        }),
+    const result = await supervise(
+      withRuntimeTools(rootProfile(), 'submit_result'),
+      'solve it directly',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        brain,
+        deliverable: 'answer-is-42',
+        registry: {
+          deliverables: table({
+            'answer-is-42': { check: (v) => (v as { answer?: unknown }).answer === 42 },
+          }),
+        },
       },
-    })
+    )
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
   })
@@ -1331,27 +1343,36 @@ describe('supervise — peerMail threads from options through both supervisor ar
   it('supervise({ peerMail: true }) hands every backend-derived worker a peerMailUrl', async () => {
     const seen: Array<string | undefined> = []
     const makeLeaf = workerFromBackend(offlineBackend)
-    await supervise(testAgentProfile('root', { harness: 'opencode' }), 'fan out', {
-      budget,
-      makeWorkerAgent: (profile, context) => {
-        seen.push(context?.peerMailUrl)
-        return makeLeaf(profile, context)
+    await supervise(
+      withRuntimeTools(
+        testAgentProfile('root', { harness: 'opencode' }),
+        'spawn_worker',
+        'await_event',
+        'stop',
+      ),
+      'fan out',
+      {
+        budget,
+        makeWorkerAgent: (profile, context) => {
+          seen.push(context?.peerMailUrl)
+          return makeLeaf(profile, context)
+        },
+        peerMail: true,
+        driveHarness: async ({ coordinationMcpUrl }) => {
+          await callTool(coordinationMcpUrl, 'spawn_worker', {
+            profile: workerProfile('w1'),
+            task: 'go',
+          })
+          await callTool(coordinationMcpUrl, 'spawn_worker', {
+            profile: workerProfile('w2'),
+            task: 'go',
+          })
+          await callTool(coordinationMcpUrl, 'await_event', {})
+          await callTool(coordinationMcpUrl, 'await_event', {})
+          await callTool(coordinationMcpUrl, 'stop', {})
+        },
       },
-      peerMail: true,
-      driveHarness: async ({ coordinationMcpUrl }) => {
-        await callTool(coordinationMcpUrl, 'spawn_worker', {
-          profile: workerProfile('w1'),
-          task: 'go',
-        })
-        await callTool(coordinationMcpUrl, 'spawn_worker', {
-          profile: workerProfile('w2'),
-          task: 'go',
-        })
-        await callTool(coordinationMcpUrl, 'await_event', {})
-        await callTool(coordinationMcpUrl, 'await_event', {})
-        await callTool(coordinationMcpUrl, 'stop', {})
-      },
-    })
+    )
     expect(seen).toHaveLength(2)
     for (const url of seen) {
       expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
@@ -1372,23 +1393,27 @@ describe('supervise — peerMail threads from options through both supervisor ar
 
   it('refuses a router-brained nested driver as a loud spawn error, not a silent no-mail run', async () => {
     const spawnReplies: unknown[] = []
-    await supervise(testAgentProfile('root', { harness: 'opencode' }), 'delegate', {
-      budget,
-      backend: offlineBackend,
-      peerMail: true,
-      driveHarness: async ({ coordinationMcpUrl }) => {
-        spawnReplies.push(
-          await callTool(coordinationMcpUrl, 'spawn_worker', {
-            profile: testAgentProfile('lead', {
-              harness: 'cli-base',
-              metadata: { role: 'driver' },
+    await supervise(
+      withRuntimeTools(testAgentProfile('root', { harness: 'opencode' }), 'spawn_worker'),
+      'delegate',
+      {
+        budget,
+        backend: offlineBackend,
+        peerMail: true,
+        driveHarness: async ({ coordinationMcpUrl }) => {
+          spawnReplies.push(
+            await callTool(coordinationMcpUrl, 'spawn_worker', {
+              profile: withRuntimeTools(
+                testAgentProfile('lead', { harness: 'cli-base' }),
+                'spawn_worker',
+              ),
+              task: 'coordinate',
             }),
-            task: 'coordinate',
-          }),
-        )
-        await callTool(coordinationMcpUrl, 'stop', {})
+          )
+          await callTool(coordinationMcpUrl, 'stop', {})
+        },
       },
-    })
+    )
     expect(spawnReplies).toHaveLength(1)
     expect(JSON.stringify(spawnReplies[0])).toContain(
       'peerMail is only served by a harness-brained supervisor',

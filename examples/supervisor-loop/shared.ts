@@ -171,6 +171,10 @@ export function resolveSupervisorBrain(
   const profile: AgentProfile = {
     name: 'supervisor',
     harness: 'cli-base',
+    tools: {
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+    },
     model: {
       provider: process.env.DRIVER_PROVIDER ?? 'tangle-router',
       default: driverModel,

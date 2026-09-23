@@ -15,6 +15,7 @@ import type {
   UsageEvent,
 } from '../src/runtime/supervise/types'
 import { supervise } from './helpers/runtime-with-test-brain'
+import { withRuntimeTools } from './kernel/test-agent-profile'
 
 // ── An offline worker leaf — returns the ANSWER=42 marker, no network/LLM ─────────
 // The example's runners build this leaf from a real backend (`workerFromBackend`); here
@@ -68,14 +69,18 @@ describe('supervisor-loop example — supervise() on the scripted brain (offline
       model: { provider: 'tangle-router', default: 'offline-worker-model' },
     }
     const result = await supervise(
-      {
-        name: 'supervisor',
-        harness: 'cli-base',
-        model: { provider: 'tangle-router', default: 'offline-supervisor-model' },
-        prompt: {
-          systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
+      withRuntimeTools(
+        {
+          name: 'supervisor',
+          harness: 'cli-base',
+          model: { provider: 'tangle-router', default: 'offline-supervisor-model' },
+          prompt: {
+            systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
+          },
         },
-      },
+        'spawn_worker',
+        'await_event',
+      ),
       demoGoal,
       {
         // The example's offline brain (a fixed spawn → await → stop plan) + an injected worker

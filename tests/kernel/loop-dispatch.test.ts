@@ -466,6 +466,7 @@ describe('superviseDispatch', () => {
     name: 'pi-moving',
     harness: 'pi',
     model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    tools: { agent_runtime_coordination_submit_result: true },
   }
 
   function movingPiDispatch(bridgeUrl: string) {
@@ -829,6 +830,7 @@ describe('superviseDispatch', () => {
         name: 'recursive-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: { agent_runtime_coordination_submit_result: true },
       },
       { id: 'recursive', kind: 'task' },
       fake.ctx,
@@ -895,6 +897,7 @@ describe('superviseDispatch', () => {
         name: 'partial-cache-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: { agent_runtime_coordination_submit_result: true },
       },
       { id: 'partial-cache', kind: 'task' },
       fake.ctx,
@@ -958,6 +961,7 @@ describe('superviseDispatch', () => {
         name: 'mixed-cache-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: { agent_runtime_coordination_submit_result: true },
       },
       { id: 'mixed-cache', kind: 'task' },
       fake.ctx,
@@ -1011,6 +1015,7 @@ describe('superviseDispatch', () => {
         name: 'unknown-usage-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: { agent_runtime_coordination_submit_result: true },
       },
       { id: 'unknown-usage', kind: 'task' },
       fake.ctx,
@@ -1171,6 +1176,11 @@ describe('superviseDispatch', () => {
           name: 'glm-root',
           harness: 'cli-base',
           model: { provider: 'zai', default: 'glm-root@2026-08-11' },
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+            agent_runtime_coordination_submit_result: true,
+          },
         },
         { id: 'mixed-model', kind: 'task' },
         fake.ctx,

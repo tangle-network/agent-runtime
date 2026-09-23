@@ -156,6 +156,9 @@ export interface DriverAgentOptions {
   /** Product-selected tools already bound to this exact supervisor node. The same descriptors are
    *  served over MCP for external supervisors; this arm projects them into router ToolSpecs. */
   readonly nodeTools?: ReadonlyArray<McpToolDescriptor>
+  /** Exact bare names to expose from the coordination and node-tool set. Omit only for direct
+   *  low-level callers that intentionally want the complete set. */
+  readonly toolNames?: ReadonlyArray<string>
   /** WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
    *  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
    *  Each is a router tool spec; their names must not collide with the coordination verbs. Pair with
@@ -918,9 +921,32 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           : {}),
       })
       await coord.ready()
+      const availableTools = [...coord.tools, ...(opts.nodeTools ?? [])]
+      const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
+      const extraByName = new Map((opts.extraTools ?? []).map((tool) => [tool.name, tool]))
+      const selectedNames = opts.toolNames ?? [...availableByName.keys(), ...extraByName.keys()]
+      const selectedTools = selectedNames.map((name) => {
+        const descriptor = availableByName.get(name)
+        if (descriptor !== undefined) return { kind: 'descriptor' as const, descriptor }
+        const extra = extraByName.get(name)
+        if (extra === undefined) {
+          throw new ValidationError(
+            `driverAgent: requested tool ${JSON.stringify(name)} is unavailable`,
+          )
+        }
+        return { kind: 'extra' as const, extra }
+      })
+      const modelTools = selectedTools.flatMap((selected) =>
+        selected.kind === 'descriptor' ? [selected.descriptor] : [],
+      )
+      const selectedExtraNames = new Set(
+        selectedTools.flatMap((selected) =>
+          selected.kind === 'extra' ? [selected.extra.name] : [],
+        ),
+      )
       // Before the first brain turn: a node tool invoked on turn one must already be able to call
       // these verbs.
-      opts.onCoordinationTools?.(coord.tools)
+      opts.onCoordinationTools?.(modelTools)
       // The worker-cancel acknowledger, mounted only for a durable run that named its layout dir.
       // It runs inside this existing turn loop — the one place that already runs every turn and
       // already holds the child handles — so external cancellation needs no second lifetime.
@@ -957,24 +983,26 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           )
         }
       }
-      const byName = new Map<string, McpToolDescriptor>(
-        [...coord.tools, ...(opts.nodeTools ?? [])].map((t) => [t.name, t]),
+      const byName = new Map<string, McpToolDescriptor>(modelTools.map((tool) => [tool.name, tool]))
+      const toolSpecs: ToolSpec[] = selectedTools.map((selected) =>
+        selected.kind === 'descriptor'
+          ? {
+              type: 'function' as const,
+              function: {
+                name: selected.descriptor.name,
+                description: selected.descriptor.description,
+                parameters: selected.descriptor.inputSchema,
+              },
+            }
+          : {
+              type: 'function' as const,
+              function: {
+                name: selected.extra.name,
+                description: selected.extra.description,
+                parameters: selected.extra.parameters,
+              },
+            },
       )
-      const toolSpecs: ToolSpec[] = [
-        ...coord.tools.map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.inputSchema },
-        })),
-        ...(opts.nodeTools ?? []).map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.inputSchema },
-        })),
-        // Work tools the driver calls DIRECTLY — so it can ACT, not only delegate.
-        ...(opts.extraTools ?? []).map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.parameters },
-        })),
-      ]
       const system =
         typeof opts.systemPrompt === 'function' ? opts.systemPrompt(task) : opts.systemPrompt
 
@@ -1144,7 +1172,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         execute: async (name, args) => {
           // WORK FIRST: a work tool the driver runs itself (act). A non-null return is handled here;
           // null/undefined means "not mine" → fall through to the coordination dispatch (spawn/await/…).
-          if (opts.executeExtraTool) {
+          if (opts.executeExtraTool && selectedExtraNames.has(name)) {
             const worked = await runExtraTool(opts.executeExtraTool, name, args)
             if (worked !== null && worked !== undefined) return worked
           }
@@ -1243,7 +1271,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
 
 /**
  * The factual context a resumed driver starts from — everything the durable stores prove about
- * the prior process(es): committed settlements, per-key states (completed / lost / failed),
+ * the prior process(es): committed settlements, per-key states (completed / in-doubt / failed),
  * re-armed waits, carried-over questions/findings/continuation receipts, and spend already paid.
  * Injected as the brain's first user-context on a resumed run so it continues from unresolved work;
  * old continuation receipts are evidence and are never auto-delivered.
@@ -1269,7 +1297,7 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
   const byState = (state: 'completed' | 'in-doubt' | 'down') =>
     [...resume.keys].filter(([, v]) => v.state === state)
   const completed = byState('completed')
-  const lost = byState('in-doubt')
+  const inDoubt = byState('in-doubt')
   const failed = byState('down')
   if (completed.length > 0) {
     lines.push(
@@ -1278,11 +1306,11 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
       ...completed.map(([k, v]) => `- ${k} → ${v.id} (${v.label})`),
     )
   }
-  if (lost.length > 0) {
+  if (inDoubt.length > 0) {
     lines.push(
       '',
-      'Keys LOST in flight with the prior process — this is the unresolved work; spawn_worker with the same key starts a fresh attempt:',
-      ...lost.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
+      'Keys IN DOUBT — a prior process recorded them as started but never recorded a terminal receipt. Do NOT spawn a replacement under these keys; inspect or recover each exact prior execution first:',
+      ...inDoubt.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
     )
   }
   if (failed.length > 0) {

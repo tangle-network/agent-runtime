@@ -34,15 +34,17 @@ Use only fields the selected backend can materialize.
     "default": "<allowed-model-id>",
     "reasoningEffort": "xhigh"
   },
-  "metadata": {
-    "role": "driver"
+  "tools": {
+    "agent_runtime_coordination_spawn_worker": true,
+    "agent_runtime_coordination_await_event": true
   }
 }
 ```
 
 The example shows placement, not required values.
-Use `metadata.role: 'driver'` only when this child should author and supervise descendants.
-Omit that role for a leaf.
+Set `tools.agent_runtime_coordination_spawn_worker: true` only when this child should author and supervise descendants.
+Declare every other Runtime coordination tool the child will call.
+Omit the spawn tool for a leaf.
 
 The task argument names the concrete artifact and a check that can fail.
 The profile names how the agent works and which capabilities it receives.

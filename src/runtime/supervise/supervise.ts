@@ -118,8 +118,11 @@ import { createRootHandle, createSupervisor } from './supervisor'
 import {
   assertCoordinationBinding,
   type CoordinationBinding,
+  coordinationMcpAlias,
+  coordinationProfileToolPrefix,
   type DriveHarness,
   type DriveHarnessOwnerContext,
+  declaredRuntimeToolNames,
   type ResolveDriveHarness,
   type ResolveSupervisorTools,
   type SupervisorAgentDeps,
@@ -447,12 +450,29 @@ function assertProfileContract(
   profile: AgentProfile,
   contract: ProfileMaterializationContract,
   context: string,
+  runtimeConsumesCoordinationTools = false,
 ): void {
+  const materializedProfile = runtimeConsumesCoordinationTools
+    ? profileWithoutRuntimeCoordinationTools(profile)
+    : profile
   assertProfileMaterialization({
     contract,
-    changedAxes: profileMaterializationAxes(profile),
+    changedAxes: profileMaterializationAxes(materializedProfile),
     context,
   })
+}
+
+/** Return the profile portion a provider must materialize after Runtime consumes its own tools. */
+function profileWithoutRuntimeCoordinationTools(profile: AgentProfile): AgentProfile {
+  if (profile.tools === undefined) return profile
+  const providerTools = Object.fromEntries(
+    Object.entries(profile.tools).filter(
+      ([name]) => !name.startsWith(coordinationProfileToolPrefix),
+    ),
+  )
+  if (Object.keys(providerTools).length > 0) return { ...profile, tools: providerTools }
+  const { tools: _runtimeTools, ...withoutTools } = profile
+  return withoutTools
 }
 
 function assertBackendProfileMaterialization(
@@ -550,36 +570,13 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
   ],
 })
 
-const coordinationMcpAlias = 'agent-runtime-coordination'
-
-/** How a harness sees a coordination verb once the MCP is mounted under its reserved alias. */
-const coordinationToolPrefix = `${coordinationMcpAlias.replaceAll('-', '_')}_`
-
-/**
- * Tools a child REQUIRES that name the coordination MCP but no coordination verb.
- *
- * A profile can only receive a coordination tool this run actually serves, and the served set is
- * closed (`coordinationVerbNames`). A required name inside the reserved namespace that is not one
- * of them can never mount on any harness, for any backend, at any depth — the harness discovers it
- * only when it starts and exits (`pi exit 78: requested tool "…" is unavailable`), after the child
- * is spawned, journaled and metered.
- */
-function unmountedCoordinationTools(profile: AgentProfile): readonly string[] {
-  const served = new Set(coordinationVerbNames.map((verb) => `${coordinationToolPrefix}${verb}`))
-  return Object.entries(profile.tools ?? {})
-    .filter(([name, required]) => required === true && name.startsWith(coordinationToolPrefix))
-    .map(([name]) => name)
-    .filter((name) => !served.has(name))
-}
-
 /**
  * The pre-flight `supervise` installs for a bridge backend. No new knob: the backend already says
  * where the bridge is, and these are the questions only the bridge can answer.
  *
- * Three causes, in cost order — the pure one first, so a deterministic refusal never pays for a
- * round trip:
+ * Three causes:
  *
- * - `unmountable-tool` — pure; see {@link unmountedCoordinationTools}.
+ * - `unmountable-tool` — pure; a leaf cannot receive manager coordination tools.
  * - `model-route` — `GET /v1/capabilities?model=<wire id>`. The bridge answers exactly this
  *   question and 404s `no backend matches model "…"`. FAIL CLOSED: any answer that is not a route
  *   refuses, including a transport error or an unexpected status, because a pre-flight that skips
@@ -590,13 +587,6 @@ function unmountedCoordinationTools(profile: AgentProfile): readonly string[] {
  */
 function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
   return async (profile) => {
-    const unmounted = unmountedCoordinationTools(profile)
-    if (unmounted.length > 0) {
-      return {
-        cause: 'unmountable-tool',
-        detail: `no coordination verb is named by ${unmounted.map((name) => JSON.stringify(name)).join(', ')}; this run serves ${coordinationVerbNames.join(', ')}`,
-      }
-    }
     const wireModel = profileBridgeWireModel(profile)
     if (wireModel === undefined) {
       return {
@@ -608,6 +598,52 @@ function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
     if (routeRefusal !== undefined) return { cause: 'model-route', detail: routeRefusal.detail }
     const admissionRefusal = await bridgeAdmissionRefusal(seam)
     if (admissionRefusal !== undefined) return { cause: 'bridge-full', detail: admissionRefusal }
+    return undefined
+  }
+}
+
+const coordinationVerbNameSet = new Set<string>(coordinationVerbNames)
+
+/** Refuse a child whose declared Runtime-mounted tools cannot exist on its execution path. */
+function profileToolSpawnPreflight(canResolveProductTools: boolean): SpawnPreflight {
+  return async (profile) => {
+    const names = declaredRuntimeToolNames(profile)
+    if (names.length === 0) return undefined
+    if (!names.includes('spawn_worker')) {
+      return {
+        cause: 'unmountable-tool',
+        detail:
+          `the non-recursive profile declares ${names
+            .map((name) => JSON.stringify(`${coordinationProfileToolPrefix}${name}`))
+            .join(', ')}, but Runtime mounts coordination tools only on a profile that declares ` +
+          `${JSON.stringify(`${coordinationProfileToolPrefix}spawn_worker`)}`,
+      }
+    }
+    const unresolved = names.filter((name) => !coordinationVerbNameSet.has(name))
+    if (unresolved.length > 0 && !canResolveProductTools) {
+      return {
+        cause: 'unmountable-tool',
+        detail: `the spawn-capable profile declares ${unresolved
+          .map((name) => JSON.stringify(`${coordinationProfileToolPrefix}${name}`))
+          .join(', ')}, but this run has no resolveSupervisorTools provider for those tools`,
+      }
+    }
+    return undefined
+  }
+}
+
+function composeSpawnPreflights(
+  ...preflights: ReadonlyArray<SpawnPreflight | undefined>
+): SpawnPreflight | undefined {
+  const active = preflights.filter(
+    (preflight): preflight is SpawnPreflight => preflight !== undefined,
+  )
+  if (active.length === 0) return undefined
+  return async (profile, context) => {
+    for (const preflight of active) {
+      const refusal = await preflight(profile, context)
+      if (refusal !== undefined) return refusal
+    }
     return undefined
   }
 }
@@ -1136,9 +1172,9 @@ export interface SuperviseOptions {
    *  backend-derived workers fall back to their own validity signal. A `string` names an entry in
    *  `registry.deliverables`. */
   readonly deliverable?: DeliverableSpec<unknown> | string
-  /** Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-   * after spawn authorization and driver classification, receives a detached immutable context,
-   * and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it. */
+  /** Resolve the completion check for one exact authorized child. The callback runs after spawn
+   * authorization, receives a detached immutable context, and may return `undefined` to use the
+   * run-wide `deliverable`. It applies to both leaves and recursive managers. */
   readonly resolveDeliverable?: (
     input: DeliverableResolutionInput,
   ) => DeliverableSpec<unknown> | undefined
@@ -1220,11 +1256,6 @@ export interface SuperviseOptions {
       readonly depth: number
     },
   ) => AuthorizedDownMessage
-  /** Decide whether an authorized child becomes another supervisor. By default only
-   *  `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
-   *  context as `resolveDeliverable`, so trusted execution/assignment authority can override
-   *  model-authored metadata without a side channel. */
-  readonly isDriverProfile?: (input: AuthorizedSpawnContext) => boolean
   /** The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
    *  model wins. */
   readonly router?: RouterTransportConfig
@@ -1296,9 +1327,10 @@ export interface SuperviseOptions {
    * live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
    * run the coordination server already stopped is never re-prompted — that stop was a decision.
    *
-   * Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-   * completion check. A recursive manager declares none of its own, so it is left unchanged.
-   * Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+   * Requires `deliverable`, and applies to every external manager with a selected completion
+   * check. A recursive manager may receive the run-wide check or one selected by
+   * `resolveDeliverable`. Router-brained managers run their turn loop in process and do not use
+   * this option. Omit/`0` = never.
    */
   readonly repromptOnUnmet?: number
   /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
@@ -1410,10 +1442,10 @@ export interface SuperviseOptions {
    * worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
    *
    * The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-   * the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-   * resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-   * and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-   * capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+   * the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+   * assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+   * token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+   * exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
    *
    * `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -1536,7 +1568,6 @@ const superviseOptionKeys = [
   'extraTools',
   'finalizer',
   'hooks',
-  'isDriverProfile',
   'journal',
   'makeLeafAgent',
   'makeWorkerAgent',
@@ -1678,7 +1709,6 @@ const superviseExecutableOptionKeys = [
   'escalateQuestion',
   'executeExtraTool',
   'finalizer',
-  'isDriverProfile',
   'makeLeafAgent',
   'makeWorkerAgent',
   'now',
@@ -1779,7 +1809,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     otel,
     authorizeSpawn,
     authorizeMessage,
-    isDriverProfile,
     driveHarness,
     resolveDriveHarness,
     resolveSupervisorTools,
@@ -1904,7 +1933,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(probes === undefined ? {} : { probes }),
     ...(authorizeSpawn === undefined ? {} : { authorizeSpawn }),
     ...(authorizeMessage === undefined ? {} : { authorizeMessage }),
-    ...(isDriverProfile === undefined ? {} : { isDriverProfile }),
     ...(driveHarness === undefined ? {} : { driveHarness }),
     ...(resolveDriveHarness === undefined ? {} : { resolveDriveHarness }),
     ...(resolveSupervisorTools === undefined ? {} : { resolveSupervisorTools }),
@@ -2241,8 +2269,8 @@ function superviseInternal(
   const probes = resolveNamed('probes', 'probes', options.probes, options.registry?.probes)
   assertCoordinationBinding(options.coordination)
 
-  // `withDriver: true` is the wiring invariant either way (a `role: 'driver'` child must resolve
-  // to the nested-scope executor); `runDir` only changes WHERE the journal and blobs live.
+  // `withDriver: true` is the wiring invariant either way: a child declaring the spawn tool must
+  // resolve to the nested-scope executor. `runDir` only changes where the journal and blobs live.
   const ctx =
     options.runDir !== undefined
       ? createFileRunContext(options.runDir, { withDriver: true })
@@ -2276,8 +2304,12 @@ function superviseInternal(
     options.driverBackend ?? (options.rootDriverFromBackend === false ? undefined : options.backend)
   // Derived from the backend the run already declares — no new knob. Only a bridge can answer the
   // route and admission questions, so only a bridge backend installs one.
-  const spawnPreflight: SpawnPreflight | undefined =
-    options.backend?.backend === 'bridge' ? bridgeSpawnPreflight(options.backend) : undefined
+  const spawnPreflight = composeSpawnPreflights(
+    options.makeWorkerAgent
+      ? undefined
+      : profileToolSpawnPreflight(options.resolveSupervisorTools !== undefined),
+    options.backend?.backend === 'bridge' ? bridgeSpawnPreflight(options.backend) : undefined,
+  )
   if (options.driveHarness && options.resolveDriveHarness) {
     throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
   }
@@ -2379,6 +2411,7 @@ function superviseInternal(
         ? promptControlProfileMaterialization
         : routerSupervisorProfileMaterialization,
     'supervise root',
+    true,
   )
 
   const now = options.now ?? Date.now
@@ -2486,34 +2519,25 @@ function superviseInternal(
           throw new ValidationError(`supervise: spawned AgentProfile refused: ${details}`)
         }
         assertProfileModelsAllowed(authorized, options.allowedModels)
-        let isDriver: boolean
-        if (options.isDriverProfile) {
-          const driverDecision: unknown = options.isDriverProfile(postAuthorizationContext)
-          if (typeof driverDecision !== 'boolean') {
-            throw new ValidationError('supervise: isDriverProfile must return a boolean')
-          }
-          isDriver = driverDecision
-        } else {
-          isDriver = authorized.metadata?.role === 'driver'
-        }
-        if (!isDriver) {
-          const selectedDeliverable = options.resolveDeliverable?.(postAuthorizationContext)
-          const leafDeliverable =
-            selectedDeliverable === undefined
-              ? deliverable
-              : captureDeliverable(
-                  selectedDeliverable,
-                  `supervise deliverable for ${JSON.stringify(spawnContext.label)}`,
-                )
-          if (leafDeliverable !== deliverable && !options.backend) {
+        const resolvedChildDeliverable = options.resolveDeliverable?.(postAuthorizationContext)
+        const childDeliverable =
+          resolvedChildDeliverable === undefined
+            ? deliverable
+            : captureDeliverable(
+                resolvedChildDeliverable,
+                `supervise deliverable for ${JSON.stringify(spawnContext.label)}`,
+              )
+        const canSpawn = authorized.tools?.[`${coordinationProfileToolPrefix}spawn_worker`] === true
+        if (!canSpawn) {
+          if (childDeliverable !== deliverable && !options.backend) {
             throw new ValidationError(
               'supervise: resolveDeliverable selected a per-spawn deliverable but there is no backend to derive that leaf from; makeLeafAgent owns its own completion check',
             )
           }
           const makeSelectedLeaf =
-            leafDeliverable === deliverable
+            childDeliverable === deliverable
               ? makeLeaf
-              : withRetry(workerFromBackend(options.backend as ExecutorConfig, leafDeliverable))
+              : withRetry(workerFromBackend(options.backend as ExecutorConfig, childDeliverable))
           return makeSelectedLeaf(
             authorized,
             Object.freeze({
@@ -2557,6 +2581,7 @@ function superviseInternal(
             ? (driverMaterialization as ProfileMaterializationContract)
             : promptModelProfileMaterialization,
           `supervise driver ${JSON.stringify(spawnContext.label)}`,
+          true,
         )
         if (managerBackend) {
           assertBridgeProfileMaterializes(
@@ -2580,6 +2605,7 @@ function superviseInternal(
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
           ...(options.router ? { router: options.router } : {}),
+          ...(childDeliverable ? { deliverable: childDeliverable } : {}),
           ...(nestedDriveHarness ? { driveHarness: nestedDriveHarness } : {}),
           nodeContext: {
             runId,
@@ -2604,9 +2630,6 @@ function superviseInternal(
           ...(options.resolveSpawnProfile
             ? { resolveSpawnProfile: options.resolveSpawnProfile }
             : {}),
-          ...(options.resolveSpawnProfile
-            ? { resolveSpawnProfile: options.resolveSpawnProfile }
-            : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -2614,11 +2637,12 @@ function superviseInternal(
           ...(options.compaction ? { compaction: options.compaction } : {}),
           ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
           ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
-          // `repromptOnUnmet` is deliberately NOT forwarded here. A nested manager declares no
-          // completion check of its own — the run's `deliverable` gates the LEAVES, and this
-          // manager receives no `submit_result` — so it has no contract that could be unmet, and
-          // forwarding the option would refuse every recursive spawn at construction. The run's
-          // contract belongs to the manager that declared it.
+          ...(nestedDriveHarness && childDeliverable && options.repromptOnUnmet !== undefined
+            ? { repromptOnUnmet: options.repromptOnUnmet }
+            : {}),
+          ...(nestedDriveHarness && childDeliverable && options.onUnmetContract
+            ? { onUnmetContract: options.onUnmetContract }
+            : {}),
           ...(log
             ? {
                 onEvent: (_event, record) => log.append(runId, record, ownerId),
@@ -2633,7 +2657,7 @@ function superviseInternal(
             ? {}
             : { controlDir: resolve(options.runDir), controlScope: 'subtree' as const }),
         })
-        return driverChild(authorized, nested, journal, childExecution.ref)
+        return driverChild(authorized, nested, journal, childExecution.ref, childDeliverable)
       }
       return makeRecursiveWorker
     }

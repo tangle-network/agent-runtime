@@ -252,6 +252,10 @@ describe('workerFromInteractiveProvider', () => {
           name: 'interactive supervisor',
           harness: 'cli-base',
           model: { provider: 'openai', default: 'openai/gpt-5' },
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+          },
         },
         'coordinate one interactive worker',
         {

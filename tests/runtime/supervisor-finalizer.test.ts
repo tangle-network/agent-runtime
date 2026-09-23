@@ -34,6 +34,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
+import { withRuntimeTools } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 
@@ -261,24 +262,32 @@ const makeWorker = (profile: unknown) => {
 
 describe('SupervisorFinalizer — end to end through supervise()', () => {
   it('the default keeps the delivered answer over a higher-scoring unchecked one', async () => {
-    const result = await supervise(offlineProfile('root'), 'task', {
-      budget,
-      perWorker: { maxIterations: 5, maxTokens: 10_000 },
-      makeWorkerAgent: makeWorker,
-      brain: twoWorkerScript(),
-    })
+    const result = await supervise(
+      withRuntimeTools(offlineProfile('root'), 'spawn_worker', 'await_event'),
+      'task',
+      {
+        budget,
+        perWorker: { maxIterations: 5, maxTokens: 10_000 },
+        makeWorkerAgent: makeWorker,
+        brain: twoWorkerScript(),
+      },
+    )
     expect(result.kind).toBe('winner')
     expect(result.kind === 'winner' ? result.out : null).toBe('GOOD')
   })
 
   it('an opted-in collectDelivered changes the SHAPE without ever widening eligibility', async () => {
-    const result = await supervise(offlineProfile('root'), 'task', {
-      budget,
-      perWorker: { maxIterations: 5, maxTokens: 10_000 },
-      makeWorkerAgent: makeWorker,
-      brain: twoWorkerScript(),
-      finalizer: collectDelivered,
-    })
+    const result = await supervise(
+      withRuntimeTools(offlineProfile('root'), 'spawn_worker', 'await_event'),
+      'task',
+      {
+        budget,
+        perWorker: { maxIterations: 5, maxTokens: 10_000 },
+        makeWorkerAgent: makeWorker,
+        brain: twoWorkerScript(),
+        finalizer: collectDelivered,
+      },
+    )
     expect(result.kind).toBe('winner')
     const out = result.kind === 'winner' ? (result.out as Array<{ out: unknown }>) : []
     // The unchecked worker really settled in this run, and it is still not in the output.
@@ -286,12 +295,16 @@ describe('SupervisorFinalizer — end to end through supervise()', () => {
   })
 
   it('a run whose only high scorer is unchecked is a no-winner, not a rescued output', async () => {
-    const result = await supervise(offlineProfile('root'), 'task', {
-      budget,
-      perWorker: { maxIterations: 5, maxTokens: 10_000 },
-      makeWorkerAgent: () => leaf('unchecked', 'UNCHECKED-PROSE', 0.99, false),
-      brain: twoWorkerScript(),
-    })
+    const result = await supervise(
+      withRuntimeTools(offlineProfile('root'), 'spawn_worker', 'await_event'),
+      'task',
+      {
+        budget,
+        perWorker: { maxIterations: 5, maxTokens: 10_000 },
+        makeWorkerAgent: () => leaf('unchecked', 'UNCHECKED-PROSE', 0.99, false),
+        brain: twoWorkerScript(),
+      },
+    )
     expect(result.kind).toBe('no-winner')
   })
 })

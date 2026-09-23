@@ -600,11 +600,6 @@ export {
 export {
   type AuthoredProfile,
   asAuthoredProfile,
-  assessAuthoredProfile,
-  defaultProfileRichnessThresholds,
-  type ProfileRichness,
-  type ProfileRichnessThresholds,
-  profileRichnessFinding,
   supervisorInstructions,
 } from './supervise/authoring'
 export {
@@ -1015,6 +1010,11 @@ export {
   type SupervisorToolInvocationContext,
   supervisorAgent,
 } from './supervise/supervisor-agent'
+export {
+  type TangleSandboxCodeModeClient,
+  TangleSandboxCodeModeRunner,
+  type TangleSandboxCodeModeRunnerOptions,
+} from './supervise/tangle-sandbox-code-mode'
 export {
   captureWorkerTraceEvidence,
   parseWorkerToolTraceArtifact,

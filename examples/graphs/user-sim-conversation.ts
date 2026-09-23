@@ -61,6 +61,10 @@ export function userSimConversation(): {
         profile: offlineProfile(
           'user-sim',
           'You are Ada, a busy founder buying a team plan. Terse. SSO is non-negotiable.',
+          {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+          },
         ),
       },
       {

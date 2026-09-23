@@ -14,7 +14,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 // A real (simple) delivering leaf — NOT a mock of the MCP path; the HTTP→MCP→Scope.spawn is real.
 function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
@@ -366,16 +366,24 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
       }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
-    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
-      blobs,
-      makeWorkerAgent: (_profile, context) => {
-        mailUrls.push(context?.peerMailUrl)
-        return deliveringLeaf('w', { answer: 1 })
+    const root = supervisorAgent(
+      withRuntimeTools(
+        testAgentProfile('sup', { harness: 'opencode' }),
+        'spawn_worker',
+        'await_event',
+        'stop',
+      ),
+      {
+        blobs,
+        makeWorkerAgent: (_profile, context) => {
+          mailUrls.push(context?.peerMailUrl)
+          return deliveringLeaf('w', { answer: 1 })
+        },
+        perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+        driveHarness,
+        peerMail: true,
       },
-      perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-      driveHarness,
-      peerMail: true,
-    })
+    )
     const result = await createSupervisor<unknown, unknown>().run(root, 'solve', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'mail-mcp',

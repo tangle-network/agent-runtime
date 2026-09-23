@@ -166,6 +166,13 @@ The driver's stance — a string, or built from the task (the worker-driver prom
 Product-selected tools already bound to this exact supervisor node. The same descriptors are
  served over MCP for external supervisors; this arm projects them into router ToolSpecs.
 
+##### toolNames?
+
+> `readonly` `optional` **toolNames?**: readonly `string`[]
+
+Exact bare names to expose from the coordination and node-tool set. Omit only for direct
+ low-level callers that intentionally want the complete set.
+
 ##### extraTools?
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
@@ -389,8 +396,9 @@ and a run-scoped request stays unanswered.
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
 
 WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
- `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
- becomes a nested supervisor instead, whose own leaves are derived the same way.
+ `supervise()`, which derives every authorized leaf from it. A node that declares
+ `agent_runtime_coordination_spawn_worker` becomes a nested supervisor instead, whose own
+ leaves are derived the same way.
 
 ###### Inherited from
 
@@ -418,8 +426,8 @@ WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim
 
 Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
- Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node
- declared `role: 'driver'` still becomes a nested supervisor even under an offline leaf.
+ Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node that
+ declares the spawn tool still becomes a nested supervisor even under an offline leaf.
 
 ###### Inherited from
 
@@ -567,9 +575,9 @@ digests itself from the exact detached values it executes.
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized child. The callback runs after spawn
+authorization, receives a detached immutable context, and may return `undefined` to use the
+run-wide `deliverable`. It applies to both leaves and recursive managers.
 
 ###### Parameters
 
@@ -714,29 +722,6 @@ The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeSpawn`](runtime.md#authorizespawn-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
@@ -864,9 +849,10 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a selected completion
+check. A recursive manager may receive the run-wide check or one selected by
+`resolveDeliverable`. Router-brained managers run their turn loop in process and do not use
+this option. Omit/`0` = never.
 
 ###### Inherited from
 
@@ -1055,10 +1041,10 @@ Instruction receipts are evidence and are never delivered automatically to a rep
 worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
 
 The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -1307,9 +1293,9 @@ The independent completion check for backend-derived workers and direct supervis
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized child. The callback runs after spawn
+authorization, receives a detached immutable context, and may return `undefined` to use the
+run-wide `deliverable`. It applies to both leaves and recursive managers.
 
 ###### Parameters
 
@@ -1528,29 +1514,6 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeMessage`](runtime.md#authorizemessage-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
@@ -1715,9 +1678,10 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a selected completion
+check. A recursive manager may receive the run-wide check or one selected by
+`resolveDeliverable`. Router-brained managers run their turn loop in process and do not use
+this option. Omit/`0` = never.
 
 ###### Inherited from
 
@@ -1986,10 +1950,10 @@ Instruction receipts are evidence and are never delivered automatically to a rep
 worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
 
 The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.

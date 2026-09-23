@@ -16,7 +16,7 @@ import type {
   Spend,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 const zeroSpend: Spend = {
   iterations: 0,
@@ -328,10 +328,10 @@ describe('supervision restart and resource safety', () => {
         const allocation = { maxIterations: 1, maxTokens: 10 }
         const manager = scope.spawn(
           driverChild(
-            testAgentProfile('nested-manager', {
-              harness: 'cli-base',
-              metadata: { role: 'driver' },
-            }),
+            withRuntimeTools(
+              testAgentProfile('nested-manager', { harness: 'cli-base' }),
+              'spawn_worker',
+            ),
             nested,
             journal,
           ),
@@ -873,10 +873,7 @@ describe('supervision restart and resource safety', () => {
       async act(task, scope): Promise<unknown> {
         const manager = scope.spawn(
           driverChild(
-            testAgentProfile('manager', {
-              harness: 'cli-base',
-              metadata: { role: 'driver' },
-            }),
+            withRuntimeTools(testAgentProfile('manager', { harness: 'cli-base' }), 'spawn_worker'),
             nestedDriver,
             journal,
           ),
@@ -1051,10 +1048,10 @@ describe('supervision restart and resource safety', () => {
       async act(task, scope): Promise<string> {
         const spawned = scope.spawn(
           driverChild(
-            testAgentProfile('unknown-manager', {
-              harness: 'cli-base',
-              metadata: { role: 'driver' },
-            }),
+            withRuntimeTools(
+              testAgentProfile('unknown-manager', { harness: 'cli-base' }),
+              'spawn_worker',
+            ),
             nestedDriver,
             journal,
           ),
