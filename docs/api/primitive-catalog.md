@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.256.0` and `@tangle-network/agent-eval@0.184.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.257.0` and `@tangle-network/agent-eval@0.186.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1659,7 +1659,7 @@ Import from `@tangle-network/agent-eval` — 9 exports.
 
 ### STATISTICS — significance, intervals, effect size
 
-Import from `@tangle-network/agent-eval` — 58 exports.
+Import from `@tangle-network/agent-eval` — 59 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1685,6 +1685,7 @@ Import from `@tangle-network/agent-eval` — 58 exports.
 | `pairedDeltaTieFraction` | function | Fraction of paired observations whose delta is an exact tie (\|after − before\| |
 | `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
 | `pairedMde` | function | Minimum detectable paired effect (standardised units) for a target paired |
+| `pairedPromotionPower` | function | Joint power of the configured calls at `n` under the registered alternative: |
 | `pairedRiskDifference` | function | Paired risk difference (the effect-size companion to {@link mcnemar}): the |
 | `pairedRiskDifferenceExact` | function | Paired risk difference with the EXACT CONDITIONAL interval — the estimator a |
 | `pairedRiskDifferenceScore` | function | Paired risk difference with TANGO'S (1998) SCORE INTERVAL — the estimator a |
