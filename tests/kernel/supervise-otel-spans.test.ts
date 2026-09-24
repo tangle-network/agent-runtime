@@ -124,6 +124,7 @@ function recordingExporter(): { spans: OtelSpan[]; exporter: OtelExporter } {
       },
       flush: () => Promise.resolve(),
       shutdown: () => Promise.resolve(),
+      stats: () => ({ written: spans.length, dropped: 0, pending: 0 }),
     },
   }
 }
@@ -384,6 +385,9 @@ describe('an exporter that throws never fails the run', () => {
       },
       flush: () => Promise.reject(new Error('flush exploded')),
       shutdown: () => Promise.reject(new Error('shutdown exploded')),
+      stats: () => {
+        throw new Error('stats exploded')
+      },
     }
     const hostileJournal = new InMemorySpawnJournal()
     const recorder = createSupervisorSpanRecorder({

@@ -24,6 +24,14 @@ export interface OtelExportConfig {
   batchSize?: number
   /** Flush interval ms. Default 5000. */
   flushIntervalMs?: number
+  /**
+   * Most spans held at once, queued plus in flight. Default 2048, the OpenTelemetry batch
+   * processor's own default. A span that arrives when the queue is full is dropped and counted in
+   * {@link OtelExportStats.dropped}, so a stalled collector costs a bounded amount of memory.
+   */
+  maxQueueSize?: number
+  /** Milliseconds one POST may take before it is abandoned and its spans count as dropped. Default 10000. */
+  timeoutMs?: number
   /** Resource attributes stamped on every export. */
   resourceAttributes?: Record<string, string | number | boolean>
   /** Service name. Default 'agent-runtime'. */
@@ -31,12 +39,32 @@ export interface OtelExportConfig {
 }
 
 export interface OtelExporter {
-  /** Export a span. */
+  /** Export a span. Never throws: a sink that cannot take the span counts it as dropped. */
   exportSpan(span: OtelSpan): void
-  /** Force flush pending spans. */
+  /**
+   * Deliver everything queued so far. Rejects when spans were dropped since the previous `flush`,
+   * naming how many and the last error, because a caller that awaits delivery is owed the answer.
+   */
   flush(): Promise<void>
-  /** Shutdown cleanly. */
+  /** Stop accepting spans and deliver what is queued. Never rejects. */
   shutdown(): Promise<void>
+  /** What this sink has delivered and lost so far. */
+  stats(): OtelExportStats
+}
+
+/**
+ * Delivery accounting for one exporter. `written + dropped + pending` covers every span handed to
+ * `exportSpan`, so a trace that arrives short can be told apart from a run that emitted less.
+ */
+export interface OtelExportStats {
+  /** Spans the sink confirmed: a 2xx collector response, or a completed file append. */
+  written: number
+  /** Spans lost: refused by the collector, failed in transit, over the queue bound, or unwritable. */
+  dropped: number
+  /** Spans accepted and not yet written or dropped. */
+  pending: number
+  /** The most recent failure, when there has been one. */
+  lastError?: string
 }
 
 export interface OtelSpan {
@@ -101,29 +129,31 @@ const GEN_AI = {
  * useless for the runs you most want to look at.
  */
 export function createOpenInferenceFileExporter(filePath: string): OtelExporter {
-  const lines: string[] = []
+  let written = 0
+  let dropped = 0
   let failed: Error | undefined
-  const append = (line: string): void => {
-    try {
-      appendFileSync(filePath, `${line}\n`, 'utf8')
-    } catch (error) {
-      // Telemetry must never take the run down with it, but a silently dead exporter is how a
-      // missing trace gets mistaken for an empty one. Remember the first failure and surface it
-      // from flush(), where a caller is already awaiting an answer.
-      failed ??= error instanceof Error ? error : new Error(String(error))
-    }
-  }
   return {
     exportSpan(span: OtelSpan): void {
-      append(JSON.stringify(toOpenInferenceLine(span)))
-      lines.push('')
+      try {
+        appendFileSync(filePath, `${JSON.stringify(toOpenInferenceLine(span))}\n`, 'utf8')
+        written += 1
+      } catch (error) {
+        // Telemetry must never take the run down with it, but a silently dead exporter is how a
+        // missing trace gets mistaken for an empty one. Count the loss, remember the first failure
+        // and surface it from flush(), where a caller is already awaiting an answer.
+        dropped += 1
+        failed ??= error instanceof Error ? error : new Error(String(error))
+      }
     },
     async flush(): Promise<void> {
       if (failed)
-        throw new Error(`OpenInference file exporter failed writing ${filePath}: ${failed.message}`)
+        throw new Error(
+          `OpenInference file exporter failed writing ${filePath} (${dropped} spans dropped): ${failed.message}`,
+        )
     },
-    async shutdown(): Promise<void> {
-      lines.length = 0
+    async shutdown(): Promise<void> {},
+    stats(): OtelExportStats {
+      return { written, dropped, pending: 0, ...(failed ? { lastError: failed.message } : {}) }
     },
   }
 }
@@ -184,84 +214,177 @@ function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
 }
 
 /**
- * Create an OTEL exporter. Returns undefined when no endpoint is configured.
+ * Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured.
+ *
+ * One batch is in flight at a time; spans that arrive meanwhile wait in a queue bounded by
+ * `maxQueueSize`. Every span ends in exactly one of `written` or `dropped`: a non-2xx response, a
+ * network error, a timeout, an OTLP `partialSuccess.rejectedSpans` count and a full queue each count
+ * as drops and set `lastError`. Nothing here throws into the caller's run; `flush()` reports the
+ * loss, the same rule {@link createOpenInferenceFileExporter} follows.
  */
 export function createOtelExporter(config?: OtelExportConfig): OtelExporter | undefined {
   const resolvedEndpoint =
     config?.endpoint ??
     (typeof process !== 'undefined' ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT : undefined)
   if (!resolvedEndpoint) return undefined
-  const endpoint: string = resolvedEndpoint
+  const url = `${resolvedEndpoint.replace(/\/+$/, '')}/v1/traces`
 
   const headers = config?.headers ?? parseHeadersFromEnv()
-  const batchSize = config?.batchSize ?? 64
+  const batchSize = positiveInteger(config?.batchSize, 64)
   const flushIntervalMs = config?.flushIntervalMs ?? 5000
-  const serviceName = config?.serviceName ?? 'agent-runtime'
-  const resourceAttrs = config?.resourceAttributes ?? {}
-
-  const pending: OtelSpan[] = []
-  let timer: ReturnType<typeof setInterval> | undefined
-  let stopped = false
-
-  const exporter: OtelExporter = {
-    exportSpan(span: OtelSpan): void {
-      if (stopped) return
-      pending.push(span)
-      if (pending.length >= batchSize) {
-        void doFlush()
-      }
-    },
-
-    async flush(): Promise<void> {
-      await doFlush()
-    },
-
-    async shutdown(): Promise<void> {
-      stopped = true
-      if (timer !== undefined) {
-        clearInterval(timer)
-        timer = undefined
-      }
-      await doFlush()
-    },
+  const maxQueueSize = Math.max(positiveInteger(config?.maxQueueSize, 2048), batchSize)
+  const timeoutMs = positiveInteger(config?.timeoutMs, 10_000)
+  const resource = {
+    attributes: toOtelAttributes({
+      'service.name': config?.serviceName ?? 'agent-runtime',
+      ...(config?.resourceAttributes ?? {}),
+    }),
   }
 
-  timer = setInterval(() => {
-    if (pending.length > 0) void doFlush()
+  const queue: OtelSpan[] = []
+  let inFlight = 0
+  let written = 0
+  let dropped = 0
+  let droppedAtLastFlush = 0
+  let lastError: string | undefined
+  let sending: Promise<void> | undefined
+  let stopped = false
+
+  const drop = (count: number, reason: string): void => {
+    dropped += count
+    lastError = reason
+  }
+
+  async function send(batch: OtelSpan[]): Promise<void> {
+    const body: OtlpExport = {
+      resourceSpans: [{ resource, scopeSpans: [{ scope: SCOPE, spans: batch }] }],
+    }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      const text = await response.text().catch(() => '')
+      if (!response.ok) {
+        const detail = text ? `: ${text.slice(0, 200)}` : ''
+        drop(batch.length, `HTTP ${response.status} from ${url}${detail}`)
+        return
+      }
+      const rejected = rejectedSpans(text, batch.length)
+      if (rejected.count > 0) {
+        drop(rejected.count, `collector rejected ${rejected.count} spans: ${rejected.message}`)
+      }
+      written += batch.length - rejected.count
+    } catch (error) {
+      drop(batch.length, `POST ${url} failed: ${describeFetchError(error)}`)
+    }
+  }
+
+  /** The single sender: it drains the queue batch by batch until the queue is empty. */
+  function drain(): Promise<void> {
+    sending ??= (async () => {
+      try {
+        while (queue.length > 0) {
+          const batch = queue.splice(0, batchSize)
+          inFlight = batch.length
+          await send(batch)
+          inFlight = 0
+        }
+      } finally {
+        sending = undefined
+      }
+    })()
+    return sending
+  }
+
+  const timer = setInterval(() => {
+    if (queue.length > 0) void drain()
   }, flushIntervalMs)
   if (typeof timer === 'object' && 'unref' in timer) {
     ;(timer as NodeJS.Timeout).unref()
   }
 
-  async function doFlush(): Promise<void> {
-    if (pending.length === 0) return
-    const batch = pending.splice(0)
-    const body: OtlpExport = {
-      resourceSpans: [
-        {
-          resource: {
-            attributes: toOtelAttributes({
-              'service.name': serviceName,
-              ...resourceAttrs,
-            }),
-          },
-          scopeSpans: [{ scope: SCOPE, spans: batch }],
-        },
-      ],
-    }
-    const url = `${endpoint.replace(/\/+$/, '')}/v1/traces`
-    try {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...headers },
-        body: JSON.stringify(body),
-      })
-    } catch {
-      // Best-effort — telemetry export must not crash the runtime.
-    }
-  }
+  return {
+    exportSpan(span: OtelSpan): void {
+      if (stopped) {
+        drop(1, 'span exported after the exporter stopped')
+        return
+      }
+      if (queue.length + inFlight >= maxQueueSize) {
+        drop(1, `queue full: ${maxQueueSize} spans already waiting on ${url}`)
+        return
+      }
+      queue.push(span)
+      if (queue.length >= batchSize) void drain()
+    },
 
-  return exporter
+    async flush(): Promise<void> {
+      await drain()
+      const lost = dropped - droppedAtLastFlush
+      droppedAtLastFlush = dropped
+      if (lost > 0) {
+        throw new Error(`OTLP exporter dropped ${lost} spans since the last flush: ${lastError}`)
+      }
+    },
+
+    async shutdown(): Promise<void> {
+      stopped = true
+      clearInterval(timer)
+      await drain()
+    },
+
+    stats(): OtelExportStats {
+      return {
+        written,
+        dropped,
+        pending: queue.length + inFlight,
+        ...(lastError !== undefined ? { lastError } : {}),
+      }
+    },
+  }
+}
+
+/**
+ * Spans a 2xx OTLP/HTTP response still refused. The spec lets a collector accept a request and
+ * reject part of it through `partialSuccess.rejectedSpans`; reading only the status would count
+ * those spans as delivered. An empty or non-JSON body is a full success.
+ */
+function rejectedSpans(text: string, batchLength: number): { count: number; message: string } {
+  if (!text.trim()) return { count: 0, message: '' }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { count: 0, message: '' }
+  }
+  if (parsed === null || typeof parsed !== 'object') return { count: 0, message: '' }
+  const partial = (parsed as Record<string, unknown>).partialSuccess
+  if (partial === null || typeof partial !== 'object') return { count: 0, message: '' }
+  const { rejectedSpans: raw, errorMessage } = partial as Record<string, unknown>
+  // OTLP/JSON encodes int64 as a string; accept both spellings.
+  const count = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : 0
+  if (!Number.isSafeInteger(count) || count <= 0) return { count: 0, message: '' }
+  return {
+    count: Math.min(count, batchLength),
+    message: typeof errorMessage === 'string' && errorMessage ? errorMessage : 'no message',
+  }
+}
+
+/** Node's fetch reports every socket failure as "fetch failed"; the cause names which one. */
+function describeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const cause = error.cause
+  const code =
+    cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string'
+      ? cause.code
+      : undefined
+  return code ? `${error.message} (${code})` : error.message
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : fallback
 }
 
 /**
