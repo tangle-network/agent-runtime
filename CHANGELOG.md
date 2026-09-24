@@ -11,7 +11,8 @@ The parent directory is read and never written.
 A fork carries the parent's recorded inputs only; it does not replay the parent's settled children or continue its native session.
 
 `SuperviseRegistry` has a fifth table, `profiles`: named AgentProfiles that every manager in a run may spawn with `spawn_worker({ profile: '<name>' })`.
-A manager no longer has to retype a profile it already has; the runtime runs the entry's exact bytes, and the journal records the entry's canonical digest for the child.
+A manager no longer has to retype a profile it already has; the runtime starts from the entry's exact bytes.
+Unless `profileGuidance` or `authorizeSpawn` rewrites the profile, the journal records the entry's canonical digest for the child.
 `supervise` reads the table once, before spend, and refuses an entry that fails the canonical schema, the allowed models, or the spawn path's own mount checks.
 A credential written as a public MCP header value refuses the run before its first model call.
 Without `authorizeSpawn` or a caller-owned worker seam, so does a remote MCP host outside the authored-profile policy or a profile axis the worker backend cannot carry.

@@ -1475,8 +1475,9 @@ export interface SuperviseRegistryTable<T> {
  * `profiles` is the profiles table: named AgentProfiles that every manager in the tree may spawn
  * with `spawn_worker({ profile: '<name>' })` instead of retyping them. The table is read once, when
  * `supervise` is called: each entry is validated like a root profile and frozen, so every spawn by
- * a name runs the same bytes and the journal records the entry's digest. Omit the table, or list
- * no names, and nothing about the run changes: `spawn_worker` keeps its object-only `profile`.
+ * a name starts from the same bytes. Unless `profileGuidance` or `authorizeSpawn` rewrites the
+ * profile, the journal records the entry's digest for the child. Omit the table, or list no names,
+ * and nothing about the run changes: `spawn_worker` keeps its object-only `profile`.
  */
 export interface SuperviseRegistry {
   readonly deliverables?: SuperviseRegistryTable<DeliverableSpec<unknown>>
