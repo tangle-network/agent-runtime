@@ -27,6 +27,10 @@ Without `authorizeSpawn` or a caller-owned worker seam, so does a remote MCP hos
 An entry is exploratory unless it cites a `SealedExperiment` that verifies, has a treatment arm with the entry's digest, and a `PairedPromotionDecision` that promoted.
 Omitting the table, or listing no names, leaves `spawn_worker` byte-identical, so the table is one run input that can be switched off.
 
+Admit public Eval 0.187 while keeping the verified 0.185 and 0.186 peers.
+Runtime develops against Eval 0.187, and the packed cohort installs each older admitted Eval minor from the registry.
+Require Knowledge 17.1.3, whose strict consumer accepts Eval 0.187, without changing Bench's older shared catalog.
+
 `runIsolatedCheck` accepts `box`, which runs the check in its own Sandbox box instead of Bubblewrap on the calling host.
 The box belongs to the check's key, and `box.builderAccounts` names the Sandbox account of every key the judged run holds.
 Any key of an account reaches every box of that account, so the checker refuses before it creates a box when the check key's account is in that list.
