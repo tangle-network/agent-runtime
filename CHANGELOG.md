@@ -28,7 +28,10 @@ The pool fills a box before it creates the next, deletes a box when its last wor
 Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.
 Measured 2026-09-24: 64 workers in 8 boxes, 64 of 64 answering from their own instructions and brief, each transcript carrying only its own worker's text, 41.5 s wall; 16 workers in dedicated boxes took 16 boxes and 92 s.
 Sidecar sessions were not used for this, because 7 of 8 concurrent sessions in one box answered with another session's instructions.
-A shared worker does not yet take the leaf pause above: the pool declares no `retainedControl`, so a capacity refusal still settles a shared leaf `down`.
+A shared worker takes the leaf pause above inside its own turn: its refused `opencode run` ends, the worker waits by the same rule, and `opencode run --session <id>` continues the same session with the same continuation instruction in the same directory.
+The turn stays one invocation, its result counts the session's runs as `sessionRuns`, and `SharedBoxPlacementOptions.unavailablePause: false` ends the turn on the refused run.
+opencode reports a refused model with its HTTP status and a prose message: for a refused `deepseek/deepseek-v4.1-flash` on 2026-09-24 it retried for about 70 seconds, then printed `Inference temporarily unavailable` with `statusCode: 503` and exited 1.
+A shared worker's failure text now carries that status as `(status code 503)` and the error line's message, so the refusal reader sees it.
 
 opencode transcript capture now reads the sidecar's per-session records under `.opencode/sessions` and `.opencode/messages`, and a shared worker's `opencode export`.
 Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
