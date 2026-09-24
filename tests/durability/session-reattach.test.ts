@@ -32,7 +32,6 @@ import {
   referenceLabels,
   WORKER_NODES,
 } from '../helpers/durability/conformance-graph'
-import { readLabels } from '../helpers/durability/kill-switch'
 
 const childScript = new URL('../helpers/durability/session-child.ts', import.meta.url).pathname
 

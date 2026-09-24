@@ -1,10 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo, Socket } from 'node:net'
-import {
-  deriveHexId,
-  isW3CTraceId,
-  validateTraceSpans,
-} from '@tangle-network/agent-trace-contract'
+import { deriveHexId, isW3CTraceId, validateTraceSpans } from '@tangle-network/agent-trace-contract'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildLoopOtelSpans,
