@@ -450,7 +450,7 @@ describe('supervision restart and resource safety', () => {
         },
       },
       'task',
-      { ...common, maxDepth: 2, maxLiveWorkers: 6 },
+      { ...common, maxDepth: 2, workerSlots: 6 },
     )
     expect(first.kind).toBe('winner')
     const recorded = (await journal.loadTree(runId)) ?? []
@@ -475,12 +475,12 @@ describe('supervision restart and resource safety', () => {
         {
           ...common,
           maxDepth: 2,
-          maxLiveWorkers: 6,
+          workerSlots: 6,
           reservationPolicy: { ownerShare: 0.2 },
           resume: true,
         },
       ),
-    ).rejects.toThrow(/resume reservation policy or fleet limits mismatch/)
+    ).rejects.toThrow(/resume reservation policy mismatch/)
     expect(resumedActs).toBe(0)
     expect(await journal.loadTree(runId)).toEqual(recorded)
 
@@ -493,25 +493,21 @@ describe('supervision restart and resource safety', () => {
       {
         ...policyCommon,
         maxDepth: 2,
-        maxLiveWorkers: 6,
+        workerSlots: 6,
         reservationPolicy: policy,
       },
     )
     expect(pinned.kind).toBe('winner')
 
-    for (const changed of [
-      { reservationPolicy: { ownerShare: 0.25 }, maxDepth: 2, maxLiveWorkers: 6 },
-      { reservationPolicy: policy, maxDepth: 3, maxLiveWorkers: 6 },
-      { reservationPolicy: policy, maxDepth: 2, maxLiveWorkers: 7 },
-    ]) {
-      await expect(
-        createSupervisor<unknown, string>().run(
-          { name: 'changed-root', act: async () => 'changed result' },
-          'task',
-          { ...policyCommon, ...changed, resume: true },
-        ),
-      ).rejects.toThrow(/resume reservation policy or fleet limits mismatch/)
-    }
+    // Only the owner share is part of the resume contract. The slot bound and the depth ceiling
+    // shape concurrency and admission, not the conserved accounting a resume replays.
+    await expect(
+      createSupervisor<unknown, string>().run(
+        { name: 'changed-root', act: async () => 'changed result' },
+        'task',
+        { ...policyCommon, reservationPolicy: { ownerShare: 0.25 }, maxDepth: 2, resume: true },
+      ),
+    ).rejects.toThrow(/resume reservation policy mismatch/)
 
     let exactActs = 0
     const exact = await createSupervisor<unknown, string>().run(
@@ -525,8 +521,8 @@ describe('supervision restart and resource safety', () => {
       'task',
       {
         ...policyCommon,
-        maxDepth: 2,
-        maxLiveWorkers: 6,
+        maxDepth: 3,
+        workerSlots: 7,
         reservationPolicy: policy,
         resume: true,
       },
@@ -1031,7 +1027,7 @@ describe('supervision restart and resource safety', () => {
 
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 1, maxTokens: 100 },
-      maxLiveWorkers: 2,
+      workerSlots: 2,
       maxDepth: 3,
       runId,
       journal,
@@ -1198,7 +1194,7 @@ describe('supervision restart and resource safety', () => {
 
     const result = await createSupervisor<unknown, string>().run(root, 'task', {
       budget: { maxIterations: 2, maxTokens: 10 },
-      maxLiveWorkers: 1,
+      workerSlots: 1,
       maxDepth: 2,
       runId,
       journal,

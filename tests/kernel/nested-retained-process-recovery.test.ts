@@ -153,7 +153,7 @@ it.each([
     const common = {
       runId: 'root',
       budget: { maxIterations: 3, maxTokens: 30 },
-      maxLiveWorkers: 2,
+      workerSlots: 2,
       rootIdentity: {
         profileDigest: canonicalCandidateDigest({ name: 'root' }),
         taskDigest: canonicalCandidateDigest('task'),
@@ -240,10 +240,13 @@ it.each([
               'fresh task',
               {
                 key: 'fresh',
-                budget: { maxIterations: 1, maxTokens: 1 },
+                budget: { maxIterations: 1, maxTokens: 31 },
               },
             )
-            expect(fresh).toEqual({ ok: false, reason: 'max-live-workers' })
+            // The recovered manager still holds the whole pool, so even what it returns could not
+            // cover this spawn: it is refused for budget before anything is constructed. Recovery
+            // took its slots past the bound.
+            expect(fresh).toMatchObject({ ok: false, reason: 'budget-exhausted' })
             expect(freshFactories).toBe(0)
             releaseRoot()
             const settled = await scope.next()
@@ -351,10 +354,8 @@ it('keeps nested cleanup uncertainty after the driver scope closes', async () =>
         // The cleanup uncertainty is still recorded — that is what this test is for, and it
         // survives on its own channel rather than on the live-worker counter.
         expect(scope.workerCapacity.unconfirmed.map((node) => node.id)).toContain('root:s0')
-        // But the settled node no longer occupies a live slot: replacement work is admitted.
-        // `maxLiveWorkers` counts workers that are running, and this one is not (#1183). The
-        // factory is still called only if capacity allows, so a throwing factory would prove the
-        // refusal — here it must be constructed instead.
+        // But the settled node no longer occupies a worker slot: replacement work starts. The slot
+        // bound counts workers that are running, and this one is not (#1183).
         let constructed = false
         const fresh = scope.spawn(
           () => {
@@ -374,7 +375,7 @@ it('keeps nested cleanup uncertainty after the driver scope closes', async () =>
     {
       ...context,
       runId: 'root',
-      maxLiveWorkers: 2,
+      workerSlots: 2,
       budget: { maxIterations: 4, maxTokens: 100 },
       // The leaf never confirms, so a short retry window reaches the same named uncertainty.
       teardownConfirmMs: 30,

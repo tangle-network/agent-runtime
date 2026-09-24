@@ -276,7 +276,7 @@ export type SupervisorNodeContextSeed = Omit<SupervisorNodeContext, 'nodeId' | '
  *
  * Each verb dispatches by name to the live coordination descriptor's own handler, so a spawn made
  * here crosses the identical path the MCP verb crosses: `makeWorkerAgent` → `authorizeSpawn` /
- * security / `allowedModels`, the conserved pool reservation, `maxLiveWorkers`, the journal, and
+ * security / `allowedModels`, the conserved pool reservation, the worker-slot queue, the journal, and
  * the event bus. There is no second spawn path and no way to bypass a gate by calling in code.
  *
  * The set is deliberately the COORDINATION surface only. `submit_result`, `stop`, and `ask_parent`
@@ -477,10 +477,6 @@ export interface SupervisorAgentDeps {
   readonly deliverable?: DeliverableSpec<unknown>
   /** Receives a result only after this manager's completion check accepted it. */
   readonly onAcceptedSubmission?: (result: unknown) => void
-  /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
-   *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
-   *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
-  readonly maxLiveWorkers?: number
   /** Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
    *  profile's model wins. */
   readonly router?: RouterTransportConfig
@@ -837,7 +833,6 @@ function buildSupervisorAgent(
         ...(deps.onAcceptedSubmission ? { onAcceptedSubmission: deps.onAcceptedSubmission } : {}),
         toolNames: runtimeToolNames,
         ...(nodeTools?.length ? { nodeTools } : {}),
-        ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
@@ -998,7 +993,6 @@ function buildSupervisorAgent(
               stopController.abort(reason ?? 'coordination stop')
             }
           },
-          ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),

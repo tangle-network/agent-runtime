@@ -80,7 +80,7 @@ function expectReason(result: unknown, contains?: RegExp): string {
 }
 
 describe('every coordination refusal names its unmet condition', () => {
-  it('spawn_worker: pool, cap, profile, continuity and pre-flight refusals all carry a reason', async () => {
+  it('spawn_worker: pool, profile, continuity and pre-flight refusals all carry a reason', async () => {
     const refusedPool = await tool(
       manager({}, mockScope({ admit: false })),
       'spawn_worker',
@@ -90,11 +90,6 @@ describe('every coordination refusal names its unmet condition', () => {
     })
     expect(refusedPool).toMatchObject({ error: 'budget-exhausted' })
     expectReason(refusedPool, /conserved pool/)
-
-    const capped = manager({ maxLiveWorkers: 1 })
-    const atCap = await tool(capped, 'spawn_worker').handler({ profile: {}, task: 'go' })
-    expect(atCap).toMatchObject({ error: 'max-live-workers' })
-    expectReason(atCap, /await_event/)
 
     const invalid = await tool(manager(), 'spawn_worker').handler({
       profile: { name: 42 },

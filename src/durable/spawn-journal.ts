@@ -1165,6 +1165,7 @@ export async function replaySpawnTree(
         ...(ev.retainedPendingCause === undefined
           ? {}
           : { retainedPendingCause: ev.retainedPendingCause }),
+        ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1197,6 +1198,7 @@ export async function replaySpawnTree(
         ...(ev.retainedPendingCause === undefined
           ? {}
           : { retainedPendingCause: ev.retainedPendingCause }),
+        ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1229,6 +1231,7 @@ export async function replaySpawnTree(
       ...budgetViolationOf(ev),
       trace,
       ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
+      ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
       ...settlementTime(ev.at),
       seq: ev.seq,
     })

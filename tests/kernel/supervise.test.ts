@@ -208,7 +208,7 @@ describe('conserved budget pool', () => {
     expect(b).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfalls: [{ channel: 'tokens', requested: 500, free: 400 }],
+      shortfalls: [{ channel: 'tokens', requested: 500, free: 400, held: 600 }],
     })
     expect(pool.readout().tokensLeft).toBe(400)
     expect(pool.readout().reservedTokens).toBe(600)
@@ -241,7 +241,7 @@ describe('conserved budget pool', () => {
     expect(over).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfalls: [{ channel: 'usd', requested: 0.5, free: 0.25 }],
+      shortfalls: [{ channel: 'usd', requested: 0.5, free: 0.25, held: 0.75 }],
     })
   })
 
@@ -1687,7 +1687,7 @@ describe('reactive scope', () => {
     expect(res).toEqual({ ok: false, reason: 'depth-exceeded' })
   })
 
-  it('spawn fails closed on budget-exhausted', async () => {
+  it('spawn fails closed on budget-exhausted that no running child could return', async () => {
     const { scope } = await beginScope({
       pool: createBudgetPool({ maxIterations: 1, maxTokens: 10 }, 0),
     })
@@ -1696,18 +1696,53 @@ describe('reactive scope', () => {
       label: 'a',
     })
     expect(ok.ok).toBe(true)
+    // More than the whole pool: nothing `a` returns could ever cover it.
     const overflow = scope.spawn(leafAgent('b', { out: 2, events: tokensOnly(1, 1) }), 'task', {
-      budget: { maxIterations: 1, maxTokens: 10 },
+      budget: { maxIterations: 1, maxTokens: 11 },
       label: 'b',
     })
     expect(overflow).toEqual({
       ok: false,
       reason: 'budget-exhausted',
       shortfalls: [
-        { channel: 'tokens', requested: 10, free: 0 },
-        { channel: 'iterations', requested: 1, free: 0 },
+        { channel: 'tokens', requested: 11, free: 0, held: 10 },
+        { channel: 'iterations', requested: 1, free: 0, held: 1 },
       ],
     })
+  })
+
+  it('spawn waits for budget a running child will return, and settles down when it does not', async () => {
+    const { scope } = await beginScope({
+      pool: createBudgetPool({ maxIterations: 2, maxTokens: 10 }, 0),
+    })
+    const first = scope.spawn(leafAgent('a', { out: 1, events: tokensOnly(1, 1) }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'a',
+    })
+    // `a` holds every token, and returns the eight it does not spend.
+    const fits = scope.spawn(leafAgent('b', { out: 2, events: tokensOnly(1, 1) }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 8 },
+      label: 'b',
+    })
+    // Queued behind `b`; after `a` and `b` spend two tokens each, six are left for its ten.
+    const short = scope.spawn(leafAgent('c', { out: 3, events: tokensOnly(1, 1) }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'c',
+    })
+    if (!first.ok || !fits.ok || !short.ok) throw new Error('expected every spawn to be admitted')
+    expect([first.handle.status, fits.handle.status, short.handle.status]).toEqual([
+      'acquiring',
+      'queued',
+      'queued',
+    ])
+    const settles: Settled<unknown>[] = []
+    for (let s = await scope.next(); s !== null; s = await scope.next()) settles.push(s)
+    const byLabel = Object.fromEntries(settles.map((s) => [s.handle.label, s]))
+    expect(byLabel.a?.kind).toBe('done')
+    expect(byLabel.b?.kind).toBe('done')
+    expect(byLabel.c?.kind).toBe('down')
+    if (byLabel.c?.kind === 'down') expect(byLabel.c.reason).toMatch(/^budget-exhausted/u)
+    expect(scope.budget.tokensLeft).toBe(6)
   })
 
   it('abort mid-flight reaps the live child (down, no throw)', async () => {

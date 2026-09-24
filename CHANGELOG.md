@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.266.0
+
+One pursuit's own tree can now grow to hundreds of agents; four structural limits are removed.
+
+A spawn past the worker bound waits in a queue instead of being refused.
+`SuperviseOptions.workerSlots` replaces `maxLiveWorkers`.
+It takes a number, or one `createWorkerSlots(n)` allocator that several runs in one process share.
+A spawn past the bound keeps its budget slice and starts when a slot frees, as a node with status `queued`.
+The queue releases the deepest waiting spawn first, then the oldest.
+The bound counts working agents: a manager lends its slot to its first running child and takes it back when its last running child ends.
+Nested waits therefore cannot deadlock, whatever the bound and depth.
+`Scope.spawn` no longer returns `max-live-workers`, and `spawn_worker` reports `status`, `queued` and `freeSlots`.
+`Scope.workerCapacity` reads `working`, `queued` and `freeSlots`.
+`TreeView.inFlight` counts queued nodes.
+`reservationPolicy` keeps only `ownerShare`; the per-depth reserved slots are gone, since lending replaces them.
+`effectiveConcurrency` and `ConcurrencyCaps` are removed.
+
+A spawn the budget cannot cover yet waits for it instead of being refused.
+When the pool is short only by what the manager's running workers hold, the spawn is admitted as `queued` and starts once their settlements return enough.
+It takes a worker slot only after its budget is granted, so it never holds a slot that the work it waits on needs.
+Waiting spawns are granted in the order they asked.
+A waiting spawn settles `down` with `budget-exhausted` when nothing left running could return enough, and a spawn that even every refund could not cover is still refused at once.
+`BudgetPool.reserve` takes `{ wait, keep }` and returns `granted` for a waiting ticket, which rejects with `ReservationWaitRefused`.
+A refusal's shortfalls carry `held`, what open reservations hold on the channel, and its text names the most one spawn can wait for.
+The refusal no longer suggests `cancel_worker`, since a waiting spawn already counts what running workers hold.
+Measured offline on a four-level audit with default slices (2026-09-24): every team lead's fourth checker was refused, and the tree stopped at 54 of 66 agents; with waiting it reached all 66.
+
+Children inherit spawn rights.
+A spawned profile that declares no Runtime coordination tool receives its manager's coordination grants, plus `submit_result`, so every child can lead a team of its own.
+An author's explicit coordination entry stands, and a `false` entry keeps the child a leaf.
+A child the run cannot drive as a manager stays a leaf: no driver for its harness, or no `router` for a harness-less profile.
+Every child also stays a leaf in a run without a completion check.
+`inheritSpawnRights: false` runs every profile exactly as written; `runGraph` always sets it.
+
+Depth is bounded by the budget.
+`DEFAULT_MAX_DEPTH` is 16 for both `supervise` and `createSupervisor`, which used 8 and 4.
+Each level's slice comes out of the level above, so the pool ends a tree long before the ceiling.
+With an `ownerShare`, a default child slice is a quarter of what the manager's children may reserve, so four default children fit beside the manager's own share.
+
+Each manager carries a bounded account of its team to its lead.
+A settlement of a child that led workers carries `subtree`: agents and depth below it, done and down counts, and at most `SUBTREE_RESULT_LIMIT` (8) of its own direct children's results, best first, each with its `outRef`.
+The `settled` journal event, replay and the `agent.child` hook carry the same field.
+`observe_agent({ outRef })` reads a result listed in a summary the manager received, and refuses any other digest.
+
+A lead reads a manager by the work of its team.
+A manager child reports no usage of its own until it settles, so its lead used to read it as idle, and as stalled after `stallAfterMs`, while its workers were busy.
+Its progress now counts its own turns, takes the newest activity anywhere in its team as its activity, and carries `team`: agents, depth, working, queued, done and down below it.
+A queued worker is never stalled: it waits for a slot, which no steer or cancel frees.
+Measured before this change on a four-level audit (2026-09-24): leads cancelled working sub-leads as stalled at 47 and 206 seconds.
+
+A lead takes back what a stalled worker holds.
+The new `cancel_worker` verb (grant `agent_runtime_coordination_cancel_worker`) cancels one of the manager's own running or queued workers, and its unspent slice returns to the pool when it settles.
+A `budget-exhausted` refusal names it.
+Measured on factory-test-2 continue-top5 (2026-09-23): four workers that never ran held 16M of an 18M-token pool, while their director saw the stall and had no way to reclaim it.
+
 ## 0.265.0
 
 A provider-backed leaf whose model provider refuses its turn for capacity now pauses and continues instead of settling `down`.

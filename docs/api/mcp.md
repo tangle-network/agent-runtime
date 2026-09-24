@@ -3700,6 +3700,13 @@ True when projected from a prior process of the same durable run.
 Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
  to answer "how long since anything landed?" without inventing a timestamp at read time.
 
+##### subtree?
+
+> `readonly` `optional` **subtree?**: [`SubtreeSummary`](runtime.md#subtreesummary)
+
+Present when this worker led workers of its own: its team's counts and its own direct
+ children's results, each readable in full through `observe_agent({ outRef })`.
+
 ***
 
 ### QuestionOption
@@ -3949,17 +3956,6 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
  findings (see [AnalyzeOnSettleRoute.agent](runtime.md#agent)). Omit/empty = no auto-analysis (default;
  the driver can still run lenses on demand via `run_analyst`). Lens routes require
  `analysts`; agent routes do not.
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_worker`
- counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
- reserving from the pool when the cap is already met — a concurrency fence on top of the
- conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
- sandboxes/boxes). A tree-wide limit owned by `Scope` takes precedence when present; this field
- is the local form for a caller-owned scope. Omit or `<= 0` = no local cap.
 
 ##### awaitTimeoutMs?
 

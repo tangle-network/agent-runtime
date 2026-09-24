@@ -99,6 +99,7 @@ import type {
   TreeView,
   UnconfirmedTeardown,
 } from './types'
+import { resolveWorkerSlots } from './worker-slots'
 
 /** The driver-rejection shape a `reason: 'driver-failed'` result carries. Re-exported from the
  *  module that produces it so a consumer catching a driver failure names the type instead of
@@ -123,19 +124,13 @@ function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): Spawn
       `supervisor: resume budget mismatch for run '${opts.runId}'; use a new runId to change limits`,
     )
   }
-  const expectedAdmission = opts.reservationPolicy
-    ? {
-        policy: opts.reservationPolicy,
-        maxDepth: opts.maxDepth ?? defaultMaxDepth,
-        maxLiveWorkers: opts.maxLiveWorkers,
-      }
-    : undefined
+  const expectedAdmission = opts.reservationPolicy ? { policy: opts.reservationPolicy } : undefined
   if (
     contentAddress(recorded.recursiveAdmission ?? null) !==
     contentAddress(expectedAdmission ?? null)
   ) {
     throw new RuntimeRunStateError(
-      `supervisor: resume reservation policy or fleet limits mismatch for run '${opts.runId}'; use a new runId`,
+      `supervisor: resume reservation policy mismatch for run '${opts.runId}'; use a new runId`,
     )
   }
   if (!sameOptionalIdentity(recorded.identity, opts.rootIdentity)) {
@@ -322,9 +317,11 @@ function rootStartedAtMs(root: SpawnedEvent): number {
   return startedAt
 }
 
-/** The default runtime recursion-depth ceiling, paired with the conserved pool so a
- *  runaway recursion hits budget-exhaustion first and depth-exceeded second (R3). */
-const defaultMaxDepth = 4
+/** The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every
+ *  level draws its slice from the level above, so a tree ends when its slices run out. This
+ *  ceiling only stops a runaway recursion that keeps spawning tiny slices, so it sits well above
+ *  any depth a budget can usefully pay for. */
+export const DEFAULT_MAX_DEPTH = 16
 
 /** Every no-winner reason, pinned to the published `SupervisedResult` union so the contract
  *  and the impl cannot drift. */
@@ -390,7 +387,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       recoverExecutor,
       probes,
       maxDepth,
-      maxLiveWorkers,
+      workerSlots,
       reservationPolicy,
       maxRestarts,
       withinMs,
@@ -415,7 +412,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(rootIdentity === undefined ? {} : { rootIdentity }),
           ...(rootMaterialization === undefined ? {} : { rootMaterialization }),
           ...(maxDepth === undefined ? {} : { maxDepth }),
-          ...(maxLiveWorkers === undefined ? {} : { maxLiveWorkers }),
+          ...(typeof workerSlots === 'number' ? { workerSlots } : {}),
           ...(reservationPolicy === undefined ? {} : { reservationPolicy }),
           ...(maxRestarts === undefined ? {} : { maxRestarts }),
           ...(withinMs === undefined ? {} : { withinMs }),
@@ -431,7 +428,9 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       },
       'supervisor.run',
     )
-    assertRecursiveReservationPolicy(reservationPolicy, maxDepth ?? defaultMaxDepth, maxLiveWorkers)
+    assertRecursiveReservationPolicy(reservationPolicy)
+    // A shared allocator is a live collaborator, not decision data: it stays by reference.
+    const slots = resolveWorkerSlots(workerSlots)
     if (
       teardownConfirmMs !== undefined &&
       (typeof teardownConfirmMs !== 'number' ||
@@ -545,13 +544,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           budget: opts.budget,
           runtime: rootRuntime,
           ...(opts.reservationPolicy
-            ? {
-                recursiveAdmission: {
-                  policy: opts.reservationPolicy,
-                  maxDepth: opts.maxDepth ?? defaultMaxDepth,
-                  maxLiveWorkers: opts.maxLiveWorkers as number,
-                },
-              }
+            ? { recursiveAdmission: { policy: opts.reservationPolicy } }
             : {}),
           ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
           seq: 0,
@@ -642,8 +635,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         executors: opts.executors,
         seams: { [retainedOwnerWorkspaceRetentionSeamKey]: ownerWorkspaceRetention === true },
         depth: 0,
-        maxDepth: opts.maxDepth ?? defaultMaxDepth,
-        ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+        maxDepth: opts.maxDepth ?? DEFAULT_MAX_DEPTH,
+        workerSlots: slots,
         ...(opts.reservationPolicy
           ? { reservationPolicy: opts.reservationPolicy, ownerBudget: opts.budget }
           : {}),
@@ -1314,7 +1307,7 @@ function describeUnconfirmed(scope: Scope<unknown>): string {
         ].join(', ')})`,
     )
     .join(', ')
-  return `${scope.workerCapacity.live} executor resource(s) not confirmed destroyed${
+  return `${unconfirmed.length} executor resource(s) not confirmed destroyed${
     named.length > 0 ? `: ${named}` : ''
   }`
 }

@@ -131,9 +131,6 @@ export interface DriverAgentOptions {
   readonly deliverable?: DeliverableSpec<unknown>
   /** Receives a result only after this manager's completion check accepted it. */
   readonly onAcceptedSubmission?: (result: unknown) => void
-  /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
-   *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
-  readonly maxLiveWorkers?: number
   /** The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
    *  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings). */
   readonly analysts?: AnalystRegistry
@@ -973,7 +970,6 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
         perWorker: opts.perWorker,
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-        ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
