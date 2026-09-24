@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.268.0
+
+A keyed spawn the process died with in flight no longer wedges. Two arms:
+
+An `inline` worker (an executor that runs inside the coordinator process) provably died with that
+process, so a resume now resolves its key `down` instead of `in-doubt`: a re-spawn under the SAME
+key returns `resumed: "retried"` with the interruption named as the reason. Before, the key was
+refused forever and a driver had to invent a replacement key; the side-effect site then saw two
+keys for one logical commit. The predicate is the one the budget layer already used to charge no
+uncertain reservation, so the two layers cannot disagree about what "proved dead" means. The
+run-once contract is unchanged for executions that may outlive the process (sandbox, CLI bridge,
+router): those stay `in-doubt` until recovered.
+
+A run that owns its worker seam can now recover those: `supervise({ recoverExecutor })` and
+`runGraph({ recoverExecutor })` accept an `ExecutorFactory` that reconstructs an interrupted
+child's executor from the journal (previously only backend-derived recursive managers registered
+one; a caller-owned `makeLeafAgent`/`makeWorkerAgent` had no recovery channel at all). The
+resumed process prepares the recovery from the child's journaled admissions, the scope adopts the
+child before the driver drives, and the executor re-attaches its session and continues.
+
+Both arms are pinned by the kill-and-resume conformance suite's new matrices
+(`conformance/durability/STATUS.md`): interrupted `inline` keys retry under their own key with no
+manual escalation and one key per assignment, and mid-session kills of session-backed workers
+recover and re-attach — every session step runs exactly once across processes, and the keyed side
+effect commits exactly once.
+
 ## 0.267.0
 
 `runGraph({ runDir })` now journals durably. Before, the graph unconditionally defaulted its

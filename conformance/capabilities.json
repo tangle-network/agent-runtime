@@ -154,6 +154,15 @@
           ]
         },
         {
+          "file": "tests/durability/session-reattach.test.ts",
+          "cases": [
+            "the reference run completes, running every session step exactly once",
+            "SIGKILL at session:builder:step-2 → resume re-attaches the sessions, nothing lost or repeated",
+            "SIGKILL at driver:turn:2:after → resume re-attaches the sessions, nothing lost or repeated",
+            "SIGKILL at tool:commit:after-effect → resume re-attaches the sessions, nothing lost or repeated"
+          ]
+        },
+        {
           "file": "tests/durability/known-defects.test.ts",
           "cases": [
             "kill at driver:turn:5:before → resume still wins with one clean root record",

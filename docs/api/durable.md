@@ -2091,6 +2091,22 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`makeLeafAgent`](runtime.md#makeleafagent-1)
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-1)
+
 ##### driverBackend?
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](runtime.md#executorconfig)
