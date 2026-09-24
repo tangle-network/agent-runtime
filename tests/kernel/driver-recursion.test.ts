@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import type { HarnessTranscriptCapture } from '../../src/runtime/harness-transcript'
 import { defaultSelectWinner } from '../../src/runtime/run-loop'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -197,6 +198,74 @@ describe('recursive driver: agents drive agents drive agents', () => {
     expect(received).toEqual({
       steer: 'change the experiment before continuing',
       interrupt: true,
+    })
+  })
+
+  it("settles a nested manager with its driver's harness transcript receipt", async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const capture: HarnessTranscriptCapture = {
+      status: 'captured',
+      artifact: {
+        schemaVersion: 1,
+        harness: 'opencode',
+        files: [{ path: '/home/agent/session.json', bytes: 2, content: '{}' }],
+        skipped: [],
+      },
+      fileCount: 1,
+      totalBytes: 2,
+      skippedCount: 0,
+    }
+    const manager = (withTranscript: boolean): Agent<unknown, unknown> => ({
+      name: 'manager',
+      ...(withTranscript ? { harnessTranscript: () => capture } : {}),
+      async act() {
+        return { done: true }
+      },
+    })
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(task, scope) {
+        for (const [label, withTranscript] of [
+          ['with-port', true],
+          ['without-port', false],
+        ] as const) {
+          const spawned = scope.spawn(
+            driverChild(testAgentProfile(label), manager(withTranscript), journal),
+            task,
+            { budget: perChild, label },
+          )
+          if (!spawned.ok) throw new Error(spawned.reason)
+        }
+        while ((await scope.next()) !== null) {}
+        return { done: true }
+      },
+    }
+
+    await createSupervisor<unknown, unknown>().run(
+      root,
+      'task',
+      supervisorOpts({ runId: 'manager-transcript', journal, blobs }),
+    )
+
+    const settled = new Map(
+      ((await journal.loadTree('manager-transcript')) ?? []).flatMap((event) =>
+        event.kind === 'settled' ? [[event.id, event] as const] : [],
+      ),
+    )
+    const withPort = settled.get('manager-transcript:s0')
+    expect(withPort?.harnessTranscript).toMatchObject({
+      status: 'available',
+      harness: 'opencode',
+      fileCount: 1,
+    })
+    const receipt = withPort?.harnessTranscript
+    if (receipt?.status !== 'available') throw new Error('expected an available receipt')
+    expect(await blobs.get(receipt.transcriptRef)).toMatchObject({ harness: 'opencode' })
+    // A manager whose driver has no transcript port keeps the executor's own absence.
+    expect(settled.get('manager-transcript:s1')?.harnessTranscript).toEqual({
+      status: 'unavailable',
+      reason: 'executor-exposes-no-transcript',
     })
   })
 

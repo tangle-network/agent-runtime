@@ -1155,18 +1155,24 @@ describe('an unavailable upstream', () => {
   })
 
   it('reads text only toward pausing, never toward ending a run', () => {
-    // Prose that mentions a quota is not a code, and a credential the upstream rejected is not
-    // capacity: both keep their earlier classes.
+    // Prose that mentions a quota is not a code: it keeps its earlier class.
     expect(classifyDriverFailure(new Error('the workspace quota for this tool was exceeded'))).toBe(
       'transient',
     )
+    // The router's own provider credential refused is a wait for an operator, not a driver fault.
+    const routerKey = new HarnessTurnFailedError('tangle-sandbox', {
+      error: 'No provider served model "x" (provider_key_invalid)',
+    })
+    expect(classifyDriverFailure(routerKey)).toBe('unavailable')
+    expect(upstreamUnavailableSignal(routerKey)).toBe('provider_key_invalid')
+    // The caller's own key refused by the router stays terminal: a 401 decides before any code.
     expect(
       classifyDriverFailure(
-        new HarnessTurnFailedError('tangle-sandbox', {
-          error: 'No provider served model "x" (provider_key_invalid)',
+        new BackendTransportError('bridge', 'invalid_api_key provider_key_invalid', {
+          status: 401,
         }),
       ),
-    ).toBe('transient')
+    ).toBe('terminal')
     // A status decides before any text: a 401 whose body quotes a capacity code stays terminal.
     expect(
       classifyDriverFailure(
@@ -1253,6 +1259,34 @@ describe('an unavailable upstream', () => {
       unavailablePauses: 2,
       unavailableMs: 47_000,
       ended: 'completed',
+    })
+  })
+
+  it('counts a refused drive that made progress as work, and only its pause as infrastructure', async () => {
+    let spent = 0
+    let clock = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        // The first drive works 8 minutes before the refusal; the second is refused at once.
+        clock += attempt === 1 ? 480_000 : 60_000
+        if (attempt === 1) spent += 1_000
+        if (attempt < 3) throw new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+      },
+      // No declared check, so the first drive's spend is progress.
+      progress: () => mark({ poolTokensSpent: spent, contract: 'none' }),
+      budget: () => budget(),
+      now: () => clock,
+      signal: new AbortController().signal,
+      onAttempt: (record) => void records.push(record),
+      sleep: async (ms) => {
+        clock += ms
+      },
+    })
+    // Pauses of 15 s and 30 s, plus the 60 s refused drive; the 8 working minutes are not counted.
+    expect(summarizeDriverAttempts(records)).toMatchObject({
+      unavailablePauses: 2,
+      unavailableMs: 105_000,
     })
   })
 

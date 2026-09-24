@@ -358,13 +358,14 @@ export class HarnessTurnFailedError extends Error {
  *
  *  - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
  *  - `transient`: a foreign accident. It is retried under `maxAttempts` and the barren streak.
- *  - `unavailable`: the upstream refused for capacity (quota, rate limit, overload). The driver
- *    pauses and re-enters, and only the deadline, the budget, and cancellation bound the pauses.
+ *  - `unavailable`: the upstream cannot serve now (quota, rate limit, overload, or the router's
+ *    own provider credential refused). The driver pauses and re-enters, and only the deadline, the
+ *    budget, and cancellation bound the pauses.
  */
 export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
 
 /**
- * Machine codes that say the upstream is out of capacity rather than that the request is wrong.
+ * Machine codes that say the upstream cannot serve now rather than that the request is wrong.
  * Each is a code an upstream publishes, not prose: the router's
  * (`lib/model-substitution.ts`, `lib/upstream-error-triage.ts`) and the OpenAI- and Anthropic-shaped
  * error types a relayed body carries.
@@ -374,6 +375,11 @@ const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'provider_quota_exceeded', // router: the earlier spelling, on the 2026-09-20 fleet corpus
   'provider_rate_limit', // router: the upstream is rate limiting this model (429)
   'upstream_unavailable', // router: upstream outage or an unexplained upstream refusal (503)
+  // Router: its OWN credential for the provider was refused, answered 503. An operator restores
+  // it, and the agent can only wait. The caller's key refused is `invalid_api_key` at 401 and
+  // stays terminal. Measured 2026-09-24 from 14:15Z: every flash request ended
+  // `No provider served model "deepseek/deepseek-v4.1-flash" (provider_key_invalid)`.
+  'provider_key_invalid',
   'rate_limit_exceeded', // OpenAI-shaped 429
   'rate_limit_error', // Anthropic-shaped 429
   'overloaded_error', // Anthropic-shaped 529
@@ -593,8 +599,10 @@ export interface DriverLoopRecord {
   readonly failureRetries: number
   /** Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure. */
   readonly unavailablePauses: number
-  /** Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
-   *  plus the pause after it. */
+  /** Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
+   *  drive that made no progress. A refused drive that made progress was mostly work, so only its
+   *  pause counts. Measured 2026-09-24 on a real run: a first drive worked 8 minutes before its
+   *  refusal, and counting its whole duration doubled a 10-minute outage to 16 minutes. */
   readonly unavailableMs: number
   /** Re-entered drives, in a row at the end, that completed without a delivery. */
   readonly barrenReentries: number
@@ -644,7 +652,8 @@ export function summarizeDriverAttempts(
     ).length,
     unavailablePauses: refused.filter((record) => record.retryInMs !== undefined).length,
     unavailableMs: refused.reduce(
-      (sum, record) => sum + record.durationMs + (record.retryInMs ?? 0),
+      (sum, record) =>
+        sum + (record.madeProgress ? 0 : record.durationMs) + (record.retryInMs ?? 0),
       0,
     ),
     barrenReentries: barren,

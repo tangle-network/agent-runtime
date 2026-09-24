@@ -254,6 +254,13 @@ describe('nested retained owner journal isolation', () => {
       ).toBe(false)
       const settlement = parent.find((event) => event.kind === 'settled' && event.id === spawn.id)
       expect(settlement, JSON.stringify(parent)).toMatchObject({ kind: 'settled', status: 'done' })
+      // The manager's own harness session reaches its settlement through the driver: this fake
+      // environment has no `read`, so the capture itself names why, instead of the driver
+      // reporting that it offers no transcript at all.
+      expect(settlement?.kind === 'settled' ? settlement.harnessTranscript : null).toEqual({
+        status: 'unavailable',
+        reason: 'unsupported-environment',
+      })
       if (settlement?.kind === 'settled' && settlement.outRef) {
         expect(await context.blobs.get(settlement.outRef)).not.toEqual(
           expect.objectContaining({ content: 'durable result' }),

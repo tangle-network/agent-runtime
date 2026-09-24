@@ -92,6 +92,12 @@ export interface Agent<Task, Out> {
   traceSource?(): TraceSource | undefined
   /** Optional live execution progress exposed by executors that can observe it. */
   progress?(): ExecutorProgress | undefined
+  /**
+   * Optional capture of this agent's own harness session, for an agent that runs a harness as a
+   * manager. A driver child forwards it to its executor, so the manager settles with the same
+   * receipt a leaf gets instead of `executor-exposes-no-transcript`.
+   */
+  harnessTranscript?(): HarnessTranscriptCapture | undefined
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
