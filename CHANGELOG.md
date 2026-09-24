@@ -1,9 +1,6 @@
 # Changelog
 
-## 0.264.0
-
-Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.
-Sandbox 0.51.0 adds `sandbox.lines` for phone lines on a sandbox; Runtime does not call that API itself.
+## 0.265.0
 
 A provider-backed leaf whose model provider refuses its turn for capacity now pauses and continues instead of settling `down`.
 It keeps its environment, waits by the driver's pause rule (15 s, doubling to 5 min), and continues in the same environment and harness session.
@@ -16,6 +13,11 @@ A process that stops during a continuation recovers that invocation in the same 
 It applies to a retained provider execution under a Scope, the path a supervised leaf takes on a provider that declares `retainedControl`, and not with workspace retention.
 The refusal codes and the pause rule moved to one module that the driver and the leaf both read; `UnavailablePausePolicy` is exported.
 Measured 2026-09-24 on play anomaly-referee-v3d: 15 of 23 down children ended on `provider_quota_exhausted`, and in one lead lane five of five children had run 3 to 9 minutes and spent 117k to 856k input tokens first.
+
+## 0.264.0
+
+Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.
+Sandbox 0.51.0 adds `sandbox.lines` for phone lines on a sandbox; Runtime does not call that API itself.
 
 The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses a driver too: an operator restores the credential, and the agent can only wait.
 The caller's own key refused (401 `invalid_api_key`) stays terminal.
