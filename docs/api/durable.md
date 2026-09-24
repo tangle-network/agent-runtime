@@ -1375,8 +1375,9 @@ pursuit and nothing else would release the provider environments its retained ch
 Run this pursuit as a version of a settled run: `profile`, `task` and `budget` must equal the
 parent's recorded root, and Runtime executes the parent's profile with `fork.change` applied.
 The root's `execution.correlation` records the parent, its sealed digest, the change and the
-lineage (`RUN_FORK_CORRELATION_KEYS`). The parent's directory is never written, and a parent
-with any uncertain node is refused before the fork's journal exists.
+lineage (`RUN_FORK_CORRELATION_KEYS`). The fork's `runDir` must lie outside the parent's, and
+the parent's outside it. The parent's directory is never written, and a refused fork, such as
+one whose parent has an uncertain node, writes nothing.
 
 ##### budget
 

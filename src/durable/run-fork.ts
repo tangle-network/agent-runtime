@@ -1,5 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
   type AgentProfile,
   type AgentProfileDiff,
@@ -54,8 +54,8 @@ export interface PreparedRunFork {
 type SpawnedEvent = Extract<SpawnEvent, { kind: 'spawned' }>
 
 /**
- * Verify the parent and derive the fork's profile and attribution. Every refusal happens before
- * the fork's journal exists, so a refused fork spends nothing and leaves no record.
+ * Verify the parent and derive the fork's profile and attribution. It reads only the parent, so
+ * a refused fork spends nothing and writes nothing.
  */
 export async function prepareRunFork(
   profile: AgentProfile,
@@ -69,8 +69,11 @@ export async function prepareRunFork(
   }
   const parentDir = await realDirectory(fork.runDir, 'fork.runDir')
   const forkDir = await realDirectory(opts.runDir, 'runDir', true)
-  if (parentDir === forkDir) {
-    throw new ValidationError('supervisePursuit fork: the fork needs its own runDir')
+  // A fork at, inside or around the parent's directory would write into the parent.
+  if (contains(parentDir, forkDir) || contains(forkDir, parentDir)) {
+    throw new ValidationError(
+      `supervisePursuit fork: runDir ${forkDir} overlaps the parent's runDir ${parentDir}; a fork needs its own directory outside the parent's`,
+    )
   }
 
   // The seal: the exact bytes Runtime wrote once at the parent's settle.
@@ -182,15 +185,26 @@ function digestOrUndefined(value: unknown): Sha256Digest | undefined {
   }
 }
 
-/** Resolve a directory through symlinks; the fork's own directory may not exist yet. */
+/**
+ * Resolve a directory through symlinks. The fork's own directory may not exist yet; it resolves
+ * through its nearest existing ancestor, so a symlinked ancestor cannot hide an overlap.
+ */
 async function realDirectory(path: string, name: string, mayBeAbsent = false): Promise<string> {
   if (typeof path !== 'string' || path.trim().length === 0) {
     throw new ValidationError(`supervisePursuit fork: ${name} must be a non-empty string`)
   }
+  const absolute = resolve(path.trim())
   try {
-    return await realpath(resolve(path.trim()))
+    return await realpath(absolute)
   } catch (error) {
-    if (mayBeAbsent && isNoEntError(error)) return resolve(path.trim())
-    throw error
+    const ancestor = dirname(absolute)
+    if (!mayBeAbsent || !isNoEntError(error) || ancestor === absolute) throw error
+    return join(await realDirectory(ancestor, name, true), basename(absolute))
   }
+}
+
+/** Whether `inner` is `outer` or lies beneath it. */
+function contains(outer: string, inner: string): boolean {
+  const path = relative(outer, inner)
+  return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`))
 }
