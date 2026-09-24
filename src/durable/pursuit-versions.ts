@@ -198,6 +198,9 @@ export interface PursuitVersionRegistry {
   readonly nextVersions?: { resolve(name: string): NextPursuitVersion | undefined }
 }
 
+/** The longest delay Node's setTimeout honors. */
+const MAX_TIMER_MS = 2_147_483_647
+
 /** The ledger file inside the lineage directory. */
 export const PURSUIT_VERSIONS_FILE = 'versions.jsonl'
 
@@ -405,12 +408,18 @@ export async function runPursuitVersions(
 
     // The chain's deadline aborts a running version; the caller's signal still cancels everything.
     const deadline = new AbortController()
-    const remaining = startedAtMs + stop.deadlineMs - now()
-    const timer = setTimeout(
-      () => deadline.abort(new Error('the version chain reached its deadline')),
-      Math.max(0, remaining),
-    )
-    timer.unref?.()
+    // A timer longer than 2^31 - 1 ms fires at once in Node, so a long chain re-arms in steps.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const arm = () => {
+      const remaining = startedAtMs + stop.deadlineMs - now()
+      if (remaining <= 0) {
+        deadline.abort(new Error('the version chain reached its deadline'))
+        return
+      }
+      timer = setTimeout(arm, Math.min(remaining, MAX_TIMER_MS))
+      timer.unref?.()
+    }
+    arm()
     const signal =
       callerSignal === undefined
         ? deadline.signal
@@ -698,7 +707,7 @@ export async function runPursuitVersions(
         return undefined
       }
     } finally {
-      clearTimeout(timer)
+      if (timer !== undefined) clearTimeout(timer)
     }
   } finally {
     await lock.release()
