@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.260.0.**
+> **Version 0.261.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.185.0 <0.187.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0`.
@@ -213,6 +213,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Render a **multi-profile × multi-axis benchmark leaderboard** (ranked board + score matrix + SVG/HTML charts) from an EXISTING fleet of matrix runs | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml`: `/kernel` (feed it `runProfileMatrix().records`, any domain; `defineLeaderboard` calls these for you) | a per-benchmark report/chart renderer; hand-rolled SVG/markdown tables; a curated subset of axes |
 | Read ONE execution's complete tree — every node's ids, usage by token class, cost with provenance, timing, receipts, and the run's inclusive and exclusive totals | `projectPursuit(records)` over a `FileObserverJournal` (or `supervisePursuit(...)`, which returns the projection, holds `supervise.lock` for the call, and leaves `result.json` at settle or `failure.json` on a throw beside `observer.jsonl`): `/durable` — a node's settled spend already contains the child work its nested tree reported, so `totals.inclusive` sums the run's top-level nodes and `totals.exclusiveByNode` telescopes back to it; a channel no provider reported stays ABSENT and the node is named in `spendGaps` | combining `loadTopSnapshot`/`TopSnapshot` (`/tui`) with root stream events to build totals — that projection is the experimental operator view over on-disk run state, carries no model-call identity, and double counts when joined; or a second per-node cost tally |
 | Start a version of a settled run with one profile change (a run-level fork) | `supervisePursuit(parentProfile, parentTask, { runDir, runId, budget, ..., fork: { runDir: parentRunDir, settleDigest, change } })`: `/durable` — `settleDigest` is the sha256 of the parent's `result.json`, the call's profile, task and budget must equal the parent's recorded root, and `change` is one Interface profile diff with an id. Runtime records the parent, the seal, the change and the lineage in the root's `execution.correlation` (`RUN_FORK_CORRELATION_KEYS`). See [the fork rules](#a-run-level-fork-starts-from-the-parents-sealed-root). | copying or re-keying a parent run directory, a `parent` or `diff` field on a record, a caller-written fork correlation key, or a restart that differs from its parent in more than the recorded change |
+| Keep improving a pursuit across versions until an outside judge stops improving (the version loop) | `supervisePursuit(profile, task, { runDir, runId, budget, ..., versions: { judge, next, stop: { patience, maxVersions, maxUsd, deadlineMs } } })`: `/durable` — `judge` is a digest-pinned `VersionJudge` Runtime calls after each version settles, outside its tree; `next` returns the one Interface profile diff the next version applies to the best version's profile; each later version is a run-level fork of the best version at `<runDir>.v<n>`, and `<runDir>.versions/versions.jsonl` is the chain's record. `versions.run` places versions elsewhere. See [the version loop](#a-version-loop-continues-a-pursuit-until-its-judge-stops-improving). | an operator or Lab script that waits for a settle, judges by hand and presses the next version; a restart loop; a judge that runs inside the judged tree; a chain with no dollar or time cap |
 | Attach a human terminal to the EXACT process one supervised worker is running in | `scope.interactive(nodeId)` in-process, or `attachWorker(eventDir, nodeId, { providers })` after restart: `/kernel` — returns that child's `RetainedInteractiveRunHandle` (type, resize, ordered replay, detach, acknowledged close, all bound to its admitted execution) when its executor published an exact retained reference. `attachWorker` reloads the runtime-owned binding, verifies the worker remains live in the spawn journal, resolves the named provider, and reconstructs only that reference. Both APIs return a typed `unavailable` reason when they cannot prove an exact live process. | starting a second CLI process that resumes the same conversation and calling it attachment; guessing a provider session from conversation metadata; reading a headless worker's missing session as an empty terminal; a per-runner attach API beside this one |
 | Run a provider-owned interactive worker under a real Supervisor and reconnect it after a coordinator restart | `workerFromInteractiveProvider(provider, options)` with `supervise(..., { makeWorkerAgent, runDir })`: `/kernel` — Runtime persists credential-free admissions, stable process identity, control acknowledgements, and the exact binding that `attachWorker` reloads. The provider remains authoritative for the environment, process, terminal, and native session. | launching a provider process from Braid, writing `.agent/supervisor` from the client, persisting secrets, or inventing a second operation-id/replay protocol |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)`: root export | a second event-bus or callback-prop zoo (there is ONE stream) |
@@ -313,6 +314,39 @@ A fork carries the parent's recorded inputs, not its settled children, native se
 The fork's director starts a new session, so a fork does not save the cost of the parent's work.
 Workspace state that a caller owns travels in the task, or through `captureAgentCandidateWorkspace` and `createAgentCandidateWorkspacePort` before the call.
 Environment checkpoints cannot seed a fork of a settled run, because `supervisePursuit` releases every environment at settle.
+
+### A version loop continues a pursuit until its judge stops improving
+
+Inside one run, the director works in rounds until its deliverable check passes or its budget ends.
+`versions` continues the pursuit after that run settles, as a chain of runs.
+
+1. The first version runs at `runDir`, or Runtime reads it back when that directory already settled.
+2. Runtime calls `versions.judge` with the settled version: its run id, directory, sealed `result.json` digest, result and executed profile.
+   The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox.
+   Its verdict carries a `score` (higher is better, or `null` when it cannot score) and the judge's `digest`; a verdict under another digest is refused.
+3. Runtime applies the stop rule.
+   It stops after `patience` consecutive versions that do not beat the best score by more than `minImprovement`, at `maxVersions`, when the versions' settled `spentTotal.usd` reaches `maxUsd`, or at `deadlineMs` from the first version's start.
+   A version whose dollars are not a number stops the chain, because the chain can no longer prove it is under its cap.
+   The deadline also aborts a running version.
+4. Otherwise `versions.next` returns one `AgentProfileDiff` with an id, and the next version forks from the best version so far: the highest score, the earliest on a tie.
+   It runs at `<runDir>.v<n>` with run id `<runId>.v<n>` and the same pursuit id, task and budget, so its root records the parent, the seal, the change and the lineage root.
+
+The chain checks its caps between versions and never starts a version once one is reached.
+A version's own `budget`, or the caller's spend watcher, bounds that version's dollars in flight.
+`<runDir>.versions/versions.jsonl` records each version, its parent, its change, its verdict, its dollars and its `AgentCandidateLineage`, and then the stop.
+A call on a stopped chain returns that record without running anything.
+A call on an unfinished chain resumes it: a judged version is never re-run or re-judged, and a started version runs again in its own directory, which resumes it.
+The chain's judge digest and stop rule are part of its record, and a call with another is refused.
+The call returns the best version's result, projection and settle path, with the chain's record as `versions`.
+
+A fork carries recorded inputs, not workspace, so `next` carries the best build into the next version.
+Mount the best version's product as profile resources, and the judge's review beside it.
+
+`versions.run` places later versions outside this process, for example in a cloud driver box.
+Runtime verifies each fork against the parent's records first, then passes the profile to execute with its change applied, the task, the budget and the root's `execution` attribution.
+The port returns once the version's directory holds its `result.json` and `observer.jsonl`.
+It is called again for the same version after a restart, so it must attach to a version it already started.
+In a recorded run input, `judge` and `next` name entries in `registry.versionJudges` and `registry.nextVersions`; `assertPursuitVersions` checks the option before any compute.
 
 ### Codex store accounting
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.261.0
+
+`supervisePursuit` accepts `versions`, which continues a pursuit across versions until its judge stops improving.
+After each version settles, `versions.judge` scores it from outside its tree, and every verdict must carry the judge's pinned sha256.
+Unless `versions.stop` ends the chain, the next version forks from the best version so far with the one change `versions.next` returns, at `<runDir>.v<n>` with run id `<runId>.v<n>`.
+The stop rule requires all four caps: `patience` versions without improvement, `maxVersions`, `maxUsd` over the versions' settled `spentTotal.usd`, and `deadlineMs` from the first version's start; the chain never starts a version once a cap is reached, and the deadline aborts a running version.
+`<runDir>.versions/versions.jsonl` records each version's parent, change, verdict, dollars and lineage, and the stop; a call on a stopped chain reads it back, and a call on an unfinished chain resumes it without re-running or re-judging a settled version.
+`versions.run` places later versions outside this process; Runtime verifies each fork where the parent's records are before handing the version to it.
+`judge` and `next` may name entries in `registry.versionJudges` and `registry.nextVersions`, so a recorded run input can carry the option as data.
+
 ## 0.260.0
 
 `supervisePursuit` accepts `fork`, which starts a run as a version of a settled run with one `AgentProfileDiff`.
