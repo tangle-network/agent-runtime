@@ -1,6 +1,19 @@
 # Changelog
 
+## Unreleased
+
+A shared worker now also exports the session of each harness subagent it ran.
+opencode runs a `task` subagent in a child session, and the parent's export does not hold it, so a subagent's steps reached no record (#1264).
+The Lab fleet's records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+After each turn, the worker exports every child session that its `task` parts name: by `state.metadata.sessionId`, by the result's `<task id="ses_…">` header, or by the `task_id:` in a failure.
+Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
+opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
+A dedicated Tangle box still keeps only the parent's sidecar records.
+
 ## 0.266.0
+
+Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
+Sandbox 0.52 adds voice on lines and a sandbox per line member; Runtime does not call those APIs itself.
 
 One pursuit's own tree can now grow to hundreds of agents; four structural limits are removed.
 
@@ -83,19 +96,14 @@ The pool fills a box before it creates the next, deletes a box when its last wor
 Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.
 Measured 2026-09-24: 64 workers in 8 boxes, 64 of 64 answering from their own instructions and brief, each transcript carrying only its own worker's text, 41.5 s wall; 16 workers in dedicated boxes took 16 boxes and 92 s.
 Sidecar sessions were not used for this, because 7 of 8 concurrent sessions in one box answered with another session's instructions.
-A shared worker does not yet take the leaf pause above: the pool declares no `retainedControl`, so a capacity refusal still settles a shared leaf `down`.
+A shared worker takes the leaf pause above inside its own turn: its refused `opencode run` ends, the worker waits by the same rule, and `opencode run --session <id>` continues the same session with the same continuation instruction in the same directory.
+The turn stays one invocation, its result counts the session's runs as `sessionRuns`, and `SharedBoxPlacementOptions.unavailablePause: false` ends the turn on the refused run.
+opencode reports a refused model with its HTTP status and a prose message: for a refused `deepseek/deepseek-v4.1-flash` on 2026-09-24 it retried for about 70 seconds, then printed `Inference temporarily unavailable` with `statusCode: 503` and exited 1.
+A shared worker's failure text now carries that status as `(status code 503)` and the error line's message, so the refusal reader sees it.
 
 opencode transcript capture now reads the sidecar's per-session records under `.opencode/sessions` and `.opencode/messages`, and a shared worker's `opencode export`.
 Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
 For opencode in a dedicated Tangle box this ends the `no-transcript` receipts that 0.264.0 describes: 12 of 12 successful dedicated workers captured their transcript. Claude Code and Codex boxes still read `no-transcript` (#1360).
-
-A shared worker now also exports the session of each harness subagent it ran.
-opencode runs a `task` subagent in a child session, and the parent's export does not hold it, so a subagent's steps reached no record (#1264).
-The Lab fleet's records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
-After each turn, the worker exports every child session that its `task` parts name: by `state.metadata.sessionId`, by the result's `<task id="ses_…">` header, or by the `task_id:` in a failure.
-Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
-opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
-A dedicated Tangle box still keeps only the parent's sidecar records.
 
 ## 0.264.0
 

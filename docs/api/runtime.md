@@ -10514,6 +10514,17 @@ Absolute directory in each box that holds one directory per worker.
 
 First wait before repeating a Sandbox call that failed transiently; doubles per attempt.
 
+##### unavailablePause?
+
+> `optional` **unavailablePause?**: `false` \| [`UnavailablePausePolicy`](#unavailablepausepolicy)
+
+How a worker waits out a model provider that cannot serve now: a quota, a rate limit, an
+overload, or the router's own refused credential (`unavailableSignalOfFailure`). The worker
+pauses 15 s, doubling to 5 min, the rule a driver and a dedicated leaf follow, then continues
+its own opencode session in its own directory. Only cancellation, the turn's `timeoutMs` and
+the node's deadline and budget, which abort the turn, end the pauses. `false` ends the turn on
+the refused run.
+
 ***
 
 ### SharedBoxStats
