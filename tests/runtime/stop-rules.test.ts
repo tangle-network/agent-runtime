@@ -620,4 +620,64 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
     expect(rising.stops).toEqual([])
     expect(rising.spawned).toBe(8)
   })
+
+  it('a fired rule is not argued with: the harness is not re-prompted, and the record says why', async () => {
+    // Before, a stop rule aborted the stop signal, the harness returned with its check unmet, and
+    // `repromptOnUnmet` sent it straight back into a harness already told to stop.
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let drives = 0
+    const loops: unknown[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, stopSignal }) => {
+      drives += 1
+      for (let i = 0; i < 12; i += 1) {
+        if (stopSignal?.aborted) return
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+        })
+        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+      }
+    }
+    let spawned = 0
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'opencode',
+        prompt: { systemPrompt: 'delegate, do not solve' },
+        tools: runtimeToolDeclarations(...spawnAndAwait),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => {
+          const leaf = scoredLeaf(`w${spawned}`, 0.4)
+          spawned += 1
+          return leaf
+        },
+        perWorker: perUnit,
+        driveHarness,
+        stopRule: plateau({ window: 3, minDelta: 0.01 }),
+        deliverable: { describe: 'a result no worker reaches', check: () => false },
+        repromptOnUnmet: 5,
+        onDriverLoopSettled: (record) => loops.push(record),
+      },
+    )
+    await createSupervisor<unknown, unknown>().run(root, 'task', {
+      budget: { maxIterations: 500, maxTokens: WORKER_TOKENS * 200 },
+      runId: 'harness-stop-reprompt',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+    })
+    expect(drives).toBe(1)
+    expect(loops).toEqual([
+      expect.objectContaining({
+        attempts: 1,
+        reprompts: 0,
+        closedBy: 'stop-rule',
+        repromptRefusedBy: 'caller-stop',
+        stopReason: expect.stringContaining('plateau'),
+      }),
+    ])
+  })
 })

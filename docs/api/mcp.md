@@ -4154,6 +4154,24 @@ over its result — the same rule the rest of the runtime applies to trace value
 default alone; pass `false` to opt out deliberately. A redactor that throws is a refusal for
 that one row (it returns a `redaction-failed` marker), never a reason to return the raw event.
 
+##### resolveProbeTool?
+
+> `readonly` `optional` **resolveProbeTool?**: (`name`) => [`McpToolDescriptor`](#mcptooldescriptor) \| `undefined`
+
+The served tools `report_blocked` may probe, by bare name: the coordination verbs plus the
+node tools bound to this manager. The transport that serves both supplies it; without it the
+probe reaches the coordination verbs only.
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### Returns
+
+[`McpToolDescriptor`](#mcptooldescriptor) \| `undefined`
+
 ##### priorJournal?
 
 > `readonly` `optional` **priorJournal?**: readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
@@ -4394,6 +4412,59 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 ###### Returns
 
 `Promise`\<`number`\>
+
+##### beginDriverAttempt()
+
+> **beginDriverAttempt**(`attempt`): `void`
+
+Mark the start of one driver attempt, so deliveries are attributed to the turn that got them.
+
+###### Parameters
+
+###### attempt
+
+`number`
+
+###### Returns
+
+`void`
+
+##### endDriverAttempt()
+
+> **endDriverAttempt**(`outcome`): `Promise`\<`void`\>
+
+Mark the end of the current driver attempt. A completed turn acknowledges what it received;
+ a failed one leaves its deliveries unacknowledged for the next re-entry to name.
+
+###### Parameters
+
+###### outcome
+
+`"completed"` \| `"failed"`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### reentryState()
+
+> **reentryState**(): [`ManagerReentryState`](runtime.md#managerreentrystate)
+
+The run state a re-entered manager is told, read from this coordinator's own records.
+
+###### Returns
+
+[`ManagerReentryState`](runtime.md#managerreentrystate)
+
+##### blocked()
+
+> **blocked**(): \{ `tool`: `string`; `reported`: `string`; `probed`: `string`; \} \| `undefined`
+
+The failed probe that ended the run through `report_blocked`, when one did.
+
+###### Returns
+
+\{ `tool`: `string`; `reported`: `string`; `probed`: `string`; \} \| `undefined`
 
 ***
 
@@ -8261,9 +8332,21 @@ Re-exports [EscalateQuestion](runtime.md#escalatequestion)
 
 ***
 
+### EventAcknowledgement
+
+Re-exports [EventAcknowledgement](runtime.md#eventacknowledgement)
+
+***
+
 ### MakeWorkerAgent
 
 Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
+
+***
+
+### ManagerReentryState
+
+Re-exports [ManagerReentryState](runtime.md#managerreentrystate)
 
 ***
 

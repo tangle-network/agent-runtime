@@ -14,17 +14,21 @@ const blobs: ResultBlobStore = { get: async () => undefined, put: async () => {}
 const makeWorkerAgent = (): Agent<unknown, unknown> => ({ name: 'w', act: async () => 0 })
 const perWorker = { maxIterations: 1, maxTokens: 10 }
 
-function mockScope(options: { admit?: boolean } = {}) {
-  const nodes = [
-    {
-      id: 'w0',
-      label: 'worker',
-      status: 'running' as const,
-      runtime: 'router',
-      budget: { maxIterations: 1, maxTokens: 10 },
-      spent: zeroSpend(),
-    },
-  ]
+/** `children: false` gives a manager with no running worker, so closure has no open work. */
+function mockScope(options: { admit?: boolean; children?: boolean } = {}) {
+  const nodes =
+    options.children === false
+      ? []
+      : [
+          {
+            id: 'w0',
+            label: 'worker',
+            status: 'running' as const,
+            runtime: 'router',
+            budget: { maxIterations: 1, maxTokens: 10 },
+            spent: zeroSpend(),
+          },
+        ]
   return {
     spawn: (_agent: unknown, _task: unknown, opts: { label: string }) =>
       options.admit === false
@@ -179,21 +183,27 @@ describe('every coordination refusal names its unmet condition', () => {
   })
 
   it('submit_result separates a failed check from a THROWN one, and names the expected artifact', async () => {
-    const failing = manager({
-      deliverable: { describe: 'a patch that compiles', check: (out: unknown) => out === 'good' },
-    })
+    const failing = manager(
+      {
+        deliverable: { describe: 'a patch that compiles', check: (out: unknown) => out === 'good' },
+      },
+      mockScope({ children: false }),
+    )
     const refused = await tool(failing, 'submit_result').handler({ result: 'bad' })
     expect(refused).toMatchObject({ accepted: false, stop: false })
     expectReason(refused, /a patch that compiles/)
 
-    const broken = manager({
-      deliverable: {
-        describe: 'a patch that compiles',
-        check: () => {
-          throw new Error('the test runner is not installed')
+    const broken = manager(
+      {
+        deliverable: {
+          describe: 'a patch that compiles',
+          check: () => {
+            throw new Error('the test runner is not installed')
+          },
         },
       },
-    })
+      mockScope({ children: false }),
+    )
     const threw = await tool(broken, 'submit_result').handler({ result: 'anything' })
     expect(threw).toMatchObject({ accepted: false, stop: false })
     // Previously the thrown message was swallowed, so a broken oracle and unfinished work were
@@ -391,7 +401,7 @@ describe('ask_parent at the top of the chain', () => {
   })
 
   it('the stop refusal names the unheard question and the way out, so nothing waits forever', async () => {
-    const tb = manager({ questionPolicy: 'failClosed' })
+    const tb = manager({ questionPolicy: 'failClosed' }, mockScope({ children: false }))
     const asked = await askParent(tb)
     const questionId = (asked.question as { id: string }).id
 
@@ -450,6 +460,23 @@ describe('ask_parent at the top of the chain', () => {
     const undelivered = await answer({ questionId: gone.question.id, answer: 'Target v2.' })
     expect(undelivered).toMatchObject({ delivered: false, outcome: 'unknown-worker' })
     expectReason(undelivered, /observe_agent/)
+  })
+
+  it('closure refuses submit_result and stop while a worker runs, and names it', async () => {
+    const tb = manager({ deliverable: { describe: 'a report', check: () => true } })
+    const submitted = await tool(tb, 'submit_result').handler({ result: 'report' })
+    expect(submitted).toMatchObject({
+      accepted: false,
+      stop: false,
+      error: 'open-work',
+      running: [{ id: 'w0', status: 'running' }],
+    })
+    expectReason(submitted, /await_event/)
+    const stopped = await tool(tb, 'stop').handler({ reason: 'done' })
+    expect(stopped).toMatchObject({ stopped: false, error: 'open-work' })
+    expectReason(stopped, /still running \(w0\)/)
+    expect(tb.isStopped()).toBe(false)
+    expect(tb.submittedResult()).toBeUndefined()
   })
 
   it('a stop blocked only by answerable questions does not claim anything went unheard', async () => {

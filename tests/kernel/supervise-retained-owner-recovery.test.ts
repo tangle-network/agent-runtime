@@ -198,7 +198,9 @@ describe('retained external supervisor recovery', () => {
   ] as const)(
     're-prompts one retained provider conversation with $cleanup cleanup and $continuations continuation',
     async ({ cleanup, continuations }) => {
-      const expectedTurns = continuations === 'until-complete' ? 12 : 3
+      // Re-prompts that deliver nothing end after two in a row, whatever the cap, so the
+      // 'until-complete' variant submits on the third turn as the numeric cap does.
+      const expectedTurns = 3
       const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-'))
       directories.push(directory)
       const proxy = await coordinationProxy()
@@ -429,6 +431,126 @@ describe('retained external supervisor recovery', () => {
     expect(fixture.reconnections()).toBe(0)
     expect(after.filter((event) => event.kind === 'execution-bound')).toEqual(bindings)
     expect(tokenTotal(after)).toBe(5)
+  })
+
+  it('starts a new environment, told the objective, when the provider lost the one it was running in', async () => {
+    // Autopsy A on the retained path. Before: the root's sandbox was deleted after it admitted a
+    // turn, every retry asked the provider to reconnect to it, each was refused "retained provider
+    // execution requires reconciliation before replacement", and the run ended driver-failed
+    // (autopsy-a-before-20260924a). An environment the provider no longer holds runs nothing, so
+    // the next drive is a new invocation in a new environment, and its task says why.
+    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-lost-'))
+    directories.push(directory)
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
+    const stateFile = join(directory, 'provider.json')
+    const runDirectory = join(directory, 'run')
+    const context = createFileRunContext(runDirectory)
+    let creates = 0
+    let port = 0
+    let token = ''
+    const prompts: string[] = []
+    const environmentIds: string[] = []
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      dispatch: async (turn) => {
+        prompts.push(String(turn.prompt ?? ''))
+        environmentIds.push(environment.id)
+        const dispatched = await environment.dispatch(turn)
+        if (prompts.length === 1) {
+          // The sandbox disappears after it admitted the turn.
+          await environment.destroy?.()
+          return dispatched
+        }
+        const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'replacement-final',
+            method: 'tools/call',
+            params: { name: 'submit_result', arguments: { result: { answer: 'replaced' } } },
+          }),
+        })
+        if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+        return dispatched
+      },
+    })
+    const provider: AgentEnvironmentProvider = {
+      ...durableRetainedProvider(stateFile),
+      capabilities: async () => ({
+        ...(await durableRetainedProvider(stateFile).capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => {
+        creates++
+        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        return wrap(await durableRetainedProvider(stateFile).create(input))
+      },
+      get: async (id) => {
+        const environment = await durableRetainedProvider(stateFile).get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
+      'Answer the question from the holder.',
+      {
+        runDir: runDirectory,
+        journal: context.journal,
+        blobs: context.blobs,
+        runId: 'lost-root',
+        backend: { backend: 'provider', provider },
+        driverBackend: { backend: 'provider', provider },
+        budget: { maxIterations: 20, maxTokens: 1000, deadlineMs: 60_000 },
+        driverRetry: { initialBackoffMs: 0, maxBackoffMs: 0 },
+        repromptOnUnmet: 1,
+        retainedAtSettlement: 'release',
+        teardownConfirmMs: 0,
+        deliverable: {
+          describe: 'the replaced answer',
+          check: (value) => (value as { answer?: unknown }).answer === 'replaced',
+        },
+        coordination: {
+          authentication: {
+            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+          },
+          publicUrl: (address) => {
+            port = address.port
+            proxy.forwardTo(port)
+            return `${proxy.url}/manager`
+          },
+        },
+      },
+    )
+
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'replaced' } })
+    expect(creates).toBe(2)
+    expect(new Set(environmentIds).size).toBe(2)
+    expect(prompts[0]).toBe('Answer the question from the holder.')
+    expect(prompts[1]).toContain('Answer the question from the holder.')
+    expect(prompts[1]).toContain(`Your previous environment (${environmentIds[0]}) is gone`)
+    expect(prompts[1]).toContain('the replaced answer')
+    const events = (await context.journal.loadTree('lost-root')) ?? []
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'environment-teardown',
+        environmentId: environmentIds[0],
+        destroyed: true,
+        detail: expect.stringMatching(/^lost:/u),
+      }),
+    )
+    expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(2)
+    expect(result.continuation).toMatchObject({
+      attempts: 2,
+      failureRetries: 1,
+      reprompts: 0,
+      environmentReplacements: 1,
+      closedBy: 'result-accepted',
+    })
   })
 
   it('allocates distinct provider keys for a deliberate second manager drive', async () => {

@@ -965,6 +965,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const ownerReader =
         opts.spawnResourceReader ??
         (opts.spawnResourceRoot === undefined ? scopeRetainedOwnerResourceReader(scope) : undefined)
+      let probeableByName: ReadonlyMap<string, McpToolDescriptor> | undefined
       const coord = createCoordinationTools({
         scope,
         blobs: opts.blobs,
@@ -1000,6 +1001,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.priorCoordination?.analystDefinitions?.length
           ? { priorAnalystDefinitions: opts.priorCoordination.analystDefinitions }
           : {}),
+        // `report_blocked` probes only what this manager was granted, under its own identity.
+        resolveProbeTool: (name) => probeableByName?.get(name),
       })
       await coord.ready()
       const availableTools = [...coord.tools, ...(opts.nodeTools ?? [])]
@@ -1020,6 +1023,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const modelTools = selectedTools.flatMap((selected) =>
         selected.kind === 'descriptor' ? [selected.descriptor] : [],
       )
+      probeableByName = new Map(modelTools.map((tool) => [tool.name, tool]))
       const selectedExtraNames = new Set(
         selectedTools.flatMap((selected) =>
           selected.kind === 'extra' ? [selected.extra.name] : [],

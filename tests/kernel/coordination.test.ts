@@ -70,11 +70,12 @@ async function traceSummary(trace: TraceAnalysisStore) {
   }
 }
 
-function mockScope() {
+/** `children: false` gives a manager with no children, so closure has no open work to refuse on. */
+function mockScope({ children = true }: { readonly children?: boolean } = {}) {
   const sent: Array<{ id: string; msg: unknown }> = []
   const spawns: Array<{ task: unknown; opts: { budget: unknown; label: string } }> = []
   const spawnedAgents: unknown[] = []
-  const nodes = [
+  const allNodes = [
     {
       id: 'w0',
       label: 'worker',
@@ -98,6 +99,7 @@ function mockScope() {
       trace: noTrace,
     },
   ]
+  const nodes = children ? allNodes : []
   let admit = true
   let refusal: 'budget-exhausted' | 'usd-unbudgeted' = 'budget-exhausted'
   const scope = {
@@ -362,7 +364,7 @@ describe('coordination tools', () => {
   })
 
   it('exposes direct submission only with an injected check and retains the first passing result', async () => {
-    const { scope } = mockScope()
+    const { scope } = mockScope({ children: false })
     const withoutCheck = createCoordinationTools({
       scope,
       blobs,
@@ -434,7 +436,7 @@ describe('coordination tools', () => {
   })
 
   it('returns checked failure details without coercing packets or accepting diagnostic prose', async () => {
-    const { scope } = mockScope()
+    const { scope } = mockScope({ children: false })
     const explained: unknown[] = []
     const failures = new Map<unknown, string>()
     const stringPacket = JSON.stringify({ status: 'complete', accepted: { correctness: true } })
@@ -481,7 +483,7 @@ describe('coordination tools', () => {
   })
 
   it('keeps diagnostic failures separate from check failures and never explains accepted results', async () => {
-    const { scope } = mockScope()
+    const { scope } = mockScope({ children: false })
     let explanations = 0
     const tb = createCoordinationTools({
       scope,
@@ -516,7 +518,7 @@ describe('coordination tools', () => {
   })
 
   it('commits one passing submission when concurrent callers race the durable append', async () => {
-    const { scope } = mockScope()
+    const { scope } = mockScope({ children: false })
     const events: CoordinationEvent[] = []
     let appendStarted!: () => void
     const appending = new Promise<void>((resolve) => {
@@ -1030,6 +1032,7 @@ describe('coordination tools', () => {
       spent: zeroSpend(),
       trace: noTrace,
       outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
+      eventSeq: 0,
       freeSlots: null,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
@@ -1131,9 +1134,14 @@ describe('coordination tools', () => {
         by: 'user',
       }),
     ).toMatchObject({ question: { status: 'answered' }, delivered: true })
-    expect(await tool(tb, 'stop').handler({ reason: 'answered and verified' })).toEqual({
-      stopped: true,
+    // The answered question no longer blocks. The asker is still running, so closure refuses on
+    // the open work instead, and names it.
+    expect(await tool(tb, 'stop').handler({ reason: 'answered and verified' })).toMatchObject({
+      stopped: false,
+      error: 'open-work',
+      running: [{ id: 'w0' }],
     })
+    expect(tb.isStopped()).toBe(false)
     expect(tb.questions()[0]).toMatchObject({ status: 'answered' })
     // The exact answer is committed before it is routed down.
     expect(emitted).toMatchObject([
@@ -1565,6 +1573,7 @@ describe('coordination tools', () => {
       spent: zeroSpend(),
       trace: availableTrace,
       outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
+      eventSeq: 0,
       freeSlots: null,
     })
     // The analyze-on-settle finding is now queued; the next pull surfaces it.
@@ -1573,6 +1582,7 @@ describe('coordination tools', () => {
       fromWorker: 'w7',
       analyst: 'completeness',
       findings: [{ claim: 'stub left in place' }],
+      eventSeq: 1,
       freeSlots: null,
     })
     // Cursor dry and queue empty → idle.
