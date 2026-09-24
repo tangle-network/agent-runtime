@@ -4660,6 +4660,76 @@ Executable and arguments, without host shell interpretation.
 
 > `optional` **signal?**: `AbortSignal`
 
+##### box?
+
+> `optional` **box?**: [`IsolatedCheckBox`](#isolatedcheckbox)
+
+Run the check in its own Sandbox box instead of Linux Bubblewrap on this host.
+
+***
+
+### IsolatedCheckBox
+
+A fresh Sandbox box for one check, owned by an account the judged run holds no key to.
+
+Any key of a Sandbox account can read, write, and execute in every box of that account.
+A check box on the run's own account is therefore reachable by the run it judges.
+The check refuses before it creates a box when its account is one of `builderAccounts`.
+
+#### Properties
+
+##### client
+
+> **client**: `Pick`\<`Sandbox`, `"createIsolated"` \| `"getIdentity"`\>
+
+Client authenticated with the check's own key.
+
+##### builderAccounts
+
+> **builderAccounts**: readonly \[`string`, `string`\]
+
+`customerId` from `Sandbox.getIdentity()` for every Sandbox key the judged run holds.
+
+##### environment
+
+> **environment**: `string`
+
+Sandbox environment or image that holds the check's toolchain.
+
+##### resources?
+
+> `optional` **resources?**: `SandboxResources`
+
+***
+
+### IsolatedCheckBoxEvidence
+
+The box a check ran in and the exact bytes it received.
+
+#### Properties
+
+##### sandboxId
+
+> **sandboxId**: `string`
+
+##### account
+
+> **account**: `string`
+
+`customerId` of the check's key.
+
+##### input
+
+> **input**: `AgentCandidateWorkspaceManifestMaterial`
+
+Every file the box received; each sha256 is also the digest the box computed on receipt.
+
+##### inputDigest
+
+> **inputDigest**: `` `sha256:${string}` ``
+
+Canonical digest of `input`.
+
 ***
 
 ### KeyProvider
@@ -7671,7 +7741,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-1)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-2)
 
 ##### interactiveIdempotencyKey
 
@@ -8436,7 +8506,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-3)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-4)
 
 ##### existingEnvironmentId?
 
@@ -27246,19 +27316,19 @@ async iterable for streaming. The callback may also write files into
 
 ### IsolatedCheckResult
 
-> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; \}
+> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; \}
+\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
 
 ***
 
 ##### Type Literal
 
-\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; \}
+\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
 
 ###### succeeded
 
@@ -27291,6 +27361,12 @@ Bounded command evidence, when a process was launched.
 > `optional` **cleanupDiagnostic?**: `string`
 
 Cleanup failures never replace the primary command failure.
+
+###### box?
+
+> `optional` **box?**: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence)
+
+Present once a check box received its complete input.
 
 ***
 
@@ -32476,12 +32552,17 @@ other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 > **runIsolatedCheck**(`options`): `Promise`\<[`IsolatedCheckResult`](#isolatedcheckresult)\>
 
-Run untrusted checks inside Linux Bubblewrap. Never falls back to host execution.
-Requires /usr/bin/bwrap and permission to create Linux namespaces.
+Run an untrusted check in Linux Bubblewrap, or in its own Sandbox box when `box` is set.
+Never falls back to host execution.
+
+Bubblewrap requires /usr/bin/bwrap and permission to create Linux namespaces.
 Only trusted system toolchains, private proc/dev/tmp, and the writable copy are mounted.
 The canonical input path remains the working directory; copy writes are discarded.
 Limits bound command time and captured output, not copy size or memory consumption.
 Callers must keep the input and trusted toolchains stable while preparing the check.
+
+A box check creates one fresh box with no owner secrets and blocked egress, delivers the
+tree's regular files verified by sha256, runs the command there, and deletes the box.
 
 #### Parameters
 
