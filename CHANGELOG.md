@@ -1,13 +1,18 @@
 # Changelog
 
-## 0.264.0
+## 0.265.0
 
-A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
-`driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
-`Agent` gains the optional `harnessTranscript()` hook.
-Before, every nested manager settled `executor-exposes-no-transcript`: 545 of 545 settled managers in the Discovery fleet records of 2026-09-23/24.
-A consumer that reads manager receipts now sees the capture's real status or reason.
-In a Tangle box the capture still finds no session files, for managers and leaves alike, because the sidecar keeps the harness session under a private runtime home (#1360); those receipts read `no-transcript`.
+A provider-backed leaf whose model provider refuses its turn for capacity now pauses and continues instead of settling `down`.
+It keeps its environment, waits by the driver's pause rule (15 s, doubling to 5 min), and continues in the same environment and harness session.
+The continuation tells the leaf to pick up where it stopped; it names neither the provider nor the refusal.
+Each continuation is the leaf's next invocation: an `execution-input`, its own admissions, and its own result, the way an owner's later drive is journaled.
+Each pause is a `paused` spawn event on the leaf, and each result carries the leaf's spend so far; a continuation counts no iteration.
+Only the leaf's deadline, cancellation and budget end its pauses.
+A process that stops during a continuation recovers that invocation in the same environment.
+`ProviderExecutorOptions.unavailablePause` sets the pause, and `false` ends a leaf on the refused turn as before.
+It applies to a retained provider execution under a Scope, the path a supervised leaf takes on a provider that declares `retainedControl`, and not with workspace retention.
+The refusal codes and the pause rule moved to one module that the driver and the leaf both read; `UnavailablePausePolicy` is exported.
+Measured 2026-09-24 on play anomaly-referee-v3d: 15 of 23 down children ended on `provider_quota_exhausted`, and in one lead lane five of five children had run 3 to 9 minutes and spent 117k to 856k input tokens first.
 
 Many workers can now share one Sandbox box.
 `sharedBoxPlacement({ client, box?, workersPerBox? })` runs each accepted worker as its own `opencode run` process in a pooled box, with its own working directory, HOME and materialized profile.
@@ -23,10 +28,28 @@ The pool fills a box before it creates the next, deletes a box when its last wor
 Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.
 Measured 2026-09-24: 64 workers in 8 boxes, 64 of 64 answering from their own instructions and brief, each transcript carrying only its own worker's text, 41.5 s wall; 16 workers in dedicated boxes took 16 boxes and 92 s.
 Sidecar sessions were not used for this, because 7 of 8 concurrent sessions in one box answered with another session's instructions.
+A shared worker does not yet take the leaf pause above: the pool declares no `retainedControl`, so a capacity refusal still settles a shared leaf `down`.
 
 opencode transcript capture now reads the sidecar's per-session records under `.opencode/sessions` and `.opencode/messages`, and a shared worker's `opencode export`.
 Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
-For opencode in a dedicated Tangle box this ends the `no-transcript` receipts described above: 12 of 12 successful dedicated workers captured their transcript. Claude Code and Codex boxes still read `no-transcript` (#1360).
+For opencode in a dedicated Tangle box this ends the `no-transcript` receipts that 0.264.0 describes: 12 of 12 successful dedicated workers captured their transcript. Claude Code and Codex boxes still read `no-transcript` (#1360).
+
+## 0.264.0
+
+Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.
+Sandbox 0.51.0 adds `sandbox.lines` for phone lines on a sandbox; Runtime does not call that API itself.
+
+The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses a driver too: an operator restores the credential, and the agent can only wait.
+The caller's own key refused (401 `invalid_api_key`) stays terminal.
+`DriverLoopRecord.unavailableMs` is every pause plus every refused drive that made no progress; 0.263.0 counted every refused drive's whole duration.
+Both reached `main` after `v0.263.0` was tagged.
+
+A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
+`driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
+`Agent` gains the optional `harnessTranscript()` hook.
+Before, every nested manager settled `executor-exposes-no-transcript`: 545 of 545 settled managers in the Discovery fleet records of 2026-09-23/24.
+A consumer that reads manager receipts now sees the capture's real status or reason.
+In a Tangle box the capture still finds no session files, for managers and leaves alike, because the sidecar keeps the harness session under a private runtime home (#1360); those receipts read `no-transcript`.
 
 ## 0.263.0
 
@@ -37,9 +60,8 @@ A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`,
 It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
 The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
 Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
-The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`; `unavailableMs` is every pause plus every refused drive that made no progress.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
-The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses too: an operator restores the credential, and the agent can only wait. The caller's own key refused (401 `invalid_api_key`) stays terminal.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
 
 ## 0.262.0

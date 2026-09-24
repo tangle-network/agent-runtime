@@ -104,6 +104,7 @@ import {
 import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort } from './supervise/abortable'
 import { priceUnreceiptedWork } from './supervise/cost-estimate'
+import { errorText } from './supervise/error-message'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -137,9 +138,14 @@ import type {
   Spend,
   UsageEvent,
 } from './supervise/types'
+import {
+  type UnavailablePausePolicy,
+  unavailablePauseMs,
+  unavailableSignalOfFailure,
+} from './supervise/upstream-unavailable'
 import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
 import type { LoopSandboxPlacement, SandboxClient, Validator } from './types'
-import { zeroTokenUsage } from './util'
+import { addSpend, addTokenUsage, cloneTokenUsage, sleep, zeroTokenUsage } from './util'
 
 // Keep this file loadable from the lean `./environment-provider` export without agent-eval installed.
 class ValidationError extends Error {
@@ -591,7 +597,32 @@ export interface ProviderExecutorOptions {
     specProfile: AgentProfile,
     defaultTurn: AgentTurnInput,
   ) => AgentTurnInput
+  /**
+   * How a supervised leaf waits out an upstream that cannot serve now.
+   *
+   * When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
+   * overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
+   * keeps its environment, pauses, and continues in the same environment and session with a
+   * short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
+   * (15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
+   * the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`
+   * spawn event, and each continuation as the node's next `execution-input`.
+   *
+   * Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
+   * that declares `retainedControl`, and not with `workspaceRetention`. `false` ends the execution
+   * on the refused turn.
+   */
+  unavailablePause?: UnavailablePausePolicy | false
 }
+
+/** What a leaf is told when it continues after a refused turn. The session carries its
+ *  conversation and the environment its files, so the instruction names neither the provider nor
+ *  the refusal: a director told the details of a provider failure spent its children probing the
+ *  infrastructure (discovery-lab AGENTS.md, measured 2026-09-11). */
+export const LEAF_CONTINUATION_TASK =
+  'Your previous turn was interrupted before it finished. This is the same task in the same ' +
+  'session: your conversation so far and the files in your workspace are where you left them. ' +
+  'Continue from where you stopped. Do not start over.'
 
 /**
  * Merge the declared turn defaults under one mapped turn.
@@ -956,67 +987,130 @@ function createProviderExecutor(
     beginWorkspaceExecution()
     const linked = linkAbort(ctx.signal, signal, controller.signal)
     try {
-      yield* streamProviderExecutor({
-        provider,
-        profile,
-        createProfile,
-        task,
-        signal: linked.signal,
-        ...(node === undefined ? {} : { node }),
-        options,
-        retention,
-        executionId,
-        trace,
-        recovering,
-        onRetained: (handle) => {
-          retained = handle
-        },
-        onPending: (value) => {
-          pending = value
-        },
-        onEnvironment: (env) => {
-          environment = env
-          resetWorkspaceState(env)
-          // A box now exists, so `execution-never-started` has stopped being true. Until the
-          // capture reports, the honest answer is that nobody read it.
-          if (
-            harnessTranscript.status === 'unavailable' &&
-            harnessTranscript.reason === 'execution-never-started'
-          ) {
-            harnessTranscript = harnessTranscriptUnavailable('capture-did-not-run')
-          }
-          // `create` resolved, so the environment identity the provider issued is now evidence. It
-          // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
-          // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
-          // re-prompted attempt in a new environment changed `materializationPlanDigest` and was
-          // refused as a changed materialization even after #1230 excused `execution.id`. Measured
-          // on mech-interp-foundations-pi-20260915i under 0.225.5, which was the first guard able to
-          // name the field. The admission events already record which environment served each
-          // attempt; nothing reads the id from the plan.
-          finalizeRuntimeOwnedPendingExecutor(
-            executor,
-            {
-              ...plannedDeclaration,
-              execution: { kind: 'environment', id: env.id },
-            },
-            plannedBinding,
+      // One execution is one or more invocations: the first runs `task`; a later one continues it
+      // in the same environment after the upstream refused a turn for capacity.
+      const executionStartedAt = Date.now()
+      let invocation: {
+        task: unknown
+        retention: RetainedExecutorContext | undefined
+        executionId: string
+        recovering: boolean
+      } = { task, retention, executionId, recovering }
+      let carried: Spend | undefined
+      let refusalsInARow = 0
+      for (let attempt = 1; ; attempt += 1) {
+        const continued = carried !== undefined
+        const ended = yield* streamProviderExecutor({
+          provider,
+          profile,
+          createProfile,
+          task: invocation.task,
+          signal: linked.signal,
+          ...(node === undefined ? {} : { node }),
+          options,
+          retention: invocation.retention,
+          executionId: invocation.executionId,
+          trace,
+          recovering: invocation.recovering,
+          ...(carried === undefined ? {} : { carried }),
+          executionStartedAt,
+          mayContinue:
+            options.unavailablePause !== false &&
+            options.workspaceRetention === undefined &&
+            invocation.retention?.continueInvocation !== undefined,
+          onRetained: (handle) => {
+            retained = handle
+          },
+          onPending: (value) => {
+            pending = value
+          },
+          onEnvironment: (env) => {
+            if (continued) {
+              // A continuation runs in the environment the execution already materialized in; a
+              // different one would be a different execution, which the receipt cannot name.
+              if (env.id !== environment?.id) {
+                throw new ValidationError(
+                  `providerAsExecutor(${provider.name}): a continuation ran in environment ${env.id}, not ${environment?.id ?? '<none>'}`,
+                )
+              }
+              environment = env
+              return
+            }
+            environment = env
+            resetWorkspaceState(env)
+            // A box now exists, so `execution-never-started` has stopped being true. Until the
+            // capture reports, the honest answer is that nobody read it.
+            if (
+              harnessTranscript.status === 'unavailable' &&
+              harnessTranscript.reason === 'execution-never-started'
+            ) {
+              harnessTranscript = harnessTranscriptUnavailable('capture-did-not-run')
+            }
+            // `create` resolved, so the environment identity the provider issued is now evidence. It
+            // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
+            // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
+            // re-prompted attempt in a new environment changed `materializationPlanDigest` and was
+            // refused as a changed materialization even after #1230 excused `execution.id`. Measured
+            // on mech-interp-foundations-pi-20260915i under 0.225.5, which was the first guard able to
+            // name the field. The admission events already record which environment served each
+            // attempt; nothing reads the id from the plan.
+            finalizeRuntimeOwnedPendingExecutor(
+              executor,
+              {
+                ...plannedDeclaration,
+                execution: { kind: 'environment', id: env.id },
+              },
+              plannedBinding,
+            )
+          },
+          onArtifact: (next) => {
+            artifact = next
+          },
+          onHarnessTranscript: (next) => {
+            harnessTranscript = next
+          },
+          onUnsettledFailure: () => {
+            workspacePreservationRequired = true
+          },
+          onPublishedSnapshot: (snapshot) => {
+            workspacePublishedSnapshot = snapshot
+          },
+          captureWorkspace,
+          destroyEnvironment,
+        })
+        const refusal = ended.unavailable
+        const continueInvocation = invocation.retention?.continueInvocation
+        if (refusal === undefined || continueInvocation === undefined) return
+        // The same pause rule a driver follows: doubling per refusal in a row, restarting after a
+        // refused turn that still did work. Only the deadline, cancellation and budget end it.
+        refusalsInARow = ended.madeProgress ? 1 : refusalsInARow + 1
+        const pauseMs = unavailablePauseMs(refusalsInARow, options.unavailablePause || {})
+        await invocation.retention?.onPause?.({
+          attempt,
+          signal: refusal.signal,
+          cause: refusal.cause,
+          attemptMs: ended.durationMs,
+          pauseMs,
+          madeProgress: ended.madeProgress,
+        })
+        await sleep(pauseMs, linked.signal)
+        // Cancelled or past its deadline during the pause: the refused turn's committed result is
+        // the execution's outcome, and the kept environment is released by teardown.
+        linked.signal.throwIfAborted()
+        const next = await continueInvocation(LEAF_CONTINUATION_TASK)
+        if (next.executionId === undefined) {
+          throw new ValidationError(
+            `providerAsExecutor(${provider.name}): a continuation has no execution id of its own`,
           )
-        },
-        onArtifact: (next) => {
-          artifact = next
-        },
-        onHarnessTranscript: (next) => {
-          harnessTranscript = next
-        },
-        onUnsettledFailure: () => {
-          workspacePreservationRequired = true
-        },
-        onPublishedSnapshot: (snapshot) => {
-          workspacePublishedSnapshot = snapshot
-        },
-        captureWorkspace,
-        destroyEnvironment,
-      })
+        }
+        carried = ended.spent
+        invocation = {
+          task: LEAF_CONTINUATION_TASK,
+          retention: next,
+          executionId: next.executionId,
+          recovering: false,
+        }
+      }
     } finally {
       linked.release()
       workspaceRunActive = false
@@ -1229,6 +1323,18 @@ interface StreamProviderExecutorArgs {
   executionId: string
   trace: ReturnType<typeof createPushTraceSource>
   recovering: boolean
+  /** The spend of this execution's earlier invocations. This invocation's cumulative token
+   *  events and its settled spend continue from it, because the conserved pool reads one
+   *  execution's totals and refuses a cumulative total that decreases. Absent for a first
+   *  invocation. */
+  carried?: Spend
+  /** When the execution's first invocation started: a continued execution settles its whole
+   *  duration, pauses included. */
+  executionStartedAt: number
+  /** Whether a refusal for capacity may end this invocation with its environment kept, for the
+   *  caller to continue (`ProviderExecutorOptions.unavailablePause`). Only a retained source
+   *  continues, because only it journals each invocation. */
+  mayContinue: boolean
   onRetained: (handle: RetainedRunHandle) => void
   onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
@@ -1245,9 +1351,20 @@ interface StreamProviderExecutorArgs {
   onHarnessTranscript: (capture: HarnessTranscriptCapture) => void
 }
 
+/** How one invocation ended, for the executor that may continue it. */
+interface ProviderInvocationEnd {
+  /** The upstream refused the turn for capacity, and the environment was kept to continue in. */
+  readonly unavailable?: { readonly signal: string; readonly cause: string }
+  /** The execution's spend so far, this invocation included. */
+  readonly spent?: Spend
+  /** Whether this invocation itself spent anything before it ended. */
+  readonly madeProgress: boolean
+  readonly durationMs: number
+}
+
 async function* streamProviderExecutor(
   args: StreamProviderExecutorArgs,
-): AsyncIterable<UsageEvent> {
+): AsyncGenerator<UsageEvent, ProviderInvocationEnd, undefined> {
   const started = Date.now()
   const linked = args.signal
   // READINESS IS THE PROVIDER'S CONTRACT. `create` resolves with an environment that can take a
@@ -1307,6 +1424,8 @@ async function* streamProviderExecutor(
   // turn that failed for its own reasons.
   let failure: unknown
   let failed = false
+  // Set when the turn was refused for capacity and the caller will continue in this environment.
+  let unavailable: ProviderInvocationEnd['unavailable']
   try {
     const toolParts = createSandboxToolPartState()
     for await (const event of source.events) {
@@ -1377,7 +1496,8 @@ async function* streamProviderExecutor(
         `providerAsExecutor(${args.provider.name}): stream ended without a terminal result/done/status event`,
       )
     }
-    yield { kind: 'iteration' }
+    // A continuation finishes the iteration its refused turn began, so it counts none of its own.
+    if (args.carried === undefined) yield { kind: 'iteration' }
     // Read the child's own harness transcript while the environment is still live. The
     // `finally` below destroys it, and nothing used to read these files first, so a child's
     // Claude Code / Codex / OpenCode session never reached a run record: the `trace` receipt
@@ -1416,6 +1536,13 @@ async function* streamProviderExecutor(
       ...(sawCostEstimate ? { usdEstimated } : {}),
       ms: Date.now() - started,
     }
+    const executionSpent: Spend =
+      args.carried === undefined
+        ? spent
+        : {
+            ...addSpend(args.carried, { ...spent, iterations: 0 }),
+            ms: Date.now() - args.executionStartedAt,
+          }
     // Scored HERE, before the `finally` destroys the environment: a validator that reads a file or
     // runs a command needs the environment it is scoring to still exist. Every other supervised
     // hook fires after teardown and can only read the artifact.
@@ -1447,7 +1574,17 @@ async function* streamProviderExecutor(
       outRef: contentRef(`provider:${args.provider.name}`, settledResult),
       out: settledResult,
       ...(verdict ? { verdict } : {}),
-      spent,
+      spent: executionSpent,
+    }
+    const refusal =
+      args.mayContinue && source.retained && result.outcome?.status === 'failed'
+        ? unavailableSignalOfFailure({
+            error: result.outcome.error ?? '',
+            ...(result.outcome.errorCode ? { errorCode: result.outcome.errorCode } : {}),
+          })
+        : undefined
+    if (refusal !== undefined) {
+      unavailable = { signal: refusal, cause: errorText(result.outcome?.error ?? '') }
     }
     if (source.retained) await args.retention?.onResult(settled)
     args.onPending(false)
@@ -1497,6 +1634,8 @@ async function* streamProviderExecutor(
     if (
       (!source.retained || (settled !== undefined && !failed)) &&
       !(source.retained && args.retention?.preserveEnvironment) &&
+      // A refused turn keeps its environment: the executor continues in it.
+      !(unavailable !== undefined && !failed) &&
       (args.options.destroyOnSettle ?? true)
     ) {
       const cleanup = await args.destroyEnvironment()
@@ -1535,6 +1674,12 @@ async function* streamProviderExecutor(
     }
   }
   if (failed) throw failure
+  return {
+    ...(unavailable === undefined ? {} : { unavailable }),
+    ...(settled === undefined ? {} : { spent: settled.spent }),
+    madeProgress: tokens.input > 0 || tokens.output > 0 || usd > 0,
+    durationMs: Date.now() - started,
+  }
 
   /**
    * The catalog price of this execution's whole token total, under the first model id the catalog
@@ -1556,6 +1701,15 @@ async function* streamProviderExecutor(
       if (priced.usdKnown === false && priced.usdEstimated !== undefined) return priced.usdEstimated
     }
     return undefined
+  }
+
+  /** This invocation's cumulative tokens as the execution's: a continuation adds what its earlier
+   *  invocations already reported. */
+  function executionTokens(own: ReturnType<typeof usageLedger.tokenUsage>) {
+    if (args.carried === undefined) return own
+    const total = cloneTokenUsage(args.carried.tokens)
+    addTokenUsage(total, own)
+    return total
   }
 
   function* creditUsage(
@@ -1584,7 +1738,7 @@ async function* streamProviderExecutor(
       yield {
         kind: 'tokens',
         mode: 'cumulative',
-        ...tokens,
+        ...executionTokens(tokens),
         ...(receipt.tokensKnown === false ? { tokensKnown: false } : {}),
       }
     }

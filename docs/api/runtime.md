@@ -4416,6 +4416,26 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 
 `AgentTurnInput`
 
+##### unavailablePause?
+
+> `optional` **unavailablePause?**: `false` \| [`UnavailablePausePolicy`](#unavailablepausepolicy)
+
+**`Experimental`**
+
+How a supervised leaf waits out an upstream that cannot serve now.
+
+When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
+overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
+keeps its environment, pauses, and continues in the same environment and session with a
+short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
+(15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
+the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`
+spawn event, and each continuation as the node's next `execution-input`.
+
+Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
+that declares `retainedControl`, and not with `workspaceRetention`. `false` ends the execution
+on the refused turn.
+
 ***
 
 ### HarnessTranscriptFile
@@ -14691,6 +14711,10 @@ Fleet level: max live sandboxes/boxes across the host process (a `ComputeGoverno
 How hard the root driver is retried after a transient failure. The defaults retry; a caller
  that wants the pre-#741 behavior sets `enabled: false` and owns the consequence.
 
+#### Extends
+
+- [`UnavailablePausePolicy`](#unavailablepausepolicy)
+
 #### Properties
 
 ##### enabled?
@@ -14730,16 +14754,22 @@ Ceiling on the doubling. Default 30000ms.
 
 > `readonly` `optional` **unavailablePauseMs?**: `number`
 
-Pause before re-entering after the upstream was unavailable (see
- [upstreamUnavailableSignal](#upstreamunavailablesignal)), doubling per consecutive pause. Default 15000ms. A pause
- is not a failure: it consumes neither `maxAttempts` nor `maxConsecutiveFailures`.
+The first pause, doubling per consecutive refusal. Default 15000ms.
+
+###### Inherited from
+
+[`UnavailablePausePolicy`](#unavailablepausepolicy).[`unavailablePauseMs`](#unavailablepausems-1)
 
 ##### maxUnavailablePauseMs?
 
 > `readonly` `optional` **maxUnavailablePauseMs?**: `number`
 
-Ceiling on the pause doubling. Default 300000ms, so a long outage costs at most twelve
- re-entries an hour.
+Ceiling on the doubling. Default 300000ms, so a long outage costs at most twelve turns an
+ hour.
+
+###### Inherited from
+
+[`UnavailablePausePolicy`](#unavailablepausepolicy).[`maxUnavailablePauseMs`](#maxunavailablepausems-1)
 
 ***
 
@@ -19045,6 +19075,28 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`taskToTurn`](#tasktoturn)
+
+##### unavailablePause?
+
+> `optional` **unavailablePause?**: `false` \| [`UnavailablePausePolicy`](#unavailablepausepolicy)
+
+How a supervised leaf waits out an upstream that cannot serve now.
+
+When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
+overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
+keeps its environment, pauses, and continues in the same environment and session with a
+short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
+(15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
+the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`
+spawn event, and each continuation as the node's next `execution-input`.
+
+Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
+that declares `retainedControl`, and not with `workspaceRetention`. `false` ends the execution
+on the refused turn.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`unavailablePause`](#unavailablepause)
 
 ##### provider
 
@@ -24882,6 +24934,33 @@ Total regular-file bytes enumerated (pre-copy, so the size warning fires first).
 ###### Returns
 
 `void`
+
+***
+
+### UnavailablePausePolicy
+
+How long an agent waits after its upstream refused a turn for capacity: the codes and
+ statuses `upstreamUnavailableSignal` reads. A pause is not a failure: a driver spends neither
+ `maxAttempts` nor `maxConsecutiveFailures` on it.
+
+#### Extended by
+
+- [`DriverRetryPolicy`](#driverretrypolicy)
+
+#### Properties
+
+##### unavailablePauseMs?
+
+> `readonly` `optional` **unavailablePauseMs?**: `number`
+
+The first pause, doubling per consecutive refusal. Default 15000ms.
+
+##### maxUnavailablePauseMs?
+
+> `readonly` `optional` **maxUnavailablePauseMs?**: `number`
+
+Ceiling on the doubling. Default 300000ms, so a long outage costs at most twelve turns an
+ hour.
 
 ***
 
