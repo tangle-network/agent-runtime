@@ -212,20 +212,24 @@ describe('Eval peer window', () => {
     readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
   )
 
-  it('adds one earlier floor to the development pin and nothing past its minor', () => {
+  it('adds every earlier admitted minor to the development pin and nothing past it', () => {
     expect(peerWindowVersions(name, '>=0.183.0 <0.185.0', '0.184.0')).toEqual(['0.183.0'])
     expect(peerWindowVersions(name, '>=0.184.0 <0.185.0', '0.184.0')).toEqual([])
+    expect(peerWindowVersions(name, '>=0.185.0 <0.188.0', '0.187.0')).toEqual([
+      '0.185.0',
+      '0.186.0',
+    ])
     expect(() => peerWindowVersions(name, '>=0.183.0 <0.186.0', '0.184.0')).toThrow(
       /must end at its development minor: expected >=0\.183\.0 <0\.185\.0/,
     )
     expect(() => peerWindowVersions(name, '>=0.183.0 <0.184.0', '0.184.0')).toThrow(
       /must end at its development minor/,
     )
-    expect(() => peerWindowVersions(name, '>=0.182.0 <0.185.0', '0.184.0')).toThrow(
-      /reaches back more than one minor/,
+    expect(() => peerWindowVersions(name, '>=0.181.0 <0.185.0', '0.184.0')).toThrow(
+      /reaches back more than two minors/,
     )
     expect(() => peerWindowVersions(name, '>=0.99.0 <1.1.0', '1.0.0')).toThrow(
-      /reaches back more than one minor/,
+      /reaches back more than two minors/,
     )
     expect(() => peerWindowVersions(name, '>=0.183.0 <0.185.0', '>=0.184.0')).toThrow(
       /must be developed against an exact stable version/,
