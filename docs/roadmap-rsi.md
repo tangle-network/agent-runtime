@@ -21,11 +21,11 @@ Use the canonical experiment scope when choosing a different order or testing in
 > (`src/runtime/supervise/`), plus `runAgentic`/`defineStrategy`/`runPersonified`
 > (`strategy.ts`/`persona.ts`); the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
 > one leaf backend. **Gate A's +16.4pp anchor was
-> RETRACTED to a TIE at power.** On the canonical `Scope`/`Supervisor` + `observe()` +
+> retracted as a confirmed gain; the larger follow-up is inconclusive.** On the canonical `Scope`/`Supervisor` + `observe()` +
 > `defineStrategy` loop the n=16 EOPS-itsm signal (depth +16.4pp CI [+5.3, +29.8], 6W/0L,
 > deepseek-v4-pro; +8.3pp disjoint) did **not** replicate: at n=48 depth−breadth = +4.7pp
-> CI [−1.9, +11.4] (a tie; +4.1pp at n=72) — an underpowered overestimate, at most a small
-> effect. The program has pivoted off this anchor (`.evolve/current.json`). It remains
+> CI [−1.9, +11.4] (+4.1pp at n=72). The n=48 interval includes both zero and a useful gain.
+> It cannot establish superiority or equivalence. The program pivoted off this anchor (`.evolve/current.json`). It remains
 > domain-bounded: negative on stateless retrieval (FinSearchComp),
 > null-to-negative on stateless codegen (HumanEval; exec-grounded repair −17.1pp). The
 > live optimization portfolio is
@@ -36,6 +36,13 @@ Use the canonical experiment scope when choosing a different order or testing in
 > `promotionGate` (`src/runtime/promotion-gate.ts`) flow — standing that runner up over those
 > primitives is the open work. Per-phase status is in the phase map.
 
+Report `pass@1` and `pass^k` for every repeated task family, with the chosen `k` and independent task counts.
+Here `pass^k` is the share of tasks whose checked outcome succeeds on every one of `k` capped attempts.
+Report total search, validation, deployment, and serving cost, then divide by verified successful tasks with the denominator shown.
+When there are no verified successes, report cost per success as undefined rather than zero.
+For promotion, the conservative lower bound on added verified-outcome value over the registered horizon must exceed search, validation, and deployment cost.
+Apply this economic rule alongside the unchanged outcome, safety, latency, and cost guardrails.
+
 ---
 
 ## Phase map
@@ -44,7 +51,7 @@ Use the canonical experiment scope when choosing a different order or testing in
 |---|---|---|---|---|---|
 | **0** | Honest baseline + preconditions (no kernel change) | — | Every runner reports `random@k` at equal k; corpus has a measurable discordant-pair rate | low | **done** — `runPool` landed (`bench/src/run-pool.ts`); the corpus + `corpus-report.mts` BH-FDR path is the `random@k`-control measurement surface |
 | **1** | Deployable non-oracle selector | 0 | `selector@k > random@k` significant (paired bootstrap + BH), low test-retest flip rate, on a frozen held-out split | low–med | **built + measured** — verifier-grounded selector positive on HumanEval (+12pp verifier−sc CI [+4,+22] / +18pp random−blind, BH-sig, n=50 k=4); answer-agreement negative (finsearch −8.2pp, aec −9.4pp) |
-| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A**: compare within-run steering under the [canonical experiment scope](./architecture.md#9-build-order-and-experiment-scope) | med | the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools`); Gate A itself **ran on the Supervisor substrate, then RETRACTED to a tie at power** (header note) |
+| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A**: compare within-run steering under the [canonical experiment scope](./architecture.md#9-build-order-and-experiment-scope) | med | the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools`); the n=48 Gate A interval is inconclusive (header note) |
 | **3** | Grow the ISA (`select` then `seq`) | 2 | A strategy expressing `select`/`seq` beats a flat one on the same harness | med (3a) / high (3b) | **superseded** — `defineStrategy` (`src/runtime/strategy.ts`) is the richer program space: a strategy is ordinary code with arbitrary sequencing and branching |
 | **4** | Acquisition adapter (research use case) | 0, 1 (parallel to 2) | Active acquisition beats random acquisition on the deployable coverage-vs-budget curve under a *structural* gap signal | med–high | open |
 
@@ -80,7 +87,7 @@ The load-bearing edge. **Status: lives on the agent-driver.** The diagnosis→de
 **Exit criterion — Gate A.** `refine@k-with-findings > random@k` at equal actual resources under the Phase-1 selector, with statistical support and repeatable selection.
 Apply [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) when interpreting a result below the useful threshold.
 
-**Gate A status: TIE at power (POWER-16), on the `Scope`/`Supervisor` substrate** — the n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) collapsed to depth−breadth +4.7pp CI [−1.9, +11.4] at n=48 (header note). At most a small effect, not a cleared keystone; the program pivoted off it.
+**Gate A status: inconclusive at n=48 (POWER-16), on the `Scope`/`Supervisor` substrate.** The n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) did not remain a confirmed gain: depth−breadth was +4.7pp, CI [−1.9, +11.4], at n=48 (header note). The interval does not rule out a useful gain or zero; the program pivoted off this anchor.
 
 ## Phase 3 — Grow the ISA (program synthesis)
 
