@@ -919,6 +919,10 @@ export interface SpawnOpts {
    * (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
    */
   readonly key?: string
+  /** The settled sibling node this spawn replaces, so a run's record names which worker took over
+   *  whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits only
+   *  a settled worker of the same manager. Journaled on `spawned` and on the `agent.spawn` hook. */
+  readonly successorOf?: NodeId
 }
 
 /** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
@@ -1350,6 +1354,8 @@ export type SpawnEvent =
       key?: string
       /** Manager-scoped assignment identity used to join unkeyed and keyed work alike. */
       assignmentId?: string
+      /** The settled sibling node this spawn replaces (`SpawnOpts.successorOf`). */
+      successorOf?: NodeId
       budget: Budget
       runtime: Runtime
       /** Exact nested journal tree this node owns. Runtime writes this only after privately

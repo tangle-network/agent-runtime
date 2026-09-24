@@ -739,6 +739,12 @@ export interface WorkerSpawnContext {
   readonly continuity?: ContinuityMode
   /** Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches with. */
   readonly resume?: WorkerResumeContext
+  /** The settled worker this spawn replaces, when the manager named one (`spawn_worker`'s
+   *  `successorOf`). Runtime admits only a settled worker of the same manager and journals the
+   *  relation on the new node, so the run record shows who took over whose work. A seam may read
+   *  it to hand the successor its predecessor's workspace or retained output; Runtime mounts
+   *  nothing on its behalf. Independent of `resume`, which re-attaches the same node's session. */
+  readonly successorOf?: string
   /**
    * The PEER MAIL capability endpoint minted for this exact spawn, when the run enabled peer mail
    * ({@link CoordinationToolsOptions.peerMail}). It serves `send_mail` / `read_mail` and nothing
@@ -2965,6 +2971,16 @@ export function createCoordinationToolsForManager(
               "run-once, resume runs again). Omit to use the run's declared default for this " +
               'profile name.',
           },
+          successorOf: {
+            type: 'string',
+            description:
+              'The workerId of a SETTLED worker you spawned that this new worker replaces — for ' +
+              'example one that failed, stalled, or finished with a weak result, restarted with a ' +
+              'changed profile or task. The run record then names the predecessor on the new ' +
+              'worker. Refused for an id you did not spawn (`error: "successor-unknown"`) and for ' +
+              'a worker still live (`error: "successor-live"` — await_event until it settles). ' +
+              'Put what the successor needs from its predecessor in `task`.',
+          },
           budget: {
             type: 'object',
             description:
@@ -3062,6 +3078,29 @@ export function createCoordinationToolsForManager(
             freeSlots: freeWorkerSlots(),
           })
         }
+        // A successor names a settled worker of this manager, so the relation the journal records
+        // is true: never an unknown id, and never a worker still running beside its replacement.
+        const successorOf =
+          a.successorOf === undefined ? undefined : str(a.successorOf, 'successorOf')
+        if (successorOf !== undefined) {
+          const predecessor = nodeForWorker(successorOf)
+          if (predecessor === undefined || predecessor.parent !== opts.scope.view.root) {
+            return {
+              error: 'successor-unknown' as const,
+              reason: `'${successorOf}' is not a worker this manager spawned — successorOf takes a workerId from one of your own spawn_worker results`,
+              live: liveWorkerCount(),
+              freeSlots: freeWorkerSlots(),
+            }
+          }
+          if (isLiveNodeStatus(predecessor.status)) {
+            return {
+              error: 'successor-live' as const,
+              reason: `worker '${successorOf}' has not settled — await_event until it does, then spawn its successor (steer_agent redirects a live worker instead)`,
+              live: liveWorkerCount(),
+              freeSlots: freeWorkerSlots(),
+            }
+          }
+        }
         const task = detachedFrozen(a.task)
         const label = typeof a.label === 'string' ? a.label : 'worker'
         // The ONE pre-journal point that may ask the backend a question: everything below —
@@ -3107,6 +3146,7 @@ export function createCoordinationToolsForManager(
           ...(key !== undefined ? { key } : {}),
           continuity: continuity.continuity,
           ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
+          ...(successorOf !== undefined ? { successorOf } : {}),
           ...(peerMailUrl !== undefined ? { peerMailUrl } : {}),
         })
         const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
@@ -3114,6 +3154,7 @@ export function createCoordinationToolsForManager(
           label,
           assignmentId,
           ...(key !== undefined ? { key } : {}),
+          ...(successorOf !== undefined ? { successorOf } : {}),
         })
         // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
         // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
@@ -3178,6 +3219,7 @@ export function createCoordinationToolsForManager(
                 // re-attached — so the driver's transcript states how the node continued.
                 continuity: continuity.continuity,
                 ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
+                ...(successorOf !== undefined ? { successorOf } : {}),
                 live: liveWorkerCount(),
                 freeSlots: freeWorkerSlots(),
                 ...priorHistory,
