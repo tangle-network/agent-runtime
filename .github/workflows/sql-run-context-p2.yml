@@ -10,7 +10,7 @@ permissions:
   contents: read
 jobs:
   conformance:
-    if: github.head_ref == 'pro/sql-run-context/p2'
+    if: github.head_ref == 'pro/sql-run-context/p2' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Capture exact source for offline reproduction
         run: tar --exclude=.git --exclude=node_modules -czf /tmp/sql-p2-source.tgz .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sql-p2-source
           path: /tmp/sql-p2-source.tgz
@@ -31,5 +31,17 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Capture locked dependencies (no repository or credential files)
+        run: |
+          npm pack pnpm@11.17.0 --pack-destination /tmp
+          tar -czf /tmp/sql-p2-deps.tgz node_modules bench/node_modules
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sql-p2-deps
+          path: |
+            /tmp/sql-p2-deps.tgz
+            /tmp/pnpm-11.17.0.tgz
+          retention-days: 1
+          compression-level: 0
       - name: SQL kill and resume conformance
         run: pnpm exec vitest run tests/durability/sql-run-context.test.ts tests/durability/sql-graph-kill-resume.test.ts
