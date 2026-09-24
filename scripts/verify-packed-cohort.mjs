@@ -71,7 +71,7 @@ if (values.help) {
       '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
       '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
       '  --sandbox-repo <path>          Clean ADC Git checkout for the pending Sandbox release',
-      '  --sandbox-archive <path>       Publisher-built Sandbox archive for the pending release',
+      '  --sandbox-archive <path>       Sandbox 0.49.0 archive or prerelease at that base',
       '  --cohort-manifest <path>       Require dependency versions and commits from this manifest',
       '  --keep-temp                    Retain the generated archives and consumer',
       '  --report <path>                Also write the verified cohort report to this file',
@@ -167,10 +167,17 @@ try {
     : values['sandbox-archive']
       ? useSandboxArchive(values['sandbox-archive'])
     : packRegistrySandbox(sandboxCompatibilityVersions.at(-1))
-  if (sandboxCandidate.version !== sandboxCompatibilityVersions.at(-1)) {
+  const latestSandboxVersion = sandboxCompatibilityVersions.at(-1)
+  if (
+    sandboxCandidate.version !== latestSandboxVersion &&
+    !sandboxCandidate.version.startsWith(`${latestSandboxVersion}-`)
+  ) {
     throw new Error(
-      `Sandbox candidate is ${sandboxCandidate.version}, expected ${sandboxCompatibilityVersions.at(-1)}`,
+      `Sandbox candidate is ${sandboxCandidate.version}, expected ${latestSandboxVersion} or its prerelease`,
     )
+  }
+  if (!rangeAdmits(agentRuntime.packageJson.peerDependencies?.[SANDBOX_PACKAGE], sandboxCandidate.version)) {
+    throw new Error(`Runtime peer does not admit Sandbox candidate ${sandboxCandidate.version}`)
   }
   registerArtifact(sandboxCandidate)
   const consumer = verifyConsumer(artifacts, sandboxCandidate)
@@ -366,7 +373,6 @@ function useSandboxArchive(sourcePath) {
   copyFileSync(archivePath, destination)
   return inspectArchive({
     packageName: SANDBOX_PACKAGE,
-    expectedVersion: sandboxCompatibilityVersions.at(-1),
     sourceCommit: null,
     archivePath: destination,
   })
@@ -401,7 +407,10 @@ function inspectArchive({ packageName, expectedVersion, sourceCommit, archivePat
   const packedPackageJson = JSON.parse(
     readFileSync(join(extractedPackageDir, 'package.json'), 'utf8'),
   )
-  if (packedPackageJson.name !== packageName || packedPackageJson.version !== expectedVersion) {
+  if (
+    packedPackageJson.name !== packageName ||
+    (expectedVersion !== undefined && packedPackageJson.version !== expectedVersion)
+  ) {
     throw new Error(
       `${packageName} archive identity changed: ${packedPackageJson.name}@${packedPackageJson.version}`,
     )
@@ -433,8 +442,11 @@ function verifyConsumer(artifacts, sandboxCandidate) {
   // Every Sandbox version runs with the packed Eval. Each earlier Eval minor that Runtime's
   // peer window admits runs from the registry beside the newest verified Sandbox.
   const latestSandboxVersion = sandboxCompatibilityVersions.at(-1)
+  const sandboxVersions = sandboxCandidate.version === latestSandboxVersion
+    ? sandboxCompatibilityVersions
+    : [...sandboxCompatibilityVersions, sandboxCandidate.version]
   const consumers = [
-    ...sandboxCompatibilityVersions.map((sandboxVersion) =>
+    ...sandboxVersions.map((sandboxVersion) =>
       verifyConsumerFor(artifacts, { sandboxVersion, sandboxCandidate }),
     ),
     ...evalCompatibilityVersions.map((registryEvalVersion) =>
@@ -448,7 +460,7 @@ function verifyConsumer(artifacts, sandboxCandidate) {
   return {
     install: 'pnpm install --frozen-lockfile',
     packageCount: artifacts.length,
-    sandboxVersions: sandboxCompatibilityVersions,
+    sandboxVersions,
     registryEvalVersions: evalCompatibilityVersions,
     exactArchiveResolution: consumers.every(({ exactArchiveResolution }) => exactArchiveResolution),
     publicImportCount: consumers.reduce(

@@ -72,6 +72,17 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0', '0.48.0')).toBe(false)
   })
 
+  it('admits prereleases only at the declared caret base', () => {
+    const snapshot = '0.49.0-l9.20260924035255.062dd6f'
+    expect(rangeAdmits('^0.49.0', snapshot)).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, snapshot)).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.49.0')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.49.1-l9.1')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.48.0')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.50.0-0')).toBe(false)
+    expect(rangeAdmits('>=0.36.4 <0.48.0', '0.47.0-l9.1')).toBe(false)
+  })
+
   it('admits inside a minor window and refuses the next minor', () => {
     expect(rangeAdmits('>=0.145.21 <0.146.0', '0.145.22')).toBe(true)
     expect(rangeAdmits('>=0.145.21 <0.146.0', '0.145.20')).toBe(false)
