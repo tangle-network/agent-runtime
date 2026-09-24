@@ -21,6 +21,11 @@
  * dedicated box: {@link SharedBoxPlacement.refusal} names the profile features this placement
  * cannot carry, and Runtime then uses the dedicated provider.
  *
+ * The workers of one box share the box's router key. Each worker names itself to the router with
+ * the `x-tangle-client` header, which the router stores as `clientName` on every usage row, so a
+ * keeper can price one worker from the key's per-client rows (`tangle-admin router-spend --key
+ * <box key>`). A request without the header stays charged to the box.
+ *
  * `workersPerBox` is the one structural cap, and it protects the box. A Tangle box has a fixed
  * 512-task pids limit. An idle box uses about 118 tasks and one opencode worker about 34, so
  * twelve workers reach the limit. At that limit the sidecar's own process spawn fails with EAGAIN
@@ -66,6 +71,23 @@ const DEFAULT_WORKER_ROOT = '/home/agent/workers'
 const HARNESS = 'opencode'
 const SHARED_PROVIDER_NAME = 'tangle-shared-box'
 const DEFAULT_EXEC_TIMEOUT_MS = 120_000
+
+/** The request header the router records as a usage row's `clientName`. */
+export const ROUTER_CLIENT_HEADER = 'x-tangle-client'
+
+/**
+ * The router client name of the worker that runs supervised node `nodeId`.
+ *
+ * The node id is already in the spawn journal, so a keeper joins a router row to a node without
+ * a new record: the row whose `clientName` is `agent-runtime-node/<nodeId>` is that node's spend.
+ */
+export function sharedWorkerClientName(nodeId: string): string {
+  // A header value the router stores as sent: visible ASCII, no spaces.
+  if (!/^[!-~]+$/u.test(nodeId)) {
+    throw new ValidationError('sharedWorkerClientName: a node id must be visible ASCII')
+  }
+  return `agent-runtime-node/${nodeId}`
+}
 
 /**
  * Attempts for one Sandbox API call that failed on the way to the box.
@@ -185,10 +207,20 @@ export interface SharedBoxCloseReceipt {
   readonly error?: string
 }
 
+/** Who a shared worker is, for the router rows its model calls leave on the box's key. */
+export interface SharedWorkerIdentity {
+  /** The supervised node the worker runs. Absent for a worker outside a supervised tree. */
+  readonly nodeId?: string
+}
+
 /** A shared-box placement: the provider Runtime uses for a profile the placement accepts. */
 export interface SharedBoxPlacement {
-  /** The environment provider that places each accepted worker in a shared box. */
-  readonly provider: AgentEnvironmentProvider
+  /**
+   * The environment provider that places one accepted worker in a shared box. A worker with a
+   * `nodeId` sends `x-tangle-client: agent-runtime-node/<nodeId>` on its router calls; without
+   * one, its calls carry no client name and stay charged to the box.
+   */
+  providerFor(worker?: SharedWorkerIdentity): AgentEnvironmentProvider
   /** Public identity of this placement, recorded on every execution it serves. */
   readonly identity: { readonly id: string; readonly digest: string }
   /** Why a shared box cannot carry this profile, or `undefined` when it can. */
@@ -339,30 +371,34 @@ export function sharedBoxPlacement(options: SharedBoxPlacementOptions): SharedBo
   }
   const retryDelayMs = options.retryDelayMs ?? TRANSIENT_BASE_DELAY_MS
   const pool = createBoxPool(options.client, boxOptions, workersPerBox, retryDelayMs)
-  const client: SandboxClient = {
-    async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
-      const profile = workerProfile(createOptions)
-      const refusal = sharedBoxRefusal(profile)
-      if (refusal !== undefined) {
-        throw new ValidationError(`sharedBoxPlacement: ${refusal}`)
-      }
-      assertWorkerCreateOptions(createOptions)
-      const lease = await pool.acquire()
-      try {
-        const worker = await createWorker(lease, workerRoot, profile, retryDelayMs)
-        return worker as unknown as SandboxInstance
-      } catch (error) {
-        await lease.release()
-        throw error
-      }
-    },
+  const providerFor = (worker: SharedWorkerIdentity = {}): AgentEnvironmentProvider => {
+    const clientName =
+      worker.nodeId === undefined ? undefined : sharedWorkerClientName(worker.nodeId)
+    const client: SandboxClient = {
+      async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
+        const profile = workerProfile(createOptions)
+        const refusal = sharedBoxRefusal(profile)
+        if (refusal !== undefined) {
+          throw new ValidationError(`sharedBoxPlacement: ${refusal}`)
+        }
+        assertWorkerCreateOptions(createOptions)
+        const lease = await pool.acquire()
+        try {
+          const created = await createWorker(lease, workerRoot, profile, retryDelayMs, clientName)
+          return created as unknown as SandboxInstance
+        } catch (error) {
+          await lease.release()
+          throw error
+        }
+      },
+    }
+    return sandboxClientAsProvider(client, {
+      name: SHARED_PROVIDER_NAME,
+      capabilities: sharedBoxCapabilities(),
+    })
   }
-  const provider = sandboxClientAsProvider(client, {
-    name: SHARED_PROVIDER_NAME,
-    capabilities: sharedBoxCapabilities(),
-  })
   return {
-    provider,
+    providerFor,
     identity,
     refusal: sharedBoxRefusal,
     stats: () => pool.stats(),
@@ -628,6 +664,7 @@ async function createWorker(
   root: string,
   createProfile: AgentProfile,
   retryDelayMs: number,
+  clientName: string | undefined,
 ) {
   const box = resilientBox(lease.box, retryDelayMs)
   const workerId = `w-${randomUUID()}`
@@ -724,6 +761,7 @@ async function createWorker(
         turnProfile,
         message,
         options?.backend?.model,
+        clientName,
       )
       options?.signal?.throwIfAborted()
       const process = await run(launch.args, options?.timeoutMs ?? 0, {
@@ -901,6 +939,7 @@ async function materializeWorker(
   profile: AgentProfile,
   task: string,
   turnModel: Record<string, unknown> | undefined,
+  clientName: string | undefined,
 ): Promise<{ args: string[]; config: string; model: string }> {
   const refusal = sharedBoxRefusal(profile)
   if (refusal !== undefined) throw new ValidationError(`sharedBoxPlacement: ${refusal}`)
@@ -940,7 +979,11 @@ async function materializeWorker(
       [providerId]: {
         npm: '@ai-sdk/openai-compatible',
         name: providerId,
-        options: { baseURL, apiKey: `{env:${apiKeyEnv}}` },
+        options: {
+          baseURL,
+          apiKey: `{env:${apiKeyEnv}}`,
+          ...(clientName === undefined ? {} : { headers: { [ROUTER_CLIENT_HEADER]: clientName } }),
+        },
         models: { [modelId]: { name: modelId } },
       },
     },

@@ -524,14 +524,17 @@ export {
 export {
   DEFAULT_SHARED_BOX_RESOURCES,
   DEFAULT_SHARED_BOX_WORKERS,
+  ROUTER_CLIENT_HEADER,
   type SharedBoxCloseReceipt,
   type SharedBoxHandle,
   type SharedBoxPlacement,
   type SharedBoxPlacementOptions,
   type SharedBoxProcess,
   type SharedBoxStats,
+  type SharedWorkerIdentity,
   sharedBoxPlacement,
   sharedBoxRefusal,
+  sharedWorkerClientName,
 } from './shared-box'
 // Same-host stdio MCP: the ONE spawn+handshake connection (shared by the serve
 // verifier and the live consumers) + the profile.mcp materializer.

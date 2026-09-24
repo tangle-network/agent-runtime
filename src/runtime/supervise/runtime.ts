@@ -2406,7 +2406,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             ...turnOptions
           } = providerSeam
           return placedProviderExecutor(
-            shared.provider,
+            // The node id names this worker to the router on the box's shared key.
+            shared.providerFor(seamed.node === undefined ? {} : { nodeId: seamed.node.nodeId }),
             { ...turnOptions, profileForCreate: exactProfileForCreate },
             shared.identity,
           )(spec, seamed)

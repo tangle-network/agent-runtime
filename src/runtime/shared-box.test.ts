@@ -5,7 +5,12 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import type { SharedBoxHandle, SharedBoxProcess } from './shared-box'
-import { sharedBoxPlacement, sharedBoxRefusal } from './shared-box'
+import {
+  ROUTER_CLIENT_HEADER,
+  sharedBoxPlacement,
+  sharedBoxRefusal,
+  sharedWorkerClientName,
+} from './shared-box'
 import { createExecutor } from './supervise/runtime'
 import type { SandboxClient } from './types'
 
@@ -167,7 +172,7 @@ describe('sharedBoxPlacement', () => {
   it('runs each worker as its own opencode process in its own directory and HOME', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ALPHA'), exit: 0 }))
     const placement = sharedBoxPlacement({ client, workersPerBox: 4 })
-    const environment = await placement.provider.create({ profile: leaf() })
+    const environment = await placement.providerFor().create({ profile: leaf() })
     const events = []
     for await (const event of environment.stream({ prompt: 'what is your code word?' })) {
       events.push(event)
@@ -195,6 +200,8 @@ describe('sharedBoxPlacement', () => {
     const config = JSON.parse(run.options.env!.OPENCODE_CONFIG_CONTENT!)
     expect(config.instructions).toEqual([`${dir}/.opencode/profile-instructions.md`])
     expect(config.provider['tangle-router'].options.apiKey).toBe('{env:OPENCODE_MODEL_API_KEY}')
+    // No node, no client name: the worker's router calls stay charged to the box.
+    expect(config.provider['tangle-router'].options.headers).toBeUndefined()
     expect(box.files.get(`${dir}/.opencode/profile-instructions.md`)).toContain('ALPHA')
     expect(box.files.get(`${dir}/inputs/brief.md`)).toBe('# brief\n')
     // The harness's own session record lands where the transcript capture reads.
@@ -208,11 +215,36 @@ describe('sharedBoxPlacement', () => {
     expect(box.deleted).toBe(true)
   })
 
+  it('names each worker to the router by its node on the key its box shares', async () => {
+    const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ok'), exit: 0 }))
+    const placement = sharedBoxPlacement({ client })
+    for (const nodeId of ['node-a', 'node-b']) {
+      const environment = await placement.providerFor({ nodeId }).create({ profile: leaf() })
+      for await (const _ of environment.stream({ prompt: 'go' })) {
+        // drain
+      }
+    }
+    const headers = boxes[0]!.spawns
+      .filter((spawn) => spawn.args.includes('run'))
+      .map(
+        (spawn) =>
+          JSON.parse(spawn.options.env!.OPENCODE_CONFIG_CONTENT!).provider['tangle-router'].options
+            .headers,
+      )
+    expect(headers).toEqual([
+      { [ROUTER_CLIENT_HEADER]: 'agent-runtime-node/node-a' },
+      { [ROUTER_CLIENT_HEADER]: 'agent-runtime-node/node-b' },
+    ])
+    expect(() => sharedWorkerClientName('node a')).toThrow(/visible ASCII/)
+    expect(() => sharedWorkerClientName('')).toThrow(/visible ASCII/)
+    await placement.close()
+  })
+
   it('packs workers into as few boxes as the per-box cap allows and deletes an empty box', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ok'), exit: 0 }))
     const placement = sharedBoxPlacement({ client, workersPerBox: 2 })
     const environments = await Promise.all(
-      Array.from({ length: 5 }, () => placement.provider.create({ profile: leaf() })),
+      Array.from({ length: 5 }, () => placement.providerFor().create({ profile: leaf() })),
     )
     expect(boxes).toHaveLength(3)
     expect(placement.stats()).toMatchObject({
@@ -233,7 +265,7 @@ describe('sharedBoxPlacement', () => {
   it('reports a failed turn when opencode exits non-zero', async () => {
     const { client } = fakeClient(() => ({ stdout: [], exit: 3 }))
     const placement = sharedBoxPlacement({ client })
-    const environment = await placement.provider.create({ profile: leaf() })
+    const environment = await placement.providerFor().create({ profile: leaf() })
     const events = []
     for await (const event of environment.stream({ prompt: 'go' })) events.push(event)
     const result = events.find((event) => event.type === 'result')
@@ -245,7 +277,7 @@ describe('sharedBoxPlacement', () => {
   it('repeats a Sandbox call the platform refused transiently', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ALPHA'), exit: 0 }))
     const placement = sharedBoxPlacement({ client, retryDelayMs: 0 })
-    const environment = await placement.provider.create({ profile: leaf() })
+    const environment = await placement.providerFor().create({ profile: leaf() })
     const refusal = Object.assign(new Error('Platform key verification unavailable'), {
       status: 502,
       code: 'platform_unavailable',
@@ -262,7 +294,7 @@ describe('sharedBoxPlacement', () => {
   it('adopts a launch whose answer was lost instead of starting a second one', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ALPHA'), exit: 0 }))
     const placement = sharedBoxPlacement({ client, retryDelayMs: 0 })
-    const environment = await placement.provider.create({ profile: leaf() })
+    const environment = await placement.providerFor().create({ profile: leaf() })
     boxes[0]!.failNext.spawnAfterLaunch.push(
       Object.assign(new Error('fetch failed'), { name: 'TypeError' }),
     )
@@ -279,7 +311,7 @@ describe('sharedBoxPlacement', () => {
   it('does not repeat a failure the platform will not change', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ALPHA'), exit: 0 }))
     const placement = sharedBoxPlacement({ client, retryDelayMs: 0 })
-    const environment = await placement.provider.create({ profile: leaf() })
+    const environment = await placement.providerFor().create({ profile: leaf() })
     boxes[0]!.failNext.spawn.push(Object.assign(new Error('bad request'), { status: 400 }))
     const drained = (async () => {
       for await (const _ of environment.stream({ prompt: 'go' })) {
@@ -294,10 +326,10 @@ describe('sharedBoxPlacement', () => {
     const { client } = fakeClient(() => ({ stdout: [], exit: 0 }))
     const placement = sharedBoxPlacement({ client })
     await expect(
-      placement.provider.create({ profile: leaf(), env: { SECRET_THING: 'x' } }),
+      placement.providerFor().create({ profile: leaf(), env: { SECRET_THING: 'x' } }),
     ).rejects.toThrow(/cannot set env/)
     await expect(
-      placement.provider.create({ profile: leaf(), resources: { memoryMb: 4096 } }),
+      placement.providerFor().create({ profile: leaf(), resources: { memoryMb: 4096 } }),
     ).rejects.toThrow(/cannot set resources/)
   })
 })
@@ -348,9 +380,10 @@ describe('createExecutor with a shared placement', () => {
     const dedicated = dedicatedProvider()
     const factory = createExecutor({ backend: 'provider', provider: dedicated, shared: placement })
     const controller = new AbortController()
+    const node = { rootId: 'root', parentId: 'root', nodeId: 'leaf-3', attemptId: 'leaf-3:1' }
     const executor = factory(
       { profile: leaf(), harness: null },
-      { signal: controller.signal, seams: {} },
+      { signal: controller.signal, seams: {}, node: node as never },
     )
     for await (const _ of executor.execute(
       'what is your code word?',
@@ -372,6 +405,12 @@ describe('createExecutor with a shared placement', () => {
         expect.stringMatching(/\/\.home\/\.local\/share\/opencode\/export\/ses_abc\.json$/),
       ])
     }
+    // The supervised node names the worker to the router on the box's key.
+    const run = boxes[0]!.spawns.find((spawn) => spawn.args.includes('run'))!
+    expect(
+      JSON.parse(run.options.env!.OPENCODE_CONFIG_CONTENT!).provider['tangle-router'].options
+        .headers,
+    ).toEqual({ [ROUTER_CLIENT_HEADER]: 'agent-runtime-node/leaf-3' })
     expect(boxes).toHaveLength(1)
     expect(boxes[0]!.deleted).toBe(true)
   })

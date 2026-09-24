@@ -13,6 +13,11 @@ Many workers can now share one Sandbox box.
 `sharedBoxPlacement({ client, box?, workersPerBox? })` runs each accepted worker as its own `opencode run` process in a pooled box, with its own working directory, HOME and materialized profile.
 `createExecutor({ backend: 'provider', provider, shared })` sends a profile the pool accepts to it and keeps a dedicated environment from `provider` for every other profile; `sharedBoxRefusal` names why a profile needs its own box.
 A manager never shares: its coordination credential is create-time box environment.
+The workers of one box share the box's router key, and each worker of a supervised node names itself to the router: its opencode provider sends `x-tangle-client: agent-runtime-node/<nodeId>`, which the router stores as the usage row's `clientName`.
+`tangle-admin router-spend --key <box key> --json` then returns one `by_client` row per worker, so a keeper prices a shared worker by its node id; a call without a node id stays charged to the box.
+`SharedBoxPlacement.providerFor({ nodeId })` gives the provider for one worker, and `sharedWorkerClientName` and `ROUTER_CLIENT_HEADER` name the value and the header.
+Measured 2026-09-24 with 64 workers in 8 boxes: the 8 box keys held 64 `by_client` rows, 8 per key, and no request without a client name; the router charged $0.073 in all, $0.0007 to $0.0018 per worker.
+The router counted 13% more prompt tokens than the workers' own step receipts, so price a shared worker from its router row, not from its token receipts.
 The pool fills a box before it creates the next, deletes a box when its last worker releases it, and reports boxes, workers and create latency through `stats()`; `close()` deletes what remains.
 `workersPerBox` defaults to 8 because a Tangle box has a fixed 512-task pids limit and an opencode worker holds about 34 tasks; at the limit the box's sidecar restarts.
 Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.

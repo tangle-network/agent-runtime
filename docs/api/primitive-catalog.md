@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 987 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 990 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -672,6 +672,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 987 exports.
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
 | `sharedBoxPlacement` | function | Place accepted workers as processes in a pool of shared Sandbox boxes. |
 | `sharedBoxRefusal` | function | Why a shared box cannot carry `profile`, or `undefined` when it can. |
+| `sharedWorkerClientName` | function | The router client name of the worker that runs supervised node `nodeId`. |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `startRetainedInteractiveRun` | function | Start one retry-safe native coding-agent TUI without dispatching a headless turn. |
 | `startRetainedRun` | function | Dispatch one detached, replayable run and return only after exact durable |
@@ -756,6 +757,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 987 exports.
 | `PEER_MAIL_WIRE_KEY` | const | The wire property carrying an envelope to a worker inbox. Deliberately its OWN discriminant: |
 | `peerMailVerbNames` | const | The tool names a mail capability endpoint serves. It serves NOTHING else. |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
+| `ROUTER_CLIENT_HEADER` | const | The request header the router records as a usage row's `clientName`. |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
@@ -1056,6 +1058,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 987 exports.
 | `SharedBoxPlacementOptions` | interface | Options for {@link sharedBoxPlacement}. |
 | `SharedBoxProcess` | interface | One process in a shared box, as the Sandbox SDK's process manager returns it. |
 | `SharedBoxStats` | interface | Counts that show how the pool placed its workers. |
+| `SharedWorkerIdentity` | interface | Who a shared worker is, for the router rows its model calls leave on the box's key. |
 | `SpawnForest` | interface | Complete cold-readable view of one recursive supervision run. |
 | `SpawnForestEvent` | interface | One event with the journal tree that establishes its cursor namespace. |
 | `SpawnForestInDoubtNode` | interface | A spawned worker with no terminal record in a cold snapshot. Resume treats the same state as |
