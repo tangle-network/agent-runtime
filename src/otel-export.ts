@@ -278,8 +278,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
       }
       written += batch.length - rejected.count
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      drop(batch.length, `POST ${url} failed: ${message}`)
+      drop(batch.length, `POST ${url} failed: ${describeFetchError(error)}`)
     }
   }
 
@@ -371,6 +370,17 @@ function rejectedSpans(text: string, batchLength: number): { count: number; mess
     count: Math.min(count, batchLength),
     message: typeof errorMessage === 'string' && errorMessage ? errorMessage : 'no message',
   }
+}
+
+/** Node's fetch reports every socket failure as "fetch failed"; the cause names which one. */
+function describeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const cause = error.cause
+  const code =
+    cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string'
+      ? cause.code
+      : undefined
+  return code ? `${error.message} (${code})` : error.message
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {

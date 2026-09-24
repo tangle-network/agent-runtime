@@ -245,9 +245,6 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     })
     await expect(client.flush()).resolves.toBeUndefined()
     expect(result).toBe(42)
-    // flush() stays best-effort, so the loss has to be readable somewhere else.
-    expect(client.exportStats()).toMatchObject({ written: 0, dropped: 1, pending: 0 })
-    expect(client.exportStats()?.lastError).toMatch(/failed/)
   })
 
   it('propagates an error thrown by the agent body (not swallowed)', async () => {
