@@ -9,6 +9,7 @@ When the provider loses the environment, the next invocation is created with `wo
 Before, the replacement started empty: the re-entered director in `autopsy-a-after-20260924b` found no `objective.md` and wrote a new nonce.
 Checkpoints are taken only from a provider whose capability document states `create.workspaceCheckpoint: true` (`@tangle-network/agent-interface` 2.13.0; `@tangle-network/agent-provider-tangle` 1.7.0 restores Sandbox snapshots).
 The settle record's `continuation` gains `workspaceRestores`, and the re-entry continuity gains `workspace: 'restored'` with `checkpointAt`.
+A re-entry whose files were kept or restored tells the director to read them before it repeats a step; in `autopsy-a-restore-after-20260924c` the director re-ran the task's first step and overwrote the restored `objective.md` without reading it.
 The `repromptOnUnmet` documentation no longer claims every re-prompt re-enters the same live session.
 
 ## 0.263.0
