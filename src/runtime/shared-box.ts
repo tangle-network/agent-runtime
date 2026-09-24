@@ -43,6 +43,7 @@ import { randomUUID } from 'node:crypto'
 import {
   type AgentProfile,
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
@@ -870,7 +871,7 @@ async function createWorker(
           ? createProfile
           : agentProfileSchema.parse(options.backend.profile)
       if (
-        canonicalCandidateDigest(turnProfile) !== canonicalCandidateDigest(createProfile) &&
+        canonicalAgentProfileDigest(turnProfile) !== canonicalAgentProfileDigest(createProfile) &&
         sharedBoxRefusal(turnProfile) !== undefined
       ) {
         throw new ValidationError(`sharedBoxPlacement: ${sharedBoxRefusal(turnProfile)}`)

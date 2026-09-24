@@ -12,6 +12,7 @@ import {
   type AgentProfileImprovementExperiment,
   agentProfileDiffSchema,
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   changedProfileImprovementSurfaces,
   defineAgentProfileDiff,
   type Sha256Digest,
@@ -401,7 +402,7 @@ export function agentImprovementProfileDiffs(
     omitUndefinedObjectFields(candidateInput, 'profile improvement candidate'),
     'profile improvement candidate',
   )
-  if (canonicalCandidateDigest(baseline) === canonicalCandidateDigest(candidate)) {
+  if (canonicalAgentProfileDigest(baseline) === canonicalAgentProfileDigest(candidate)) {
     throw new Error('profile improvement candidate does not change the profile')
   }
   const completeChanges = completeAgentProfileReplacementDiffs(baseline, candidate, options)
@@ -410,7 +411,7 @@ export function agentImprovementProfileDiffs(
       applyExactAgentProfileDiff(profile, change, 'complete profile improvement candidate change'),
     baseline,
   )
-  if (canonicalCandidateDigest(applied) !== canonicalCandidateDigest(candidate)) {
+  if (canonicalAgentProfileDigest(applied) !== canonicalAgentProfileDigest(candidate)) {
     throw new Error('complete profile improvement change did not reproduce the candidate')
   }
   return completeChanges

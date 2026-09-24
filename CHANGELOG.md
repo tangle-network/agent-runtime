@@ -33,6 +33,11 @@ Each export lands beside the worker's own, under `.local/share/opencode/export`,
 opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
 A dedicated Tangle box still keeps only the parent's sidecar records.
 
+Runtime now has one AgentProfile identity: `canonicalAgentProfileDigest`.
+`improve()` computed a candidate's `profileDigest`, `lineage.baselineProfileDigest`, and its profile equality checks with the generic `canonicalCandidateDigest`, while supervise, preparation receipts, retained interactive runs, and VerticalBench used `canonicalAgentProfileDigest`.
+Both functions give the same digest on every recorded profile (30 distinct profiles across VerticalBench climbs, boards, and repository profiles; the 4 materialized candidates of the 2 completed climbs; 13 recorded VerticalBench base digests), so no recorded identity moves.
+The profile digest parses the schema first, so a schema-invalid profile now fails at identity time instead of receiving a digest, and an inline retained-run profile records the same `requestedProfileDigest` as a retained interactive run.
+
 ## 0.266.0
 
 Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
