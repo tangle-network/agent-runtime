@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.263.0
+
+A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
+`driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
+`Agent` gains the optional `harnessTranscript()` hook.
+Before, every nested manager settled `executor-exposes-no-transcript`: 545 of 545 settled managers in the Discovery fleet records of 2026-09-23/24.
+A consumer that reads manager receipts now sees the capture's real status or reason.
+In a Tangle box the capture still finds no session files, for managers and leaves alike, because the sidecar keeps the harness session under a private runtime home (#1360); those receipts read `no-transcript`.
+
 ## 0.262.0
 
 Runtime admits stable Sandbox 0.50.x through its peer range and packed compatibility cohort.
