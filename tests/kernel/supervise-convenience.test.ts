@@ -1,10 +1,13 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { decidePairedPromotion } from '@tangle-network/agent-eval'
+import { sealExperiment } from '@tangle-network/agent-eval/experiment'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ConfigError } from '../../src/errors'
+import type { SuperviseProfileEntry } from '../../src/mcp/tools/coordination'
 import { createRootHandle } from '../../src/runtime/index'
 import type { DeliverableSpec } from '../../src/runtime/supervise/completion-gate'
 import type { SupervisorFinalizer } from '../../src/runtime/supervise/finalizer'
@@ -1405,6 +1408,178 @@ describe('supervise — the code-valued options are nameable, so a run configura
       },
     )
     expect(result.kind === 'winner' ? result.out : null).toEqual({ deliveredCount: 1 })
+  })
+})
+
+describe('supervise — the profiles table', () => {
+  const critic = testAgentProfile('critic', { harness: 'cli-base' })
+  const profiles = (entries: SuperviseProfileEntry[]) => {
+    const byName = new Map(entries.map((entry) => [entry.profile.name as string, entry]))
+    return { resolve: (name: string) => byName.get(name), names: () => [...byName.keys()] }
+  }
+  const leafRunning = (profile: AgentProfile): Agent<unknown, unknown> => {
+    const agent = deliveringLeaf(profile.name as string, { answer: 42 }) as Agent<
+      unknown,
+      unknown
+    > & {
+      executorSpec: AgentSpec
+    }
+    return { ...agent, executorSpec: { ...agent.executorSpec, profile } } as Agent<unknown, unknown>
+  }
+  const spawnByName = () =>
+    scriptedBrain([
+      { toolCalls: [{ name: 'spawn_worker', arguments: { profile: 'critic', task: 'go' } }] },
+      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'done' },
+    ])
+  const sealedPlay = (profileDigest: string) =>
+    sealExperiment({
+      id: 'critic-vs-none',
+      arms: [
+        { id: 'none', role: 'control' },
+        { id: 'critic', role: 'treatment', profileDigest },
+      ],
+      outcome: { kind: 'binary' },
+      estimands: {
+        lift: {
+          kind: 'paired-mean-diff',
+          armField: 'arm',
+          treatment: 'critic',
+          control: 'none',
+          pairBy: 'task',
+          value: 'passed',
+          missing: 'zero-diff',
+        },
+      },
+      intervals: {
+        lift95: {
+          kind: 'cluster-bootstrap',
+          clusterBy: 'task',
+          value: 'diff',
+          resamples: 200,
+          seed: 1,
+          level: 0.95,
+          method: 'percentile',
+        },
+      },
+      decision: {
+        kind: 'table',
+        branches: [
+          {
+            when: { kind: 'interval-excludes-zero', interval: 'lift95', sign: 'positive' },
+            verdict: 'promote',
+            report: ['lift', 'lift95'],
+          },
+        ],
+      },
+    })
+  const promoted = decidePairedPromotion(Array(30).fill(0), Array(30).fill(1))
+
+  it('a director spawns an entry by name, and the journal records the entry digest', async () => {
+    const journal = new InMemorySpawnJournal()
+    const received: AgentProfile[] = []
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      't',
+      {
+        budget,
+        brain: spawnByName(),
+        journal,
+        runId: 'table-spawn',
+        makeWorkerAgent: (profile) => {
+          received.push(profile)
+          return leafRunning(profile)
+        },
+        registry: { profiles: profiles([{ profile: critic }]) },
+      },
+    )
+    expect(result.kind).toBe('winner')
+    expect(received).toEqual([critic])
+    const child = (await journal.loadTree('table-spawn'))?.find(
+      (event) => event.kind === 'spawned' && event.parent !== undefined,
+    )
+    expect(child?.kind === 'spawned' ? child.identity?.profileDigest : undefined).toBe(
+      canonicalAgentProfileDigest(critic),
+    )
+  })
+
+  it('refuses the run before spend when an entry carries a credential or cannot mount', () => {
+    const withBearer = {
+      ...critic,
+      mcp: {
+        gh: {
+          transport: 'http',
+          url: 'https://mcp.example.com',
+          headers: {
+            Authorization: { kind: 'public', value: 'Bearer ghp_0123456789abcdefABCDEF' },
+          },
+        },
+      },
+    } as unknown as AgentProfile
+    const withRemoteMcp = testAgentProfile('critic', {
+      harness: 'cli-base',
+      mcp: { gh: { transport: 'http', url: 'https://mcp.example.com' } },
+    })
+    const backend = { backend: 'router-tools', routerBaseUrl: 'http://r', routerKey: 'k' } as const
+    for (const [profile, refusal] of [
+      [withBearer, /not a valid AgentProfile.*credential-like material/s],
+      [withRemoteMcp, /would be refused at mount: BLOCKED_REMOTE_MCP_HOST/],
+    ] as const) {
+      expect(() =>
+        supervise(rootProfile(), 't', {
+          budget,
+          backend,
+          registry: { profiles: profiles([{ profile }]) },
+        }),
+      ).toThrow(refusal)
+    }
+  })
+
+  it('marks an entry promoted only through a verified seal that names its digest', async () => {
+    const digest = canonicalAgentProfileDigest(critic)
+    const options = (entry: SuperviseProfileEntry) => ({
+      budget,
+      brain: spawnByName(),
+      makeWorkerAgent: leafRunning,
+      registry: { profiles: profiles([entry]) },
+    })
+    const root = rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') })
+    const experiment = await sealedPlay(digest)
+    expect(promoted.promote).toBe(true)
+    const run = await supervise(
+      root,
+      't',
+      options({ profile: critic, promotion: { experiment, decision: promoted } }),
+    )
+    expect(run.kind).toBe('winner')
+
+    const notPromoted = decidePairedPromotion(Array(30).fill(1), Array(30).fill(1))
+    expect(() =>
+      supervise(
+        root,
+        't',
+        options({ profile: critic, promotion: { experiment, decision: notPromoted } }),
+      ),
+    ).toThrow(/did not promote/)
+    const otherArm = await sealedPlay(canonicalAgentProfileDigest(workerProfile()))
+    expect(() =>
+      supervise(
+        root,
+        't',
+        options({ profile: critic, promotion: { experiment: otherArm, decision: promoted } }),
+      ),
+    ).toThrow(/no treatment arm of it names this profile's digest/)
+    const tampered = {
+      ...experiment,
+      spec: { ...experiment.spec, hypothesis: 'edited after sealing' },
+    }
+    await expect(
+      supervise(
+        root,
+        't',
+        options({ profile: critic, promotion: { experiment: tampered, decision: promoted } }),
+      ),
+    ).rejects.toThrow(/digest does not match its spec/)
   })
 })
 

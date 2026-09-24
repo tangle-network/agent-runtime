@@ -428,7 +428,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 961 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 962 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1045,7 +1045,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 961 exports.
 | `StructuralRolloutPolicy` | interface | The rollout's compute recipe — promoted from the proven rigs' env vars (K/REPAIRS/ |
 | `StructuralRolloutResult` | interface | The body's deliverable — a `StrategyResult` plus selection provenance. The extra |
 | `SuperviseDispatchOptions` | interface | Adapt a recursive Runtime `supervise()` tree to one Agent Eval profile-matrix cell. |
-| `SuperviseRegistry` | interface | The name→value tables that make the four CODE-valued options expressible as run DATA. |
+| `SuperviseProfileEntry` | interface | One entry of a run's profiles table (`SuperviseRegistry.profiles`): the exact profile a manager |
+| `SuperviseRegistry` | interface | The name→value tables that make the four CODE-valued options expressible as run DATA, and the |
 | `SuperviseRegistryTable` | interface | A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry` |
 | `SuperviseSurfaceResult` | interface | The deployable outcome of a supervised surface run. |
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |

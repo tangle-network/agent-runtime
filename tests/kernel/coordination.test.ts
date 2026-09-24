@@ -291,6 +291,65 @@ describe('coordination tools', () => {
     expect(workerSeen).toEqual([expected])
   })
 
+  it('spawns a profiles-table entry by name, and leaves the tool unchanged without a table', async () => {
+    const perWorker = { maxIterations: 1, maxTokens: 10 }
+    const plain = tool(
+      createCoordinationTools({ scope: mockScope().scope, blobs, makeWorkerAgent, perWorker }),
+      'spawn_worker',
+    )
+    const empty = tool(
+      createCoordinationTools({
+        scope: mockScope().scope,
+        blobs,
+        makeWorkerAgent,
+        perWorker,
+        profiles: new Map(),
+      }),
+      'spawn_worker',
+    )
+    // The off switch: an empty table mounts no menu, no schema branch, and no description text.
+    expect({ description: empty.description, inputSchema: empty.inputSchema }).toEqual({
+      description: plain.description,
+      inputSchema: plain.inputSchema,
+    })
+
+    const critic = { name: 'critic', harness: 'cli-base', model: { provider: 'x', default: 'y' } }
+    const { scope, spawns, spawnedAgents } = mockScope()
+    const workerSeen: unknown[] = []
+    const spawn = tool(
+      createCoordinationTools({
+        scope,
+        blobs,
+        makeWorkerAgent: (profile) => {
+          workerSeen.push(profile)
+          return makeWorkerAgent()
+        },
+        perWorker,
+        profiles: new Map([['critic', { profile: critic }]]),
+      }),
+      'spawn_worker',
+    )
+    const profileArg = (spawn.inputSchema as { properties: { profile: { anyOf: unknown[] } } })
+      .properties.profile
+    expect(profileArg.anyOf[0]).toMatchObject({ type: 'string', enum: ['critic'] })
+
+    expect(await spawn.handler({ profile: 'critic', task: 'go' })).toMatchObject({
+      workerId: 'w0',
+    })
+    ;(spawnedAgents[0] as () => unknown)()
+    expect(workerSeen).toEqual([critic])
+    // One name means one profile: an authored profile cannot take a table name, and a name the
+    // table does not hold is refused. Neither reaches the scope.
+    expect(
+      await spawn.handler({ profile: { ...critic, prompt: { systemPrompt: 'x' } }, task: 'go' }),
+    ).toMatchObject({ error: 'invalid-profile', reason: expect.stringMatching(/table entry/) })
+    expect(await spawn.handler({ profile: 'judge', task: 'go' })).toMatchObject({
+      error: 'invalid-profile',
+      reason: expect.stringMatching(/not in this run's profiles table, which holds "critic"/),
+    })
+    expect(spawns).toHaveLength(1)
+  })
+
   it('publishes no preflight ledger when no gate is installed', () => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({

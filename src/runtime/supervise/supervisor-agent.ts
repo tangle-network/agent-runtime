@@ -31,6 +31,7 @@ import type {
   EscalateQuestion,
   MakeWorkerAgent,
   SpawnPreflight,
+  SuperviseProfileEntry,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
@@ -586,6 +587,8 @@ export interface SupervisorAgentDeps {
   /** Composition of each authored child profile before identity is fixed —
    *  `CoordinationToolsOptions.composeSpawnProfile`. */
   readonly composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** The run's validated profiles table — `CoordinationToolsOptions.profiles`. */
+  readonly profiles?: ReadonlyMap<string, SuperviseProfileEntry>
   /** See `CoordinationToolsOptions.spawnResourceRoot`: the directory a spawn's inline resource
    *  `path` resolves under. Set only for a manager whose workspace this process can read. */
   readonly spawnResourceRoot?: string
@@ -829,6 +832,7 @@ function buildSupervisorAgent(
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
         ...(deps.composeSpawnProfile ? { composeSpawnProfile: deps.composeSpawnProfile } : {}),
+        ...(deps.profiles ? { profiles: deps.profiles } : {}),
         ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
         ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
@@ -993,6 +997,7 @@ function buildSupervisorAgent(
           ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
           ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
           ...(deps.composeSpawnProfile ? { composeSpawnProfile: deps.composeSpawnProfile } : {}),
+          ...(deps.profiles ? { profiles: deps.profiles } : {}),
           ...(deps.spawnResourceRoot ? { spawnResourceRoot: deps.spawnResourceRoot } : {}),
           ...(deps.spawnResourceReader ? { spawnResourceReader: deps.spawnResourceReader } : {}),
           ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),

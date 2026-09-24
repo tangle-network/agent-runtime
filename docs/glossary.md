@@ -39,6 +39,7 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 |---|---|---|
 | **Strategy** (`sample`/`refine`) | A `defineStrategy(name, body)` value run through the Supervisor as one recursive `Agent.act`: `sample` = breadth/best-of-N, `refine` = depth/iterate-with-feedback. The harness-verified topology, NOT a fixed script. | `strategy.ts` (`defineStrategy`, `sample`, `refine`) |
 | **Coordination toolbox** | The driver's per-step move set as MCP tools over a live `Scope`: `spawn_worker` (branch N) · `await_event` (react) · `steer_agent` (interrupt) · `observe_agent` · `stop`. This **is** "topology grown through LLM decisions". | `mcp/tools/coordination.ts` (`createCoordinationTools`) |
+| **Profiles table** | `SuperviseRegistry.profiles`: the named `AgentProfile`s any manager in a run may spawn with `spawn_worker({ profile: '<name>' })`. Each `SuperviseProfileEntry` is exploratory, or promoted by a verified `SealedExperiment` plus a `PairedPromotionDecision` that promoted. Omitted or empty, the spawn tool is unchanged: that is the off switch. | `supervise/supervise.ts` (`SuperviseRegistry`, `snapshotProfileTable`); `mcp/tools/coordination.ts` (`SuperviseProfileEntry`) |
 | **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. `llmAnalyst` (one router call); the strategy author calls it via `ctx.critique`. | `bench/src/sandbox-run.ts:50,58` (`llmAnalyst`); `strategy.ts` (`ctx.critique`) |
 
 ## The executor port (the unified execution seam)

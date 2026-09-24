@@ -43,6 +43,7 @@ import {
   type QuestionRecord,
   type SettledWorker,
   type SpawnPreflight,
+  type SuperviseProfileEntry,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
@@ -299,6 +300,8 @@ export async function serveCoordinationMcp(
     /** Composition of each authored child profile before identity is fixed —
      *  `CoordinationToolsOptions.composeSpawnProfile`. */
     composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
+    /** The run's validated profiles table — `CoordinationToolsOptions.profiles`. */
+    profiles?: ReadonlyMap<string, SuperviseProfileEntry>
     /** See `CoordinationToolsOptions.spawnResourceRoot`. */
     spawnResourceRoot?: string
     /** See `CoordinationToolsOptions.spawnResourceReader`. */
@@ -469,6 +472,7 @@ export async function serveCoordinationMcpForManager(
       ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
       ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
       ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
+      ...(opts.profiles ? { profiles: opts.profiles } : {}),
       ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
       ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
       ...(opts.peerMail
