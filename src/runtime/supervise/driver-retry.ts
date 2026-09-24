@@ -82,6 +82,14 @@ import {
 import { sleep } from '../util'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import type { Scope } from './types'
+import {
+  UNAVAILABLE_CODES,
+  UNAVAILABLE_STATUSES,
+  type UnavailablePausePolicy,
+  unavailablePauseMs,
+  unavailableSignalInText,
+  unavailableSignalOfFailure,
+} from './upstream-unavailable'
 
 /** The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this
  *  module tracks the pool's shape rather than restating it. */
@@ -93,7 +101,7 @@ export type DriverContractState = 'met' | 'unmet' | 'none'
 
 /** How hard the root driver is retried after a transient failure. The defaults retry; a caller
  *  that wants the pre-#741 behavior sets `enabled: false` and owns the consequence. */
-export interface DriverRetryPolicy {
+export interface DriverRetryPolicy extends UnavailablePausePolicy {
   /** `false` restores the historical behavior: the first driver failure ends the run. */
   readonly enabled?: boolean
   /** Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
@@ -107,13 +115,6 @@ export interface DriverRetryPolicy {
   readonly initialBackoffMs?: number
   /** Ceiling on the doubling. Default 30000ms. */
   readonly maxBackoffMs?: number
-  /** Pause before re-entering after the upstream was unavailable (see
-   *  {@link upstreamUnavailableSignal}), doubling per consecutive pause. Default 15000ms. A pause
-   *  is not a failure: it consumes neither `maxAttempts` nor `maxConsecutiveFailures`. */
-  readonly unavailablePauseMs?: number
-  /** Ceiling on the pause doubling. Default 300000ms, so a long outage costs at most twelve
-   *  re-entries an hour. */
-  readonly maxUnavailablePauseMs?: number
 }
 
 /** Why the retry loop stopped. `completed` is the only non-failure. */
@@ -309,9 +310,6 @@ const DEFAULT_MAX_ATTEMPTS = 8
 export const DEFAULT_MAX_BARREN_REPROMPTS = 2
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
-const DEFAULT_UNAVAILABLE_PAUSE_MS = 15_000
-const DEFAULT_MAX_UNAVAILABLE_PAUSE_MS = 300_000
-
 /**
  * Bridge error classes the bridge itself never retries: a request that fails identically on
  * every attempt, mapped below 5xx on its HTTP path (`parse_error` 400, the other two 501). On the
@@ -365,46 +363,6 @@ export class HarnessTurnFailedError extends Error {
 export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
 
 /**
- * Machine codes that say the upstream cannot serve now rather than that the request is wrong.
- * Each is a code an upstream publishes, not prose: the router's
- * (`lib/model-substitution.ts`, `lib/upstream-error-triage.ts`) and the OpenAI- and Anthropic-shaped
- * error types a relayed body carries.
- */
-const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
-  'provider_quota_exhausted', // router: the upstream account has no remaining quota (429)
-  'provider_quota_exceeded', // router: the earlier spelling, on the 2026-09-20 fleet corpus
-  'provider_rate_limit', // router: the upstream is rate limiting this model (429)
-  'upstream_unavailable', // router: upstream outage or an unexplained upstream refusal (503)
-  // Router: its OWN credential for the provider was refused, answered 503. An operator restores
-  // it, and the agent can only wait. The caller's key refused is `invalid_api_key` at 401 and
-  // stays terminal. Measured 2026-09-24 from 14:15Z: every flash request ended
-  // `No provider served model "deepseek/deepseek-v4.1-flash" (provider_key_invalid)`.
-  'provider_key_invalid',
-  'rate_limit_exceeded', // OpenAI-shaped 429
-  'rate_limit_error', // Anthropic-shaped 429
-  'overloaded_error', // Anthropic-shaped 529
-])
-
-/** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */
-const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([429, 503, 529])
-
-/**
- * A harness that flattens the router's JSON body into its own failure text leaves the router's
- * code in that text: `opencode execution failed: No provider served model "..."
- * (provider_quota_exhausted)`. The code is matched as a whole token, and a status only in the
- * `status code <n>` framing a harness prints, so prose that merely mentions a quota does not match.
- */
-function unavailableSignalInText(text: string): string | undefined {
-  for (const token of text.toLowerCase().matchAll(/[a-z_]+/gu)) {
-    if (UNAVAILABLE_CODES.has(token[0])) return token[0]
-  }
-  const status = text.match(/\bstatus code (\d{3})\b/u)?.[1]
-  return status !== undefined && UNAVAILABLE_STATUSES.has(Number(status))
-    ? `http-${status}`
-    : undefined
-}
-
-/**
  * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
  *
  * A structured field is read first: a turn outcome's `errorCode`, a transport error's
@@ -414,9 +372,10 @@ function unavailableSignalInText(text: string): string | undefined {
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined
   if (error instanceof HarnessTurnFailedError) {
-    const code = error.errorCode?.toLowerCase()
-    if (code !== undefined && UNAVAILABLE_CODES.has(code)) return code
-    return unavailableSignalInText(error.message)
+    return unavailableSignalOfFailure({
+      error: error.message,
+      ...(error.errorCode === undefined ? {} : { errorCode: error.errorCode }),
+    })
   }
   if (error instanceof BackendTransportError) {
     const code = error.upstreamCode?.toLowerCase()
@@ -687,11 +646,6 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const maxAttempts = Math.max(1, policy.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
   const initialBackoff = Math.max(0, policy.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS)
   const maxBackoff = Math.max(initialBackoff, policy.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS)
-  const unavailablePause = Math.max(0, policy.unavailablePauseMs ?? DEFAULT_UNAVAILABLE_PAUSE_MS)
-  const maxUnavailablePause = Math.max(
-    unavailablePause,
-    policy.maxUnavailablePauseMs ?? DEFAULT_MAX_UNAVAILABLE_PAUSE_MS,
-  )
 
   const maxReprompts = run.reprompt?.maxReprompts ?? 0
   if (maxReprompts === 'until-complete') {
@@ -825,10 +779,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         }
         pauses += 1
         consecutivePauses = progressed ? 1 : consecutivePauses + 1
-        const pause = Math.min(
-          maxUnavailablePause,
-          unavailablePause * 2 ** Math.max(0, consecutivePauses - 1),
-        )
+        const pause = unavailablePauseMs(consecutivePauses, policy)
         await emit({
           attempt,
           durationMs,
