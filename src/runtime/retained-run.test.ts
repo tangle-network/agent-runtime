@@ -3149,6 +3149,176 @@ describe('retained runtime run control', () => {
     },
   )
 
+  it.each(['live', 'replay'] as const)(
+    'keeps an inner adapter interaction bound through the %s event and response path',
+    async (path) => {
+      const controlRef = {
+        runId: `inner-interaction-${path}-run`,
+        provider: 'tangle-sandbox',
+        environmentId: 'environment-1',
+        sessionId: `inner-interaction-${path}-session`,
+        executionId: `inner-interaction-${path}-execution`,
+        requestDigest: retainedRequestDigest,
+      }
+      const requestMaterial = {
+        id: `inner-interaction-${path}`,
+        kind: 'question',
+        title: 'Which branch?',
+        answerSpec: {
+          fields: [{ type: 'text' as const, name: 'branch', label: 'Branch' }],
+        },
+        binding: {
+          runId: controlRef.runId,
+          provider: 'opencode',
+          environmentId: controlRef.environmentId,
+          sessionId: controlRef.sessionId,
+          executionId: controlRef.executionId,
+          interactionId: `inner-interaction-${path}`,
+        },
+      }
+      const request = {
+        ...requestMaterial,
+        requestDigest: interactionRequestDigest(requestMaterial),
+      }
+      const received = [] as string[]
+      let tamperAcknowledgement = false
+      const session: AgentSession = {
+        id: controlRef.sessionId,
+        controlRef,
+        status: async () => 'running',
+        async *events(): AsyncIterable<AgentEnvironmentEvent> {
+          yield {
+            id: `${request.id}-event`,
+            type: 'interaction',
+            data: {},
+            normalized: { type: 'interaction', request },
+          }
+        },
+        result: async () => ({ text: 'done', success: true }),
+        prompt: async () => ({ text: 'continued', success: true }),
+        async respondToInteraction(command) {
+          received.push(command.binding.provider)
+          return {
+            operationId: command.operationId,
+            binding: tamperAcknowledgement
+              ? { ...command.binding, provider: 'foreign-provider' }
+              : command.binding,
+            commandDigest: command.commandDigest,
+            status:
+              canonicalCandidateDigest(command.binding) ===
+              canonicalCandidateDigest({
+                ...request.binding,
+                requestDigest: request.requestDigest,
+              })
+                ? 'accepted'
+                : 'binding_mismatch',
+          }
+        },
+        cancel: async () => {},
+      }
+      const provider = {
+        ...providerWithEnvironment({
+          provider: controlRef.provider,
+          dispatch: async () => ({ id: session.id, provider: controlRef.provider, controlRef }),
+          session: () => session,
+        }),
+        name: controlRef.provider,
+      }
+      const capabilities = provider.capabilities
+      provider.capabilities = async () => ({
+        ...(await capabilities()),
+        interactions: interactionCapabilities(),
+      })
+      const run = await startRetainedRun({
+        provider,
+        environment: {
+          profile: { name: 'worker' },
+          idempotencyKey: `${request.id}-environment`,
+        },
+        turn: {
+          prompt: 'go',
+          turnId: `${request.id}-turn`,
+          interactions: { question: true },
+        },
+        onAdmission: recordedAdmissions().onAdmission,
+        identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+      })
+
+      const events =
+        path === 'live'
+          ? run.events()
+          : run.events({ after: { cursor: 'before-event', sequence: 0 } })
+      const observed = [] as RuntimeEventEnvelope[]
+      for await (const event of events) observed.push(event)
+      expect(observed).toHaveLength(1)
+      expect(observed[0]?.event).toMatchObject({
+        type: 'interaction',
+        request: { binding: { provider: 'opencode' } },
+      })
+
+      const binding = { ...request.binding, requestDigest: request.requestDigest }
+      const response = {
+        id: request.id,
+        outcome: 'accepted' as const,
+        data: { branch: 'main' },
+      }
+      const command = {
+        operationId: `${request.id}-response`,
+        binding,
+        commandDigest: interactionResponseCommandDigest({ binding, response }),
+        response,
+      }
+      await expect(run.respondToInteraction(command)).resolves.toMatchObject({
+        status: 'accepted',
+        binding: { provider: 'opencode' },
+      })
+      expect(received).toEqual(['opencode'])
+
+      for (const coordinate of ['runId', 'environmentId', 'sessionId', 'executionId'] as const) {
+        const foreignBinding = { ...binding, [coordinate]: `foreign-${coordinate}` }
+        const foreignResponse = { ...response, id: foreignBinding.interactionId }
+        await expect(
+          run.respondToInteraction({
+            ...command,
+            operationId: `${request.id}-foreign-${coordinate}`,
+            binding: foreignBinding,
+            commandDigest: interactionResponseCommandDigest({
+              binding: foreignBinding,
+              response: foreignResponse,
+            }),
+            response: foreignResponse,
+          }),
+        ).rejects.toThrow('interaction response command does not target this retained run')
+      }
+      expect(received).toEqual(['opencode'])
+
+      for (const coordinate of ['interactionId', 'provider'] as const) {
+        const foreignBinding = { ...binding, [coordinate]: `foreign-${coordinate}` }
+        const foreignResponse = { ...response, id: foreignBinding.interactionId }
+        await expect(
+          run.respondToInteraction({
+            ...command,
+            operationId: `${request.id}-foreign-${coordinate}`,
+            binding: foreignBinding,
+            commandDigest: interactionResponseCommandDigest({
+              binding: foreignBinding,
+              response: foreignResponse,
+            }),
+            response: foreignResponse,
+          }),
+        ).resolves.toMatchObject({ status: 'binding_mismatch' })
+      }
+      expect(received).toEqual(['opencode', 'opencode', 'foreign-provider'])
+      tamperAcknowledgement = true
+      await expect(
+        run.respondToInteraction({
+          ...command,
+          operationId: `${request.id}-tampered-ack`,
+        }),
+      ).rejects.toThrow('provider returned an interaction acknowledgement for another command')
+    },
+  )
+
   it('validates a replay anchor before skipping it', async () => {
     const controlRef = {
       runId: 'anchor-run',
