@@ -323,7 +323,7 @@ Inside one run, the director works in rounds until its deliverable check passes 
 
 1. The first version runs at `runDir`, or Runtime reads it back when that directory already settled.
 2. Runtime calls `versions.judge` with the settled version: its run id, directory, sealed `result.json` digest, result and executed profile.
-   The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox:  runs a digest-checked command in a fresh box owned by an account the judged run holds no key to.
+   The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox: `runIsolatedCheck({ box })` runs a digest-checked command in a fresh box owned by an account the judged run holds no key to.
    Its verdict carries a `score` (higher is better, or `null` when it cannot score) and the judge's `digest`; a verdict under another digest is refused.
 3. Runtime applies the stop rule.
    It stops after `patience` consecutive versions that do not beat the best score by more than `minImprovement`, at `maxVersions`, when the versions' settled `spentTotal.usd` reaches `maxUsd`, or at `deadlineMs` from the first version's start.

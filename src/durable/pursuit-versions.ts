@@ -77,7 +77,7 @@ export interface PursuitVersionStop {
 
 /** An outside judge. Runtime calls it after a version's settle record exists, never inside the
  *  version's tree, and gives it no handle into that tree. Place it where you like, such as its own
- *  sandbox through . */
+ *  sandbox through `runIsolatedCheck({ box })`. */
 export interface VersionJudge {
   /** The sha256 of the judge's code and configuration. Every verdict must carry it, and a chain
    *  whose ledger was judged under another digest is refused. */
