@@ -682,6 +682,23 @@ export function providerAsExecutor(
   }
 }
 
+/**
+ * Run a provider under a placement Runtime chose for the whole execution, such as a shared box.
+ * The identity lands in the execution's materialization plan and binding, exactly where a
+ * declared {@link ProviderPlacement} lands, so a record says which placement served it.
+ * @internal
+ */
+export function placedProviderExecutor(
+  provider: AgentEnvironmentProvider,
+  options: ProviderExecutorOptions,
+  identity: { id: string; digest: string },
+): ExecutorFactory<unknown> {
+  if (options.placements !== undefined) {
+    throw new ValidationError('placedProviderExecutor: placements select within one provider')
+  }
+  return (spec, ctx) => createProviderExecutor(provider, spec.profile, ctx, options, identity)
+}
+
 function createProviderExecutor(
   provider: AgentEnvironmentProvider,
   profile: AgentProfile,
