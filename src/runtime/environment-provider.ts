@@ -2884,9 +2884,9 @@ function assertInteractionCommandScope(
   controlRef: AgentRunControlRef | undefined,
 ): void {
   if (controlRef === undefined) return
+  // Keep the inner provider unchanged for the deployment's durable binding check.
   if (
     command.binding.runId !== controlRef.runId ||
-    command.binding.provider !== controlRef.provider ||
     command.binding.environmentId !== controlRef.environmentId ||
     command.binding.sessionId !== controlRef.sessionId ||
     command.binding.executionId !== controlRef.executionId
