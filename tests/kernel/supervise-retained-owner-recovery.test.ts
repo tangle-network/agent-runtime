@@ -739,6 +739,7 @@ describe('retained external supervisor recovery', () => {
     expect(prompts[1]).toContain(
       `Its files were restored from a checkpoint taken at ${checkpoint.at}`,
     )
+    expect(prompts[1]).toContain('Read the files you already wrote before you repeat any step')
     expect(events).toContainEqual(
       expect.objectContaining({
         kind: 'workspace-restored',

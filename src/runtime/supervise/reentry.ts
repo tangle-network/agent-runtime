@@ -87,6 +87,14 @@ export function composeReentryTask(input: ReentryTaskInput): string {
     '## What to do now',
     '',
     'Continue the run from this state.',
+    // Measured 2026-09-24 (autopsy-a-restore-after-20260924c): the restored workspace held the
+    // first turn's objective.md, and the re-entered director, told only that its files were
+    // restored, re-ran the task's first step and overwrote the file without reading it.
+    ...(continuity.workspace === 'kept' || continuity.workspace === 'restored'
+      ? [
+          'Read the files you already wrote before you repeat any step of the task. A step whose file is there is done, and its content stands.',
+        ]
+      : []),
     'Receive the waiting events with await_event, and read the output of every settled worker before you spawn anything new.',
     'Do not spawn a replacement for a worker that is running or has settled.',
     'Your coordination tools are served by the same coordinator as before, and the state above comes from it.',
