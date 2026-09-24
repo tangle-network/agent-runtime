@@ -2022,7 +2022,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`sandboxId`](runtime.md#sandboxid)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`sandboxId`](runtime.md#sandboxid-1)
 
 ##### fleetId?
 

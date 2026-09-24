@@ -161,3 +161,35 @@ Use a separately resource-limited host when those resources require protection.
 Run `bash scripts/verify-isolated-checker-linux.sh` for the real Linux boundary tests.
 The script copies source into disposable Docker containers and never mounts the host workspace.
 It tests successful isolation with namespace privileges and refusal without those privileges.
+
+### A check in its own box
+
+Pass `box` to run the check in a fresh Sandbox box instead of Bubblewrap on the calling host.
+Use this placement when the verdict must not depend on the run it judges.
+The run cannot write the check's box, its input, or its verdict.
+
+Any key of a Sandbox account can read, write, and execute in every box of that account.
+So the check needs its own key on an account the run holds no key to.
+Set `box.client` to a Sandbox client authenticated with that key.
+Set `box.builderAccounts` to the `customerId` that `Sandbox.getIdentity()` returns for each Sandbox key the run holds.
+The checker refuses before it creates a box when the check key's account is in that list.
+Set `box.environment` to the environment or image that holds the check's toolchain.
+
+The checker reads the tree's regular files once and records their manifest before it creates the box.
+Symbolic links, hard-linked files, and special files are refused; empty directories are not delivered.
+The box is created with `createIsolated`, blocked egress, and a new idempotency key.
+The checker refuses a box unless its create receipt reports a new box, isolated owner context, and no injected secrets.
+Each file is uploaded with its mode, and the digest that the box computes on receipt must match the recorded digest.
+The command runs in `tree/` under the box workspace, with only `PATH`, `HOME`, and `LANG` set.
+The box is deleted after the command; its lifetime bound removes it if the calling process dies.
+
+The result has the same shape as a Bubblewrap check.
+A zero exit returns `succeeded: true`; a nonzero exit or signal returns `reason: 'failed'`.
+Both mean the check executed and returned a verdict.
+Every other reason means the check produced no verdict, so the artifact is unassessed.
+A box that could not start the executable returns `refused`, not `failed`.
+Once the box received its complete input, the result carries `box`: the box id, the check's account, the delivered manifest, and its canonical digest.
+Record `box.inputDigest` with the verdict to name the exact bytes the check judged.
+
+The calling process holds the verdict.
+Store it where the run cannot write; the run's own record directory does not qualify when the run can reach it.
