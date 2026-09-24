@@ -8,8 +8,10 @@ cleanup() {
   docker image rm "$proof_image" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-mkdir -p "$proof_context/src/runtime" "$proof_context/tests/runtime"
-cp "$repo_root/src/runtime/isolated-checker.ts" "$proof_context/src/runtime/"
+mkdir -p "$proof_context/tests/runtime"
+# The checker imports sibling modules and packages, so the container receives one bundled file.
+(cd "$repo_root" && pnpm exec rolldown src/runtime/isolated-checker.ts --format esm --platform node \
+  --file "$proof_context/tests/runtime/isolated-checker.mjs" >/dev/null)
 cp "$repo_root/tests/runtime/isolated-checker.linux.mjs" "$proof_context/tests/runtime/"
 cat > "$proof_context/Dockerfile" <<'DOCKERFILE'
 FROM node:24-bookworm

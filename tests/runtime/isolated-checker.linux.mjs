@@ -26,7 +26,7 @@ if (process.argv.includes('--cleanup-failure')) {
   }
   syncBuiltinESMExports()
 }
-const { runIsolatedCheck } = await import('../../src/runtime/isolated-checker.ts')
+const { runIsolatedCheck } = await import('./isolated-checker.mjs')
 
 if (process.argv.includes('--cleanup-failure')) {
   const tree = await mkdtemp('/work/cleanup-failure-')
