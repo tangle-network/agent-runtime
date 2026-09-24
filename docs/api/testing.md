@@ -932,7 +932,11 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 > `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
 
 How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered on the SAME live session with the unmet items.
+re-entered with the unmet items. The same harness session is reused only where the backend
+proves it: a bridge, or a retained provider environment the provider still holds. Any other
+re-entry, including one into a replacement environment, receives the whole re-entry task
+composed from the coordinator (`composeReentryTask`), and a replacement created from the lost
+environment's latest workspace checkpoint keeps the files that checkpoint held.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
@@ -1838,7 +1842,11 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 > `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
 
 How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered on the SAME live session with the unmet items.
+re-entered with the unmet items. The same harness session is reused only where the backend
+proves it: a bridge, or a retained provider environment the provider still holds. Any other
+re-entry, including one into a replacement environment, receives the whole re-entry task
+composed from the coordinator (`composeReentryTask`), and a replacement created from the lost
+environment's latest workspace checkpoint keeps the files that checkpoint held.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
@@ -2593,7 +2601,8 @@ Called once when the external driver loop ends, returned or thrown, with what it
 > `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
 
 How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
- on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
+ with the unmet items: into the same harness session where the backend proves it, and
+ otherwise with the whole re-entry task (`reentry.ts`). The harness owns its own turn loop, so it can
  end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
  ended on the driver's own completion, and the completion gate could only label that result,
  never change it. A re-prompt reuses the retry path: same scope, same coordination server, same

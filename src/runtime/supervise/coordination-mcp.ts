@@ -54,7 +54,10 @@ import {
   coordinationHttpLimits,
 } from './coordination-http'
 import { preflightPublicCoordination } from './coordination-preflight'
-import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
+import {
+  noteScopeRetainedOwnerCoordination,
+  scopeRetainedOwnerResourceReader,
+} from './retained-scope-owner'
 import { singleFlightTools } from './single-flight-tools'
 
 export type { CoordinationHttpAudit, CoordinationHttpOptions } from './coordination-http'
@@ -556,7 +559,13 @@ export async function serveCoordinationMcpForManager(
       options: opts,
       identity,
       toolNames: new Set(servedTools.map((tool) => tool.name)),
-      handle: (message) => mcp.handle(message),
+      handle: async (message) => {
+        const response = await mcp.handle(message)
+        // A coordination call is where a manager commits work, so it is when its workspace is
+        // worth a checkpoint (`retained-scope-owner`, rate-limited, off the request path).
+        if (message.method === 'tools/call') noteScopeRetainedOwnerCoordination(opts.scope)
+        return response
+      },
       backgroundActions: () => nodeTools.background() + fencedVerbs.background(),
       authorize: (req) => {
         if (!paths.has(req.url ?? '')) return 404

@@ -29,8 +29,10 @@ export interface ReentryContinuity {
   readonly environment: 'same' | 'replaced' | 'unknown'
   readonly environmentId?: string
   readonly previousEnvironmentId?: string
-  /** What the next environment holds of the previous one's files. */
-  readonly workspace: 'kept' | 'lost' | 'unknown'
+  /** What the next environment holds of the previous one's files. `restored`: the files as of
+   *  the checkpoint taken at `checkpointAt`; anything written after it is gone. */
+  readonly workspace: 'kept' | 'restored' | 'lost' | 'unknown'
+  readonly checkpointAt?: string
 }
 
 /** Continuity when nothing is proven: compose the full state. */
@@ -118,7 +120,9 @@ function environmentLine(continuity: ReentryContinuity): string {
       `Your previous environment${continuity.previousEnvironmentId === undefined ? '' : ` (${continuity.previousEnvironmentId})`} is gone, and you run in a new one. ` +
       (continuity.workspace === 'kept'
         ? 'Its files were carried over.'
-        : 'Files you wrote there are not here. The coordinator and the knowledge store kept everything below.')
+        : continuity.workspace === 'restored'
+          ? `Its files were restored from a checkpoint taken at ${continuity.checkpointAt ?? 'your last coordination call'}; anything you wrote after that is not here. The coordinator and the knowledge store kept everything below.`
+          : 'Files you wrote there are not here. The coordinator and the knowledge store kept everything below.')
     )
   }
   return 'You may be in a new environment. Check for files before you rely on them; the coordinator kept everything below.'

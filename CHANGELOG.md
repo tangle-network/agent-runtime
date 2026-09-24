@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.264.0
+
+A director re-entered in a replacement environment keeps its files.
+While a manager on a retained provider environment coordinates, Runtime checkpoints its workspace through the environment's `workspaceBranching.checkpoint`: the first coordination call at least 60 s after the last checkpoint starts one in the background.
+Before each checkpoint Runtime writes the marker `.agent-runtime-checkpoint` into the workspace, and journals the checkpoint as a `workspace-checkpoint` receipt; it keeps the newest two per environment and deletes the rest of an environment's checkpoints before it destroys that environment.
+When the provider loses the environment, the next invocation is created with `workspace.checkpoint` set to the latest receipt, the re-entry task states the checkpoint's time, and Runtime journals a `workspace-restored` receipt with `verified: true` only when the new environment holds the marker.
+Before, the replacement started empty: the re-entered director in `autopsy-a-after-20260924b` found no `objective.md` and wrote a new nonce.
+Checkpoints are taken only from a provider whose capability document states `create.workspaceCheckpoint: true` (`@tangle-network/agent-interface` 2.13.0; `@tangle-network/agent-provider-tangle` 1.7.0 restores Sandbox snapshots).
+The settle record's `continuation` gains `workspaceRestores`, and the re-entry continuity gains `workspace: 'restored'` with `checkpointAt`.
+The `repromptOnUnmet` documentation no longer claims every re-prompt re-enters the same live session.
+
 ## 0.263.0
 
 A driver whose upstream refuses for capacity now pauses and re-enters instead of failing.
@@ -12,6 +23,7 @@ Each pause is journaled as a `paused` spawn event on the manager node, with the 
 The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
+
 ## 0.262.0
 
 Runtime admits stable Sandbox 0.50.x through its peer range and packed compatibility cohort.

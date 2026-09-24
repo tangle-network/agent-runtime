@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
 import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
@@ -11,6 +11,7 @@ import type {
   ExecutorResult,
   ProfileMaterializationReceipt,
   SpawnEvent,
+  WorkspaceCheckpointMarker,
 } from './types'
 
 /** Scope owns the durable writer; provider executors only publish sanitized admissions. */
@@ -27,6 +28,27 @@ export interface RetainedExecutorContext {
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
+  /** The checkpoint a NEW environment of this invocation starts from: set only when the provider
+   *  lost the environment the previous invocation ran in, and it holds a checkpoint of it. */
+  readonly restoreWorkspace?: RetainedWorkspaceRestore
+  /** Receives what a restored environment held of the checkpoint's marker, before any turn is
+   *  judged by it. */
+  readonly onWorkspaceRestored?: (receipt: RetainedWorkspaceRestoreReceipt) => Promise<void>
+}
+
+/** A checkpoint to create the next environment from, with the marker it must hold. */
+export interface RetainedWorkspaceRestore {
+  readonly checkpoint: WorkspaceCheckpointRef
+  readonly marker?: WorkspaceCheckpointMarker
+}
+
+/** What a restored environment was found to hold. */
+export interface RetainedWorkspaceRestoreReceipt {
+  readonly environmentId: string
+  readonly checkpoint: WorkspaceCheckpointRef
+  /** True only when the environment held the checkpoint's marker with its exact content. */
+  readonly verified: boolean
+  readonly detail?: string
 }
 
 export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorContext | undefined {

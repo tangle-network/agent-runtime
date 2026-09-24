@@ -495,7 +495,8 @@ export interface SupervisorAgentDeps {
   /** Called once when the external driver loop ends, returned or thrown, with what it did. */
   readonly onDriverLoopSettled?: (record: DriverContinuationRecord) => void
   /** How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
-   *  on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
+   *  with the unmet items: into the same harness session where the backend proves it, and
+   *  otherwise with the whole re-entry task (`reentry.ts`). The harness owns its own turn loop, so it can
    *  end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
    *  ended on the driver's own completion, and the completion gate could only label that result,
    *  never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
@@ -1111,6 +1112,7 @@ function buildSupervisorAgent(
         }
         const loopRecords: DriverAttemptRecord[] = []
         let environmentReplacements = 0
+        let workspaceRestores = 0
         const describe = deps.deliverable?.describe
         const settleLoop = () => {
           const stopReason = controls.stopReason() ?? progressStopReason
@@ -1126,6 +1128,7 @@ function buildSupervisorAgent(
           deps.onDriverLoopSettled?.({
             ...summarizeDriverAttempts(loopRecords),
             environmentReplacements,
+            workspaceRestores,
             ...(closedBy === undefined ? {} : { closedBy }),
             ...(stopReason === undefined ? {} : { stopReason }),
           })
@@ -1171,6 +1174,7 @@ function buildSupervisorAgent(
                           compose,
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
+                            if (continuity.workspace === 'restored') workspaceRestores += 1
                           },
                         },
                       }),

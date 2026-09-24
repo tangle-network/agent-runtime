@@ -32,6 +32,7 @@ import type {
   ChildTaskEvent,
   InteractionRequest,
   Sha256Digest,
+  WorkspaceCheckpointRef,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
@@ -1343,6 +1344,15 @@ export interface TreeView {
 
 /** Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  *  timestamp for human inspection only (NOT a replay input). */
+
+/** The file Runtime writes into a retained owner's workspace immediately before a checkpoint, and
+ *  reads back from a restored environment before any turn runs there. */
+export interface WorkspaceCheckpointMarker {
+  /** Workspace-relative path. */
+  readonly path: string
+  readonly content: string
+}
+
 export type SpawnEvent =
   | {
       kind: 'spawned'
@@ -1714,6 +1724,42 @@ export type SpawnEvent =
       provider: string
       environmentId: string
       destroyed: boolean
+      detail?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** A durable checkpoint of a retained owner's workspace, taken while its manager coordinated.
+       *  When the provider later loses the owner's environment, the next invocation is created from
+       *  the latest of these, so a re-entered director keeps the files it wrote. `marker` is the
+       *  file Runtime wrote into the workspace immediately before the checkpoint; a restored
+       *  environment is accepted only when it holds that file with that content. Informational:
+       *  replay, `materializeTreeView`, and cost readers skip it, and its `seq` is per node,
+       *  outside the cursor-uniqueness namespace. */
+      kind: 'workspace-checkpoint'
+      id: NodeId
+      provider: string
+      /** The environment the checkpoint was taken from. */
+      environmentId: string
+      checkpoint: WorkspaceCheckpointRef
+      marker?: WorkspaceCheckpointMarker
+      seq: number
+      at: string
+    }
+  | {
+      /** A new environment of a retained owner was created from a `workspace-checkpoint`, and
+       *  Runtime read the checkpoint's marker back from it. `verified` is true only when the file
+       *  held the exact content written before the checkpoint. Informational, like
+       *  `workspace-checkpoint`. */
+      kind: 'workspace-restored'
+      id: NodeId
+      provider: string
+      /** The new environment. */
+      environmentId: string
+      checkpointId: string
+      /** The environment the checkpoint was taken from. */
+      sourceEnvironmentId: string
+      verified: boolean
       detail?: string
       seq: number
       at: string

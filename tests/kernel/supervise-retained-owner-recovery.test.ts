@@ -553,6 +553,208 @@ describe('retained external supervisor recovery', () => {
     })
   })
 
+  it("restores the lost environment's workspace from its latest checkpoint", async () => {
+    // Autopsy A, the files. After agent-runtime#1356 a director whose sandbox was deleted was
+    // re-entered in a new one with the coordinator's state, but its files were gone: the new
+    // director found no objective.md and wrote a new nonce (autopsy-a-after-20260924b). A
+    // coordination call now checkpoints the workspace, and the replacement is created from it.
+    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-restore-'))
+    directories.push(directory)
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
+    const stateFile = join(directory, 'provider.json')
+    const runDirectory = join(directory, 'run')
+    const context = createFileRunContext(runDirectory)
+    const files = new Map<string, Map<string, string>>()
+    const filesOf = (id: string) => {
+      const held = files.get(id) ?? new Map<string, string>()
+      files.set(id, held)
+      return held
+    }
+    const checkpoints = new Map<string, Map<string, string>>()
+    const createInputs: Parameters<AgentEnvironmentProvider['create']>[0][] = []
+    const environmentIds: string[] = []
+    const prompts: string[] = []
+    let port = 0
+    let token = ''
+    const callTool = async (name: string, args: Record<string, unknown>) => {
+      const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: `${name}-${prompts.length}`,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+      })
+      if (!response.ok) throw new Error(`${name} returned ${response.status}`)
+    }
+    const journaled = async (kind: SpawnEvent['kind']) =>
+      ((await context.journal.loadTree('restore-root')) ?? []).some((event) => event.kind === kind)
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      read: async (path) => {
+        const content = filesOf(environment.id).get(path)
+        if (content === undefined) throw new Error(`${path} does not exist`)
+        return content
+      },
+      write: async (path, content) => {
+        filesOf(environment.id).set(path, content)
+      },
+      workspaceBranching: {
+        checkpoint: async (request) => {
+          const checkpointId = `checkpoint-${checkpoints.size + 1}`
+          checkpoints.set(checkpointId, new Map(filesOf(environment.id)))
+          return {
+            status: 'created',
+            idempotencyKey: request.idempotencyKey,
+            requestDigest: request.requestDigest,
+            checkpoint: {
+              checkpointId,
+              provider: environment.provider,
+              source: request.source,
+              idempotencyKey: request.idempotencyKey,
+              requestDigest: request.requestDigest,
+              createdAt: new Date().toISOString(),
+            },
+          }
+        },
+        deleteCheckpoint: async (request) => ({ ...request, status: 'deleted' }),
+        lookupCheckpoint: async () => {
+          throw new Error('not used')
+        },
+        fork: async () => {
+          throw new Error('not used')
+        },
+        lookupFork: async () => {
+          throw new Error('not used')
+        },
+        destroyFork: async () => {
+          throw new Error('not used')
+        },
+      },
+      dispatch: async (turn) => {
+        prompts.push(String(turn.prompt ?? ''))
+        environmentIds.push(environment.id)
+        const dispatched = await environment.dispatch!(turn)
+        if (prompts.length === 2) {
+          // The re-entered director reads the file its predecessor wrote and submits it.
+          const objective = filesOf(environment.id).get('objective.md') ?? 'missing'
+          await callTool('submit_result', { result: { answer: objective } })
+        }
+        return dispatched
+      },
+      session: (id, options) => {
+        const session = environment.session!(id, options)
+        if (prompts.length !== 1) return session
+        return {
+          ...session,
+          // The first director writes its objective, makes one coordination call, and then its
+          // sandbox is deleted mid-turn.
+          async *events() {
+            filesOf(environment.id).set('objective.md', 'nonce-first-turn')
+            await callTool('read_journal', {})
+            for (let waited = 0; !(await journaled('workspace-checkpoint')); waited += 10) {
+              if (waited > 5_000) throw new Error('no workspace checkpoint was journaled')
+              await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            await environment.destroy?.()
+            throw new Error('Sandbox not found')
+          },
+        }
+      },
+    })
+    const base = durableRetainedProvider(stateFile)
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      capabilities: async () => ({
+        ...(await base.capabilities()),
+        create: { runtimeAttachments: { mcp: true }, workspaceCheckpoint: true },
+      }),
+      create: async (input) => {
+        createInputs.push(input)
+        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        const environment = await base.create(input)
+        const checkpoint = input.workspace?.checkpoint
+        if (checkpoint !== undefined) {
+          files.set(environment.id, new Map(checkpoints.get(checkpoint.checkpointId)))
+        }
+        return wrap(environment)
+      },
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('submit_result', 'read_journal'),
+      }),
+      'Write objective.md, then submit its content.',
+      {
+        runDir: runDirectory,
+        journal: context.journal,
+        blobs: context.blobs,
+        runId: 'restore-root',
+        backend: { backend: 'provider', provider },
+        driverBackend: { backend: 'provider', provider },
+        budget: { maxIterations: 20, maxTokens: 1000, deadlineMs: 60_000 },
+        driverRetry: { initialBackoffMs: 0, maxBackoffMs: 0 },
+        repromptOnUnmet: 1,
+        retainedAtSettlement: 'release',
+        teardownConfirmMs: 0,
+        deliverable: {
+          describe: 'the content of objective.md',
+          check: (value) => (value as { answer?: unknown }).answer === 'nonce-first-turn',
+        },
+        coordination: {
+          authentication: {
+            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+          },
+          publicUrl: (address) => {
+            port = address.port
+            proxy.forwardTo(port)
+            return `${proxy.url}/manager`
+          },
+        },
+      },
+    )
+
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'nonce-first-turn' } })
+    expect(createInputs).toHaveLength(2)
+    expect(new Set(environmentIds).size).toBe(2)
+    const events = (await context.journal.loadTree('restore-root')) ?? []
+    const checkpoint = events.find((event) => event.kind === 'workspace-checkpoint')
+    expect(checkpoint).toMatchObject({
+      kind: 'workspace-checkpoint',
+      environmentId: environmentIds[0],
+      marker: { path: '.agent-runtime-checkpoint' },
+    })
+    if (checkpoint?.kind !== 'workspace-checkpoint') throw new Error('no checkpoint')
+    expect(createInputs[0]?.workspace?.checkpoint).toBeUndefined()
+    expect(createInputs[1]?.workspace?.checkpoint).toEqual(checkpoint.checkpoint)
+    expect(prompts[1]).toContain(`Your previous environment (${environmentIds[0]}) is gone`)
+    expect(prompts[1]).toContain(
+      `Its files were restored from a checkpoint taken at ${checkpoint.at}`,
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-restored',
+        environmentId: environmentIds[1],
+        checkpointId: checkpoint.checkpoint.checkpointId,
+        sourceEnvironmentId: environmentIds[0],
+        verified: true,
+      }),
+    )
+    expect(result.continuation).toMatchObject({
+      environmentReplacements: 1,
+      workspaceRestores: 1,
+      closedBy: 'result-accepted',
+    })
+  })
+
   it('allocates distinct provider keys for a deliberate second manager drive', async () => {
     const fixture = await setup(undefined, true)
     await fixture.resume()

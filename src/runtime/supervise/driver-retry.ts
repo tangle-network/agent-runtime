@@ -609,6 +609,9 @@ export interface DriverLoopRecord {
 export interface DriverContinuationRecord extends DriverLoopRecord {
   /** Re-entries that ran in a new environment because the provider no longer held the old one. */
   readonly environmentReplacements: number
+  /** Of those, the ones whose new environment was created from the lost one's latest checkpoint.
+   *  The journal's `workspace-restored` receipts say whether each restore was verified. */
+  readonly workspaceRestores: number
   /** How the run was closed, when something closed it: an accepted `submit_result`, the
    *  manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
    *  `stopRule`. Absent when the loop ended on a bound or a failure. */
@@ -661,8 +664,8 @@ async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
 /**
  * Run the driver until it completes WITH ITS CONTRACT MET, or until the budget, the deadline, an
  * abort, a terminal error, or a ceiling stops it. Transient failures are retried. A drive that
- * returns with its completion check unmet is re-entered on the same live session with the unmet
- * items, up to `reprompt.maxReprompts`. Throws `DriverAttemptsExhaustedError` (cause = the last
+ * returns with its completion check unmet is re-entered with the unmet items, up to
+ * `reprompt.maxReprompts`; the drive harness decides what else the re-entered driver is told. Throws `DriverAttemptsExhaustedError` (cause = the last
  * real failure) when a FAILURE ends the loop; a completed drive returns, met contract or not,
  * because deciding what an undelivered run is worth belongs to the finalizer, not to this loop.
  */
