@@ -888,6 +888,7 @@ export {
   type ExecutorProgress,
   readWorkerProgress,
   type ScopeProgressInput,
+  type TeamProgress,
   type WorkerProgress,
 } from './supervise/progress'
 // The kernel prompt registry: versioned prompt text as data (`<surface>/v<n>`), the directive

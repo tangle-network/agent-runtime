@@ -11,6 +11,8 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
+import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
+import type { WorkerProgress } from '../../src/runtime/supervise/progress'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -294,5 +296,169 @@ describe('a lead takes back what a stalled worker holds', () => {
       freedTokens: 2_000,
       working: 0,
     })
+  })
+})
+
+describe('a lead reads a manager by the work of its team', () => {
+  it('sees a manager whose worker is busy as active, and one whose team went quiet as stalled', async () => {
+    const minute = 60_000
+    let clock = 1_000_000
+    let leafActivityAt = clock
+    let release: () => void = () => undefined
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const leafExecutor: Executor<unknown> = {
+      runtime: 'router',
+      // A worker that keeps working without reporting usage until it finishes, as a harness in a
+      // long tool call does; only its own activity read shows that it is busy.
+      execute: async () => {
+        await released
+        return {
+          outRef: 'leaf',
+          out: 'checked',
+          spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+        }
+      },
+      progress: () => ({ recentActivity: [{ at: leafActivityAt, kind: 'tool', label: 'bash' }] }),
+      teardown: () => Promise.resolve({ destroyed: true }),
+    }
+    const leaf = {
+      name: 'leaf',
+      act: async () => 'checked',
+      executorSpec: {
+        profile: testAgentProfile('leaf', { harness: 'cli-base' }),
+        harness: null,
+        executor: leafExecutor,
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    let leading: () => void = () => undefined
+    const managerLeads = new Promise<void>((resolve) => {
+      leading = resolve
+    })
+    const journal = new InMemorySpawnJournal()
+    const manager = driverChild(
+      testAgentProfile('manager', { harness: 'cli-base' }),
+      {
+        name: 'manager',
+        async act(_task, scope) {
+          await scope.meter({ iterations: 0, tokens: { input: 5, output: 1 }, usd: 0, ms: 0 })
+          const spawned = scope.spawn(leaf, 'check', {
+            budget: { maxIterations: 5, maxTokens: 100 },
+            label: 'leaf',
+          })
+          if (!spawned.ok) throw new Error(`leaf spawn refused: ${spawned.reason}`)
+          leading()
+          const settled = await scope.next()
+          return settled?.kind === 'done' ? settled.out : undefined
+        },
+      },
+      journal,
+    )
+    const reads: Record<string, WorkerProgress | undefined> = {}
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'lead',
+        async act(_task, scope) {
+          const spawned = scope.spawn(manager, 'lead a check', {
+            budget: { maxIterations: 20, maxTokens: 1_000 },
+            label: 'manager',
+          })
+          if (!spawned.ok) throw new Error(`manager spawn refused: ${spawned.reason}`)
+          await managerLeads
+          const read = () => scope.progress(spawned.handle.id, { stallAfterMs: 3 * minute })
+          // Ten minutes on, the manager itself reported nothing, but its worker acted a second ago.
+          clock += 10 * minute
+          leafActivityAt = clock - 1_000
+          reads.busy = read()
+          // Five more quiet minutes anywhere in the team: now the manager reads stalled.
+          clock += 5 * minute
+          reads.quiet = read()
+          release()
+          await scope.next()
+          return 'observed'
+        },
+      },
+      'task',
+      {
+        budget: { maxIterations: 100, maxTokens: 10_000 },
+        runId: 'lead-reads-team',
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        executors: withDriverExecutor(createExecutorRegistry()),
+        now: () => clock,
+      },
+    )
+    expect(result.kind).toBe('winner')
+    expect(reads.busy).toMatchObject({
+      stalled: false,
+      idleMs: 1_000,
+      turns: 1,
+      team: { agents: 1, depth: 1, working: 1, queued: 0, done: 0, down: 0 },
+    })
+    expect(reads.quiet).toMatchObject({ stalled: true, idleMs: 5 * minute + 1_000 })
+  })
+
+  it('never reads a queued worker as stalled', async () => {
+    let clock = 0
+    const reads: WorkerProgress[] = []
+    const holder = (name: string): Agent<unknown, unknown> & { executorSpec: AgentSpec } => ({
+      name,
+      act: async () => undefined,
+      executorSpec: {
+        profile: testAgentProfile(name, { harness: 'cli-base' }),
+        harness: null,
+        executor: {
+          runtime: 'router',
+          execute: (_task, signal) =>
+            new Promise<ExecutorResult<unknown>>((_resolve, reject) => {
+              const fail = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+              if (signal.aborted) fail()
+              else signal.addEventListener('abort', fail, { once: true })
+            }),
+          teardown: () => Promise.resolve({ destroyed: true }),
+        },
+      },
+    })
+    await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'lead',
+        async act(_task, scope) {
+          const first = scope.spawn(holder('a'), 'hold', {
+            budget: { maxIterations: 1, maxTokens: 10 },
+            label: 'a',
+          })
+          const second = scope.spawn(holder('b'), 'hold', {
+            budget: { maxIterations: 1, maxTokens: 10 },
+            label: 'b',
+          })
+          if (!first.ok || !second.ok) throw new Error('spawn refused')
+          clock += 3_600_000
+          for (const id of [first.handle.id, second.handle.id]) {
+            const read = scope.progress(id, { stallAfterMs: 1_000 })
+            if (read) reads.push(read)
+          }
+          first.handle.abort('done observing')
+          second.handle.abort('done observing')
+          await scope.next()
+          await scope.next()
+          return 'observed'
+        },
+      },
+      'task',
+      {
+        budget: { maxIterations: 10, maxTokens: 100 },
+        workerSlots: 1,
+        runId: 'queued-not-stalled',
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+        now: () => clock,
+      },
+    )
+    expect(reads.map((read) => [read.status, read.stalled])).toEqual([
+      ['acquiring', true],
+      ['queued', false],
+    ])
   })
 })

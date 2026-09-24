@@ -17146,6 +17146,52 @@ A one-line human-readable state ("turn 3, running tests").
 
 ***
 
+### TeamProgress
+
+The team a worker leads, as its own lead observes it mid-flight: every agent below the worker,
+ at every depth. A lead reads this instead of the team's raw outputs, so the read stays bounded
+ however large the team grows.
+
+#### Properties
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Agents spawned below the worker, at every depth.
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+Levels below the worker: `1` when it leads only workers that lead no one.
+
+##### working
+
+> `readonly` **working**: `number`
+
+Agents below it that hold a worker slot and are running.
+
+##### queued
+
+> `readonly` **queued**: `number`
+
+Agents below it waiting for a worker slot.
+
+##### done
+
+> `readonly` **done**: `number`
+
+Agents below it that settled done.
+
+##### down
+
+> `readonly` **down**: `number`
+
+Agents below it that settled down or were cancelled.
+
+***
+
 ### WorkerProgress
 
 The full live view of one worker, as `observe_agent` returns it mid-flight.
@@ -17181,7 +17227,8 @@ True when this worker's executor exposes an inbox (`Executor.deliver`) — i.e. 
 
 > `readonly` **lastActivityAt**: `number`
 
-Epoch ms of the last metered usage event or executor-reported activity.
+Epoch ms of the last metered usage event or executor-reported activity. For a worker that
+ leads a team, the newest activity anywhere in that team counts, its own turns included.
 
 ##### idleMs
 
@@ -17190,6 +17237,8 @@ Epoch ms of the last metered usage event or executor-reported activity.
 ##### stalled
 
 > `readonly` **stalled**: `boolean`
+
+Live, not waiting for a worker slot, and idle past `stallAfterMs`.
 
 ##### stallAfterMs
 
@@ -17258,6 +17307,12 @@ What the executor changed about the caller's declaration; absent when it changed
 ##### note?
 
 > `readonly` `optional` **note?**: `string`
+
+##### team?
+
+> `readonly` `optional` **team?**: [`TeamProgress`](#teamprogress)
+
+The team this worker leads; absent while it leads no one.
 
 ***
 
@@ -17366,6 +17421,12 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ##### resources?
 
 > `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceSpend`](#resourcespend)\>\>
+
+##### team?
+
+> `readonly` `optional` **team?**: [`TeamProgress`](#teamprogress)
+
+The team the worker leads, when it leads one.
 
 ***
 
@@ -20776,7 +20837,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-4)
+[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-5)
 
 ##### identity
 

@@ -88,6 +88,7 @@ import {
   DEFAULT_STALL_AFTER_MS,
   type ExecutorProgress,
   readWorkerProgress,
+  type TeamProgress,
   type WorkerProgress,
 } from './progress'
 import { prepareScopeResume } from './recover-executors'
@@ -317,6 +318,15 @@ const releasingScopes = new WeakSet<object>()
 const admissionSeals = new WeakMap<object, () => void>()
 /** Each scope's reader of its own team, for the settlement its owner writes one level up. */
 const subtreeReaders = new WeakMap<object, () => SubtreeSummary | undefined>()
+/** A scope's live team and its owner's own turns, as the owner's lead observes them. */
+interface LiveTeam extends TeamProgress {
+  /** Newest activity anywhere in the scope: the owner's own turn, or any agent below it. */
+  readonly lastActivityAt: number
+  /** Turns the scope's owner metered for itself. */
+  readonly ownerTurns: number
+}
+/** Each scope's reader of its live team, for the progress its owner's lead reads mid-flight. */
+const liveTeamReaders = new WeakMap<object, () => LiveTeam>()
 
 /** How many of a manager's direct children its summary lists; the counts always cover all. */
 export const SUBTREE_RESULT_LIMIT = 8
@@ -815,6 +825,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
   let waitOrdinal = args.resumeFrom ? args.resumeFrom.maxWaitOrdinal + 1 : 0
   let meterSeq = 0
+  // The owner's own turns, so its lead reads a manager that takes turns as active.
+  let ownerTurns = 0
+  let ownerLastTurnAt = 0
   let progressSeq = 0
   const now = args.now ?? Date.now
   // Waits the journal shows as armed but never woken, keyed by label. `wait` RE-ADOPTS one instead
@@ -1930,15 +1943,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     } catch {
       fromExecutor = undefined
     }
+    // A manager child reports no usage of its own until it settles, so without its team the lead
+    // would read a manager whose workers are busy as idle and, after `stallAfterMs`, as stalled.
+    const team = liveTeamOf(child)
     return readWorkerProgress(
       {
         id: child.id,
         status: child.status,
         steerable: child.deliver !== undefined && !child.delivered,
         startedAt: child.startedAt,
-        lastActivityAt: child.lastActivityAt,
+        lastActivityAt: Math.max(child.lastActivityAt, team?.lastActivityAt ?? 0),
         ...addResourceSpend(child.spent.resources),
-        turns: child.spent.iterations,
+        turns: Math.max(child.spent.iterations, team?.ownerTurns ?? 0),
+        ...(team && team.agents > 0 ? { team: teamProgress(team) } : {}),
         tokens: child.spent.tokens,
         ...(child.spent.tokensKnown === false ? { tokensKnown: false } : {}),
         usd: child.spent.usd,
@@ -2024,6 +2041,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     } catch (error) {
       observeError = error
     }
+    ownerLastTurnAt = now()
+    if (!accountingOnly) ownerTurns += 1
     // Journal it as a `metered` event — the durable TWIN of the pool debit (as `settled` is the
     // twin of `reconcile`), so every journal-based cost reader sums driver inference automatically.
     // Awaited like the settled append (cost-critical), so it has landed before the supervisor's
@@ -2108,6 +2127,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     admissionClosed = true
   })
   subtreeReaders.set(scope as Scope<unknown>, () => summarizeTeam(children.values()))
+  liveTeamReaders.set(scope as Scope<unknown>, () =>
+    readLiveTeam(children.values(), ownerTurns, ownerLastTurnAt),
+  )
   runtimeOwnedProviderMeters.set(
     scope as Scope<unknown>,
     async (spend, providerModel, detail, accountingOnly) =>
@@ -3697,6 +3719,83 @@ export function settledToIteration<Out>(settled: Settled<Out>): Iteration<unknow
 
 /** Summarize one scope's children and everything below them, listing the best direct children
  *  and counting the rest. Wait-states are not agents and are left out. */
+/** The live team a child manager leads, read through the nested scope it owns. */
+function liveTeamOf(child: LiveChild): LiveTeam | undefined {
+  let nested: Scope<unknown> | undefined
+  try {
+    nested = child.readNestedScope?.()
+  } catch {
+    return undefined
+  }
+  return nested === undefined ? undefined : liveTeamReaders.get(nested)?.()
+}
+
+function teamProgress(team: LiveTeam): TeamProgress {
+  const { lastActivityAt: _lastActivityAt, ownerTurns: _ownerTurns, ...counts } = team
+  return Object.freeze(counts)
+}
+
+/** Latest activity an executor names, or 0. A throwing read is no evidence of activity. */
+function executorActivityAt(child: LiveChild): number {
+  try {
+    const recent = child.readProgress?.()?.recentActivity
+    return recent?.length ? (recent[recent.length - 1]?.at ?? 0) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** Count a scope's team at every depth and find its newest activity. Live members are read through
+ *  their own nested scopes; settled members contribute the summary their settlement carried. */
+function readLiveTeam(
+  children: Iterable<LiveChild>,
+  ownerTurns: number,
+  ownerLastTurnAt: number,
+): LiveTeam {
+  let agents = 0
+  let depth = 0
+  let working = 0
+  let queued = 0
+  let done = 0
+  let down = 0
+  let lastActivityAt = ownerLastTurnAt
+  for (const child of children) {
+    if (child.wait) continue
+    agents += 1
+    lastActivityAt = Math.max(
+      lastActivityAt,
+      child.lastActivityAt,
+      child.settledAt ?? 0,
+      executorActivityAt(child),
+    )
+    if (child.status === 'done') done += 1
+    else if (child.status === 'failed' || child.status === 'cancelled') down += 1
+    else if (child.status === 'queued' || child.status === 'pending') queued += 1
+    else working += 1
+    const below = isTerminalNodeStatus(child.status) ? child.subtree : liveTeamOf(child)
+    if (below === undefined || below.agents === 0) continue
+    agents += below.agents
+    depth = Math.max(depth, below.depth)
+    done += below.done
+    down += below.down
+    if ('working' in below) {
+      working += below.working
+      queued += below.queued
+      lastActivityAt = Math.max(lastActivityAt, below.lastActivityAt)
+    }
+  }
+  return {
+    agents,
+    depth: agents === 0 ? 0 : depth + 1,
+    working,
+    queued,
+    done,
+    down,
+    lastActivityAt,
+    ownerTurns,
+  }
+}
+
 function summarizeTeam(children: Iterable<LiveChild>): SubtreeSummary | undefined {
   let agents = 0
   let depth = 0

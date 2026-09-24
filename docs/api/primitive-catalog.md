@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 981 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 982 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1086,6 +1086,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 981 exports.
 | `SurfaceReadBox` | interface | The minimal box surface the box-backed reader needs — structurally typed so the real |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
+| `TeamProgress` | interface | The team a worker leads, as its own lead observes it mid-flight: every agent below the worker, |
 | `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |

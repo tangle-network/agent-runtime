@@ -3519,7 +3519,11 @@ export function createCoordinationToolsForManager(
         '(`recentActivity`), what its executor CHANGED about the profile you gave it ' +
         '(`derived` — an MCP config it materialized, an extension it had to add), whether a ' +
         'steer can even reach it (`steerable`), and how many ' +
-        'steers it has not yet read (`pendingMessages`). A worker whose executor has FINISHED ' +
+        'steers it has not yet read (`pendingMessages`). For a worker that leads its own team, ' +
+        '`progress.team` counts the agents below it (working, queued, done, down) and its idle ' +
+        'clock reads the newest activity anywhere in that team, so a lead whose workers are busy ' +
+        'is not stalled. A queued worker waits for a worker slot and is never stalled. ' +
+        'A worker whose executor has FINISHED ' +
         'but whose settlement you have not yet drained reports `settlementPending` with its ' +
         'terminal kind; its `status` still reads running until await_event ' +
         'delivers it, so call await_event, not observe_agent again. The settled output ' +

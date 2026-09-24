@@ -34,6 +34,12 @@ A settlement of a child that led workers carries `subtree`: agents and depth bel
 The `settled` journal event, replay and the `agent.child` hook carry the same field.
 `observe_agent({ outRef })` reads a result listed in a summary the manager received, and refuses any other digest.
 
+A lead reads a manager by the work of its team.
+A manager child reports no usage of its own until it settles, so its lead used to read it as idle, and as stalled after `stallAfterMs`, while its workers were busy.
+Its progress now counts its own turns, takes the newest activity anywhere in its team as its activity, and carries `team`: agents, depth, working, queued, done and down below it.
+A queued worker is never stalled: it waits for a slot, which no steer or cancel frees.
+Measured before this change on a four-level audit (2026-09-24): leads cancelled working sub-leads as stalled at 47 and 206 seconds.
+
 A lead takes back what a stalled worker holds.
 The new `cancel_worker` verb (grant `agent_runtime_coordination_cancel_worker`) cancels one of the manager's own running or queued workers, and its unspent slice returns to the pool when it settles.
 A `budget-exhausted` refusal names it.
