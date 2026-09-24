@@ -71,7 +71,7 @@ if (values.help) {
       '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
       '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
       '  --sandbox-repo <path>          Clean ADC Git checkout for the pending Sandbox release',
-      '  --sandbox-archive <path>       Sandbox 0.49.0 archive or prerelease at that base',
+      '  --sandbox-archive <path>       Newest matrix Sandbox archive or a prerelease at that base',
       '  --cohort-manifest <path>       Require dependency versions and commits from this manifest',
       '  --keep-temp                    Retain the generated archives and consumer',
       '  --report <path>                Also write the verified cohort report to this file',
