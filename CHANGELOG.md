@@ -9,7 +9,7 @@ A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`,
 It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
 The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
 Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
-The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`; `unavailableMs` is every pause plus every refused drive that made no progress.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
 The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses too: an operator restores the credential, and the agent can only wait. The caller's own key refused (401 `invalid_api_key`) stays terminal.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.

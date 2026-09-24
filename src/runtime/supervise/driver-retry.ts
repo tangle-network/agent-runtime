@@ -599,8 +599,10 @@ export interface DriverLoopRecord {
   readonly failureRetries: number
   /** Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure. */
   readonly unavailablePauses: number
-  /** Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
-   *  plus the pause after it. */
+  /** Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
+   *  drive that made no progress. A refused drive that made progress was mostly work, so only its
+   *  pause counts. Measured 2026-09-24 on a real run: a first drive worked 8 minutes before its
+   *  refusal, and counting its whole duration doubled a 10-minute outage to 16 minutes. */
   readonly unavailableMs: number
   /** Re-entered drives, in a row at the end, that completed without a delivery. */
   readonly barrenReentries: number
@@ -650,7 +652,8 @@ export function summarizeDriverAttempts(
     ).length,
     unavailablePauses: refused.filter((record) => record.retryInMs !== undefined).length,
     unavailableMs: refused.reduce(
-      (sum, record) => sum + record.durationMs + (record.retryInMs ?? 0),
+      (sum, record) =>
+        sum + (record.madeProgress ? 0 : record.durationMs) + (record.retryInMs ?? 0),
       0,
     ),
     barrenReentries: barren,

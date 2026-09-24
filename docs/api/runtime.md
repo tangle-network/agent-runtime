@@ -14617,8 +14617,10 @@ Re-entries after the upstream refused a drive for capacity. Each is a pause, not
 
 > `readonly` **unavailableMs**: `number`
 
-Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
- plus the pause after it.
+Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
+ drive that made no progress. A refused drive that made progress was mostly work, so only its
+ pause counts. Measured 2026-09-24 on a real run: a first drive worked 8 minutes before its
+ refusal, and counting its whole duration doubled a 10-minute outage to 16 minutes.
 
 ##### barrenReentries
 
@@ -14695,8 +14697,10 @@ Re-entries after the upstream refused a drive for capacity. Each is a pause, not
 
 > `readonly` **unavailableMs**: `number`
 
-Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
- plus the pause after it.
+Infrastructure time the unavailable upstream cost this loop: every pause, plus every refused
+ drive that made no progress. A refused drive that made progress was mostly work, so only its
+ pause counts. Measured 2026-09-24 on a real run: a first drive worked 8 minutes before its
+ refusal, and counting its whole duration doubled a 10-minute outage to 16 minutes.
 
 ###### Inherited from
 

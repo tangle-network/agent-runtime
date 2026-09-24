@@ -1262,6 +1262,34 @@ describe('an unavailable upstream', () => {
     })
   })
 
+  it('counts a refused drive that made progress as work, and only its pause as infrastructure', async () => {
+    let spent = 0
+    let clock = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        // The first drive works 8 minutes before the refusal; the second is refused at once.
+        clock += attempt === 1 ? 480_000 : 60_000
+        if (attempt === 1) spent += 1_000
+        if (attempt < 3) throw new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+      },
+      // No declared check, so the first drive's spend is progress.
+      progress: () => mark({ poolTokensSpent: spent, contract: 'none' }),
+      budget: () => budget(),
+      now: () => clock,
+      signal: new AbortController().signal,
+      onAttempt: (record) => void records.push(record),
+      sleep: async (ms) => {
+        clock += ms
+      },
+    })
+    // Pauses of 15 s and 30 s, plus the 60 s refused drive; the 8 working minutes are not counted.
+    expect(summarizeDriverAttempts(records)).toMatchObject({
+      unavailablePauses: 2,
+      unavailableMs: 105_000,
+    })
+  })
+
   it('survives the intermittent outage that ended the v3d leads, where turns work between refusals', async () => {
     // Measured shape: a declared check stays unmet, some turns spend tokens before the quota
     // refuses them, others are refused at once. The earlier loop stopped this at no-progress.
