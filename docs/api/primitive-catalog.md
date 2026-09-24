@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.259.1` and `@tangle-network/agent-eval@0.186.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.260.0` and `@tangle-network/agent-eval@0.186.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -223,7 +223,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 54 exports.
+Import from `@tangle-network/agent-runtime/durable` — 56 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -246,6 +246,7 @@ Import from `@tangle-network/agent-runtime/durable` — 54 exports.
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
+| `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
 | `SETTLE_RECORD_FILE` | const | The settle record: the returned `SupervisedResult` as canonical JSON, written once. |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
 | `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |
@@ -259,6 +260,7 @@ Import from `@tangle-network/agent-runtime/durable` — 54 exports.
 | `DurableFailureRecord` | interface | What `failure.json` records about the most recent throw. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
+| `PursuitFork` | interface | Start a run as a version of a settled run: the parent's recorded root inputs plus one change. |
 | `PursuitNodeCost` | interface | One node's dollar cost with the provenance that decides whether it may be compared or summed. |
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
 | `PursuitNodeTiming` | interface | One node's clock. `wallMs` is `settledAt - startedAt` and is deliberately distinct from the |

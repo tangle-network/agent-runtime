@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.260.0
+
+`supervisePursuit` accepts `fork`, which starts a run as a version of a settled run with one `AgentProfileDiff`.
+The call passes the parent's profile, task and budget; Runtime checks them against the parent's journaled root and applies the change.
+`fork.settleDigest` must equal the sha256 of the parent's `result.json`.
+A parent with a node that has no terminal record, an unbegun owned tree, or an unconfirmed teardown is refused before the fork's journal exists.
+The fork's root records `forkParentRunId`, `forkParentSettleDigest`, `forkProfileDiffId` and `lineageRootRunId` in `execution.correlation`, and `/durable` exports those names as `RUN_FORK_CORRELATION_KEYS`.
+The parent directory is read and never written.
+A fork carries the parent's recorded inputs only; it does not replay the parent's settled children or continue its native session.
+
 ## 0.259.1
 
 Admit Sandbox prereleases at base `0.49.0` through the Runtime peer range `>=0.36.4 <0.48.0 || ^0.49.0-0`.

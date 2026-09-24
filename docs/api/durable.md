@@ -1136,6 +1136,36 @@ Digest-chain tip for this concrete execution journal.
 
 ***
 
+### PursuitFork
+
+Start a run as a version of a settled run: the parent's recorded root inputs plus one change.
+
+The call's `profile`, `task` and `budget` must be the parent's, byte for byte, as its sealed
+journal records them. Runtime applies `change` to that profile and runs the result in a new
+run directory. The parent directory is read and never written.
+
+#### Properties
+
+##### runDir
+
+> `readonly` **runDir**: `string`
+
+The settled parent's run directory.
+
+##### settleDigest
+
+> `readonly` **settleDigest**: `` `sha256:${string}` ``
+
+The sha256 of the parent's `result.json` bytes: the sealed point the fork starts from.
+
+##### change
+
+> `readonly` **change**: `AgentProfileDiff`
+
+The one change, applied to the parent's root profile. Its `id` is recorded.
+
+***
+
 ### RunDirectoryLockHolder
 
 What the lock file records about its holder.
@@ -1330,6 +1360,16 @@ pursuit and nothing else would release the provider environments its retained ch
 ###### Overrides
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`retainedAtSettlement`](runtime.md#retainedatsettlement-1)
+
+##### fork?
+
+> `readonly` `optional` **fork?**: [`PursuitFork`](#pursuitfork)
+
+Run this pursuit as a version of a settled run: `profile`, `task` and `budget` must equal the
+parent's recorded root, and Runtime executes the parent's profile with `fork.change` applied.
+The root's `execution.correlation` records the parent, its sealed digest, the change and the
+lineage (`RUN_FORK_CORRELATION_KEYS`). The parent's directory is never written, and a parent
+with any uncertain node is refused before the fork's journal exists.
 
 ##### budget
 
@@ -2460,6 +2500,16 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
  re-enters the harness and continues the same file with the next attempt number.
 
 ## Variables
+
+### RUN\_FORK\_CORRELATION\_KEYS
+
+> `const` **RUN\_FORK\_CORRELATION\_KEYS**: readonly \[`"forkParentRunId"`, `"forkParentSettleDigest"`, `"forkProfileDiffId"`, `"lineageRootRunId"`\]
+
+The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that
+supplies one is refused. `lineageRootRunId` is the first run of the chain of parents, so the
+spend of every version of one lineage groups under one id.
+
+***
 
 ### RUN\_DIRECTORY\_LOCK\_FILE
 
