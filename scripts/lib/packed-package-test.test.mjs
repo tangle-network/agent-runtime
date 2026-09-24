@@ -72,6 +72,8 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0', '0.48.0')).toBe(false)
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0', '0.50.0')).toBe(true)
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0', '0.51.0')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.51.0')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.52.0')).toBe(false)
   })
 
   it('admits prereleases only at the declared caret base', () => {
