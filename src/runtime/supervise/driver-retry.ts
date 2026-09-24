@@ -483,9 +483,10 @@ export interface DriverLoopRecord {
 export interface DriverContinuationRecord extends DriverLoopRecord {
   /** Re-entries that ran in a new environment because the provider no longer held the old one. */
   readonly environmentReplacements: number
-  /** How the manager itself closed the run, when it did: an accepted `submit_result`, its own
-   *  `stop`, or a `report_blocked` whose probe failed. Absent when the manager never closed it. */
-  readonly closedBy?: 'result-accepted' | 'stop' | 'blocked'
+  /** How the run was closed, when something closed it: an accepted `submit_result`, the
+   *  manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
+   *  `stopRule`. Absent when the loop ended on a bound or a failure. */
+  readonly closedBy?: 'result-accepted' | 'stop' | 'blocked' | 'stop-rule'
   /** The reason the manager gave, or the failed probe, verbatim. */
   readonly stopReason?: string
 }

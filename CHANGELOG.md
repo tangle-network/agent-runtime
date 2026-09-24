@@ -16,6 +16,7 @@ Before, every retry asked the provider to reconnect to the deleted sandbox and t
 
 Re-prompts end after `reprompt.maxBarren` (default 2) re-entered drives in a row complete without a delivery, whatever `repromptOnUnmet` allows, with `repromptRefusedBy: 'no-progress'`.
 A completion alone no longer resets that count; a delivery does.
+A progress `stopRule` that fired on the external arm now ends the re-prompts as well; before, the harness it had stopped was re-prompted.
 
 `submit_result` and `stop` refuse with `error: 'open-work'` while a worker still runs, or while a settled result or finding waits in `await_event`, and name the open work.
 `await_event` returns `eventSeq` and accepts `acknowledge`; an `acknowledgement` coordination record separates processing from delivery, and a completed turn or an accepted result acknowledges what it received.

@@ -14684,10 +14684,11 @@ Re-entries that ran in a new environment because the provider no longer held the
 
 ##### closedBy?
 
-> `readonly` `optional` **closedBy?**: `"stop"` \| `"blocked"` \| `"result-accepted"`
+> `readonly` `optional` **closedBy?**: `"stop"` \| `"blocked"` \| `"result-accepted"` \| `"stop-rule"`
 
-How the manager itself closed the run, when it did: an accepted `submit_result`, its own
- `stop`, or a `report_blocked` whose probe failed. Absent when the manager never closed it.
+How the run was closed, when something closed it: an accepted `submit_result`, the
+ manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
+ `stopRule`. Absent when the loop ended on a bound or a failure.
 
 ##### stopReason?
 

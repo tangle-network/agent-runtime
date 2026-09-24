@@ -138,6 +138,7 @@ Set `repromptOnUnmet: 'until-complete'` and a finite positive budget deadline to
 Successful continuations do not consume `driverRetry.maxAttempts`; that limit counts failed invocations across the driver run.
 Numeric `repromptOnUnmet` values still cap continuations, and zero disables them.
 Two re-entered drives in a row that deliver nothing end the re-prompts, whatever the cap (`repromptRefusedBy: 'no-progress'`).
+A progress `stopRule` that fired ends them too, and the settle record's `continuation.closedBy` is `stop-rule`.
 Cancellation, explicit stop, resource limits, and terminal failures remain authoritative.
 A thrown parent check reports a validation error through the existing driver failure record.
 

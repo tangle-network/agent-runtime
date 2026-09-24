@@ -1113,14 +1113,16 @@ function buildSupervisorAgent(
         let environmentReplacements = 0
         const describe = deps.deliverable?.describe
         const settleLoop = () => {
-          const stopReason = controls.stopReason()
+          const stopReason = controls.stopReason() ?? progressStopReason
           const closedBy: DriverContinuationRecord['closedBy'] = mcp.submittedResult()
             ? 'result-accepted'
             : controls.blocked() !== undefined
               ? 'blocked'
               : mcp.isStopped()
                 ? 'stop'
-                : undefined
+                : progressStopReason !== undefined
+                  ? 'stop-rule'
+                  : undefined
           deps.onDriverLoopSettled?.({
             ...summarizeDriverAttempts(loopRecords),
             environmentReplacements,
@@ -1215,8 +1217,10 @@ function buildSupervisorAgent(
                       // `stop`, a stop rule fired, or the turn cap closed it. Re-prompting would
                       // re-enter a session whose stop signal is already aborted and argue with a
                       // decision the run already made. Runtime refuses that before the product hook
-                      // is consulted, so no hook can override a declared stop.
-                      if (mcp.isStopped()) return 'stop'
+                      // is consulted, so no hook can override a declared stop. A progress stop rule
+                      // that fired is the same decision: it aborted the stop signal, and a re-prompt
+                      // would only re-enter a harness told to stop.
+                      if (mcp.isStopped() || progressStopReason !== undefined) return 'stop'
                       return (
                         (await deps.onUnmetContract?.(context)) ?? {
                           steer: defaultUnmetContractSteer(context),

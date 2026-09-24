@@ -918,7 +918,7 @@
       "DriverAttemptStop": "type 6d63d4b7d1e5",
       "DriverAttemptsExhaustedError": "value febf49e9aab4",
       "DriverBudgetReadout": "type 16f9b013d385",
-      "DriverContinuationRecord": "type 1623f793502c",
+      "DriverContinuationRecord": "type 3730ebd883c3",
       "DriverContractState": "type a287e992fd8a",
       "DriverLoopRecord": "type 7954722309e8",
       "DriverProgressMark": "type cb7863a2e835",
