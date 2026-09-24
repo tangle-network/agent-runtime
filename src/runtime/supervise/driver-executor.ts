@@ -39,6 +39,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress, ownedTreeRootSpawn } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
+import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { executableAgentSpecSnapshot } from './executable-spec'
@@ -94,6 +95,8 @@ interface DriverSpec extends AgentSpec {
   readonly recoverExecutor?: ExecutorFactory<unknown>
   readonly traceSource?: () => TraceSource | undefined
   readonly progress?: () => ExecutorProgress | undefined
+  /** The manager's own harness session, when its driver captures one. */
+  readonly harnessTranscript?: () => HarnessTranscriptCapture | undefined
 }
 
 /**
@@ -122,6 +125,7 @@ export function driverChild<Out>(
       progress?: () => ExecutorProgress | undefined
     }
   ).progress
+  const harnessTranscript = driver.harnessTranscript?.bind(driver)
   const rawSpec: DriverSpec = {
     profile,
     harness: null,
@@ -133,6 +137,7 @@ export function driverChild<Out>(
     ...(recoverExecutor ? { recoverExecutor } : {}),
     ...(traceSource ? { traceSource } : {}),
     ...(progress ? { progress } : {}),
+    ...(harnessTranscript ? { harnessTranscript } : {}),
   }
   const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
   const deliver = driver.deliver?.bind(driver)
@@ -234,6 +239,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     runtime: driverRuntime,
     ...(spec.traceSource ? { traceSource: spec.traceSource } : {}),
     ...(spec.progress ? { progress: spec.progress } : {}),
+    ...(spec.harnessTranscript ? { harnessTranscript: spec.harnessTranscript } : {}),
     ...(deliver
       ? {
           deliver(message: unknown): boolean {

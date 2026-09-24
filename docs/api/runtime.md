@@ -20977,6 +20977,16 @@ Optional live progress from the harness execution currently being driven.
 
 [`ExecutorProgress`](#executorprogress) \| `undefined`
 
+##### harnessTranscript()?
+
+> `optional` **harnessTranscript**(): [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
+Optional capture of the manager's own harness session from its newest attempt.
+
+###### Returns
+
+[`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
 ***
 
 ### SupervisorAgentDeps
@@ -21730,6 +21740,18 @@ Optional live execution progress exposed by executors that can observe it.
 ###### Returns
 
 [`ExecutorProgress`](#executorprogress) \| `undefined`
+
+##### harnessTranscript()?
+
+> `optional` **harnessTranscript**(): [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
+Optional capture of this agent's own harness session, for an agent that runs a harness as a
+manager. A driver child forwards it to its executor, so the manager settles with the same
+receipt a leaf gets instead of `executor-exposes-no-transcript`.
+
+###### Returns
+
+[`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
 
 ***
 

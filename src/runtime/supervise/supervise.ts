@@ -61,6 +61,7 @@ import type {
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
+import type { HarnessTranscriptCapture } from '../harness-transcript'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
@@ -804,6 +805,8 @@ function driveHarnessFromBackend(
         resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
       : 'cli'
   let activeExecutor: Executor<unknown> | undefined
+  // The manager's own harness session, as the newest attempt captured it.
+  let managerTranscript: HarnessTranscriptCapture | undefined
   const drive: DriveHarness = async ({
     profile,
     authoredProfile,
@@ -1444,6 +1447,16 @@ function driveHarnessFromBackend(
           failure = error
         }
       }
+      // The provider executor reads the session store at the end of its stream, before any
+      // teardown. A later attempt in the same environment reads that store again, longer, so the
+      // newest capture wins; a capture never gives way to an attempt that captured nothing.
+      const capture = executor.harnessTranscript?.()
+      if (
+        capture !== undefined &&
+        (capture.status === 'captured' || managerTranscript?.status !== 'captured')
+      ) {
+        managerTranscript = capture
+      }
       if (activeExecutor === executor) activeExecutor = undefined
     }
     if (failed) throw failure
@@ -1457,6 +1470,11 @@ function driveHarnessFromBackend(
   drive.deliverReady = (): boolean => activeExecutor !== undefined
   drive.traceSource = () => activeExecutor?.traceSource?.()
   drive.progress = () => activeExecutor?.progress?.()
+  // Only the provider backend has a transcript port. Any other backend leaves the method off, so
+  // its managers keep settling as `executor-exposes-no-transcript`.
+  if (boundBackend.backend === 'provider') {
+    drive.harnessTranscript = () => managerTranscript ?? activeExecutor?.harnessTranscript?.()
+  }
   return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
 }
 

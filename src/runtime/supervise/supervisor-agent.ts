@@ -37,6 +37,7 @@ import type {
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import { agentHarness } from '../harness-role'
+import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { type RouterTransportConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { linkAbort, runAbortable } from './abortable'
@@ -449,6 +450,8 @@ export interface DriveHarness {
   traceSource?(): TraceSource | undefined
   /** Optional live progress from the harness execution currently being driven. */
   progress?(): ExecutorProgress | undefined
+  /** Optional capture of the manager's own harness session from its newest attempt. */
+  harnessTranscript?(): HarnessTranscriptCapture | undefined
 }
 
 /** Trusted manager identity available before its external harness starts. A product uses this to
@@ -917,6 +920,11 @@ function buildSupervisorAgent(
       : {}),
     traceSource: () => driveHarness.traceSource?.(),
     progress: () => driveHarness.progress?.(),
+    // Present only when the harness has a transcript port, so an absent one still settles as
+    // `executor-exposes-no-transcript` rather than as a capture that did not run.
+    ...(driveHarness.harnessTranscript
+      ? { harnessTranscript: () => driveHarness.harnessTranscript?.() }
+      : {}),
     async act(task, scope) {
       const context = nodeContextSeed
         ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
