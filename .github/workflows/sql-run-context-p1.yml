@@ -1,0 +1,32 @@
+name: SQL run context P1 conformance
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  conformance:
+    if: github.head_ref == 'pro/sql-run-context/p1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: SQL conformance (red before implementation)
+        run: pnpm exec vitest run tests/durability/sql-run-context.test.ts --reporter=verbose 2>&1 | tee sql-run-context-test.log
+      - name: Retain isolated test checkout
+        if: always()
+        run: tar --exclude=.git --exclude=.cohort -czf "$RUNNER_TEMP/sql-run-context-source.tgz" .
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: sql-run-context-p1-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/sql-run-context-source.tgz
+          retention-days: 1
