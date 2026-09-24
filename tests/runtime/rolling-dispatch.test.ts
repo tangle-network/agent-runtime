@@ -18,7 +18,6 @@ import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import {
   type DispatchReport,
   type DispatchUnit,
-  effectiveConcurrency,
   freeSlots,
   rollingDispatch,
 } from '../../src/runtime/supervise/dispatch'
@@ -261,20 +260,6 @@ describe('free-slot visibility', () => {
     // No cap ⇒ no finite slot count; the conserved pool is the only fence.
     expect(freeSlots(3, undefined)).toBeNull()
     expect(freeSlots(3, 0)).toBeNull()
-  })
-})
-
-describe('effectiveConcurrency', () => {
-  it('collapses the worker-layer caps into one number', () => {
-    // Supervisor fence unset + a fleet governor of 4 ⇒ the honest limit is 4, not "no cap".
-    expect(effectiveConcurrency({ maxSandboxes: 4 })).toBe(4)
-    // The smallest applicable cap wins.
-    expect(effectiveConcurrency({ maxLiveWorkers: 6, maxSandboxes: 4 })).toBe(4)
-    expect(effectiveConcurrency({ maxLiveWorkers: 2, maxSandboxes: 4 })).toBe(2)
-    // Non-positive caps mean "unset", matching how `maxLiveWorkers <= 0` is read everywhere else.
-    expect(effectiveConcurrency({ maxLiveWorkers: 0, maxSandboxes: 4 })).toBe(4)
-    expect(effectiveConcurrency({})).toBeUndefined()
-    expect(effectiveConcurrency({ maxLiveWorkers: 0 })).toBeUndefined()
   })
 })
 

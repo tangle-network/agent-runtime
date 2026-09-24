@@ -15,28 +15,12 @@
  * recorded and STOPS further admission — the loop then drains what is already live and returns.
  * It never retries a rejected spawn against the same pool, and it never spawns past `width`.
  *
- * ── The concurrency-cap ledger (read this before adding a fourth cap) ──────────────────────────
+ * ── Concurrency ────────────────────────────────────────────────────────────────────────────────
  *
- * Three unrelated caps bound "how much runs at once" in this stack, at three different layers.
- * They are NOT aware of each other, and the smallest one silently wins:
- *
- *   1. `SuperviseOptions.maxLiveWorkers` (`src/runtime/supervise/supervise.ts`) — supervised-tree
- *      level. One shared Scope counter bounds every spawned manager and leaf in the recursive tree;
- *      `spawn_worker` fails closed with `error: 'max-live-workers'` past it. Unset ⇒ NO tree cap.
- *      `CoordinationToolsOptions.maxLiveWorkers` remains the local form for a toolbox mounted on a
- *      caller-owned Scope that has no tree limit.
- *   2. `SandboxLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`
- *      (`src/runtime/sandbox-lineage.ts`) — kernel level. How many BOXES one `runAgentRounds` fork wave
- *      provisions at once. It bounds a single leaf's fanout, not the supervisor's worker count.
- *   3. A host's own live-box governor (e.g. the kernel's `ComputeGovernor`, `maxSandboxes = 4`) — fleet
- *      level. How many sandboxes may exist across the whole host process.
- *
- * The honest effective limit on simultaneous WORKERS is the minimum of the caps that apply to the
- * worker layer — (1) and (3). (2) is a different unit (boxes per fork wave inside one leaf) and
- * must not be min'd into it, or a 4-way fork inside one worker reads as a 4-worker ceiling.
- * `effectiveConcurrency` computes that minimum in one place so a host derives ONE number and
- * passes it to BOTH `maxLiveWorkers` and this dispatcher's `width`, instead of leaving a fleet
- * governor of 4 and an unset worker fence as unrelated numbers.
+ * `width` bounds the children THIS dispatcher holds in flight. The tree-wide bound on working
+ * agents is `SuperviseOptions.workerSlots` (`./worker-slots`): a spawn past it is queued by the
+ * scope, not refused, so a `width` above the free slots only lengthens the allocator's queue.
+ * `SandboxLineage`'s fork concurrency bounds boxes inside ONE leaf's fork wave, a different unit.
  *
  * ── Why this is not a copy of the kernel's batch loop ──────────────────────────────────────────
  *
@@ -74,8 +58,7 @@ export interface RollingDispatchOptions<Out> {
   /**
    * How many children to hold in flight. Must be a positive integer. This is a SIMULTANEITY fence
    * only — the conserved pool still bounds total work, and a `width` larger than the pool can
-   * afford simply hits `not-admitted` sooner. Derive it with `effectiveConcurrency` when the host
-   * also runs a fleet-level box governor.
+   * afford simply hits `not-admitted` sooner.
    */
   readonly width: number
   /**
@@ -195,36 +178,6 @@ export async function rollingDispatch<Out>(
 export function freeSlots(liveCount: number, cap: number | undefined): number | null {
   if (cap === undefined || cap <= 0) return null
   return Math.max(0, cap - liveCount)
-}
-
-/** The caps a host can set on simultaneous work. See the ledger in this module's header for what
- *  each one actually bounds. */
-export interface ConcurrencyCaps {
-  /** Supervisor level: max spawned-but-unsettled workers. */
-  readonly maxLiveWorkers?: number
-  /** Fleet level: max live sandboxes/boxes across the host process (a `ComputeGovernor`-style
-   *  cap). Applies to the worker layer, so it participates in the minimum. */
-  readonly maxSandboxes?: number
-}
-
-/**
- * The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually
- * bound the worker layer. Ignores unset/non-positive caps; returns `undefined` when no cap applies
- * (uncapped — the conserved pool remains the only fence).
- *
- * Deliberately does NOT fold in `SandboxLineage`'s fork concurrency: that bounds boxes inside ONE
- * leaf's fork wave, a different unit. Folding it in would report a 4-worker ceiling for what is
- * really a 4-box fanout inside a single worker.
- *
- * Use it once, at the top of a run, and pass the result to BOTH `maxLiveWorkers` and a
- * dispatcher's `width` — that is what turns three unrelated numbers into one.
- */
-export function effectiveConcurrency(caps: ConcurrencyCaps): number | undefined {
-  const applicable = [caps.maxLiveWorkers, caps.maxSandboxes].filter(
-    (c): c is number => typeof c === 'number' && c > 0,
-  )
-  if (applicable.length === 0) return undefined
-  return Math.min(...applicable)
 }
 
 /** Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where

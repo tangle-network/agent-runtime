@@ -3,8 +3,12 @@ import type { AddressInfo } from 'node:net'
 import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
-import { supervise } from '../helpers/runtime-with-test-brain'
+import { supervise as superviseTree } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations } from './test-agent-profile'
+
+// These cases pin a fixed topology: every child runs exactly as its manager authored it.
+const supervise: typeof superviseTree = (profile, task, options) =>
+  superviseTree(profile, task, { inheritSpawnRights: false, ...options })
 
 /**
  * `peerMail: true` mints one capability URL per spawn. This file proves the runtime also MOUNTS it

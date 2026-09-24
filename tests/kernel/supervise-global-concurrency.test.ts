@@ -25,6 +25,7 @@ import type {
   Scope,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import { createWorkerSlots } from '../../src/runtime/supervise/worker-slots'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { supervise, supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
@@ -199,7 +200,7 @@ describe('supervise tree-wide worker capacity', () => {
     pool.assertNoOpenTickets()
   })
 
-  it('keeps an owner turn and admits depth two while first-level workers stall', async () => {
+  it('keeps an owner turn and starts depth two while first-level workers fill every slot', async () => {
     const managerBudget = { maxTokens: 4_000_000, maxIterations: 60 }
     const descendantBudget = { maxTokens: 1_000_000, maxIterations: 15 }
     const journal = new InMemorySpawnJournal()
@@ -304,7 +305,7 @@ describe('supervise tree-wide worker capacity', () => {
         budget: { maxTokens: 20_000_000, maxIterations: 400 },
         perWorker: managerBudget,
         maxDepth: 3,
-        maxLiveWorkers: 6,
+        workerSlots: 4,
         reservationPolicy: { ownerShare: 0.2 },
         makeWorkerAgent,
         brain,
@@ -321,9 +322,11 @@ describe('supervise tree-wide worker capacity', () => {
         .filter((message) => message.role === 'tool')
         .map((message) => JSON.parse(String(message.content)) as Record<string, unknown>)
       expect(firstSpawnReplies).toHaveLength(6)
+      // The owner share keeps 4M tokens for the root's own turns, so only four 4M-token managers
+      // fit the 20M pool; the fifth and sixth are refused for budget, never for concurrency.
       expect(firstSpawnReplies.slice(4).map((reply) => reply.error)).toEqual([
-        'max-live-workers',
-        'max-live-workers',
+        'budget-exhausted',
+        'budget-exhausted',
       ])
       managerGates[0]!.resolve()
       await descendantStarted.promise
@@ -402,7 +405,7 @@ describe('supervise tree-wide worker capacity', () => {
           budget: { maxIterations: 1, maxTokens: 10 },
           label: 'replacement',
         })
-        secondReason = second.ok ? 'accepted' : second.reason
+        secondReason = second.ok ? second.handle.status : second.reason
         return 'finished'
       },
     }
@@ -410,7 +413,7 @@ describe('supervise tree-wide worker capacity', () => {
     const journal = new InMemorySpawnJournal()
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 2, maxTokens: 20 },
-      maxLiveWorkers: 1,
+      workerSlots: 1,
       // The teardown never answers; the settlement retry waits out a short window, not forever.
       teardownConfirmMs: 30,
       runId: 'retain-unconfirmed-capacity',
@@ -419,12 +422,13 @@ describe('supervise tree-wide worker capacity', () => {
       executors: createExecutorRegistry(),
     })
 
-    // `maxLiveWorkers` caps SIMULTANEOUSLY LIVE workers, and this child has settled. Holding its
+    // The slot bound counts SIMULTANEOUSLY WORKING agents, and this child has settled. Holding its
     // slot conflated "how many workers are running" with "how many remote environments were never
     // reclaimed", and cost a run its whole concurrency to nodes that were already dead: 127 of 177
     // children across 14 pursuits on 2026-09-11, with refusals reporting `live: 16, freeSlots: 0`
     // while one child ran (#1183).
-    expect(secondReason).toBe('accepted')
+    // The replacement starts at once rather than waiting in the queue behind a dead node.
+    expect(secondReason).toBe('acquiring')
     // Freeing the slot must not lose the cleanup fact. It is still named on the result and in the
     // journal, so back-pressure against unreclaimed environments remains buildable — on its own
     // counter, with its own refusal reason, rather than on a count of live workers.
@@ -488,7 +492,7 @@ describe('supervise tree-wide worker capacity', () => {
     const journal = new InMemorySpawnJournal()
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 100, maxTokens: 5000 },
-      maxLiveWorkers: 2,
+      workerSlots: 2,
       runId: 'retained-meter-not-ceiling',
       journal,
       blobs: new InMemoryResultBlobStore(),
@@ -659,9 +663,12 @@ describe('supervise tree-wide worker capacity', () => {
     expect(view.nodes.find((n) => n.id === 'r:s0')).not.toHaveProperty('retainedExecution')
   })
 
-  it('holds one cap across root → manager → sub-manager → worker execution', async () => {
-    const cap = 5
+  it('bounds working agents across root → manager → sub-manager → worker and queues the rest', async () => {
+    const bound = 2
+    const slots = createWorkerSlots(bound)
     const activity: Activity = { live: 0, peak: 0 }
+    const leafActivity: Activity = { live: 0, peak: 0 }
+    const workingAtLeafStart: number[] = []
     const constructedDepths: number[] = []
     const journal = new InMemorySpawnJournal()
     const blobs = new InMemoryResultBlobStore()
@@ -670,8 +677,10 @@ describe('supervise tree-wide worker capacity', () => {
     makeWorkerAgent = (profile, context) => {
       const depth = profileDepth(profile)
       constructedDepths.push(depth)
-      if (profile.tools?.agent_runtime_coordination_spawn_worker !== true)
-        return trackedLeaf(profile.name ?? 'leaf', activity, 50)
+      if (profile.tools?.agent_runtime_coordination_spawn_worker !== true) {
+        workingAtLeafStart.push(slots.working)
+        return trackedLeaf(profile.name ?? 'leaf', leafActivity, 50)
+      }
 
       const childProfiles: AgentProfile[] =
         depth === 1
@@ -695,6 +704,7 @@ describe('supervise tree-wide worker capacity', () => {
             arguments: { profile: child, task: `run ${child.name}` },
           })),
         },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
         { content: 'managed' },
       ])
@@ -751,7 +761,7 @@ describe('supervise tree-wide worker capacity', () => {
         budget: { maxIterations: 500, maxTokens: 500_000 },
         perWorker: { maxIterations: 160, maxTokens: 160_000 },
         maxDepth: 5,
-        maxLiveWorkers: cap,
+        workerSlots: slots,
         makeWorkerAgent,
         brain: rootBrain,
         journal,
@@ -762,11 +772,17 @@ describe('supervise tree-wide worker capacity', () => {
 
     expect(result.kind).toBe('winner')
     expect(activity.live).toBe(0)
-    expect(activity.peak).toBe(cap)
-    expect(constructedDepths).toHaveLength(cap)
+    expect(leafActivity.live).toBe(0)
+    // Every agent of the eight-node tree ran; none was refused for concurrency.
+    expect(constructedDepths).toHaveLength(8)
     expect(constructedDepths.filter((depth) => depth === 1)).toHaveLength(2)
     expect(constructedDepths.filter((depth) => depth === 2)).toHaveLength(2)
-    expect(constructedDepths).toContain(3)
+    expect(constructedDepths.filter((depth) => depth === 3)).toHaveLength(4)
+    // Managers lend their slots down, so the bound holds over the agents that do the work.
+    expect(leafActivity.peak).toBe(bound)
+    expect(Math.max(...workingAtLeafStart)).toBeLessThanOrEqual(bound)
+    expect(slots.working).toBe(0)
+    expect(slots.queued).toBe(0)
 
     const trees = (
       journal as unknown as { trees: Map<string, { events: Array<{ kind: string; id: string }> }> }
@@ -795,7 +811,7 @@ describe('supervise tree-wide worker capacity', () => {
         } catch (error) {
           seen.constructionError = error instanceof Error ? error.message : String(error)
         }
-        seen.afterConstructionError = scope.workerCapacity.live
+        seen.afterConstructionError = scope.workerCapacity.working
 
         try {
           scope.spawn(() => trackedLeaf('invalid-budget'), task, {
@@ -806,14 +822,14 @@ describe('supervise tree-wide worker capacity', () => {
           const message = error instanceof Error ? error.message : String(error)
           seen.invalidBudgetRefused = message.includes('non-negative safe integer')
         }
-        seen.afterInvalidBudget = scope.workerCapacity.live
+        seen.afterInvalidBudget = scope.workerCapacity.working
 
         const tooLarge = scope.spawn(() => trackedLeaf('too-large'), task, {
           budget: { maxIterations: 101, maxTokens: 100_001 },
           label: 'too-large',
         })
         seen.tooLarge = tooLarge.ok ? 'accepted' : tooLarge.reason
-        seen.afterBudgetRefusal = scope.workerCapacity.live
+        seen.afterBudgetRefusal = scope.workerCapacity.working
 
         const failed = scope.spawn(() => failingLeaf('failed'), task, {
           budget: { maxIterations: 1, maxTokens: 10 },
@@ -821,7 +837,7 @@ describe('supervise tree-wide worker capacity', () => {
         })
         seen.failedStarted = failed.ok
         seen.failedSettled = (await scope.next())?.kind
-        seen.afterExecutorFailure = scope.workerCapacity.live
+        seen.afterExecutorFailure = scope.workerCapacity.working
 
         const aborted = scope.spawn(() => abortableLeaf('aborted'), task, {
           budget: { maxIterations: 1, maxTokens: 10 },
@@ -830,7 +846,7 @@ describe('supervise tree-wide worker capacity', () => {
         seen.abortedStarted = aborted.ok
         if (aborted.ok) aborted.handle.abort('test abort')
         seen.abortedSettled = (await scope.next())?.kind
-        seen.afterAbort = scope.workerCapacity.live
+        seen.afterAbort = scope.workerCapacity.working
 
         const first = scope.spawn(() => trackedLeaf('keyed'), task, {
           budget: { maxIterations: 1, maxTokens: 10 },
@@ -838,9 +854,9 @@ describe('supervise tree-wide worker capacity', () => {
           key: 'assignment',
         })
         seen.first = first.ok
-        seen.duringRun = scope.workerCapacity.live
+        seen.duringRun = scope.workerCapacity.working
         seen.settled = (await scope.next())?.kind
-        seen.afterCompletion = scope.workerCapacity.live
+        seen.afterCompletion = scope.workerCapacity.working
 
         const replay = scope.spawn(
           () => {
@@ -855,14 +871,14 @@ describe('supervise tree-wide worker capacity', () => {
           },
         )
         seen.replay = replay.ok ? replay.prior?.state : replay.reason
-        seen.afterReplay = scope.workerCapacity.live
+        seen.afterReplay = scope.workerCapacity.working
         return 'done'
       },
     }
 
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
-      maxLiveWorkers: 1,
+      workerSlots: 1,
       runId: 'capacity-release',
       journal: new InMemorySpawnJournal(),
       blobs: new InMemoryResultBlobStore(),

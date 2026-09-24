@@ -883,13 +883,16 @@ export interface Spend {
 
 // ── Node lifecycle ────────────────────────────────────────────────────────────
 
-/** `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
- *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
+/** `'queued'` is an admitted child that holds its budget slice and waits for a worker slot
+ *  (`workerSlots`); it runs nothing until the allocator grants one. `'acquiring'` is first-class
+ *  (M1): a node spends real time + reaps an orphan box during sandbox acquire BEFORE it is
+ *  `running`, so abort must be defined over it.
  *  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
  *  box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
  *  a terminal status describes it (see `Scope.wait`). */
 export type NodeStatus =
   | 'pending'
+  | 'queued'
   | 'acquiring'
   | 'running'
   | 'waiting'
@@ -946,7 +949,6 @@ export type SpawnRejection =
   | 'in-doubt'
   | 'invalid-identity'
   | 'key-conflict'
-  | 'max-live-workers'
   | 'scope-aborted'
   | 'scope-settled'
 
@@ -1010,6 +1012,8 @@ export type Settled<Out> =
       harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the measured spend exceeded this child's reservation. */
       budgetViolation?: BudgetViolation
+      /** Present when this child led workers of its own: a bounded account of its team. */
+      subtree?: SubtreeSummary
       /** Epoch ms parsed from the durable settlement record when available. */
       settledAt?: number
       seq: number
@@ -1051,10 +1055,49 @@ export type Settled<Out> =
        *  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
        *  have to parse it (#1204). */
       retainedPendingCause?: RetainedPendingCause
+      /** Present when this child led workers of its own: a bounded account of its team. */
+      subtree?: SubtreeSummary
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
     }
+
+/**
+ * A bounded account of the team a manager led, carried up on its settlement.
+ *
+ * A lead reads its children's summaries instead of every descendant's output: the counts cover
+ * the whole subtree, and `results` lists only the manager's own direct children, best first.
+ * Every listed result stays addressable by its content address (`outRef`), so the lead can read
+ * any one of them in full. The summary is bounded at every level, so a tree of hundreds of agents
+ * reaches its root as a handful of summaries.
+ */
+export interface SubtreeSummary {
+  /** Spawned agents below this node, at every depth. */
+  readonly agents: number
+  /** Levels below this node: `1` when it led only workers that led no one. */
+  readonly depth: number
+  /** Agents below this node that settled done. */
+  readonly done: number
+  /** Agents below this node that settled down or were cancelled. */
+  readonly down: number
+  /** This node's own direct children, done before down and then by score, at most
+   *  `SUBTREE_RESULT_LIMIT` of them. */
+  readonly results: ReadonlyArray<SubtreeResult>
+  /** Direct children not listed in `results`. */
+  readonly omitted: number
+}
+
+/** One direct child of a manager, as its lead sees it in a {@link SubtreeSummary}. */
+export interface SubtreeResult {
+  readonly id: NodeId
+  readonly label: string
+  readonly status: 'done' | 'down'
+  /** Content address of the child's retained output, when it produced one. */
+  readonly outRef?: string
+  readonly score?: number
+  /** Agents in this child's own subtree, itself excluded. */
+  readonly agents: number
+}
 
 // ── The reactive Scope ─────────────────────────────────────────────────────────
 
@@ -1197,12 +1240,14 @@ export interface Scope<Out> {
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
   readonly budget: import('./budget').BudgetReadout
-  /** One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
-   *  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
-   *  `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
-   *  the nodes still holding a capacity slot. Empty on every healthy run. */
+  /** The worker-slot allocator as this scope sees it. Every scope of a tree, and every tree that
+   *  shares the allocator, reads the same counts; the root agent itself holds no slot. `working`
+   *  counts agents that hold a slot, `queued` counts admitted spawns that wait for one, and
+   *  `freeSlots` is `null` when no bound is set. `unconfirmed` NAMES this scope's settled children
+   *  whose executor teardown was never acknowledged. Empty on every healthy run. */
   readonly workerCapacity: Readonly<{
-    live: number
+    working: number
+    queued: number
     freeSlots: number | null
     unconfirmed: ReadonlyArray<UnconfirmedTeardown>
   }>
@@ -1331,7 +1376,7 @@ export interface NodeSnapshot {
 export interface TreeView {
   readonly root: NodeId
   readonly nodes: ReadonlyArray<NodeSnapshot>
-  /** Count of nodes in `running` or `acquiring` — the "what's in flow?" answer. */
+  /** Count of nodes in `queued`, `acquiring`, or `running` — the "what's in flow?" answer. */
   readonly inFlight: number
   /** Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
    *  a wait burns no executor and no budget, so counting it as flow would misreport both idle
@@ -1358,12 +1403,10 @@ export type SpawnEvent =
       successorOf?: NodeId
       budget: Budget
       runtime: Runtime
-      /** Root-only opt-in admission contract. A resumed run must use the same policy and fleet
-       * limits; absent on historical and default-off records. */
+      /** Root-only opt-in owner-share contract. A resumed run must use the same policy; absent on
+       * records that set none. */
       recursiveAdmission?: {
         policy: RecursiveReservationPolicy
-        maxDepth: number
-        maxLiveWorkers: number
       }
       /** Exact nested journal tree this node owns. Runtime writes this only after privately
        * attesting the executor as a recursive scope owner. Its absence means no tree is followed,
@@ -1464,6 +1507,8 @@ export type SpawnEvent =
        *  `'pending'` can never be journaled: the journal states that as `reconciled`. */
       retainedExecution?: Extract<RetainedExecutionState, 'released'>
       retainedPendingCause?: RetainedPendingCause
+      /** The bounded account of the team this child led, when it led one. */
+      subtree?: SubtreeSummary
       seq: number
       at: string
     }
@@ -1485,6 +1530,8 @@ export type SpawnEvent =
        *  builder writes whichever kind the settlement had. */
       retainedExecution?: Extract<RetainedExecutionState, 'released'>
       retainedPendingCause?: RetainedPendingCause
+      /** The bounded account of the team this child led, when it led one. */
+      subtree?: SubtreeSummary
       seq: number
       at: string
     }
@@ -1826,8 +1873,7 @@ export interface Supervisor<Task, Out> {
 }
 
 /** Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
- * kept free for its own inference while children hold their full declared ceilings. The same
- * policy reserves one live worker slot per remaining depth, up to `maxDepth`. */
+ * kept free for its own inference while children hold their declared slices. */
 export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
@@ -1854,13 +1900,16 @@ export interface SupervisorOpts {
    *  the wait can be journaled and re-armed by a later process; this is what the name resolves
    *  against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected. */
   readonly probes?: WaitProbeRegistry
-  /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
+  /** Recursion ceiling (root = 0). The conserved pool bounds depth; this only stops a runaway
+   *  recursion. Omit = `DEFAULT_MAX_DEPTH` (16). */
   readonly maxDepth?: number
-  /** Hard tree-wide cap on simultaneously executing spawned workers. The root is excluded; every
-   *  nested driver and leaf shares this one allocation. Omit/`<= 0` leaves worker count uncapped. */
-  readonly maxLiveWorkers?: number
-  /** Opt in to reserving each manager's inference share and enough tree-wide worker slots for a
-   * descendant path to `maxDepth`. Omit to retain full-ceiling admission behavior. */
+  /** The bound on concurrently working agents across the whole tree, as a number or as an
+   *  allocator from `createWorkerSlots` that several runs share. A spawn past it waits in a queue
+   *  instead of being refused. The root holds no slot. Omit/`<= 0` bounds concurrency by the budget
+   *  alone. */
+  readonly workerSlots?: number | import('./worker-slots').WorkerSlots
+  /** Opt in to keeping each manager's inference share free of its children's slices. A resumed
+   *  run must use the same policy. */
   readonly reservationPolicy?: RecursiveReservationPolicy
   /**
    * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`

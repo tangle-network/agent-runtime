@@ -718,14 +718,11 @@ export {
 } from './supervise/detector-monitor'
 // REFILLING dispatch: hold N children in flight and admit the next queued unit the moment one
 // settles, instead of draining a whole round (`fanout`) or opening one worker per driver turn.
-// `freeSlots` is the reading the driver sees; `effectiveConcurrency` collapses the supervisor and
-// fleet caps into the ONE number a host should pass to both `maxLiveWorkers` and `width`.
+// `freeSlots` is the reading the driver sees.
 export {
-  type ConcurrencyCaps,
   type DispatchReport,
   type DispatchStopReason,
   type DispatchUnit,
-  effectiveConcurrency,
   freeSlots,
   queueOf,
   type RollingDispatchOptions,
@@ -1049,7 +1046,7 @@ export {
   supervise,
   workerFromBackend,
 } from './supervise/supervise'
-export { createRootHandle, createSupervisor } from './supervise/supervisor'
+export { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervise/supervisor'
 // Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
 // `createExecutor({backend})` resolves a worker — omitted/`cli-base` → the in-process router tool-loop,
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
@@ -1155,6 +1152,8 @@ export type {
   SpendChannel,
   SpendGap,
   SteerableRootHandle,
+  SubtreeResult,
+  SubtreeSummary,
   SupervisedResult,
   Supervisor,
   SupervisorOpts,
@@ -1235,6 +1234,7 @@ export {
   type WorkerSpawnRetryPolicy,
   withWorkerSpawnRetry,
 } from './supervise/worker-retry'
+export { createWorkerSlots, type WorkerSlots } from './supervise/worker-slots'
 // The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
 // id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
 // package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans

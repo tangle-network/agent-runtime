@@ -2,7 +2,7 @@
  * best-of-n — breadth as a topology: one delegates edge per candidate node.
  *
  * Two coder nodes with distinct ids and distinct profiles hang off one root. The driver spawns
- * BOTH in a single turn (`maxLiveWorkers: 2` admits them concurrently), awaits both settles, and
+ * BOTH in a single turn (`workerSlots: 2` runs them concurrently), awaits both settles, and
  * the run keeps the winner — the candidate whose settle passed the deliverable. The edge ledger
  * shows exactly two delivered spawn traversals, one per candidate edge: breadth is two edges in
  * the data, not a fan-out helper in code.
@@ -48,7 +48,7 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   const received: AgentProfile[] = []
   const opts: RunGraphTestOptions = {
     runId: 'bon',
-    maxLiveWorkers: 2,
+    workerSlots: 2,
     makeLeafAgent: leafSeam(received, {
       // Candidate A fails its check; candidate B passes — the pick is decided by outcome.
       'coder-a': { shots: [{ out: { candidate: 'a', pass: false }, valid: false }] },

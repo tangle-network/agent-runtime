@@ -565,12 +565,14 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    // No `maxLiveWorkers` cap ⇒ `freeSlots: null` (uncapped; the conserved pool is the fence).
+    // No worker-slot bound ⇒ `freeSlots: null` (the conserved pool is the fence).
     expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
       assignmentId: 'ordinal:0',
       continuity: 'fresh',
+      status: 'running',
       live: 1,
+      queued: 0,
       freeSlots: null,
     })
     setAdmit(false)
@@ -645,24 +647,17 @@ describe('coordination tools', () => {
     )
   })
 
-  it('spawn_worker fails closed at the maxLiveWorkers cap WITHOUT touching the pool', async () => {
-    // A scope whose live (non-terminal) node set is driven by the spawns we make: each successful
-    // spawn appends a `running` node; nothing settles. The conserved pool always admits, so the
-    // ONLY thing that can stop a spawn here is the concurrency cap.
-    const live: Array<{ status: string }> = []
-    const spawns: unknown[] = []
+  it('spawn_worker admits past the worker-slot bound and reports the worker queued', async () => {
+    // The scope owns the slot queue: a spawn past the bound is admitted with status `queued` and
+    // starts when a slot frees. The verb never refuses for concurrency and reports the reading.
+    const live: Array<{ id: string; status: string }> = []
     const cappedScope = {
       spawn: (_a: unknown, _t: unknown, opts: { label: string }) => {
-        spawns.push(opts)
-        live.push({ status: 'running' })
+        const status = live.length < 2 ? 'running' : 'queued'
+        live.push({ id: `w${live.length}`, status })
         return {
           ok: true as const,
-          handle: {
-            id: `w${live.length - 1}`,
-            label: opts.label,
-            status: 'running' as const,
-            abort() {},
-          },
+          handle: { id: `w${live.length - 1}`, label: opts.label, status, abort() {} },
         }
       },
       next: async () => null,
@@ -670,6 +665,10 @@ describe('coordination tools', () => {
       get view() {
         return { root: 'root', nodes: live, inFlight: live.length }
       },
+      get workerCapacity() {
+        const working = live.filter((node) => node.status === 'running').length
+        return { working, queued: live.length - working, freeSlots: 2 - working, unconfirmed: [] }
+      },
       budget: { tokensLeft: 1e9, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
       signal: new AbortController().signal,
     } as unknown as Scope<unknown>
@@ -679,165 +678,17 @@ describe('coordination tools', () => {
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      maxLiveWorkers: 2,
     })
     const spawn = () => tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })
-    // `freeSlots` counts down as the cap fills — the reading that tells the driver capacity is
-    // still idle, so it can fill slots instead of opening one worker per turn.
-    expect(await spawn()).toEqual({
-      workerId: 'w0',
-      assignmentId: 'ordinal:0',
-      continuity: 'fresh',
-      live: 1,
-      freeSlots: 1,
-    })
-    expect(await spawn()).toEqual({
-      workerId: 'w1',
-      assignmentId: 'ordinal:1',
-      continuity: 'fresh',
-      live: 2,
-      freeSlots: 0,
-    })
-    // The 2 live workers fill the cap → the 3rd fails closed BEFORE scope.spawn is called.
-    expect(await spawn()).toEqual({
-      error: 'max-live-workers',
-      reason:
-        "2 workers are already live, which is this manager's ceiling — await_event until one settles, then spawn",
-      live: 2,
-      freeSlots: 0,
-    })
-    expect(spawns).toHaveLength(2)
-    // A settled worker frees a slot — mark one terminal and the next spawn admits again.
-    live[0]!.status = 'done'
+    expect(await spawn()).toMatchObject({ workerId: 'w0', status: 'running', freeSlots: 1 })
+    expect(await spawn()).toMatchObject({ workerId: 'w1', status: 'running', freeSlots: 0 })
     expect(await spawn()).toEqual({
       workerId: 'w2',
       assignmentId: 'ordinal:2',
       continuity: 'fresh',
-      live: 2,
-      freeSlots: 0,
-    })
-
-    // No cap (omitted) → the pool stays the only fence; the same scope admits past the prior cap.
-    const uncapped = createCoordinationTools({
-      scope: cappedScope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-    })
-    expect(await tool(uncapped, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
-      workerId: 'w3',
-      assignmentId: 'ordinal:0',
-      continuity: 'fresh',
+      status: 'queued',
       live: 3,
-      freeSlots: null,
-    })
-  })
-
-  it('a key already delivered in THIS run resolves at the cap — it starts no worker', async () => {
-    // The fence bounds SIMULTANEOUS work. A keyed spawn whose key already delivered starts nothing
-    // and occupies no slot, so holding it behind the cap would contradict the verb's own contract
-    // ("a key that already completed returns the finished result — nothing is spent").
-    const live: Array<{ id: string; status: string }> = []
-    const settled = {
-      kind: 'done' as const,
-      handle: { id: 'w0', label: 'a', status: 'done' as const, abort() {} },
-      out: 'A',
-      outRef: 'blob:a',
-      verdict: { score: 1, valid: true },
-      spent: zeroSpend(),
-      trace: noTrace,
-      seq: 0,
-    }
-    let deliveredKey: string | undefined
-    let pending: typeof settled | undefined
-    const scope = {
-      spawn: (_a: unknown, _t: unknown, opts: { label: string; key?: string }) => {
-        // Mirrors the real scope: a key that already settled `done` resolves to it, spawning nothing.
-        if (opts.key !== undefined && opts.key === deliveredKey) {
-          return {
-            ok: true as const,
-            handle: settled.handle,
-            prior: { state: 'completed' as const, settled },
-          }
-        }
-        live.push({ id: `w${live.length}`, status: 'running' })
-        return {
-          ok: true as const,
-          handle: {
-            id: `w${live.length - 1}`,
-            label: opts.label,
-            status: 'running' as const,
-            abort() {},
-          },
-        }
-      },
-      next: async () => {
-        const s = pending
-        pending = undefined
-        return s ?? null
-      },
-      send: () => false,
-      get view() {
-        return { root: 'root', nodes: live, inFlight: live.length }
-      },
-      budget: { tokensLeft: 1e9, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
-      signal: new AbortController().signal,
-    } as unknown as Scope<unknown>
-
-    const tb = createCoordinationTools({
-      scope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-      maxLiveWorkers: 1,
-    })
-    const spawnKeyed = (key: string) =>
-      tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go', key })
-
-    // Key 'a' runs and takes the only slot, then delivers.
-    expect(await spawnKeyed('a')).toEqual({
-      workerId: 'w0',
-      assignmentId: 'key:a',
-      continuity: 'fresh',
-      live: 1,
-      freeSlots: 0,
-    })
-    live[0]!.status = 'done'
-    deliveredKey = 'a'
-    // Drain the settlement the way the driver does — this is what teaches the toolbox that key
-    // 'a' is complete.
-    pending = settled
-    await tool(tb, 'await_event').handler({ kinds: ['settled'] })
-
-    // A different assignment now occupies the single slot.
-    expect(await spawnKeyed('b')).toEqual({
-      workerId: 'w1',
-      assignmentId: 'key:b',
-      continuity: 'fresh',
-      live: 1,
-      freeSlots: 0,
-    })
-
-    // Re-asking for the DELIVERED key at the cap must return its committed result, not a refusal.
-    expect(await spawnKeyed('a')).toEqual({
-      workerId: 'w0',
-      resumed: 'completed',
-      status: 'done',
-      score: 1,
-      valid: true,
-      outRef: 'blob:a',
-      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w0' } },
-      spent: zeroSpend(),
-      trace: noTrace,
-      live: 1,
-      freeSlots: 0,
-    })
-    // An unrelated new assignment is still correctly fenced.
-    expect(await spawnKeyed('c')).toEqual({
-      error: 'max-live-workers',
-      reason:
-        "1 worker is already live, which is this manager's ceiling — await_event until one settles, then spawn",
-      live: 1,
+      queued: 1,
       freeSlots: 0,
     })
   })
@@ -874,7 +725,9 @@ describe('coordination tools', () => {
       workerId: 'w0',
       assignmentId: 'ordinal:0',
       continuity: 'fresh',
+      status: 'running',
       live: 1,
+      queued: 0,
       freeSlots: null,
     })
     expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 5000, maxUsd: 0.5 })

@@ -43,20 +43,21 @@ import {
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
-import type {
-  AnalystRegistry,
-  AnalyzeOnSettleRoute,
-  AuthorizeDownMessage,
-  AuthorizedDownMessage,
-  ContinuityMode,
-  CoordinationEvent,
-  DownMessageAuthorizationInput,
-  EscalateQuestion,
-  MakeWorkerAgent,
-  SpawnPreflight,
-  SuperviseProfileEntry,
-  WorkerSpawnContext,
-  WorkerWatchOptions,
+import {
+  type AnalystRegistry,
+  type AnalyzeOnSettleRoute,
+  type AuthorizeDownMessage,
+  type AuthorizedDownMessage,
+  type ContinuityMode,
+  type CoordinationEvent,
+  coordinationVerbNames,
+  type DownMessageAuthorizationInput,
+  type EscalateQuestion,
+  type MakeWorkerAgent,
+  type SpawnPreflight,
+  type SuperviseProfileEntry,
+  type WorkerSpawnContext,
+  type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
@@ -145,7 +146,7 @@ import {
 } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
-import { createRootHandle, createSupervisor } from './supervisor'
+import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
 import {
   assertCoordinationBinding,
   assertNoReservedCoordinationMcpAlias,
@@ -196,6 +197,7 @@ import {
   type WorkerSpawnRetryPolicy,
   withWorkerSpawnRetry,
 } from './worker-retry'
+import type { WorkerSlots } from './worker-slots'
 import { WORKER_TRACE_PROPAGATION } from './worker-trace'
 
 /**
@@ -507,6 +509,47 @@ function assertProfileContract(
  * has asynchronously resolved its exact product-tool descriptors. Runtime-owned declarations are
  * not provider tools; unsupported declarations still fail when the coordination surface resolves.
  */
+/** The child with its manager's Runtime coordination grants, unless the child's author wrote any
+ *  coordination entry: an explicit grant or refusal is the author's choice and stands. A refusal
+ *  (`false`) grants nothing, so it is removed once it has decided the child stays a leaf; a
+ *  harness-less leaf carries no tools axis at all. */
+function withInheritedSpawnRights(parent: AgentProfile, child: AgentProfile): AgentProfile {
+  const childTools = child.tools ?? {}
+  const authored = Object.entries(childTools).filter(([name]) =>
+    name.startsWith(coordinationProfileToolPrefix),
+  )
+  if (authored.length > 0) {
+    if (authored.every(([, enabled]) => enabled !== false)) return child
+    const kept = Object.entries(childTools).filter(
+      ([name, enabled]) => !(name.startsWith(coordinationProfileToolPrefix) && enabled === false),
+    )
+    const { tools: _tools, ...rest } = child
+    return agentProfileSchema.parse(
+      kept.length === 0 ? rest : { ...rest, tools: Object.fromEntries(kept) },
+    )
+  }
+  const inherited = Object.entries(parent.tools ?? {}).filter(
+    ([name, enabled]) =>
+      enabled === true &&
+      name.startsWith(coordinationProfileToolPrefix) &&
+      coordinationVerbNameSet.has(name.slice(coordinationProfileToolPrefix.length)),
+  )
+  if (!inherited.some(([name]) => name === `${coordinationProfileToolPrefix}spawn_worker`)) {
+    return child
+  }
+  // A worker that becomes a manager must still be able to deliver work it does itself.
+  return agentProfileSchema.parse({
+    ...child,
+    tools: {
+      ...childTools,
+      ...Object.fromEntries(inherited),
+      [`${coordinationProfileToolPrefix}submit_result`]: true,
+    },
+  })
+}
+
+const coordinationVerbNameSet: ReadonlySet<string> = new Set<string>(coordinationVerbNames)
+
 function profileWithoutDeclaredRuntimeCoordinationTools(profile: AgentProfile): AgentProfile {
   return providerVisibleProfile(profile)
 }
@@ -1803,6 +1846,17 @@ export interface SuperviseOptions {
    *  profile a manager spawns, before identity is fixed, so receipts bind the prompt that ran.
    *  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself. */
   readonly profileGuidance?: 'profile-kb'
+  /** Whether a spawned profile that declares no Runtime coordination tool receives its manager's
+   *  coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+   *  can still deliver work it does itself), so every child can lead children of its own. Default
+   *  `true`. A child whose author wrote any coordination entry, true or false, keeps what was
+   *  written (a `false` entry is dropped once it has kept the child a leaf). A child this run
+   *  cannot drive as a manager (no driver for its harness, or no `router` for a harness-less one)
+   *  stays a leaf, and so does every child of a run with no completion check (`deliverable` or
+   *  `resolveDeliverable`), since a manager delivers its own work only through `submit_result`.
+   *  `false` runs every authored profile exactly as written. Applies to backend-derived workers;
+   *  a caller-owned `makeWorkerAgent` decides its own children. */
+  readonly inheritSpawnRights?: boolean
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -1907,8 +1961,8 @@ export interface SuperviseOptions {
    * context, including recursive parent and root cascades, plus `context.verbs` — that manager's
    * own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
    * chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-   * the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-   * cap, journal, and bus the MCP verb crosses, at every depth and on both arms. */
+   * the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+   * queue, journal, and bus the MCP verb crosses, at every depth and on both arms. */
   readonly resolveSupervisorTools?: ResolveSupervisorTools
   /**
    * Where an `ask_parent` question goes when it leaves a manager (see {@link EscalateQuestion}).
@@ -1939,14 +1993,20 @@ export interface SuperviseOptions {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<string | null | undefined>
-  /** Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens. */
+  /** The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+   *  of the part of the pool children may reserve (the pool less any owner share). A nested
+   *  manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn. */
   readonly perWorker?: Budget
-  /** Opt-in owner inference share plus reserved live slots for descendants. Default: off. */
+  /** Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+   *  free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+   *  beside it. Default: off. */
   readonly reservationPolicy?: RecursiveReservationPolicy
-  /** Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
-   *  root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
-   *  the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound). */
-  readonly maxLiveWorkers?: number
+  /** Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+   *  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+   *  its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+   *  lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+   *  slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound). */
+  readonly workerSlots?: number | WorkerSlots
   /** Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
    *  (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
    *  `registry.analysts`. */
@@ -2038,6 +2098,9 @@ export interface SuperviseOptions {
   /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
    *  reason instead of inferring an early stop from an unexhausted budget. */
   readonly onProgressStop?: (reason: string) => void
+  /** Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+   *  level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+   *  `DEFAULT_MAX_DEPTH` (16). */
   readonly maxDepth?: number
   /** Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns of the
    *  driver's tool loop. Harness arm: turns the harness reports, counted off its `iteration`
@@ -2130,12 +2193,12 @@ const superviseOptionKeys = [
   'extraTools',
   'finalizer',
   'hooks',
+  'inheritSpawnRights',
   'journal',
   'makeLeafAgent',
   'makeWorkerAgent',
   'escalateQuestion',
   'maxDepth',
-  'maxLiveWorkers',
   'maxTurns',
   'now',
   'onCoordinationEvent',
@@ -2168,6 +2231,7 @@ const superviseOptionKeys = [
   'onUnmetContract',
   'workerRetry',
   'onWorkerRetry',
+  'workerSlots',
 ] as const
 
 type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
@@ -2416,6 +2480,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     now,
     signal,
     rootHandle,
+    workerSlots,
     ...decisionData
   } = opts
   assertNoUncapturedExecutableOption(decisionData)
@@ -2533,6 +2598,8 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
+    // A number is decision data; a shared allocator is a live collaborator other runs also hold.
+    ...(workerSlots === undefined ? {} : { workerSlots }),
     ...(probes === undefined ? {} : { probes }),
     ...(authorizeSpawn === undefined ? {} : { authorizeSpawn }),
     ...(authorizeMessage === undefined ? {} : { authorizeMessage }),
@@ -2671,7 +2738,11 @@ function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
   }
 }
 
-function defaultPerWorker(budget: Budget): Budget {
+/** The slice a child gets when its manager names none: a quarter of the part of the manager's
+ *  budget its children may reserve, so four default children fill that part and the manager's
+ *  own share stays free for its turns. Each nested manager divides its own slice the same way. */
+function defaultPerWorker(budget: Budget, ownerShare: number): Budget {
+  const share = (1 - ownerShare) / 4
   return {
     ...(budget.resources === undefined
       ? {}
@@ -2679,13 +2750,13 @@ function defaultPerWorker(budget: Budget): Budget {
           resources: Object.fromEntries(
             Object.entries(budget.resources).map(([name, value]) => [
               name,
-              { unit: value.unit, limit: Math.floor(value.limit / 4) },
+              { unit: value.unit, limit: Math.floor(value.limit * share) },
             ]),
           ),
         }),
-    maxIterations: Math.max(1, Math.floor(budget.maxIterations / 4)),
-    maxTokens: Math.max(1, Math.floor(budget.maxTokens / 4)),
-    ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd / 4 } : {}),
+    maxIterations: Math.max(1, Math.floor(budget.maxIterations * share)),
+    maxTokens: Math.max(1, Math.floor(budget.maxTokens * share)),
+    ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd * share } : {}),
   }
 }
 
@@ -2997,7 +3068,9 @@ function superviseInternal(
       ? createFileRunContext(options.runDir, { withDriver: true })
       : createInMemoryRunContext({ withDriver: true })
   const blobs = options.blobs ?? ctx.blobs
-  const perWorker = options.perWorker ?? defaultPerWorker(options.budget)
+  assertRecursiveReservationPolicy(options.reservationPolicy)
+  const ownerShare = options.reservationPolicy?.ownerShare ?? 0
+  const perWorker = options.perWorker ?? defaultPerWorker(options.budget, ownerShare)
   assertValidBudget(perWorker, 'supervise perWorker')
   // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
   // silently misleads the caller: the child is capped by the reservation instead and settles with
@@ -3006,11 +3079,6 @@ function superviseInternal(
   // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)
-  assertRecursiveReservationPolicy(
-    options.reservationPolicy,
-    options.maxDepth ?? 8,
-    options.maxLiveWorkers,
-  )
   const journal = options.journal ?? ctx.journal
   const runId = options.runId ?? 'supervise'
   const runNamespace = supervisionRunNamespace(options.runDir, runId)
@@ -3082,6 +3150,33 @@ function superviseInternal(
     throw new ValidationError(
       `supervise: external supervisor profile.harness=${JSON.stringify(canonicalProfile.harness)} requires a local bridge, a provider with authenticated coordination.publicUrl and runtime MCP attachments, or an explicit driveHarness with reachable coordination transport`,
     )
+  }
+  // Every child that this run can drive as a manager inherits its manager's coordination grants,
+  // so depth is the director's choice rather than an author's omission. A profile's own explicit
+  // grants win; a child with no driver for its harness stays a leaf rather than failing to start.
+  const externalManagersAvailable =
+    hasCustomDriveHarness ||
+    (managerBackend !== undefined &&
+      automaticDriverBackendSupported(managerBackend, options.coordination))
+  const canLead = (child: AgentProfile): boolean =>
+    isExternalSupervisor(child) ? externalManagersAvailable : options.router !== undefined
+  // A manager delivers its own work only through `submit_result`, which exists only under a
+  // completion check. Without one, a worker turned manager could not finish work it did itself.
+  const childrenCanSubmit = deliverable !== undefined || options.resolveDeliverable !== undefined
+  const composeSpawnProfileFor = (
+    parent: AgentProfile,
+  ): ((profile: AgentProfile) => AgentProfile) | undefined => {
+    if (
+      options.inheritSpawnRights === false ||
+      options.makeWorkerAgent !== undefined ||
+      !childrenCanSubmit
+    ) {
+      return composeSpawnProfile
+    }
+    return (authored) => {
+      const composed = composeSpawnProfile ? composeSpawnProfile(authored) : authored
+      return canLead(composed) ? withInheritedSpawnRights(parent, composed) : composed
+    }
   }
   const harnessClaims = new WeakMap<
     DriveHarness,
@@ -3363,7 +3458,7 @@ function superviseInternal(
           depth + 1,
           ownerId,
         )
-        const nestedPerWorker = defaultPerWorker(spawnContext.budget)
+        const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
         const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
         let acceptedSubmission = false
         const nested = supervisorAgent(authorized, {
@@ -3371,7 +3466,7 @@ function superviseInternal(
           makeWorkerAgent: childFactory,
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
-          ...(options.reservationPolicy ? { preserveOwnerTurns: true } : {}),
+          ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),
           ...(options.router ? { router: options.router } : {}),
           ...(nestedDriveHarness ? { driveHarness: nestedDriveHarness } : {}),
           ...(options.coordination && isExternalSupervisor(authorized)
@@ -3404,7 +3499,9 @@ function superviseInternal(
           ...(options.resolveSpawnProfile
             ? { resolveSpawnProfile: options.resolveSpawnProfile }
             : {}),
-          ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
+          ...(composeSpawnProfileFor(authorized)
+            ? { composeSpawnProfile: composeSpawnProfileFor(authorized) }
+            : {}),
           ...(profileTable ? { profiles: profileTable } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
@@ -3545,7 +3642,7 @@ function superviseInternal(
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
       perWorker,
-      ...(options.reservationPolicy ? { preserveOwnerTurns: true } : {}),
+      ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),
       ...(log
         ? {
             onEvent: (_event, record) => log.append(runId, record, rootOwnerId),
@@ -3572,11 +3669,12 @@ function superviseInternal(
         : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
-      ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
+      ...(composeSpawnProfileFor(canonicalProfile)
+        ? { composeSpawnProfile: composeSpawnProfileFor(canonicalProfile) }
+        : {}),
       ...(profileTable ? { profiles: profileTable } : {}),
       ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
-      ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),
       ...(rootDriveHarness ? { driveHarness: rootDriveHarness } : {}),
       nodeContext: {
@@ -3665,7 +3763,7 @@ function superviseInternal(
               authoredProfile: canonicalProfile,
             },
           }),
-      maxDepth: options.maxDepth ?? 8,
+      maxDepth: options.maxDepth ?? DEFAULT_MAX_DEPTH,
       ...(options.childSettleGraceMs !== undefined
         ? { childSettleGraceMs: options.childSettleGraceMs }
         : {}),
@@ -3677,7 +3775,7 @@ function superviseInternal(
         : {}),
       ownerWorkspaceRetention:
         managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
-      ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
+      ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
       ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),

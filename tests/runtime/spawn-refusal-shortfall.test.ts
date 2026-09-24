@@ -130,7 +130,7 @@ describe('spawn refusal reaches the driver', () => {
         pinned,
       ),
     ).toBe(
-      'the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits; or ask the caller for a larger root budget',
+      'the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits; or cancel_worker a worker you no longer need or that has stalled, since its unspent budget returns to your pool; or ask the caller for a larger root budget',
     )
   })
 
@@ -175,7 +175,6 @@ describe('spawn refusal reaches the driver', () => {
       'duplicate-key',
       'invalid-identity',
       'key-conflict',
-      'max-live-workers',
       'scope-aborted',
     ]
     for (const kind of kinds) {
@@ -183,7 +182,6 @@ describe('spawn refusal reaches the driver', () => {
       expect(text, kind).not.toMatch(/pool|allocation/u)
       expect(text.length, kind).toBeGreaterThan(20)
     }
-    expect(spawnRefusalReason('max-live-workers', undefined, pinned)).not.toMatch(/cancel/u)
     expect(spawnRefusalReason('invalid-identity', undefined, pinned)).toMatch(/without a key/u)
     expect(spawnRefusalReason('usd-unbudgeted', undefined, pinned)).toBe('usd-unbudgeted text')
     expect(spawnRefusalReason('in-doubt', undefined, pinned)).toBe('in-doubt text')

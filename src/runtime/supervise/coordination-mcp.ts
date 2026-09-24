@@ -227,9 +227,6 @@ export async function serveCoordinationMcp(
     deliverable?: DeliverableSpec<unknown>
     /** Called once when the external manager accepts a result or declares completion. */
     onStop?: (reason: string | undefined) => void
-    /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
-     *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
-    maxLiveWorkers?: number
     /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
      *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
      *  the `coordinationResponseFenceMs` derived from the request timeout; `<= 0` = prior unbounded
@@ -455,7 +452,6 @@ export async function serveCoordinationMcpForManager(
       perWorker: opts.perWorker,
       ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
       ...(opts.onStop ? { onStop: opts.onStop } : {}),
-      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
       awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),

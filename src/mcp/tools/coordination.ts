@@ -34,13 +34,13 @@ import type {
   Settled,
   SpawnRejection,
   Spend,
+  SubtreeSummary,
   Agent as SuperviseAgent,
   WorkerTraceEvidence,
 } from '../../runtime'
 import { assertValidBudget, type ReservationShortfall } from '../../runtime/supervise/budget'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
-import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import {
@@ -95,6 +95,9 @@ export interface SettledWorker {
   /** Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
    *  to answer "how long since anything landed?" without inventing a timestamp at read time. */
   readonly settledAt?: number
+  /** Present when this worker led workers of its own: its team's counts and its own direct
+   *  children's results, each readable in full through `observe_agent({ outRef })`. */
+  readonly subtree?: SubtreeSummary
 }
 
 export type QuestionLevel = 'worker' | 'driver' | 'loop'
@@ -883,13 +886,6 @@ export interface CoordinationToolsOptions {
    *  the driver can still run lenses on demand via `run_analyst`). Lens routes require
    *  `analysts`; agent routes do not. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
-  /** Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_worker`
-   *  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
-   *  reserving from the pool when the cap is already met — a concurrency fence on top of the
-   *  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
-   *  sandboxes/boxes). A tree-wide limit owned by `Scope` takes precedence when present; this field
-   *  is the local form for a caller-owned scope. Omit or `<= 0` = no local cap. */
-  readonly maxLiveWorkers?: number
   /** Max wall-clock ms a single `await_event` call may block waiting on a live worker to settle
    *  before it returns a non-error `{ pending: true, live }` snapshot and lets the caller re-poll.
    *  The underlying `scope.next()` blocks for the WHOLE (multi-minute) worker run; over a remote MCP
@@ -1304,10 +1300,11 @@ export interface CoordinationTools {
  *  server name, so the two never collide on the wire — but a driver reads a BARE word out of a
  *  prompt, and a bare word that the harness also publishes resolves to the harness's own tool.
  *  The spawn verb is `spawn_worker` for that reason: the runtime's vocabulary for the spawned
- *  thing is a worker (`workerId`, `maxLiveWorkers`, the per-worker budget), and no known harness
+ *  thing is a worker (`workerId`, `workerSlots`, the per-worker budget), and no known harness
  *  publishes that name. `tests/kernel/harness-native-tools.test.ts` holds the set clear. */
 export const coordinationVerbNames = [
   'spawn_worker',
+  'cancel_worker',
   'observe_agent',
   'steer_agent',
   'await_event',
@@ -1677,8 +1674,6 @@ export function spawnRefusalReason(
       return 'this run stopped admitting work (it was cancelled, passed its deadline, or too many children went down); no further worker can start'
     case 'depth-exceeded':
       return "this spawn would exceed the run's maxDepth; a worker at the deepest level cannot start children of its own"
-    case 'max-live-workers':
-      return 'the run already has its maximum number of live workers; wait for one to settle (await_event), then spawn again'
     case 'duplicate-key':
       return 'a worker under this key is still live; wait for it to settle, or use a different key for different work'
     case 'key-conflict':
@@ -1693,7 +1688,7 @@ export function spawnRefusalReason(
         const closed = shortfalls.find((shortfall) => shortfall.closedByUnknownSpend === true)!
         return `the run pool refused this spawn: ${shortfallClause(closed)}; the caller must re-run with a measurable or larger root budget`
       }
-      return `the run pool refused this spawn: ${shortfalls.map(shortfallClause).join('; ')}; or ask the caller for a larger root budget`
+      return `the run pool refused this spawn: ${shortfalls.map(shortfallClause).join('; ')}; or cancel_worker a worker you no longer need or that has stalled, since its unspent budget returns to your pool; or ask the caller for a larger root budget`
     }
   }
 }
@@ -1750,12 +1745,6 @@ export function createCoordinationToolsForManager(
     opts.onStop?.(reason)
   }
 
-  // Keyed-assignment bookkeeping for the live-worker fence. `completedKeys` is every key this run
-  // can already answer from committed work — seeded from the prior journal on a resume, extended as
-  // keyed workers deliver in THIS process. A spawn under such a key starts nothing and occupies no
-  // slot, so the fence must not hold it back. `keyByWorker` is what lets a settlement find its key.
-  const completedKeys = new Set<string>()
-  const keyByWorker = new Map<string, string>()
   // Worker id → the AUTHORED profile name it was spawned from. The stable identity an
   // `AnalyzeOnSettleRoute` names (`to`/`over`): labels are the driver's free-text choice, while
   // the profile name is what a graph pins a node by. Recorded at spawn, dropped never (a settled
@@ -1773,14 +1762,13 @@ export function createCoordinationToolsForManager(
   // than the number of rows: journals can contain gaps, keyed assignments, and legacy/custom ids.
   let unkeyedAssignmentOrdinal = nextUnkeyedAssignmentOrdinal(opts.scope)
   const preflightCounts = emptyPreflightCounts()
-  for (const [key, prior] of opts.scope.resume?.keys ?? []) {
-    if (prior.state === 'completed') completedKeys.add(key)
-  }
 
   const nodeForWorker = (id: string) =>
     opts.scope.view.nodes.find((node) => node.id === id) ??
     opts.scope.resume?.view.nodes.find((node) => node.id === id)
 
+  // Outputs of descendants this manager learned by content address from a team summary.
+  const descendantOutRefs = new Set<string>()
   const projectSettled = (settled: Settled<unknown>, resumed = false): SettledWorker => {
     const node = nodeForWorker(settled.handle.id)
     const assignmentId = settled.handle.assignmentId ?? node?.assignmentId
@@ -1806,7 +1794,12 @@ export function createCoordinationToolsForManager(
         ? {}
         : { budgetViolation: settled.budgetViolation }),
       trace,
+      ...(settled.subtree === undefined ? {} : { subtree: settled.subtree }),
       ...(resumed ? { resumed: true as const } : {}),
+    }
+    // A result a manager was told about by digest is one it may read; no other digest is.
+    for (const result of settled.subtree?.results ?? []) {
+      if (result.outRef !== undefined) descendantOutRefs.add(result.outRef)
     }
     return detachedFrozen<SettledWorker>(
       settled.kind === 'done'
@@ -1983,12 +1976,7 @@ export function createCoordinationToolsForManager(
     )
   }
 
-  const commitSettled = (s: Settled<unknown>, w: SettledWorker): void => {
-    // A keyed assignment that just delivered is complete for the rest of this run, so a later
-    // spawn under the same key resolves for free instead of being held behind the live-worker
-    // fence (it starts no worker, so it occupies no slot).
-    const settledKey = keyByWorker.get(s.handle.id)
-    if (settledKey !== undefined && s.kind === 'done') completedKeys.add(settledKey)
+  const commitSettled = (w: SettledWorker): void => {
     ledger.push(w)
     // A settled worker's trace source is finished; drop the online subscription with it.
     unwatchWorker(w.id)
@@ -2328,7 +2316,7 @@ export function createCoordinationToolsForManager(
       }
       return true
     }
-    commitSettled(pending.settled, pending.worker)
+    commitSettled(pending.worker)
     pendingSettlement = undefined
     if (
       pending.analyze &&
@@ -2983,24 +2971,12 @@ export function createCoordinationToolsForManager(
     return { analyst: record.kind, digest: record.digest, defined: definedAnalysts.length }
   }
 
-  // A supervised tree exposes one shared capacity reading; a caller-owned legacy scope falls back
-  // to this toolbox's direct-child count. The shared reading is what prevents each nested manager
-  // from multiplying the same cap independently.
-  const maxLiveWorkers = opts.maxLiveWorkers
-  const localLiveWorkerCount = (): number =>
-    opts.scope.view.nodes.filter((n) => isLiveNodeStatus(n.status)).length
-  const sharedWorkerCapacity = (): Scope<unknown>['workerCapacity'] | undefined => {
-    const scope = opts.scope as Partial<Scope<unknown>>
-    return scope.workerCapacity
-  }
-  const usesTreeWideLimit = (): boolean => {
-    const capacity = sharedWorkerCapacity()
-    return capacity !== undefined && capacity.freeSlots !== null
-  }
+  // This manager's own children that have not settled, and those of them still waiting for a
+  // worker slot. The slot allocator is shared by the whole tree, so its reading is read live.
   const liveWorkerCount = (): number =>
-    usesTreeWideLimit()
-      ? (sharedWorkerCapacity()?.live ?? localLiveWorkerCount())
-      : localLiveWorkerCount()
+    opts.scope.view.nodes.filter((n) => isLiveNodeStatus(n.status)).length
+  const queuedWorkerCount = (): number =>
+    opts.scope.view.nodes.filter((n) => n.status === 'queued').length
 
   // A snapshot of every still-in-flight worker — the liveness signal a bounded `await_event`
   // returns when its wait elapses, so the supervisor can tell "worker still running, keep waiting"
@@ -3081,16 +3057,12 @@ export function createCoordinationToolsForManager(
     }
   }
 
-  // How many workers the driver could open RIGHT NOW without hitting the simultaneity fence, or
-  // `null` when no cap is set (the conserved pool is then the only fence, so there is no finite
-  // slot count). Without this the brain could see WHO is running but never that capacity was idle,
-  // so filling N slots meant emitting N blind tool calls with no feedback telling it to — the
-  // mechanical reason a 5-worker run peaked at 2 live workers. Policy (whether to fill) stays with
-  // the driver; this is only the reading.
+  // How many more workers could start working RIGHT NOW, or `null` when no bound is set (the
+  // conserved pool is then the only fence, so there is no finite slot count). A spawn past the
+  // bound is queued rather than refused; this reading tells the driver whether a new worker starts
+  // at once or waits behind the queue. Policy (whether to spawn) stays with the driver.
   const freeWorkerSlots = (): number | null =>
-    usesTreeWideLimit()
-      ? (sharedWorkerCapacity()?.freeSlots ?? null)
-      : freeSlots(localLiveWorkerCount(), maxLiveWorkers)
+    (opts.scope as Partial<Scope<unknown>>).workerCapacity?.freeSlots ?? null
 
   // The LIVE read of one worker. Guarded because `createCoordinationTools` is bound to a `Scope`
   // it did not construct — an older or hand-rolled scope may not implement `progress` at all, and
@@ -3205,18 +3177,19 @@ export function createCoordinationToolsForManager(
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
         'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
-        'merges over the per-worker default; the conserved pool is still the hard fence. When a ' +
-        'max-live-workers cap is set it also fails closed (`error: "max-live-workers"`) while that ' +
-        'many workers are still in flight — settle or steer one before spawning another. ' +
+        'merges over the per-worker default; the conserved pool is still the hard fence. When ' +
+        'every worker slot is busy the worker is admitted with `status: "queued"` and starts on ' +
+        'its own when a slot frees — it is never refused for concurrency, so spawn all the work ' +
+        'you want done and await_event for the results. ' +
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
         'nothing is spent), a key whose prior attempt failed (`down`) spawns fresh and says so ' +
         '(`resumed: "retried"`), and a key with no terminal receipt is refused ' +
         '(`error: "in-doubt"`) until its exact prior execution is recovered. A key still running ' +
         'is refused (`error: "duplicate-key"`). ' +
-        'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
-        'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
-        'waiting; parallel workers finish the run sooner than one at a time.' +
+        'Returns `freeSlots`: how many MORE workers start at once (`null` = no slot bound), and ' +
+        '`queued`: how many of your workers wait for a slot. Parallel workers finish the run ' +
+        'sooner than one at a time.' +
         (profileTable === undefined
           ? ''
           : " This run has a profiles table: pass `profile` as one of the table's names to run " +
@@ -3289,27 +3262,6 @@ export function createCoordinationToolsForManager(
       handler: async (raw) => {
         const a = obj(raw)
         const key = a.key === undefined ? undefined : str(a.key, 'key')
-        // A key already proven complete — by the resumed journal or by a delivery earlier in this
-        // run — resolves to committed work and starts no live worker, so the concurrency fence
-        // does not apply to it.
-        const keyCompleted = key !== undefined && completedKeys.has(key)
-        // Concurrency fence FIRST — fail closed before reserving budget, so a rejected spawn never
-        // touches the pool. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work.
-        if (
-          !keyCompleted &&
-          !usesTreeWideLimit() &&
-          maxLiveWorkers !== undefined &&
-          maxLiveWorkers > 0 &&
-          liveWorkerCount() >= maxLiveWorkers
-        )
-          return Promise.resolve(
-            ((live: number) => ({
-              error: 'max-live-workers' as const,
-              reason: `${live} worker${live === 1 ? ' is' : 's are'} already live, which is this manager's ceiling — await_event until one settles, then spawn`,
-              live,
-              freeSlots: freeWorkerSlots(),
-            }))(liveWorkerCount()),
-          )
         // A name selects a profiles-table entry: its exact validated profile stands in for an
         // authored one, and every step below treats it the same way.
         const tableRefusal = profileTableRefusal(profileTable, a.profile)
@@ -3454,7 +3406,6 @@ export function createCoordinationToolsForManager(
         // cursor yielded it), so the driver folds it in without an await_event round-trip.
         if (res.ok && res.prior?.state === 'completed') {
           const s = res.prior.settled
-          if (key !== undefined) completedKeys.add(key)
           const { id, status, resumed: _resumed, ...evidence } = projectSettled(s)
           return Promise.resolve({
             workerId: id,
@@ -3475,8 +3426,6 @@ export function createCoordinationToolsForManager(
           liveHandles.set(res.handle.id, res.handle)
           // The capability becomes a sender only now, when there is a concrete worker to speak as.
           peerMail?.bindCapability(assignmentId, res.handle.id)
-          // Bind the new worker to its key so its settlement can mark the key complete.
-          if (key !== undefined) keyByWorker.set(res.handle.id, key)
           if (typeof profile.name === 'string' && profile.name.length > 0) {
             profileNameByWorker.set(res.handle.id, profile.name)
           }
@@ -3513,7 +3462,9 @@ export function createCoordinationToolsForManager(
                 continuity: continuity.continuity,
                 ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
                 ...(successorOf !== undefined ? { successorOf } : {}),
+                status: res.handle.status,
                 live: liveWorkerCount(),
+                queued: queuedWorkerCount(),
                 freeSlots: freeWorkerSlots(),
                 ...priorHistory,
                 // The receipt for every resource the server read by path: the manager can check
@@ -3583,6 +3534,12 @@ export function createCoordinationToolsForManager(
         type: 'object',
         properties: {
           workerId: idArg,
+          outRef: {
+            type: 'string',
+            description:
+              'Instead of workerId: the content address of a result listed in a settled ' +
+              "worker's `subtree.results`, to read one of its team's outputs in full.",
+          },
           outputPath: {
             type: 'array',
             items: { type: 'string' },
@@ -3601,12 +3558,22 @@ export function createCoordinationToolsForManager(
             description: `Maximum JSON characters per page; default ${WORKER_OUTPUT_PAGE_CHARS}.`,
           },
         },
-        required: ['workerId'],
       },
       handler: async (raw) => {
         const args = obj(raw)
-        const id = str(args.workerId, 'workerId')
         const outputRead = workerOutputReadOptions(args)
+        if (args.outRef !== undefined && args.workerId === undefined) {
+          const outRef = str(args.outRef, 'outRef')
+          if (!descendantOutRefs.has(outRef)) {
+            return {
+              error: 'unknown-result' as const,
+              reason:
+                'this outRef was not listed in any subtree summary you received; pass the outRef of an entry in a settled worker’s subtree.results, or observe your own worker by workerId',
+            }
+          }
+          return { outRef, ...(await readWorkerOutput(outRef, outputRead)) }
+        }
+        const id = str(args.workerId, 'workerId')
         const node = opts.scope.view.nodes.find((n) => n.id === id)
         if (!node) {
           // A worker from a PRIOR process of this run: not in the live nursery, but its committed
@@ -3680,6 +3647,52 @@ export function createCoordinationToolsForManager(
           outcome: delivery.outcome,
           reason: downMessageRefusalReasons[delivery.outcome],
           progress: readProgress(workerId) ?? null,
+        }
+      },
+    },
+    {
+      name: 'cancel_worker',
+      description:
+        'Cancel one of YOUR live workers — running, or queued for a worker slot — and every worker ' +
+        'it leads. Its unspent budget returns to your pool when it settles, so this is how you ' +
+        'take back what a stalled or no-longer-needed worker holds (for example when spawn_worker ' +
+        'is refused budget-exhausted while workers you no longer need hold the budget). The ' +
+        'cancelled worker still settles `down` through await_event with what it spent. ' +
+        'Refused (`error: "not-live"`) for a worker that already settled or is not yours.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workerId: idArg,
+          reason: {
+            type: 'string',
+            description: 'Why it is cancelled; recorded on its settlement.',
+          },
+        },
+        required: ['workerId'],
+      },
+      handler: async (raw) => {
+        const a = obj(raw)
+        const workerId = str(a.workerId, 'workerId')
+        const why = a.reason === undefined ? 'cancelled by its manager' : str(a.reason, 'reason')
+        // Exact ids only: a label or profile name could name a sibling the manager did not mean.
+        const own = opts.scope.view.nodes.some(
+          (node) => node.id === workerId && isLiveNodeStatus(node.status),
+        )
+        const cancelled = own ? abortWorker(workerId, why) : undefined
+        if (cancelled === undefined) {
+          return {
+            error: 'not-live' as const,
+            reason: `'${workerId}' is not a live worker you spawned; only your own running or queued workers can be cancelled`,
+            live: liveWorkerCount(),
+            queued: queuedWorkerCount(),
+          }
+        }
+        return {
+          cancelled: true,
+          workerId: cancelled.id,
+          label: cancelled.label,
+          live: liveWorkerCount(),
+          queued: queuedWorkerCount(),
         }
       },
     },

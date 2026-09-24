@@ -24,6 +24,7 @@ import type {
   ProviderModelExecutionEvidence,
   SpawnEvent,
   Spend,
+  SubtreeSummary,
 } from './types'
 
 export type DownSettlement = Extract<PreSeqSettled, { kind: 'down' }>
@@ -35,6 +36,8 @@ export type TerminalDownSubject = {
   readonly spent: Spend
   readonly budgetViolation?: BudgetViolation
   readonly cancellationReason?: { readonly source: string }
+  /** The bounded account of the team this node led, when it led one. */
+  readonly subtree?: SubtreeSummary
 }
 
 /** The settlement fields every writer copies, in the terminal record's key order. The
@@ -53,6 +56,7 @@ export function settlementFields(
   trace: DownSettlement['trace']
   harnessTranscript?: DownSettlement['harnessTranscript']
   retainedPendingCause?: DownSettlement['retainedPendingCause']
+  subtree?: SubtreeSummary
 } {
   return {
     spent: subject.spent,
@@ -66,6 +70,7 @@ export function settlementFields(
     ...(subject.budgetViolation ? { budgetViolation: subject.budgetViolation } : {}),
     trace: settlement.trace,
     ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+    ...(subject.subtree === undefined ? {} : { subtree: subject.subtree }),
   }
 }
 
