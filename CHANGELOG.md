@@ -89,6 +89,14 @@ opencode transcript capture now reads the sidecar's per-session records under `.
 Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
 For opencode in a dedicated Tangle box this ends the `no-transcript` receipts that 0.264.0 describes: 12 of 12 successful dedicated workers captured their transcript. Claude Code and Codex boxes still read `no-transcript` (#1360).
 
+A shared worker now also exports the session of each harness subagent it ran.
+opencode runs a `task` subagent in a child session, and the parent's export does not hold it, so a subagent's steps reached no record (#1264).
+The Lab fleet's records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+After each turn, the worker exports every child session that its `task` parts name: by `state.metadata.sessionId`, by the result's `<task id="ses_…">` header, or by the `task_id:` in a failure.
+Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
+opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
+A dedicated Tangle box still keeps only the parent's sidecar records.
+
 ## 0.264.0
 
 Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.

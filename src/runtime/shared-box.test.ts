@@ -215,6 +215,53 @@ describe('sharedBoxPlacement', () => {
     expect(box.deleted).toBe(true)
   })
 
+  it('exports each harness subagent session its task parts name, beside the parent session', async () => {
+    const task = (callID: string, state: Record<string, unknown>) =>
+      `${JSON.stringify({ type: 'tool_use', sessionID: 'ses_abc', part: { type: 'tool', tool: 'task', callID, messageID: 'm1', state } })}\n`
+    const subagents = [
+      // opencode 1.18 result header, the running part's metadata, and a failure.
+      task('t1', {
+        status: 'completed',
+        input: { description: 'verify' },
+        output:
+          '<task id="ses_child1" state="completed">\n<task_result>\nok\n</task_result>\n</task>',
+      }),
+      task('t2', { status: 'running', input: {}, metadata: { sessionId: 'ses_child2' } }),
+      task('t2', {
+        status: 'completed',
+        input: {},
+        output: '<task id="ses_child2" state="completed">\n<task_result>x</task_result>\n</task>',
+      }),
+      task('t3', {
+        status: 'error',
+        input: {},
+        error: 'Subagent failed (task_id: ses_child3): boom',
+      }),
+      // Not a subagent: another tool, and a task whose id would escape the export path.
+      `${JSON.stringify({ type: 'tool_use', sessionID: 'ses_abc', part: { type: 'tool', tool: 'bash', callID: 'b1', messageID: 'm1', state: { status: 'completed', output: '<task id="ses_nope" state="completed">' } } })}\n`,
+      task('t4', { status: 'running', input: {}, metadata: { sessionId: '../../etc' } }),
+    ]
+    const { client, boxes } = fakeClient(() => ({
+      stdout: [...opencodeRun('ok'), ...subagents],
+      exit: 0,
+    }))
+    const placement = sharedBoxPlacement({ client })
+    const environment = await placement.providerFor().create({ profile: leaf() })
+    for await (const _ of environment.stream({ prompt: 'go' })) {
+      // drain
+    }
+    const box = boxes[0]!
+    const dir = box.spawns.find((spawn) => spawn.args.includes('run'))!.options.cwd!
+    const exported = box.spawns
+      .filter((spawn) => spawn.args.includes('export-session'))
+      .map((spawn) => spawn.args[spawn.args.indexOf('export-session') + 1])
+    expect(exported).toEqual(['ses_abc', 'ses_child1', 'ses_child2', 'ses_child3'])
+    for (const id of exported) {
+      expect(box.files.has(`${dir}/.home/.local/share/opencode/export/${id}.json`)).toBe(true)
+    }
+    await placement.close()
+  })
+
   it('names each worker to the router by its node on the key its box shares', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ok'), exit: 0 }))
     const placement = sharedBoxPlacement({ client })
