@@ -39,6 +39,14 @@ signature). The 2026-09-16 re-entry defect is asserted as a contract case: a fre
 re-entry must carry the original task and the coordinator's run state (`composeReentryTask`,
 #1356), not the unmet-items fragment alone.
 
+A shared worker now also exports the session of each harness subagent it ran.
+opencode runs a `task` subagent in a child session, and the parent's export does not hold it, so a subagent's steps reached no record (#1264).
+The Lab fleet's records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+After each turn, the worker exports every child session that its `task` parts name: by `state.metadata.sessionId`, by the result's `<task id="ses_…">` header, or by the `task_id:` in a failure.
+Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
+opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
+A dedicated Tangle box still keeps only the parent's sidecar records.
+
 ## 0.266.0
 
 Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
