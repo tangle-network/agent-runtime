@@ -31,6 +31,13 @@ export interface PursuitFork {
   readonly settleDigest: Sha256Digest
   /** The one change, applied to the parent's root profile. Its `id` is recorded. */
   readonly change: AgentProfileDiff
+  /**
+   * Fork a parent whose journal holds a node without a terminal record, an unbegun owned tree, an
+   * unconfirmed teardown, or work in flight. Such a node may still act, and a fork never replays
+   * the parent's children, so it can only duplicate work outside the fork's tree. The root then
+   * records those node ids as `forkParentUncertainNodes`. Omit it to refuse such a parent.
+   */
+  readonly acceptUncertain?: boolean
 }
 
 /**
@@ -44,6 +51,9 @@ export const RUN_FORK_CORRELATION_KEYS = Object.freeze([
   'forkProfileDiffId',
   'lineageRootRunId',
 ] as const)
+
+/** The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. */
+export const FORK_PARENT_UNCERTAIN_NODES_KEY = 'forkParentUncertainNodes'
 
 /** What `supervisePursuit` executes for a fork: the changed profile and the attributed execution. */
 export interface PreparedRunFork {
@@ -113,9 +123,12 @@ export async function prepareRunFork(
     ...forest.missingTrees.map((tree) => `${tree.ownerNodeId} (tree ${tree.root} never begun)`),
     ...(settled.teardownUnconfirmed ?? []).map((node) => `${node.id} (teardown unconfirmed)`),
   ]
-  if (uncertain.length > 0 || settled.tree.inFlight > 0) {
+  if (settled.tree.inFlight > 0 && uncertain.length === 0) {
+    uncertain.push(`${settled.tree.inFlight} in flight`)
+  }
+  if (uncertain.length > 0 && fork.acceptUncertain !== true) {
     throw new RuntimeRunStateError(
-      `supervisePursuit fork: run '${parentRunId}' has uncertain nodes: ${uncertain.join(', ') || `${settled.tree.inFlight} in flight`}`,
+      `supervisePursuit fork: run '${parentRunId}' has uncertain nodes: ${uncertain.join(', ')}; set fork.acceptUncertain to fork it anyway`,
     )
   }
 
@@ -156,7 +169,9 @@ export async function prepareRunFork(
   }
 
   const supplied = opts.execution?.correlation ?? {}
-  const owned = RUN_FORK_CORRELATION_KEYS.filter((key) => Object.hasOwn(supplied, key))
+  const owned = [...RUN_FORK_CORRELATION_KEYS, FORK_PARENT_UNCERTAIN_NODES_KEY].filter((key) =>
+    Object.hasOwn(supplied, key),
+  )
   if (owned.length > 0) {
     throw new ValidationError(
       `supervisePursuit fork: execution.correlation cannot set ${owned.join(', ')}; Runtime records them`,
@@ -172,6 +187,9 @@ export async function prepareRunFork(
         forkParentSettleDigest: fork.settleDigest,
         forkProfileDiffId: change.id,
         lineageRootRunId: recorded.correlation?.lineageRootRunId ?? parentRunId,
+        ...(uncertain.length === 0
+          ? {}
+          : { [FORK_PARENT_UNCERTAIN_NODES_KEY]: uncertain.join(', ') }),
       }),
     }),
   })

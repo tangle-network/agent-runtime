@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.260.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.261.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -223,17 +223,19 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 56 exports.
+Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock`, or refuse. |
+| `assertPursuitVersions` | function | Validate a `versions` option before any compute. The same check runs inside `supervisePursuit`; |
 | `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
+| `pursuitVersionRun` | function | The `<runDir>.v<n>` directory and `<runId>.v<n>` id of version `n`, beside the first. |
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
 | `readRootStream` | function | Every committed line of the root stream, in order, or `undefined` when there is no file. A |
 | `readRootStreamReceipt` | function | The receipt for the root stream a run directory holds, recomputed from the file's bytes, or |
@@ -244,6 +246,8 @@ Import from `@tangle-network/agent-runtime/durable` — 56 exports.
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
+| `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
+| `PURSUIT_VERSIONS_FILE` | const | The ledger file inside the lineage directory. |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
@@ -260,6 +264,7 @@ Import from `@tangle-network/agent-runtime/durable` — 56 exports.
 | `DurableFailureRecord` | interface | What `failure.json` records about the most recent throw. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
+| `PreparedPursuitVersion` | interface | One version, ready to execute. |
 | `PursuitFork` | interface | Start a run as a version of a settled run: the parent's recorded root inputs plus one change. |
 | `PursuitNodeCost` | interface | One node's dollar cost with the provenance that decides whether it may be compared or summed. |
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
@@ -267,17 +272,24 @@ Import from `@tangle-network/agent-runtime/durable` — 56 exports.
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
+| `PursuitVersionRegistry` | interface | The registry tables `versions.judge` and `versions.next` resolve a name against. |
+| `PursuitVersions` | interface | Continue a pursuit across versions: after each version settles, an outside judge scores it, and |
+| `PursuitVersionsRecord` | interface | The chain's record, returned beside the best version's result and kept in `versions.jsonl`. |
+| `PursuitVersionStop` | interface | The chain's stop rule. The chain never starts a version once any cap is reached. |
 | `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
 | `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
+| `SettledPursuitVersion` | interface | A settled version, as the judge and `next` read it. |
+| `VersionJudge` | interface | An outside judge. Runtime calls it after a version's settle record exists, never inside the |
+| `NextPursuitVersion` | type | Build the one change the next version applies to `best.profile`. Its `id` must be non-empty. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
 | `PursuitNodePlacement` | type | Where and how a node's execution was placed, read off its execution-binding receipt. |
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
 | `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `ObserverRecordKind`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `PursuitVersionParent`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`, `PursuitVersionStopReason`, `RunPursuitVersion`.
 
 ### Bounded tool calls for browser and edge runtimes
 

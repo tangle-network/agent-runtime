@@ -6,6 +6,12 @@ import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
+import {
+  type PursuitVersionRegistry,
+  type PursuitVersions,
+  type PursuitVersionsRecord,
+  runPursuitVersions,
+} from './pursuit-versions'
 import { type PursuitFork, prepareRunFork } from './run-fork'
 import { acquireRunDirectoryLock } from './run-lock'
 import {
@@ -41,6 +47,19 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * one whose parent has an uncertain node, writes nothing.
    */
   readonly fork?: PursuitFork
+  /**
+   * Continue this pursuit across versions. The first version runs at `runDir` as usual, or is
+   * read back when that directory already settled. After each version settles, `versions.judge`
+   * scores it from outside its tree; unless `versions.stop` ends the chain, the next version forks
+   * from the best version so far with the change `versions.next` returns, at `<runDir>.v<n>` with
+   * run id `<runId>.v<n>`. `<runDir>.versions/versions.jsonl` records every version, its parent,
+   * its change, its verdict and its dollars, and the stop. A call on a chain that stopped reads
+   * that record back; a call on a chain that did not resumes it without re-running or re-judging a
+   * settled version. The call returns the best version's result with the chain's record.
+   */
+  readonly versions?: PursuitVersions
+  /** Supervise's name tables, plus the version judges and changes `versions` may name. */
+  readonly registry?: SuperviseOptions['registry'] & PursuitVersionRegistry
 }
 
 export interface SupervisedPursuitResult<Result> {
@@ -49,6 +68,8 @@ export interface SupervisedPursuitResult<Result> {
   readonly observerPath: string
   /** `runDir/result.json`: `result` as canonical JSON, written once at settle. */
   readonly settlePath: string
+  /** The version chain's record, when the call set `versions`. */
+  readonly versions?: PursuitVersionsRecord
 }
 
 /** A failed Runtime execution whose complete third-person projection was retained. */
@@ -111,10 +132,19 @@ export async function supervisePursuit(
     )
   }
 
+  if (opts.versions !== undefined) {
+    return runPursuitVersions(
+      profile,
+      task,
+      opts as SupervisePursuitOptions & { readonly versions: PursuitVersions },
+      supervisePursuit,
+    ) as Promise<SupervisedPursuitResult<Awaited<ReturnType<typeof supervise>>>>
+  }
+
   const observerPath = resolve(runDir, 'observer.jsonl')
   const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
   const failurePath = resolve(runDir, FAILURE_RECORD_FILE)
-  const { pursuitId: _pursuitId, hooks, fork, ...superviseOptions } = opts
+  const { pursuitId: _pursuitId, hooks, fork, versions: _versions, ...superviseOptions } = opts
   const runId = superviseOptions.runId ?? 'supervise'
   const now = superviseOptions.now ?? Date.now
 

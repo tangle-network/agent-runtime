@@ -27,6 +27,9 @@
  *     record beside the journal: `result.json` at settle, `failure.json` on a throw.
  *   - `supervisePursuit({ fork })`: start a run as a version of a settled run, with the parent's
  *     recorded root inputs plus one `AgentProfileDiff`, recorded in the root's correlation.
+ *   - `supervisePursuit({ versions })`: continue a pursuit across versions. An outside judge
+ *     scores each settled version, the next forks from the best one, and a stop rule with a
+ *     patience, a version cap, a dollar cap and a wall clock ends the chain.
  *   - `readRootStream` / `readRootStreamReceipt`: the root manager's own provider stream,
  *     `root-stream.jsonl`, journaled as it arrives and referenced from both terminal records.
  */
@@ -71,7 +74,30 @@ export {
   type PursuitStatus,
   projectPursuit,
 } from './observer-projection'
-export { type PursuitFork, RUN_FORK_CORRELATION_KEYS } from './run-fork'
+export {
+  assertPursuitVersions,
+  type JudgedPursuitVersion,
+  type NextPursuitVersion,
+  type NextPursuitVersionInput,
+  type PreparedPursuitVersion,
+  PURSUIT_VERSIONS_FILE,
+  type PursuitVersionParent,
+  type PursuitVersionRegistry,
+  type PursuitVersionStop,
+  type PursuitVersionStopReason,
+  type PursuitVersions,
+  type PursuitVersionsRecord,
+  pursuitVersionRun,
+  type RunPursuitVersion,
+  type SettledPursuitVersion,
+  type VersionJudge,
+  type VersionVerdict,
+} from './pursuit-versions'
+export {
+  FORK_PARENT_UNCERTAIN_NODES_KEY,
+  type PursuitFork,
+  RUN_FORK_CORRELATION_KEYS,
+} from './run-fork'
 export {
   acquireRunDirectoryLock,
   RUN_DIRECTORY_LOCK_FILE,
