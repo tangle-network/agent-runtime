@@ -89,6 +89,18 @@ Apply [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope
 
 **Gate A status: inconclusive at n=48 (POWER-16), on the `Scope`/`Supervisor` substrate.** The n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) did not remain a confirmed gain: depth−breadth was +4.7pp, CI [−1.9, +11.4], at n=48 (header note). The interval does not rule out a useful gain or zero; the program pivoted off this anchor.
 
+**POWER-16 source audit (2026-09-24).**
+The saved four 12-row shards omit task IDs and a pinned dataset revision.
+The runner fetched consecutive offsets 0–47 from the public EnterpriseOps-Gym ITSM oracle split.
+The current dataset revision `c8e538eae8a6205294f0a86675fefdc1fac408f6` was last modified on 2026-04-30, before the run.
+Mapping its rows to those offsets yields 48 distinct task IDs.
+All 48 IDs occur in archived June 10–12 `agent-lab` results, before POWER-16.
+Seven seed database files underlie the 48 tasks; two supply 42 tasks.
+The cases were therefore reused at the program level, not an untouched final cohort.
+The earlier artifacts do not establish which rows a POWER-16 candidate author or treatment agent saw.
+Direct treatment leakage is unproved.
+The source census is reproducible from [the saved POWER-16 shards](https://github.com/tangle-network/agent-lab/tree/1418eddf558058faeefb8a1706707b11aefc909f/runs/2026-06-13) and the preceding run archive in the same private repository.
+
 ## Phase 3 — Grow the ISA (program synthesis)
 
 **Status: superseded by `defineStrategy`.**
