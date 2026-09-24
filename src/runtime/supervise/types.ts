@@ -922,10 +922,14 @@ export interface SpawnOpts {
    * idempotent per key: once a child spawned under a key settles `done` — in this process or in a
    * journaled prior one — spawning the same key returns that committed result (`prior.state:
    * 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-   * spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
-   * journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
-   * still exist and must be recovered before replacement. A key that is currently LIVE is refused
-   * (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
+   * spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
+   * `down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
+   * its process — so a worker killed mid-flight under a plain in-process executor retries under
+   * its own key instead of wedging. A key whose un-settled prior attempt may still exist
+   * elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
+   * may still be running and must be recovered before replacement. A key that is currently LIVE
+   * is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
+   * always run.
    */
   readonly key?: string
   /** The settled sibling node this spawn replaces, so a run's record names which worker took over
@@ -1320,8 +1324,12 @@ export interface ResumedKeyState<Out = unknown> {
   /** Identity recorded when this key was first admitted. Every reuse must match it exactly. */
   readonly identity?: NodeExecutionIdentity
   readonly state: 'completed' | 'down' | 'in-doubt'
-  /** The rehydrated settlement; absent exactly when `state` is `'in-doubt'`. */
+  /** The rehydrated settlement; absent when `state` is `'in-doubt'`, and when `'down'` was
+   * *derived* — the resume itself proved the execution dead (an `inline` runtime cannot outlive
+   * its process), so there is no settlement to rehydrate and `reason` says how it died. */
   readonly settled?: Settled<Out>
+  /** Why a derived `'down'` state exists. Absent on every state backed by a settlement. */
+  readonly reason?: string
 }
 
 // ── Observability view (read off the in-memory nursery) ────────────────────────

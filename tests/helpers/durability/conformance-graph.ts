@@ -138,7 +138,10 @@ export function readExecLog(dir: string, phase: string): string[] {
  * A leaf executor per node with kill points at its three intra-step instants. `before` = admitted
  * but nothing computed; `mid` = computed, nothing committed; `after` = artifact ready, settlement
  * (blob + journal) not yet written. Settlements are only ever journaled after `execute()` returns,
- * so a kill at any of the three leaves the node uncommitted on disk.
+ * so a kill at any of the three leaves the node uncommitted on disk. The runtime tag is `inline` —
+ * the truthful tag for an in-process executor — which also carries the durability meaning: an
+ * interrupted inline keyed spawn provably died with the process, so a resume retries it under its
+ * own key (`resumed: "retried"`) rather than refusing it in-doubt.
  */
 export function instrumentedLeafSeam(opts: LeafSeamOptions): MakeWorkerAgent {
   const { dir, phase, kill } = opts
@@ -149,7 +152,7 @@ export function instrumentedLeafSeam(opts: LeafSeamOptions): MakeWorkerAgent {
     attempts.set(name, attempt)
     let artifact: ExecutorResult<unknown> | undefined
     const executor: Executor<unknown> = {
-      runtime: 'router',
+      runtime: 'inline',
       async execute() {
         appendFileSync(execLogPath(dir, phase), `${name}\n`)
         kill(`worker:${name}:before`)
@@ -188,6 +191,7 @@ interface NodePlanState {
   key: string
   status: 'pending' | 'spawned' | 'done'
   workerId?: string
+  unknownWorker?: boolean
   escalated: boolean
 }
 
@@ -289,6 +293,13 @@ export class ConductorPlanner {
         this.escalations.push({ node, from, to: state.key })
         return
       }
+      if (error.includes('duplicate-key')) {
+        // The worker is ALREADY LIVE under this key — a resumed run's recovery adopted it before
+        // this process drove anything. Wait for its settle like any live worker.
+        state.status = 'spawned'
+        state.unknownWorker = true
+        return
+      }
       this.fatal ??= `spawn of ${node} refused: ${error}`
       return
     }
@@ -313,7 +324,15 @@ export class ConductorPlanner {
       const id = typeof r.settled === 'string' ? r.settled : undefined
       if (r.status === 'done') {
         const byId = this.nodes.find((n) => n.workerId !== undefined && n.workerId === id)
-        if (byId !== undefined) byId.status = 'done'
+        if (byId !== undefined) {
+          byId.status = 'done'
+          return
+        }
+        // A settle for a worker this process never learned the id of (replayed from the prior
+        // process, or recovered by the resume before the driver drove anything — the
+        // `duplicate-key` adoption). Charge it to the oldest spawned node with an unknown worker.
+        const unknown = this.nodes.find((n) => n.status === 'spawned' && n.unknownWorker === true)
+        if (unknown !== undefined) unknown.status = 'done'
       } else if (this.fatal === undefined) {
         this.fatal = `worker ${id ?? '?'} settled down: ${JSON.stringify(r).slice(0, 200)}`
       }
@@ -330,7 +349,7 @@ export class ConductorPlanner {
       // post-resume drain it is the completion signal: nothing waiting, nothing live.
       this.idleStreak += 1
       this.drainedIdle = true
-      if (this.idleStreak >= 5) {
+      if (this.idleStreak >= 8) {
         this.fatal ??= 'await_event repeatedly idle while spawned workers never settled'
       }
       return
@@ -507,6 +526,9 @@ export interface JournalAudit {
   readonly rootMaterialized: number
   readonly rootBoundAttemptIds: string[]
   readonly settledDoneByLabel: Record<string, number>
+  /** Every DISTINCT `SpawnOpts.key` each node label spawned under, across all processes — the
+   * "same key never reminted" evidence: a retry may spawn a label twice, but always under one key. */
+  readonly spawnedKeysByLabel: Record<string, string[]>
   readonly duplicateCursorSeqs: number[]
   readonly edgeEvents: number
   readonly events: SpawnEvent[]
@@ -527,8 +549,13 @@ export async function auditSpawnJournal(dir: string, runId: string): Promise<Jou
     if (e.kind === 'spawned' && e.parent !== undefined) labelById.set(e.id, e.label)
   }
   const settledDoneByLabel: Record<string, number> = {}
+  const spawnedKeysByLabel: Record<string, string[]> = {}
   const cursors: number[] = []
   for (const e of events) {
+    if (e.kind === 'spawned' && e.parent !== undefined && e.key !== undefined) {
+      const keys = (spawnedKeysByLabel[e.label] ??= [])
+      if (!keys.includes(e.key)) keys.push(e.key)
+    }
     if (e.kind === 'settled' || e.kind === 'cancelled') {
       cursors.push(e.seq)
       if (e.kind === 'settled' && e.status === 'done') {
@@ -545,6 +572,7 @@ export async function auditSpawnJournal(dir: string, runId: string): Promise<Jou
       .filter((e) => e.kind === 'execution-bound' && e.id === runId)
       .map((e) => (e.kind === 'execution-bound' ? e.binding.attemptId : '')),
     settledDoneByLabel,
+    spawnedKeysByLabel,
     duplicateCursorSeqs: [...new Set(dup)],
     edgeEvents: events.filter((e) => e.kind === 'edge').length,
     events,

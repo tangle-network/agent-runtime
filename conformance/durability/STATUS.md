@@ -1,8 +1,8 @@
 # Durability conformance STATUS
 
 Question: **is agent-runtime durable?** — kill-and-resume conformance for `runGraph` and the
-shipped journal backends, measured 2026-09-24 on `fix/durable-kill-and-resume-conformance`
-(origin/main `5b1ef2f4`, agent-runtime 0.265.0 + the fix in this PR).
+shipped journal backends, measured 2026-09-24 on `fix/interrupted-keyed-spawns`
+(origin/main `12ffa98e`, agent-runtime 0.267.0 + the fixes in this PR).
 
 Regenerate the evidence: `pnpm run conformance:durability`
 (latest machine-readable results: [`results.json`](./results.json)).
@@ -12,14 +12,17 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | Surface | Backend | Cases | Result |
 | --- | --- | --- | --- |
 | `runGraph` (driver + 3 delegate steps, keyed side-effect tool) | file run context (`FileSpawnJournal` + `FileResultBlobStore` + `FileCoordinationLog` via `runDir`) | 23 kill points (every driver-turn boundary, each worker's before/mid/after, the tool's before/after-effect) + reference | **PASS** — after the fix below; every case resumed to the same winner, no step lost, no committed step repeated, side effect exactly once, journal resume-contract clean |
+| `runGraph` with session-backed workers (re-attach arm, `recoverExecutor`) | file run context | 23 kill points (mid-session steps + driver boundaries + tool) + reference | **PASS** — interrupted sessions are RECOVERED and re-attached: every session step runs exactly once across processes, interrupted keys are never reminted, side effect exactly once |
 | `runConversation` (6 turns, 2 participants, keyed per-turn effect) | `FileConversationJournal` | 18 kill points (turn start / backend-done-before-commit / turn-committed) + reference + halt-replay | **PASS** |
 | `runConversation` | `SqlConversationJournal` over real sqlite (`node:sqlite`) | same 18 + reference | **PASS** |
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
 | `runGraph` | any SQL store | — | **N/A — capability gap**: no `SqlSpawnJournal` exists; orchestration durability is file-only. |
 
-Totals from the run: **70/70 green** (the matrix was also verified green against 0.255.0-era
-main before the 0.262–0.265 series landed; the only matrix-visible effect of that series here is
-the new `open-work` submission gate, which the suite's driver now drains correctly).
+Totals from the run: **94/94 green** — the inline matrix (24), the session re-attach matrix (24),
+the conversation matrices (39), the runDir regression locks (2), the known-defect cases (5). The
+inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
+landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
+which the suite's driver now drains correctly.
 
 ## Defect found and fixed by this suite
 
@@ -52,18 +55,25 @@ the fix the entire kill matrix fails as "restarted from scratch"; after it, 23/2
   real re-entry path (`tests/durability/known-defects.test.ts`); on the pre-fix base it failed
   against exactly the autopsy's fragment, so a regression to that shape turns red immediately.
 
-## Sharp edge (by design, but worth knowing before relying on keyed spawns)
+## Interrupted keyed spawns — both arms proven (was the sharp edge)
 
-A keyed spawn whose worker dies in-flight (spawned journaled, never settled) resumes as
-`error: "in-doubt"` and **stays refused for executors that cannot re-attach across processes**
-(router/inline leaves): the run-once key can never complete, and the driver must escalate to a
-replacement key (`step:x` → `step:x#2`), which re-executes the (never-committed) work. The suite's
-planner does this and every such case still passes all exactly-once assertions — but "the same key
-never runs twice" reads stronger than "the same key never finishes twice": mid-flight kills of
-inline keyed workers always pay one re-execution, and the killed attempt's reservation stays
-charged (sound, but budget accordingly). A provably-dead proof for in-process executors (the
-budget layer already has one, `uncertainSpawnBudgets`' `runtime !== 'inline'` carve-out) would
-close the gap; not attempted here.
+A keyed spawn whose worker dies in flight (spawned journaled, never settled) used to resume
+`error: "in-doubt"` for EVERY executor class, wedging the run-once key for executors that cannot
+re-attach. Both arms of the correct behavior are now implemented and pinned by the suite:
+
+- **Executors that die with the process (`inline`)**: the resume itself proves the attempt dead
+  (the same predicate the budget layer already used to charge no uncertain reservation), so the
+  key resolves `down` and a re-spawn under the SAME key returns `resumed: "retried"` with the
+  interruption named as the reason — the runtime's automatic escalation, no driver workaround,
+  no reminted key, the side-effect site sees one key (`keyedAssignments`).
+- **Executors whose session outlives the process (sandbox / CLI bridge class)**: the in-doubt
+  refusal stays (the remote execution may still be running — refusing replacement is correct),
+  and a run that owns its worker seam can now supply `runGraph({ recoverExecutor })` /
+  `supervise({ recoverExecutor })`: the resumed process reconstructs the interrupted child's
+  executor from the journal, the scope adopts it before the driver drives, and the executor
+  re-attaches its session and CONTINUES. The session matrix proves every step ran exactly once
+  across the kill. Previously this channel existed only for backend-derived recursive managers; a
+  caller-owned `makeLeafAgent`/`makeWorkerAgent` had no way to recover anything.
 
 ## Decision read-out (harden vs. adopt Temporal/Restate/Cloudflare Workflows)
 
@@ -96,6 +106,15 @@ spawn journal.
 | File | What it proves |
 | --- | --- |
 | `tests/durability/graph-rundir-journal.test.ts` | `runDir` actually journals to the file stores; no `runDir` writes nothing |
-| `tests/durability/graph-kill-resume.test.ts` | the 23-point SIGKILL matrix over `runGraph` (driver turns, worker before/mid/after, tool before/after-effect) |
+| `tests/durability/graph-kill-resume.test.ts` | the 23-point SIGKILL matrix over `runGraph` (driver turns, worker before/mid/after, tool before/after-effect), including the interrupted-inline-key auto-retry assertions |
+| `tests/durability/session-reattach.test.ts` | the 23-point matrix over session-backed workers: mid-session kills recover, re-attach, and continue — every session step exactly once |
 | `tests/durability/conversation-kill-resume.test.ts` | the 18-point matrix × both conversation backends + halted-run replay |
 | `tests/durability/known-defects.test.ts` | the two autopsy signatures: both now guarded and green (08-11 journal cleanliness; 09-16 re-entry contract) |
+
+## Operational note (shared hosts)
+
+Each durable run opens one inotify watch (cancellation controls); a full test-suite run on a
+shared machine can sit near the kernel's `fs.inotify.max_user_instances` default (128) when many
+agent sessions, browsers, and watchers already hold instances — transient EMFILE failures in
+whichever child is unlucky are host contention, not durability defects. `npx vitest run
+--maxWorkers=4` reproduces logic deterministically on such hosts; idle CI runners are unaffected.
