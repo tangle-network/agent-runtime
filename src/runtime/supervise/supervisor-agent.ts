@@ -456,6 +456,8 @@ export interface SupervisorAgentDeps {
   readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Keep an inference turn available when recursive admission holds budget for this manager. */
+  readonly preserveOwnerTurns?: true
   /** Runtime-owned sink for provider identity observed by this manager's own turns. */
   readonly onProviderModel?: (model: string | undefined) => void
   /** Independent completion check for direct driver work (`submit_result`). */
@@ -812,6 +814,7 @@ function buildSupervisorAgent(
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
         perWorker: deps.perWorker,
+        ...(deps.preserveOwnerTurns ? { preserveOwnerTurns: true as const } : {}),
         // An omitted prompt means no standing system text. Runtime executes the exact profile and
         // never chooses a research policy for it.
         systemPrompt: resolveSupervisorSystemPrompt(stableProfile) ?? '',

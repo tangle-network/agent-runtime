@@ -143,6 +143,7 @@ import type {
   NodeStatus,
   ProfileMaterializationReceipt,
   ProviderModelExecutionEvidence,
+  RecursiveReservationPolicy,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,
@@ -205,6 +206,10 @@ export interface ScopeArgs {
   readonly maxDepth?: number
   /** Root-owned limit on live spawned workers across this scope and every nested scope. */
   readonly maxLiveWorkers?: number
+  /** Optional policy that holds owner inference capacity and a path of descendant slots. */
+  readonly reservationPolicy?: RecursiveReservationPolicy
+  /** The budget from which this scope's owner-share floor is derived. */
+  readonly ownerBudget?: Budget
   /** @internal Shared counter inherited by nested scopes. Callers set `maxLiveWorkers`; the root
    *  scope creates this state once and passes the same object through its recursion seam. */
   readonly liveWorkerCapacity?: LiveWorkerCapacityState
@@ -451,6 +456,37 @@ export interface LiveWorkerCapacityState {
   live: number
 }
 
+/** Fail before execution when an opted-in run cannot leave a live slot at every depth. */
+export function assertRecursiveReservationPolicy(
+  policy: RecursiveReservationPolicy | undefined,
+  maxDepth: number | undefined,
+  maxLiveWorkers: number | undefined,
+): void {
+  if (policy === undefined) return
+  if (
+    typeof policy !== 'object' ||
+    policy === null ||
+    Object.keys(policy).some((key) => key !== 'ownerShare')
+  ) {
+    throw new ValidationError('reservationPolicy accepts only ownerShare')
+  }
+  if (!Number.isFinite(policy.ownerShare) || policy.ownerShare <= 0 || policy.ownerShare >= 1) {
+    throw new ValidationError('reservationPolicy.ownerShare must be greater than 0 and less than 1')
+  }
+  if (!Number.isSafeInteger(maxDepth) || maxDepth === undefined || maxDepth < 2) {
+    throw new ValidationError('reservationPolicy requires maxDepth >= 2')
+  }
+  if (
+    !Number.isSafeInteger(maxLiveWorkers) ||
+    maxLiveWorkers === undefined ||
+    maxLiveWorkers < maxDepth
+  ) {
+    throw new ValidationError(
+      'reservationPolicy requires maxLiveWorkers >= maxDepth to preserve a descendant path',
+    )
+  }
+}
+
 /**
  * Internal live-set entry. `settled` resolves once the child's executor has fully drained,
  * its reservation reconciled, and its result blob persisted; `next()` awaits these to drive
@@ -688,6 +724,9 @@ function makeNestedScopeSeam(
       depth: args.depth + 1,
       ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
       liveWorkerCapacity,
+      ...(args.reservationPolicy
+        ? { reservationPolicy: args.reservationPolicy, ownerBudget: nestedBudget }
+        : {}),
       signal,
       ...(restored ? { resumeFrom: restored.resumeFrom } : {}),
       ...(args.now ? { now: args.now } : {}),
@@ -740,6 +779,27 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     max: normalizeLiveWorkerLimit(args.maxLiveWorkers),
     live: 0,
   }
+  const reservationPolicy = args.reservationPolicy
+  assertRecursiveReservationPolicy(reservationPolicy, args.maxDepth, liveWorkerCapacity.max)
+  if (reservationPolicy && !args.ownerBudget) {
+    throw new ValidationError('reservationPolicy requires the owning scope budget')
+  }
+  const ownerBudget = args.ownerBudget
+  const ownerFloor =
+    reservationPolicy && ownerBudget
+      ? {
+          tokens: Math.ceil(ownerBudget.maxTokens * reservationPolicy.ownerShare),
+          iterations: Math.ceil(ownerBudget.maxIterations * reservationPolicy.ownerShare),
+          ...(ownerBudget.maxUsd === undefined
+            ? {}
+            : { usd: ownerBudget.maxUsd * reservationPolicy.ownerShare }),
+        }
+      : undefined
+  // A shallow spawn may consume only the slots that leave one path to maxDepth open.
+  const admissionMax =
+    reservationPolicy && liveWorkerCapacity.max !== undefined && args.maxDepth !== undefined
+      ? liveWorkerCapacity.max - Math.max(0, args.maxDepth - (args.depth + 1))
+      : liveWorkerCapacity.max
   // Two distinct monotonic counters in two namespaces:
   //  - `spawnOrdinal` is the spawn order (0,1,2,…); it mints the deterministic node id
   //    `${parent}:s${ordinal}` and stamps the `spawned` event's `seq`. Known at spawn.
@@ -917,6 +977,28 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // ONE admission counter is shared by the root scope and every recursive scope it mounts.
     // Acquire before calling a lazy worker factory, resolving/constructing its executor, or
     // reserving budget. A completed keyed assignment returned above never touches the counter.
+    if (!recovery && admissionMax !== undefined && liveWorkerCapacity.live >= admissionMax) {
+      return { ok: false, reason: 'max-live-workers' }
+    }
+    if (!recovery && ownerFloor) {
+      const available = args.pool.readout()
+      const shortfalls: ReservationShortfall[] = []
+      const short = (channel: ReservationShortfall['channel'], requested: number, free: number) => {
+        if (requested > free) shortfalls.push({ channel, requested, free: Math.max(0, free) })
+      }
+      short('tokens', opts.budget.maxTokens, available.tokensLeft - ownerFloor.tokens)
+      short(
+        'iterations',
+        opts.budget.maxIterations,
+        available.iterationsLeft - ownerFloor.iterations,
+      )
+      if (ownerFloor.usd !== undefined) {
+        short('usd', opts.budget.maxUsd ?? 0, available.usdLeft - ownerFloor.usd)
+      }
+      if (shortfalls.length > 0) {
+        return { ok: false, reason: 'budget-exhausted', shortfalls }
+      }
+    }
     const permit = acquireLiveWorker(liveWorkerCapacity)
     if (!permit.ok) return { ok: false, reason: 'max-live-workers' }
 
@@ -2021,7 +2103,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     get workerCapacity() {
       return {
         live: liveWorkerCapacity.live,
-        freeSlots: freeSlots(liveWorkerCapacity.live, liveWorkerCapacity.max),
+        freeSlots: freeSlots(liveWorkerCapacity.live, admissionMax),
         // The nodes behind a charged-but-idle slot: settled, yet their executor never
         // acknowledged teardown. This scope names its OWN children; a nested manager names its
         // own, so a leak is attributable rather than an integer.

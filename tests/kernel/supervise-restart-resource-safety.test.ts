@@ -417,6 +417,124 @@ describe('supervision restart and resource safety', () => {
     expect(secondActs).toBe(0)
   })
 
+  it('pins recursive admission before a resumed root can recover prior work', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const executors = createExecutorRegistry()
+    const budget = { maxIterations: 400, maxTokens: 20_000_000 }
+    const workerBudget = { maxIterations: 60, maxTokens: 4_000_000 }
+    const rootIdentity = {
+      profileDigest: `sha256:${'5'.repeat(64)}` as const,
+      taskDigest: `sha256:${'6'.repeat(64)}` as const,
+    }
+    const runId = 'resume-recursive-admission'
+    const common = { budget, rootIdentity, runId, journal, blobs, executors }
+
+    const first = await createSupervisor<unknown, string>().run(
+      {
+        name: 'default-off-root',
+        async act(task, scope) {
+          for (let index = 0; index < 5; index++) {
+            expect(
+              scope.spawn(resultLeaf(`prior-${index}`, zeroSpend), task, {
+                budget: workerBudget,
+                label: `prior-${index}`,
+              }).ok,
+            ).toBe(true)
+          }
+          expect(scope.budget.tokensLeft).toBe(0)
+          for (let index = 0; index < 5; index++) {
+            expect((await scope.next())?.kind).toBe('done')
+          }
+          return 'first result'
+        },
+      },
+      'task',
+      { ...common, maxDepth: 2, maxLiveWorkers: 6 },
+    )
+    expect(first.kind).toBe('winner')
+    const recorded = (await journal.loadTree(runId)) ?? []
+    expect(
+      recorded.filter((event) => event.kind === 'spawned' && event.parent === runId),
+    ).toHaveLength(5)
+    expect(
+      recorded.find((event) => event.kind === 'spawned' && event.parent === undefined),
+    ).not.toHaveProperty('recursiveAdmission')
+
+    let resumedActs = 0
+    await expect(
+      createSupervisor<unknown, string>().run(
+        {
+          name: 'resumed-root',
+          act: async () => {
+            resumedActs += 1
+            return 'changed result'
+          },
+        },
+        'task',
+        {
+          ...common,
+          maxDepth: 2,
+          maxLiveWorkers: 6,
+          reservationPolicy: { ownerShare: 0.2 },
+          resume: true,
+        },
+      ),
+    ).rejects.toThrow(/resume reservation policy or fleet limits mismatch/)
+    expect(resumedActs).toBe(0)
+    expect(await journal.loadTree(runId)).toEqual(recorded)
+
+    const policyRunId = 'resume-pinned-recursive-admission'
+    const policyCommon = { ...common, runId: policyRunId }
+    const policy = { ownerShare: 0.2 }
+    const pinned = await createSupervisor<unknown, string>().run(
+      { name: 'pinned-root', act: async () => 'pinned result' },
+      'task',
+      {
+        ...policyCommon,
+        maxDepth: 2,
+        maxLiveWorkers: 6,
+        reservationPolicy: policy,
+      },
+    )
+    expect(pinned.kind).toBe('winner')
+
+    for (const changed of [
+      { reservationPolicy: { ownerShare: 0.25 }, maxDepth: 2, maxLiveWorkers: 6 },
+      { reservationPolicy: policy, maxDepth: 3, maxLiveWorkers: 6 },
+      { reservationPolicy: policy, maxDepth: 2, maxLiveWorkers: 7 },
+    ]) {
+      await expect(
+        createSupervisor<unknown, string>().run(
+          { name: 'changed-root', act: async () => 'changed result' },
+          'task',
+          { ...policyCommon, ...changed, resume: true },
+        ),
+      ).rejects.toThrow(/resume reservation policy or fleet limits mismatch/)
+    }
+
+    let exactActs = 0
+    const exact = await createSupervisor<unknown, string>().run(
+      {
+        name: 'exact-resume-root',
+        act: async () => {
+          exactActs += 1
+          return 'exact result'
+        },
+      },
+      'task',
+      {
+        ...policyCommon,
+        maxDepth: 2,
+        maxLiveWorkers: 6,
+        reservationPolicy: policy,
+        resume: true,
+      },
+    )
+    expect(exact.kind).toBe('winner')
+    expect(exactActs).toBe(1)
+  })
+
   it('names the identity field that moved, so a resume refusal is actionable', async () => {
     // The identity is compared as one content address, so the refusal used to list every field
     // that MIGHT have caused it. A caller then diffs four digests by hand, and the common cause —

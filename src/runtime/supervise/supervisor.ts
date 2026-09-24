@@ -66,6 +66,7 @@ export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './r
 import { withBudgetResources } from './resources'
 import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
 import {
+  assertRecursiveReservationPolicy,
   closeScopeAdmission,
   createScope,
   finalizeScopeOwnerMaterialization,
@@ -120,6 +121,21 @@ function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): Spawn
   if (contentAddress(recorded.budget) !== contentAddress(opts.budget)) {
     throw new RuntimeRunStateError(
       `supervisor: resume budget mismatch for run '${opts.runId}'; use a new runId to change limits`,
+    )
+  }
+  const expectedAdmission = opts.reservationPolicy
+    ? {
+        policy: opts.reservationPolicy,
+        maxDepth: opts.maxDepth ?? defaultMaxDepth,
+        maxLiveWorkers: opts.maxLiveWorkers,
+      }
+    : undefined
+  if (
+    contentAddress(recorded.recursiveAdmission ?? null) !==
+    contentAddress(expectedAdmission ?? null)
+  ) {
+    throw new RuntimeRunStateError(
+      `supervisor: resume reservation policy or fleet limits mismatch for run '${opts.runId}'; use a new runId`,
     )
   }
   if (!sameOptionalIdentity(recorded.identity, opts.rootIdentity)) {
@@ -375,6 +391,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       probes,
       maxDepth,
       maxLiveWorkers,
+      reservationPolicy,
       maxRestarts,
       withinMs,
       childSettleGraceMs,
@@ -399,6 +416,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(rootMaterialization === undefined ? {} : { rootMaterialization }),
           ...(maxDepth === undefined ? {} : { maxDepth }),
           ...(maxLiveWorkers === undefined ? {} : { maxLiveWorkers }),
+          ...(reservationPolicy === undefined ? {} : { reservationPolicy }),
           ...(maxRestarts === undefined ? {} : { maxRestarts }),
           ...(withinMs === undefined ? {} : { withinMs }),
           ...(childSettleGraceMs === undefined ? {} : { childSettleGraceMs }),
@@ -413,6 +431,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       },
       'supervisor.run',
     )
+    assertRecursiveReservationPolicy(reservationPolicy, maxDepth ?? defaultMaxDepth, maxLiveWorkers)
     if (
       teardownConfirmMs !== undefined &&
       (typeof teardownConfirmMs !== 'number' ||
@@ -525,6 +544,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           label: 'root',
           budget: opts.budget,
           runtime: rootRuntime,
+          ...(opts.reservationPolicy
+            ? {
+                recursiveAdmission: {
+                  policy: opts.reservationPolicy,
+                  maxDepth: opts.maxDepth ?? defaultMaxDepth,
+                  maxLiveWorkers: opts.maxLiveWorkers as number,
+                },
+              }
+            : {}),
           ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
           seq: 0,
           at: runStartedAt,
@@ -616,6 +644,9 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         depth: 0,
         maxDepth: opts.maxDepth ?? defaultMaxDepth,
         ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+        ...(opts.reservationPolicy
+          ? { reservationPolicy: opts.reservationPolicy, ownerBudget: opts.budget }
+          : {}),
         signal: controller.signal,
         now,
         hooks: opts.hooks,

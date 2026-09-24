@@ -428,7 +428,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 964 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 965 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -960,6 +960,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 964 exports.
 | `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |
 | `RecoverRetainedRunIntentOptions` | interface | Recover a headless start after its pre-create intent was persisted. |
 | `RecoverRetainedRunOptions` | interface | Pre-dispatch admission coordinates for one recovery attempt. |
+| `RecursiveReservationPolicy` | interface | Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget |
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |

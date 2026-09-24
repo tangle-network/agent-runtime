@@ -290,6 +290,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'extraTools',
   'executeExtraTool',
   'perWorker',
+  'reservationPolicy',
   'maxLiveWorkers',
   'watchWorkers',
   'stallAfterMs',

@@ -124,6 +124,8 @@ export interface DriverAgentOptions {
   readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Allow the manager's own metered turn after child admission reaches its protected share. */
+  readonly preserveOwnerTurns?: true
   /** Independent completion check for work the driver performs itself. When present, the driver
    *  receives `submit_result`; the first passing submission ends the loop and becomes the output. */
   readonly deliverable?: DeliverableSpec<unknown>
@@ -342,19 +344,24 @@ function formatOverspend(violation: BudgetViolation | undefined): string {
  *  (can't afford a worker) and usd (a usd-capped pool whose ceiling the driver's own metered
  *  inference has drained — `meter` debits usd, so without this a huge-token/small-usd pool would
  *  overspend usd up to the turn tripwire). */
-function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
+function poolStarved(
+  scope: Scope<unknown>,
+  perWorker: Budget,
+  preserveOwnerTurns = false,
+): boolean {
   const b = scope.budget
   if (scope.view.inFlight > 0 || scope.view.waiting > 0) return false
-  const tokenStarved = b.tokensLeft < perWorker.maxTokens
+  const tokenStarved = preserveOwnerTurns ? b.tokensLeft <= 0 : b.tokensLeft < perWorker.maxTokens
   const iterationStarved = b.iterationsLeft <= 0
   const usdStarved =
     b.usdCapped &&
-    (b.usdLeft <= 0 || (perWorker.maxUsd !== undefined && b.usdLeft < perWorker.maxUsd))
+    (b.usdLeft <= 0 ||
+      (!preserveOwnerTurns && perWorker.maxUsd !== undefined && b.usdLeft < perWorker.maxUsd))
   const resourceStarved = Object.entries(b.resources ?? {}).some(
     ([name, value]) =>
       !value.known ||
       value.remaining <= 0 ||
-      value.remaining < (perWorker.resources?.[name]?.limit ?? 0),
+      (!preserveOwnerTurns && value.remaining < (perWorker.resources?.[name]?.limit ?? 0)),
   )
   return tokenStarved || iterationStarved || usdStarved || resourceStarved
 }
@@ -1307,7 +1314,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             if (
               coord.isStopped() ||
               scope.signal.aborted ||
-              poolStarved(scope, opts.perWorker) ||
+              poolStarved(scope, opts.perWorker, opts.preserveOwnerTurns) ||
               deadlinePassed(scope, now)
             ) {
               return true

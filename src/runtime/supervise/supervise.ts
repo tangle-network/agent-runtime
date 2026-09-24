@@ -132,6 +132,7 @@ import {
   snapshotExecutorConfig,
 } from './runtime'
 import {
+  assertRecursiveReservationPolicy,
   deriveNodeExecutionIdentity,
   meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
@@ -175,6 +176,7 @@ import type {
   NodeExecutionIdentity,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
+  RecursiveReservationPolicy,
   ResultBlobStore,
   RootHandle,
   RootProviderModelEvidence,
@@ -1881,6 +1883,8 @@ export interface SuperviseOptions {
   ) => Promise<string | null | undefined>
   /** Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens. */
   readonly perWorker?: Budget
+  /** Opt-in owner inference share plus reserved live slots for descendants. Default: off. */
+  readonly reservationPolicy?: RecursiveReservationPolicy
   /** Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
    *  root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
    *  the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound). */
@@ -2082,6 +2086,7 @@ const superviseOptionKeys = [
   'otel',
   'peerMail',
   'perWorker',
+  'reservationPolicy',
   'probes',
   'profileGuidance',
   'profileSecurity',
@@ -2943,6 +2948,11 @@ function superviseInternal(
   // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)
+  assertRecursiveReservationPolicy(
+    options.reservationPolicy,
+    options.maxDepth ?? 8,
+    options.maxLiveWorkers,
+  )
   const journal = options.journal ?? ctx.journal
   const runId = options.runId ?? 'supervise'
   const runNamespace = supervisionRunNamespace(options.runDir, runId)
@@ -3303,6 +3313,7 @@ function superviseInternal(
           makeWorkerAgent: childFactory,
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
+          ...(options.reservationPolicy ? { preserveOwnerTurns: true } : {}),
           ...(options.router ? { router: options.router } : {}),
           ...(nestedDriveHarness ? { driveHarness: nestedDriveHarness } : {}),
           ...(options.coordination && isExternalSupervisor(authorized)
@@ -3474,6 +3485,7 @@ function superviseInternal(
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
       perWorker,
+      ...(options.reservationPolicy ? { preserveOwnerTurns: true } : {}),
       ...(log
         ? {
             onEvent: (_event, record) => log.append(runId, record, rootOwnerId),
@@ -3603,6 +3615,7 @@ function superviseInternal(
       ownerWorkspaceRetention:
         managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
+      ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
       ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(options.now ? { now: options.now } : {}),

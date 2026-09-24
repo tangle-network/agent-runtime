@@ -2026,6 +2026,16 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`perWorker`](runtime.md#perworker-1)
 
+##### reservationPolicy?
+
+> `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](runtime.md#recursivereservationpolicy)
+
+Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
+
 ##### maxLiveWorkers?
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`

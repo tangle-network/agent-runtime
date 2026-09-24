@@ -2,6 +2,10 @@
 
 ## 0.260.0
 
+`supervise` and `createSupervisor` accept an opt-in `reservationPolicy` with an owner inference share and descendant live-slot admission.
+The policy keeps each child's full budget ceiling and journals its share, depth and fleet limit so a changed policy cannot silently resume an existing run.
+Omitting it retains the prior admission behavior.
+
 `supervisePursuit` accepts `fork`, which starts a run as a version of a settled run with one `AgentProfileDiff`.
 The call passes the parent's profile, task and budget; Runtime checks them against the parent's journaled root and applies the change.
 `fork.settleDigest` must equal the sha256 of the parent's `result.json`.

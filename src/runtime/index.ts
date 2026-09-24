@@ -1112,6 +1112,7 @@ export type {
   ProfileMaterializationReceipt,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
+  RecursiveReservationPolicy,
   ResourceLimit,
   ResourceSpend,
   ResultBlobStore,
