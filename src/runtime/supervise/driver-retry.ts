@@ -43,9 +43,22 @@
  * driver that RETURNED with the contract unmet ended the run silently — 376 of 376 winning lab runs
  * ended on this loop's own `stop: 'completed'`, with the completion gate left to label the result
  * rather than to change it. A completed drive whose contract is unmet is now a first-class moment:
- * `reprompt.maxReprompts` re-enters the SAME live session with the unmet items, and every re-entry
- * crosses the same budget, deadline, and abort bounds. Successful continuations do not consume
- * the failure retry allowance.
+ * `reprompt.maxReprompts` re-enters the driver with the unmet items, and every re-entry crosses the
+ * same budget, deadline, and abort bounds. Successful continuations do not consume the failure
+ * retry allowance.
+ *
+ * This loop decides WHETHER to re-enter; it does not know WHERE the next drive runs. Whether the
+ * re-entered driver continues the same harness session, the same environment, or a replacement is
+ * the drive harness's fact, and the caller composes the re-entry task from it (see
+ * `./reentry.ts`). A re-prompt re-enters the same session only on a backend that proves it.
+ *
+ * Progress bounds the re-prompts too. The same delivery reading that resets the barren failure
+ * counter decides whether a re-prompted drive earned another: `reprompt.maxBarren` consecutive
+ * re-entered drives that completed without a delivery end the loop with `repromptRefusedBy:
+ * 'no-progress'`. Before this, a completed drive reset the barren counter and `decideReprompt`
+ * read only the count cap, budget, and deadline, so a director with `repromptOnUnmet: 100` or
+ * `'until-complete'` that delivered nothing was re-prompted until the budget or deadline ended it;
+ * the old prompt-owned loop logged 896 of 1,011 rounds with no progress.
  */
 
 import {
@@ -111,6 +124,8 @@ export interface DriverAttemptRecord {
   readonly stop?: DriverAttemptStop
   /** Set when another attempt follows. */
   readonly retryInMs?: number
+  /** How this attempt was entered. Absent on the first attempt. */
+  readonly reentry?: DriverReentry['reason']
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
   /** True when this COMPLETED attempt's unmet contract sent the loop back into the live session. */
@@ -120,11 +135,15 @@ export interface DriverAttemptRecord {
   readonly repromptRefusedBy?: DriverRepromptRefusal
 }
 
-/** Why a completed drive with an unmet contract was not re-entered. */
+/** Why a completed drive with an unmet contract was not re-entered. `no-progress` means
+ *  `reprompt.maxBarren` consecutive re-entered drives completed without a delivery. */
 export type DriverRepromptRefusal =
   | 'reprompts-exhausted'
   | 'caller-stop'
-  | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
+  | Extract<
+      DriverAttemptStop,
+      'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts' | 'no-progress'
+    >
 
 /** The comparable mark used to decide whether an attempt moved the run TOWARD ITS DELIVERABLE.
  *  While a declared check is unmet, spend and settlements are not progress on their own; see this
@@ -148,16 +167,27 @@ export interface DriverProgressMark {
   readonly deliveredCount?: number
 }
 
-/** Why the loop is entering the driver again, and with what. Absent on a first attempt and on
- *  every failure retry — those re-enter with the caller's ORIGINAL task, because a driver that
- *  crashed may never have read it. */
-export interface DriverReentry {
-  readonly reason: 'unmet-contract'
-  /** The instruction to re-enter the LIVE session with: the unmet items, not the original task. */
-  readonly steer: string
-  /** 1-based: which re-prompt this is. */
-  readonly reprompt: number
-}
+/** Why the loop is entering the driver again. Absent on the first attempt only.
+ *
+ *  An `unmet-contract` re-entry carries the unmet items. A `driver-failure` re-entry carries no
+ *  instruction of its own: the drive that failed may never have read the last one, so the caller
+ *  re-enters with the ORIGINAL task and the run's state, never with the unmet-items text alone. */
+export type DriverReentry =
+  | {
+      readonly reason: 'unmet-contract'
+      /** The unmet items. Whether they are the whole turn depends on where the drive runs: only a
+       *  backend that proves the same harness session may be re-entered with this text alone. */
+      readonly steer: string
+      /** 1-based: which re-prompt this is. */
+      readonly reprompt: number
+    }
+  | {
+      readonly reason: 'driver-failure'
+      /** The failure that ended the previous drive, as recorded. */
+      readonly failure: string
+      /** 1-based: which failure retry this is. */
+      readonly retry: number
+    }
 
 /** What the caller sees when a drive returns with its completion check unmet. */
 export interface DriverUnmetContractContext {
@@ -171,6 +201,8 @@ export interface DriverUnmetContractContext {
   readonly budget: DriverBudgetReadout
   /** What the run was supposed to produce, from the caller's completion check. */
   readonly describe?: string
+  /** Consecutive re-entered drives, this one included, that completed without a delivery. */
+  readonly barrenReentries: number
 }
 
 /** The caller's answer: re-enter the session with `steer`, or end the run here. */
@@ -184,10 +216,15 @@ export type OnUnmetContract = (
 /** How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where
  *  such a drive ends the run and only the completion gate's label records what happened. */
 export interface DriverRepromptPolicy {
-  /** How many times one run may re-enter its live session with the unmet items. `0` = never.
+  /** How many times one run may re-enter its driver with the unmet items. `0` = never.
    *  `'until-complete'` removes the count cap and requires a finite positive scope deadline.
-   *  Budget, cancellation, explicit stop, and failure retry limits still apply. */
+   *  Budget, cancellation, explicit stop, the barren bound, and failure retry limits still apply. */
   readonly maxReprompts: number | 'until-complete'
+  /** Consecutive re-entered drives that may complete without a delivery before re-prompting stops
+   *  (`repromptRefusedBy: 'no-progress'`). Default {@link DEFAULT_MAX_BARREN_REPROMPTS}; minimum 1.
+   *  A delivery — an accepted submission, a child that passed its check, the contract turning
+   *  met — resets the count. */
+  readonly maxBarren?: number
   /** Compose the instruction, or return `'stop'`. Omit = {@link defaultUnmetContractSteer}. */
   readonly onUnmetContract?: OnUnmetContract
   /** What the run owes, surfaced in the default instruction. */
@@ -237,6 +274,8 @@ export interface DriverRetryRun {
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
 const DEFAULT_MAX_ATTEMPTS = 8
+/** Two re-prompted drives in a row that deliver nothing end the re-prompts. */
+export const DEFAULT_MAX_BARREN_REPROMPTS = 2
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 
@@ -416,6 +455,68 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
   }
 }
 
+/**
+ * What one driver loop did, counted from its attempt records: the numbers a run's settle record
+ * carries so a reader can tell genuine continuations from failure retries without the journal.
+ *
+ * Measured motive: the most genuine continuations in any recorded lab run was 11
+ * (evidence-compiler-j, which won), while the two larger counts, 32 and 12, were re-entries after
+ * failed turns. One `attempts` number hid which was which.
+ */
+export interface DriverLoopRecord {
+  /** Driver invocations started. */
+  readonly attempts: number
+  /** Genuine continuations: completed drives with the contract unmet that were re-entered. */
+  readonly reprompts: number
+  /** Re-entries after a failed drive. */
+  readonly failureRetries: number
+  /** Re-entered drives, in a row at the end, that completed without a delivery. */
+  readonly barrenReentries: number
+  /** Why the loop ended: its last record's stop, or `unrecorded` when it ended without one (an
+   *  admission refusal before the first attempt, or a throw from outside the loop). */
+  readonly ended: DriverAttemptStop | 'unrecorded'
+  /** Why a completed-but-unmet drive was not re-entered, when that ended the loop. */
+  readonly repromptRefusedBy?: DriverRepromptRefusal
+}
+
+/** A manager's driver loop as its run's settle record carries it (`SupervisedResult.continuation`). */
+export interface DriverContinuationRecord extends DriverLoopRecord {
+  /** Re-entries that ran in a new environment because the provider no longer held the old one. */
+  readonly environmentReplacements: number
+  /** How the manager itself closed the run, when it did: an accepted `submit_result`, its own
+   *  `stop`, or a `report_blocked` whose probe failed. Absent when the manager never closed it. */
+  readonly closedBy?: 'result-accepted' | 'stop' | 'blocked'
+  /** The reason the manager gave, or the failed probe, verbatim. */
+  readonly stopReason?: string
+}
+
+/** Count a loop's attempt records into its {@link DriverLoopRecord}. */
+export function summarizeDriverAttempts(
+  records: ReadonlyArray<DriverAttemptRecord>,
+): DriverLoopRecord {
+  let barren = 0
+  for (const record of records) {
+    if (record.madeProgress) barren = 0
+    else if (
+      record.error === undefined &&
+      record.reentry !== undefined &&
+      record.contract === 'unmet'
+    )
+      barren += 1
+  }
+  const last = records.at(-1)
+  return {
+    attempts: records.length,
+    reprompts: records.filter((record) => record.reprompted === true).length,
+    failureRetries: records.filter(
+      (record) => record.error !== undefined && record.retryInMs !== undefined,
+    ).length,
+    barrenReentries: barren,
+    ended: last?.stop ?? 'unrecorded',
+    ...(last?.repromptRefusedBy === undefined ? {} : { repromptRefusedBy: last.repromptRefusedBy }),
+  }
+}
+
 async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
   if (ms <= 0 || signal.aborted) return
   await sleep(ms, signal, false)
@@ -452,15 +553,21 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     }
   }
 
+  const maxBarren = Math.max(1, run.reprompt?.maxBarren ?? DEFAULT_MAX_BARREN_REPROMPTS)
   const attempts: DriverAttemptRecord[] = []
   let consecutiveBarren = 0
+  // Re-entered drives, in a row, that completed without a delivery. Reset by any progress, on a
+  // failed drive as well as a completed one; never by a completion alone.
+  let barrenReentries = 0
   let failures = 0
   let reprompts = 0
   let reentry: DriverReentry | undefined
 
   const emit = async (record: DriverAttemptRecord): Promise<void> => {
-    attempts.push(record)
-    await run.onAttempt?.(record)
+    const entered = reentry === undefined ? {} : { reentry: reentry.reason }
+    const stamped = { ...record, ...entered }
+    attempts.push(stamped)
+    await run.onAttempt?.(stamped)
   }
 
   /**
@@ -475,6 +582,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     if (maxReprompts !== 'until-complete' && reprompts >= maxReprompts) {
       return { refusedBy: 'reprompts-exhausted' }
     }
+    if (barrenReentries >= maxBarren) return { refusedBy: 'no-progress' }
     if (run.signal.aborted) return { refusedBy: 'aborted' }
     const byBudget = budgetStop(run.budget(), now())
     if (byBudget === 'deadline' || byBudget === 'budget-exhausted') return { refusedBy: byBudget }
@@ -485,6 +593,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       progress: after,
       budget: run.budget(),
       ...(run.reprompt?.describe === undefined ? {} : { describe: run.reprompt.describe }),
+      barrenReentries,
     }
     const decision =
       (await run.reprompt?.onUnmetContract?.(context)) ??
@@ -551,6 +660,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         return consecutiveBarren + 1 >= maxConsecutive ? 'no-progress' : undefined
       })()
 
+      if (progressed) barrenReentries = 0
       if (stop !== undefined) {
         await emit({
           attempt,
@@ -564,10 +674,6 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       }
 
       consecutiveBarren = progressed ? 0 : consecutiveBarren + 1
-      // A retry re-enters with the ORIGINAL task. The drive that just failed may have died before
-      // it read the re-prompt at all, so replaying the unmet-items text in its place would drop
-      // the run's actual instruction.
-      reentry = undefined
       const backoff = Math.min(maxBackoff, initialBackoff * 2 ** Math.max(0, consecutiveBarren - 1))
       await emit({
         attempt,
@@ -577,6 +683,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         madeProgress: progressed,
         retryInMs: backoff,
       })
+      // A retry re-enters with the ORIGINAL task. The drive that just failed may have died before
+      // it read the re-prompt at all, so replaying the unmet-items text in its place would drop
+      // the run's actual instruction. The failure itself travels, so the caller can say why.
+      reentry = { reason: 'driver-failure', failure: errMessage(error), retry: failures }
       await sleep(backoff, run.signal)
       // The wait is where an abort or a deadline most often lands; re-ask before re-entering.
       if (run.signal.aborted) {
@@ -590,19 +700,21 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     }
 
     // A completed invocation ends the transport-failure streak, even while the pursuit's
-    // independent completion check remains unmet. Successful continuation is not a failure.
+    // independent completion check remains unmet. Successful continuation is not a failure. The
+    // barren re-entry count is a different fact and a completion alone never resets it.
     consecutiveBarren = 0
     const durationMs = now() - startedAt
     const after = run.progress()
     const progressed = madeProgress(before, after)
     const contract = contractOf(after)
     const contractField = contract === 'none' ? {} : { contract }
+    if (progressed) barrenReentries = 0
+    else if (reentry !== undefined && contract === 'unmet') barrenReentries += 1
     if (contract === 'unmet' && (maxReprompts === 'until-complete' || maxReprompts > 0)) {
       const decision = await decideReprompt(attempt, after)
       if ('steer' in decision) {
         reprompts += 1
-        reentry = { reason: 'unmet-contract', steer: decision.steer, reprompt: reprompts }
-        // No backoff: the session is alive and the driver is not failing — it finished early.
+        // No backoff: the driver is not failing — it finished early.
         await emit({
           attempt,
           durationMs,
@@ -611,6 +723,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           reprompted: true,
           retryInMs: 0,
         })
+        reentry = { reason: 'unmet-contract', steer: decision.steer, reprompt: reprompts }
         continue
       }
       await emit({

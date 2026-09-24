@@ -50,12 +50,14 @@ import {
 } from './coordination-mcp'
 import {
   type DriverAttemptRecord,
+  type DriverContinuationRecord,
   type DriverProgressMark,
   type DriverRepromptPolicy,
   type DriverRetryPolicy,
   defaultUnmetContractSteer,
   type OnUnmetContract,
   runDriverWithRetry,
+  summarizeDriverAttempts,
 } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
@@ -69,6 +71,7 @@ import {
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
+import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { applyRunCancellation } from './run-cancellation'
 import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -428,6 +431,13 @@ export interface DriveHarness {
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
      *  this in their materialization evidence without persisting executable handlers. */
     readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
+    /** Present when this drive re-enters the run. `task` then carries the original objective and
+     *  the coordinator's run state, which is right for any backend. A harness that can prove what
+     *  the next turn continues composes the task from that proof instead, and reports it. */
+    readonly reentry?: {
+      readonly compose: (continuity: ReentryContinuity) => string
+      readonly onContinuity?: (continuity: ReentryContinuity) => void
+    }
   }): Promise<void>
   /** Optional live inbox for the manager session this adapter currently drives. Return `false`
    * when no executor inbox is active instead of claiming a message was delivered. */
@@ -482,6 +492,8 @@ export interface SupervisorAgentDeps {
   /** Per-attempt record for the external driver — how an operator sees "failed after N attempts"
    *  instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
+  /** Called once when the external driver loop ends, returned or thrown, with what it did. */
+  readonly onDriverLoopSettled?: (record: DriverContinuationRecord) => void
   /** How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
    *  on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
    *  end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
@@ -1097,74 +1109,131 @@ function buildSupervisorAgent(
                 : 'unmet',
           }
         }
-        await runDriverWithRetry({
-          drive: async (attempt, reentry) => {
-            candidate = undefined
-            if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
-              applyRunCancellation(deps.controlDir, deps.abortRun, () => new Date().toISOString())
-            }
-            scope.signal.throwIfAborted()
-            // Every drive after the first is a new execution attempt of the root.
-            beginScopeOwnerAttempt(scope, attempt)
-            harnessInvocationActive = true
-            try {
-              await driveHarness({
-                profile: providerProfile,
-                authoredProfile: stableProfile,
-                ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
-                // A re-prompt re-enters the SAME session, so the unmet items ARE the turn. The
-                // bridge backend reattaches by durable execution id, exactly as a retry does.
-                task: reentry === undefined ? task : reentry.steer,
-                scope,
-                coordinationMcpUrl: mcp.url,
-                coordinationMcpHeaders: mcp.headers,
-                stopSignal: stopController.signal,
-                coordinationTools,
-              })
-            } catch (error) {
-              // Once the injected check has accepted a result, a later backend shutdown/timeout
-              // cannot erase that completed work — and there is nothing left to retry FOR. Without
-              // an accepted submission the backend error propagates into the retry decision.
-              if (!mcp.submittedResult() && !mcp.isStopped()) throw error
-            } finally {
-              harnessInvocationActive = false
-            }
-            // Decide this parent's completion before the retry loop reads progress. Cache the
-            // checked candidate so neither the finalizer nor its oracle runs twice on return.
-            if (contractDeclared && !mcp.submittedResult()) {
-              await mcp.drainResolved()
-              candidate = await finalize()
-            }
-          },
-          progress: readProgress,
-          budget: () => scope.budget,
-          signal: scope.signal,
-          ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
-          ...(repromptEnabled
-            ? {
-                reprompt: {
-                  maxReprompts,
-                  ...(deps.deliverable?.describe === undefined
-                    ? {}
-                    : { describe: deps.deliverable.describe }),
-                  onUnmetContract: async (context) => {
-                    // A run the coordination server STOPPED ended on purpose — the driver called
-                    // `stop`, a stop rule fired, or the turn cap closed it. Re-prompting would
-                    // re-enter a session whose stop signal is already aborted and argue with a
-                    // decision the run already made. Runtime refuses that before the product hook
-                    // is consulted, so no hook can override a declared stop.
-                    if (mcp.isStopped()) return 'stop'
-                    return (
-                      (await deps.onUnmetContract?.(context)) ?? {
-                        steer: defaultUnmetContractSteer(context),
-                      }
-                    )
-                  },
-                },
+        const loopRecords: DriverAttemptRecord[] = []
+        let environmentReplacements = 0
+        const describe = deps.deliverable?.describe
+        const settleLoop = () => {
+          const stopReason = controls.stopReason()
+          const closedBy: DriverContinuationRecord['closedBy'] = mcp.submittedResult()
+            ? 'result-accepted'
+            : controls.blocked() !== undefined
+              ? 'blocked'
+              : mcp.isStopped()
+                ? 'stop'
+                : undefined
+          deps.onDriverLoopSettled?.({
+            ...summarizeDriverAttempts(loopRecords),
+            environmentReplacements,
+            ...(closedBy === undefined ? {} : { closedBy }),
+            ...(stopReason === undefined ? {} : { stopReason }),
+          })
+        }
+        try {
+          await runDriverWithRetry({
+            drive: async (attempt, reentry) => {
+              candidate = undefined
+              if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
+                applyRunCancellation(deps.controlDir, deps.abortRun, () => new Date().toISOString())
               }
-            : {}),
-          ...(deps.onDriverAttempt ? { onAttempt: deps.onDriverAttempt } : {}),
-        })
+              scope.signal.throwIfAborted()
+              // Every drive after the first is a new execution attempt of the root.
+              beginScopeOwnerAttempt(scope, attempt)
+              controls.beginDriverAttempt(attempt)
+              // A re-entered drive receives the original objective and the coordinator's run state
+              // unless the harness proves the turn continues the same session. The unmet items
+              // alone are the whole turn only then: a replacement sandbox knows nothing else.
+              const compose =
+                reentry === undefined
+                  ? undefined
+                  : (continuity: ReentryContinuity) =>
+                      composeReentryTask({
+                        originalTask: task,
+                        ...(describe === undefined ? {} : { contract: describe }),
+                        reentry,
+                        continuity,
+                        state: controls.reentryState(),
+                        attempt,
+                      })
+              harnessInvocationActive = true
+              let completed = false
+              try {
+                await driveHarness({
+                  profile: providerProfile,
+                  authoredProfile: stableProfile,
+                  ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
+                  task: compose === undefined ? task : compose(UNPROVEN_CONTINUITY),
+                  ...(compose === undefined
+                    ? {}
+                    : {
+                        reentry: {
+                          compose,
+                          onContinuity: (continuity: ReentryContinuity) => {
+                            if (continuity.environment === 'replaced') environmentReplacements += 1
+                          },
+                        },
+                      }),
+                  scope,
+                  coordinationMcpUrl: mcp.url,
+                  coordinationMcpHeaders: mcp.headers,
+                  stopSignal: stopController.signal,
+                  coordinationTools,
+                })
+                completed = true
+              } catch (error) {
+                // Once the injected check has accepted a result, a later backend shutdown/timeout
+                // cannot erase that completed work — and there is nothing left to retry FOR. Without
+                // an accepted submission the backend error propagates into the retry decision.
+                if (!mcp.submittedResult() && !mcp.isStopped()) throw error
+                completed = true
+              } finally {
+                harnessInvocationActive = false
+                // A completed turn processed what it received; a failed one leaves it for the next
+                // re-entry to name. Recorded before the retry decision reads the run.
+                if (completed) await controls.endDriverAttempt('completed')
+                else await controls.endDriverAttempt('failed').catch(() => undefined)
+              }
+              // Decide this parent's completion before the retry loop reads progress. Cache the
+              // checked candidate so neither the finalizer nor its oracle runs twice on return.
+              if (contractDeclared && !mcp.submittedResult()) {
+                await mcp.drainResolved()
+                candidate = await finalize()
+              }
+            },
+            progress: readProgress,
+            budget: () => scope.budget,
+            signal: scope.signal,
+            ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
+            ...(repromptEnabled
+              ? {
+                  reprompt: {
+                    maxReprompts,
+                    ...(deps.deliverable?.describe === undefined
+                      ? {}
+                      : { describe: deps.deliverable.describe }),
+                    onUnmetContract: async (context) => {
+                      // A run the coordination server STOPPED ended on purpose — the driver called
+                      // `stop`, a stop rule fired, or the turn cap closed it. Re-prompting would
+                      // re-enter a session whose stop signal is already aborted and argue with a
+                      // decision the run already made. Runtime refuses that before the product hook
+                      // is consulted, so no hook can override a declared stop.
+                      if (mcp.isStopped()) return 'stop'
+                      return (
+                        (await deps.onUnmetContract?.(context)) ?? {
+                          steer: defaultUnmetContractSteer(context),
+                        }
+                      )
+                    },
+                  },
+                }
+              : {}),
+            onAttempt: async (record) => {
+              loopRecords.push(record)
+              await deps.onDriverAttempt?.(record)
+            },
+          })
+        } finally {
+          settleLoop()
+        }
         // Without a parent oracle, preserve the single finalization after the driver finishes.
         if (!contractDeclared) await mcp.drainResolved()
         // Direct work is eligible only through `submit_result`, after the injected independent

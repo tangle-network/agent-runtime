@@ -716,6 +716,56 @@ export type CoordinationEvent =
    *  run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
    *  owner the durable log stamps beside them. */
   | { readonly type: 'analyst-defined'; readonly analyst: DefinedAnalystRecord }
+  /** The manager processed events `await_event` delivered to it. Record-only, and separate from
+   *  delivery on purpose: an event delivered to a turn that then FAILED stays unacknowledged, and
+   *  the manager's next re-entry names it again instead of losing it with the dead turn. */
+  | { readonly type: 'acknowledgement'; readonly acknowledgement: EventAcknowledgement }
+
+/** One acknowledgement record: which delivered events are now processed, and on whose word. */
+export interface EventAcknowledgement {
+  /** Bus `seq` of each acknowledged event, in this process's sequence space. */
+  readonly seqs: ReadonlyArray<number>
+  /** `manager`: the manager named them in `await_event`'s `acknowledge`. `turn-completed`: the
+   *  driver turn that received them ended normally. `result-accepted`: a submission passed the
+   *  completion check after they were delivered. */
+  readonly by: 'manager' | 'turn-completed' | 'result-accepted'
+  /** The 1-based driver attempt that received them, when the manager has driver attempts. */
+  readonly attempt?: number
+}
+
+/** What a manager's coordinator knows about its run, read when the manager is entered again.
+ *  Every field comes from the coordinator's own records, never from the manager's environment. */
+export interface ManagerReentryState {
+  /** Rows in this manager's journal (`read_journal`) right now. */
+  readonly journalRows: number
+  /** The highest `nextRow` a `read_journal` call has returned, 0 when the manager never read it. */
+  readonly journalReadTo: number
+  /** Workers still running. */
+  readonly live: ReadonlyArray<{
+    readonly id: string
+    readonly label: string
+    readonly status: string
+  }>
+  /** Workers that settled, with whether their settlement reached the manager through `await_event`. */
+  readonly settled: ReadonlyArray<{
+    readonly id: string
+    readonly status: 'done' | 'down'
+    readonly valid?: boolean
+    readonly delivered: boolean
+  }>
+  /** Events queued for `await_event` and not yet delivered, including settlements the coordinator
+   *  holds but has not queued yet. */
+  readonly waiting: ReadonlyArray<{ readonly type: string; readonly worker?: string }>
+  /** Events delivered to a turn that did not complete, and not acknowledged since. */
+  readonly unacknowledged: ReadonlyArray<{
+    readonly seq: number
+    readonly type: string
+    readonly worker?: string
+    readonly attempt?: number
+  }>
+  /** The last refused `submit_result`, with the refusal the manager was given. */
+  readonly lastRejection?: { readonly at: number; readonly reason: string }
+}
 
 /** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
  * complete worker profile is prepared for one spawn. */
@@ -978,6 +1028,12 @@ export interface CoordinationToolsOptions {
    */
   readonly redactJournal?: Redactor | false
   /**
+   * The served tools `report_blocked` may probe, by bare name: the coordination verbs plus the
+   * node tools bound to this manager. The transport that serves both supplies it; without it the
+   * probe reaches the coordination verbs only.
+   */
+  readonly resolveProbeTool?: (name: string) => McpToolDescriptor | undefined
+  /**
    * Rows written by PRIOR processes of this durable run (`PriorCoordination.records`), prepended to
    * the live bus so `read_journal` answers for the whole run rather than the current process.
    *
@@ -1094,6 +1150,7 @@ export const journalEventKinds = [
   'mail',
   'escalation',
   'analyst-defined',
+  'acknowledgement',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 export type JournalEventKind = (typeof journalEventKinds)[number]
@@ -1224,6 +1281,17 @@ export interface CoordinationTools {
    * nobody is left to read a finding, and analysts spend real compute). Returns the count.
    */
   drainResolved(): Promise<number>
+  /** Mark the start of one driver attempt, so deliveries are attributed to the turn that got them. */
+  beginDriverAttempt(attempt: number): void
+  /** Mark the end of the current driver attempt. A completed turn acknowledges what it received;
+   *  a failed one leaves its deliveries unacknowledged for the next re-entry to name. */
+  endDriverAttempt(outcome: 'completed' | 'failed'): Promise<void>
+  /** The run state a re-entered manager is told, read from this coordinator's own records. */
+  reentryState(): ManagerReentryState
+  /** The failed probe that ended the run through `report_blocked`, when one did. */
+  blocked():
+    | { readonly tool: string; readonly reported: string; readonly probed: string }
+    | undefined
 }
 
 /** The reserved coordination verb names — the complete set `createCoordinationTools` can emit
@@ -1248,6 +1316,7 @@ export const coordinationVerbNames = [
   'ask_parent',
   'submit_result',
   'stop',
+  'report_blocked',
   'read_journal',
   'list_analysts',
   'run_analyst',
@@ -1666,6 +1735,10 @@ export function createCoordinationToolsForManager(
       ? undefined
       : detachedFrozen({ result: priorSubmission.event.result })
   let submissionInFlight: Promise<void> | undefined
+  // Set when `report_blocked` probed the named tool and the probe failed too.
+  let blockedEvidence:
+    | { readonly tool: string; readonly reported: string; readonly probed: string }
+    | undefined
   let questionSeq = 0
   const ledger: SettledWorker[] = []
   const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
@@ -1793,6 +1866,53 @@ export function createCoordinationToolsForManager(
       readyInFlight = undefined
     })
     return readyInFlight
+  }
+
+  // Delivery is not processing. `await_event` records what it handed the manager, and a separate
+  // acknowledgement record says the manager processed it. An event delivered to a turn that then
+  // failed stays unacknowledged, and the next re-entry names it. Measured in Autopsy A
+  // (2026-09-16): a root whose turns kept dying consumed neither of two analyst findings nor the
+  // settled child it had commissioned, and nothing in the run said so.
+  interface Delivery {
+    readonly record: BusRecord<CoordinationEvent>
+    readonly attempt: number | undefined
+    acknowledged: boolean
+  }
+  const deliveries: Delivery[] = []
+  let driverAttempt: number | undefined
+  let journalReadTo = 0
+  let lastRejection: { readonly at: number; readonly reason: string } | undefined
+  // An analyst-agent run's settlement becomes its finding and never enters the settled ledger, so
+  // the closure check below needs its own record that the run's settlement was taken.
+  const flushedAnalystRuns = new Set<string>()
+  const eventWorker = (event: CoordinationEvent): string | undefined =>
+    event.type === 'settled'
+      ? event.worker.id
+      : event.type === 'finding'
+        ? event.finding.fromWorker
+        : event.type === 'question'
+          ? event.question.from
+          : undefined
+  const acknowledge = async (
+    targets: ReadonlyArray<Delivery>,
+    by: EventAcknowledgement['by'],
+  ): Promise<number[]> => {
+    const fresh = targets.filter((delivery) => !delivery.acknowledged)
+    if (fresh.length === 0) return []
+    const seqs = fresh.map((delivery) => delivery.record.seq)
+    await bus.publish(
+      {
+        type: 'acknowledgement',
+        acknowledgement: detachedFrozen<EventAcknowledgement>({
+          seqs,
+          by,
+          ...(driverAttempt === undefined ? {} : { attempt: driverAttempt }),
+        }),
+      },
+      { queue: false },
+    )
+    for (const delivery of fresh) delivery.acknowledged = true
+    return seqs
   }
 
   // Urgency → bus priority: a blocking question is bumped ahead of queued settles/findings so the
@@ -2196,6 +2316,7 @@ export function createCoordinationToolsForManager(
     // route's directive was already consumed as the analyst's task.
     if (pending.analystRun) {
       analystRuns.delete(pending.worker.id)
+      flushedAnalystRuns.add(pending.worker.id)
       unwatchWorker(pending.worker.id)
       pendingSettlement = undefined
       const { route } = pending.analystRun
@@ -2490,6 +2611,8 @@ export function createCoordinationToolsForManager(
     if (ev.type === 'escalation') return { type: 'escalation', ...ev.escalation }
     // A definition is record-only for the same reason, and carries no `down` leg either.
     if (ev.type === 'analyst-defined') return { type: 'analyst-defined', ...ev.analyst }
+    // Record-only as well: the manager already holds what it acknowledged.
+    if (ev.type === 'acknowledgement') return { type: 'acknowledgement', ...ev.acknowledgement }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
@@ -2780,9 +2903,11 @@ export function createCoordinationToolsForManager(
       usedBytes += bytes
     }
     const last = entries[entries.length - 1]
+    const nextRow = last === undefined ? sinceRow : last.row + 1
+    journalReadTo = Math.max(journalReadTo, nextRow)
     return {
       entries,
-      nextRow: last === undefined ? sinceRow : last.row + 1,
+      nextRow,
       remaining: matching.length - index,
       truncated: bounded,
       bounds: { sinceRow, limit, maxBytes, usedBytes },
@@ -2901,6 +3026,60 @@ export function createCoordinationToolsForManager(
     opts.scope.view.nodes
       .filter((n) => isLiveNodeStatus(n.status))
       .map((n) => projectNodeEvidence(n))
+
+  // ── closure ──────────────────────────────────────────────────────────────────
+  //
+  // A manager may not close its run while work it commissioned is unread: a worker still running,
+  // a settlement or finding queued for `await_event`, or a settlement the coordinator holds and
+  // has not queued yet. Measured in Autopsy C (2026-09-03): a root stopped 15 to 45 s after its
+  // children returned without reading them, and the verification it had commissioned sat
+  // unclaimed. The refusal names the open work so the manager can go and read it. A wait-state
+  // node holds no executor, so it is not running work.
+  const openWork = () => {
+    const received = new Set(ledger.map((worker) => worker.id))
+    // A hand-built scope may expose no view at all; it then has no children to wait for.
+    const nodes = (opts.scope as Partial<Scope<unknown>>).view?.nodes ?? []
+    const running = nodes.filter(
+      (node) => isLiveNodeStatus(node.status) && node.status !== 'waiting',
+    )
+    const unqueued = nodes.filter(
+      (node) =>
+        !isLiveNodeStatus(node.status) &&
+        !received.has(node.id) &&
+        !flushedAnalystRuns.has(node.id),
+    )
+    // Questions have their own closure rule (`questionPolicy`), so only results count here.
+    const queued = bus.queued(['settled', 'finding'])
+    return { running, unqueued, queued }
+  }
+  const openWorkRefusal = (verb: 'submit_result' | 'stop'): Record<string, unknown> | undefined => {
+    const { running, unqueued, queued } = openWork()
+    if (running.length === 0 && unqueued.length === 0 && queued.length === 0) return undefined
+    const parts: string[] = []
+    if (running.length > 0)
+      parts.push(
+        `${running.length} worker${running.length === 1 ? ' is' : 's are'} still running (${running.map((node) => node.id).join(', ')})`,
+      )
+    const waiting = unqueued.length + queued.length
+    if (waiting > 0)
+      parts.push(
+        `${waiting} event${waiting === 1 ? ' is' : 's are'} waiting for you in await_event`,
+      )
+    return {
+      error: 'open-work' as const,
+      reason:
+        `${parts.join(' and ')}. Call await_event until it returns idle, read each settled ` +
+        `worker's output, and then call ${verb} again. Nothing was ${verb === 'stop' ? 'stopped' : 'checked'}.`,
+      running: running.map((node) => ({ id: node.id, label: node.label, status: node.status })),
+      waiting: [
+        ...queued.map((record) => ({
+          type: record.event.type,
+          ...(eventWorker(record.event) === undefined ? {} : { worker: eventWorker(record.event) }),
+        })),
+        ...unqueued.map((node) => ({ type: 'settled', worker: node.id })),
+      ],
+    }
+  }
 
   // How many workers the driver could open RIGHT NOW without hitting the simultaneity fence, or
   // `null` when no cap is set (the conserved pool is then the only fence, so there is no finite
@@ -3518,7 +3697,9 @@ export function createCoordinationToolsForManager(
         'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost. ' +
         'Every reply carries `freeSlots`: how many more workers you can start right now (`null` = ' +
         'uncapped). A settled worker frees its slot, so `freeSlots > 0` means capacity is sitting ' +
-        'idle — spawn into it before waiting again.',
+        'idle — spawn into it before waiting again. Each event carries `eventSeq`; pass the ones ' +
+        'you have processed in `acknowledge` on a later call. An event delivered to a turn that ' +
+        'ends in failure is named again when you are re-entered, until it is acknowledged.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -3527,16 +3708,39 @@ export function createCoordinationToolsForManager(
             items: { type: 'string', enum: [...awaitableEventKinds] },
             description: 'Restrict to these event kinds (any if omitted).',
           },
+          acknowledge: {
+            type: 'array',
+            items: { type: 'integer', minimum: 0 },
+            description: 'The eventSeq of each earlier event you have now processed.',
+          },
         },
       },
       handler: async (raw) => {
-        const k = obj(raw).kinds
+        const args = raw === undefined ? {} : obj(raw)
+        const k = args.kinds
         const kinds = Array.isArray(k) ? k.filter(isAwaitableEventKind) : undefined
+        if (Array.isArray(args.acknowledge)) {
+          const named = new Set(
+            args.acknowledge.filter(
+              (value): value is number => typeof value === 'number' && Number.isInteger(value),
+            ),
+          )
+          await acknowledge(
+            deliveries.filter((delivery) => named.has(delivery.record.seq)),
+            'manager',
+          )
+        }
+        const deliver = (
+          record: BusRecord<CoordinationEvent>,
+        ): Record<string, unknown> & { readonly eventSeq: number } => {
+          deliveries.push({ record, attempt: driverAttempt, acknowledged: false })
+          return { ...projectEvent(record.event), eventSeq: record.seq }
+        }
         // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
-        let ev = bus.pull(kinds)
+        let ev = bus.pullRecord(kinds)
         // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
         // capacity frees up, so the answer travels with the event that freed it.
-        if (ev) return { ...projectEvent(ev), freeSlots: freeWorkerSlots() }
+        if (ev) return { ...deliver(ev), freeSlots: freeWorkerSlots() }
         // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
         // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
         // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
@@ -3546,9 +3750,9 @@ export function createCoordinationToolsForManager(
         const raced = await raceDrainWithTimeout(ensureDrain())
         if (raced === undefined)
           return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
-        ev = bus.pull(kinds)
+        ev = bus.pullRecord(kinds)
         if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
-        return { ...projectEvent(ev), freeSlots: freeWorkerSlots() }
+        return { ...deliver(ev), freeSlots: freeWorkerSlots() }
       },
     },
     {
@@ -3758,6 +3962,11 @@ export function createCoordinationToolsForManager(
               if (!Object.hasOwn(a, 'result')) {
                 throw new Error('submit_result: "result" is required')
               }
+              const open = openWorkRefusal('submit_result')
+              if (open !== undefined) {
+                lastRejection = { at: Date.now(), reason: String(open.reason) }
+                return { accepted: false, stop: false, ...open }
+              }
 
               // Copy once at intake so the value checked below is the exact value retained after
               // acceptance, even when this handler is called directly rather than through JSON-RPC.
@@ -3785,13 +3994,15 @@ export function createCoordinationToolsForManager(
                     diagnosticError = error instanceof Error ? error.message : String(error)
                   }
                 }
+                const refusal =
+                  thrown === undefined
+                    ? `the independent check did not pass on this result${explanation ? `. ${explanation}` : deliverable.describe ? `. Expected: ${deliverable.describe}` : ''}`
+                    : `the independent check THREW, so nothing was accepted: ${thrown}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`
+                lastRejection = { at: Date.now(), reason: refusal }
                 return {
                   accepted: false,
                   stop: false,
-                  reason:
-                    thrown === undefined
-                      ? `the independent check did not pass on this result${explanation ? `. ${explanation}` : deliverable.describe ? `. Expected: ${deliverable.describe}` : ''}`
-                      : `the independent check THREW, so nothing was accepted: ${thrown}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`,
+                  reason: refusal,
                   ...(diagnosticError === undefined ? {} : { diagnosticError }),
                 }
               }
@@ -3834,6 +4045,8 @@ export function createCoordinationToolsForManager(
               } finally {
                 if (submissionInFlight === commit) submissionInFlight = undefined
               }
+              // An accepted result is the manager's processing of everything it had received.
+              await acknowledge(deliveries, 'result-accepted')
               return { accepted: true, retained: 'this-result', stop: true }
             },
           } satisfies McpToolDescriptor,
@@ -3869,11 +4082,105 @@ export function createCoordinationToolsForManager(
             ...(unheard.length > 0 ? { unheardQuestionIds: unheard.map((q) => q.id) } : {}),
           })
         }
+        const open = openWorkRefusal('stop')
+        if (open !== undefined) return Promise.resolve({ stopped: false, ...open })
         stopped = true
         const r = obj(raw).reason
         reason = typeof r === 'string' ? r : undefined
         notifyStop()
         return Promise.resolve({ stopped: true })
+      },
+    },
+    {
+      name: 'report_blocked',
+      description: [
+        'Report that a tool you need keeps failing, so the run cannot go on.',
+        'Name the tool, the arguments you called it with, and the error you saw.',
+        'The coordinator calls that tool again, with those arguments, under your identity.',
+        'When the call succeeds you are not blocked: the reply carries its result, and you continue.',
+        'When it fails again, the run ends as blocked and the record keeps both errors.',
+        'submit_result, stop and report_blocked cannot be probed.',
+      ].join(' '),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tool: { type: 'string', description: 'The tool that failed, as you called it.' },
+          arguments: {
+            type: 'object',
+            description: 'The arguments you called it with. Omit for none.',
+          },
+          error: { type: 'string', description: 'The error the tool returned to you.' },
+        },
+        required: ['tool', 'error'],
+        additionalProperties: false,
+      },
+      handler: async (raw) => {
+        const a = obj(raw)
+        const named = str(a.tool, 'tool')
+        const reported = str(a.error, 'error')
+        // A harness names an MCP tool with its server alias in front; the probe wants the bare name.
+        const bare = named.replace(/^mcp__.+?__/u, '').replace(/^.*?coordination_+/u, '')
+        if (unprobeableVerbs.has(bare)) {
+          return {
+            blocked: false,
+            error: 'unprobeable' as const,
+            reason: `${bare} changes the run, so the coordinator does not call it for you`,
+          }
+        }
+        const target = opts.resolveProbeTool?.(bare) ?? tools.find((tool) => tool.name === bare)
+        if (target === undefined) {
+          return {
+            blocked: false,
+            error: 'unknown-tool' as const,
+            reason: `no tool named ${JSON.stringify(bare)} is served to you, so there is nothing to probe; call the tools you were given`,
+          }
+        }
+        const args =
+          a.arguments === undefined
+            ? {}
+            : typeof a.arguments === 'object' && a.arguments !== null && !Array.isArray(a.arguments)
+              ? a.arguments
+              : undefined
+        if (args === undefined) {
+          return {
+            blocked: false,
+            error: 'invalid-arguments' as const,
+            reason: '"arguments" must be an object',
+          }
+        }
+        let probe:
+          | { readonly ok: true; readonly result: unknown }
+          | { readonly ok: false; readonly error: string }
+        try {
+          probe = {
+            ok: true,
+            result: await runWithin(
+              target.handler(structuredClone(args)),
+              REPORT_BLOCKED_PROBE_MS,
+              `the probe of ${bare} did not answer within ${REPORT_BLOCKED_PROBE_MS}ms`,
+            ),
+          }
+        } catch (error) {
+          probe = { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+        if (probe.ok) {
+          return {
+            blocked: false,
+            probe: { tool: bare, ok: true, result: probe.result },
+            guidance:
+              'The call worked when the coordinator made it under your identity, so the tool is ' +
+              'not blocked. Use this result and continue the objective.',
+          }
+        }
+        blockedEvidence = Object.freeze({ tool: bare, reported, probed: probe.error })
+        stopped = true
+        reason = `blocked: ${bare} failed when the coordinator probed it: ${probe.error}`
+        notifyStop()
+        return {
+          blocked: true,
+          stopped: true,
+          probe: { tool: bare, ok: false, error: probe.error },
+        }
       },
     },
     {
@@ -4116,7 +4423,89 @@ export function createCoordinationToolsForManager(
     definedAnalysts: () => definedAnalysts,
     drainResolved,
     abortWorker,
+    beginDriverAttempt: (attempt) => {
+      driverAttempt = attempt
+    },
+    endDriverAttempt: async (outcome) => {
+      const attempt = driverAttempt
+      if (outcome === 'completed') {
+        await acknowledge(
+          deliveries.filter((delivery) => delivery.attempt === attempt),
+          'turn-completed',
+        )
+      }
+    },
+    reentryState: () => {
+      const { unqueued, queued } = openWork()
+      const deliveredSettled = new Set(
+        deliveries.flatMap((delivery) =>
+          delivery.record.event.type === 'settled' ? [delivery.record.event.worker.id] : [],
+        ),
+      )
+      return detachedFrozen<ManagerReentryState>({
+        journalRows: priorJournal.length + bus.history().length,
+        journalReadTo,
+        live: ((opts.scope as Partial<Scope<unknown>>).view?.nodes ?? [])
+          .filter((node) => isLiveNodeStatus(node.status))
+          .map((node) => ({ id: node.id, label: node.label, status: node.status })),
+        settled: [
+          ...ledger.map((worker) => ({
+            id: worker.id,
+            status: worker.status,
+            ...(worker.status === 'done' && worker.valid !== undefined
+              ? { valid: worker.valid }
+              : {}),
+            delivered: deliveredSettled.has(worker.id),
+          })),
+          ...unqueued.map((node) => ({
+            id: node.id,
+            status: node.status === 'done' ? ('done' as const) : ('down' as const),
+            delivered: false,
+          })),
+        ],
+        waiting: [
+          ...queued.map((record) => ({
+            type: record.event.type,
+            ...(eventWorker(record.event) === undefined
+              ? {}
+              : { worker: eventWorker(record.event) }),
+          })),
+          ...unqueued.map((node) => ({ type: 'settled', worker: node.id })),
+        ],
+        unacknowledged: deliveries
+          .filter((delivery) => !delivery.acknowledged)
+          .map((delivery) => ({
+            seq: delivery.record.seq,
+            type: delivery.record.event.type,
+            ...(eventWorker(delivery.record.event) === undefined
+              ? {}
+              : { worker: eventWorker(delivery.record.event) }),
+            ...(delivery.attempt === undefined ? {} : { attempt: delivery.attempt }),
+          })),
+        ...(lastRejection === undefined ? {} : { lastRejection }),
+      })
+    },
+    blocked: () => blockedEvidence,
     ...(peerMail ? { peerMail } : {}),
+  }
+}
+
+/** The verbs `report_blocked` never calls on a manager's behalf: each one changes the run. */
+const unprobeableVerbs: ReadonlySet<string> = new Set(['submit_result', 'stop', 'report_blocked'])
+
+/** How long one `report_blocked` probe may run before it counts as a failure. */
+const REPORT_BLOCKED_PROBE_MS = 60_000
+
+async function runWithin<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+    if (typeof timer?.unref === 'function') timer.unref()
+  })
+  try {
+    return await Promise.race([work, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

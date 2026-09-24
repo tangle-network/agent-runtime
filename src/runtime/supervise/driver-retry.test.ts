@@ -10,6 +10,7 @@ import {
   defaultUnmetContractSteer,
   HarnessTurnFailedError,
   runDriverWithRetry,
+  summarizeDriverAttempts,
 } from './driver-retry'
 import { RetainedExecutionPendingError } from './retained-executor'
 
@@ -542,9 +543,11 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
     expect(script.reentries).toHaveLength(2)
     // The first entry is the caller's own task; the second is the unmet-items instruction.
     expect(script.reentries[0]).toBeUndefined()
-    expect(script.reentries[1]?.reason).toBe('unmet-contract')
-    expect(script.reentries[1]?.reprompt).toBe(1)
-    expect(script.reentries[1]?.steer).toContain('primes.txt holding the first 20 primes')
+    const reentry = script.reentries[1]
+    expect(reentry?.reason).toBe('unmet-contract')
+    if (reentry?.reason !== 'unmet-contract') throw new Error('expected a re-prompt')
+    expect(reentry.reprompt).toBe(1)
+    expect(reentry.steer).toContain('primes.txt holding the first 20 primes')
     expect(records[0]?.reprompted).toBe(true)
     expect(records[0]?.contract).toBe('unmet')
     expect(records[1]?.stop).toBe('completed')
@@ -652,7 +655,8 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
       budget: () => budget(),
       signal: new AbortController().signal,
       policy: { maxAttempts: 2 },
-      reprompt: { maxReprompts: 9 },
+      // Barren continuations are bounded separately; this test is about the failure allowance.
+      reprompt: { maxReprompts: 9, maxBarren: 99 },
       onAttempt: (r) => void records.push(r),
       sleep: instantSleep,
     })
@@ -672,6 +676,7 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
       signal: new AbortController().signal,
       reprompt: {
         maxReprompts: 'until-complete',
+        maxBarren: 99,
         onUnmetContract: (context) => {
           expect(context.maxReprompts).toBe('until-complete')
           return { steer: 'Continue the same work.' }
@@ -727,6 +732,7 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
         signal: controller.signal,
         reprompt: {
           maxReprompts: 'until-complete',
+          maxBarren: 99,
           onUnmetContract: () =>
             script.reentries.length >= 12 && stop === 'caller-stop'
               ? 'stop'
@@ -771,7 +777,10 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
       },
       sleep: instantSleep,
     })
-    expect(script.reentries[1]?.steer).toBe('attempt 1: finish primes.txt')
+    const reentry = script.reentries[1]
+    expect(reentry?.reason === 'unmet-contract' ? reentry.steer : undefined).toBe(
+      'attempt 1: finish primes.txt',
+    )
   })
 
   it('refuses an empty instruction rather than re-entering a session with nothing to act on', async () => {
@@ -787,9 +796,10 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
     expect(error).toBeInstanceOf(ValidationError)
   })
 
-  it('retries a crashed re-prompt with the ORIGINAL task, never with the unmet-items text', async () => {
+  it('retries a crashed re-prompt as a failure re-entry, never with the unmet-items text', async () => {
     // A drive that dies may never have read the re-prompt, so replaying it in the task's place
-    // would drop the run's actual instruction.
+    // would drop the run's actual instruction. The retry carries the failure instead, and the
+    // caller composes the original task and the run state from it.
     const reentries: Array<DriverReentry | undefined> = []
     let attempts = 0
     await runDriverWithRetry({
@@ -807,7 +817,90 @@ describe('runDriverWithRetry — a completed drive whose contract is unmet', () 
 
     expect(reentries).toHaveLength(3)
     expect(reentries[1]?.reason).toBe('unmet-contract')
-    expect(reentries[2]).toBeUndefined()
+    expect(reentries[2]).toEqual({ reason: 'driver-failure', failure: 'stream closed', retry: 1 })
+  })
+})
+
+describe('runDriverWithRetry — re-prompts end when they stop delivering', () => {
+  it('stops after two re-prompted drives in a row deliver nothing, however high the cap', async () => {
+    // The digest's action 3 (2026-09-24): a completed drive reset the barren counter and the
+    // re-prompt decision read only the cap, budget and deadline, so `repromptOnUnmet: 100` or
+    // `until-complete` re-prompted a director that delivered nothing until the budget ran out.
+    const entered: Array<DriverReentry | undefined> = []
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async (_attempt, reentry) => {
+        entered.push(reentry)
+      },
+      progress: () => mark(),
+      budget: () => budget({ deadlineMs: 1000 }),
+      now: () => 0,
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 'until-complete' },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(entered.map((reentry) => reentry?.reason)).toEqual([
+      undefined,
+      'unmet-contract',
+      'unmet-contract',
+    ])
+    expect(records.at(-1)).toMatchObject({ stop: 'completed', repromptRefusedBy: 'no-progress' })
+    expect(summarizeDriverAttempts(records)).toMatchObject({
+      attempts: 3,
+      reprompts: 2,
+      failureRetries: 0,
+      barrenReentries: 2,
+      ended: 'completed',
+      repromptRefusedBy: 'no-progress',
+    })
+  })
+
+  it('keeps re-prompting a director that delivers between re-prompts', async () => {
+    let delivered = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        // Every re-prompted drive lands one child that passed its check; the fifth is accepted.
+        if (attempt > 1) delivered += 1
+      },
+      progress: () =>
+        mark({ deliveredCount: delivered, contract: delivered >= 4 ? 'met' : 'unmet' }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 10 },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(records).toHaveLength(5)
+    expect(records.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
+  })
+
+  it('counts a barren drive after a failure retry toward the same bound', async () => {
+    let calls = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => {
+        calls += 1
+        if (calls === 2) throw new Error('stream closed')
+      },
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 10 },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    // 1 completes (not counted), 2 fails, 3 re-entered after the failure completes barren (1),
+    // 4 re-prompted completes barren (2): re-prompting stops there.
+    expect(records.map((record) => record.reentry)).toEqual([
+      undefined,
+      'unmet-contract',
+      'driver-failure',
+      'unmet-contract',
+    ])
+    expect(records.at(-1)?.repromptRefusedBy).toBe('no-progress')
+    expect(summarizeDriverAttempts(records)).toMatchObject({ reprompts: 2, failureRetries: 1 })
   })
 })
 
@@ -820,6 +913,7 @@ describe('defaultUnmetContractSteer', () => {
       progress: mark({ settledCount: 3, deliveredCount: 0 }),
       budget: budget(),
       describe: 'primes.txt holding the first 20 primes',
+      barrenReentries: 0,
     })
     expect(text).toContain('The completion check has not passed.')
     expect(text).toContain('primes.txt holding the first 20 primes')
@@ -834,6 +928,7 @@ describe('defaultUnmetContractSteer', () => {
       maxReprompts: 1,
       progress: mark(),
       budget: budget(),
+      barrenReentries: 0,
     })
     expect(text).toContain('The deliverable this run owes is still missing.')
   })
@@ -943,7 +1038,7 @@ describe('long-run retry streaks', () => {
       budget: () => budget(),
       signal: new AbortController().signal,
       policy: { maxAttempts: 20, maxConsecutiveFailures: 3 },
-      reprompt: { maxReprompts: 10 },
+      reprompt: { maxReprompts: 10, maxBarren: 99 },
       onAttempt: (record) => {
         records.push(record)
       },
@@ -991,7 +1086,7 @@ describe('long-run retry streaks', () => {
           now: () => 0,
           signal: new AbortController().signal,
           policy: { maxAttempts: 4, maxConsecutiveFailures: 3 },
-          reprompt: { maxReprompts },
+          reprompt: { maxReprompts, maxBarren: 99 },
           onAttempt: (record) => {
             records.push(record)
           },

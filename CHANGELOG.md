@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.262.0
+
+A re-entered external director is told the run from the coordinator, not only the unmet items.
+The drive harness states what the next drive continues: a bridge reattaches the harness session, and a retained provider owner continues its environment while the provider still holds it.
+Only a proven-continuous session receives the unmet items alone, plus what changed.
+Every other re-entry, a failure retry included, receives the original task, the completion check's description, and the coordinator's run state: journal rows and the row last read, running and settled workers, events waiting in `await_event`, events delivered to a turn that did not finish, the last `submit_result` refusal, and whether the environment and its files carried over.
+The failure text stays in the attempt records and never reaches the director.
+`DriverReentry` now has a `driver-failure` arm, and `DriveHarness` receives `reentry.compose` to compose the task from what it proves.
+
+Before a drive that continues a retained provider environment, Runtime asks the provider whether it still holds it.
+An environment the provider no longer holds is journaled as an `environment-teardown` receipt with `destroyed: true` and a `lost:` detail, and the next drive starts a new invocation in a new environment.
+The spawn journal accepts that new input over the unfinished one only after the loss receipt.
+Before, every retry asked the provider to reconnect to the deleted sandbox and the run ended `driver-failed` (`autopsy-a-before-20260924a`).
+
+Re-prompts end after `reprompt.maxBarren` (default 2) re-entered drives in a row complete without a delivery, whatever `repromptOnUnmet` allows, with `repromptRefusedBy: 'no-progress'`.
+A completion alone no longer resets that count; a delivery does.
+
+`submit_result` and `stop` refuse with `error: 'open-work'` while a worker still runs, or while a settled result or finding waits in `await_event`, and name the open work.
+`await_event` returns `eventSeq` and accepts `acknowledge`; an `acknowledgement` coordination record separates processing from delivery, and a completed turn or an accepted result acknowledges what it received.
+`report_blocked` re-runs the named tool under the director's grants: a success returns the result and the run continues, and a second failure stops the run as blocked.
+The settle record carries `continuation` for an external root: attempts, re-prompts, failure retries, environment replacements, the barren streak, why the loop ended, and how the director closed the run.
+`EventBus` gains `pullRecord` and `queued`.
+
 ## 0.261.0
 
 `supervisePursuit` accepts `versions`, which continues a pursuit across versions until its judge stops improving.

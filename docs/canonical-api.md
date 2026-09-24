@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.261.0.**
+> **Version 0.262.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.185.0 <0.188.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0`.
@@ -137,6 +137,7 @@ An external director can then use `repromptOnUnmet` to continue from a rejected 
 Set `repromptOnUnmet: 'until-complete'` and a finite positive budget deadline to continue without a turn-count cap.
 Successful continuations do not consume `driverRetry.maxAttempts`; that limit counts failed invocations across the driver run.
 Numeric `repromptOnUnmet` values still cap continuations, and zero disables them.
+Two re-entered drives in a row that deliver nothing end the re-prompts, whatever the cap (`repromptRefusedBy: 'no-progress'`).
 Cancellation, explicit stop, resource limits, and terminal failures remain authoritative.
 A thrown parent check reports a validation error through the existing driver failure record.
 
@@ -146,7 +147,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Run a profile-authored supervisor toward a goal | `supervise(profile, task, { budget, backend? })`: `/kernel` — the profile supplies the standing prompt and capability grants; Runtime adds no default supervisor policy | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
 | Keep recursive managers able to infer while children are stalled | `supervise(..., { reservationPolicy: { ownerShare: 0.2 }, maxDepth, maxLiveWorkers })`: `/kernel` — opt in to holding each manager's share of its pool and one live slot per remaining depth; require `maxLiveWorkers >= maxDepth`. Child ceilings and conservation remain unchanged. | a lab-side reservation waiver, changing immutable child budgets after registration, or claiming a descendant can enter from a full worker cap |
 | Score a supervised sandbox worker by an executable check **against its live box** | `supervise(..., { backend: { backend: 'sandbox', sandboxClient, validator } })`: `/kernel` — the leaf forwards it to the composed `runAgentRounds`, which calls `validate(output, ctx)` with `ctx.box` still alive, and the verdict lands on the worker's settle | a post-settle hook (the box is destroyed by then), a second scoring loop beside `depthStrategy`, or pairing `validator` with `steering` (refused: a steerable session composes no loop to score) |
-| Continue an external-harness director until its completion check passes | `supervise(..., { deliverable, repromptOnUnmet: 'until-complete', budget, onUnmetContract? })`: `/kernel` — requires a finite positive budget deadline; reuses the same session, coordination server, and live children. Successful turns do not consume failure retries. Numeric values cap continuations; explicit stop, cancellation, budget, deadline, and failure limits remain enforced. | a second `supervise()` call, a caller-side continuation loop, an arbitrary large count, or treating a completed turn as a completed task |
+| Continue an external-harness director until its completion check passes | `supervise(..., { deliverable, repromptOnUnmet: 'until-complete', budget, onUnmetContract? })`: `/kernel` — requires a finite positive budget deadline; reuses the same coordination server and live children, and the same harness session only where the backend proves it (see "A re-entered director is told the run"). Successful turns do not consume failure retries. Two barren re-prompts in a row end the loop. Numeric values cap continuations; explicit stop, cancellation, budget, deadline, and failure limits remain enforced. The settle record's `continuation` counts re-prompts and failure retries separately. | a second `supervise()` call, a caller-side continuation loop, a prompt-owned round counter or nonce, an arbitrary large count, or treating a completed turn as a completed task |
 | Run a static root, workers, and analysts as reviewable `AgentProfile` nodes with versioned edge directives | `runGraph(graph, options)`: `/kernel` | a second graph executor, prompt-only roles, or pretending a static graph can discover new nodes while running |
 | Drive a graph's ROOT with caller-owned orchestration (a deterministic conversation driver; a persona loop that makes its own LLM calls) | `runGraph(graph, { brain })`: `/kernel` — `brain: ToolLoopChat` is caller data for a router-brained root; node pinning, directive delivery, the edge ledger, and the journal twin stay the same shipped path, and the root profile keeps prompt control (`systemPrompt`/`instructions` still apply). Model selection, provider-identity validation, and usage reporting move to the caller with the brain | routing a production run through the `/testing` entry, a bespoke driver loop beside the graph, or pairing `brain` with `driverBackend` / an external-harness root (both refused: two answers to who makes the root's calls) |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/kernel` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
@@ -351,6 +352,50 @@ Runtime verifies each fork against the parent's records first, then passes the p
 The port returns once the version's directory holds its `result.json` and `observer.jsonl`.
 It is called again for the same version after a restart, so it must attach to a version it already started.
 In a recorded run input, `judge` and `next` name entries in `registry.versionJudges` and `registry.nextVersions`; `assertPursuitVersions` checks the option before any compute.
+
+### A re-entered director is told the run from the coordinator
+
+A re-prompt or a failure retry enters the external director again.
+What the director keeps depends on where the next drive runs, and the drive harness states it before the turn starts:
+
+| Backend | Next drive | What the director receives |
+|---|---|---|
+| Bridge | Same harness session, reattached by execution id | The unmet items, plus the state that changed |
+| Provider with retained control, environment still held | Same environment and harness session | The unmet items, plus the state that changed |
+| Provider with retained control, environment gone | New invocation in a new environment | The full re-entry task |
+| Provider without retained control | New environment every drive | The full re-entry task |
+| Any other `driveHarness` | Unproven | The full re-entry task |
+
+Before a drive that continues a retained environment, Runtime asks the provider whether it still holds that environment.
+When the provider answers that it does not, Runtime journals an `environment-teardown` receipt with `destroyed: true` and a `lost:` detail.
+The next drive is then a new invocation, because a lost environment runs nothing and cannot be paid for twice.
+Before this, every retry asked the provider to reconnect to the lost sandbox and the run ended `driver-failed` (measured on `autopsy-a-before-20260924a`).
+
+The full re-entry task holds the original task, the completion check's description, and the coordinator's run state.
+The run state names the journal rows and the `sinceRow` the director last read to, every running and settled worker, the events waiting in `await_event`, the events delivered to a turn that did not finish, and the last `submit_result` refusal.
+It says whether the environment and its files carried over.
+It never quotes the failure text, because a director told infrastructure details spends its turns on the infrastructure.
+The failure text stays in the attempt records.
+A files-only restore into a replacement environment needs provider support that the environment interface does not carry yet, so the task states that the files are gone.
+
+`await_event` returns each event with an `eventSeq`.
+Delivery is not processing: an acknowledgement record says an event was processed.
+The director acknowledges through `await_event({ acknowledge: [eventSeq] })`, a completed turn acknowledges what it received, and an accepted result acknowledges everything delivered.
+An event delivered to a turn that failed stays unacknowledged, and the next re-entry names it.
+
+Closure is a runtime rule.
+`submit_result` and `stop` refuse with `error: 'open-work'` while a worker still runs, or while a settled result or finding waits in `await_event`.
+The refusal names the running workers and the waiting events, and nothing is checked or stopped.
+Questions keep their own `questionPolicy` rule, and a wait-state node holds no work.
+
+`report_blocked({ tool, arguments, error })` replaces a voluntary `stop` for a director that believes a dependency failed.
+The coordinator calls the named tool again with the same arguments, under the director's own grants.
+When the call succeeds, the reply carries its result and the run continues.
+When it fails again, the run stops with reason `blocked: <tool> ...` and the settle record's `continuation.closedBy` is `blocked`.
+`submit_result`, `stop` and `report_blocked` are never probed.
+Grant it as `agent_runtime_coordination_report_blocked`.
+
+The settle record carries `continuation` for an external root: attempts, genuine re-prompts, failure retries, environment replacements, the barren streak at the end, why the loop ended, and how the director closed the run.
 
 ### Codex store accounting
 

@@ -72,6 +72,7 @@ import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import {
   type DriverAttemptRecord,
+  type DriverContinuationRecord,
   type DriverRepromptPolicy,
   type DriverRetryPolicy,
   HarnessTurnFailedError,
@@ -104,6 +105,7 @@ import {
   type SupervisorSpanRecorder,
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
+import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
 import {
@@ -111,6 +113,7 @@ import {
   bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerTask,
+  reconcileScopeRetainedOwnerEnvironment,
   scopeRetainedOwnerContext,
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerResult,
@@ -181,6 +184,7 @@ import type {
   RootHandle,
   RootProviderModelEvidence,
   RootStreamReceipt,
+  Scope,
   SpawnJournal,
   Spend,
   SupervisedResult,
@@ -809,6 +813,7 @@ function driveHarnessFromBackend(
     coordinationMcpHeaders,
     stopSignal,
     coordinationTools,
+    reentry,
   }) => {
     const retainedOwner =
       boundBackend.backend === 'provider' ? scopeRetainedOwnerContext(scope) : undefined
@@ -826,7 +831,18 @@ function driveHarnessFromBackend(
         return execution?.kind === 'environment' ? execution.id : undefined
       })
     }
-    const originalTask = retainedOwner ? await prepareScopeRetainedOwnerTask(scope, task) : task
+    // What this drive continues decides what a re-entered driver must be told. Only a proven
+    // same-session turn gets the unmet items alone; a replacement environment gets the objective
+    // and the coordinator's run state.
+    let driveTask = task
+    if (reentry !== undefined) {
+      const continuity = await reentryContinuity(boundBackend, scope, retainedOwner !== undefined)
+      reentry.onContinuity?.(continuity)
+      driveTask = reentry.compose(continuity)
+    }
+    const originalTask = retainedOwner
+      ? await prepareScopeRetainedOwnerTask(scope, driveTask)
+      : driveTask
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
       await restoreScopeOwnerAcceptedExecution(scope)
@@ -1442,6 +1458,48 @@ function driveHarnessFromBackend(
   drive.traceSource = () => activeExecutor?.traceSource?.()
   drive.progress = () => activeExecutor?.progress?.()
   return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
+}
+
+/**
+ * What the next drive of a harness-brained manager continues, as far as its backend proves it.
+ *
+ * A bridge reattaches the harness session by its durable execution id. A retained provider owner
+ * continues in the environment it last used while the provider still holds it, and a deliberate
+ * later invocation there continues the same harness session. A provider without retained control
+ * creates a new environment for every drive and releases the old one. Anything else is unproven.
+ */
+async function reentryContinuity(
+  backend: ExecutorConfig,
+  scope: Scope<unknown>,
+  retainedOwner: boolean,
+): Promise<ReentryContinuity> {
+  if (backend.backend === 'bridge') {
+    return { session: 'continued', environment: 'same', workspace: 'kept' }
+  }
+  if (backend.backend !== 'provider' || !retainedOwner) return UNPROVEN_CONTINUITY
+  const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
+  const capabilities = await provider.capabilities()
+  if (capabilities.retainedControl === undefined) {
+    return { session: 'new', environment: 'replaced', workspace: 'lost' }
+  }
+  const environment = await reconcileScopeRetainedOwnerEnvironment(scope)
+  if (environment.state === 'live') {
+    return {
+      session: 'continued',
+      environment: 'same',
+      environmentId: environment.environmentId,
+      workspace: 'kept',
+    }
+  }
+  if (environment.state === 'lost') {
+    return {
+      session: 'new',
+      environment: 'replaced',
+      previousEnvironmentId: environment.environmentId,
+      workspace: 'lost',
+    }
+  }
+  return UNPROVEN_CONTINUITY
 }
 
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
@@ -3471,6 +3529,8 @@ function superviseInternal(
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
   // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
   // durable coordination replay needs to await, so the run begins inside this closure.
+  // The root driver loop reports what it did once it ends; the settle record carries it.
+  let rootContinuation: DriverContinuationRecord | undefined
   const start = async () => {
     await verifyProfilePromotions(profileTable)
     // The durable coordination side-log (file contexts only) loads prior questions, findings, and
@@ -3494,6 +3554,9 @@ function superviseInternal(
       ...(deliverable ? { deliverable } : {}),
       onProviderModel(model: string | undefined) {
         rootProviderModels.push(model)
+      },
+      onDriverLoopSettled(record: DriverContinuationRecord) {
+        rootContinuation = record
       },
       ...(priorCoordination &&
       (priorCoordination.questions.length > 0 ||
@@ -3661,6 +3724,7 @@ function superviseInternal(
         ...result,
         rootProviderModel,
         ...(rootStream === undefined ? {} : { rootStream }),
+        ...(rootContinuation === undefined ? {} : { continuation: rootContinuation }),
       }
     }
     if (!recorder) return settle()

@@ -468,6 +468,102 @@ function hasDurableWorkspaceSnapshot(value: unknown): boolean {
   return parsed.success && 'locator' in parsed.data.manifest && 'locator' in parsed.data.archive
 }
 
+/** Environment ids this owner's provider confirmed gone, from their teardown receipts. */
+function destroyedEnvironmentIds(owned: readonly SpawnEvent[]): ReadonlySet<string> {
+  return new Set(
+    owned.flatMap((event) =>
+      event.kind === 'environment-teardown' && event.destroyed ? [event.environmentId] : [],
+    ),
+  )
+}
+
+/** The environment the owner's next invocation would continue in, when there is one: the latest
+ *  environment admission of this owner, which is either the current invocation's own (recovered
+ *  in place) or the one a deliberate later invocation reuses after an accepted result. `inFlight`
+ *  says whether the latest invocation has no result yet. */
+function continuedEnvironment(
+  owned: readonly SpawnEvent[],
+): { readonly admission: RetainedRunEnvironmentAdmission; readonly inFlight: boolean } | undefined {
+  const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
+  if (latestInput === undefined) return undefined
+  const attempt = owned.slice(owned.indexOf(latestInput))
+  const admission = [...owned]
+    .reverse()
+    .flatMap((event) =>
+      event.kind === 'execution-admitted' && event.admission.phase === 'environment'
+        ? [event.admission]
+        : [],
+    )[0]
+  if (admission === undefined) return undefined
+  return { admission, inFlight: !attempt.some((event) => event.kind === 'execution-result') }
+}
+
+/** What the owner's next invocation continues, read before it starts. */
+export type RetainedOwnerEnvironmentState =
+  /** No environment was admitted yet, or the owner is not a retained provider owner. */
+  | { readonly state: 'none' }
+  /** The provider still holds the environment the next invocation continues in. */
+  | { readonly state: 'live'; readonly environmentId: string; readonly inFlight: boolean }
+  /** The provider no longer holds it; the next invocation starts in a new environment. */
+  | { readonly state: 'lost'; readonly environmentId: string }
+  /** The provider could not say. Nothing is concluded and nothing is journaled. */
+  | { readonly state: 'unknown'; readonly environmentId: string }
+
+/**
+ * Confirm, before a new drive, that the environment the owner would continue in still exists.
+ *
+ * A retained invocation whose environment is gone can never be recovered: the retained path asked
+ * the provider to reconnect, the provider answered `Sandbox not found`, and every later attempt
+ * repeated that refusal until the barren streak ended the run. Measured on the real opencode path
+ * (autopsy-a-before-20260924a, agent-runtime 5c22fbb2): the root sandbox was deleted 17 s after it
+ * dispatched a child, four attempts in 64 s each refused "retained provider execution requires
+ * reconciliation before replacement", and the run settled `driver-failed` while the child it had
+ * commissioned settled `done` two minutes later, unread.
+ *
+ * The reconciliation refusal protects against paying twice for an execution that may still run.
+ * An environment the provider no longer holds runs nothing, so there is nothing to reconcile: the
+ * loss is journaled as a destroyed teardown receipt, and the next prepare starts a new invocation.
+ */
+export async function reconcileScopeRetainedOwnerEnvironment(
+  scope: Scope<unknown>,
+): Promise<RetainedOwnerEnvironmentState> {
+  const state = owners.get(scope)
+  if (!state?.provider) return { state: 'none' }
+  const { provider, args } = state
+  const owned = ((await args.journal.loadTree(args.rootId)) ?? []).filter(
+    (event) => event.id === args.nodeId,
+  )
+  const continued = continuedEnvironment(owned)
+  if (continued === undefined) return { state: 'none' }
+  const environmentId = continued.admission.environmentId
+  if (destroyedEnvironmentIds(owned).has(environmentId)) return { state: 'lost', environmentId }
+  if (!provider.get) return { state: 'unknown', environmentId }
+  let environment: Awaited<ReturnType<NonNullable<AgentEnvironmentProvider['get']>>>
+  try {
+    environment = await runAbortable(
+      () => provider.get!(environmentId),
+      AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)]),
+      'retained owner environment check timed out',
+    )
+  } catch {
+    return { state: 'unknown', environmentId }
+  }
+  if (environment !== null) return { state: 'live', environmentId, inFlight: continued.inFlight }
+  scope.signal.throwIfAborted()
+  await args.journal.appendEvent(args.rootId, {
+    kind: 'environment-teardown',
+    id: args.nodeId,
+    provider: provider.name,
+    environmentId,
+    destroyed: true,
+    detail:
+      'lost: the provider no longer holds this environment, so the next invocation starts in a new one',
+    seq: state.nextSequence(),
+    at: new Date(args.now()).toISOString(),
+  })
+  return { state: 'lost', environmentId }
+}
+
 /** Resume the original backend prompt; rebuilt coordination observations cannot replace it. */
 export async function prepareScopeRetainedOwnerTask(
   scope: Scope<unknown>,
@@ -492,6 +588,16 @@ export async function prepareScopeRetainedOwnerTask(
     const accepted = [...attempt].reverse().find((event) => event.kind === 'execution-result')
     if (accepted?.kind === 'execution-result') state.acceptedRef = accepted
   }
+  const destroyed = destroyedEnvironmentIds(owned)
+  const inFlight = continuedEnvironment(owned)
+  if (inFlight?.inFlight && destroyed.has(inFlight.admission.environmentId)) {
+    // An in-flight invocation whose environment the provider no longer holds cannot be recovered,
+    // and nothing is left running to pay for twice. The next drive is a new invocation.
+    delete state.inputSequence
+    delete state.taskRef
+    state.admissions.length = 0
+    delete state.priorSession
+  }
   if (state.prepared && state.acceptedRef && state.acceptedConsumed) {
     const currentEnvironment = [...state.admissions]
       .reverse()
@@ -504,6 +610,10 @@ export async function prepareScopeRetainedOwnerTask(
     // A deliberate later drive starts a distinct invocation after an accepted result.
     state.admissions.length = 0
     delete state.acceptedConsumed
+  }
+  // A later invocation never reuses an environment the provider confirmed gone.
+  if (state.priorSession !== undefined && destroyed.has(state.priorSession.environmentId)) {
+    delete state.priorSession
   }
   state.prepared = true
   if (state.taskRef !== undefined) {

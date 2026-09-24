@@ -1476,9 +1476,78 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
     expect(tasks).toHaveLength(2)
     expect(tasks[0]).toBe('solve it')
-    // The re-entry carries the unmet items, not the original task.
+    // The re-entry carries the unmet items. This harness proves nothing about its session, so
+    // the re-entry also carries the original objective: a replacement sandbox knows nothing else.
     expect(String(tasks[1])).toContain('an object whose answer is 42')
     expect(String(tasks[1])).toContain('The completion check has not passed.')
+    expect(String(tasks[1])).toContain('solve it')
+  })
+
+  it('EXTERNAL arm: a drive that died is re-entered with the objective, the late child, and the unread delivery', async () => {
+    // Autopsy A (2026-09-16), in miniature: the root spawned a child, received its settlement, and
+    // died before acting on it. The next drive must learn the objective, that the child settled,
+    // and that the delivery it got before dying is unread, all from the coordinator.
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const tasks: string[] = []
+    const loops: unknown[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      tasks.push(String(task))
+      if (tasks.length === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: testAgentProfile('holder'), task: 'return the token' },
+        })
+        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+        throw new Error('Sandbox not found')
+      }
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'submit_result',
+        arguments: { result: { answer: 42 } },
+      })
+    }
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'submit_result'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('holder', { token: 't-1' }),
+        perWorker,
+        driveHarness,
+        driverRetry: { initialBackoffMs: 0 },
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (result) => (result as { answer?: unknown }).answer === 42,
+        },
+        onDriverLoopSettled: (record) => loops.push(record),
+      },
+    )
+
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    expect(tasks).toHaveLength(2)
+    const reentry = tasks[1] ?? ''
+    expect(reentry).toContain('re-entering a run that is already in progress')
+    expect(reentry).toContain('Your previous turn ended before it finished (retry 1)')
+    expect(reentry).not.toContain('Sandbox not found')
+    expect(reentry).toContain('solve it')
+    expect(reentry).toContain('an object whose answer is 42')
+    expect(reentry).toMatch(/Workers settled: sup:s0 \(done/u)
+    expect(reentry).toMatch(
+      /Events delivered to a turn that did not finish.*#\d+ settled from sup:s0/u,
+    )
+    expect(reentry).toMatch(/Journal: \d+ rows/u)
+    expect(loops).toEqual([
+      expect.objectContaining({
+        attempts: 2,
+        reprompts: 0,
+        failureRetries: 1,
+        ended: 'completed',
+        closedBy: 'result-accepted',
+      }),
+    ])
   })
 
   it('EXTERNAL arm: the same drive ends the run on its first completion when no re-prompt is set', async () => {
