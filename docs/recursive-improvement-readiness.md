@@ -15,9 +15,10 @@ The [live-loop contract](./live-agent-improvement-loop.md) defines the promotion
 | Agent-proposed Eval experiment | **PASS** | [Eval #791](https://github.com/tangle-network/agent-eval/pull/791) merged a frozen return-code rule with independent raw-label scoring. On 31 primary tasks its F1 was 0.357 versus 0.549 for a historical analyst, paired difference −0.193, 95% task-bootstrap interval [−0.315, −0.067]. Transfer F1 was 0 on 104 tasks because return codes were absent. This is a negative experiment, not an Eval improvement. |
 | Two public agent benchmarks | **PASS** | [Benchmark proof #1341](https://github.com/tangle-network/agent-runtime/pull/1341) retains agent traces and official grader receipts. Terminal-Bench core 0.1.1 passed 2/2 selected tasks; SWE-bench Verified resolved 1/1 selected Astropy task, with 2/2 fail-to-pass and 13/13 pass-to-pass tests. These selected tasks prove execution, not population solve rates. Terminal task calls lack per-request served-model headers, its `hello-world` grader omits the no-other-files clause, and billed USD is unknown. |
 
-Runtime's source peer range `>=0.185.0 <0.187.0` excludes Eval 0.187.0, which supplies the canary decision.
-Public Knowledge 17.1.2 also excludes it through its `>=0.182.0 <0.187.0` peer range.
-The package release owners must verify and publish a compatible dependency closure before the pilot installs these packages together.
+Runtime [#1350](https://github.com/tangle-network/agent-runtime/pull/1350) merged source support for Eval 0.187.0 with peer range `>=0.185.0 <0.188.0` and a strict packed-consumer check.
+Public Knowledge 17.1.3 accepts Eval 0.187.0 through its `>=0.182.0 <0.188.0` peer range.
+Public Runtime 0.259.1 still excludes Eval 0.187.0 through its `>=0.185.0 <0.187.0` peer range.
+A compatible Runtime package must be published before a registry-only pilot can install this dependency closure.
 
 The highest-priority missing receipt is one authorized hosted-agent cohort with checked outcomes and cost.
 Next, freeze its checker and source-unit split, then run one bounded candidate search and a paired replay final test.
