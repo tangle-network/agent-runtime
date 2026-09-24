@@ -48,6 +48,12 @@ export interface PursuitVersions {
    * a restart, so it must attach to a version it already started rather than start a second one.
    */
   readonly run?: RunPursuitVersion
+  /**
+   * A version's dollars as the caller measured them, such as the provider's charge to the keys the
+   * version used. Omit it to use the version's settled `spentTotal.usd`, which is an estimate
+   * when `usdKnown` is false. `null` means unknown, and stops the chain.
+   */
+  readonly usd?: (version: SettledPursuitVersion, signal: AbortSignal) => Promise<number | null>
 }
 
 /** The chain's stop rule. The chain never starts a version once any cap is reached. */
@@ -114,9 +120,13 @@ export interface JudgedPursuitVersion extends SettledPursuitVersion {
   readonly verdict: VersionVerdict
   /** Whether its score beat every earlier version's by more than `minImprovement`. */
   readonly improved: boolean
-  /** The version's settled `spentTotal.usd`, or `null` when that is not a number. */
+  /** The version's dollars: `versions.usd`'s measurement, or its settled `spentTotal.usd`;
+   *  `null` when that is not a number. */
   readonly usd: number | null
+  /** False when the figure is Runtime's estimate or unknown. */
   readonly usdKnown: boolean
+  /** Who measured `usd`: the caller's `versions.usd`, or Runtime's settled `spentTotal`. */
+  readonly usdSource: 'caller' | 'runtime'
   /** Where the version came from: its parent run and its change. Absent for a first version that
    *  is not a fork. */
   readonly lineage?: AgentCandidateLineage
@@ -227,6 +237,7 @@ type LedgerLine =
       improved: boolean
       usd: number | null
       usdKnown: boolean
+      usdSource: 'caller' | 'runtime'
       lineage?: AgentCandidateLineage
     }
   | {
@@ -281,6 +292,8 @@ export function assertPursuitVersions(versions: unknown): asserts versions is Pu
     fail('next must be a function or a registry name')
   }
   if (run !== undefined && typeof run !== 'function') fail('run must be a function when set')
+  const { usd } = versions as Record<string, unknown>
+  if (usd !== undefined && typeof usd !== 'function') fail('usd must be a function when set')
   if (typeof stop !== 'object' || stop === null) fail('stop must be an object')
   const rule = stop as Record<string, unknown>
   const known = new Set(['patience', 'maxVersions', 'maxUsd', 'deadlineMs', 'minImprovement'])
@@ -453,6 +466,7 @@ export async function runPursuitVersions(
               improved: line.improved,
               usd: line.usd,
               usdKnown: line.usdKnown,
+              usdSource: line.usdSource,
               ...(line.lineage === undefined ? {} : { lineage: line.lineage }),
             }),
           )
@@ -472,8 +486,18 @@ export async function runPursuitVersions(
             isFiniteNumber(verdict.score) &&
             (!isFiniteNumber(bestScore) || verdict.score > bestScore + minImprovement)
           const spent = settled.result.spentTotal
-          const usd = isFiniteNumber(spent?.usd) ? spent.usd : null
-          const usdKnown = spent?.usdKnown !== false && usd !== null
+          const measured =
+            versions.usd === undefined ? undefined : await versions.usd(settled, signal)
+          const usdSource = measured === undefined ? 'runtime' : 'caller'
+          const usd =
+            measured === undefined
+              ? isFiniteNumber(spent?.usd)
+                ? spent.usd
+                : null
+              : isFiniteNumber(measured)
+                ? measured
+                : null
+          const usdKnown = usd !== null && (measured !== undefined || spent?.usdKnown !== false)
           const lineage = versionLineage(spec, firstFork)
           const entry: Extract<LedgerLine, { kind: 'judged' }> = {
             kind: 'judged',
@@ -487,6 +511,7 @@ export async function runPursuitVersions(
             improved,
             usd,
             usdKnown,
+            usdSource,
             ...(lineage === undefined ? {} : { lineage }),
           }
           await appendLedger(ledgerPath, entry)
@@ -497,6 +522,7 @@ export async function runPursuitVersions(
               improved,
               usd,
               usdKnown,
+              usdSource,
               ...(lineage === undefined ? {} : { lineage }),
             }),
           )

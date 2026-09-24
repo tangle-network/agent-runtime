@@ -333,6 +333,7 @@ Inside one run, the director works in rounds until its deliverable check passes 
 
 The chain checks its caps between versions and never starts a version once one is reached.
 A version's own `budget`, or the caller's spend watcher, bounds that version's dollars in flight.
+`versions.usd` lets the caller measure each version's dollars, such as the provider's charge to its keys; without it the chain sums the settled `spentTotal.usd`, which is Runtime's estimate when `usdKnown` is false.
 `<runDir>.versions/versions.jsonl` records each version, its parent, its change, its verdict, its dollars and its `AgentCandidateLineage`, and then the stop.
 A call on a stopped chain returns that record without running anything.
 A call on an unfinished chain resumes it: a judged version is never re-run or re-judged, and a started version runs again in its own directory, which resumes it.

@@ -1182,6 +1182,28 @@ elsewhere executes exactly `version.profile` on `version.task` under `version.bu
 version's settle record and observer journal. It is called again for the same version after
 a restart, so it must attach to a version it already started rather than start a second one.
 
+##### usd?
+
+> `readonly` `optional` **usd?**: (`version`, `signal`) => `Promise`\<`number` \| `null`\>
+
+A version's dollars as the caller measured them, such as the provider's charge to the keys the
+version used. Omit it to use the version's settled `spentTotal.usd`, which is an estimate
+when `usdKnown` is false. `null` means unknown, and stops the chain.
+
+###### Parameters
+
+###### version
+
+[`SettledPursuitVersion`](#settledpursuitversion)
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`number` \| `null`\>
+
 ***
 
 ### PursuitVersionStop
@@ -1449,11 +1471,20 @@ Whether its score beat every earlier version's by more than `minImprovement`.
 
 > `readonly` **usd**: `number` \| `null`
 
-The version's settled `spentTotal.usd`, or `null` when that is not a number.
+The version's dollars: `versions.usd`'s measurement, or its settled `spentTotal.usd`;
+ `null` when that is not a number.
 
 ##### usdKnown
 
 > `readonly` **usdKnown**: `boolean`
+
+False when the figure is Runtime's estimate or unknown.
+
+##### usdSource
+
+> `readonly` **usdSource**: `"caller"` \| `"runtime"`
+
+Who measured `usd`: the caller's `versions.usd`, or Runtime's settled `spentTotal`.
 
 ##### lineage?
 

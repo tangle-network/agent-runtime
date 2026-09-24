@@ -124,7 +124,8 @@ describe('supervisePursuit versions', () => {
   }, 120_000)
 
   it('never starts a version past its version, dollar or time cap', async () => {
-    const caps: Array<[string, PursuitVersions['stop'], number, string, number]> = [
+    type Cap = [string, PursuitVersions['stop'], number, string, number, PursuitVersions['usd']?]
+    const caps: Cap[] = [
       [
         'versions',
         { patience: 9, maxVersions: 2, maxUsd: 100, deadlineMs: 600_000 },
@@ -140,6 +141,15 @@ describe('supervisePursuit versions', () => {
         'max-usd',
         0,
       ],
+      // The caller's own measurement replaces Runtime's figure: $0.80 a version reaches $1.50 at two.
+      [
+        'measured',
+        { patience: 9, maxVersions: 9, maxUsd: 1.5, deadlineMs: 600_000 },
+        2,
+        'max-usd',
+        0,
+        async () => 0.8,
+      ],
       // The chain's clock runs out while the judge reads the first version.
       [
         'time',
@@ -149,14 +159,24 @@ describe('supervisePursuit versions', () => {
         1_200,
       ],
     ]
-    for (const [label, stop, ran, reason, judgeMs] of caps) {
+    for (const [label, stop, ran, reason, judgeMs, usd] of caps) {
       driven = 0
       const firstDir = join(root, label)
       const chain = await run(firstDir, {
         judge: judgeFrom([1, 2, 3, 4, 5, 6, 7, 8, 9], judgeMs),
         next: ({ versions }) => change(`prompt:${label}-v${versions.length + 1}`),
         stop,
+        ...(usd === undefined ? {} : { usd }),
       })
+      if (usd !== undefined) {
+        expect(
+          chain.versions?.versions.map((item) => [item.usd, item.usdSource]),
+          label,
+        ).toEqual([
+          [0.8, 'caller'],
+          [0.8, 'caller'],
+        ])
+      }
       expect(chain.versions?.stopped.reason, label).toBe(reason)
       expect(chain.versions?.versions.length, label).toBe(ran)
       expect(driven, label).toBeLessThanOrEqual(ran)
