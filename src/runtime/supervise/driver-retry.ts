@@ -46,6 +46,16 @@
  * `reprompt.maxReprompts` re-enters the SAME live session with the unmet items, and every re-entry
  * crosses the same budget, deadline, and abort bounds. Successful continuations do not consume
  * the failure retry allowance.
+ *
+ * A THIRD CLASS sits between the two: the upstream said "not now". A model provider's exhausted
+ * quota, a rate limit, or an overloaded service (HTTP 429, 503, 529, or the router's own codes for
+ * them) is not an accident in the driver and not a decision by Runtime; the same request succeeds
+ * when capacity returns. Such a failure PAUSES the driver and re-enters it. A pause consumes neither
+ * `maxAttempts` nor the barren streak, so only the deadline, the budget, and cancellation bound it.
+ * Measured 2026-09-24 on play anomaly-referee-v3d: during the router's flash quota outage four of
+ * five lead lanes ended `driver-failed` between minutes 101 and 118, after 12 to 13 attempts, while
+ * the router answered some turns in between (one lead spent 1.7M and 3.3M input tokens on two of
+ * them) and each run's budget and 8-hour deadline were almost untouched.
  */
 
 import {
@@ -83,6 +93,13 @@ export interface DriverRetryPolicy {
   readonly initialBackoffMs?: number
   /** Ceiling on the doubling. Default 30000ms. */
   readonly maxBackoffMs?: number
+  /** Pause before re-entering after the upstream was unavailable (see
+   *  {@link upstreamUnavailableSignal}), doubling per consecutive pause. Default 15000ms. A pause
+   *  is not a failure: it consumes neither `maxAttempts` nor `maxConsecutiveFailures`. */
+  readonly unavailablePauseMs?: number
+  /** Ceiling on the pause doubling. Default 300000ms, so a long outage costs at most twelve
+   *  re-entries an hour. */
+  readonly maxUnavailablePauseMs?: number
 }
 
 /** Why the retry loop stopped. `completed` is the only non-failure. */
@@ -104,13 +121,17 @@ export interface DriverAttemptRecord {
   readonly durationMs: number
   /** Absent when the attempt completed. */
   readonly error?: string
-  readonly classification?: 'transient' | 'terminal'
+  readonly classification?: DriverFailureClass
   /** Did anything change since the previous attempt (spend, settlement, submission)? */
   readonly madeProgress: boolean
   /** Set when this attempt ended the loop. */
   readonly stop?: DriverAttemptStop
-  /** Set when another attempt follows. */
+  /** Set when another attempt follows. For an `unavailable` attempt this is the pause, which is
+   *  infrastructure time: together with `durationMs` it is what the outage cost this driver. */
   readonly retryInMs?: number
+  /** For an `unavailable` attempt: the code or HTTP status that classified it, such as
+   *  `provider_quota_exhausted` or `http-429`. */
+  readonly unavailableSignal?: string
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
   /** True when this COMPLETED attempt's unmet contract sent the loop back into the live session. */
@@ -239,6 +260,8 @@ const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
 const DEFAULT_MAX_ATTEMPTS = 8
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
+const DEFAULT_UNAVAILABLE_PAUSE_MS = 15_000
+const DEFAULT_MAX_UNAVAILABLE_PAUSE_MS = 300_000
 
 /**
  * Bridge error classes the bridge itself never retries: a request that fails identically on
@@ -282,31 +305,111 @@ export class HarnessTurnFailedError extends Error {
 }
 
 /**
- * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
- * anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
- * because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
- * having a bad moment, while a 401/404/422 is a request that will fail identically forever. The
+ * How one driver failure is answered.
+ *
+ *  - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
+ *  - `transient`: a foreign accident. It is retried under `maxAttempts` and the barren streak.
+ *  - `unavailable`: the upstream refused for capacity (quota, rate limit, overload). The driver
+ *    pauses and re-enters, and only the deadline, the budget, and cancellation bound the pauses.
+ */
+export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
+
+/**
+ * Machine codes that say the upstream is out of capacity rather than that the request is wrong.
+ * Each is a code an upstream publishes, not prose: the router's
+ * (`lib/model-substitution.ts`, `lib/upstream-error-triage.ts`) and the OpenAI- and Anthropic-shaped
+ * error types a relayed body carries.
+ */
+const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
+  'provider_quota_exhausted', // router: the upstream account has no remaining quota (429)
+  'provider_quota_exceeded', // router: the earlier spelling, on the 2026-09-20 fleet corpus
+  'provider_rate_limit', // router: the upstream is rate limiting this model (429)
+  'upstream_unavailable', // router: upstream outage or an unexplained upstream refusal (503)
+  'rate_limit_exceeded', // OpenAI-shaped 429
+  'rate_limit_error', // Anthropic-shaped 429
+  'overloaded_error', // Anthropic-shaped 529
+])
+
+/** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */
+const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([429, 503, 529])
+
+/**
+ * A harness that flattens the router's JSON body into its own failure text leaves the router's
+ * code in that text: `opencode execution failed: No provider served model "..."
+ * (provider_quota_exhausted)`. The code is matched as a whole token, and a status only in the
+ * `status code <n>` framing a harness prints, so prose that merely mentions a quota does not match.
+ */
+function unavailableSignalInText(text: string): string | undefined {
+  for (const token of text.toLowerCase().matchAll(/[a-z_]+/gu)) {
+    if (UNAVAILABLE_CODES.has(token[0])) return token[0]
+  }
+  const status = text.match(/\bstatus code (\d{3})\b/u)?.[1]
+  return status !== undefined && UNAVAILABLE_STATUSES.has(Number(status))
+    ? `http-${status}`
+    : undefined
+}
+
+/**
+ * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
+ *
+ * A structured field is read first: a turn outcome's `errorCode`, a transport error's
+ * `upstreamCode` and `status`, a provider SDK error's `status`. The failure text is read only when
+ * no structured field decided, because a harness CLI reports the router's refusal as text.
+ */
+export function upstreamUnavailableSignal(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined
+  if (error instanceof HarnessTurnFailedError) {
+    const code = error.errorCode?.toLowerCase()
+    if (code !== undefined && UNAVAILABLE_CODES.has(code)) return code
+    return unavailableSignalInText(error.message)
+  }
+  if (error instanceof BackendTransportError) {
+    const code = error.upstreamCode?.toLowerCase()
+    if (code !== undefined && UNAVAILABLE_CODES.has(code)) return code
+    if (error.status !== undefined) {
+      return UNAVAILABLE_STATUSES.has(error.status) ? `http-${error.status}` : undefined
+    }
+    return unavailableSignalInText(errorProperty(error, 'message') ?? '')
+  }
+  if (error instanceof AgentEvalError) return undefined
+  const status = errorHttpStatus(error)
+  if (status !== undefined) {
+    return UNAVAILABLE_STATUSES.has(status) ? `http-${status}` : undefined
+  }
+  return unavailableSignalInText(errorProperty(error, 'message') ?? '')
+}
+
+/** True when the upstream refused for capacity and the same request will succeed later. */
+function isUpstreamUnavailable(error: unknown): boolean {
+  return upstreamUnavailableSignal(error) !== undefined
+}
+
+/**
+ * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an
+ * upstream capacity refusal is `unavailable`; anything else foreign is an accident and is
+ * retryable. A `BackendTransportError` is split by status because the taxonomy already promises
+ * consumers may branch on it: a 5xx/408 is the upstream having a bad moment, a 429/503/529 is the
+ * upstream out of capacity, and a 401/404/422 is a request that will fail identically forever. The
  * bridge's own never-retry classes are terminal whether or not a status rides with them.
  */
-export function classifyDriverFailure(
-  error: unknown,
-  signal?: AbortSignal,
-): 'transient' | 'terminal' {
+export function classifyDriverFailure(error: unknown, signal?: AbortSignal): DriverFailureClass {
   if (signal?.aborted) return 'terminal'
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
-    return error.errorCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.errorCode)
-      ? 'terminal'
-      : 'transient'
+    if (error.errorCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.errorCode)) {
+      return 'terminal'
+    }
+    return isUpstreamUnavailable(error) ? 'unavailable' : 'transient'
   }
   if (error instanceof BackendTransportError) {
     if (error.upstreamCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.upstreamCode))
       return 'terminal'
+    if (isUpstreamUnavailable(error)) return 'unavailable'
     const status = error.status
     if (status === undefined) return 'transient'
-    if (status === 408 || status === 429 || status >= 500) return 'transient'
+    if (status === 408 || status >= 500) return 'transient'
     return 'terminal'
   }
   if (
@@ -319,6 +422,7 @@ export function classifyDriverFailure(
   // Every other AgentEvalError (session mismatch, planner, analyst, not-found) is a structural
   // refusal too. Kept after the transport check, which is itself an AgentEvalError subclass.
   if (error instanceof AgentEvalError) return 'terminal'
+  if (isUpstreamUnavailable(error)) return 'unavailable'
   return foreignHttpStatusVerdict(error) ?? 'transient'
 }
 
@@ -332,9 +436,10 @@ export function classifyDriverFailure(
  * times per node while the run showed a durable intent and no other event, so eleven of twelve
  * roots sat for 25 minutes with nothing to diagnose. The status was on the error the whole time.
  *
- * Reading it applies the same rule the transport branch already promises consumers: 408, 429 and
- * 5xx are the upstream having a bad moment, and any other 4xx is a request that will fail
- * identically forever. Anything without a plain numeric status keeps the historical default.
+ * Reading it applies the same rule the transport branch already promises consumers: 408 and 5xx
+ * are the upstream having a bad moment, and any other 4xx is a request that will fail identically
+ * forever. The capacity statuses were answered before this point. Anything without a plain numeric
+ * status keeps the historical default.
  */
 function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | undefined {
   // Only a thrown Error is read. `status` is a common field name on ordinary objects — a
@@ -345,7 +450,7 @@ function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | un
   if (!(error instanceof Error)) return undefined
   const status = errorHttpStatus(error)
   if (status === undefined || status < 400) return undefined
-  if (status === 408 || status === 429 || status >= 500) return 'transient'
+  if (status === 408 || status >= 500) return 'transient'
   return 'terminal'
 }
 
@@ -402,8 +507,14 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
         ? `${errorProperty(cause, 'name')}: ${errMessage(cause)}`
         : errMessage(cause)
     const firstFailure = attempts.find((attempt) => attempt.error !== undefined)?.error
+    const pauses = attempts.filter((attempt) => attempt.classification === 'unavailable')
+    const pausedMs = pauses.reduce((sum, attempt) => sum + (attempt.retryInMs ?? 0), 0)
     super(
       `supervisor driver failed after ${attempts.length} attempt(s) — stopped by ${stop}; ` +
+        (pauses.length === 0
+          ? ''
+          : `${pauses.length} attempt(s) met an unavailable upstream and paused ` +
+            `${Math.round(pausedMs / 1000)} s in total; `) +
         (firstFailure !== undefined && firstFailure !== last?.error
           ? `first failure: ${errorText(firstFailure)}; `
           : '') +
@@ -441,6 +552,11 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const maxAttempts = Math.max(1, policy.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
   const initialBackoff = Math.max(0, policy.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS)
   const maxBackoff = Math.max(initialBackoff, policy.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS)
+  const unavailablePause = Math.max(0, policy.unavailablePauseMs ?? DEFAULT_UNAVAILABLE_PAUSE_MS)
+  const maxUnavailablePause = Math.max(
+    unavailablePause,
+    policy.maxUnavailablePauseMs ?? DEFAULT_MAX_UNAVAILABLE_PAUSE_MS,
+  )
 
   const maxReprompts = run.reprompt?.maxReprompts ?? 0
   if (maxReprompts === 'until-complete') {
@@ -455,6 +571,9 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const attempts: DriverAttemptRecord[] = []
   let consecutiveBarren = 0
   let failures = 0
+  // Consecutive `unavailable` attempts, for the pause doubling only. Any other outcome, or an
+  // unavailable attempt that still made progress, resets it: the upstream served in between.
+  let consecutivePauses = 0
   let reprompts = 0
   let reentry: DriverReentry | undefined
 
@@ -534,10 +653,60 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     try {
       await run.drive(attempt, reentry)
     } catch (error) {
-      failures += 1
       const durationMs = now() - startedAt
       const classification = classifyDriverFailure(error, run.signal)
       const progressed = madeProgress(before, run.progress())
+      if (classification === 'unavailable') {
+        // A pause, not a failure: neither `failures` nor the barren streak moves, so an outage of
+        // any length ends the run only at the deadline, the budget, or a cancellation.
+        const stop = ((): DriverAttemptStop | undefined => {
+          if (!retryEnabled) return 'retry-disabled'
+          if (run.signal.aborted) return 'aborted'
+          return budgetStop(run.budget(), now())
+        })()
+        const unavailableSignal = upstreamUnavailableSignal(error)
+        const signalField = unavailableSignal === undefined ? {} : { unavailableSignal }
+        if (stop !== undefined) {
+          await emit({
+            attempt,
+            durationMs,
+            error: errMessage(error),
+            classification,
+            madeProgress: progressed,
+            ...signalField,
+            stop,
+          })
+          throw new DriverAttemptsExhaustedError(error, attempts, stop)
+        }
+        consecutivePauses = progressed ? 1 : consecutivePauses + 1
+        const pause = Math.min(
+          maxUnavailablePause,
+          unavailablePause * 2 ** Math.max(0, consecutivePauses - 1),
+        )
+        // The same rule as a failure retry: re-enter with the ORIGINAL task, because the refused
+        // turn may have ended before it read a re-prompt.
+        reentry = undefined
+        await emit({
+          attempt,
+          durationMs,
+          error: errMessage(error),
+          classification,
+          madeProgress: progressed,
+          ...signalField,
+          retryInMs: pause,
+        })
+        await sleep(pause, run.signal)
+        if (run.signal.aborted) {
+          throw new DriverAttemptsExhaustedError(error, attempts, 'aborted')
+        }
+        const afterPause = budgetStop(run.budget(), now())
+        if (afterPause) {
+          throw new DriverAttemptsExhaustedError(error, attempts, afterPause)
+        }
+        continue
+      }
+      consecutivePauses = 0
+      failures += 1
       const stop = ((): DriverAttemptStop | undefined => {
         if (classification === 'terminal') return 'terminal-error'
         if (!retryEnabled) return 'retry-disabled'
@@ -592,6 +761,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     // A completed invocation ends the transport-failure streak, even while the pursuit's
     // independent completion check remains unmet. Successful continuation is not a failure.
     consecutiveBarren = 0
+    consecutivePauses = 0
     const durationMs = now() - startedAt
     const after = run.progress()
     const progressed = madeProgress(before, after)

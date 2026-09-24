@@ -744,6 +744,9 @@ export {
   // against the same budget the loop reads.
   type DriverBudgetReadout,
   type DriverContractState,
+  // The third answer beside transient and terminal: the upstream was out of capacity, so the
+  // driver pauses instead of failing. The signal reader lets a consumer classify its own records.
+  type DriverFailureClass,
   type DriverProgressMark,
   type DriverReentry,
   type DriverRepromptPolicy,
@@ -753,6 +756,7 @@ export {
   type DriverUnmetContractDecision,
   defaultUnmetContractSteer,
   type OnUnmetContract,
+  upstreamUnavailableSignal,
 } from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).

@@ -755,12 +755,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         bridgeBearer: 'test-token',
       },
       budget: { maxIterations: 4, maxTokens: 10_000 },
-      driverRetry: { initialBackoffMs: 1 },
+      driverRetry: { initialBackoffMs: 1, unavailablePauseMs: 1 },
       onDriverAttempt: (attempt) => void attempts.push(attempt),
     })
 
+    // The route answered 503: the driver paused on it rather than spending a failure attempt.
     expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual([
-      'transient',
+      'unavailable',
       'completed',
     ])
     expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')

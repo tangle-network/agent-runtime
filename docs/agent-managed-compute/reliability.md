@@ -61,6 +61,13 @@ A failed provider turn settles its child as `down`, preserving its reason, measu
 The outcome keeps the provider's machine `errorCode` when the provider reports one.
 A root driver turn that ends with a failed outcome is a driver failure under `driverRetry`, with the same bounds as a thrown failure.
 A failure without a code is transient; a code the bridge never retries, such as `capability_denied`, is terminal.
+A refusal for capacity is `unavailable`: HTTP 429, 503 or 529, or an upstream code such as the router's `provider_quota_exhausted`.
+A harness that prints the router's refusal as text keeps the code in it, so the text is read for that code; text can only lengthen a retry, never end a run.
+An `unavailable` failure pauses the driver, then re-enters it with the original task.
+The pause starts at `driverRetry.unavailablePauseMs` (15 s) and doubles to `maxUnavailablePauseMs` (5 min).
+A pause consumes neither `maxAttempts` nor `maxConsecutiveFailures`; only the deadline, the budget, cancellation and `enabled: false` end it.
+Each pause is journaled as a `paused` event on the manager node, with the refused attempt's duration and the pause, as infrastructure time.
+A leaf worker whose turn is refused this way still settles `down` with `infra: true`: a provider executor refuses a second execution after it materializes, so a leaf cannot re-enter its own box.
 The failed result and its spend stay in the journal.
 Its environment is handled as a successful turn's: it is not force-killed.
 The retry starts a new invocation, which reuses the retained owner environment.

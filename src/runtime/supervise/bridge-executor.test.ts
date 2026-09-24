@@ -444,7 +444,8 @@ describe('bridgeExecutor upstream-error propagation', () => {
       (error: unknown) => error,
     )
     expect((failure as BackendTransportError).status).toBe(503)
-    expect(classifyDriverFailure(failure)).toBe('transient')
+    // An outage is not a failure of the driver: it pauses and re-enters until the upstream serves.
+    expect(classifyDriverFailure(failure)).toBe('unavailable')
   })
 
   it('refuses an old bridge before any model POST', async () => {
@@ -524,7 +525,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
   })
 
-  it('classifies a temporarily unavailable manager route as transient before any model POST', async () => {
+  it('classifies a temporarily unavailable manager route as unavailable before any model POST', async () => {
     const requests: Array<{ method: string | undefined; url: string | undefined }> = []
     server = createServer((req, res) => {
       requests.push({ method: req.method, url: req.url })
@@ -558,7 +559,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
     expect(failure).toBeInstanceOf(BackendTransportError)
     expect((failure as BackendTransportError).status).toBe(503)
-    expect(classifyDriverFailure(failure)).toBe('transient')
+    expect(classifyDriverFailure(failure)).toBe('unavailable')
     await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
     expect(requests).toEqual([
       { method: 'GET', url: '/' },
