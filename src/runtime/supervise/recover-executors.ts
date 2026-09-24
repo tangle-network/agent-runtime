@@ -23,7 +23,12 @@ import {
 } from './budget'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
-import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
+import {
+  leafContinuationExecutionId,
+  prepareRetainedExecutor,
+  type RetainedChildRecovery,
+  type RetainedLeafContinuation,
+} from './retained-executor'
 import type { ScopeArgs } from './scope'
 import { detachedSnapshot } from './snapshot'
 import { releasedChildPayload, terminalDownEvent } from './terminal-record'
@@ -225,7 +230,19 @@ export async function prepareInterruptedExecutors(
   for (const node of interrupted) {
     signal.throwIfAborted()
     const owned = events.filter((event) => event.id === node.id)
-    const recorded = owned.find(
+    // A leaf that continued after an unavailable upstream has one invocation per
+    // `execution-input`. Only the latest decides: an earlier invocation's result is the refusal
+    // the leaf continued past, not its outcome.
+    const inputs = owned.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-input' }> =>
+        event.kind === 'execution-input',
+    )
+    const latestInput = inputs.at(-1)
+    const current =
+      latestInput === undefined || inputs.length === 1
+        ? owned
+        : owned.slice(owned.indexOf(latestInput))
+    const recorded = current.find(
       (event): event is RecordedResult => event.kind === 'execution-result',
     )
     if (recorded) {
@@ -255,12 +272,11 @@ export async function prepareInterruptedExecutors(
       })
       continue
     }
-    const admissions = owned.flatMap((event) =>
+    const admissions = current.flatMap((event) =>
       event.kind === 'execution-admitted' ? [event.admission] : [],
     )
     if (!opts.recoverExecutor || (admissions.length === 0 && !node.ownedTreeRoot)) continue
-    const input = owned.find((event) => event.kind === 'execution-input')
-    const taskRef = input?.kind === 'execution-input' ? input.taskRef : undefined
+    const taskRef = inputs[0]?.taskRef
     if (
       !node.profileRef ||
       !taskRef ||
@@ -302,6 +318,10 @@ export async function prepareInterruptedExecutors(
       if (!prepared) continue
     }
     const priorMaterialization = owned.find((event) => event.kind === 'materialized')?.receipt
+    const continuation =
+      latestInput !== undefined && inputs.length > 1 && node.ownedTreeRoot === undefined
+        ? await leafContinuation(node, owned, latestInput, opts)
+        : undefined
     recoveries.push({
       ...detachedSnapshot(
         {
@@ -309,6 +329,7 @@ export async function prepareInterruptedExecutors(
           task,
           admissions,
           ...(priorMaterialization === undefined ? {} : { priorMaterialization }),
+          ...(continuation === undefined ? {} : { continuation }),
         },
         'retained child recovery',
       ),
@@ -346,6 +367,42 @@ export async function prepareInterruptedExecutors(
   }
   signal.throwIfAborted()
   return { events: (await opts.journal.loadTree(opts.runId)) ?? events, recoveries }
+}
+
+/**
+ * The later invocation a leaf was running when its process stopped: its own task, and the
+ * environment admission of the invocation before it, which it continued in. The execution id is
+ * derived from the input sequence exactly as the live scope derived it.
+ */
+async function leafContinuation(
+  node: Spawned,
+  owned: SpawnEvent[],
+  latestInput: Extract<SpawnEvent, { kind: 'execution-input' }>,
+  opts: ResumeStores,
+): Promise<RetainedLeafContinuation> {
+  const before = owned.slice(0, owned.indexOf(latestInput))
+  const priorSession = [...before]
+    .reverse()
+    .flatMap((event) =>
+      event.kind === 'execution-admitted' && event.admission.phase === 'environment'
+        ? [event.admission]
+        : [],
+    )[0]
+  if (priorSession === undefined) {
+    throw new RuntimeRunStateError(
+      `cannot recover '${node.id}': its continuation names no environment it continued in`,
+    )
+  }
+  const task = await opts.blobs.get(latestInput.taskRef)
+  if (task === undefined || contentAddress(task) !== latestInput.taskRef) {
+    throw new RuntimeRunStateError(`continuation task for '${node.id}' is missing or corrupt`)
+  }
+  return {
+    task,
+    inputSeq: latestInput.seq,
+    executionId: leafContinuationExecutionId(node.id, latestInput.seq),
+    priorSession,
+  }
 }
 
 async function assertRecordedResult(

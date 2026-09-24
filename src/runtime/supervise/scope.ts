@@ -39,7 +39,10 @@ import {
   harnessTranscriptUnavailable,
   persistHarnessTranscript,
 } from '../harness-transcript'
-import type { RetainedInteractiveAdmission } from '../retained-run-types'
+import type {
+  RetainedInteractiveAdmission,
+  RetainedRunEnvironmentAdmission,
+} from '../retained-run-types'
 import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
 import { abortError, RunCancellationReason } from './abortable'
@@ -93,6 +96,7 @@ import {
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
+  leafContinuationExecutionId,
   type RetainedChildRecovery,
   RetainedExecutionPendingError,
   type RetainedExecutorContext,
@@ -1114,7 +1118,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           : new Promise<void>((resolve) => {
               markRecoveryReady = resolve
             })
-      const admissions = [...(recovery?.admissions ?? [])]
       const retainedWrites = new Set<Promise<void>>()
       let retainedWritesClosed = false
       const retainedWrite = (write: () => Promise<void>): Promise<void> => {
@@ -1132,6 +1135,127 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         retainedWritesClosed = true
         await Promise.allSettled([...retainedWrites])
       }
+      // The invocation this child is running. A leaf whose upstream refused its turn continues in
+      // the same environment as a later invocation (`continueInvocation`), journaled the way an
+      // owner's later drive is: a new `execution-input`, then that invocation's own admissions
+      // and result. The first invocation's input takes the spawn ordinal; each later one the next
+      // number, so a recovery derives the same execution id from the journal.
+      let admissions = [...(recovery?.admissions ?? [])]
+      let inputSeq = recovery?.continuation?.inputSeq ?? ordinal
+      let pauseSeq = 0
+      const onAdmission: RetainedExecutorContext['onAdmission'] = (admission) =>
+        retainedWrite(async () => {
+          controller.signal.throwIfAborted()
+          const existing = admissions.find((record) => record.phase === admission.phase)
+          if (existing) {
+            if (contentAddress(existing) !== contentAddress(admission)) {
+              throw new ValidationError(
+                'scope retained admission conflicts with its committed phase',
+              )
+            }
+            return
+          }
+          if (identity?.taskDigest === undefined)
+            throw new ValidationError('retained execution requires a canonical task identity')
+          await args.journal.appendEvent(args.root, {
+            kind: 'execution-admitted',
+            id,
+            admission: detachedSnapshot(admission, 'retained admission'),
+            seq: ordinal,
+            at: new Date(now()).toISOString(),
+          })
+          admissions.push(detachedSnapshot(admission, 'retained admission'))
+          live.recoveryPending = true
+          controller.signal.throwIfAborted()
+        })
+      const onResult: RetainedExecutorContext['onResult'] = (result) =>
+        retainedWrite(async () => {
+          controller.signal.throwIfAborted()
+          assertValidSpend(result.spent, 'retained executor result')
+          executorFailureReason(result)
+          await pendingEvidence?.complete()
+          const outRef = contentAddress(result.out)
+          await args.blobs.put(outRef, result.out)
+          controller.signal.throwIfAborted()
+          await args.journal.appendEvent(args.root, {
+            kind: 'execution-result',
+            id,
+            outRef,
+            spent: result.spent,
+            ...(result.verdict ? { verdict: result.verdict } : {}),
+            ...(result.outcome ? { outcome: result.outcome } : {}),
+            seq: ordinal,
+            at: new Date(now()).toISOString(),
+          })
+          live.acceptedResult = detachedSnapshot(
+            { ...result, outRef },
+            'accepted retained child result',
+          )
+          live.recoveryPending = false
+        })
+      const onPause: NonNullable<RetainedExecutorContext['onPause']> = (pause) =>
+        retainedWrite(async () => {
+          await args.journal.appendEvent(args.root, {
+            kind: 'paused',
+            id,
+            ...pause,
+            seq: pauseSeq++,
+            at: new Date(now()).toISOString(),
+          })
+        })
+      const retainedContext = (
+        continuing:
+          | { executionId: string; priorSession: RetainedRunEnvironmentAdmission }
+          | undefined,
+      ): RetainedExecutorContext => ({
+        ...(continuing === undefined
+          ? {}
+          : { executionId: continuing.executionId, priorSession: continuing.priorSession }),
+        admissions,
+        ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
+        onAdmission,
+        onResult,
+        onPause,
+        continueInvocation: async (nextTask) => {
+          controller.signal.throwIfAborted()
+          // An input after a committed result starts a new invocation; before one, it would pay
+          // for the unfinished turn twice (the journal refuses it too).
+          if (live.acceptedResult === undefined) {
+            throw new ValidationError(
+              'scope: a retained child continues only after its invocation committed a result',
+            )
+          }
+          const environment = admissions.find((record) => record.phase === 'environment')
+          if (environment?.phase !== 'environment') {
+            throw new ValidationError(
+              'scope: a retained child continues only in an environment it was admitted to',
+            )
+          }
+          const snapshot = detachedSnapshot(nextTask, 'retained child continuation')
+          const taskRef = contentAddress(snapshot)
+          const nextSeq = inputSeq + 1
+          await retainedWrite(async () => {
+            await args.blobs.put(taskRef, snapshot)
+            controller.signal.throwIfAborted()
+            await args.journal.appendEvent(args.root, {
+              kind: 'execution-input',
+              id,
+              taskRef,
+              seq: nextSeq,
+              at: new Date(now()).toISOString(),
+            })
+          })
+          inputSeq = nextSeq
+          admissions = []
+          // The committed result belongs to the invocation this one continues. A cancellation
+          // from here on leaves this invocation pending, not that result accepted.
+          live.acceptedResult = undefined
+          return retainedContext({
+            executionId: leafContinuationExecutionId(id, nextSeq),
+            priorSession: environment,
+          })
+        },
+      })
       const ctx: ExecutorContext = {
         signal: controller.signal,
         node: {
@@ -1144,60 +1268,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
         seams: {
           ...args.seams,
-          [retainedExecutorSeamKey]: {
-            admissions,
-            ...(markRecoveryReady ? { onReady: markRecoveryReady } : {}),
-            onAdmission: (admission) =>
-              retainedWrite(async () => {
-                controller.signal.throwIfAborted()
-                const existing = admissions.find((record) => record.phase === admission.phase)
-                if (existing) {
-                  if (contentAddress(existing) !== contentAddress(admission)) {
-                    throw new ValidationError(
-                      'scope retained admission conflicts with its committed phase',
-                    )
-                  }
-                  return
-                }
-                if (identity?.taskDigest === undefined)
-                  throw new ValidationError('retained execution requires a canonical task identity')
-                await args.journal.appendEvent(args.root, {
-                  kind: 'execution-admitted',
-                  id,
-                  admission: detachedSnapshot(admission, 'retained admission'),
-                  seq: ordinal,
-                  at: new Date(now()).toISOString(),
-                })
-                admissions.push(detachedSnapshot(admission, 'retained admission'))
-                live.recoveryPending = true
-                controller.signal.throwIfAborted()
-              }),
-            onResult: (result) =>
-              retainedWrite(async () => {
-                controller.signal.throwIfAborted()
-                assertValidSpend(result.spent, 'retained executor result')
-                executorFailureReason(result)
-                await pendingEvidence?.complete()
-                const outRef = contentAddress(result.out)
-                await args.blobs.put(outRef, result.out)
-                controller.signal.throwIfAborted()
-                await args.journal.appendEvent(args.root, {
-                  kind: 'execution-result',
-                  id,
-                  outRef,
-                  spent: result.spent,
-                  ...(result.verdict ? { verdict: result.verdict } : {}),
-                  ...(result.outcome ? { outcome: result.outcome } : {}),
-                  seq: ordinal,
-                  at: new Date(now()).toISOString(),
-                })
-                live.acceptedResult = detachedSnapshot(
-                  { ...result, outRef },
-                  'accepted retained child result',
-                )
-                live.recoveryPending = false
-              }),
-          } satisfies RetainedExecutorContext,
+          [retainedExecutorSeamKey]: retainedContext(
+            recovery?.continuation === undefined
+              ? undefined
+              : {
+                  executionId: recovery.continuation.executionId,
+                  priorSession: recovery.continuation.priorSession,
+                },
+          ),
           [nestedScopeSeamKey]: makeNestedScopeSeam(
             args,
             liveWorkerCapacity,
@@ -1568,7 +1646,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live,
         executor,
         controller,
-        task,
+        // A recovered continuation replays its own invocation's task; the spawn identity above
+        // stays the node's original task.
+        recovery?.continuation?.task ?? task,
         opts,
         args.pool,
         reservation.ticket,
