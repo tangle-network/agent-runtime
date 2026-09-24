@@ -1776,6 +1776,27 @@ export type SpawnEvent =
       seq: number
       at: string
     }
+  | {
+      /** A manager's driver turn was refused by an unavailable upstream (an exhausted quota, a
+       *  rate limit, an overload), and the driver paused before re-entering instead of failing.
+       *  Both durations are infrastructure time: `attemptMs` is the refused turn, `pauseMs` the
+       *  wait that followed. Informational: replay, `materializeTreeView`, and cost readers skip
+       *  it; `seq` counts this node's pauses. */
+      kind: 'paused'
+      id: NodeId
+      /** The driver attempt that was refused, 1-based. */
+      attempt: number
+      /** The code or HTTP status that classified the refusal, such as `provider_quota_exhausted`. */
+      signal: string
+      /** The refusal as the driver saw it, redacted and bounded. */
+      cause: string
+      attemptMs: number
+      pauseMs: number
+      /** Whether the refused attempt still moved the run toward its deliverable. */
+      madeProgress: boolean
+      seq: number
+      at: string
+    }
 
 /**
  * The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).

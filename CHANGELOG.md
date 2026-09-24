@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.263.0
+## 0.264.0
 
 A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
 `driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
@@ -8,6 +8,19 @@ A nested manager (a child that runs its own children through the driver executor
 Before, every nested manager settled `executor-exposes-no-transcript`: 545 of 545 settled managers in the Discovery fleet records of 2026-09-23/24.
 A consumer that reads manager receipts now sees the capture's real status or reason.
 In a Tangle box the capture still finds no session files, for managers and leaves alike, because the sidecar keeps the harness session under a private runtime home (#1360); those receipts read `no-transcript`.
+
+## 0.263.0
+
+A driver whose upstream refuses for capacity now pauses and re-enters instead of failing.
+`classifyDriverFailure` has a third answer, `unavailable`, for HTTP 429, 503 and 529 and for upstream codes such as the router's `provider_quota_exhausted` and `provider_rate_limit`.
+When a harness reports the router's refusal as text, the code is read from that text; text can only lengthen a retry, never end a run.
+A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`, so only the deadline, the budget, cancellation and `enabled: false` end it.
+It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
+The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
+Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
+`upstreamUnavailableSignal` returns the code or status that classified an error.
+Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
 
 ## 0.262.0
 

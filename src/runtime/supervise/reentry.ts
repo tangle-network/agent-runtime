@@ -99,8 +99,13 @@ export function composeReentryTask(input: ReentryTaskInput): string {
  * only what to continue, spent all forty-five on the research.
  */
 function whyLine(reentry: DriverReentry): string {
-  return reentry.reason === 'unmet-contract'
-    ? `Your previous turn ended with the completion check unmet (re-prompt ${reentry.reprompt}).`
+  if (reentry.reason === 'unmet-contract') {
+    return `Your previous turn ended with the completion check unmet (re-prompt ${reentry.reprompt}).`
+  }
+  // A pause names no provider and no code: the operator owns the upstream, and the driver's
+  // budget belongs to the objective.
+  return reentry.reason === 'upstream-unavailable'
+    ? 'Your previous turn was interrupted before it finished; the run itself is intact.'
     : `Your previous turn ended before it finished (retry ${reentry.retry}); the run itself is intact.`
 }
 

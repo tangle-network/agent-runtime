@@ -22,6 +22,10 @@ import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 // tangle-sandbox with the opencode harness. The turn ended with a failed outcome rather than a
 // thrown error, so the root never got the retry its driverRetry policy promised.
 const UPSTREAM_TIMEOUT = 'opencode execution failed: status code 524 (exit code 1)'
+// The refusal that ended four of five anomaly-referee-v3d lead lanes on 2026-09-24.
+const ROUTER_QUOTA =
+  'opencode execution failed: No provider served model "deepseek/deepseek-v4.1-flash" ' +
+  '(provider_quota_exhausted). A provider is configured and was called. (exit code 1)'
 
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
@@ -208,7 +212,13 @@ async function harnessFailureFixture(options: {
           ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
         },
         budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
-        driverRetry: { ...driverRetry, initialBackoffMs: 0, maxBackoffMs: 0 },
+        driverRetry: {
+          ...driverRetry,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          unavailablePauseMs: 0,
+          maxUnavailablePauseMs: 0,
+        },
         onDriverAttempt: (record) => void attempts.push(record),
         retainedAtSettlement,
         deliverable: {
@@ -291,6 +301,41 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(events, 'environment-teardown')).toMatchObject([
       { destroyed: true, environmentId: fixture.environmentIds[0] },
     ])
+  })
+
+  it('pauses on an unavailable upstream, journals the pause, and never spends an attempt', async () => {
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-failure-upstream-quota',
+      failures: (dispatch) => (dispatch <= 4 ? { error: ROUTER_QUOTA } : undefined),
+    })
+    // One failure of any other kind would end this run.
+    const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
+    const events = await fixture.events()
+
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
+    expect(fixture.dispatches()).toBe(5)
+    expect(attempts.map((attempt) => [attempt.classification, attempt.stop])).toEqual([
+      ['unavailable', undefined],
+      ['unavailable', undefined],
+      ['unavailable', undefined],
+      ['unavailable', undefined],
+      [undefined, 'completed'],
+    ])
+    // Each pause is on the run's own record, against the root, as infrastructure time.
+    const pauses = ofKind(events, 'paused')
+    expect(pauses).toHaveLength(4)
+    expect(pauses.map((pause) => [pause.id, pause.attempt, pause.signal, pause.seq])).toEqual([
+      ['harness-failure-upstream-quota', 1, 'provider_quota_exhausted', 0],
+      ['harness-failure-upstream-quota', 2, 'provider_quota_exhausted', 1],
+      ['harness-failure-upstream-quota', 3, 'provider_quota_exhausted', 2],
+      ['harness-failure-upstream-quota', 4, 'provider_quota_exhausted', 3],
+    ])
+    expect(pauses[0]?.cause).toContain('provider_quota_exhausted')
+    expect(pauses.every((pause) => pause.pauseMs === 0 && pause.attemptMs >= 0)).toBe(true)
+    // The refused turns keep their own records and the environment is reused throughout.
+    expect(ofKind(events, 'execution-result')).toHaveLength(5)
+    expect(fixture.creates()).toBe(1)
+    expect(fixture.destroys()).toBe(1)
   })
 
   it('preserves an unreceipted failed owner source through terminal release', async () => {

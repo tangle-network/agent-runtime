@@ -137,6 +137,7 @@ Child validity and delivery counts remain unchanged.
 An external director can then use `repromptOnUnmet` to continue from a rejected candidate within its existing resource limits.
 Set `repromptOnUnmet: 'until-complete'` and a finite positive budget deadline to continue without a turn-count cap.
 Successful continuations do not consume `driverRetry.maxAttempts`; that limit counts failed invocations across the driver run.
+An upstream out of capacity (a quota, a rate limit, an overload) pauses the driver instead; a pause is bounded only by the deadline, the budget and cancellation.
 Numeric `repromptOnUnmet` values still cap continuations, and zero disables them.
 Two re-entered drives in a row that deliver nothing end the re-prompts, whatever the cap (`repromptRefusedBy: 'no-progress'`).
 A progress `stopRule` that fired ends them too, and the settle record's `continuation.closedBy` is `stop-rule`.

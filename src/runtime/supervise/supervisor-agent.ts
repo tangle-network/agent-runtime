@@ -74,7 +74,7 @@ import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { applyRunCancellation } from './run-cancellation'
-import { beginScopeOwnerAttempt } from './scope'
+import { beginScopeOwnerAttempt, recordScopeOwnerPause } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
   createProgressTracker,
@@ -1240,6 +1240,18 @@ function buildSupervisorAgent(
               : {}),
             onAttempt: async (record) => {
               loopRecords.push(record)
+              // A pause on an unavailable upstream is infrastructure time, so the run's own
+              // journal records it; the caller's observer still sees every attempt.
+              if (record.classification === 'unavailable' && record.retryInMs !== undefined) {
+                await recordScopeOwnerPause(scope, {
+                  attempt: record.attempt,
+                  signal: record.unavailableSignal ?? 'unavailable',
+                  cause: record.error ?? '',
+                  attemptMs: record.durationMs,
+                  pauseMs: record.retryInMs,
+                  madeProgress: record.madeProgress,
+                })
+              }
               await deps.onDriverAttempt?.(record)
             },
           })
