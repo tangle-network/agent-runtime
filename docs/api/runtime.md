@@ -4680,9 +4680,38 @@ The check refuses before it creates a box when its account is one of `builderAcc
 
 ##### client
 
-> **client**: `Pick`\<`Sandbox`, `"createIsolated"` \| `"getIdentity"`\>
+> **client**: `object`
 
-Client authenticated with the check's own key.
+Client authenticated with the check's own key: a `Sandbox` from SDK 0.46 or later.
+Written as its two methods because the Runtime peer range admits SDKs without `createIsolated`.
+
+###### getIdentity()
+
+> **getIdentity**(): `Promise`\<\{ `customerId`: `string`; \}\>
+
+###### Returns
+
+`Promise`\<\{ `customerId`: `string`; \}\>
+
+###### createIsolated()
+
+> **createIsolated**(`options`, `requestOptions?`): `Promise`\<`SandboxInstance`\>
+
+###### Parameters
+
+###### options
+
+`Omit`\<`CreateSandboxOptions`, `"ownerContext"`\>
+
+###### requestOptions?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`SandboxInstance`\>
 
 ##### builderAccounts
 

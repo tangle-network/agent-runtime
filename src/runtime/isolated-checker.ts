@@ -9,7 +9,11 @@ import {
   canonicalCandidateDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
-import type { Sandbox, SandboxInstance, SandboxResources } from '@tangle-network/sandbox'
+import type {
+  CreateSandboxOptions,
+  SandboxInstance,
+  SandboxResources,
+} from '@tangle-network/sandbox'
 import { captureMaterializedWorkspace } from '../candidate-execution/artifacts'
 import { armDeadlineTimer } from './supervise/deadline'
 
@@ -34,8 +38,17 @@ export interface IsolatedCheckOptions {
  * The check refuses before it creates a box when its account is one of `builderAccounts`.
  */
 export interface IsolatedCheckBox {
-  /** Client authenticated with the check's own key. */
-  client: Pick<Sandbox, 'createIsolated' | 'getIdentity'>
+  /**
+   * Client authenticated with the check's own key: a `Sandbox` from SDK 0.46 or later.
+   * Written as its two methods because the Runtime peer range admits SDKs without `createIsolated`.
+   */
+  client: {
+    getIdentity(): Promise<{ customerId: string }>
+    createIsolated(
+      options: Omit<CreateSandboxOptions, 'ownerContext'>,
+      requestOptions?: { signal?: AbortSignal },
+    ): Promise<SandboxInstance>
+  }
   /** `customerId` from `Sandbox.getIdentity()` for every Sandbox key the judged run holds. */
   builderAccounts: readonly [string, ...string[]]
   /** Sandbox environment or image that holds the check's toolchain. */
