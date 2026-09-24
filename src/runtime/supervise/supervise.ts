@@ -1798,6 +1798,11 @@ export interface SuperviseOptions {
   /** Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
    *  at observation time — nothing is killed or retried. Omit = the runtime default. */
   readonly stallAfterMs?: number
+  /** Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
+   *  re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
+   *  workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
+   *  supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default. */
+  readonly awaitTimeoutMs?: number
   /** Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
    *  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
    *  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
@@ -1983,6 +1988,7 @@ const superviseOptionKeys = [
   'runId',
   'signal',
   'stallAfterMs',
+  'awaitTimeoutMs',
   'steerDir',
   'stopRule',
   'watchWorkers',
@@ -3170,6 +3176,9 @@ function superviseInternal(
           ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
+          ...(options.awaitTimeoutMs !== undefined
+            ? { awaitTimeoutMs: options.awaitTimeoutMs }
+            : {}),
           ...(options.continuityByProfile
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
@@ -3361,6 +3370,7 @@ function superviseInternal(
       ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
+      ...(options.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: options.awaitTimeoutMs } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
       ...(options.stopRule ? { stopRule: options.stopRule } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),

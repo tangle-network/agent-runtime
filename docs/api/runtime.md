@@ -15383,6 +15383,19 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 [`SuperviseOptions`](#superviseoptions).[`stallAfterMs`](#stallafterms-3)
 
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
+ re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
+ workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
+ supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`awaitTimeoutMs`](#awaittimeoutms-1)
+
 ##### runDir?
 
 > `readonly` `optional` **runDir?**: `string`
@@ -19587,6 +19600,15 @@ Omit = off (status quo — no online watching, no extra events).
 Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
  at observation time — nothing is killed or retried. Omit = the runtime default.
 
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
+ re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
+ workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
+ supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+
 ##### continuityByProfile?
 
 > `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
@@ -20619,6 +20641,13 @@ Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so 
 > `readonly` `optional` **stallAfterMs?**: `number`
 
 Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default.
+
+##### awaitTimeoutMs?
+
+> `readonly` `optional` **awaitTimeoutMs?**: `number`
+
+Router-driver arm only: max ms one `await_event` blocks before returning `{ pending }`. The
+ harness arm keeps the fence derived from its MCP request timeout. Omit = runtime default.
 
 ##### continuityByProfile?
 

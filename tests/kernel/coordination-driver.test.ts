@@ -530,6 +530,63 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       .map((event) => event.turn)
     expect(driverTurns).toEqual([0, 1])
   })
+
+  it('awaitTimeoutMs sets how long one await_event waits for a running worker', async () => {
+    // A worker that settles after 150 ms. With a 20 ms wait the first await_event returns a
+    // pending snapshot; with a 5 s wait the same call returns the worker's settlement.
+    const slowWorker = (): Agent<unknown, unknown> => {
+      const spec: AgentSpec = {
+        profile: testAgentProfile('slow'),
+        harness: null,
+        executor: {
+          runtime: 'router',
+          execute: () => new Promise((resolve) => setTimeout(resolve, 150)),
+          teardown: () => Promise.resolve({ destroyed: true }),
+          resultArtifact: (): ExecutorResult<unknown> => ({
+            outRef: 'slow:done',
+            out: { answer: 'slow' },
+            verdict: { valid: true, score: 1 },
+            spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+          }),
+        },
+      }
+      return { name: 'slow', act: async () => ({}), executorSpec: spec } as Agent<
+        unknown,
+        unknown
+      > & {
+        executorSpec: AgentSpec
+      }
+    }
+    const firstAwait = async (awaitTimeoutMs: number): Promise<string> => {
+      SHARED_BLOBS = new InMemoryResultBlobStore()
+      const seen: SeenMessages = []
+      const chat = scriptedBrain(
+        [
+          { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }] },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ],
+        seen,
+      )
+      const root = driverAgent({ ...driverOpts('root', chat, slowWorker), awaitTimeoutMs })
+      await createSupervisor<unknown, unknown>().run(root, 'wait for it', {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: `cd-await-${awaitTimeoutMs}`,
+        journal: new InMemorySpawnJournal(),
+        blobs: SHARED_BLOBS,
+        executors: createExecutorRegistry(),
+        maxDepth: 2,
+        now: () => 0,
+      })
+      const tools = seen[2]!.filter((m) => m.role === 'tool')
+      return String(tools[tools.length - 1]?.content ?? '')
+    }
+
+    expect(await firstAwait(20)).toContain('"pending":true')
+    const settled = await firstAwait(5_000)
+    expect(settled).not.toContain('"pending":true')
+    expect(settled).toContain('"type":"settled"')
+  })
 })
 
 /** Discover every tree key the in-memory journal has begun (test-only introspection, mirroring
