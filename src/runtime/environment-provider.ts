@@ -745,6 +745,7 @@ function createProviderExecutor(
   let workspaceCapturePromise: Promise<AgentCandidateWorkspaceSnapshotEvidence> | undefined
   let workspaceCleanupPromise: Promise<TeardownAnswer> | undefined
   let retainedReleasePromise: Promise<ReadonlyArray<EnvironmentTeardownReceipt>> | undefined
+  let releaseReadTried = false
   let workspaceOutcome: AgentRunOutcome | undefined
   let workspacePreservationRequired = false
   let workspaceRunActive = false
@@ -1258,8 +1259,11 @@ function createProviderExecutor(
           // dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24,
           // 105 carry `enumeration-failed`. The release is the last moment the box exists, so a
           // box it can reach is read once more before it is destroyed. Only a capture replaces
-          // the earlier receipt; a second failure keeps the reason the first one named.
-          if (harnessTranscript.status !== 'captured') {
+          // the earlier receipt; a second failure keeps the reason the first one named. One try
+          // per executor: the read shares the release's bound, and a retry of a refused destroy
+          // must not wait on a box that already failed to answer.
+          if (harnessTranscript.status !== 'captured' && !releaseReadTried) {
+            releaseReadTried = true
             const capture = await captureHarnessTranscript(
               target as Parameters<typeof captureHarnessTranscript>[0],
               profile.harness,
