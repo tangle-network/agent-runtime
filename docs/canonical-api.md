@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.259.1.**
+> **Version 0.260.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.185.0 <0.187.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0`.
@@ -212,6 +212,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Stand up a **product eval leaderboard** (declare `cases` + `prompt` + `score` → harness×model matrix + ranked board): START HERE (product leaderboards) | `defineLeaderboard(spec)`: `/kernel` (every default overridable: `backends`/`dispatch`/`judges` seams; `runProfileMatrix` stays public as the escape floor; `toBenchmarkAdapter()` registers it into a benchmark registry) | the hand-rolled `expandProfileAxes` + `loopDispatch` + `runProfileMatrix` assembly (~650 lines/product) with its stale cell-cache, zero-token stub-cell, and missing-model-snapshot footguns |
 | Render a **multi-profile × multi-axis benchmark leaderboard** (ranked board + score matrix + SVG/HTML charts) from an EXISTING fleet of matrix runs | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml`: `/kernel` (feed it `runProfileMatrix().records`, any domain; `defineLeaderboard` calls these for you) | a per-benchmark report/chart renderer; hand-rolled SVG/markdown tables; a curated subset of axes |
 | Read ONE execution's complete tree — every node's ids, usage by token class, cost with provenance, timing, receipts, and the run's inclusive and exclusive totals | `projectPursuit(records)` over a `FileObserverJournal` (or `supervisePursuit(...)`, which returns the projection, holds `supervise.lock` for the call, and leaves `result.json` at settle or `failure.json` on a throw beside `observer.jsonl`): `/durable` — a node's settled spend already contains the child work its nested tree reported, so `totals.inclusive` sums the run's top-level nodes and `totals.exclusiveByNode` telescopes back to it; a channel no provider reported stays ABSENT and the node is named in `spendGaps` | combining `loadTopSnapshot`/`TopSnapshot` (`/tui`) with root stream events to build totals — that projection is the experimental operator view over on-disk run state, carries no model-call identity, and double counts when joined; or a second per-node cost tally |
+| Start a version of a settled run with one profile change (a run-level fork) | `supervisePursuit(parentProfile, parentTask, { runDir, runId, budget, ..., fork: { runDir: parentRunDir, settleDigest, change } })`: `/durable` — `settleDigest` is the sha256 of the parent's `result.json`, the call's profile, task and budget must equal the parent's recorded root, and `change` is one Interface profile diff with an id. Runtime records the parent, the seal, the change and the lineage in the root's `execution.correlation` (`RUN_FORK_CORRELATION_KEYS`). See [the fork rules](#a-run-level-fork-starts-from-the-parents-sealed-root). | copying or re-keying a parent run directory, a `parent` or `diff` field on a record, a caller-written fork correlation key, or a restart that differs from its parent in more than the recorded change |
 | Attach a human terminal to the EXACT process one supervised worker is running in | `scope.interactive(nodeId)` in-process, or `attachWorker(eventDir, nodeId, { providers })` after restart: `/kernel` — returns that child's `RetainedInteractiveRunHandle` (type, resize, ordered replay, detach, acknowledged close, all bound to its admitted execution) when its executor published an exact retained reference. `attachWorker` reloads the runtime-owned binding, verifies the worker remains live in the spawn journal, resolves the named provider, and reconstructs only that reference. Both APIs return a typed `unavailable` reason when they cannot prove an exact live process. | starting a second CLI process that resumes the same conversation and calling it attachment; guessing a provider session from conversation metadata; reading a headless worker's missing session as an empty terminal; a per-runner attach API beside this one |
 | Run a provider-owned interactive worker under a real Supervisor and reconnect it after a coordinator restart | `workerFromInteractiveProvider(provider, options)` with `supervise(..., { makeWorkerAgent, runDir })`: `/kernel` — Runtime persists credential-free admissions, stable process identity, control acknowledgements, and the exact binding that `attachWorker` reloads. The provider remains authoritative for the environment, process, terminal, and native session. | launching a provider process from Braid, writing `.agent/supervisor` from the client, persisting secrets, or inventing a second operation-id/replay protocol |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)`: root export | a second event-bus or callback-prop zoo (there is ONE stream) |
@@ -287,6 +288,28 @@ Custom analysis receives the original context without truncation.
 Keep final grading outside this context and retain provenance through `evidenceRefs`.
 
 For the full export inventory (every primitive, its import path, its summary: generated, never stale), see `docs/api/primitive-catalog.md`; for per-symbol signatures, the per-module `docs/api/` pages. For the recursive atom (recursion · isolated-or-collaborative artifact · conserved budget · analysts) and the two-timescale architecture, see `docs/architecture.md`. For the profile→run→optimize→ship spine in depth, `docs/concepts.md` + `docs/learning-flywheel.md`. For the Intelligence SDK (Observe + the provable-OFF billing boundary), `docs/intelligence-sdk.md`.
+
+### A run-level fork starts from the parent's sealed root
+
+A fork is a new run in its own `runDir`, with its own `runId`.
+It executes the parent's recorded root profile with one `AgentProfileDiff` applied, on the parent's task and budget.
+Before the fork's journal exists, Runtime checks four facts and refuses on any failure:
+
+- The parent's `result.json` bytes hash to `fork.settleDigest`.
+- The parent's journal holds no node without a terminal record, no unbegun owned tree, and no unconfirmed teardown.
+- The call's profile, task and budget produce the parent's journaled root `profileDigest`, `taskDigest` and budget.
+- The change has an `id` and changes the root profile.
+
+The fork reads the parent directory and never writes it.
+The root's `execution.correlation` records `forkParentRunId`, `forkParentSettleDigest`, `forkProfileDiffId` and `lineageRootRunId`.
+Runtime derives `lineageRootRunId` from the parent's own correlation, so every version of one lineage names its first run.
+Group spend by that key, or by the run id when the key is absent, to bill each version under its source lineage.
+A resume of the fork verifies the parent again; the journaled root identity pins the change, so a resume with another change is refused.
+
+A fork carries the parent's recorded inputs, not its settled children, native session, workspace or Knowledge.
+The fork's director starts a new session, so a fork does not save the cost of the parent's work.
+Workspace state that a caller owns travels in the task, or through `captureAgentCandidateWorkspace` and `createAgentCandidateWorkspacePort` before the call.
+Environment checkpoints cannot seed a fork of a settled run, because `supervisePursuit` releases every environment at settle.
 
 ### Codex store accounting
 

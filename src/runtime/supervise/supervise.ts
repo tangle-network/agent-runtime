@@ -2675,6 +2675,23 @@ export function profileGuidanceComposer(
   }
 }
 
+/**
+ * The exact root profile `supervise` executes: `profile` parsed as an AgentProfile, with the
+ * selected `profileGuidance` composed. The root's journaled `identity.profileDigest` is this
+ * value's digest, so a reader that must match a recorded root derives it here, not by hand.
+ */
+export function superviseRootProfile(
+  profile: SupervisorProfile,
+  profileGuidance: SuperviseOptions['profileGuidance'],
+): AgentProfile {
+  const parsedProfile = agentProfileSchema.safeParse(profile)
+  if (!parsedProfile.success) {
+    throw new ValidationError(`supervise: invalid AgentProfile: ${parsedProfile.error.message}`)
+  }
+  const compose = profileGuidanceComposer(profileGuidance)
+  return freezeDetachedProfile(compose ? compose(parsedProfile.data) : parsedProfile.data)
+}
+
 function superviseInternal(
   profile: SupervisorProfile,
   task: unknown,
@@ -2685,14 +2702,8 @@ function superviseInternal(
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
-  const parsedProfile = agentProfileSchema.safeParse(profile)
-  if (!parsedProfile.success) {
-    throw new ValidationError(`supervise: invalid AgentProfile: ${parsedProfile.error.message}`)
-  }
   const composeSpawnProfile = profileGuidanceComposer(options.profileGuidance)
-  const canonicalProfile = freezeDetachedProfile(
-    composeSpawnProfile ? composeSpawnProfile(parsedProfile.data) : parsedProfile.data,
-  )
+  const canonicalProfile = superviseRootProfile(profile, options.profileGuidance)
   assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   const canonicalTask = freezeDetached(task)
   if (options.makeWorkerAgent && options.authorizeSpawn) {
