@@ -11,6 +11,7 @@ The driver re-enters with the original task and the coordinator's run state, as 
 Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
 The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
+The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses too: an operator restores the credential, and the agent can only wait. The caller's own key refused (401 `invalid_api_key`) stays terminal.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
 ## 0.262.0
 

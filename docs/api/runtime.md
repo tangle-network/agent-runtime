@@ -29010,8 +29010,9 @@ How one driver failure is answered.
 
  - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
  - `transient`: a foreign accident. It is retried under `maxAttempts` and the barren streak.
- - `unavailable`: the upstream refused for capacity (quota, rate limit, overload). The driver
-   pauses and re-enters, and only the deadline, the budget, and cancellation bound the pauses.
+ - `unavailable`: the upstream cannot serve now (quota, rate limit, overload, or the router's
+   own provider credential refused). The driver pauses and re-enters, and only the deadline, the
+   budget, and cancellation bound the pauses.
 
 ***
 

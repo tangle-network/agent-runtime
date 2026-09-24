@@ -1155,18 +1155,24 @@ describe('an unavailable upstream', () => {
   })
 
   it('reads text only toward pausing, never toward ending a run', () => {
-    // Prose that mentions a quota is not a code, and a credential the upstream rejected is not
-    // capacity: both keep their earlier classes.
+    // Prose that mentions a quota is not a code: it keeps its earlier class.
     expect(classifyDriverFailure(new Error('the workspace quota for this tool was exceeded'))).toBe(
       'transient',
     )
+    // The router's own provider credential refused is a wait for an operator, not a driver fault.
+    const routerKey = new HarnessTurnFailedError('tangle-sandbox', {
+      error: 'No provider served model "x" (provider_key_invalid)',
+    })
+    expect(classifyDriverFailure(routerKey)).toBe('unavailable')
+    expect(upstreamUnavailableSignal(routerKey)).toBe('provider_key_invalid')
+    // The caller's own key refused by the router stays terminal: a 401 decides before any code.
     expect(
       classifyDriverFailure(
-        new HarnessTurnFailedError('tangle-sandbox', {
-          error: 'No provider served model "x" (provider_key_invalid)',
+        new BackendTransportError('bridge', 'invalid_api_key provider_key_invalid', {
+          status: 401,
         }),
       ),
-    ).toBe('transient')
+    ).toBe('terminal')
     // A status decides before any text: a 401 whose body quotes a capacity code stays terminal.
     expect(
       classifyDriverFailure(
