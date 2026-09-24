@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.264.0
+
+One pursuit's own tree can now grow to hundreds of agents; four structural limits are removed.
+
+A spawn past the worker bound waits in a queue instead of being refused.
+`SuperviseOptions.workerSlots` replaces `maxLiveWorkers`.
+It takes a number, or one `createWorkerSlots(n)` allocator that several runs in one process share.
+A spawn past the bound keeps its budget slice and starts when a slot frees, as a node with status `queued`.
+The queue releases the deepest waiting spawn first, then the oldest.
+The bound counts working agents: a manager lends its slot to its first running child and takes it back when its last running child ends.
+Nested waits therefore cannot deadlock, whatever the bound and depth.
+`Scope.spawn` no longer returns `max-live-workers`, and `spawn_worker` reports `status`, `queued` and `freeSlots`.
+`Scope.workerCapacity` reads `working`, `queued` and `freeSlots`.
+`TreeView.inFlight` counts queued nodes.
+`reservationPolicy` keeps only `ownerShare`; the per-depth reserved slots are gone, since lending replaces them.
+`effectiveConcurrency` and `ConcurrencyCaps` are removed.
+
+Children inherit spawn rights.
+A spawned profile that declares no Runtime coordination tool receives its manager's coordination grants, plus `submit_result`, so every child can lead a team of its own.
+An author's explicit coordination entry stands, and a `false` entry keeps the child a leaf.
+A child the run cannot drive as a manager stays a leaf: no driver for its harness, or no `router` for a harness-less profile.
+Every child also stays a leaf in a run without a completion check.
+`inheritSpawnRights: false` runs every profile exactly as written; `runGraph` always sets it.
+
+Depth is bounded by the budget.
+`DEFAULT_MAX_DEPTH` is 16 for both `supervise` and `createSupervisor`, which used 8 and 4.
+Each level's slice comes out of the level above, so the pool ends a tree long before the ceiling.
+With an `ownerShare`, a default child slice is a quarter of what the manager's children may reserve, so four default children fit beside the manager's own share.
+
+Each manager carries a bounded account of its team to its lead.
+A settlement of a child that led workers carries `subtree`: agents and depth below it, done and down counts, and at most `SUBTREE_RESULT_LIMIT` (8) of its own direct children's results, best first, each with its `outRef`.
+The `settled` journal event, replay and the `agent.child` hook carry the same field.
+`observe_agent({ outRef })` reads a result listed in a summary the manager received, and refuses any other digest.
+
+A lead takes back what a stalled worker holds.
+The new `cancel_worker` verb (grant `agent_runtime_coordination_cancel_worker`) cancels one of the manager's own running or queued workers, and its unspent slice returns to the pool when it settles.
+A `budget-exhausted` refusal names it.
+Measured on factory-test-2 continue-top5 (2026-09-23): four workers that never ran held 16M of an 18M-token pool, while their director saw the stall and had no way to reclaim it.
+
 ## 0.263.0
 
 A driver whose upstream refuses for capacity now pauses and re-enters instead of failing.

@@ -2280,6 +2280,25 @@ OPT-IN standing guidance from the profile knowledge base
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`profileGuidance`](runtime.md#profileguidance-1)
 
+##### inheritSpawnRights?
+
+> `readonly` `optional` **inheritSpawnRights?**: `boolean`
+
+Whether a spawned profile that declares no Runtime coordination tool receives its manager's
+ coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+ can still deliver work it does itself), so every child can lead children of its own. Default
+ `true`. A child whose author wrote any coordination entry, true or false, keeps what was
+ written (a `false` entry is dropped once it has kept the child a leaf). A child this run
+ cannot drive as a manager (no driver for its harness, or no `router` for a harness-less one)
+ stays a leaf, and so does every child of a run with no completion check (`deliverable` or
+ `resolveDeliverable`), since a manager delivers its own work only through `submit_result`.
+ `false` runs every authored profile exactly as written. Applies to backend-derived workers;
+ a caller-owned `makeWorkerAgent` decides its own children.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`inheritSpawnRights`](runtime.md#inheritspawnrights)
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
@@ -2477,8 +2496,8 @@ Each handler receives that manager scope's live cancellation signal in its trust
 context, including recursive parent and root cascades, plus `context.verbs` — that manager's
 own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
 chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
+the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 
@@ -2568,7 +2587,9 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-18)
 
-Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+ of the part of the pool children may reserve (the pool less any owner share). A nested
+ manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn.
 
 ###### Inherited from
 
@@ -2578,23 +2599,27 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](runtime.md#recursivereservationpolicy)
 
-Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+ free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+ beside it. Default: off.
 
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
 
-Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
- root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
- the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound).
+Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+ `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+ its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+ lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+ slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound).
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
 
 ##### analysts?
 
@@ -2767,6 +2792,10 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
+
+Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+ level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+ `DEFAULT_MAX_DEPTH` (16).
 
 ###### Inherited from
 

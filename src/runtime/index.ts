@@ -1010,7 +1010,12 @@ export {
   type SteerableSandboxArgs,
   type SteerableSandboxSession,
 } from './supervise/sandbox-session'
-export { createScope, type ScopeArgs, settledToIteration } from './supervise/scope'
+export {
+  createScope,
+  type ScopeArgs,
+  SUBTREE_RESULT_LIMIT,
+  settledToIteration,
+} from './supervise/scope'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.
