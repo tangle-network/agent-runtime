@@ -6,6 +6,7 @@ import {
   type AgentRunCancellationRequest,
   agentRunCancellationRequestDigest,
   canonicalAgentProfileDigest,
+  interactionResponseCommandDigest,
 } from '@tangle-network/agent-interface'
 import type {
   BackendType,
@@ -1694,6 +1695,81 @@ describe('environment provider adapters', () => {
       name: 'AbortError',
       message: 'stop waiting',
     })
+  })
+
+  it('forwards an inner adapter interaction binding through the Sandbox session', async () => {
+    const controlRef: AgentExactRunControlRef = {
+      runId: 'inner-provider-run',
+      provider: 'tangle-sandbox',
+      environmentId: 'sbx-inner-provider',
+      sessionId: 'inner-provider-session',
+      executionId: 'inner-provider-execution',
+      requestDigest: `sha256:${'a'.repeat(64)}` as `sha256:${string}`,
+    }
+    const forwarded: string[] = []
+    const box = {
+      id: controlRef.environmentId,
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {},
+      session() {
+        return {
+          id: controlRef.sessionId,
+          async respondToInteraction(command: {
+            operationId: string
+            binding: { provider: string }
+            commandDigest: string
+          }) {
+            forwarded.push(command.binding.provider)
+            return {
+              acknowledgement: {
+                operationId: command.operationId,
+                binding: command.binding,
+                commandDigest: command.commandDigest,
+                status: 'accepted',
+              },
+            }
+          },
+        }
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const environment = await sandboxClientAsProvider({
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }).create({ profile: { name: 'worker' } })
+    const session = environment.session?.(controlRef.sessionId, { controlRef })
+    if (!session?.respondToInteraction) throw new Error('expected interaction session')
+    const binding = {
+      runId: controlRef.runId,
+      provider: 'opencode',
+      environmentId: controlRef.environmentId,
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+      interactionId: 'inner-provider-ask',
+      requestDigest: `sha256:${'b'.repeat(64)}` as `sha256:${string}`,
+    }
+    const response = { id: binding.interactionId, outcome: 'accepted' as const }
+    const command = {
+      operationId: 'inner-provider-answer',
+      binding,
+      commandDigest: interactionResponseCommandDigest({ binding, response }),
+      response,
+    }
+    await expect(session.respondToInteraction(command)).resolves.toMatchObject({
+      status: 'accepted',
+      binding: { provider: 'opencode' },
+    })
+    expect(forwarded).toEqual(['opencode'])
+    const foreignBinding = { ...binding, executionId: 'other-execution' }
+    await expect(
+      session.respondToInteraction({
+        ...command,
+        binding: foreignBinding,
+        commandDigest: interactionResponseCommandDigest({ binding: foreignBinding, response }),
+      }),
+    ).rejects.toThrow('interaction response targeted a different execution')
+    expect(forwarded).toEqual(['opencode'])
   })
 
   it('round-trips exact dispatch identity through both adapter directions', async () => {
