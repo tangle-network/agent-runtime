@@ -41,6 +41,36 @@ describe('captureHarnessTranscript', () => {
     expect(evidence.artifact.files.map((f) => f.content).join('')).toMatch(/the answer/u)
   })
 
+  it('enumerates the opencode session records a Tangle box and a shared-box worker keep', async () => {
+    let command = ''
+    const evidence = await captureHarnessTranscript(
+      {
+        exec: async (next: string) => {
+          command = next
+          return {
+            stdout: [
+              '/home/agent/.opencode/sessions/retained-session-1.json',
+              '/home/agent/.opencode/messages/retained-session-1/m1.json',
+            ].join('\n'),
+            exitCode: 0,
+          }
+        },
+        read: async () => '{"role":"assistant","text":"found it"}',
+      },
+      'opencode',
+    )
+    // opencode keeps its own sessions in SQLite, so the roots name the JSON records instead.
+    for (const root of [
+      '.opencode/sessions',
+      '.opencode/messages',
+      '.local/share/opencode/export',
+    ]) {
+      expect(command).toContain(`"$HOME/${root}"`)
+    }
+    expect(evidence.status).toBe('captured')
+    if (evidence.status === 'captured') expect(evidence.fileCount).toBe(2)
+  })
+
   it('never reads a credential that sits inside a session tree', async () => {
     const reads: string[] = []
     const evidence = await captureHarnessTranscript(

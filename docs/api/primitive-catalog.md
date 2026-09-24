@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 978 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 991 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -670,6 +670,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 978 exports.
 | `serveCoordinationMcp` | function | Stand up the existing coordination tools with bounded HTTP access over one live scope. |
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
+| `sharedBoxPlacement` | function | Place accepted workers as processes in a pool of shared Sandbox boxes. |
+| `sharedBoxRefusal` | function | Why a shared box cannot carry `profile`, or `undefined` when it can. |
+| `sharedWorkerClientName` | function | The router client name of the worker that runs supervised node `nodeId`. |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `startRetainedInteractiveRun` | function | Start one retry-safe native coding-agent TUI without dispatching a headless turn. |
 | `startRetainedRun` | function | Dispatch one detached, replayable run and return only after exact durable |
@@ -735,6 +738,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 978 exports.
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
 | `DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS` | const | The idle timeout this adapter sends when nothing else names one: 1,800 seconds. |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
+| `DEFAULT_SHARED_BOX_RESOURCES` | const | The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus |
+| `DEFAULT_SHARED_BOX_WORKERS` | const | The most workers one default box carries at once. |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
 | `defaultAuditorInstruction` | const | Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. |
@@ -752,6 +757,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 978 exports.
 | `PEER_MAIL_WIRE_KEY` | const | The wire property carrying an envelope to a worker inbox. Deliberately its OWN discriminant: |
 | `peerMailVerbNames` | const | The tool names a mail capability endpoint serves. It serves NOTHING else. |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
+| `ROUTER_CLIENT_HEADER` | const | The request header the router records as a usage row's `clientName`. |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
@@ -1046,6 +1052,13 @@ Import from `@tangle-network/agent-runtime/kernel` — 978 exports.
 | `ShapeBudget` | interface | Budget knobs a shape reads to size its fanout/children WITHOUT owning the conserved pool. |
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
 | `ShapeRegistry` | interface | The open shape registry — the extension point that makes a new loop-shape ONE file + one |
+| `SharedBoxCloseReceipt` | interface | What {@link SharedBoxPlacement.close} did to each box. |
+| `SharedBoxHandle` | interface | The Sandbox box surface a shared box uses. The Sandbox SDK's `SandboxInstance` satisfies it. |
+| `SharedBoxPlacement` | interface | A shared-box placement: the provider Runtime uses for a profile the placement accepts. |
+| `SharedBoxPlacementOptions` | interface | Options for {@link sharedBoxPlacement}. |
+| `SharedBoxProcess` | interface | One process in a shared box, as the Sandbox SDK's process manager returns it. |
+| `SharedBoxStats` | interface | Counts that show how the pool placed its workers. |
+| `SharedWorkerIdentity` | interface | Who a shared worker is, for the router rows its model calls leave on the box's key. |
 | `SpawnForest` | interface | Complete cold-readable view of one recursive supervision run. |
 | `SpawnForestEvent` | interface | One event with the journal tree that establishes its cursor namespace. |
 | `SpawnForestInDoubtNode` | interface | A spawned worker with no terminal record in a cold snapshot. Resume treats the same state as |

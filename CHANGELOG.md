@@ -14,6 +14,26 @@ It applies to a retained provider execution under a Scope, the path a supervised
 The refusal codes and the pause rule moved to one module that the driver and the leaf both read; `UnavailablePausePolicy` is exported.
 Measured 2026-09-24 on play anomaly-referee-v3d: 15 of 23 down children ended on `provider_quota_exhausted`, and in one lead lane five of five children had run 3 to 9 minutes and spent 117k to 856k input tokens first.
 
+Many workers can now share one Sandbox box.
+`sharedBoxPlacement({ client, box?, workersPerBox? })` runs each accepted worker as its own `opencode run` process in a pooled box, with its own working directory, HOME and materialized profile.
+`createExecutor({ backend: 'provider', provider, shared })` sends a profile the pool accepts to it and keeps a dedicated environment from `provider` for every other profile; `sharedBoxRefusal` names why a profile needs its own box.
+A manager never shares: its coordination credential is create-time box environment.
+The workers of one box share the box's router key, and each worker of a supervised node names itself to the router: its opencode provider sends `x-tangle-client: agent-runtime-node/<nodeId>`, which the router stores as the usage row's `clientName`.
+`tangle-admin router-spend --key <box key> --json` then returns one `by_client` row per worker, so a keeper prices a shared worker by its node id; a call without a node id stays charged to the box.
+`SharedBoxPlacement.providerFor({ nodeId })` gives the provider for one worker, and `sharedWorkerClientName` and `ROUTER_CLIENT_HEADER` name the value and the header.
+Measured 2026-09-24 with 64 workers in 8 boxes: the 8 box keys held 64 `by_client` rows, 8 per key, and no request without a client name; the router charged $0.073 in all, $0.0007 to $0.0018 per worker.
+The router counted 13% more prompt tokens than the workers' own step receipts, so price a shared worker from its router row, not from its token receipts.
+The pool fills a box before it creates the next, deletes a box when its last worker releases it, and reports boxes, workers and create latency through `stats()`; `close()` deletes what remains.
+`workersPerBox` defaults to 8 because a Tangle box has a fixed 512-task pids limit and an opencode worker holds about 34 tasks; at the limit the box's sidecar restarts.
+Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.
+Measured 2026-09-24: 64 workers in 8 boxes, 64 of 64 answering from their own instructions and brief, each transcript carrying only its own worker's text, 41.5 s wall; 16 workers in dedicated boxes took 16 boxes and 92 s.
+Sidecar sessions were not used for this, because 7 of 8 concurrent sessions in one box answered with another session's instructions.
+A shared worker does not yet take the leaf pause above: the pool declares no `retainedControl`, so a capacity refusal still settles a shared leaf `down`.
+
+opencode transcript capture now reads the sidecar's per-session records under `.opencode/sessions` and `.opencode/messages`, and a shared worker's `opencode export`.
+Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
+For opencode in a dedicated Tangle box this ends the `no-transcript` receipts that 0.264.0 describes: 12 of 12 successful dedicated workers captured their transcript. Claude Code and Codex boxes still read `no-transcript` (#1360).
+
 ## 0.264.0
 
 Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.

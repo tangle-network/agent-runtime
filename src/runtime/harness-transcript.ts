@@ -39,7 +39,16 @@ import type { ResultBlobStore } from './supervise/types'
 const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'claude-code': Object.freeze(['.claude/projects', '.claude/history.jsonl', '.claude/todos']),
   codex: Object.freeze(['.codex/sessions', '.codex/history.jsonl']),
-  opencode: Object.freeze(['.local/share/opencode/storage', '.local/share/opencode/log']),
+  // Current opencode keeps sessions in SQLite, which a text capture cannot carry. A shared-box
+  // worker exports each session as JSON under `export`; a dedicated Tangle box's sidecar keeps
+  // its own per-session record under `.opencode/sessions` and `.opencode/messages`.
+  opencode: Object.freeze([
+    '.local/share/opencode/storage',
+    '.local/share/opencode/export',
+    '.local/share/opencode/log',
+    '.opencode/sessions',
+    '.opencode/messages',
+  ]),
   // Pi keeps a session tree per cwd; it had no entry, so a pi child captured nothing.
   pi: Object.freeze(['.pi/agent/sessions']),
 })

@@ -743,6 +743,16 @@ export const DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY: AgentProfileSecurityPolic
   allowConnections: false,
 })
 
+/**
+ * A manager keeps a dedicated environment. It serves its coordination credential through
+ * create-time environment, and every co-tenant of a shared box could read it.
+ */
+function managerExecutorConfig(config: ExecutorConfig): ExecutorConfig {
+  if (config.backend !== 'provider' || config.shared === undefined) return config
+  const { shared: _shared, ...dedicated } = config
+  return Object.freeze(dedicated)
+}
+
 function isExternalSupervisor(profile: AgentProfile): boolean {
   return harnessRunsAgent(profile.harness)
 }
@@ -796,7 +806,9 @@ function driveHarnessFromBackend(
     )
   }
   const turnCap = maxTurns ?? 0
-  const capturedBackend = captureReusableExecutorConfig(backend, 'driveHarnessFromBackend')
+  const capturedBackend = managerExecutorConfig(
+    captureReusableExecutorConfig(backend, 'driveHarnessFromBackend'),
+  )
   const boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
   const baseFactory = createExecutor(boundBackend)
   const ownerRuntime =
