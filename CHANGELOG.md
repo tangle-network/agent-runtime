@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.259.1
+
+Admit Sandbox prereleases at base `0.49.0` through the Runtime peer range `>=0.36.4 <0.48.0 || ^0.49.0-0`.
+This admits the public `0.49.0-l9.20260924035255.062dd6f` snapshot and stable `0.49.x`, but not `0.49.1` prereleases or Sandbox 0.48.
+The packed cohort can install the exact prerelease archive as an extra row while retaining its stable Sandbox rows.
+
 ## 0.259.0
 
 Admit Sandbox SDK 0.49 while retaining the verified older minors and excluding 0.48.

@@ -75,11 +75,15 @@ export function expectedPeerRange(version) {
 
 /** A caret range admits versions through the next compatible semver boundary. */
 export function caretAdmits(range, version) {
-  const floor = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range)
-  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  const floor = /^\^(\d+)\.(\d+)\.(\d+)(-0)?$/.exec(range)
+  const found = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version)
   if (floor === null || found === null) return false
   const [floorMajor, floorMinor, floorPatch] = floor.slice(1).map(Number)
   const [major, minor, patch] = found.slice(1).map(Number)
+  // A -0 caret admits prereleases only at its own base version.
+  if (found[4] && (floor[4] !== '-0' || major !== floorMajor || minor !== floorMinor || patch !== floorPatch)) {
+    return false
+  }
   if (major !== floorMajor) return false
   if (floorMajor > 0) {
     return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
@@ -111,7 +115,7 @@ export function cohortRange(spec) {
 /** A `>=floor <ceiling` window admits a version at or above the floor and below the ceiling. */
 export function windowAdmits(range, version) {
   const window = /^>=(\d+)\.(\d+)\.(\d+)\s+<(\d+)\.(\d+)\.(\d+)$/.exec(range)
-  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  const found = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/.exec(version)
   if (window === null || found === null) return false
   const parts = window.slice(1).map(Number)
   const order = ([major, minor, patch]) =>
