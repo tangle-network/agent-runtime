@@ -46,12 +46,18 @@
  * @experimental
  */
 
+import { resolve } from 'node:path'
 import {
   type AgentProfile,
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import {
+  FileResultBlobStore,
+  FileSpawnJournal,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../durable/spawn-journal'
 import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
@@ -825,8 +831,23 @@ export function superviseAgentGraph(
     opts,
     brain,
   )
-  const journal = opts.journal ?? new InMemorySpawnJournal()
-  const blobs = opts.blobs ?? new InMemoryResultBlobStore()
+  // A durable graph needs its journal AND blob store on disk. `supervise()` already resolves this
+  // for its own context (`options.journal ?? createFileRunContext(runDir).journal`), but the graph
+  // passes an explicit `journal`/`blobs` — the edge ledger's twin writes ride on it — so the graph
+  // must do the same resolution itself or its in-memory default SHADOWS the file stores supervise
+  // would have built: `runGraph({ runDir })` journaled only to the process, a second process
+  // silently restarted the run from scratch, and `runDir/spawn-journal.jsonl` never existed.
+  // Layout owner: `createFileRunContext` (run-context.ts); keep these paths byte-identical to it.
+  const journal =
+    opts.journal ??
+    (opts.runDir !== undefined
+      ? new FileSpawnJournal(`${resolve(opts.runDir)}/spawn-journal.jsonl`)
+      : new InMemorySpawnJournal())
+  const blobs =
+    opts.blobs ??
+    (opts.runDir !== undefined
+      ? new FileResultBlobStore(`${resolve(opts.runDir)}/blobs`)
+      : new InMemoryResultBlobStore())
   const runId =
     opts.runId ??
     `graph-${canonicalCandidateDigest(graph.nodes.map((n) => n.id)).slice('sha256:'.length, 'sha256:'.length + 12)}`
