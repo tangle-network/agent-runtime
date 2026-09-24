@@ -10,6 +10,14 @@ The fork's root records `forkParentRunId`, `forkParentSettleDigest`, `forkProfil
 The parent directory is read and never written.
 A fork carries the parent's recorded inputs only; it does not replay the parent's settled children or continue its native session.
 
+`spawn_worker` accepts `successorOf`, the workerId of a settled worker that the new worker replaces.
+Runtime refuses an id that the manager did not spawn (`successor-unknown`) and a worker that is still live (`successor-live`).
+The executor seam receives the relation as `WorkerSpawnContext.successorOf`.
+The spawn journal records it on the `spawned` event, and the `agent.spawn` hook payload carries it into `observer.jsonl`.
+`projectPursuit` reports it as `PursuitNodeProjection.successorOf`, so a run's record shows which worker took over whose work.
+Direct `Scope` callers pass it as `SpawnOpts.successorOf`.
+Runtime mounts nothing for the successor; the manager puts what the successor needs into its task.
+
 ## 0.259.1
 
 Admit Sandbox prereleases at base `0.49.0` through the Runtime peer range `>=0.36.4 <0.48.0 || ^0.49.0-0`.

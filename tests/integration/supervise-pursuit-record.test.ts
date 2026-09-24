@@ -28,6 +28,7 @@ import {
 } from '../../src/durable/settle-record'
 import { closesCursorSlot, FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
+import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
 import type {
@@ -665,5 +666,103 @@ describe('supervisePursuit root stream', () => {
       | undefined
     expect(failure?.rootStream).toEqual({ ref: sha256Bytes(bytes), events: lines.length })
     expect(await exists(join(runDir, SETTLE_RECORD_FILE))).toBe(false)
+  })
+})
+
+/** One coordination tool call, returning its structured reply (refusals included). */
+async function callTool(
+  url: string,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
+  })
+  const reply = (await response.json()) as {
+    result?: { structuredContent?: Record<string, unknown> }
+  }
+  if (!reply.result?.structuredContent) throw new Error(`${name}: ${JSON.stringify(reply)}`)
+  return reply.result.structuredContent
+}
+
+describe('supervisePursuit successor record', () => {
+  let runDir: string
+  beforeEach(async () => {
+    runDir = await mkdtemp(join(tmpdir(), 'pursuit-successor-'))
+  })
+  afterEach(async () => {
+    await rm(runDir, { recursive: true, force: true })
+  })
+
+  it('records the settled worker a successor replaced, and refuses an unknown or live one', async () => {
+    const runId = 'run:successor'
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const contexts = new Map<string, WorkerSpawnContext | undefined>()
+    const replies: Record<string, Record<string, unknown>> = {}
+    const executed = await run(runDir, runId, {
+      makeWorkerAgent: (profile: { name?: string }, context?: WorkerSpawnContext) => {
+        const name = profile.name ?? 'worker'
+        contexts.set(name, context)
+        return deliveringLeaf(name, name === 'first' ? () => gate : undefined)
+      },
+      driveHarness: (async ({ coordinationMcpUrl: url }) => {
+        const first = await callTool(url, 'spawn_worker', {
+          profile: testAgentProfile('first'),
+          task: 'attempt',
+        })
+        const predecessor = first.workerId as string
+        replies.live = await callTool(url, 'spawn_worker', {
+          profile: testAgentProfile('second'),
+          task: 'replace',
+          successorOf: predecessor,
+        })
+        replies.unknown = await callTool(url, 'spawn_worker', {
+          profile: testAgentProfile('second'),
+          task: 'replace',
+          successorOf: `${runId}:s99`,
+        })
+        release()
+        await callTool(url, 'await_event', { kinds: ['settled'] })
+        replies.successor = await callTool(url, 'spawn_worker', {
+          profile: testAgentProfile('second'),
+          task: 'replace',
+          successorOf: predecessor,
+        })
+        await callTool(url, 'await_event', { kinds: ['settled'] })
+        await callTool(url, 'stop')
+      }) as DriveHarness,
+    })
+
+    expect(executed.result.kind).toBe('winner')
+    expect(replies.live).toMatchObject({ error: 'successor-live' })
+    expect(replies.unknown).toMatchObject({ error: 'successor-unknown' })
+    const predecessor = `${runId}:s0`
+    expect(replies.successor).toMatchObject({ successorOf: predecessor })
+    const successor = replies.successor?.workerId as string
+    // The executor seam, the spawn journal, and the observer projection name the same predecessor.
+    expect(contexts.get('second')?.successorOf).toBe(predecessor)
+    expect(contexts.get('first')?.successorOf).toBeUndefined()
+    const events =
+      (await new FileSpawnJournal(join(runDir, 'spawn-journal.jsonl')).loadTree(runId)) ?? []
+    const spawned = events.filter((event) => event.kind === 'spawned' && event.id !== runId)
+    expect(
+      spawned.map((event) => [event.id, 'successorOf' in event ? event.successorOf : undefined]),
+    ).toEqual([
+      [predecessor, undefined],
+      [successor, predecessor],
+    ])
+    const nodes = new Map(executed.pursuit.nodes.map((node) => [node.id, node]))
+    expect(nodes.get(successor)?.successorOf).toBe(predecessor)
+    expect(nodes.get(predecessor)?.successorOf).toBeUndefined()
   })
 })
