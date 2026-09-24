@@ -998,7 +998,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-22)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-23)
 
 ##### parent?
 
@@ -1066,7 +1066,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-10)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-11)
 
 ##### materialization?
 
@@ -10216,6 +10216,359 @@ Base backoff (ms) for retrying a transient artifact `fs.read` failure; the i-th
 
 ***
 
+### SharedBoxHandle
+
+The Sandbox box surface a shared box uses. The Sandbox SDK's `SandboxInstance` satisfies it.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### fs
+
+> `readonly` **fs**: `object`
+
+###### read()
+
+> **read**(`path`): `Promise`\<`string`\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+`Promise`\<`string`\>
+
+###### write()
+
+> **write**(`path`, `content`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### content
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### process
+
+> `readonly` **process**: `object`
+
+###### spawnExact()
+
+> **spawnExact**(`executable`, `args`, `options?`): `Promise`\<[`SharedBoxProcess`](#sharedboxprocess)\>
+
+###### Parameters
+
+###### executable
+
+`string`
+
+###### args
+
+readonly `string`[]
+
+###### options?
+
+###### cwd?
+
+`string`
+
+###### env?
+
+`Record`\<`string`, `string`\>
+
+###### timeoutMs?
+
+`number`
+
+###### Returns
+
+`Promise`\<[`SharedBoxProcess`](#sharedboxprocess)\>
+
+###### list()
+
+> **list**(): `Promise`\<readonly `object`[]\>
+
+###### Returns
+
+`Promise`\<readonly `object`[]\>
+
+###### get()
+
+> **get**(`pid`): `Promise`\<[`SharedBoxProcess`](#sharedboxprocess) \| `null`\>
+
+###### Parameters
+
+###### pid
+
+`number`
+
+###### Returns
+
+`Promise`\<[`SharedBoxProcess`](#sharedboxprocess) \| `null`\>
+
+#### Methods
+
+##### exec()
+
+> **exec**(`command`, `options?`): `Promise`\<\{ `exitCode?`: `number` \| `null`; `stdout?`: `string`; `stderr?`: `string`; \}\>
+
+###### Parameters
+
+###### command
+
+`string`
+
+###### options?
+
+###### timeoutMs?
+
+`number`
+
+###### Returns
+
+`Promise`\<\{ `exitCode?`: `number` \| `null`; `stdout?`: `string`; `stderr?`: `string`; \}\>
+
+##### delete()
+
+> **delete**(): `Promise`\<`unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### SharedBoxProcess
+
+One process in a shared box, as the Sandbox SDK's process manager returns it.
+
+#### Properties
+
+##### pid
+
+> `readonly` **pid**: `number`
+
+#### Methods
+
+##### wait()
+
+> **wait**(): `Promise`\<`number`\>
+
+###### Returns
+
+`Promise`\<`number`\>
+
+##### kill()
+
+> **kill**(`signal?`, `options?`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### signal?
+
+`"SIGKILL"` \| `"SIGTERM"`
+
+###### options?
+
+###### tree?
+
+`boolean`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### stdout()
+
+> **stdout**(): `AsyncIterable`\<`string`\>
+
+###### Returns
+
+`AsyncIterable`\<`string`\>
+
+##### stderr()
+
+> **stderr**(): `AsyncIterable`\<`string`\>
+
+###### Returns
+
+`AsyncIterable`\<`string`\>
+
+***
+
+### SharedBoxPlacementOptions
+
+Options for [sharedBoxPlacement](#sharedboxplacement-1).
+
+#### Properties
+
+##### client
+
+> **client**: [`SandboxClient`](#sandboxclient-6)
+
+The Sandbox client that creates and deletes the shared boxes.
+
+##### box?
+
+> `optional` **box?**: `Omit`\<`CreateSandboxOptions`, `"backend"`\>
+
+Create options for every shared box: resources, egress, secrets, lifetime and billing.
+Runtime owns `backend`, so the box's sidecar never serves a worker turn.
+
+##### workersPerBox?
+
+> `optional` **workersPerBox?**: `number`
+
+The most workers one box carries at once. Defaults to [DEFAULT\_SHARED\_BOX\_WORKERS](#default_shared_box_workers).
+
+##### workerRoot?
+
+> `optional` **workerRoot?**: `string`
+
+Absolute directory in each box that holds one directory per worker.
+
+##### retryDelayMs?
+
+> `optional` **retryDelayMs?**: `number`
+
+First wait before repeating a Sandbox call that failed transiently; doubles per attempt.
+
+***
+
+### SharedBoxStats
+
+Counts that show how the pool placed its workers.
+
+#### Properties
+
+##### boxesCreated
+
+> `readonly` **boxesCreated**: `number`
+
+##### boxesLive
+
+> `readonly` **boxesLive**: `number`
+
+##### workersPlaced
+
+> `readonly` **workersPlaced**: `number`
+
+##### workersLive
+
+> `readonly` **workersLive**: `number`
+
+##### peakWorkersPerBox
+
+> `readonly` **peakWorkersPerBox**: `number`
+
+The most workers any one box carried at the same time.
+
+##### boxes
+
+> `readonly` **boxes**: readonly `object`[]
+
+Every box this pool created, with the workers it served.
+
+***
+
+### SharedBoxCloseReceipt
+
+What [SharedBoxPlacement.close](#close-2) did to each box.
+
+#### Properties
+
+##### boxId
+
+> `readonly` **boxId**: `string`
+
+##### deleted
+
+> `readonly` **deleted**: `boolean`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+***
+
+### SharedBoxPlacement
+
+A shared-box placement: the provider Runtime uses for a profile the placement accepts.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+The environment provider that places each accepted worker in a shared box.
+
+##### identity
+
+> `readonly` **identity**: `object`
+
+Public identity of this placement, recorded on every execution it serves.
+
+###### id
+
+> `readonly` **id**: `string`
+
+###### digest
+
+> `readonly` **digest**: `string`
+
+#### Methods
+
+##### refusal()
+
+> **refusal**(`profile`): `string` \| `undefined`
+
+Why a shared box cannot carry this profile, or `undefined` when it can.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`string` \| `undefined`
+
+##### stats()
+
+> **stats**(): [`SharedBoxStats`](#sharedboxstats)
+
+###### Returns
+
+[`SharedBoxStats`](#sharedboxstats)
+
+##### close()
+
+> **close**(): `Promise`\<readonly [`SharedBoxCloseReceipt`](#sharedboxclosereceipt)[]\>
+
+Delete every box this placement created and still holds. Call it when the run settles.
+
+###### Returns
+
+`Promise`\<readonly [`SharedBoxCloseReceipt`](#sharedboxclosereceipt)[]\>
+
+***
+
 ### StdioMcpServerSpec
 
 #### Properties
@@ -18680,6 +19033,15 @@ The exact profile must name its harness, and the provider must expose live
 continuation plus session controls. The provider still owns environment
 creation and session semantics.
 
+##### shared?
+
+> `optional` **shared?**: [`SharedBoxPlacement`](#sharedboxplacement)
+
+Place each worker whose profile a shared box can carry as its own process in a pool of shared
+boxes, and keep a dedicated environment from `provider` for every other profile. Build it with
+`sharedBoxPlacement`. A manager never uses it: its coordination credential is create-time
+environment that every co-tenant of a shared box could read.
+
 ***
 
 ### RouterToolsSeam
@@ -20765,7 +21127,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-5)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-6)
 
 ##### assignmentId?
 
@@ -32007,6 +32369,28 @@ stay visibly distinct.
 
 ***
 
+### DEFAULT\_SHARED\_BOX\_WORKERS
+
+> `const` **DEFAULT\_SHARED\_BOX\_WORKERS**: `8` = `8`
+
+The most workers one default box carries at once.
+
+It keeps a worker count that the 512-task pids limit of a Tangle box can hold with headroom
+for the sidecar's own processes and the workers' tool shells: 118 idle tasks plus 8 workers at
+about 34 tasks each is 390. Memory is not the binding limit: 8 workers used about 4 GB in a
+16 GB box. Raise it only for a box whose pids limit was raised with it.
+
+***
+
+### DEFAULT\_SHARED\_BOX\_RESOURCES
+
+> `const` **DEFAULT\_SHARED\_BOX\_RESOURCES**: `Readonly`\<\{ `cpuCores`: `4`; `memoryMB`: `8192`; \}\>
+
+The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus
+ the sidecar, and 4 cores, because the workers wait on the model most of the time.
+
+***
+
 ### strategyAuthorContract
 
 > `const` **strategyAuthorContract**: "\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\n\n  shot(spec?: \{ handle?, messages?, steer?, profile?, tools? \}): Promise\<ShotResult \| null\>\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\n    - steer        =\> a corrective instruction injected before the shot.\n    - profile      =\> a complete AgentProfile — give THIS shot its own instructions,\n      model, skills, tools, hooks, and subagents. Include name, harness, and\n      model: \{ provider, default \}; put standing instructions in prompt.systemPrompt.\n      For example: \{ ...opts.workerProfile, name: 'researcher',\n        prompt: \{ ...opts.workerProfile.prompt,\n          systemPrompt: 'Inspect the evidence before proposing a change.' \} \}.\n      Choose an available model from the current execution setup. Omit profile to use\n      the worker's exact profile. Every shot spends from the same conserved budget.\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\n    Returns null if the attempt failed infra-wise.\n\n  critique(messages): Promise\<string \| null\>\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\n    instruction (or null when it judges the work complete). Costs ~1 completion.\n\n  consult(messages, instruction): Promise\<string \| null\>\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\n    (a decision, a prediction). Costs ~1 completion.\n\n  surface.open(task) / surface.close(handle)\n    Open a persistent artifact you manage yourself (remember to close in a finally).\n    close is idempotent — closing an already-closed handle is a safe no-op.\n\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\n    names from an example kills your shots on every task whose tools differ.\n\nRules:\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\n  crashes the whole benchmark run.\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\n  ShotResult.messages unchanged.\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\n  you reached (keep-best, never final-state), progression = score after each shot.\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\n\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/kernel'\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, opts, budget, shot, critique, listTools \}) =\> \{\n  // your composition (listTools comes from the destructured context — it is NOT a global)\n\})\n"
@@ -35183,6 +35567,53 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 #### Returns
 
 `Promise`\<[`SandboxRun`](#sandboxrun)\<`Out`\>\>
+
+***
+
+### sharedBoxRefusal()
+
+> **sharedBoxRefusal**(`profile`): `string` \| `undefined`
+
+Why a shared box cannot carry `profile`, or `undefined` when it can.
+
+A shared box carries a profile whose whole behavior reaches an opencode process through its own
+working directory, its own configuration and the box's own model credential. Everything else
+keeps a dedicated box: another harness, a model the box credential cannot reach, a replaced
+system prompt, MCP servers, connections, hooks, subagents, extensions, tool grants, and any
+resource the materializer does not lower into the worker's directory.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
+### sharedBoxPlacement()
+
+> **sharedBoxPlacement**(`options`): [`SharedBoxPlacement`](#sharedboxplacement)
+
+Place accepted workers as processes in a pool of shared Sandbox boxes.
+
+The pool fills a box before it creates the next one and deletes a box when its last worker
+releases it. Runtime reaches this placement through `createExecutor({ backend: 'provider',
+shared })`: a profile that [SharedBoxPlacement.refusal](#refusal) accepts runs here, and every other
+profile keeps the dedicated provider.
+
+#### Parameters
+
+##### options
+
+[`SharedBoxPlacementOptions`](#sharedboxplacementoptions)
+
+#### Returns
+
+[`SharedBoxPlacement`](#sharedboxplacement)
 
 ***
 

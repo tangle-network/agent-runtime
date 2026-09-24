@@ -12,6 +12,19 @@ Each pause is journaled as a `paused` spawn event on the manager node, with the 
 The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
+
+Many workers can now share one Sandbox box.
+`sharedBoxPlacement({ client, box?, workersPerBox? })` runs each accepted worker as its own `opencode run` process in a pooled box, with its own working directory, HOME and materialized profile.
+`createExecutor({ backend: 'provider', provider, shared })` sends a profile the pool accepts to it and keeps a dedicated environment from `provider` for every other profile; `sharedBoxRefusal` names why a profile needs its own box.
+A manager never shares: its coordination credential is create-time box environment.
+The pool fills a box before it creates the next, deletes a box when its last worker releases it, and reports boxes, workers and create latency through `stats()`; `close()` deletes what remains.
+`workersPerBox` defaults to 8 because a Tangle box has a fixed 512-task pids limit and an opencode worker holds about 34 tasks; at the limit the box's sidecar restarts.
+Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.
+Measured 2026-09-24: 64 workers in 8 boxes, 64 of 64 answering from their own instructions and brief, each transcript carrying only its own worker's text, 41.5 s wall; 16 workers in dedicated boxes took 16 boxes and 92 s.
+Sidecar sessions were not used for this, because 7 of 8 concurrent sessions in one box answered with another session's instructions.
+
+opencode transcript capture now reads the sidecar's per-session records under `.opencode/sessions` and `.opencode/messages`, and a shared worker's `opencode export`.
+Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
 ## 0.262.0
 
 Runtime admits stable Sandbox 0.50.x through its peer range and packed compatibility cohort.
