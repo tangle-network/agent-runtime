@@ -6,6 +6,7 @@ import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
+import { type PursuitFork, prepareRunFork } from './run-fork'
 import { acquireRunDirectoryLock } from './run-lock'
 import {
   FAILURE_RECORD_FILE,
@@ -31,6 +32,14 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * `'keep'` is refused rather than ignored.
    */
   readonly retainedAtSettlement?: 'release'
+  /**
+   * Run this pursuit as a version of a settled run: `profile`, `task` and `budget` must equal the
+   * parent's recorded root, and Runtime executes the parent's profile with `fork.change` applied.
+   * The root's `execution.correlation` records the parent, its sealed digest, the change and the
+   * lineage (`RUN_FORK_CORRELATION_KEYS`). The parent's directory is never written, and a parent
+   * with any uncertain node is refused before the fork's journal exists.
+   */
+  readonly fork?: PursuitFork
 }
 
 export interface SupervisedPursuitResult<Result> {
@@ -104,7 +113,7 @@ export async function supervisePursuit(
   const observerPath = resolve(runDir, 'observer.jsonl')
   const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
   const failurePath = resolve(runDir, FAILURE_RECORD_FILE)
-  const { pursuitId: _pursuitId, hooks, ...superviseOptions } = opts
+  const { pursuitId: _pursuitId, hooks, fork, ...superviseOptions } = opts
   const runId = superviseOptions.runId ?? 'supervise'
   const now = superviseOptions.now ?? Date.now
 
@@ -116,6 +125,10 @@ export async function supervisePursuit(
     if (settled !== undefined) {
       throw new SettledRunDirectoryError(settlePath, settled.tree.root, runId)
     }
+    // A fork is verified on every entry, a resume included, so the recorded root identity it
+    // derives is the one the Supervisor's resume contract compares against.
+    const forked =
+      fork === undefined ? undefined : await prepareRunFork(profile, task, superviseOptions, fork)
 
     const observer = createFileObserverHooks(observerPath, pursuitId)
 
@@ -125,8 +138,9 @@ export async function supervisePursuit(
 
     let result: Awaited<ReturnType<typeof supervise>>
     try {
-      result = await supervise(profile, task, {
+      result = await supervise(forked?.profile ?? profile, task, {
         ...superviseOptions,
+        ...(forked === undefined ? {} : { execution: forked.execution }),
         // `runDir` owns the pursuit journal and terminal records. The public steer writer addresses
         // the canonical per-run event directory beneath that root, so keep its control plane there
         // without moving the durable pursuit records.

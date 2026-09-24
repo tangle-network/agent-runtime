@@ -25,6 +25,8 @@
  *     gives each isolated run a stable cross-run pursuit identity, holds the run
  *     directory's `supervise.lock` for the call, and leaves the directory's terminal
  *     record beside the journal: `result.json` at settle, `failure.json` on a throw.
+ *   - `supervisePursuit({ fork })`: start a run as a version of a settled run, with the parent's
+ *     recorded root inputs plus one `AgentProfileDiff`, recorded in the root's correlation.
  *   - `readRootStream` / `readRootStreamReceipt`: the root manager's own provider stream,
  *     `root-stream.jsonl`, journaled as it arrives and referenced from both terminal records.
  */
@@ -69,6 +71,7 @@ export {
   type PursuitStatus,
   projectPursuit,
 } from './observer-projection'
+export { type PursuitFork, RUN_FORK_CORRELATION_KEYS } from './run-fork'
 export {
   acquireRunDirectoryLock,
   RUN_DIRECTORY_LOCK_FILE,
