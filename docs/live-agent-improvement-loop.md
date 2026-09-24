@@ -7,7 +7,8 @@ Search returns a detached candidate; only the product can change the served agen
 ## Decision and evidence unit
 
 The replay unit is one sealed baseline/candidate pair on one independent task source.
-The served canary unit is the customer, session, or workflow assigned to one arm before its outcome is known.
+The current Eval canary decision accepts a customer or session assigned to one arm before its outcome is known.
+Another assignment unit needs a verified mapping and a matching decision rule.
 Record the tenant-safe source reference, task family, profile and code digests, model, tool set, worker revision, seed, and execution placement.
 Retain the raw run trace, checked outcome, errors, usage, cost, latency, and missing fields for each cell.
 Keep customer content in its authorized store; pass redacted references to analysts and reports.
@@ -75,7 +76,7 @@ These rules are fixed before the first Operator or Majo pilot result is read.
 The pilot is not sealed until the product owner supplies the agent, cohort, checker, placement, and cost joins below.
 
 - **Headline live gate:** improve independently checked task success on a served agent this week.
-  Randomize the incumbent and candidate concurrently by the frozen customer, session, or workflow unit.
+  Randomize the incumbent and candidate concurrently by the frozen customer or session unit.
   Use an intention-to-treat candidate-minus-incumbent risk difference with a 95% interval valid for that assignment, including clustering when one unit has multiple tasks.
   Its lower bound must exceed zero; retain every assignment and disclose missing or delayed outcomes.
   Freeze the observation window, sample size, coverage rule, and alpha-safe stopping rule before exposure.
