@@ -44,6 +44,22 @@ describe('composeReentryTask', () => {
     expect(task).toContain('Your last submit_result was refused: result.token is missing')
   })
 
+  it('tells a director re-entered after a pause only that its turn was interrupted', () => {
+    const task = composeReentryTask({
+      originalTask: 'Fetch the holder token and submit it.',
+      reentry: { reason: 'upstream-unavailable', signal: 'provider_quota_exhausted', pause: 3 },
+      continuity: { session: 'continued', environment: 'same', workspace: 'kept' },
+      state,
+      attempt: 4,
+    })
+    expect(task).toContain('Your previous turn was interrupted before it finished')
+    // The operator owns the upstream: no provider, code or pause count reaches the director.
+    expect(task).not.toContain('provider_quota_exhausted')
+    expect(task).not.toMatch(/quota|provider|pause/iu)
+    expect(task).toContain('Fetch the holder token and submit it.')
+    expect(task).toContain('call read_journal with sinceRow 9')
+  })
+
   it('sends only the unmet items and what changed into a proven-continuous session', () => {
     const task = composeReentryTask({
       originalTask: 'Fetch the holder token and submit it.',

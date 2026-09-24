@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.263.0
+
+A driver whose upstream refuses for capacity now pauses and re-enters instead of failing.
+`classifyDriverFailure` has a third answer, `unavailable`, for HTTP 429, 503 and 529 and for upstream codes such as the router's `provider_quota_exhausted` and `provider_rate_limit`.
+When a harness reports the router's refusal as text, the code is read from that text; text can only lengthen a retry, never end a run.
+A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`, so only the deadline, the budget, cancellation and `enabled: false` end it.
+It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
+The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
+Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
+`upstreamUnavailableSignal` returns the code or status that classified an error.
+Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
 ## 0.262.0
 
 Runtime admits stable Sandbox 0.50.x through its peer range and packed compatibility cohort.

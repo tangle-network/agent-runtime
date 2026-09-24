@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.262.0.**
+> **Version 0.263.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.185.0 <0.188.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0`.
@@ -137,6 +137,7 @@ Child validity and delivery counts remain unchanged.
 An external director can then use `repromptOnUnmet` to continue from a rejected candidate within its existing resource limits.
 Set `repromptOnUnmet: 'until-complete'` and a finite positive budget deadline to continue without a turn-count cap.
 Successful continuations do not consume `driverRetry.maxAttempts`; that limit counts failed invocations across the driver run.
+An upstream out of capacity (a quota, a rate limit, an overload) pauses the driver instead; a pause is bounded only by the deadline, the budget and cancellation.
 Numeric `repromptOnUnmet` values still cap continuations, and zero disables them.
 Two re-entered drives in a row that deliver nothing end the re-prompts, whatever the cap (`repromptRefusedBy: 'no-progress'`).
 A progress `stopRule` that fired ends them too, and the settle record's `continuation.closedBy` is `stop-rule`.

@@ -46,6 +46,7 @@ export const PLATFORM_FAILURE_CODES: ReadonlySet<string> = new Set(
   [
     'QUOTA_EXCEEDED', // the Sandbox interactive status failed (HTTP 429; code QUOTA_EXCEEDED): 3
     'provider_quota_exceeded', // No provider served model "kimi-k2" (provider_quota_exceeded): 7
+    'provider_quota_exhausted', // the router's current code for the same refusal (2026-09-24)
     'buffer.overflow', // agent-dev-container#7730: the 10,000-event buffer dropped the stream
     'TIMEOUT',
     'ECONNRESET',
@@ -71,7 +72,7 @@ export const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
   /exceeds its JSON bound/u, // 3
   /No provider served model/u, // router capacity: 7
   /Invalid API key/u, // the sandbox model key expired mid-turn: 2
-  /provider_quota_exceeded|QUOTA_EXCEEDED|rate limit/iu,
+  /provider_quota_exceeded|provider_quota_exhausted|QUOTA_EXCEEDED|rate limit/iu,
   /is at its box cap/u, // seat capacity: 4
   /could not materialize the seat credential/u, // 3
   /OpenCode exited while a model step was still in progress/u, // tmpfs OOM, SIGKILL: 4

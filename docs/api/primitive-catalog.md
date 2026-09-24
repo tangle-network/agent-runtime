@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.262.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.263.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 975 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 977 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -477,7 +477,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 975 exports.
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
 | `claimRetainedInteractiveControl` | function | Acquire provider-issued write authority without reading authority from status. |
 | `claimsAuthority` | function | True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because |
-| `classifyDriverFailure` | function | Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; |
+| `classifyDriverFailure` | function | Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
 | `codeModeSupervisorTools` | function | Put a supervisor in code mode: its product tool surface becomes exactly `search` and `execute`. |
 | `collectAgentTurn` | function | Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that |
@@ -690,6 +690,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 975 exports.
 | `timerAt` | function | Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
 | `unsafeInProcessRunner` | function | An in-process runner for TRUSTED model output ONLY. NOT a security boundary. |
+| `upstreamUnavailableSignal` | function | The code or status that marks `error` as an upstream capacity refusal, or `undefined`. |
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
 | `visibleCheckScore` | function | Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1, |
@@ -1142,6 +1143,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 975 exports.
 | `DriverAttemptStop` | type | Why the retry loop stopped. `completed` is the only non-failure. |
 | `DriverBudgetReadout` | type | The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this |
 | `DriverContractState` | type | Whether the run's declared completion check has passed. `'none'` means the caller declared no |
+| `DriverFailureClass` | type | How one driver failure is answered. |
 | `DriverReentry` | type | Why the loop is entering the driver again. Absent on the first attempt only. |
 | `DriverRepromptRefusal` | type | Why a completed drive with an unmet contract was not re-entered. `no-progress` means |
 | `DriverUnmetContractDecision` | type | The caller's answer: re-enter the session with `steer`, or end the run here. |

@@ -293,6 +293,12 @@ type RuntimeOwnedProviderMeter = (
 
 /** Runtime-owned provider evidence is written through this private scope capability. */
 const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
+/** What {@link recordScopeOwnerPause} journals, less the fields the scope supplies. */
+export type ScopeOwnerPause = Omit<
+  Extract<SpawnEvent, { kind: 'paused' }>,
+  'kind' | 'id' | 'seq' | 'at'
+>
+const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriers = new WeakMap<object, () => Promise<void>>()
@@ -2123,6 +2129,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     async (spend, providerModel, detail, accountingOnly) =>
       meterInternal(spend, detail, providerModel, accountingOnly),
   )
+  let pauseSeq = 0
+  pauseRecorders.set(scope as Scope<unknown>, async (pause) => {
+    await args.journal.appendEvent(args.root, {
+      kind: 'paused',
+      id: args.parentId,
+      ...pause,
+      seq: pauseSeq++,
+      at: new Date(now()).toISOString(),
+    })
+  })
   if (args.ownerMaterialization !== undefined) {
     const authoredProfile =
       args.ownerMaterialization.authoredProfile === undefined
@@ -2448,6 +2464,21 @@ export function meterRuntimeOwnedProviderAttempt(
     throw new ValidationError('scope: Runtime-owned provider meter is not bound to this scope')
   }
   return meter(spend, providerModel, detail)
+}
+
+/**
+ * @internal Journal that this scope's owner paused on an unavailable upstream. The pause is the
+ * owner's, so it is recorded against the owner node, beside its `metered` turns.
+ */
+export function recordScopeOwnerPause(
+  scope: Scope<unknown>,
+  pause: ScopeOwnerPause,
+): Promise<void> {
+  const record = pauseRecorders.get(scope as object)
+  if (record === undefined) {
+    throw new ValidationError('scope: pause recorder is not bound to this scope')
+  }
+  return record(pause)
 }
 
 /** @internal Meter Runtime-owned accounting that does not represent provider execution. */

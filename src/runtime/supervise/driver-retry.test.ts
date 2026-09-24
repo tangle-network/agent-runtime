@@ -11,6 +11,7 @@ import {
   HarnessTurnFailedError,
   runDriverWithRetry,
   summarizeDriverAttempts,
+  upstreamUnavailableSignal,
 } from './driver-retry'
 import { RetainedExecutionPendingError } from './retained-executor'
 
@@ -81,7 +82,8 @@ describe('classifyDriverFailure', () => {
     const unauthorized = new BackendTransportError('bridge', 'invalid_api_key', { status: 401 })
     const missing = new BackendTransportError('bridge', 'no such session', { status: 404 })
     expect(classifyDriverFailure(upstream)).toBe('transient')
-    expect(classifyDriverFailure(throttled)).toBe('transient')
+    // Out of capacity is neither an accident nor a decision: the driver pauses and re-enters.
+    expect(classifyDriverFailure(throttled)).toBe('unavailable')
     // Retrying an identical request against a rejected credential burns the deadline for nothing.
     expect(classifyDriverFailure(unauthorized)).toBe('terminal')
     expect(classifyDriverFailure(missing)).toBe('terminal')
@@ -114,7 +116,7 @@ describe('classifyDriverFailure', () => {
     // The same split the transport branch promises: the upstream having a bad moment still retries.
     expect(classifyDriverFailure(new SandboxSdkError('gateway', 502, 'UPSTREAM'))).toBe('transient')
     expect(classifyDriverFailure(new SandboxSdkError('slow down', 429, 'RATE_LIMIT'))).toBe(
-      'transient',
+      'unavailable',
     )
     expect(classifyDriverFailure(new SandboxSdkError('timeout', 408, 'TIMEOUT'))).toBe('transient')
   })
@@ -1097,4 +1099,279 @@ describe('long-run retry streaks', () => {
       expect(records.filter((record) => record.error)).toHaveLength(4)
     },
   )
+})
+
+// The exact failure that ended four of five anomaly-referee-v3d lead lanes on 2026-09-24.
+const ROUTER_QUOTA =
+  'opencode execution failed: No provider served model "deepseek/deepseek-v4.1-flash" ' +
+  '(provider_quota_exhausted). A provider is configured and was called. Attempted: ' +
+  'deepseek/deepseek-v4.1-flash[openrouter(err)], openrouter/deepseek/deepseek-v4.1-flash' +
+  '[openrouter(err)]. GET /v1/models lists the ids this router advertises. (exit code 1)'
+
+describe('an unavailable upstream', () => {
+  it('is classified from the code or status an upstream publishes for capacity', () => {
+    const quota = new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+    expect(classifyDriverFailure(quota)).toBe('unavailable')
+    expect(upstreamUnavailableSignal(quota)).toBe('provider_quota_exhausted')
+
+    const coded = new HarnessTurnFailedError('bridge', {
+      error: 'upstream is rate limiting this model',
+      errorCode: 'provider_rate_limit',
+    })
+    expect(upstreamUnavailableSignal(coded)).toBe('provider_rate_limit')
+
+    // The bridge relays the router's status in its message framing, and the transport reads it.
+    const bridged = new BackendTransportError(
+      'bridge',
+      'bridgeExecutor: bridge stream error: pi assistant turn failed',
+      { status: 503 },
+    )
+    expect(classifyDriverFailure(bridged)).toBe('unavailable')
+    expect(upstreamUnavailableSignal(bridged)).toBe('http-503')
+    expect(
+      classifyDriverFailure(
+        new BackendTransportError('bridge', 'overloaded', { upstreamCode: 'overloaded_error' }),
+      ),
+    ).toBe('unavailable')
+
+    // A harness prints the status as `status code <n>`: 503 is capacity, 524 is an accident.
+    const overloaded = new HarnessTurnFailedError('tangle-sandbox', {
+      error: 'opencode execution failed: status code 503 (exit code 1)',
+    })
+    expect(classifyDriverFailure(overloaded)).toBe('unavailable')
+    expect(
+      classifyDriverFailure(
+        new HarnessTurnFailedError('tangle-sandbox', {
+          error: 'opencode execution failed: status code 524 (exit code 1)',
+        }),
+      ),
+    ).toBe('transient')
+
+    // A plain Error carrying the router's code, and an SDK error carrying the status.
+    expect(classifyDriverFailure(new Error(`bridge: ${ROUTER_QUOTA}`))).toBe('unavailable')
+    expect(classifyDriverFailure(Object.assign(new Error('busy'), { status: 529 }))).toBe(
+      'unavailable',
+    )
+  })
+
+  it('reads text only toward pausing, never toward ending a run', () => {
+    // Prose that mentions a quota is not a code, and a credential the upstream rejected is not
+    // capacity: both keep their earlier classes.
+    expect(classifyDriverFailure(new Error('the workspace quota for this tool was exceeded'))).toBe(
+      'transient',
+    )
+    expect(
+      classifyDriverFailure(
+        new HarnessTurnFailedError('tangle-sandbox', {
+          error: 'No provider served model "x" (provider_key_invalid)',
+        }),
+      ),
+    ).toBe('transient')
+    // A status decides before any text: a 401 whose body quotes a capacity code stays terminal.
+    expect(
+      classifyDriverFailure(
+        new BackendTransportError('bridge', 'provider_quota_exhausted', { status: 401 }),
+      ),
+    ).toBe('terminal')
+    // Runtime's own refusals stay terminal whatever their text says.
+    expect(classifyDriverFailure(new ValidationError('provider_quota_exhausted'))).toBe('terminal')
+    const cancelled = new AbortController()
+    cancelled.abort()
+    expect(
+      classifyDriverFailure(
+        new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA }),
+        cancelled.signal,
+      ),
+    ).toBe('terminal')
+  })
+
+  it('pauses without spending attempts, so an outage longer than every failure bound is survived', async () => {
+    const quota = () => new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+    const outcomes: Array<Error | null> = [...Array.from({ length: 20 }, quota), null]
+    const script = scriptedDrive(outcomes)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      // Either bound alone would have ended this run at its first or second refusal.
+      policy: { maxAttempts: 1, maxConsecutiveFailures: 1 },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(script.attempts).toHaveLength(21)
+    const pauses = records.filter((record) => record.classification === 'unavailable')
+    expect(pauses).toHaveLength(20)
+    expect(pauses.every((record) => record.stop === undefined)).toBe(true)
+    expect(pauses[0]?.unavailableSignal).toBe('provider_quota_exhausted')
+    // 15 s doubling to the 5-minute ceiling.
+    expect(pauses.slice(0, 7).map((record) => record.retryInMs)).toEqual([
+      15_000, 30_000, 60_000, 120_000, 240_000, 300_000, 300_000,
+    ])
+    expect(records.at(-1)).toMatchObject({ attempt: 21, stop: 'completed' })
+  })
+
+  it('re-enters a pause with the original task and counts it apart from failure retries', async () => {
+    const quota = () => new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+    const entered: Array<DriverReentry | undefined> = []
+    const outcomes: Array<Error | null> = [quota(), quota(), new Error('stream closed'), null]
+    const records: DriverAttemptRecord[] = []
+    let clock = 0
+    await runDriverWithRetry({
+      drive: async (attempt, reentry) => {
+        entered.push(reentry)
+        clock += 1_000
+        const outcome = outcomes[attempt - 1]
+        if (outcome) throw outcome
+      },
+      progress: () => mark(),
+      budget: () => budget(),
+      now: () => clock,
+      signal: new AbortController().signal,
+      onAttempt: (record) => void records.push(record),
+      sleep: async (ms) => {
+        clock += ms
+      },
+    })
+    expect(entered).toEqual([
+      undefined,
+      { reason: 'upstream-unavailable', signal: 'provider_quota_exhausted', pause: 1 },
+      { reason: 'upstream-unavailable', signal: 'provider_quota_exhausted', pause: 2 },
+      expect.objectContaining({ reason: 'driver-failure', retry: 1 }),
+    ])
+    expect(records.map((record) => record.reentry)).toEqual([
+      undefined,
+      'upstream-unavailable',
+      'upstream-unavailable',
+      'driver-failure',
+    ])
+    // Two refused turns of 1 s each, paused 15 s then 30 s: 47 s of infrastructure time.
+    expect(summarizeDriverAttempts(records)).toMatchObject({
+      attempts: 4,
+      failureRetries: 1,
+      unavailablePauses: 2,
+      unavailableMs: 47_000,
+      ended: 'completed',
+    })
+  })
+
+  it('survives the intermittent outage that ended the v3d leads, where turns work between refusals', async () => {
+    // Measured shape: a declared check stays unmet, some turns spend tokens before the quota
+    // refuses them, others are refused at once. The earlier loop stopped this at no-progress.
+    let spent = 0
+    let calls = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => {
+        calls += 1
+        if (calls % 3 === 0) spent += 1_000_000
+        if (calls < 14) throw new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+      },
+      progress: () => mark({ poolTokensSpent: spent }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxAttempts: 12, maxConsecutiveFailures: 3 },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(calls).toBe(14)
+    expect(records.filter((record) => record.classification === 'unavailable')).toHaveLength(13)
+    expect(records.at(-1)?.stop).toBe('completed')
+  })
+
+  it('does not charge pauses against the failure allowance real failures still use', async () => {
+    const quota = new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+    const accident = new Error('pi exit unknown')
+    const script = scriptedDrive([accident, quota, quota, quota, accident, accident])
+    await expect(
+      runDriverWithRetry({
+        drive: script.drive,
+        progress: () => noProgress,
+        budget: () => budget(),
+        signal: new AbortController().signal,
+        policy: { maxAttempts: 3, maxConsecutiveFailures: 10 },
+        sleep: instantSleep,
+      }),
+    ).rejects.toMatchObject({ stop: 'max-attempts' })
+    // Three accidents and three pauses: the third accident, not the sixth attempt, is the limit.
+    expect(script.attempts).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  it('restarts the pause doubling once the upstream serves a turn that makes progress', async () => {
+    let spent = 0
+    const outcomes = [true, true, true, 'progress', true, false] as const
+    let call = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => {
+        const outcome = outcomes[call]
+        call += 1
+        if (outcome === 'progress') spent += 100
+        if (outcome !== false) {
+          throw new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+        }
+      },
+      progress: () => ({ ...noProgress, poolTokensSpent: spent }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(records.slice(0, 5).map((record) => record.retryInMs)).toEqual([
+      15_000, 30_000, 60_000, 15_000, 30_000,
+    ])
+  })
+
+  it('ends a pause at the deadline and names the time the outage cost', async () => {
+    let clock = 0
+    const error = await runDriverWithRetry({
+      drive: async () => {
+        clock += 60_000
+        throw new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+      },
+      progress: () => noProgress,
+      budget: () => budget({ deadlineMs: 400_000 }),
+      now: () => clock,
+      signal: new AbortController().signal,
+      sleep: async (ms) => {
+        clock += ms
+      },
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(error instanceof DriverAttemptsExhaustedError)) return
+    expect(error.stop).toBe('deadline')
+    expect(error.attempts.every((record) => record.classification === 'unavailable')).toBe(true)
+    expect(error.message).toContain('met an unavailable upstream and paused')
+    expect(error.message).toContain('provider_quota_exhausted')
+  })
+
+  it('ends a pause when the run is cancelled, and honours a caller who disabled retries', async () => {
+    const controller = new AbortController()
+    const quota = new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA })
+    await expect(
+      runDriverWithRetry({
+        drive: async () => {
+          throw quota
+        },
+        progress: () => noProgress,
+        budget: () => budget(),
+        signal: controller.signal,
+        sleep: async () => controller.abort(new Error('operator cancel')),
+      }),
+    ).rejects.toMatchObject({ stop: 'aborted' })
+
+    await expect(
+      runDriverWithRetry({
+        drive: async () => {
+          throw quota
+        },
+        progress: () => noProgress,
+        budget: () => budget(),
+        signal: new AbortController().signal,
+        policy: { enabled: false },
+        sleep: instantSleep,
+      }),
+    ).rejects.toMatchObject({ stop: 'retry-disabled' })
+  })
 })

@@ -14347,6 +14347,21 @@ Backoff before the first retry, doubling per consecutive failure. Default 2000ms
 
 Ceiling on the doubling. Default 30000ms.
 
+##### unavailablePauseMs?
+
+> `readonly` `optional` **unavailablePauseMs?**: `number`
+
+Pause before re-entering after the upstream was unavailable (see
+ [upstreamUnavailableSignal](#upstreamunavailablesignal)), doubling per consecutive pause. Default 15000ms. A pause
+ is not a failure: it consumes neither `maxAttempts` nor `maxConsecutiveFailures`.
+
+##### maxUnavailablePauseMs?
+
+> `readonly` `optional` **maxUnavailablePauseMs?**: `number`
+
+Ceiling on the pause doubling. Default 300000ms, so a long outage costs at most twelve
+ re-entries an hour.
+
 ***
 
 ### DriverAttemptRecord
@@ -14374,7 +14389,7 @@ Absent when the attempt completed.
 
 ##### classification?
 
-> `readonly` `optional` **classification?**: `"transient"` \| `"terminal"`
+> `readonly` `optional` **classification?**: [`DriverFailureClass`](#driverfailureclass)
 
 ##### madeProgress
 
@@ -14392,13 +14407,21 @@ Set when this attempt ended the loop.
 
 > `readonly` `optional` **retryInMs?**: `number`
 
-Set when another attempt follows.
+Set when another attempt follows. For an `unavailable` attempt this is the pause, which is
+ infrastructure time: together with `durationMs` it is what the outage cost this driver.
 
 ##### reentry?
 
-> `readonly` `optional` **reentry?**: `"unmet-contract"` \| `"driver-failure"`
+> `readonly` `optional` **reentry?**: `"unmet-contract"` \| `"driver-failure"` \| `"upstream-unavailable"`
 
 How this attempt was entered. Absent on the first attempt.
+
+##### unavailableSignal?
+
+> `readonly` `optional` **unavailableSignal?**: `string`
+
+For an `unavailable` attempt: the code or HTTP status that classified it, such as
+ `provider_quota_exhausted` or `http-429`.
 
 ##### contract?
 
@@ -14582,7 +14605,20 @@ Genuine continuations: completed drives with the contract unmet that were re-ent
 
 > `readonly` **failureRetries**: `number`
 
-Re-entries after a failed drive.
+Re-entries after a failed drive. A pause on an unavailable upstream is not one.
+
+##### unavailablePauses
+
+> `readonly` **unavailablePauses**: `number`
+
+Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure.
+
+##### unavailableMs
+
+> `readonly` **unavailableMs**: `number`
+
+Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
+ plus the pause after it.
 
 ##### barrenReentries
 
@@ -14639,11 +14675,32 @@ Genuine continuations: completed drives with the contract unmet that were re-ent
 
 > `readonly` **failureRetries**: `number`
 
-Re-entries after a failed drive.
+Re-entries after a failed drive. A pause on an unavailable upstream is not one.
 
 ###### Inherited from
 
 [`DriverLoopRecord`](#driverlooprecord).[`failureRetries`](#failureretries)
+
+##### unavailablePauses
+
+> `readonly` **unavailablePauses**: `number`
+
+Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`unavailablePauses`](#unavailablepauses)
+
+##### unavailableMs
+
+> `readonly` **unavailableMs**: `number`
+
+Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
+ plus the pause after it.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`unavailableMs`](#unavailablems)
 
 ##### barrenReentries
 
@@ -28839,7 +28896,7 @@ Why a completed drive with an unmet contract was not re-entered. `no-progress` m
 
 ### DriverReentry
 
-> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \}
+> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
 
 Why the loop is entering the driver again. Absent on the first attempt only.
 
@@ -28894,6 +28951,31 @@ The failure that ended the previous drive, as recorded.
 
 ***
 
+##### Type Literal
+
+\{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
+
+###### reason
+
+> `readonly` **reason**: `"upstream-unavailable"`
+
+The upstream refused the previous drive for capacity, and the loop paused before this
+ one. Re-entered like a failure, with the original task and the run's state.
+
+###### signal
+
+> `readonly` **signal**: `string`
+
+The code or status that classified the refusal, such as `provider_quota_exhausted`.
+
+###### pause
+
+> `readonly` **pause**: `number`
+
+1-based: which pause this is.
+
+***
+
 ### DriverUnmetContractDecision
 
 > **DriverUnmetContractDecision** = \{ `steer`: `string`; \} \| `"stop"`
@@ -28917,6 +28999,19 @@ Compose the re-entry instruction for a completed drive that delivered nothing, o
 #### Returns
 
 [`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
+
+***
+
+### DriverFailureClass
+
+> **DriverFailureClass** = `"transient"` \| `"terminal"` \| `"unavailable"`
+
+How one driver failure is answered.
+
+ - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
+ - `transient`: a foreign accident. It is retried under `maxAttempts` and the barren streak.
+ - `unavailable`: the upstream refused for capacity (quota, rate limit, overload). The driver
+   pauses and re-enters, and only the deadline, the budget, and cancellation bound the pauses.
 
 ***
 
@@ -29963,7 +30058,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-6); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); `maxDepth`: `number`; `maxLiveWorkers`: `number`; \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-6); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-6); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); `maxDepth`: `number`; `maxLiveWorkers`: `number`; \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-6); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-6); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -31144,6 +31239,66 @@ The worker-execution backend that has no propagation channel.
 ###### reason
 
 > **reason**: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-6); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"paused"`
+
+A manager's driver turn was refused by an unavailable upstream (an exhausted quota, a
+ rate limit, an overload), and the driver paused before re-entering instead of failing.
+ Both durations are infrastructure time: `attemptMs` is the refused turn, `pauseMs` the
+ wait that followed. Informational: replay, `materializeTreeView`, and cost readers skip
+ it; `seq` counts this node's pauses.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### attempt
+
+> **attempt**: `number`
+
+The driver attempt that was refused, 1-based.
+
+###### signal
+
+> **signal**: `string`
+
+The code or HTTP status that classified the refusal, such as `provider_quota_exhausted`.
+
+###### cause
+
+> **cause**: `string`
+
+The refusal as the driver saw it, redacted and bounded.
+
+###### attemptMs
+
+> **attemptMs**: `number`
+
+###### pauseMs
+
+> **pauseMs**: `number`
+
+###### madeProgress
+
+> **madeProgress**: `boolean`
+
+Whether the refused attempt still moved the run toward its deliverable.
 
 ###### seq
 
@@ -36331,14 +36486,37 @@ driver's own terms.
 
 ***
 
+### upstreamUnavailableSignal()
+
+> **upstreamUnavailableSignal**(`error`): `string` \| `undefined`
+
+The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
+
+A structured field is read first: a turn outcome's `errorCode`, a transport error's
+`upstreamCode` and `status`, a provider SDK error's `status`. The failure text is read only when
+no structured field decided, because a harness CLI reports the router's refusal as text.
+
+#### Parameters
+
+##### error
+
+`unknown`
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
 ### classifyDriverFailure()
 
-> **classifyDriverFailure**(`error`, `signal?`): `"transient"` \| `"terminal"`
+> **classifyDriverFailure**(`error`, `signal?`): [`DriverFailureClass`](#driverfailureclass)
 
-Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
-anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
-because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
-having a bad moment, while a 401/404/422 is a request that will fail identically forever. The
+Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an
+upstream capacity refusal is `unavailable`; anything else foreign is an accident and is
+retryable. A `BackendTransportError` is split by status because the taxonomy already promises
+consumers may branch on it: a 5xx/408 is the upstream having a bad moment, a 429/503/529 is the
+upstream out of capacity, and a 401/404/422 is a request that will fail identically forever. The
 bridge's own never-retry classes are terminal whether or not a status rides with them.
 
 #### Parameters
@@ -36353,7 +36531,7 @@ bridge's own never-retry classes are terminal whether or not a status rides with
 
 #### Returns
 
-`"transient"` \| `"terminal"`
+[`DriverFailureClass`](#driverfailureclass)
 
 ***
 
