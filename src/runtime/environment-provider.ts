@@ -1254,6 +1254,19 @@ function createProviderExecutor(
             environment = target
             resetWorkspaceState(target)
           }
+          // The failure path read this child's session while its box was out of reach: of the 150
+          // dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24,
+          // 105 carry `enumeration-failed`. The release is the last moment the box exists, so a
+          // box it can reach is read once more before it is destroyed. Only a capture replaces
+          // the earlier receipt; a second failure keeps the reason the first one named.
+          if (harnessTranscript.status !== 'captured') {
+            const capture = await captureHarnessTranscript(
+              target as Parameters<typeof captureHarnessTranscript>[0],
+              profile.harness,
+              signal,
+            )
+            if (capture.status === 'captured') harnessTranscript = capture
+          }
           const result = await destroyEnvironment(signal)
           if (!result.destroyed) return [receipt(false, result.detail, result.permanent)]
           pending = false

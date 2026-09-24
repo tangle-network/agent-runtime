@@ -2,6 +2,19 @@
 
 ## 0.269.0
 
+A final settlement now closes every retained child's slot, including one whose release it could not confirm.
+Under `retainedAtSettlement: 'release'`, a child whose provider delete was refused, whose teardown probe failed, or whose create timed out before naming an environment kept its slot open forever, so every reader counted it as never settled (#1301).
+The Discovery fleet's records of 2026-09-23 and 2026-09-24 hold 338 such agents out of 1,620.
+After the retry window, each such slot now closes with the settlement the driver received, under the seq it saw, marked `retainedExecution: 'release-unconfirmed'`.
+Its `teardown-unconfirmed` record still names what a sweeper must delete.
+`FleetYield.releaseUnconfirmed` counts these records beside `releasedUnrecovered`, and the spend gap is the committed floor, `unreported`, not the `never-settled` ceiling.
+A run that declares `release` and is resumed anyway no longer recovers such a child: the declaration says no resume comes.
+
+A retained release now reads the child's harness session before it destroys the box.
+The failure path reads it when the child drops, and often the box is out of reach then: 105 of the 150 dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24 carry `enumeration-failed`.
+When the release can reach the box, the record that closes the slot carries the session it read, so a transport that came back before settlement no longer costs the transcript.
+Only a capture replaces the earlier receipt, and the `reconciled` floor keeps the one the driver saw.
+
 `createOtelExporter` now accounts for every span, and a failed export is no longer silent. Before,
 it POSTed each batch without reading the response and swallowed every error in an empty `catch`: a
 401, a 503 or a dead collector lost the batch with no count and no message, so a missing trace read
@@ -17,14 +30,6 @@ client's `flush()` stays best-effort. A custom `OtelExporter` passed to `supervi
 implement `stats()`.
 
 ## 0.268.0
-
-A final settlement now closes every retained child's slot, including one whose release it could not confirm.
-Under `retainedAtSettlement: 'release'`, a child whose provider delete was refused, whose teardown probe failed, or whose create timed out before naming an environment kept its slot open forever, so every reader counted it as never settled (#1301).
-The Discovery fleet's records of 2026-09-23 and 2026-09-24 hold 338 such agents out of 1,620.
-After the retry window, each such slot now closes with the settlement the driver received, under the seq it saw, marked `retainedExecution: 'release-unconfirmed'`.
-Its `teardown-unconfirmed` record still names what a sweeper must delete.
-`FleetYield.releaseUnconfirmed` counts these records beside `releasedUnrecovered`, and the spend gap is the committed floor, `unreported`, not the `never-settled` ceiling.
-A run that declares `release` and is resumed anyway no longer recovers such a child: the declaration says no resume comes.
 
 A keyed spawn the process died with in flight no longer wedges. Two arms:
 
