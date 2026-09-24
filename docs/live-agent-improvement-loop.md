@@ -30,7 +30,7 @@ Failure mining alone changes the task mix and cannot establish a population lift
 | --- | --- | --- |
 | Capture | Runtime `src/intelligence/index.ts` (`traceRun`, `recordTrace`, `exportRunRecord`); Eval `src/trace/`, `src/rollout/` | Capture actual served runs with execution identity, outcome, usage, and cost. The pilot still needs a permitted live trace cohort and a verified mapping to task outcomes. |
 | Mine failures | Eval `src/diagnosis/` and `src/trace/`; Runtime `src/runtime/observe.ts` and `src/runtime/harvest-corpus.ts` | Classify real failures, count each class by independent run, and retain trace references. Validate analyst findings against the trace before using them. No top-20 live-agent inventory has been checked yet. |
-| Propose | Runtime `src/improvement/improve.ts`, `src/improvement/method-execution.ts`, `src/improvement/agentic-generator.ts`; Eval `src/campaign/` | Give an agent the development traces and task objective. Use a complete `OptimizationMethod` for profile edits or `agenticGenerator` for code edits. Record every proposal, rejection, and model cost. Do not author the treatment by hand. |
+| Propose | Runtime `src/improvement/improve.ts`, `src/improvement/method-execution.ts`, `src/improvement/agentic-generator.ts`; Eval `src/campaign/` | Give an agent the development traces and task objective. Use a complete `OptimizationMethod` for profile edits or `agenticGenerator` for code edits. Record every proposal, rejection, and model cost. Keep an autonomous treatment agent-proposed; a human-authored control may qualify the comparison path first. |
 | Select | Eval `src/campaign/optimization-method.ts`, `src/campaign/search-ledger.ts`; Runtime `src/improvement/method-execution.ts` | Search may inspect train and selection cases only. Bind candidate bytes, callbacks, resources, and closure state to an execution reference. Keep the optimizer's selected candidate, including a negative or unchanged selection. |
 | Final test | Eval `src/campaign/judge-snapshot.ts`, `src/campaign/gates/`, `src/paired-promotion-decision.ts`, `src/paired-promotion-power.ts`; Runtime `src/intelligence/improvement-cycle.ts` | Execute baseline and exact selected candidate on frozen, disjoint final cases using the production adapter. Pair on source units and equal actual resources. Report both task cohorts, the replay interval, discordant pairs, exclusions, and the simulated power of the sealed decision. |
 | Shadow | Runtime candidate experiment execution in `src/intelligence/improvement-cycle.ts`; product execution adapter | Run the candidate against copied or read-only tasks without customer-visible effects. The product must provide the shadow placement, data permissions, and separate billing attribution; Runtime does not switch traffic. |
@@ -43,12 +43,30 @@ Ops-board #1428 owns the ongoing ADC Intelligence path from ordinary experience 
 This lane consumes that path and does not build a second profile store or promotion service.
 Ops-board #1426 completed executable worker-state retention in Runtime PR #1319.
 
+## ADC comparison admission
+
+The current ADC comparison path accepts 6 to 20 cases, a $0.12 to $100 budget, and at most 16 KiB per case.
+Its graders accept structured or exact-text results; these limits cannot represent the planned 200 buyer-labelled graded replies in one decision.
+Do not combine separate 20-case decisions and report them as one experiment.
+Ops-board #1428 and the ADC owner must provide an immutable experiment manifest and paged execution under that manifest.
+The manifest must bind the source roster, arm artifacts, assignment, evaluator identity and version, budget, stopping rule, and final decision rule.
+Each page must report admitted, failed, missing, and excluded cases with trace and cost joins.
+Make one final decision only after the registered pages and required receipts settle.
+Report coverage, missingness, grader results, and total search, execution, and validation cost for that decision.
+First qualify the served comparison path with a human-authored control and independently checked outcomes.
+Keep ADC #7785 automatic nomination disabled on the served path until this control qualifies the path.
+An autonomous improvement claim still requires an agent-proposed candidate selected under the registered manifest.
+
 ## Data boundaries and preregistration
 
 1. Define one real agent, its served revision, task families, and authorized trace source.
 2. Reserve development, selection, and final source units before reading candidate results.
 3. Deduplicate source families, related conversations, retries, and variants across partitions.
 4. Calibrate the frozen checker on independently known passes and failures.
+   Use Eval's `auditEvaluator()` to count seeded bad and good controls by failure class.
+   Report separate false-accept and false-reject rates with confidence bounds and unresolved judgments.
+   Zero false accepts in 20 bad controls still has a one-sided 95% upper bound of 13.9%.
+   Apply hard permission checks to severe failures regardless of the estimated grader error rate.
 5. Challenge checker and telemetry integrity with attempts to read answers, edit scoring dependencies, or forge time and cost.
    A seeded exploit that yields valid-looking evidence without detection invalidates the campaign.
 6. Register a useful lift, cost and latency tolerances, a confidence level, and an alpha-safe stopping rule.
@@ -125,16 +143,32 @@ Until these fields have checked receipts, neither the scorecard nor a proxy may 
 
 Gate B compares a learning process across repeated episodes with a frozen reference process.
 The replication unit is one whole learning episode per arm, with matched starts and equal total budgets.
+Keep at least 100 fresh independent paired episode sources as the existing Gate B floor.
+Run three registered arms on those sources: a frozen incumbent, an equal-budget improvement process reset between episodes, and an equal-budget process that retains approved learning.
+Reset the middle arm's profile, knowledge, memory, and retrieval state to its declared start before each episode.
+Give the reset and retained arms the same models, tool grants, task inputs, and all-in budget.
 Score each episode's resulting agent on fresh final source units.
-Only the learning arm may retain findings and approved changes after an episode.
+Only the retained-learning arm may retain findings and approved changes after an episode.
 At each later episode, record the prior evidence retrieved, the decision it changed, and the exact served candidate.
-Evaluate both arms on fresh source units, including an unchanged ability check from earlier task families.
+Evaluate all three arms on fresh source units, including an unchanged ability check from earlier task families.
 Count all analysis, candidate generation, execution, evaluation, retrieval, and serving costs over the declared horizon.
-The primary estimate is the paired difference in later checked outcomes by independent episode source.
+The existing primary estimate is retained-learning minus frozen incumbent in later checked outcomes by independent episode source.
+Report retained-minus-reset as a separate paired estimate with an interval; require its lower bound above zero to attribute gain to retained learning.
+Retain the original incumbent comparison and 100-pair count even if the new attribution test fails.
 Report the trajectory and its interval, not merely the best version's score.
 The current Gate A result tests within-run steering and cannot substitute for this comparison.
 One improved specialist establishes an agent outcome, not that its improvement process learned.
 A better self-improver requires a separate comparison of whole learning processes across repeated searches.
+
+## Canary rollback drill
+
+Before any 5% canary, restore the baseline profile, knowledge and memory snapshot, and retrieval configuration in a real product drill.
+Quarantine learned state that cannot be restored to the baseline's compatible revision.
+Measure p99 time from stop trigger to revoking the candidate's authority for new actions; require at most 5 seconds.
+Measure time to restore the active baseline pointer; require at most 60 seconds.
+Reconcile in-flight external actions against the promotion ledger within 5 minutes, including retries and unknown outcomes.
+Retain trigger, served revision, snapshot IDs, action receipts, and timing samples for the drill.
+If product state or a canary does not yet exist, record the drill as unexecuted and hold exposure at 0%.
 
 ## Reliability and autoresearch
 
