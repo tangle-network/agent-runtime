@@ -1358,6 +1358,13 @@ export type SpawnEvent =
       successorOf?: NodeId
       budget: Budget
       runtime: Runtime
+      /** Root-only opt-in admission contract. A resumed run must use the same policy and fleet
+       * limits; absent on historical and default-off records. */
+      recursiveAdmission?: {
+        policy: RecursiveReservationPolicy
+        maxDepth: number
+        maxLiveWorkers: number
+      }
       /** Exact nested journal tree this node owns. Runtime writes this only after privately
        * attesting the executor as a recursive scope owner. Its absence means no tree is followed,
        * including records written before this field existed and caller leaves named `driver`. */
@@ -1797,6 +1804,13 @@ export interface Supervisor<Task, Out> {
   attach(h: RootHandle<Out>): void
 }
 
+/** Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
+ * kept free for its own inference while children hold their full declared ceilings. The same
+ * policy reserves one live worker slot per remaining depth, up to `maxDepth`. */
+export interface RecursiveReservationPolicy {
+  readonly ownerShare: number
+}
+
 export interface SupervisorOpts {
   /** The root conserved-pool ceiling (tokens + usd + iterations + deadline). */
   readonly budget: Budget
@@ -1824,6 +1838,9 @@ export interface SupervisorOpts {
   /** Hard tree-wide cap on simultaneously executing spawned workers. The root is excluded; every
    *  nested driver and leaf shares this one allocation. Omit/`<= 0` leaves worker count uncapped. */
   readonly maxLiveWorkers?: number
+  /** Opt in to reserving each manager's inference share and enough tree-wide worker slots for a
+   * descendant path to `maxDepth`. Omit to retain full-ceiling admission behavior. */
+  readonly reservationPolicy?: RecursiveReservationPolicy
   /**
    * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
    * trips the supervisor to `no-winner` rather than restarting forever.

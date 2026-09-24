@@ -69,6 +69,12 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 Per-child budget reserved from the conserved pool on each spawn.
 
+##### preserveOwnerTurns?
+
+> `readonly` `optional` **preserveOwnerTurns?**: `true`
+
+Allow the manager's own metered turn after child admission reaches its protected share.
+
 ##### deliverable?
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
@@ -1101,6 +1107,16 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`perWorker`](runtime.md#perworker-1)
 
+##### reservationPolicy?
+
+> `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](runtime.md#recursivereservationpolicy)
+
+Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
+
 ##### maxLiveWorkers?
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
@@ -2026,6 +2042,16 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`perWorker`](runtime.md#perworker-1)
 
+##### reservationPolicy?
+
+> `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](runtime.md#recursivereservationpolicy)
+
+Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`reservationPolicy`](runtime.md#reservationpolicy-2)
+
 ##### maxLiveWorkers?
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
@@ -2413,6 +2439,16 @@ Per-child budget reserved from the conserved pool on each spawn.
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`perWorker`](runtime.md#perworker-2)
+
+##### preserveOwnerTurns?
+
+> `readonly` `optional` **preserveOwnerTurns?**: `true`
+
+Keep an inference turn available when recursive admission holds budget for this manager.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`preserveOwnerTurns`](runtime.md#preserveownerturns)
 
 ##### onProviderModel?
 

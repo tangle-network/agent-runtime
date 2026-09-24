@@ -2,11 +2,13 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   closesCursorSlot,
+  contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   materializeTreeView,
 } from '../../src/durable/spawn-journal'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
+import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import {
   sumSpendFromEvents,
@@ -23,6 +25,7 @@ import type {
   Scope,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { supervise, supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -139,7 +142,236 @@ function profileDepth(profile: AgentProfile): number {
   return value
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function meteredTokens(tokens: number, iterations = 0) {
+  return { iterations, tokens: { input: tokens, output: 0 }, usd: 0, ms: 0 }
+}
+
 describe('supervise tree-wide worker capacity', () => {
+  it('keeps the default full-ceiling reservation behavior and conserves every settle', () => {
+    const totalTokens = 20_000_000
+    const totalIterations = 400
+    const workerBudget = { maxTokens: 4_000_000, maxIterations: 60 }
+    const pool = createBudgetPool({ maxTokens: totalTokens, maxIterations: totalIterations }, 0)
+    const tickets: Array<Extract<ReturnType<typeof pool.reserve>, { ok: true }>['ticket']> = []
+    let reservedIterations = 0
+    let committedTokens = 0
+    let committedIterations = 0
+    const assertConserved = () => {
+      const reading = pool.readout()
+      expect(reading.tokensLeft + reading.reservedTokens + committedTokens).toBe(totalTokens)
+      expect(reading.iterationsLeft + reservedIterations + committedIterations).toBe(
+        totalIterations,
+      )
+    }
+
+    assertConserved()
+    for (let index = 0; index < 5; index++) {
+      const reservation = pool.reserve(workerBudget)
+      expect(reservation.ok).toBe(true)
+      if (!reservation.ok) throw new Error('the baseline reservation unexpectedly failed')
+      tickets.push(reservation.ticket)
+      reservedIterations += workerBudget.maxIterations
+      assertConserved()
+    }
+    expect(pool.reserve(workerBudget)).toMatchObject({
+      ok: false,
+      reason: 'budget-exhausted',
+      shortfalls: [{ channel: 'tokens', requested: 4_000_000, free: 0 }],
+    })
+    assertConserved()
+
+    for (const ticket of tickets) {
+      const spent = meteredTokens(10, 1)
+      pool.reconcile(ticket, spent)
+      reservedIterations -= ticket.reserved.iterations
+      committedTokens += 10
+      committedIterations += 1
+      assertConserved()
+    }
+    pool.assertNoOpenTickets()
+  })
+
+  it('keeps an owner turn and admits depth two while first-level workers stall', async () => {
+    const managerBudget = { maxTokens: 4_000_000, maxIterations: 60 }
+    const descendantBudget = { maxTokens: 1_000_000, maxIterations: 15 }
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const managerGates = Array.from({ length: 6 }, () => deferred())
+    const descendantGate = deferred()
+    const managersStarted = deferred()
+    const ownerSecondTurn = deferred()
+    const descendantStarted = deferred()
+    let startedCount = 0
+    let constructedCount = 0
+    let descendantAdmission: boolean | undefined
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+
+    const descendantResult: ExecutorResult<unknown> = {
+      outRef: 'reservation-policy-depth-two',
+      out: { depth: 2 },
+      verdict: { valid: true, score: 1 },
+      spent: meteredTokens(1_000_000, 1),
+    }
+    const descendant: Agent<unknown, unknown> = {
+      name: 'depth-two',
+      act: async () => descendantResult.out,
+      executorSpec: {
+        profile: testAgentProfile('depth-two', { harness: 'cli-base' }),
+        harness: null,
+        executor: {
+          runtime: 'router',
+          async execute() {
+            descendantStarted.resolve()
+            await descendantGate.promise
+            return descendantResult
+          },
+          teardown: () => Promise.resolve({ destroyed: true }),
+          resultArtifact: () => descendantResult,
+        },
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+
+    const makeWorkerAgent: MakeWorkerAgent = (profile) => {
+      const index = constructedCount++
+      const manager: Agent<unknown, unknown> = {
+        name: profile.name ?? `manager-${index}`,
+        async act(task, scope) {
+          startedCount += 1
+          if (startedCount === 4) managersStarted.resolve()
+          await managerGates[index]!.promise
+          if (index === 0) {
+            const spawned = scope.spawn(descendant, task, {
+              budget: descendantBudget,
+              label: 'depth-two',
+            })
+            descendantAdmission = spawned.ok
+            if (!spawned.ok) throw new Error(`depth-two admission refused: ${spawned.reason}`)
+            await scope.meter(meteredTokens(3_000_000))
+            expect((await scope.next())?.kind).toBe('done')
+          } else {
+            await scope.meter(meteredTokens(4_000_000))
+          }
+          return { manager: index }
+        },
+      }
+      return driverChild(profile, manager, journal)
+    }
+
+    const managerProfiles = Array.from({ length: 6 }, (_, index) =>
+      testAgentProfile(`manager-${index}`, {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      }),
+    )
+    const script = scriptedBrain(
+      [
+        {
+          toolCalls: managerProfiles.map((profile) => ({
+            name: 'spawn_worker',
+            arguments: { profile, task: `hold ${profile.name}` },
+          })),
+          usage: { input: 0, output: 0 },
+        },
+        ...Array.from({ length: 4 }, (_, index) => ({
+          toolCalls: [{ name: 'await_event', arguments: {} }],
+          usage: { input: index === 0 ? 1 : 0, output: 0 },
+        })),
+        { content: 'owner completed after all children', usage: { input: 1, output: 0 } },
+      ],
+      seen,
+    )
+    let ownerTurns = 0
+    const brain: ToolLoopChat = async (...args) => {
+      ownerTurns += 1
+      if (ownerTurns === 2) ownerSecondTurn.resolve()
+      return script(...args)
+    }
+    const running = supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      }),
+      'admit one descendant under a held fleet',
+      {
+        budget: { maxTokens: 20_000_000, maxIterations: 400 },
+        perWorker: managerBudget,
+        maxDepth: 3,
+        maxLiveWorkers: 6,
+        reservationPolicy: { ownerShare: 0.2 },
+        makeWorkerAgent,
+        brain,
+        journal,
+        blobs,
+        runId: 'held-recursive-reservation-policy',
+      },
+    )
+
+    try {
+      await Promise.all([managersStarted.promise, ownerSecondTurn.promise])
+      expect(constructedCount).toBe(4)
+      const firstSpawnReplies = seen[1]!
+        .filter((message) => message.role === 'tool')
+        .map((message) => JSON.parse(String(message.content)) as Record<string, unknown>)
+      expect(firstSpawnReplies).toHaveLength(6)
+      expect(firstSpawnReplies.slice(4).map((reply) => reply.error)).toEqual([
+        'max-live-workers',
+        'max-live-workers',
+      ])
+      managerGates[0]!.resolve()
+      await descendantStarted.promise
+      expect(descendantAdmission).toBe(true)
+      const rootEventsWhileStalled =
+        (await journal.loadTree('held-recursive-reservation-policy')) ?? []
+      const firstLevel = rootEventsWhileStalled.filter(
+        (event) => event.kind === 'spawned' && event.parent === 'held-recursive-reservation-policy',
+      )
+      expect(firstLevel).toHaveLength(4)
+      const managerTree = firstLevel[0]?.ownedTreeRoot
+      expect(managerTree).toBeDefined()
+      const nestedEvents = (await journal.loadTree(managerTree!)) ?? []
+      const depthTwoSpawn = nestedEvents.find(
+        (event) => event.kind === 'spawned' && event.label === 'depth-two',
+      )
+      expect(depthTwoSpawn).toBeDefined()
+      descendantGate.resolve()
+      for (const gate of managerGates.slice(1)) gate.resolve()
+      const result = await running
+      expect(result.kind).toBe('winner')
+      expect(ownerTurns).toBe(6)
+      const terminalNestedEvents = (await journal.loadTree(managerTree!)) ?? []
+      expect(
+        terminalNestedEvents.find(
+          (event) => event.kind === 'settled' && event.id === depthTwoSpawn?.id,
+        ),
+      ).toMatchObject({
+        kind: 'settled',
+        status: 'done',
+        outRef: contentAddress({ depth: 2 }),
+        spent: { tokens: { input: 1_000_000, output: 0 } },
+      })
+      const rootEvents = (await journal.loadTree('held-recursive-reservation-policy')) ?? []
+      const ownerMeters = rootEvents.filter(
+        (event) => event.kind === 'metered' && event.id === 'held-recursive-reservation-policy',
+      )
+      expect(ownerMeters).toHaveLength(6)
+      expect(ownerMeters.at(-1)?.spend.tokens).toMatchObject({ input: 1, output: 0 })
+      if (result.kind === 'winner') {
+        expect(result.spentTotal.tokens).toMatchObject({ input: 16_000_002, output: 0 })
+      }
+    } finally {
+      descendantGate.resolve()
+      for (const gate of managerGates) gate.resolve()
+    }
+  })
+
   it('frees the slot of a settled child whose teardown could not be proven, and still names the node', async () => {
     let secondReason: string | undefined
     const unkillable = trackedLeaf('placeholder') as Agent<unknown, unknown> & {
