@@ -60,6 +60,7 @@ const fleetYield: FleetYield = {
   cancelled: 0,
   neverSettled: 0,
   releasedUnrecovered: 0,
+  releaseUnconfirmed: 0,
 }
 const winnerResult: SupervisedResult<unknown> = {
   kind: 'winner',

@@ -316,6 +316,7 @@ export type ScopeOwnerPause = Omit<
 const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+const retainedSlotClosers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriable = new WeakMap<object, (release: boolean) => boolean>()
 /** The retained owner environments a scope's last release could not confirm destroyed. */
@@ -419,6 +420,26 @@ export async function releaseRetainedEnvironments(
   if (release) await release()
   ownerUnconfirmedByScope.set(scope, await releaseScopeRetainedOwnerEnvironment(scope))
   return unconfirmedTeardowns(scope)
+}
+
+/**
+ * @internal Close the cursor slot of every retained child this scope and its nested scopes still
+ * hold open, once the settlement is final and the release and its retries are done.
+ *
+ * The release sweep closes a slot only when it confirms the environment destroyed, and nothing
+ * else ever closed the rest: a refused delete, a teardown probe that failed after a destroy, or an
+ * admission that timed out before `create` named an environment. Measured on the Discovery fleet
+ * of 2026-09-23/24 (Runtime 0.249.1 to 0.261.0): 338 of 1,620 agents never settled, so they had no
+ * terminal record, no spend but the reservation ceiling, and no transcript receipt (#1301). A
+ * settlement under `retainedAtSettlement: 'release'` is final, so no process will recover these
+ * executions. Each slot closes with the settlement the driver already received, under the seq it
+ * saw, marked `retainedExecution: 'release-unconfirmed'`. The environment it may still hold stays
+ * named by its `teardown-unconfirmed` record for a sweeper. Never call this on a run a later
+ * process may resume.
+ */
+export async function closeRetainedSlots(scope: Scope<unknown>): Promise<void> {
+  const close = retainedSlotClosers.get(scope)
+  if (close) await close()
 }
 
 /**
@@ -2486,54 +2507,87 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // `reconciled` — every one read as `never-settled` and charged its ceiling by every
       // journal reader although the pool had committed the floor. The gate is the same
       // `cleanupConfirmed` the barrier reads: a `destroyed: false` receipt, an executor throw, an
-      // environment-less `[]` answer or a refused `confirmTeardown` leave the slot open, because
-      // the environment may still exist and `[].every` would otherwise close it vacuously. A
-      // crash between the last receipt and this record no longer strands the slot: the
-      // reconciled record carries this settlement and the cursor seq, and `healReleasedSlots`
+      // environment-less `[]` answer or a refused `confirmTeardown` do not make a release, because
+      // the environment may still exist and `[].every` would otherwise close it vacuously; the
+      // final close (`closeRetainedSlots`) states those as `'release-unconfirmed'` once no retry
+      // is left. A crash between the last receipt and this record no longer strands the slot:
+      // the reconciled record carries this settlement and the cursor seq, and `healReleasedSlots`
       // (recover-executors.ts) writes this same record from it on the next resume, under the
       // same seq. A manager settled on the ordinary path already has its record and never
       // passes `recoveryPending`.
-      if (
-        child.cleanupConfirmed &&
-        child.recoveryPending === true &&
-        child.resolved?.kind === 'down' &&
-        child.settledSeq !== undefined &&
-        child.settledAt !== undefined &&
-        !prior.some((event) => event.id === child.id && closesCursorSlot(event))
-      ) {
-        child.budgetViolation = child.retainedViolation
-        const settledAt = child.settledAt
-        await args.journal.appendEvent(
-          args.root,
-          terminalDownEvent(
-            child,
-            child.resolved,
-            child.settledSeq,
-            new Date(settledAt).toISOString(),
-            'released',
-          ),
-        )
-        child.retainedExecution = 'released'
-        const releasedAt = now()
-        // A second `agent.child` for one node is already how a live-recovered child flips
-        // down→done, so the projection folds this in observed order; `settledAt` stays the
-        // settlement instant and `metered` is omitted so the driver's inference is not summed twice.
-        notifyRuntimeHookEvent(
-          args.hooks,
-          {
-            id: `${child.id}:released`,
-            runId: args.root,
-            target: 'agent.child',
-            phase: 'after',
-            timestamp: releasedAt,
-            stepIndex: child.settledSeq,
-            parentId: args.parentId,
-            payload: releasedChildPayload(child, child.resolved, settledAt, releasedAt),
-          },
-          { signal: args.signal },
-        )
-      }
+      if (child.cleanupConfirmed) await closeRetainedSlot(child, 'released', prior)
     }
+  })
+  // One writer for the record that closes a retained child's slot, in either state, so the
+  // released record and the unconfirmed one can never disagree on a field.
+  const closeRetainedSlot = async (
+    child: LiveChild,
+    state: Exclude<RetainedExecutionState, 'pending'>,
+    prior: ReadonlyArray<SpawnEvent>,
+  ): Promise<void> => {
+    if (
+      child.recoveryPending !== true ||
+      child.resolved?.kind !== 'down' ||
+      child.settledSeq === undefined ||
+      child.settledAt === undefined ||
+      child.retainedExecution === 'released' ||
+      child.retainedExecution === 'release-unconfirmed' ||
+      prior.some((event) => event.id === child.id && closesCursorSlot(event))
+    ) {
+      return
+    }
+    child.budgetViolation = child.retainedViolation
+    const settledAt = child.settledAt
+    await args.journal.appendEvent(
+      args.root,
+      terminalDownEvent(
+        child,
+        child.resolved,
+        child.settledSeq,
+        new Date(settledAt).toISOString(),
+        state,
+      ),
+    )
+    child.retainedExecution = state
+    const closedAt = now()
+    // A second `agent.child` for one node is already how a live-recovered child flips
+    // down→done, so the projection folds this in observed order; `settledAt` stays the
+    // settlement instant and `metered` is omitted so the driver's inference is not summed twice.
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${child.id}:${state}`,
+        runId: args.root,
+        target: 'agent.child',
+        phase: 'after',
+        timestamp: closedAt,
+        stepIndex: child.settledSeq,
+        parentId: args.parentId,
+        payload: releasedChildPayload(child, child.resolved, settledAt, closedAt, state),
+      },
+      { signal: args.signal },
+    )
+  }
+  retainedSlotClosers.set(scope, async () => {
+    // Descendants first, in their own trees: a nested manager's retained children close where its
+    // scope journals them, whether the manager itself settled or is retained too.
+    for (const child of children.values()) {
+      const nested = child.readNestedScope?.()
+      if (nested !== undefined) await closeRetainedSlots(nested)
+    }
+    // A confirmed release is the sweep's to record, and after a crash the resume heal's, so this
+    // pass writes only the unconfirmed state and never a second `released` record.
+    const open = [...children.values()].filter(
+      (child) =>
+        child.recoveryPending === true &&
+        !child.cleanupConfirmed &&
+        isTerminalNodeStatus(child.status) &&
+        child.retainedExecution !== 'released' &&
+        child.retainedExecution !== 'release-unconfirmed',
+    )
+    if (open.length === 0) return
+    const prior = (await args.journal.loadTree(args.root)) ?? []
+    for (const child of open) await closeRetainedSlot(child, 'release-unconfirmed', prior)
   })
   registerScopeRetainedOwner(scope as Scope<unknown>, {
     rootId: args.root,

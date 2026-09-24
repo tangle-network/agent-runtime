@@ -84,6 +84,7 @@ function winner(): SupervisedResult<unknown> {
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 0,
     },
   } as unknown as SupervisedResult<unknown>
 }

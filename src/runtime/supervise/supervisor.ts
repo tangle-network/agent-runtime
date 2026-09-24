@@ -67,6 +67,7 @@ import { withBudgetResources } from './resources'
 import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
 import {
   assertRecursiveReservationPolicy,
+  closeRetainedSlots,
   closeScopeAdmission,
   createScope,
   finalizeScopeOwnerMaterialization,
@@ -819,6 +820,11 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
               at: new Date(now()).toISOString(),
             })
           }
+          // A released run is never resumed, so a retained child whose release the retries could
+          // not confirm is as final as a released one. Its slot closes now, marked
+          // `release-unconfirmed`, with the leak already named above; left open, it read as
+          // never-settled forever (#1301).
+          if (releasing) await closeRetainedSlots(openScope)
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
@@ -1465,17 +1471,23 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
   // Each id lands in exactly one bucket, by its last terminal record in journal order.
   const terminal = new Map<NodeId, 'done' | 'down' | 'cancelled'>()
   const released = new Set<NodeId>()
+  const unconfirmed = new Set<NodeId>()
   for (const { event } of forest.events) {
     if (event.kind === 'spawned') {
       if (event.parent !== undefined) spawned.add(event.id)
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       const bucket = event.kind === 'cancelled' ? 'cancelled' : event.status
       terminal.set(event.id, bucket)
-      // `released` is a subset of down + cancelled BY CONSTRUCTION here, not by trust in the
-      // writer: only the release sweep writes the marker and it never writes `done`, but a
-      // hand-built `done` record carrying it must not count twice.
-      if (event.retainedExecution === 'released' && bucket !== 'done') released.add(event.id)
-      else released.delete(event.id)
+      // `released` and `release-unconfirmed` are subsets of down + cancelled BY CONSTRUCTION here,
+      // not by trust in the writer: only the release sweep and the final close write the markers
+      // and they never write `done`, but a hand-built `done` record carrying one must not count
+      // twice.
+      released.delete(event.id)
+      unconfirmed.delete(event.id)
+      if (bucket !== 'done' && event.retainedExecution === 'released') released.add(event.id)
+      if (bucket !== 'done' && event.retainedExecution === 'release-unconfirmed') {
+        unconfirmed.add(event.id)
+      }
     }
   }
   const count = (bucket: 'done' | 'down' | 'cancelled'): number =>
@@ -1487,6 +1499,7 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
     cancelled: count('cancelled'),
     neverSettled: forest.inDoubt.length,
     releasedUnrecovered: released.size,
+    releaseUnconfirmed: unconfirmed.size,
   }
   const accounted =
     fleetYield.done + fleetYield.down + fleetYield.cancelled + fleetYield.neverSettled
@@ -1495,7 +1508,10 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
       `supervisor: fleet yield does not partition the spawned children of '${forest.root}' (${JSON.stringify(fleetYield)})`,
     )
   }
-  if (fleetYield.releasedUnrecovered > fleetYield.down + fleetYield.cancelled) {
+  if (
+    fleetYield.releasedUnrecovered + fleetYield.releaseUnconfirmed >
+    fleetYield.down + fleetYield.cancelled
+  ) {
     throw new RuntimeRunStateError(
       `supervisor: released children exceed down + cancelled for '${forest.root}' (${JSON.stringify(fleetYield)})`,
     )

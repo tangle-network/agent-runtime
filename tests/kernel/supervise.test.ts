@@ -2906,6 +2906,7 @@ describe('supervisor: terminal accounting — wall-clock ms, explicit known flag
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 0,
     })
   })
 

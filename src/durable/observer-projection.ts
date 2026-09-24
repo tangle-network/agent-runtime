@@ -191,7 +191,8 @@ export interface PursuitNodeProjection {
   readonly reason?: string
   readonly infra?: boolean
   /** Recorded by Runtime on the `agent.child` payload: `'pending'` at a retained child's
-   *  settlement, `'released'` when root settlement destroyed its environment without recovery.
+   *  settlement, `'released'` when root settlement destroyed its environment without recovery,
+   *  `'release-unconfirmed'` when a final settlement closed its slot without confirming that.
    *  The status stays `down` — the split is a sibling fact, not a fourth status. A second
    *  `agent.child` for one node is already how a live-recovered child flips down→done, so the
    *  fold overwrites in observed order; that event's `settledAt` is the original settlement, so
@@ -199,7 +200,7 @@ export interface PursuitNodeProjection {
   readonly retainedExecution?: RetainedExecutionState
   /** Why a retained child has no accepted result; see `RetainedPendingCause`. */
   readonly retainedPendingCause?: RetainedPendingCause
-  /** When the release sweep closed a retained node's slot; absent unless `'released'`. */
+  /** When a final settlement closed a retained node's slot; absent while it is `'pending'`. */
   readonly releasedAt?: number
   /** Each channel on which the settled spend exceeded the node's reservation. The status is the
    *  node's own outcome: a `done` node that overspent still delivered its output. */
@@ -545,7 +546,9 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   const infra = booleanField(payload, 'infra')
   if (infra !== undefined) node.infra = infra
   const retained = stringField(payload, 'retainedExecution')
-  if (retained === 'pending' || retained === 'released') node.retainedExecution = retained
+  if (retained === 'pending' || retained === 'released' || retained === 'release-unconfirmed') {
+    node.retainedExecution = retained
+  }
   const cause = stringField(payload, 'retainedPendingCause')
   if (
     cause === 'unobservable' ||
