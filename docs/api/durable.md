@@ -898,6 +898,13 @@ The runner that executed this node — the executor's own name, not a harness gu
 
 > `readonly` `optional` **assignmentId?**: `string`
 
+##### successorOf?
+
+> `readonly` `optional` **successorOf?**: `string`
+
+The settled sibling this node replaced, as its manager's spawn named it. Absent on a node
+ that replaced nothing.
+
 ##### identity?
 
 > `readonly` `optional` **identity?**: `unknown`

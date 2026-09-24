@@ -150,6 +150,9 @@ export interface PursuitNodeProjection {
   readonly runtime?: string
   readonly depth?: number
   readonly assignmentId?: string
+  /** The settled sibling this node replaced, as its manager's spawn named it. Absent on a node
+   *  that replaced nothing. */
+  readonly successorOf?: string
   readonly identity?: unknown
   readonly budget?: unknown
   readonly status: PursuitStatus
@@ -256,6 +259,7 @@ type MutableNode = {
   runtime?: string
   depth?: number
   assignmentId?: string
+  successorOf?: string
   identity?: unknown
   budget?: unknown
   status: PursuitStatus
@@ -471,6 +475,7 @@ function projectSpawnNode(
   const runtime = stringField(payload, 'runtime')
   const depth = numberField(payload, 'depth')
   const assignmentId = stringField(payload, 'assignmentId')
+  const successorOf = stringField(payload, 'successorOf')
   const attemptId = stringField(payload, 'attemptId')
   const startedAt = numberField(payload, 'startedAt')
   nodes.set(key, {
@@ -482,6 +487,7 @@ function projectSpawnNode(
     ...(runtime ? { runtime } : {}),
     ...(depth !== undefined ? { depth } : {}),
     ...(assignmentId ? { assignmentId } : {}),
+    ...(successorOf ? { successorOf } : {}),
     ...(attemptId ? { attemptId } : {}),
     // A spawn that predates the `startedAt` fact falls back to when the record was observed:
     // the spawn event is emitted synchronously with the spawn, so the two agree to the ms.

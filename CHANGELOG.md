@@ -10,6 +10,14 @@ The fork's root records `forkParentRunId`, `forkParentSettleDigest`, `forkProfil
 The parent directory is read and never written.
 A fork carries the parent's recorded inputs only; it does not replay the parent's settled children or continue its native session.
 
+`spawn_worker` accepts `successorOf`, the workerId of a settled worker that the new worker replaces.
+Runtime refuses an id that the manager did not spawn (`successor-unknown`) and a worker that is still live (`successor-live`).
+The executor seam receives the relation as `WorkerSpawnContext.successorOf`.
+The spawn journal records it on the `spawned` event, and the `agent.spawn` hook payload carries it into `observer.jsonl`.
+`projectPursuit` reports it as `PursuitNodeProjection.successorOf`, so a run's record shows which worker took over whose work.
+Direct `Scope` callers pass it as `SpawnOpts.successorOf`.
+Runtime mounts nothing for the successor; the manager puts what the successor needs into its task.
+
 `SuperviseRegistry` has a fifth table, `profiles`: named AgentProfiles that every manager in a run may spawn with `spawn_worker({ profile: '<name>' })`.
 A manager no longer has to retype a profile it already has; the runtime starts from the entry's exact bytes.
 Unless `profileGuidance` or `authorizeSpawn` rewrites the profile, the journal records the entry's canonical digest for the child.
