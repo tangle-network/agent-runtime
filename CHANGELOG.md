@@ -2,6 +2,9 @@
 
 ## 0.264.0
 
+Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.
+Sandbox 0.51.0 adds `sandbox.lines` for phone lines on a sandbox; Runtime does not call that API itself.
+
 A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
 `driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
 `Agent` gains the optional `harnessTranscript()` hook.
