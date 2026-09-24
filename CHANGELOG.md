@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.269.1
+
+A durable run whose cancellation observer cannot create its inotify watch degrades to poll-only
+instead of dying. Creating `fs.watch` can fail for reasons that say nothing about the run — the
+host's inotify instance budget is exhausted (measured on a shared agent box holding ~110 of the
+128 default user instances; a neighboring process's usage was killing durable runs at startup
+with EMFILE), or the kernel caps watches (ENOSPC). The observer already carried a 100 ms poll
+loop; EMFILE/ENOSPC at watch creation now proceed on that loop alone (instant pickup becomes
+≤100 ms), while any other creation error still fails loudly. Measured while here: a durable run
+holds exactly one inotify instance regardless of how many directories it watches (libuv
+multiplexes), so no further sharing was possible or needed.
+
+
 ## 0.269.0
 
 `createOtelExporter` now accounts for every span, and a failed export is no longer silent. Before,
