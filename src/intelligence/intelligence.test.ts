@@ -30,13 +30,7 @@ function installFetchSpy(mode: 'ok' | 'throw'): { calls: FetchCall[] } {
       body: i.body ? JSON.parse(i.body) : undefined,
     })
     if (mode === 'throw') throw new Error('network down')
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {}
-      },
-    } as unknown as Response
+    return new Response('{}', { status: 200 })
   })
   vi.stubGlobal('fetch', spy)
   return { calls }
@@ -251,6 +245,9 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     })
     await expect(client.flush()).resolves.toBeUndefined()
     expect(result).toBe(42)
+    // flush() stays best-effort, so the loss has to be readable somewhere else.
+    expect(client.exportStats()).toMatchObject({ written: 0, dropped: 1, pending: 0 })
+    expect(client.exportStats()?.lastError).toMatch(/failed/)
   })
 
   it('propagates an error thrown by the agent body (not swallowed)', async () => {

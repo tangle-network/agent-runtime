@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 298 exports.
+Import from `@tangle-network/agent-runtime` — 299 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -36,7 +36,7 @@ Import from `@tangle-network/agent-runtime` — 298 exports.
 | `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
 | `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createOpenInferenceFileExporter` | function | Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per |
-| `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
+| `createOtelExporter` | function | Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured. |
 | `createProfileExecutionBackend` | function | Bind one exact profile and Runtime executor to the stable `AgentExecutionBackend` contract used |
 | `createProfileImprovementHarness` | function | Bind one exact profile and executor into a repeatable self-improvement |
 | `createRuntimeEventCollector` | function | Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. |
@@ -146,6 +146,7 @@ Import from `@tangle-network/agent-runtime` — 298 exports.
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OfficialOptimizerContextOptions` | interface | Runtime context appended to an official optimizer's own configuration. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
+| `OtelExportStats` | interface | Delivery accounting for one exporter. `written + dropped + pending` covers every span handed to |
 | `ProfileImprovementHarness` | interface | A small, reusable front door over `improve(profile, options)`. |
 | `ProfileTrainer` | interface | Managed adapters use this same port: cancel the job on abort and download one exact checkpoint file. |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
@@ -504,7 +505,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 999 exports.
 | `createInPlaceCliExecutor` | function | Build an in-place CLI leaf `Executor`. Per-spawn, but NOT per-workspace: repeated spawns against |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
 | `createOpenInferenceFileExporter` | function | Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per |
-| `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
+| `createOtelExporter` | function | Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured. |
 | `createPeerMailbox` | function | Create the run's post office. One per manager scope; the manager's siblings are its addresses. |
 | `createProgressTracker` | function | Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by |
 | `createPromptRegistry` | function | Create a registry, optionally seeded. Entries are copied; the registry never aliases caller state. |

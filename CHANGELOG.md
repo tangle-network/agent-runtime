@@ -2,6 +2,20 @@
 
 ## 0.267.0
 
+`createOtelExporter` now accounts for every span, and a failed export is no longer silent. Before,
+it POSTed each batch without reading the response and swallowed every error in an empty `catch`: a
+401, a 503 or a dead collector lost the batch with no count and no message, so a missing trace read
+like a run that emitted nothing. Concurrent batch POSTs had no limit, and a collector that never
+answered held `flush()` and the exporter's shutdown forever (the old exporter hung past the 20 s test
+timeout). The exporter now sends one batch at a time, bounds queued plus in-flight spans at
+`maxQueueSize` (default 2048), abandons a POST after `timeoutMs` (default 10000), and counts spans a
+non-2xx response, a network error, a timeout, an OTLP `partialSuccess.rejectedSpans` reply or a full
+queue lost. `OtelExporter` gains `stats()` (`written`, `dropped`, `pending`, `lastError`), and
+`flush()` rejects when spans were dropped since the previous flush, the rule the OpenInference file
+exporter already followed. `IntelligenceClient.exportStats()` exposes the same counts, because the
+client's `flush()` stays best-effort. A custom `OtelExporter` passed to `supervise()` must now
+implement `stats()`.
+
 `runGraph({ runDir })` now journals durably. Before, the graph unconditionally defaulted its
 journal and blob store to in-memory instances and passed them into `supervise()`, whose own
 `options.journal ?? createFileRunContext(runDir).journal` resolution then never built the file

@@ -3045,6 +3045,18 @@ Flush any pending export spans. Best-effort; resolves even if export fails.
 
 `Promise`\<`void`\>
 
+##### exportStats()
+
+> **exportStats**(): [`OtelExportStats`](index.md#otelexportstats) \| `undefined`
+
+Delivery accounting for the spans this client sent: written, dropped, pending and the last
+error. `undefined` when no exporter exists (no tenant key). `flush()` stays best-effort, so
+this is where a caller checks that a run's telemetry actually reached Intelligence.
+
+###### Returns
+
+[`OtelExportStats`](index.md#otelexportstats) \| `undefined`
+
 ***
 
 ### ModeReadiness
