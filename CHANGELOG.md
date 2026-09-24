@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.265.0
+## 0.266.0
 
 One pursuit's own tree can now grow to hundreds of agents; four structural limits are removed.
 
@@ -55,10 +55,29 @@ The new `cancel_worker` verb (grant `agent_runtime_coordination_cancel_worker`) 
 A `budget-exhausted` refusal names it.
 Measured on factory-test-2 continue-top5 (2026-09-23): four workers that never ran held 16M of an 18M-token pool, while their director saw the stall and had no way to reclaim it.
 
+## 0.265.0
+
+A provider-backed leaf whose model provider refuses its turn for capacity now pauses and continues instead of settling `down`.
+It keeps its environment, waits by the driver's pause rule (15 s, doubling to 5 min), and continues in the same environment and harness session.
+The continuation tells the leaf to pick up where it stopped; it names neither the provider nor the refusal.
+Each continuation is the leaf's next invocation: an `execution-input`, its own admissions, and its own result, the way an owner's later drive is journaled.
+Each pause is a `paused` spawn event on the leaf, and each result carries the leaf's spend so far; a continuation counts no iteration.
+Only the leaf's deadline, cancellation and budget end its pauses.
+A process that stops during a continuation recovers that invocation in the same environment.
+`ProviderExecutorOptions.unavailablePause` sets the pause, and `false` ends a leaf on the refused turn as before.
+It applies to a retained provider execution under a Scope, the path a supervised leaf takes on a provider that declares `retainedControl`, and not with workspace retention.
+The refusal codes and the pause rule moved to one module that the driver and the leaf both read; `UnavailablePausePolicy` is exported.
+Measured 2026-09-24 on play anomaly-referee-v3d: 15 of 23 down children ended on `provider_quota_exhausted`, and in one lead lane five of five children had run 3 to 9 minutes and spent 117k to 856k input tokens first.
+
 ## 0.264.0
 
 Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.
 Sandbox 0.51.0 adds `sandbox.lines` for phone lines on a sandbox; Runtime does not call that API itself.
+
+The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses a driver too: an operator restores the credential, and the agent can only wait.
+The caller's own key refused (401 `invalid_api_key`) stays terminal.
+`DriverLoopRecord.unavailableMs` is every pause plus every refused drive that made no progress; 0.263.0 counted every refused drive's whole duration.
+Both reached `main` after `v0.263.0` was tagged.
 
 A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
 `driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
@@ -76,9 +95,8 @@ A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`,
 It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
 The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
 Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
-The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`; `unavailableMs` is every pause plus every refused drive that made no progress.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
-The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses too: an operator restores the credential, and the agent can only wait. The caller's own key refused (401 `invalid_api_key`) stays terminal.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
 
 ## 0.262.0

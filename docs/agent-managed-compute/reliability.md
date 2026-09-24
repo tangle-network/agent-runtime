@@ -67,7 +67,15 @@ An `unavailable` failure pauses the driver, then re-enters it with the original 
 The pause starts at `driverRetry.unavailablePauseMs` (15 s) and doubles to `maxUnavailablePauseMs` (5 min).
 A pause consumes neither `maxAttempts` nor `maxConsecutiveFailures`; only the deadline, the budget, cancellation and `enabled: false` end it.
 Each pause is journaled as a `paused` event on the manager node, with the refused attempt's duration and the pause, as infrastructure time.
-A leaf worker whose turn is refused this way still settles `down` with `infra: true`: a provider executor refuses a second execution after it materializes, so a leaf cannot re-enter its own box.
+A provider-backed leaf whose turn is refused this way keeps its environment and pauses by the same rule.
+It then continues in the same environment and harness session, with an instruction to pick up where it stopped.
+The instruction names neither the provider nor the refusal.
+Each continuation is the leaf's next invocation: a new `execution-input`, its own admissions, and its own result.
+The refused turn's result stays in the journal, and each result carries the leaf's spend so far.
+A continuation counts no iteration of its own, and each pause is journaled as a `paused` event on the leaf.
+Only the leaf's deadline, cancellation and budget end its pauses; `ProviderExecutorOptions.unavailablePause: false` ends the leaf on the refused turn instead.
+A process that stops during a continuation recovers that invocation in the same environment, and the leaf's identity stays its original task.
+A leaf continues only on a retained provider path under a Scope, and not with workspace retention.
 The failed result and its spend stay in the journal.
 Its environment is handled as a successful turn's: it is not force-killed.
 The retry starts a new invocation, which reuses the retained owner environment.

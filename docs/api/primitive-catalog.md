@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.265.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.266.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 985 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 986 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1098,6 +1098,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 985 exports.
 | `TrajectoryReportOptions` | interface | `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with |
 | `TreeView` | interface | The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. |
 | `TurnResult` | interface | One finished turn over the artifact. A failed FS read is surfaced in `readError` |
+| `UnavailablePausePolicy` | interface | How long an agent waits after its upstream refused a turn for capacity: the codes and |
 | `UnconfirmedTeardown` | interface | One settled child whose executor teardown was never acknowledged: the run cannot prove the |
 | `VerifySpec` | interface | `verify({ implement, verifier })` — the 2-node sequential gate: an IMPLEMENT child produces a |
 | `VisibleCheck` | interface | One task-visible executable check (e.g. a single-line Python assert). |
