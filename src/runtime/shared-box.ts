@@ -21,6 +21,12 @@
  * dedicated box: {@link SharedBoxPlacement.refusal} names the profile features this placement
  * cannot carry, and Runtime then uses the dedicated provider.
  *
+ * A worker whose model provider refuses a turn for capacity keeps its process's session and
+ * directory, pauses by the driver's rule, and continues the same opencode session, the way a
+ * dedicated leaf does (`ProviderExecutorOptions.unavailablePause`). Measured 2026-09-24: 15 of 23
+ * down children of play anomaly-referee-v3d ended on `provider_quota_exhausted`, and opencode
+ * itself gives up on a refused model after about 70 seconds of its own retries.
+ *
  * The workers of one box share the box's router key. Each worker names itself to the router with
  * the `x-tangle-client` header, which the router stores as `clientName` on every usage row, so a
  * keeper can price one worker from the key's per-client rows (`tangle-admin router-spend --key
@@ -48,8 +54,13 @@ import { materializeProfile } from '@tangle-network/agent-profile-materialize'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import { harnessInvocation } from '../mcp/local-harness'
-import { sandboxClientAsProvider } from './environment-provider'
+import { LEAF_CONTINUATION_TASK, sandboxClientAsProvider } from './environment-provider'
 import { concreteProfileModel, profileProviderModel } from './supervise/model-policy'
+import {
+  type UnavailablePausePolicy,
+  unavailablePauseMs,
+  unavailableSignalOfFailure,
+} from './supervise/upstream-unavailable'
 import type { SandboxClient } from './types'
 import { sleep } from './util'
 
@@ -180,6 +191,15 @@ export interface SharedBoxPlacementOptions {
   workerRoot?: string
   /** First wait before repeating a Sandbox call that failed transiently; doubles per attempt. */
   retryDelayMs?: number
+  /**
+   * How a worker waits out a model provider that cannot serve now: a quota, a rate limit, an
+   * overload, or the router's own refused credential (`unavailableSignalOfFailure`). The worker
+   * pauses 15 s, doubling to 5 min, the rule a driver and a dedicated leaf follow, then continues
+   * its own opencode session in its own directory. Only cancellation, the turn's `timeoutMs` and
+   * the node's deadline and budget, which abort the turn, end the pauses. `false` ends the turn on
+   * the refused run.
+   */
+  unavailablePause?: UnavailablePausePolicy | false
 }
 
 /** Counts that show how the pool placed its workers. */
@@ -384,7 +404,11 @@ export function sharedBoxPlacement(options: SharedBoxPlacementOptions): SharedBo
         assertWorkerCreateOptions(createOptions)
         const lease = await pool.acquire()
         try {
-          const created = await createWorker(lease, workerRoot, profile, retryDelayMs, clientName)
+          const created = await createWorker(lease, workerRoot, profile, {
+            retryDelayMs,
+            clientName,
+            unavailablePause: options.unavailablePause ?? {},
+          })
           return created as unknown as SandboxInstance
         } catch (error) {
           await lease.release()
@@ -663,10 +687,14 @@ async function createWorker(
   lease: BoxLease,
   root: string,
   createProfile: AgentProfile,
-  retryDelayMs: number,
-  clientName: string | undefined,
+  placement: {
+    readonly retryDelayMs: number
+    readonly clientName: string | undefined
+    readonly unavailablePause: UnavailablePausePolicy | false
+  },
 ) {
-  const box = resilientBox(lease.box, retryDelayMs)
+  const { clientName, unavailablePause } = placement
+  const box = resilientBox(lease.box, placement.retryDelayMs)
   const workerId = `w-${randomUUID()}`
   const paths: WorkerPaths = {
     dir: `${root}/${workerId}`,
@@ -681,6 +709,8 @@ async function createWorker(
   }
   const env = workerEnv(paths)
   let running: SharedBoxProcess | undefined
+  // A turn stays active through a pause, when no process runs.
+  let turnActive = false
   let released = false
 
   // Every process this worker started, so a repeated launch never adopts one of them.
@@ -723,6 +753,93 @@ async function createWorker(
     return `${paths.dir}/${path}`
   }
 
+  /**
+   * One turn: one or more opencode runs of the same session. The first runs `message`; a later run
+   * continues the session after the model provider refused a run for capacity.
+   */
+  async function* turn(
+    message: string,
+    turnProfile: AgentProfile,
+    options:
+      | {
+          signal?: AbortSignal
+          timeoutMs?: number
+          backend?: { model?: Record<string, unknown> }
+        }
+      | undefined,
+  ): AsyncGenerator<SandboxEvent> {
+    const signal = options?.signal
+    const timeoutMs = options?.timeoutMs ?? 0
+    const turnDeadline = timeoutMs > 0 ? Date.now() + timeoutMs : undefined
+    let sessionId: string | undefined
+    let refusalsInARow = 0
+    let prompt = message
+    for (let invocation = 1; ; invocation += 1) {
+      const launch = await materializeWorker(
+        box,
+        paths,
+        turnProfile,
+        prompt,
+        options?.backend?.model,
+        clientName,
+        sessionId,
+      )
+      signal?.throwIfAborted()
+      const remainingMs = turnDeadline === undefined ? 0 : Math.max(1, turnDeadline - Date.now())
+      const process = await run(launch.args, remainingMs, {
+        OPENCODE_CONFIG_CONTENT: launch.config,
+      })
+      running = process
+      const onAbort = () => {
+        void process.kill('SIGKILL', { tree: true }).catch(() => undefined)
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      const stderr = drain(box.output(process, 'stderr'))
+      const lines = lineReader()
+      const parsed = createOpencodeEventParser(launch.model)
+      let exitCode: number
+      let errorText: string
+      try {
+        for await (const chunk of box.output(process, 'stdout')) {
+          for (const line of lines.push(chunk)) yield* parsed.line(line)
+        }
+        for (const line of lines.end()) yield* parsed.line(line)
+        exitCode = await box.wait(process)
+        errorText = (await stderr).slice(-4_000)
+      } finally {
+        signal?.removeEventListener('abort', onAbort)
+        running = undefined
+      }
+      sessionId = parsed.sessionId() ?? sessionId
+      const failure = parsed.failure(exitCode, errorText)
+      const refusal =
+        failure === undefined || unavailablePause === false || signal?.aborted
+          ? undefined
+          : unavailableSignalOfFailure({ error: failure })
+      // The same rule a driver and a dedicated leaf follow: doubling per refusal in a row,
+      // restarting after a refused run that still did work.
+      refusalsInARow = parsed.madeProgress() ? 1 : refusalsInARow + 1
+      const pauseMs =
+        refusal === undefined || unavailablePause === false
+          ? 0
+          : unavailablePauseMs(refusalsInARow, unavailablePause)
+      if (
+        refusal === undefined ||
+        (turnDeadline !== undefined && Date.now() + pauseMs >= turnDeadline)
+      ) {
+        if (sessionId !== undefined) await exportSession(run, collect, paths, sessionId)
+        signal?.throwIfAborted()
+        yield* parsed.finish(exitCode, errorText, invocation)
+        return
+      }
+      await sleep(pauseMs, signal)
+      signal?.throwIfAborted()
+      if (released) throw new ValidationError('sharedBoxPlacement: this worker was released')
+      // A run that never opened a session did no work, so its task runs again whole.
+      prompt = sessionId === undefined ? message : LEAF_CONTINUATION_TASK
+    }
+  }
+
   const worker = {
     id: `${box.id}/${workerId}`,
     name: workerId,
@@ -737,7 +854,7 @@ async function createWorker(
       },
     ): AsyncGenerator<SandboxEvent> {
       if (released) throw new ValidationError('sharedBoxPlacement: this worker was released')
-      if (running !== undefined) {
+      if (turnActive) {
         throw new ValidationError('sharedBoxPlacement: a worker runs one turn at a time')
       }
       const turnProfile =
@@ -755,40 +872,11 @@ async function createWorker(
           `sharedBoxPlacement: backend ${options.backend.type} is not ${HARNESS}`,
         )
       }
-      const launch = await materializeWorker(
-        box,
-        paths,
-        turnProfile,
-        message,
-        options?.backend?.model,
-        clientName,
-      )
-      options?.signal?.throwIfAborted()
-      const process = await run(launch.args, options?.timeoutMs ?? 0, {
-        OPENCODE_CONFIG_CONTENT: launch.config,
-      })
-      running = process
-      const onAbort = () => {
-        void process.kill('SIGKILL', { tree: true }).catch(() => undefined)
-      }
-      options?.signal?.addEventListener('abort', onAbort, { once: true })
-      const stderr = drain(box.output(process, 'stderr'))
-      const lines = lineReader()
-      const parsed = createOpencodeEventParser(launch.model)
+      turnActive = true
       try {
-        for await (const chunk of box.output(process, 'stdout')) {
-          for (const line of lines.push(chunk)) yield* parsed.line(line)
-        }
-        for (const line of lines.end()) yield* parsed.line(line)
-        const exitCode = await box.wait(process)
-        const errorText = (await stderr).slice(-4_000)
-        const sessionId = parsed.sessionId()
-        if (sessionId !== undefined) await exportSession(run, collect, paths, sessionId)
-        options?.signal?.throwIfAborted()
-        yield* parsed.finish(exitCode, errorText)
+        yield* turn(message, turnProfile, options)
       } finally {
-        options?.signal?.removeEventListener('abort', onAbort)
-        running = undefined
+        turnActive = false
       }
     },
     async exec(
@@ -940,6 +1028,7 @@ async function materializeWorker(
   task: string,
   turnModel: Record<string, unknown> | undefined,
   clientName: string | undefined,
+  continueSession?: string,
 ): Promise<{ args: string[]; config: string; model: string }> {
   const refusal = sharedBoxRefusal(profile)
   if (refusal !== undefined) throw new ValidationError(`sharedBoxPlacement: ${refusal}`)
@@ -953,7 +1042,10 @@ async function materializeWorker(
       generated = JSON.parse(file.content) as Record<string, unknown>
       continue
     }
-    await box.fs.write(`${paths.dir}/${file.relPath}`, file.content)
+    // A continued session keeps the directory as the worker left it.
+    if (continueSession === undefined) {
+      await box.fs.write(`${paths.dir}/${file.relPath}`, file.content)
+    }
   }
   const instructions = Array.isArray(generated.instructions)
     ? (generated.instructions as unknown[]).map((entry) =>
@@ -994,8 +1086,19 @@ async function materializeWorker(
     dangerouslySkipPermissions: true,
   })
   const model = `${providerId}/${modelId}`
+  if (continueSession !== undefined && !/^[A-Za-z0-9_-]+$/u.test(continueSession)) {
+    throw new ValidationError(`sharedBoxPlacement: session id ${continueSession} is not opencode's`)
+  }
   return {
-    args: [invocation.command, ...invocation.args, '--format', 'json', '-m', model],
+    args: [
+      invocation.command,
+      ...invocation.args,
+      ...(continueSession === undefined ? [] : ['--session', continueSession]),
+      '--format',
+      'json',
+      '-m',
+      model,
+    ],
     config: JSON.stringify(config),
     model,
   }
@@ -1053,8 +1156,22 @@ function createOpencodeEventParser(model: string) {
   const textByMessage = new Map<string, string[]>()
   const errors: string[] = []
   let malformed = 0
+  let spentTokens = false
+  const failureOf = (exitCode: number, stderr: string): string | undefined => {
+    if (exitCode !== 0) {
+      // opencode prints the provider's refusal as a JSON error line and exits 1, so the line's
+      // text is the reason; stderr adds what the process itself said.
+      const said = [...errors, stderr.trim().slice(-1_000)].filter((text) => text.length > 0)
+      return `opencode exited ${exitCode}${said.length > 0 ? `: ${said.join('; ')}` : ''}`
+    }
+    return errors.length > 0 && finalMessageId === undefined ? errors.join('; ') : undefined
+  }
   return {
     sessionId: () => sessionId,
+    /** Why this run failed, or `undefined` when it answered. */
+    failure: failureOf,
+    /** Whether this run spent any model tokens before it ended. */
+    madeProgress: () => spentTokens,
     *line(raw: string): Generator<SandboxEvent> {
       let event: OpencodeLine
       try {
@@ -1082,36 +1199,34 @@ function createOpencodeEventParser(model: string) {
       if (part.type === 'step-finish') {
         if (messageId !== undefined) finalMessageId = messageId
         const receipt = stepReceipt(part, model)
-        if (receipt !== undefined) yield receipt
+        if (receipt !== undefined) {
+          const data = (receipt as { data?: { tokensIn?: number; tokensOut?: number } }).data
+          if ((data?.tokensIn ?? 0) > 0 || (data?.tokensOut ?? 0) > 0) spentTokens = true
+          yield receipt
+        }
       }
     },
-    *finish(exitCode: number, stderr: string): Generator<SandboxEvent> {
+    /** The turn's terminal frames, from its last run. `runs` counts the runs of the session. */
+    *finish(exitCode: number, stderr: string, runs = 1): Generator<SandboxEvent> {
       const finalText =
         (finalMessageId === undefined ? undefined : textByMessage.get(finalMessageId)?.join('')) ??
         ''
-      const failure =
-        exitCode !== 0
-          ? `opencode exited ${exitCode}${stderr.trim() ? `: ${stderr.trim().slice(-1_000)}` : ''}`
-          : errors.length > 0 && finalMessageId === undefined
-            ? errors.join('; ')
-            : undefined
+      const failure = failureOf(exitCode, stderr)
+      const counted = {
+        ...(malformed > 0 ? { malformedLines: malformed } : {}),
+        ...(runs > 1 ? { sessionRuns: runs } : {}),
+      }
       if (failure !== undefined) {
         yield {
           type: 'result',
-          data: {
-            success: false,
-            status: 'failed',
-            error: failure,
-            finalText,
-            ...(malformed > 0 ? { malformedLines: malformed } : {}),
-          },
+          data: { success: false, status: 'failed', error: failure, finalText, ...counted },
         } as unknown as SandboxEvent
         yield { type: 'done', data: { outcome: { type: 'failed' } } } as unknown as SandboxEvent
         return
       }
       yield {
         type: 'result',
-        data: { success: true, finalText, ...(malformed > 0 ? { malformedLines: malformed } : {}) },
+        data: { success: true, finalText, ...counted },
       } as unknown as SandboxEvent
       yield { type: 'done', data: { outcome: { type: 'completed' } } } as unknown as SandboxEvent
     },
@@ -1155,9 +1270,22 @@ function errorMessage(error: unknown): string {
   if (error !== null && typeof error === 'object') {
     const record = error as Record<string, unknown>
     const data = record.data as Record<string, unknown> | undefined
-    if (typeof data?.message === 'string') return data.message
-    if (typeof record.message === 'string') return record.message
-    if (typeof record.name === 'string') return record.name
+    const text =
+      typeof data?.message === 'string'
+        ? data.message
+        : typeof record.message === 'string'
+          ? record.message
+          : typeof record.name === 'string'
+            ? record.name
+            : 'opencode reported an error'
+    // opencode reports a provider's HTTP refusal with its status and a prose message; the router's
+    // own code does not survive into that message ("Inference temporarily unavailable" for a
+    // refused flash on 2026-09-24). The status, in the `status code <n>` framing, is what tells a
+    // capacity refusal (429, 503, 529) from a wrong request.
+    const status = data?.statusCode
+    return typeof status === 'number' && Number.isSafeInteger(status)
+      ? `${text} (status code ${status})`
+      : text
   }
   return 'opencode reported an error'
 }

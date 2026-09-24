@@ -76,6 +76,11 @@ A continuation counts no iteration of its own, and each pause is journaled as a 
 Only the leaf's deadline, cancellation and budget end its pauses; `ProviderExecutorOptions.unavailablePause: false` ends the leaf on the refused turn instead.
 A process that stops during a continuation recovers that invocation in the same environment, and the leaf's identity stays its original task.
 A leaf continues only on a retained provider path under a Scope, and not with workspace retention.
+A shared-box worker (`sharedBoxPlacement`) takes the same pause inside its own turn.
+Its refused `opencode run` ends, and the worker waits by the same rule in its own directory.
+It then runs `opencode run --session <id>` with the same continuation instruction.
+Its turn stays one invocation: the refused run's error frame and spend stay in the turn's events, and the result counts the session's runs as `sessionRuns`.
+Cancellation, the node's deadline and budget, and the turn's `timeoutMs` end its pauses; `SharedBoxPlacementOptions.unavailablePause: false` ends the turn on the refused run.
 The failed result and its spend stay in the journal.
 Its environment is handled as a successful turn's: it is not force-killed.
 The retry starts a new invocation, which reuses the retained owner environment.

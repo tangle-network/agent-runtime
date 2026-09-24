@@ -4,6 +4,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
+import { LEAF_CONTINUATION_TASK } from './environment-provider'
 import type { SharedBoxHandle, SharedBoxProcess } from './shared-box'
 import {
   ROUTER_CLIENT_HEADER,
@@ -271,6 +272,106 @@ describe('sharedBoxPlacement', () => {
     const result = events.find((event) => event.type === 'result')
     expect(result?.data).toMatchObject({ success: false, status: 'failed' })
     expect(String(result?.data.error)).toMatch(/opencode exited 3/)
+    await placement.close()
+  })
+
+  // opencode's last line and exit after its own retries of a refused model, as a Tangle box
+  // printed it for deepseek/deepseek-v4.1-flash on 2026-09-24.
+  const refusedRun = (statusCode: number, message = 'Inference temporarily unavailable.') => [
+    `${JSON.stringify({ type: 'step_start', sessionID: 'ses_abc', part: { type: 'step-start', messageID: 'm0' } })}\n`,
+    `${JSON.stringify({ type: 'error', sessionID: 'ses_abc', error: { name: 'APIError', data: { message, statusCode, isRetryable: statusCode !== 400 } } })}\n`,
+  ]
+  const runs = (box: { spawns: Spawn[] }) =>
+    box.spawns.filter((spawn) => spawn.args.includes('run'))
+  const drainTurn = async (
+    environment: Awaited<ReturnType<AgentEnvironmentProvider['create']>>,
+    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ) => {
+    const events = []
+    for await (const event of environment.stream({ prompt: 'go', ...options })) events.push(event)
+    return events
+  }
+
+  it('pauses a worker the model provider refused for capacity and continues its own session', async () => {
+    let calls = 0
+    let boxRef: FakeBox | undefined
+    const { client, boxes } = fakeClient((spawn) => {
+      calls += 1
+      if (calls === 1) {
+        // The worker edited a profile file before its provider refused it.
+        const dir = spawn.options.cwd!
+        boxRef!.files.set(`${dir}/inputs/brief.md`, 'edited by the worker')
+        return { stdout: refusedRun(503), exit: 1 }
+      }
+      return { stdout: opencodeRun('ALPHA'), exit: 0 }
+    })
+    const placement = sharedBoxPlacement({ client, unavailablePause: { unavailablePauseMs: 1 } })
+    const environment = await placement.providerFor().create({ profile: leaf() })
+    boxRef = boxes[0]
+    const events = await drainTurn(environment)
+    const [first, second] = runs(boxes[0]!)
+    expect(runs(boxes[0]!)).toHaveLength(2)
+    expect(first!.args).toContain('go')
+    expect(first!.args).not.toContain('--session')
+    expect(second!.args).toEqual(
+      expect.arrayContaining(['--session', 'ses_abc', LEAF_CONTINUATION_TASK]),
+    )
+    expect(second!.options.cwd).toBe(first!.options.cwd)
+    // The continued session finds the directory as the worker left it.
+    expect(boxes[0]!.files.get(`${first!.options.cwd}/inputs/brief.md`)).toBe(
+      'edited by the worker',
+    )
+    const result = events.find((event) => event.type === 'result')
+    expect(result?.data).toMatchObject({ success: true, finalText: 'ALPHA', sessionRuns: 2 })
+    expect(events.filter((event) => event.type === 'error')).toHaveLength(1)
+    await placement.close()
+  })
+
+  it('ends the turn on a refusal that is not for capacity', async () => {
+    const { client, boxes } = fakeClient(() => ({
+      stdout: refusedRun(400, 'bad request'),
+      exit: 1,
+    }))
+    const placement = sharedBoxPlacement({ client, unavailablePause: { unavailablePauseMs: 1 } })
+    const events = await drainTurn(await placement.providerFor().create({ profile: leaf() }))
+    expect(runs(boxes[0]!)).toHaveLength(1)
+    const result = events.find((event) => event.type === 'result')
+    expect(result?.data).toMatchObject({ success: false, status: 'failed' })
+    expect(String(result?.data.error)).toMatch(/bad request \(status code 400\)/)
+    await placement.close()
+  })
+
+  it('ends the turn on the refused run when the pause is off', async () => {
+    const { client, boxes } = fakeClient(() => ({ stdout: refusedRun(503), exit: 1 }))
+    const placement = sharedBoxPlacement({ client, unavailablePause: false })
+    const events = await drainTurn(await placement.providerFor().create({ profile: leaf() }))
+    expect(runs(boxes[0]!)).toHaveLength(1)
+    expect(String(events.find((event) => event.type === 'result')?.data.error)).toMatch(
+      /opencode exited 1: Inference temporarily unavailable\. \(status code 503\)/,
+    )
+    await placement.close()
+  })
+
+  it('ends the pause when the turn is cancelled or its time runs out', async () => {
+    const { client, boxes } = fakeClient(() => ({ stdout: refusedRun(429), exit: 1 }))
+    const placement = sharedBoxPlacement({
+      client,
+      unavailablePause: { unavailablePauseMs: 60_000 },
+    })
+    const controller = new AbortController()
+    const cancelled = drainTurn(await placement.providerFor().create({ profile: leaf() }), {
+      signal: controller.signal,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    controller.abort(new Error('cancelled by the owner'))
+    await expect(cancelled).rejects.toThrow(/cancelled by the owner/)
+    expect(runs(boxes[0]!)).toHaveLength(1)
+    // A pause longer than the turn has left settles the refused run instead of waiting.
+    const timed = await drainTurn(await placement.providerFor().create({ profile: leaf() }), {
+      timeoutMs: 5_000,
+    })
+    expect(timed.find((event) => event.type === 'result')?.data).toMatchObject({ success: false })
+    expect(boxes.flatMap((box) => runs(box))).toHaveLength(2)
     await placement.close()
   })
 
