@@ -956,6 +956,7 @@ export {
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
   type RunContext,
+  type RunContextLease,
 } from './supervise/run-context'
 // The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
 // published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
@@ -1036,6 +1037,8 @@ export {
   SUBTREE_RESULT_LIMIT,
   settledToIteration,
 } from './supervise/scope'
+export type { SqlRunContext, SqlRunContextOptions } from './supervise/sql-run-context'
+export { createSqlRunContext, SqlRunOwnershipError } from './supervise/sql-run-context'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.

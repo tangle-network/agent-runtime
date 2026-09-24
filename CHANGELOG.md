@@ -2,6 +2,15 @@
 
 ## 0.267.0
 
+`createSqlRunContext(adapter, runId)` adds whole-run SQL persistence and fenced ownership to
+`runGraph` and `supervise`, without changing `SqlAdapter` or the file-backed default. SQL holds
+the spawn journal, result/input blobs, coordination evidence, and stable run namespace.
+Immutable record staging plus a single fenced head update makes publication atomic without a
+connection-scoped transaction. Root initialization and child/input records publish together.
+Retained provider workers resume their original admission and execution keys, including a crash
+before the first provider call; unrecoverable worker backends are refused on the SQL path.
+See [SQL run context](docs/agent-managed-compute/sql-run-context.md) for the contract and tests.
+
 `runGraph({ runDir })` now journals durably. Before, the graph unconditionally defaulted its
 journal and blob store to in-memory instances and passed them into `supervise()`, whose own
 `options.journal ?? createFileRunContext(runDir).journal` resolution then never built the file

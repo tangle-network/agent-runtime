@@ -60,6 +60,16 @@ import {
 
 export { contentAddress } from './content-address'
 
+/** @internal Group publication when the store supports it; preserve legacy append semantics. */
+export async function appendSpawnEvents(
+  journal: SpawnJournal,
+  root: NodeId,
+  events: ReadonlyArray<SpawnEvent>,
+): Promise<void> {
+  if (journal.appendEvents !== undefined) return journal.appendEvents(root, events)
+  for (const event of events) await journal.appendEvent(root, event)
+}
+
 /** One journal tree in a recursively loaded supervision forest. */
 export interface SpawnForestTree {
   readonly root: NodeId

@@ -51,11 +51,17 @@ export interface InMemoryRunContextOptions {
  * The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
  */
 export interface InMemoryRunContext {
+  /** SQL contexts bind all stores and ownership to this durable run identity. */
+  readonly runId?: string
+  readonly namespace?: string
+  readonly durability?: 'sql'
+  /** Present only on an unacquired context. An acquired context cannot reacquire itself. */
+  readonly acquire?: (signal?: AbortSignal) => Promise<RunContextLease>
   readonly journal: SpawnJournal
   readonly blobs: ResultBlobStore
   readonly executors: ExecutorRegistry
   /**
-   * Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
+   * Present (and `true`) only on a DURABLE context (`createFileRunContext` or `createSqlRunContext`), so spreading the
    * context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
    * leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
    */
@@ -70,9 +76,36 @@ export interface InMemoryRunContext {
   readonly coordinationLog?: CoordinationLog
 }
 
-/** The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the
+/** The stores a supervised run needs, in-memory, file-backed, or SQL-backed. `InMemoryRunContext` is the
  *  historical name for the same shape. */
 export type RunContext = InMemoryRunContext
+
+/** An immutable capability for one run ownership generation. */
+export interface RunContextLease {
+  readonly context: RunContext
+  readonly signal: AbortSignal
+  release(): Promise<void>
+}
+
+/** @internal Hold ownership through the caller's final journal flush, not only its root act. */
+export async function withRunContext<T>(
+  context: RunContext,
+  signal: AbortSignal | undefined,
+  run: (context: RunContext, signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+  if (context.acquire === undefined) return run(context, signal)
+  const lease = await context.acquire(signal)
+  try {
+    const result = await run(
+      lease.context,
+      signal === undefined ? lease.signal : AbortSignal.any([signal, lease.signal]),
+    )
+    lease.signal.throwIfAborted()
+    return result
+  } finally {
+    await lease.release()
+  }
+}
 
 /**
  * Build a fresh in-memory run context. Every call returns NEW stores (no shared global

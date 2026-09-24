@@ -39,6 +39,7 @@
 import { sha256DigestSchema } from '@tangle-network/agent-interface'
 import {
   aggregateProviderModelEvidence,
+  appendSpawnEvents,
   closesCursorSlot,
   contentAddress,
   loadSpawnForest,
@@ -534,24 +535,28 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
         // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
         // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
-        await opts.journal.beginTree(opts.runId, runStartedAt)
+        // A crash may have committed only beginTree. It owns no root yet, but beginning it
+        // again with a different timestamp would reject a valid empty durable run.
+        if (existing === undefined) await opts.journal.beginTree(opts.runId, runStartedAt)
         const rootReceipt = rootMaterializationReceipt(opts)
         const rootRuntime = opts.rootMaterialization?.runtime ?? 'inline'
-        await opts.journal.appendEvent(opts.runId, {
-          kind: 'spawned',
-          id: opts.runId,
-          label: 'root',
-          budget: opts.budget,
-          runtime: rootRuntime,
-          ...(opts.reservationPolicy
-            ? { recursiveAdmission: { policy: opts.reservationPolicy } }
-            : {}),
-          ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
-          seq: 0,
-          at: runStartedAt,
-        })
+        const rootEvents: SpawnEvent[] = [
+          {
+            kind: 'spawned',
+            id: opts.runId,
+            label: 'root',
+            budget: opts.budget,
+            runtime: rootRuntime,
+            ...(opts.reservationPolicy
+              ? { recursiveAdmission: { policy: opts.reservationPolicy } }
+              : {}),
+            ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
+            seq: 0,
+            at: runStartedAt,
+          },
+        ]
         if (rootReceipt !== undefined) {
-          await opts.journal.appendEvent(opts.runId, {
+          rootEvents.push({
             kind: 'materialized',
             id: opts.runId,
             receipt: rootReceipt,
@@ -559,6 +564,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             at: runStartedAt,
           })
         }
+        await appendSpawnEvents(opts.journal, opts.runId, rootEvents)
       }
 
       const stableRootReceipt = resuming
@@ -1134,13 +1140,24 @@ function createIntensityBreaker(opts: SupervisorOpts, trip: () => void): Intensi
  *  settlement either (it writes no `settled` record then), so `downCount` stays what it was:
  *  ordinary downs only; `fleetYield.down` is where a retained child is counted. */
 function wrapJournalForBreaker(journal: SpawnJournal, breaker: IntensityBreaker): SpawnJournal {
+  const recordDown = (ev: SpawnEvent) => {
+    if (ev.kind === 'settled' && ev.status === 'down' && ev.retainedExecution === undefined) {
+      breaker.recordDown(Date.parse(ev.at))
+    }
+  }
   return {
+    ...(journal.appendEvents === undefined
+      ? {}
+      : {
+          appendEvents: (root: string, events: ReadonlyArray<SpawnEvent>) => {
+            for (const event of events) recordDown(event)
+            return journal.appendEvents!(root, events)
+          },
+        }),
     loadTree: (root) => journal.loadTree(root),
     beginTree: (root, at) => journal.beginTree(root, at),
     appendEvent: (root, ev: SpawnEvent) => {
-      if (ev.kind === 'settled' && ev.status === 'down' && ev.retainedExecution === undefined) {
-        breaker.recordDown(Date.parse(ev.at))
-      }
+      recordDown(ev)
       return journal.appendEvent(root, ev)
     },
   }

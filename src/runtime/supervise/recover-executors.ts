@@ -275,7 +275,13 @@ export async function prepareInterruptedExecutors(
     const admissions = current.flatMap((event) =>
       event.kind === 'execution-admitted' ? [event.admission] : [],
     )
-    if (!opts.recoverExecutor || (admissions.length === 0 && !node.ownedTreeRoot)) continue
+    if (
+      !opts.recoverExecutor ||
+      (admissions.length === 0 &&
+        !node.ownedTreeRoot &&
+        (opts.journal.appendEvents === undefined || latestInput === undefined))
+    )
+      continue
     const taskRef = inputs[0]?.taskRef
     if (
       !node.profileRef ||

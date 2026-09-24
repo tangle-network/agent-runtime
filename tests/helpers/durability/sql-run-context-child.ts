@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { AgentEnvironment, AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { runGraph } from '../../../src/runtime/supervise/graph'
 import { createSqlRunContext } from '../../../src/runtime/supervise/sql-run-context'
 import { durableRetainedProvider } from '../durable-retained-provider'
@@ -15,43 +18,75 @@ let stopped = false
 async function hit(mark: string) {
   if (stopped || mark !== checkpoint) return
   stopped = true
-  await new Promise<void>((resolve, reject) => process.send!({ type: 'checkpoint', mark }, (error) => error ? reject(error) : resolve()))
+  await new Promise<void>((resolve, reject) =>
+    process.send!({ type: 'checkpoint', mark }, (error) => (error ? reject(error) : resolve())),
+  )
   if (mode === 'kill') process.kill(process.pid, 'SIGKILL')
-  if (mode === 'hold') await new Promise<void>(() => {})
+  if (mode === 'hold')
+    await new Promise<void>((resolve) => process.once('message', () => resolve()))
 }
 
 let sqlCalls = 0
 let sqlBytes = 0
+let publicationKinds: string[] = []
 const boundary: SqlBoundary = async (when, sql, params) => {
-  if (when === 'before') { sqlCalls += 1; sqlBytes += sql.length + JSON.stringify(params).length }
-  let kind: string | undefined
-  for (const param of params) {
-    if (typeof param !== 'string' || !param.startsWith('{')) continue
-    const value = JSON.parse(param) as { kind?: string; parent?: string; admission?: { phase: string } }
-    if (!value.kind) continue
-    kind = value.kind === 'spawned' ? `spawned-${value.parent === undefined ? 'root' : 'child'}` : value.kind
-    if (value.kind === 'execution-admitted') kind += `-${value.admission!.phase}`
-    break
+  if (when === 'before') {
+    sqlCalls += 1
+    sqlBytes += Buffer.byteLength(sql) + Buffer.byteLength(JSON.stringify(params))
   }
-  if (params.includes('blobs')) kind = 'blob'
-  if (kind) await hit(`sql:${kind}:${when}`)
+  if (when === 'before' && sql.includes('_records') && sql.startsWith('INSERT')) {
+    const entry = JSON.parse(params.at(-1) as string) as {
+      kind: string
+      events?: Array<{ kind: string; parent?: string; admission?: { phase: string } }>
+    }
+    publicationKinds =
+      entry.kind === 'events'
+        ? entry.events!.map((event) =>
+            event.kind === 'spawned'
+              ? `spawned-${event.parent === undefined ? 'root' : 'child'}`
+              : event.kind === 'execution-admitted'
+                ? `${event.kind}-${event.admission!.phase}`
+                : event.kind,
+          )
+        : [entry.kind === 'blobs' ? 'blob' : entry.kind]
+  }
+  if (sql.includes(' SET head =')) {
+    for (const kind of publicationKinds) await hit(`sql:${kind}:${when}`)
+  }
 }
+
 const store = openSql(join(shared, 'run-context.sqlite'), boundary)
 const physical = new DatabaseSync(join(shared, 'provider-effects.sqlite'))
-physical.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=10000; CREATE TABLE IF NOT EXISTS effects(kind TEXT NOT NULL, effect_key TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(kind,effect_key))')
+physical.exec(
+  'PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=10000; CREATE TABLE IF NOT EXISTS effects(kind TEXT NOT NULL, effect_key TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(kind,effect_key))',
+)
 function applied(kind: string, key: string) {
-  physical.prepare('INSERT INTO effects VALUES (?, ?, 1) ON CONFLICT(kind,effect_key) DO UPDATE SET count=count+1').run(kind, key)
+  physical
+    .prepare(
+      'INSERT INTO effects VALUES (?, ?, 1) ON CONFLICT(kind,effect_key) DO UPDATE SET count=count+1',
+    )
+    .run(kind, key)
 }
 function total(kind: string) {
-  return Number((physical.prepare('SELECT COALESCE(SUM(count),0) AS n FROM effects WHERE kind=?').get(kind) as { n: number }).n)
+  return Number(
+    (
+      physical
+        .prepare('SELECT COALESCE(SUM(count),0) AS n FROM effects WHERE kind=?')
+        .get(kind) as { n: number }
+    ).n,
+  )
 }
 
 // This file is the EXTERNAL provider's durable state, not an orchestrator runDir. Each host has
 // its own empty working directory; only SQL and this independently retained service survive.
 const providerFile = join(shared, 'provider.json')
-type ProviderState = { environments: Record<string, { sessions: Record<string, { controls: Record<string, unknown> }> }> }
+type ProviderState = {
+  environments: Record<string, { sessions: Record<string, { controls: Record<string, unknown> }> }>
+}
 function providerState(): ProviderState {
-  return existsSync(providerFile) ? JSON.parse(readFileSync(providerFile, 'utf8')) as ProviderState : { environments: {} }
+  return existsSync(providerFile)
+    ? (JSON.parse(readFileSync(providerFile, 'utf8')) as ProviderState)
+    : { environments: {} }
 }
 const base = durableRetainedProvider(providerFile)
 function wrappedEnvironment(environment: AgentEnvironment): AgentEnvironment {
@@ -60,9 +95,13 @@ function wrappedEnvironment(environment: AgentEnvironment): AgentEnvironment {
     async dispatch(input) {
       await hit('provider:dispatch:before')
       const previous = providerState().environments[environment.id]?.sessions
-      const known = new Set(Object.values(previous ?? {}).flatMap((session) => Object.keys(session.controls)))
+      const known = new Set(
+        Object.values(previous ?? {}).flatMap((session) => Object.keys(session.controls)),
+      )
+      if (!environment.dispatch) throw new Error('fixture environment must support dispatch')
       const session = await environment.dispatch(input)
-      const executionId = session.controlRef!.executionId
+      const executionId = session.controlRef?.executionId
+      if (!executionId) throw new Error('fixture dispatch must retain its execution identity')
       if (!known.has(executionId)) applied('dispatch', `${environment.id}:${executionId}`)
       await hit('provider:dispatch:after')
       return session
@@ -80,13 +119,17 @@ const provider: AgentEnvironmentProvider = {
     return wrappedEnvironment(environment)
   },
   async get(id) {
+    if (!base.get) throw new Error('fixture provider must support retained lookup')
     const environment = await base.get(id)
     return environment ? wrappedEnvironment(environment) : null
   },
 }
 
 async function phase() {
-  const context = await createSqlRunContext(store.adapter, RUN_ID, { leaseMs: 400, heartbeatMs: 60 })
+  const context = await createSqlRunContext(store.adapter, RUN_ID, {
+    leaseMs: 400,
+    heartbeatMs: 60,
+  })
   const planner = new ConductorPlanner()
   const site = openSideEffectSite(shared!)
   const result = await runGraph(conformanceGraph(), {
@@ -95,7 +138,10 @@ async function phase() {
     workerSlots: 3,
     maxTurns: 24,
     perWorker: { maxIterations: 60, maxTokens: 500000 },
-    brain: async (messages) => planner.nextTurn(messages as ReadonlyArray<Record<string, unknown>>),
+    brain: async (messages) => {
+      const response = planner.nextTurn(messages as ReadonlyArray<Record<string, unknown>>)
+      return { ...response, toolCalls: response.toolCalls ?? [] }
+    },
     backend: { backend: 'provider', provider },
     extraTools: [sideEffectToolSpec()],
     executeExtraTool: async (name, args) => {
@@ -108,19 +154,34 @@ async function phase() {
   })
   const events = (await context.journal.loadTree(RUN_ID)) ?? []
   const workers = events.filter((event) => event.kind === 'spawned' && event.parent !== undefined)
-  const completed = new Set(events.filter((event) => event.kind === 'settled' && event.status === 'done').map((event) => event.id))
+  const completed = new Set(
+    events
+      .filter((event) => event.kind === 'settled' && event.status === 'done')
+      .map((event) => event.id),
+  )
+  const attempts = events.flatMap((event) =>
+    event.kind === 'execution-bound' && event.id === RUN_ID ? [event.binding.attemptId] : [],
+  )
+  const cursors = events.filter((event) => event.kind === 'settled').map((event) => event.seq)
   const report = {
     kind: result.result.kind,
     out: result.result.kind === 'winner' ? result.result.out : result.result,
+    rootMaterializations: events.filter(
+      (event) => event.kind === 'materialized' && event.id === RUN_ID,
+    ).length,
+    uniqueRootAttempts: attempts.length === new Set(attempts).size,
+    uniqueCursorSequences: cursors.length === new Set(cursors).size,
     roots: events.filter((event) => event.kind === 'spawned' && event.parent === undefined).length,
     workers: workers.length,
     completed: workers.filter((event) => completed.has(event.id)).length,
     inDoubt: workers.filter((event) => !completed.has(event.id)).length,
+    planner: planner.report(),
     escalations: planner.report().escalations,
     effects: site.committedKeys(),
     creations: total('create'),
     dispatches: total('dispatch'),
-    sqlCalls, sqlBytes,
+    sqlCalls,
+    sqlBytes,
   }
   process.stdout.write(`${JSON.stringify(report)}\n`)
 }

@@ -342,6 +342,24 @@ export class ConductorPlanner {
     toolCalls?: Array<{ id: string; name: string; arguments: string }>
   } {
     this.turns += 1
+    // Retained-provider resumes attach live workers before the first brain turn. Read the
+    // ordinary driver-visible resume brief and await their ORIGINAL ids instead of asking
+    // spawn_worker to duplicate a live key. Completion still requires a real settled event.
+    if (this.turns === 1) {
+      for (const message of messages) {
+        const section = String(message.content ?? '').match(
+          /Recovered keys are attached[^\n]*\n((?:- [^\n]+(?:\n|$))+)/,
+        )?.[1]
+        for (const line of section?.split('\n') ?? []) {
+          const match = /^- (.+) → (\S+) \(/.exec(line)
+          const node = this.nodes.find((entry) => entry.key === match?.[1])
+          if (node && match) {
+            node.status = 'spawned'
+            node.workerId = match[2]
+          }
+        }
+      }
+    }
     this.fold(messages)
     if (this.fatal !== undefined) return { content: `planner-fatal: ${this.fatal}` }
     const pending = this.nodes.filter((n) => n.status === 'pending')
