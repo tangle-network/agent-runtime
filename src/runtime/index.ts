@@ -62,7 +62,9 @@ export type {
   DownMessageDeliveryOutcome,
   DownMessageEvent,
   EscalateQuestion,
+  EventAcknowledgement,
   MakeWorkerAgent,
+  ManagerReentryState,
   QuestionEscalationOutcome,
   QuestionEscalationRecord,
   SpawnPreflight,
@@ -737,16 +739,19 @@ export {
 // `onUnmetContract` composes what it says.
 export {
   classifyDriverFailure,
+  DEFAULT_MAX_BARREN_REPROMPTS,
   type DriverAttemptRecord,
   type DriverAttemptStop,
   DriverAttemptsExhaustedError,
   // The pool readout an unmet-contract hook is handed, so a caller can type its own decision
   // against the same budget the loop reads.
   type DriverBudgetReadout,
+  type DriverContinuationRecord,
   type DriverContractState,
   // The third answer beside transient and terminal: the upstream was out of capacity, so the
   // driver pauses instead of failing. The signal reader lets a consumer classify its own records.
   type DriverFailureClass,
+  type DriverLoopRecord,
   type DriverProgressMark,
   type DriverReentry,
   type DriverRepromptPolicy,
@@ -756,6 +761,7 @@ export {
   type DriverUnmetContractDecision,
   defaultUnmetContractSteer,
   type OnUnmetContract,
+  summarizeDriverAttempts,
   upstreamUnavailableSignal,
 } from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
@@ -913,6 +919,14 @@ export {
   provisionSupervisor,
   type SupervisorCleanupReceipt,
 } from './supervise/provision-supervisor'
+// What a re-entered external driver is told, composed from the coordinator's own records and the
+// drive harness's statement of what the next drive continues.
+export {
+  composeReentryTask,
+  type ReentryContinuity,
+  type ReentryTaskInput,
+  UNPROVEN_CONTINUITY,
+} from './supervise/reentry'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores

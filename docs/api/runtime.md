@@ -1791,6 +1791,94 @@ bytes; throwing refuses delivery.
 
 ***
 
+### EventAcknowledgement
+
+One acknowledgement record: which delivered events are now processed, and on whose word.
+
+#### Properties
+
+##### seqs
+
+> `readonly` **seqs**: readonly `number`[]
+
+Bus `seq` of each acknowledged event, in this process's sequence space.
+
+##### by
+
+> `readonly` **by**: `"manager"` \| `"turn-completed"` \| `"result-accepted"`
+
+`manager`: the manager named them in `await_event`'s `acknowledge`. `turn-completed`: the
+ driver turn that received them ended normally. `result-accepted`: a submission passed the
+ completion check after they were delivered.
+
+##### attempt?
+
+> `readonly` `optional` **attempt?**: `number`
+
+The 1-based driver attempt that received them, when the manager has driver attempts.
+
+***
+
+### ManagerReentryState
+
+What a manager's coordinator knows about its run, read when the manager is entered again.
+ Every field comes from the coordinator's own records, never from the manager's environment.
+
+#### Properties
+
+##### journalRows
+
+> `readonly` **journalRows**: `number`
+
+Rows in this manager's journal (`read_journal`) right now.
+
+##### journalReadTo
+
+> `readonly` **journalReadTo**: `number`
+
+The highest `nextRow` a `read_journal` call has returned, 0 when the manager never read it.
+
+##### live
+
+> `readonly` **live**: readonly `object`[]
+
+Workers still running.
+
+##### settled
+
+> `readonly` **settled**: readonly `object`[]
+
+Workers that settled, with whether their settlement reached the manager through `await_event`.
+
+##### waiting
+
+> `readonly` **waiting**: readonly `object`[]
+
+Events queued for `await_event` and not yet delivered, including settlements the coordinator
+ holds but has not queued yet.
+
+##### unacknowledged
+
+> `readonly` **unacknowledged**: readonly `object`[]
+
+Events delivered to a turn that did not complete, and not acknowledged since.
+
+##### lastRejection?
+
+> `readonly` `optional` **lastRejection?**: `object`
+
+The last refused `submit_result`, with the refusal the manager was given.
+
+###### at
+
+> `readonly` **at**: `number`
+
+###### reason
+
+> `readonly` **reason**: `string`
+
+***
+
 ### WorkerSpawnContext
 
 Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
@@ -6034,7 +6122,7 @@ Read this stage's settled child output into the typed `StepOut` the next stage f
 
 ###### settled
 
-[`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`StepOut`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`StepOut`\>\>
 
 ###### Returns
 
@@ -6198,7 +6286,7 @@ How a fanout's synthesis child is built + read. `synthesisTask` projects the dra
 
 ###### gathered
 
-readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 ###### ctx
 
@@ -6216,7 +6304,7 @@ readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 ###### settled
 
-[`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>
 
 ###### Returns
 
@@ -6289,7 +6377,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 ###### settled
 
-[`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>
 
 ###### Returns
 
@@ -6557,7 +6645,7 @@ Build the verifier child's task from the implement child's settled candidate.
 
 ###### candidate
 
-[`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`Candidate`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`Candidate`\>\>
 
 ###### ctx
 
@@ -6577,7 +6665,7 @@ Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
 ###### candidate
 
-[`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`Candidate`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`Candidate`\>\>
 
 ###### verdict
 
@@ -6685,7 +6773,7 @@ Synthesize the terminal deliverable from every settled lineage (selector≠judge
 
 ###### gathered
 
-readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 ###### ctx
 
@@ -6729,7 +6817,7 @@ When true, `decide` may read `settled.verdict` directly — collides with the st
 
 ###### settled
 
-[`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>
 
 ###### findings
 
@@ -6892,7 +6980,7 @@ Opaque root-task framing (whatever the combinator was invoked with).
 
 ##### settledSoFar
 
-> `readonly` **settledSoFar**: readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+> `readonly` **settledSoFar**: readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 The children this combinator has drained off `scope.next()`, in cursor order.
 
@@ -6927,7 +7015,7 @@ explicitly NOT for steering — reading it to steer is the coupling the architec
 
 ##### settledSoFar
 
-> `readonly` **settledSoFar**: readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+> `readonly` **settledSoFar**: readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 ##### lastValidScore?
 
@@ -14137,7 +14225,7 @@ Called once per settlement, in cursor order, BEFORE the freed slot is refilled �
 
 ###### settled
 
-[`Settled`](#settled-3)\<`Out`\>
+[`Settled`](#settled-4)\<`Out`\>
 
 ###### Returns
 
@@ -14168,7 +14256,7 @@ drained to completion (no orphan, no lost settlement). Use it for a progress/pla
 
 ##### settled
 
-> `readonly` **settled**: readonly [`Settled`](#settled-3)\<`Out`\>[]
+> `readonly` **settled**: readonly [`Settled`](#settled-4)\<`Out`\>[]
 
 Every settlement, in the order `scope.next()` yielded them.
 
@@ -14322,6 +14410,12 @@ Set when this attempt ended the loop.
 Set when another attempt follows. For an `unavailable` attempt this is the pause, which is
  infrastructure time: together with `durationMs` it is what the outage cost this driver.
 
+##### reentry?
+
+> `readonly` `optional` **reentry?**: `"unmet-contract"` \| `"driver-failure"` \| `"upstream-unavailable"`
+
+How this attempt was entered. Absent on the first attempt.
+
 ##### unavailableSignal?
 
 > `readonly` `optional` **unavailableSignal?**: `string`
@@ -14396,32 +14490,6 @@ Monotone count of settled children that PASSED the completion check. A child tha
 
 ***
 
-### DriverReentry
-
-Why the loop is entering the driver again, and with what. Absent on a first attempt and on
- every failure retry — those re-enter with the caller's ORIGINAL task, because a driver that
- crashed may never have read it.
-
-#### Properties
-
-##### reason
-
-> `readonly` **reason**: `"unmet-contract"`
-
-##### steer
-
-> `readonly` **steer**: `string`
-
-The instruction to re-enter the LIVE session with: the unmet items, not the original task.
-
-##### reprompt
-
-> `readonly` **reprompt**: `number`
-
-1-based: which re-prompt this is.
-
-***
-
 ### DriverUnmetContractContext
 
 What the caller sees when a drive returns with its completion check unmet.
@@ -14460,6 +14528,12 @@ The mark read AFTER the completed drive.
 
 What the run was supposed to produce, from the caller's completion check.
 
+##### barrenReentries
+
+> `readonly` **barrenReentries**: `number`
+
+Consecutive re-entered drives, this one included, that completed without a delivery.
+
 ***
 
 ### DriverRepromptPolicy
@@ -14473,9 +14547,18 @@ How a completed-but-undelivered drive is re-entered. Absent = the historical beh
 
 > `readonly` **maxReprompts**: `number` \| `"until-complete"`
 
-How many times one run may re-enter its live session with the unmet items. `0` = never.
+How many times one run may re-enter its driver with the unmet items. `0` = never.
  `'until-complete'` removes the count cap and requires a finite positive scope deadline.
- Budget, cancellation, explicit stop, and failure retry limits still apply.
+ Budget, cancellation, explicit stop, the barren bound, and failure retry limits still apply.
+
+##### maxBarren?
+
+> `readonly` `optional` **maxBarren?**: `number`
+
+Consecutive re-entered drives that may complete without a delivery before re-prompting stops
+ (`repromptRefusedBy: 'no-progress'`). Default [DEFAULT\_MAX\_BARREN\_REPROMPTS](#default_max_barren_reprompts); minimum 1.
+ A delivery — an accepted submission, a child that passed its check, the contract turning
+ met — resets the count.
 
 ##### onUnmetContract?
 
@@ -14488,6 +14571,187 @@ Compose the instruction, or return `'stop'`. Omit = [defaultUnmetContractSteer](
 > `readonly` `optional` **describe?**: `string`
 
 What the run owes, surfaced in the default instruction.
+
+***
+
+### DriverLoopRecord
+
+What one driver loop did, counted from its attempt records: the numbers a run's settle record
+carries so a reader can tell genuine continuations from failure retries without the journal.
+
+Measured motive: the most genuine continuations in any recorded lab run was 11
+(evidence-compiler-j, which won), while the two larger counts, 32 and 12, were re-entries after
+failed turns. One `attempts` number hid which was which.
+
+#### Extended by
+
+- [`DriverContinuationRecord`](#drivercontinuationrecord)
+
+#### Properties
+
+##### attempts
+
+> `readonly` **attempts**: `number`
+
+Driver invocations started.
+
+##### reprompts
+
+> `readonly` **reprompts**: `number`
+
+Genuine continuations: completed drives with the contract unmet that were re-entered.
+
+##### failureRetries
+
+> `readonly` **failureRetries**: `number`
+
+Re-entries after a failed drive. A pause on an unavailable upstream is not one.
+
+##### unavailablePauses
+
+> `readonly` **unavailablePauses**: `number`
+
+Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure.
+
+##### unavailableMs
+
+> `readonly` **unavailableMs**: `number`
+
+Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
+ plus the pause after it.
+
+##### barrenReentries
+
+> `readonly` **barrenReentries**: `number`
+
+Re-entered drives, in a row at the end, that completed without a delivery.
+
+##### ended
+
+> `readonly` **ended**: [`DriverAttemptStop`](#driverattemptstop) \| `"unrecorded"`
+
+Why the loop ended: its last record's stop, or `unrecorded` when it ended without one (an
+ admission refusal before the first attempt, or a throw from outside the loop).
+
+##### repromptRefusedBy?
+
+> `readonly` `optional` **repromptRefusedBy?**: [`DriverRepromptRefusal`](#driverrepromptrefusal)
+
+Why a completed-but-unmet drive was not re-entered, when that ended the loop.
+
+***
+
+### DriverContinuationRecord
+
+A manager's driver loop as its run's settle record carries it (`SupervisedResult.continuation`).
+
+#### Extends
+
+- [`DriverLoopRecord`](#driverlooprecord)
+
+#### Properties
+
+##### attempts
+
+> `readonly` **attempts**: `number`
+
+Driver invocations started.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`attempts`](#attempts-1)
+
+##### reprompts
+
+> `readonly` **reprompts**: `number`
+
+Genuine continuations: completed drives with the contract unmet that were re-entered.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`reprompts`](#reprompts-1)
+
+##### failureRetries
+
+> `readonly` **failureRetries**: `number`
+
+Re-entries after a failed drive. A pause on an unavailable upstream is not one.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`failureRetries`](#failureretries)
+
+##### unavailablePauses
+
+> `readonly` **unavailablePauses**: `number`
+
+Re-entries after the upstream refused a drive for capacity. Each is a pause, not a failure.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`unavailablePauses`](#unavailablepauses)
+
+##### unavailableMs
+
+> `readonly` **unavailableMs**: `number`
+
+Infrastructure time the unavailable upstream cost this loop: every refused drive's duration
+ plus the pause after it.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`unavailableMs`](#unavailablems)
+
+##### barrenReentries
+
+> `readonly` **barrenReentries**: `number`
+
+Re-entered drives, in a row at the end, that completed without a delivery.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`barrenReentries`](#barrenreentries-1)
+
+##### ended
+
+> `readonly` **ended**: [`DriverAttemptStop`](#driverattemptstop) \| `"unrecorded"`
+
+Why the loop ended: its last record's stop, or `unrecorded` when it ended without one (an
+ admission refusal before the first attempt, or a throw from outside the loop).
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`ended`](#ended)
+
+##### repromptRefusedBy?
+
+> `readonly` `optional` **repromptRefusedBy?**: [`DriverRepromptRefusal`](#driverrepromptrefusal)
+
+Why a completed-but-unmet drive was not re-entered, when that ended the loop.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`repromptRefusedBy`](#repromptrefusedby-1)
+
+##### environmentReplacements
+
+> `readonly` **environmentReplacements**: `number`
+
+Re-entries that ran in a new environment because the provider no longer held the old one.
+
+##### closedBy?
+
+> `readonly` `optional` **closedBy?**: `"stop"` \| `"blocked"` \| `"result-accepted"` \| `"stop-rule"`
+
+How the run was closed, when something closed it: an accepted `submit_result`, the
+ manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
+ `stopRule`. Absent when the loop ended on a bound or a failure.
+
+##### stopReason?
+
+> `readonly` `optional` **stopReason?**: `string`
+
+The reason the manager gave, or the failed probe, verbatim.
 
 ***
 
@@ -14637,6 +14901,44 @@ readonly `E`\[`"type"`\][]
 ###### Returns
 
 `E` \| `undefined`
+
+##### pullRecord()
+
+> **pullRecord**(`kinds?`): [`BusRecord`](#busrecord)\<`E`\> \| `undefined`
+
+**`Experimental`**
+
+[EventBus.pull](#pull), returning the stamped record, so a consumer can later acknowledge the
+ exact event it received by `seq`.
+
+###### Parameters
+
+###### kinds?
+
+readonly `E`\[`"type"`\][]
+
+###### Returns
+
+[`BusRecord`](#busrecord)\<`E`\> \| `undefined`
+
+##### queued()
+
+> **queued**(`kinds?`): readonly [`BusRecord`](#busrecord)\<`E`\>[]
+
+**`Experimental`**
+
+The queued, not-yet-pulled records in publish order (filtered by `kinds` when given), as a
+ copy: reading it never changes what `pull` returns next.
+
+###### Parameters
+
+###### kinds?
+
+readonly `E`\[`"type"`\][]
+
+###### Returns
+
+readonly [`BusRecord`](#busrecord)\<`E`\>[]
 
 ##### subscribe()
 
@@ -17344,6 +17646,78 @@ Capability-derived terminal takeover requirement.
 
 ***
 
+### ReentryContinuity
+
+What the next drive continues, as the drive harness can prove it before the turn starts.
+
+#### Properties
+
+##### session
+
+> `readonly` **session**: `"continued"` \| `"new"`
+
+`continued`: the next turn is sent into the harness session that received the last one.
+ `new`: a new harness session, which knows only what its task says.
+
+##### environment
+
+> `readonly` **environment**: `"unknown"` \| `"same"` \| `"replaced"`
+
+Whether the next drive runs in the environment the previous drive used. `replaced` names a
+ previous environment the provider no longer holds.
+
+##### environmentId?
+
+> `readonly` `optional` **environmentId?**: `string`
+
+##### previousEnvironmentId?
+
+> `readonly` `optional` **previousEnvironmentId?**: `string`
+
+##### workspace
+
+> `readonly` **workspace**: `"lost"` \| `"unknown"` \| `"kept"`
+
+What the next environment holds of the previous one's files.
+
+***
+
+### ReentryTaskInput
+
+#### Properties
+
+##### originalTask
+
+> `readonly` **originalTask**: `unknown`
+
+The run's original task, exactly as the first drive received it.
+
+##### contract?
+
+> `readonly` `optional` **contract?**: `string`
+
+What the completion check requires, when the caller described it.
+
+##### reentry
+
+> `readonly` **reentry**: [`DriverReentry`](#driverreentry)
+
+##### continuity
+
+> `readonly` **continuity**: [`ReentryContinuity`](#reentrycontinuity)
+
+##### state
+
+> `readonly` **state**: [`ManagerReentryState`](#managerreentrystate)
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+1-based driver attempt this task starts.
+
+***
+
 ### InMemoryRunContextOptions
 
 Options for a supervised run context.
@@ -18809,7 +19183,7 @@ continue past, so a freshly-spawned child never reuses a journaled `seq`. Absent
 
 ###### settled
 
-> `readonly` **settled**: readonly [`Settled`](#settled-3)\<`unknown`\>[]
+> `readonly` **settled**: readonly [`Settled`](#settled-4)\<`unknown`\>[]
 
 ###### view
 
@@ -20590,6 +20964,22 @@ readonly `Omit`\<[`McpToolDescriptor`](mcp.md#mcptooldescriptor), `"handler"`\>[
 Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
  this in their materialization evidence without persisting executable handlers.
 
+###### reentry?
+
+\{ `compose`: (`continuity`) => `string`; `onContinuity?`: (`continuity`) => `void`; \}
+
+Present when this drive re-enters the run. `task` then carries the original objective and
+ the coordinator's run state, which is right for any backend. A harness that can prove what
+ the next turn continues composes the task from that proof instead, and reports it.
+
+###### reentry.compose
+
+(`continuity`) => `string`
+
+###### reentry.onContinuity?
+
+(`continuity`) => `void`
+
 #### Returns
 
 `Promise`\<`void`\>
@@ -20767,6 +21157,22 @@ Per-attempt record for the external driver — how an operator sees "failed afte
 ###### Returns
 
 `void` \| `Promise`\<`void`\>
+
+##### onDriverLoopSettled?
+
+> `readonly` `optional` **onDriverLoopSettled?**: (`record`) => `void`
+
+Called once when the external driver loop ends, returned or thrown, with what it did.
+
+###### Parameters
+
+###### record
+
+[`DriverContinuationRecord`](#drivercontinuationrecord)
+
+###### Returns
+
+`void`
 
 ##### repromptOnUnmet?
 
@@ -22699,18 +23105,18 @@ work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ##### next()
 
-> **next**(): `Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
+> **next**(): `Promise`\<[`Settled`](#settled-4)\<`Out`\> \| `null`\>
 
 ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
  `null` when the live set is empty.
 
 ###### Returns
 
-`Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
+`Promise`\<[`Settled`](#settled-4)\<`Out`\> \| `null`\>
 
 ##### nextResolved()
 
-> **nextResolved**(): `Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
+> **nextResolved**(): `Promise`\<[`Settled`](#settled-4)\<`Out`\> \| `null`\>
 
 Non-blocking twin of `next()`: deliver an ALREADY-settled, undelivered child, or `null`
 when none is ready — never awaits a live child. The driver's post-loop drain reads this so
@@ -22719,7 +23125,7 @@ the finalize ledger instead of being silently lost.
 
 ###### Returns
 
-`Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
+`Promise`\<[`Settled`](#settled-4)\<`Out`\> \| `null`\>
 
 ##### send()
 
@@ -22977,7 +23383,7 @@ resume-aware `act` reads `scope.resume?.settled` to pick up where the crashed ru
 
 ##### settled
 
-> `readonly` **settled**: readonly [`Settled`](#settled-3)\<`Out`\>[]
+> `readonly` **settled**: readonly [`Settled`](#settled-4)\<`Out`\>[]
 
 ##### view
 
@@ -23053,7 +23459,7 @@ Identity recorded when this key was first admitted. Every reuse must match it ex
 
 ##### settled?
 
-> `readonly` `optional` **settled?**: [`Settled`](#settled-3)\<`Out`\>
+> `readonly` `optional` **settled?**: [`Settled`](#settled-4)\<`Out`\>
 
 The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
 
@@ -24011,7 +24417,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### settled
 
-[`Settled`](#settled-3)\<`Out`\>
+[`Settled`](#settled-4)\<`Out`\>
 
 ###### budget
 
@@ -26938,7 +27344,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -27040,6 +27446,16 @@ A manager DEFINED a trace analyst (`define_analyst`). Record-only: the manager a
  result in its tool return, so queueing it would put its own action in its own inbox. It is the
  run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
  owner the durable log stamps beside them.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \}
+
+The manager processed events `await_event` delivered to it. Record-only, and separate from
+ delivery on purpose: an event delivered to a turn that then FAILED stays unacknowledged, and
+ the manager's next re-entry names it again instead of losing it with the dead turn.
 
 ***
 
@@ -28471,9 +28887,92 @@ Why the retry loop stopped. `completed` is the only non-failure.
 
 ### DriverRepromptRefusal
 
-> **DriverRepromptRefusal** = `"reprompts-exhausted"` \| `"caller-stop"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"`\>
+> **DriverRepromptRefusal** = `"reprompts-exhausted"` \| `"caller-stop"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"` \| `"no-progress"`\>
 
-Why a completed drive with an unmet contract was not re-entered.
+Why a completed drive with an unmet contract was not re-entered. `no-progress` means
+ `reprompt.maxBarren` consecutive re-entered drives completed without a delivery.
+
+***
+
+### DriverReentry
+
+> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
+
+Why the loop is entering the driver again. Absent on the first attempt only.
+
+ An `unmet-contract` re-entry carries the unmet items. A `driver-failure` re-entry carries no
+ instruction of its own: the drive that failed may never have read the last one, so the caller
+ re-enters with the ORIGINAL task and the run's state, never with the unmet-items text alone.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \}
+
+###### reason
+
+> `readonly` **reason**: `"unmet-contract"`
+
+###### steer
+
+> `readonly` **steer**: `string`
+
+The unmet items. Whether they are the whole turn depends on where the drive runs: only a
+ backend that proves the same harness session may be re-entered with this text alone.
+
+###### reprompt
+
+> `readonly` **reprompt**: `number`
+
+1-based: which re-prompt this is.
+
+***
+
+##### Type Literal
+
+\{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \}
+
+###### reason
+
+> `readonly` **reason**: `"driver-failure"`
+
+###### failure
+
+> `readonly` **failure**: `string`
+
+The failure that ended the previous drive, as recorded.
+
+###### retry
+
+> `readonly` **retry**: `number`
+
+1-based: which failure retry this is.
+
+***
+
+##### Type Literal
+
+\{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
+
+###### reason
+
+> `readonly` **reason**: `"upstream-unavailable"`
+
+The upstream refused the previous drive for capacity, and the loop paused before this
+ one. Re-entered like a failure, with the original task and the run's state.
+
+###### signal
+
+> `readonly` **signal**: `string`
+
+The code or status that classified the refusal, such as `provider_quota_exhausted`.
+
+###### pause
+
+> `readonly` **pause**: `number`
+
+1-based: which pause this is.
 
 ***
 
@@ -29363,7 +29862,7 @@ child nobody joins.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-3)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
@@ -30867,7 +31366,7 @@ path and the recorded-result path writes no marker.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -30881,7 +31380,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -30926,6 +31425,14 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](durable.md#rootstreamreceipt)
 
 The root manager's retained provider stream, when the run directory holds one.
+
+###### continuation?
+
+> `readonly` `optional` **continuation?**: [`DriverContinuationRecord`](#drivercontinuationrecord)
+
+What the root's external driver loop did: genuine continuations, failure retries,
+ environment replacements, why the loop ended, and how the root closed the run. Absent for
+ a router-brained root, which runs no driver loop.
 
 ###### providerModel?
 
@@ -30982,7 +31489,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 ###### kind
 
@@ -31027,6 +31534,14 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](durable.md#rootstreamreceipt)
 
 The root manager's retained provider stream, when the run directory holds one.
+
+###### continuation?
+
+> `readonly` `optional` **continuation?**: [`DriverContinuationRecord`](#drivercontinuationrecord)
+
+What the root's external driver loop did: genuine continuations, failure retries,
+ environment replacements, why the loop ended, and how the root closed the run. Absent for
+ a router-brained root, which runs no driver loop.
 
 ###### providerModel?
 
@@ -31572,6 +32087,14 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 ***
 
+### DEFAULT\_MAX\_BARREN\_REPROMPTS
+
+> `const` **DEFAULT\_MAX\_BARREN\_REPROMPTS**: `2` = `2`
+
+Two re-prompted drives in a row that deliver nothing end the re-prompts.
+
+***
+
 ### bestDelivered
 
 > `const` **bestDelivered**: [`SupervisorFinalizer`](#supervisorfinalizer)
@@ -31693,6 +32216,14 @@ fixed texts keyed on the verdict's boolean and nothing else.
 > `const` **dumbContinuationPassPrompt**: [`RegisteredPrompt`](#registeredprompt)
 
 The pass branch of the dumb steering control — see [dumbContinuationFailPrompt](#dumbcontinuationfailprompt).
+
+***
+
+### UNPROVEN\_CONTINUITY
+
+> `const` **UNPROVEN\_CONTINUITY**: [`ReentryContinuity`](#reentrycontinuity)
+
+Continuity when nothing is proven: compose the full state.
 
 ***
 
@@ -31833,7 +32364,7 @@ change the result already observed.
 
 ### replaySpawnTree()
 
-> **replaySpawnTree**(`journal`, `blobs`, `root`): `Promise`\<[`Settled`](#settled-3)\<`unknown`\>[]\>
+> **replaySpawnTree**(`journal`, `blobs`, `root`): `Promise`\<[`Settled`](#settled-4)\<`unknown`\>[]\>
 
 **`Stable`**
 
@@ -31863,7 +32394,7 @@ rehydrate — a silent gap would let `act` branch on the wrong evidence.
 
 #### Returns
 
-`Promise`\<[`Settled`](#settled-3)\<`unknown`\>[]\>
+`Promise`\<[`Settled`](#settled-4)\<`unknown`\>[]\>
 
 ***
 
@@ -33238,7 +33769,7 @@ readonly `AnalystFinding`[]
 
 ##### settledSoFar
 
-readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
+readonly [`Settled`](#settled-4)\<[`Outcome`](#outcome-2)\<`D`\>\>[]
 
 #### Returns
 
@@ -36004,6 +36535,24 @@ bridge's own never-retry classes are terminal whether or not a status rides with
 
 ***
 
+### summarizeDriverAttempts()
+
+> **summarizeDriverAttempts**(`records`): [`DriverLoopRecord`](#driverlooprecord)
+
+Count a loop's attempt records into its [DriverLoopRecord](#driverlooprecord).
+
+#### Parameters
+
+##### records
+
+readonly [`DriverAttemptRecord`](#driverattemptrecord)[]
+
+#### Returns
+
+[`DriverLoopRecord`](#driverlooprecord)
+
+***
+
 ### createEventBus()
 
 > **createEventBus**\<`E`\>(`now?`): [`EventBus`](#eventbus)\<`E`\>
@@ -36556,6 +37105,24 @@ connection selection; Runtime does not infer them from process environment varia
 #### Returns
 
 `Promise`\<[`ProvisionedSupervisor`](#provisionedsupervisor)\>
+
+***
+
+### composeReentryTask()
+
+> **composeReentryTask**(`input`): `string`
+
+Compose the task for one re-entered drive.
+
+#### Parameters
+
+##### input
+
+[`ReentryTaskInput`](#reentrytaskinput)
+
+#### Returns
+
+`string`
 
 ***
 
@@ -37407,7 +37974,7 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 ##### settled
 
-[`Settled`](#settled-3)\<`Out`\>
+[`Settled`](#settled-4)\<`Out`\>
 
 #### Returns
 
@@ -37446,7 +38013,7 @@ Build a `ProgressSample` from a scope settlement. The objective is the verdict s
 
 ##### settled
 
-[`Settled`](#settled-3)\<`unknown`\>
+[`Settled`](#settled-4)\<`unknown`\>
 
 ##### at
 
@@ -37609,7 +38176,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 **`Stable`**
 
@@ -37631,7 +38198,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 ***
 
@@ -37974,7 +38541,7 @@ containing a `.git` segment, and loop-infra dirs are skipped.
 
 ### withUntrackedArtifacts()
 
-> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace)
+> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace-1)
 
 Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside
 `runInWorkspace`) is followed by the untracked-artifact copy above — the clone
@@ -37985,7 +38552,7 @@ the worker starts in matches the source WORKING TREE, not just its history.
 
 ##### ws
 
-[`Workspace`](#workspace)
+[`Workspace`](#workspace-1)
 
 ##### sourceDir
 
@@ -37997,7 +38564,7 @@ the worker starts in matches the source WORKING TREE, not just its history.
 
 #### Returns
 
-[`Workspace`](#workspace)
+[`Workspace`](#workspace-1)
 
 ***
 
@@ -38691,7 +39258,7 @@ Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr,
 
 ### gitWorkspace()
 
-> **gitWorkspace**(`opts`): [`Workspace`](#workspace)
+> **gitWorkspace**(`opts`): [`Workspace`](#workspace-1)
 
 A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned.
 
@@ -38703,13 +39270,13 @@ A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, co
 
 #### Returns
 
-[`Workspace`](#workspace)
+[`Workspace`](#workspace-1)
 
 ***
 
 ### jjWorkspace()
 
-> **jjWorkspace**(`opts`): [`Workspace`](#workspace)
+> **jjWorkspace**(`opts`): [`Workspace`](#workspace-1)
 
 A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
  Same port, same `Shell` — a drop-in for `gitWorkspace`. jj suits agent loops:
@@ -38724,7 +39291,7 @@ A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
 
 #### Returns
 
-[`Workspace`](#workspace)
+[`Workspace`](#workspace-1)
 
 ***
 
@@ -38748,7 +39315,7 @@ The clone is removed after; durable state lives only in the ref.
 
 ##### ws
 
-[`Workspace`](#workspace)
+[`Workspace`](#workspace-1)
 
 ##### body
 

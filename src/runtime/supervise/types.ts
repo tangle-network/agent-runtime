@@ -2138,6 +2138,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** What the root's external driver loop did: genuine continuations, failure retries,
+       *  environment replacements, why the loop ended, and how the root closed the run. Absent for
+       *  a router-brained root, which runs no driver loop. */
+      readonly continuation?: import('./driver-retry').DriverContinuationRecord
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
@@ -2179,6 +2183,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** What the root's external driver loop did: genuine continuations, failure retries,
+       *  environment replacements, why the loop ended, and how the root closed the run. Absent for
+       *  a router-brained root, which runs no driver loop. */
+      readonly continuation?: import('./driver-retry').DriverContinuationRecord
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window
@@ -2254,6 +2262,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** What the root's external driver loop did: genuine continuations, failure retries,
+       *  environment replacements, why the loop ended, and how the root closed the run. Absent for
+       *  a router-brained root, which runs no driver loop. */
+      readonly continuation?: import('./driver-retry').DriverContinuationRecord
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
       /** Settled children whose teardown stayed unconfirmed after the settlement retry window

@@ -65,6 +65,12 @@ export interface EventBus<E extends BusEvent> {
   /** Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
    *  ties broken FIFO by `seq`; `undefined` when nothing matches. */
   pull(kinds?: ReadonlyArray<E['type']>): E | undefined
+  /** {@link EventBus.pull}, returning the stamped record, so a consumer can later acknowledge the
+   *  exact event it received by `seq`. */
+  pullRecord(kinds?: ReadonlyArray<E['type']>): BusRecord<E> | undefined
+  /** The queued, not-yet-pulled records in publish order (filtered by `kinds` when given), as a
+   *  copy: reading it never changes what `pull` returns next. */
+  queued(kinds?: ReadonlyArray<E['type']>): ReadonlyArray<BusRecord<E>>
   /** Register a pass-through handler; it receives the stamped record of every event published after
    *  registration. Returns an unsubscribe fn. */
   subscribe(handler: (record: BusRecord<E>) => void | Promise<void>): () => void
@@ -110,6 +116,13 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
     return best
   }
 
+  const pullRecord = (kinds?: ReadonlyArray<E['type']>): BusRecord<E> | undefined => {
+    const i = bestIndex(kinds)
+    if (i < 0) return undefined
+    pulled++
+    return queue.splice(i, 1)[0]
+  }
+
   return {
     async publish(event, opts) {
       const record =
@@ -128,10 +141,11 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       return record
     },
     pull(kinds) {
-      const i = bestIndex(kinds)
-      if (i < 0) return undefined
-      pulled++
-      return queue.splice(i, 1)[0]?.event
+      return pullRecord(kinds)?.event
+    },
+    pullRecord,
+    queued(kinds) {
+      return queue.filter((r) => matches(r, kinds))
     },
     subscribe(handler) {
       subscribers.push(handler)

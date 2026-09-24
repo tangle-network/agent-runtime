@@ -802,6 +802,10 @@ interface JournalNodeIndex {
     Extract<SpawnEvent, { kind: 'execution-admitted' }>['admission']['phase'],
     Extract<SpawnEvent, { kind: 'execution-admitted' }>['admission']
   >
+  /** The environment this node's retained invocations last ran in, across invocations. */
+  lastEnvironmentId?: string
+  /** Environments a teardown receipt records as destroyed or lost. */
+  destroyedEnvironments: Set<string>
 }
 
 /** One validation implementation for memory, durable append, and cold replay. */
@@ -856,6 +860,7 @@ class SpawnEventIndex {
       event.kind !== 'execution-input' &&
       event.kind !== 'execution-admitted' &&
       event.kind !== 'execution-result' &&
+      event.kind !== 'environment-teardown' &&
       !closesCursorSlot(event)
     )
       return
@@ -870,8 +875,16 @@ class SpawnEventIndex {
         input: false,
         result: false,
         admissions: new Map(),
+        destroyedEnvironments: new Set(),
       }
       this.nodes.set(event.id, node)
+    }
+    if (event.kind === 'environment-teardown') {
+      if (event.destroyed) node.destroyedEnvironments.add(event.environmentId)
+      return
+    }
+    if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
+      node.lastEnvironmentId = event.admission.environmentId
     }
     if (event.kind === 'spawned') node.spawned = true
     else if (event.kind === 'materialized') node.materialized = true
@@ -902,7 +915,13 @@ class SpawnEventIndex {
     if (event.kind === 'execution-input') {
       if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
       if (node.inputs.has(event.seq)) fail('has duplicate input sequence')
-      if (node.input && !node.result) fail('input replaces an unfinished invocation')
+      // An unfinished invocation may be replaced only once the environment it ran in is gone:
+      // then nothing can still be running it, so a new input cannot pay for one turn twice.
+      const environment = node.admissions.get('environment')
+      const ranIn =
+        environment?.phase === 'environment' ? environment.environmentId : node.lastEnvironmentId
+      const abandoned = ranIn !== undefined && node.destroyedEnvironments.has(ranIn)
+      if (node.input && !node.result && !abandoned) fail('input replaces an unfinished invocation')
       return
     }
     if (event.kind === 'execution-result') {

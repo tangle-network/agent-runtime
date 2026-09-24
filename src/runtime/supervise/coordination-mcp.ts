@@ -443,8 +443,11 @@ export async function serveCoordinationMcpForManager(
     (opts.spawnResourceRoot === undefined
       ? scopeRetainedOwnerResourceReader(opts.scope)
       : undefined)
+  // Bound once the served set exists: `report_blocked` probes only what this manager was granted.
+  let probeableByName: ReadonlyMap<string, McpToolDescriptor> | undefined
   const coord = createCoordinationToolsForManager(
     {
+      resolveProbeTool: (name) => probeableByName?.get(name),
       scope: opts.scope,
       blobs: opts.blobs,
       makeWorkerAgent: opts.makeWorkerAgent,
@@ -537,6 +540,7 @@ export async function serveCoordinationMcpForManager(
     }
     return tool
   })
+  probeableByName = new Map(servedTools.map((tool) => [tool.name, tool]))
   const mcp = createStdioToolServer({
     serverName: 'coordination',
     serverVersion: '1',

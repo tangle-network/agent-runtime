@@ -1,15 +1,43 @@
 # Changelog
 
-## 0.262.0
+## 0.263.0
 
 A driver whose upstream refuses for capacity now pauses and re-enters instead of failing.
 `classifyDriverFailure` has a third answer, `unavailable`, for HTTP 429, 503 and 529 and for upstream codes such as the router's `provider_quota_exhausted` and `provider_rate_limit`.
 When a harness reports the router's refusal as text, the code is read from that text; text can only lengthen a retry, never end a run.
 A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`, so only the deadline, the budget, cancellation and `enabled: false` end it.
 It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
+The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
 Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
+## 0.262.0
+
+Runtime admits stable Sandbox 0.50.x through its peer range and packed compatibility cohort.
+Sandbox 0.50.0 adds `client.instances` for isolated per-tenant sandboxes; Runtime does not call that API itself.
+
+A re-entered external director is told the run from the coordinator, not only the unmet items.
+The drive harness states what the next drive continues: a bridge reattaches the harness session, and a retained provider owner continues its environment while the provider still holds it.
+Only a proven-continuous session receives the unmet items alone, plus what changed.
+Every other re-entry, a failure retry included, receives the original task, the completion check's description, and the coordinator's run state: journal rows and the row last read, running and settled workers, events waiting in `await_event`, events delivered to a turn that did not finish, the last `submit_result` refusal, and whether the environment and its files carried over.
+The failure text stays in the attempt records and never reaches the director.
+`DriverReentry` now has a `driver-failure` arm, and `DriveHarness` receives `reentry.compose` to compose the task from what it proves.
+
+Before a drive that continues a retained provider environment, Runtime asks the provider whether it still holds it.
+An environment the provider no longer holds is journaled as an `environment-teardown` receipt with `destroyed: true` and a `lost:` detail, and the next drive starts a new invocation in a new environment.
+The spawn journal accepts that new input over the unfinished one only after the loss receipt.
+Before, every retry asked the provider to reconnect to the deleted sandbox and the run ended `driver-failed` (`autopsy-a-before-20260924a`).
+
+Re-prompts end after `reprompt.maxBarren` (default 2) re-entered drives in a row complete without a delivery, whatever `repromptOnUnmet` allows, with `repromptRefusedBy: 'no-progress'`.
+A completion alone no longer resets that count; a delivery does.
+A progress `stopRule` that fired on the external arm now ends the re-prompts as well; before, the harness it had stopped was re-prompted.
+
+`submit_result` and `stop` refuse with `error: 'open-work'` while a worker still runs, or while a settled result or finding waits in `await_event`, and name the open work.
+`await_event` returns `eventSeq` and accepts `acknowledge`; an `acknowledgement` coordination record separates processing from delivery, and a completed turn or an accepted result acknowledges what it received.
+`report_blocked` re-runs the named tool under the director's grants: a success returns the result and the run continues, and a second failure stops the run as blocked.
+The settle record carries `continuation` for an external root: attempts, re-prompts, failure retries, environment replacements, the barren streak, why the loop ended, and how the director closed the run.
+`EventBus` gains `pullRecord` and `queued`.
 
 ## 0.261.0
 
