@@ -1,0 +1,49 @@
+{
+  "adapter": "swe-bench-verified",
+  "taskId": "astropy__astropy-12907",
+  "split": "test",
+  "artifactSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "artifactBytes": 0,
+  "wallMs": 2964,
+  "score": {
+    "resolved": false,
+    "score": 0,
+    "detail": "{\"total_instances\":1,\"submitted_instances\":1,\"completed_instances\":0,\"resolved_instances\":0,\"unresolved_instances\":0,\"empty_patch_instances\":1,\"error_instances\":0,\"completed_ids\":[],\"incomplete_ids\":[],\"empty_patch_ids\":[\"astropy__astropy-12907\"],\"submitted_ids\":[\"astropy__astropy-12907\"],\"resolved_ids\":[],\"unresolved_ids\":[],\"error_ids\":[],\"schema_version\":2}",
+    "judgeArtifacts": {
+      "schema": "agent-bench/judge-artifacts/v1",
+      "directory": "/home/drew/code/_wt/eval-runtime-loop/bench/runs/eval-runtime-20260923/swe-empty-astropy__astropy-12907-1",
+      "evaluatorDirectory": "/home/drew/code/_wt/eval-runtime-loop/bench/runs/eval-runtime-20260923/swe-empty-astropy__astropy-12907-1/evaluator",
+      "manifestPath": "/home/drew/code/_wt/eval-runtime-loop/bench/runs/eval-runtime-20260923/swe-empty-astropy__astropy-12907-1/receipt.json",
+      "evaluatorSucceeded": true,
+      "files": [
+        {
+          "path": "evaluator/agent-runtime-bench.bench-astropy__astropy-12907.json",
+          "byteLength": 482,
+          "sha256": "sha256:f00b69ce17c6bcccbc0607ad30acb32748b6a02c289de2cddaee441e496fb632",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/preds.json",
+          "byteLength": 102,
+          "sha256": "sha256:4162337986bc1000e0ce9c97d7c0ccc0453b7aaa3621d2282a3f512a36442670",
+          "kind": "file"
+        },
+        {
+          "path": "process/stderr.bin",
+          "byteLength": 3443,
+          "sha256": "sha256:a65c49fde411481b20603e746c3b956e597e8bb82297c9bb0d160bf8aeb8c658",
+          "kind": "file"
+        },
+        {
+          "path": "process/stdout.bin",
+          "byteLength": 373,
+          "sha256": "sha256:a06b7c8517a4cbdc2816767ebaa0cfaf668b0111c0dee6ba2715cf22cbe7ae9d",
+          "kind": "file"
+        }
+      ],
+      "fileCount": 4,
+      "byteLength": 4400,
+      "treeSha256": "sha256:8455bf8cb838600ec501c61996ffc4db0c584cb1bd98e1ec7d3a30c529b808a1"
+    }
+  }
+}

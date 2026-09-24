@@ -28,6 +28,8 @@ Use these labels literally. Do not promote one level into another in prose.
 
 A localization score, output-shape check, LLM quality judge, or toy deterministic reward can be useful for development. None is a substitute for the benchmark's outcome evaluator.
 
+The [September 24 public benchmark proof](evidence/public-agent-benchmarks-20260924/README.md) retains three officially graded agent tasks, traces, and validity limits across Terminal-Bench and SWE-bench Verified.
+
 ## Supported commands
 
 ### Package and integration contracts

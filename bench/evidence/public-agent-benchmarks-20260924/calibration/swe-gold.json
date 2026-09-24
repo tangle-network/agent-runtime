@@ -1,0 +1,79 @@
+{
+  "adapter": "swe-bench-verified",
+  "taskId": "astropy__astropy-12907",
+  "split": "test",
+  "artifactSha256": "0f3e44432ed8540e9526edff4f83793948a2f139fc3971b67c30043c1eb7964a",
+  "artifactBytes": 470,
+  "wallMs": 98912,
+  "score": {
+    "resolved": true,
+    "score": 1,
+    "detail": "{\"total_instances\":1,\"submitted_instances\":1,\"completed_instances\":1,\"resolved_instances\":1,\"unresolved_instances\":0,\"empty_patch_instances\":0,\"error_instances\":0,\"completed_ids\":[\"astropy__astropy-12907\"],\"incomplete_ids\":[],\"empty_patch_ids\":[],\"submitted_ids\":[\"astropy__astropy-12907\"],\"resolved_ids\":[\"astropy__astropy-12907\"],\"unresolved_ids\":[],\"error_ids\":[],\"schema_version\":2}",
+    "judgeArtifacts": {
+      "schema": "agent-bench/judge-artifacts/v1",
+      "directory": "/home/drew/code/_wt/eval-runtime-loop/bench/runs/eval-runtime-20260923/swe-astropy__astropy-12907-1",
+      "evaluatorDirectory": "/home/drew/code/_wt/eval-runtime-loop/bench/runs/eval-runtime-20260923/swe-astropy__astropy-12907-1/evaluator",
+      "manifestPath": "/home/drew/code/_wt/eval-runtime-loop/bench/runs/eval-runtime-20260923/swe-astropy__astropy-12907-1/receipt.json",
+      "evaluatorSucceeded": true,
+      "files": [
+        {
+          "path": "evaluator/agent-runtime-bench.bench-astropy__astropy-12907.json",
+          "byteLength": 520,
+          "sha256": "sha256:ac336c3512d1f0de40d2dda9ea4256217030f7b893f4e81355f4b7eed9810f76",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/eval.sh",
+          "byteLength": 2123,
+          "sha256": "sha256:229f462fcbdcae232228507f9491b8538c5aeaeede709c5fc822b586245d9460",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/patch.diff",
+          "byteLength": 470,
+          "sha256": "sha256:0f3e44432ed8540e9526edff4f83793948a2f139fc3971b67c30043c1eb7964a",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/report.json",
+          "byteLength": 2123,
+          "sha256": "sha256:fe3f3bddc9631279d3babf7270913070d91e9207c3468bd947823aee3e7b1b86",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/run_instance.log",
+          "byteLength": 4576,
+          "sha256": "sha256:7f907c60151a5052ed764e3f38b2939378f29eaaf5c497b1ae73b133b49cd20f",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/test_output.txt",
+          "byteLength": 749603,
+          "sha256": "sha256:6e07d90b06d2371f801d44869e838472bdc8772a518ceda816b503bcab4830a4",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/preds.json",
+          "byteLength": 584,
+          "sha256": "sha256:b175d7136132fc55e930067b20c24f00f700c76b157e7ae3557b90dd3b0c479c",
+          "kind": "file"
+        },
+        {
+          "path": "process/stderr.bin",
+          "byteLength": 3792,
+          "sha256": "sha256:8a02b618dc659c2306cdfd935b12a34ed69c48dfa46f23b5817f859f5614d3b5",
+          "kind": "file"
+        },
+        {
+          "path": "process/stdout.bin",
+          "byteLength": 394,
+          "sha256": "sha256:51362127ede3e7f8a6e1ed62b5dfb02ae3e706d7f35bcd05947ae122ac68966a",
+          "kind": "file"
+        }
+      ],
+      "fileCount": 9,
+      "byteLength": 764185,
+      "treeSha256": "sha256:23ecf138d19552cfae8150db8ac732887b40743eb7e9339229c479bccb689960"
+    }
+  }
+}

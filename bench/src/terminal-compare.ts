@@ -58,7 +58,7 @@ const PROFILE = agentProfileSchema.parse({
     systemPrompt:
       'Solve the Terminal-Bench task completely in the provided container and verify the result before finishing.',
   },
-  permission: {
+  permissions: {
     edit: 'allow',
     bash: 'allow',
     webfetch: 'allow',
@@ -360,14 +360,9 @@ async function captureRunRecord(
   await appendRunRecord(CORPUS, record)
 }
 
-/**
- * Serially `docker compose build` each task image before the concurrent fan-out.
- * tb builds per-task images on first use; building two cold images concurrently
- * contends on the shared docker build backend and can return nonzero. Warming the
- * cache serially makes the parallel rounds hit a warm cache and never race.
- * Dataset-agnostic: derives the compose path from the tb cache layout
- * (<cache>/<name>/<version>/<task>/docker-compose.yaml).
- */
+/** Warm each task image serially before the concurrent fan-out. Terminal-Bench
+ * supplies compose variables only inside its own runner, so build the task's
+ * Dockerfile directly and let its later compose build reuse the cached layers. */
 async function prebuildImages(taskIds: string[]): Promise<void> {
   const [name, version] = DATASET.split('==')
   if (!name || !version) {
@@ -376,18 +371,19 @@ async function prebuildImages(taskIds: string[]): Promise<void> {
   }
   const cacheRoot = join(homedir(), '.cache', 'terminal-bench', name, version)
   for (const taskId of taskIds) {
-    const composePath = join(cacheRoot, taskId, 'docker-compose.yaml')
+    const taskDir = join(cacheRoot, taskId)
+    const dockerfile = join(taskDir, 'Dockerfile')
     try {
-      await stat(composePath)
+      await stat(dockerfile)
     } catch {
-      console.log(`  prebuild: no compose at ${composePath}; tb will materialize ${taskId} on first run`)
+      console.log(`  prebuild: no Dockerfile at ${dockerfile}; tb will materialize ${taskId} on first run`)
       continue
     }
     process.stdout.write(`  prebuild: ${taskId} … `)
     await new Promise<void>((resolve, reject) => {
       execFile(
         'docker',
-        ['compose', '-p', `tbprebuild-${taskId}`, '-f', composePath, 'build'],
+        ['build', '--tag', `tbprebuild-${taskId}`.toLowerCase().replace(/[^a-z0-9_.-]/g, '-'), '--file', dockerfile, taskDir],
         { maxBuffer: 1024 * 1024 * 256, timeout: ROUND_CAP_MS },
         (err) => (err ? reject(new Error(`prebuild ${taskId} failed: ${err.message}`)) : resolve()),
       )

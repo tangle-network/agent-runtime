@@ -202,7 +202,7 @@ class OpenCodeRouterAgent(OpenCodeAgent):
             "$schema": "https://opencode.ai/config.json",
             # Headless benchmark runs cannot answer interactive permission prompts.
             # Keep this identical for raw and supervisor arms.
-            "permission": self._profile.get("permission", {}),
+            "permission": self._profile.get("permissions", {}),
             "provider": {
                 self._provider: {
                     "npm": "@ai-sdk/openai-compatible",

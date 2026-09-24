@@ -1,0 +1,5 @@
+# Preserve exact raw receipts, including CRLF headers and patch whitespace.
+excluded/*.stdout -diff -text
+excluded/*.stderr -diff -text
+model-probe/*.headers -diff -text
+swe/*/patch.diff -diff -text
