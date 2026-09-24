@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.267.0
+
+`runGraph({ runDir })` now journals durably. Before, the graph unconditionally defaulted its
+journal and blob store to in-memory instances and passed them into `supervise()`, whose own
+`options.journal ?? createFileRunContext(runDir).journal` resolution then never built the file
+stores: a "durable" graph run wrote no `spawn-journal.jsonl`, `resume: true` loaded an empty
+in-memory tree, and a second process silently restarted the run from scratch while the run
+reported success. The graph now defaults to the file stores at the same `runDir` layout
+`createFileRunContext` owns (`spawn-journal.jsonl`, `blobs/`), so a graph killed mid-flight
+resumes: committed keyed work returns `resumed: "completed"` and is never re-executed. Found by
+the new kill-and-resume conformance suite, whose full matrix failed as "restarted from scratch"
+before this fix and passes after it.
+Durable kill-and-resume conformance is now a tracked capability
+(`conformance/capabilities.json`: `durable-kill-and-resume`; verdict and evidence:
+`conformance/durability/STATUS.md`, regenerable via `pnpm run conformance:durability`).
+The suite SIGKILLs real child processes at every step boundary and mid-step instant of a
+3-delegate graph run (file run context) and a 6-turn conversation (`FileConversationJournal` and
+`SqlConversationJournal` over real sqlite), resumes in a fresh process, and asserts: completes
+with the same final output, no step lost, no committed step repeated, the idempotency-keyed side
+effect exactly once, and a resume-contract-clean journal (one root `spawned`, at most one root
+`materialized`, distinct root binding attempt ids, unique cursor seqs — the 2026-08-11 autopsy
+signature). The 2026-09-16 re-entry defect is asserted as a contract case: a fresh-environment
+re-entry must carry the original task and the coordinator's run state (`composeReentryTask`,
+#1356), not the unmet-items fragment alone.
+
 ## 0.266.0
 
 Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
