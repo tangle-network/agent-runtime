@@ -36,8 +36,8 @@ export const sandboxCompatibilityVersions = Object.freeze([
  * The registry versions a peer window adds to its exact development pin.
  *
  * A window ends at the minor Runtime develops against: no later minor has run this code.
- * It may reach back one minor, to a floor that consumers still hold. The packed cohort
- * installs only that floor, so a wider window would leave its middle minors unrun.
+ * It may reach back two minors, to versions consumers still hold. The packed cohort
+ * installs every earlier minor, so none of the admitted minors is left unrun.
  */
 export function peerWindowVersions(name, range, developmentVersion) {
   const development = /^(\d+)\.(\d+)\.(\d+)$/u.exec(developmentVersion ?? '')
@@ -53,22 +53,26 @@ export function peerWindowVersions(name, range, developmentVersion) {
     throw new Error(`${name} peer must end at its development minor: expected ${window}, found ${range}`)
   }
   const [floorMajor, floorMinor, floorPatch] = floor.split('.').map(Number)
-  if (floorMajor !== devMajor || floorMinor < devMinor - 1) {
+  if (floorMajor !== devMajor || floorMinor < devMinor - 2) {
     throw new Error(
-      `${name} peer ${range} reaches back more than one minor from ${developmentVersion}; only its floor would be installed`,
+      `${name} peer ${range} reaches back more than two minors from ${developmentVersion}`,
     )
   }
   if (floorMinor > devMinor || (floorMinor === devMinor && floorPatch > devPatch)) {
     throw new Error(`${name} peer ${range} does not admit its development pin ${developmentVersion}`)
   }
-  return floor === developmentVersion ? [] : [floor]
+  const registryVersions = floor === developmentVersion ? [] : [floor]
+  for (let minor = floorMinor + 1; minor < devMinor; minor += 1) {
+    registryVersions.push(`${devMajor}.${minor}.0`)
+  }
+  return registryVersions
 }
 
 const evalPeerRange = declaredPeerRange('@tangle-network/agent-eval')
 
 export { evalPeerRange }
-// Each version here is installed from the registry beside the packed Runtime, so the window's
-// floor runs as well as the development pin that the source build and packed cohort use.
+// Each version here is installed from the registry beside the packed Runtime, so every
+// earlier admitted minor runs as well as the development pin in the packed cohort.
 export const evalCompatibilityVersions = Object.freeze(
   peerWindowVersions(
     '@tangle-network/agent-eval',

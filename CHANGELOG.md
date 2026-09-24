@@ -39,6 +39,19 @@ Without `authorizeSpawn` or a caller-owned worker seam, so does a remote MCP hos
 An entry is exploratory unless it cites a `SealedExperiment` that verifies, has a treatment arm with the entry's digest, and a `PairedPromotionDecision` that promoted.
 Omitting the table, or listing no names, leaves `spawn_worker` byte-identical, so the table is one run input that can be switched off.
 
+Admit public Eval 0.187 while keeping the verified 0.185 and 0.186 peers.
+Runtime develops against Eval 0.187, and the packed cohort installs each older admitted Eval minor from the registry.
+Require Knowledge 17.1.3, whose strict consumer accepts Eval 0.187, without changing Bench's older shared catalog.
+
+`runIsolatedCheck` accepts `box`, which runs the check in its own Sandbox box instead of Bubblewrap on the calling host.
+The box belongs to the check's key, and `box.builderAccounts` names the Sandbox account of every key the judged run holds.
+Any key of an account reaches every box of that account, so the checker refuses before it creates a box when the check key's account is in that list.
+The box is created with `createIsolated` and blocked egress, and the checker refuses it unless its create receipt reports a new box with isolated owner context and no injected secrets.
+The tree's regular files are delivered with their modes, and each digest the box computes on receipt must match the digest recorded before delivery.
+The command runs with only `PATH`, `HOME`, and `LANG`, and the box is deleted afterwards.
+A result from a box carries `box`: the box id, the check's account, the delivered `AgentCandidateWorkspaceManifestMaterial`, and its canonical digest.
+The development Sandbox SDK moves from 0.41.0 to 0.47.0 inside the unchanged peer range; the box placement needs `createIsolated`, which Sandbox 0.46 introduced.
+
 ## 0.259.1
 
 Admit Sandbox prereleases at base `0.49.0` through the Runtime peer range `>=0.36.4 <0.48.0 || ^0.49.0-0`.

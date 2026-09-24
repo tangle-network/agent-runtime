@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.261.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.185.0 <0.187.0`.
+> `agent-eval` must satisfy `>=0.185.0 <0.188.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0`.
 > The second clause admits prereleases of base `0.49.0` and stable `0.49.x`; it does not admit prereleases of `0.49.1`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.11.0`.
@@ -161,6 +161,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Drop a persona⟷agent conversation into an eval matrix as its dispatch | `runPersonaDispatch` → `runProfileMatrix({ dispatch })`: root `.` / `agent-eval/campaign` | a per-agent custom dispatch bridge |
 | Best-of-N / parallel-research / map-reduce at equal compute | `fanout(items, opts)`: `/kernel` | `Promise.all` over N calls + manual argmax/merge (bypasses the budget pool → breaks equal-k) |
 | Produce-then-gate with a real checker | `verify(spec)`: `/kernel` | "generate, then self-check with the same model, ship if ok" (collapses selector+judge) |
+| Judge a run's artifact with a check the run cannot reach or influence | `runIsolatedCheck({ workspaceRoot, tree, command, box: { client, builderAccounts, environment } })`: `/kernel` — a fresh isolated Sandbox box, with blocked egress and no injected secrets, on an account the run holds no key to; refused before any box exists when the check key's account is one the run holds a key to; files delivered by digest; `result.box.inputDigest` names the bytes judged | running the check in the run's own box or tree, on any key of the run's account (every key of an account reaches every box of it), or reading a verdict file the run could write |
 | Multi-judge review / rubric quorum over one artifact | `panel(spec)`: `/kernel` | a judge ensemble that feeds one judge's score into another |
 | Fixed sequential chain (plan→implement→…) | `pipeline(stages)`: `/kernel` | hand-chained `await`s passing outputs along |
 | Adaptive tree search / progressive widening | `widen(spec)` + `flatWidenGate()`: `/kernel` | a best-first/MCTS that reads child *scores* to expand (selector=judge); keep `flatWidenGate()` until your gate is proven |
@@ -322,7 +323,7 @@ Inside one run, the director works in rounds until its deliverable check passes 
 
 1. The first version runs at `runDir`, or Runtime reads it back when that directory already settled.
 2. Runtime calls `versions.judge` with the settled version: its run id, directory, sealed `result.json` digest, result and executed profile.
-   The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox.
+   The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox:  runs a digest-checked command in a fresh box owned by an account the judged run holds no key to.
    Its verdict carries a `score` (higher is better, or `null` when it cannot score) and the judge's `digest`; a verdict under another digest is refused.
 3. Runtime applies the stop rule.
    It stops after `patience` consecutive versions that do not beat the best score by more than `minImprovement`, at `maxVersions`, when the versions' settled `spentTotal.usd` reaches `maxUsd`, or at `deadlineMs` from the first version's start.

@@ -7,7 +7,8 @@ Search returns a detached candidate; only the product can change the served agen
 ## Decision and evidence unit
 
 The replay unit is one sealed baseline/candidate pair on one independent task source.
-The served canary unit is the customer, session, or workflow assigned to one arm before its outcome is known.
+The current Eval canary decision accepts a customer or session assigned to one arm before its outcome is known.
+Another assignment unit needs a verified mapping and a matching decision rule.
 Record the tenant-safe source reference, task family, profile and code digests, model, tool set, worker revision, seed, and execution placement.
 Retain the raw run trace, checked outcome, errors, usage, cost, latency, and missing fields for each cell.
 Keep customer content in its authorized store; pass redacted references to analysts and reports.
@@ -31,9 +32,9 @@ Failure mining alone changes the task mix and cannot establish a population lift
 | Mine failures | Eval `src/diagnosis/` and `src/trace/`; Runtime `src/runtime/observe.ts` and `src/runtime/harvest-corpus.ts` | Classify real failures, count each class by independent run, and retain trace references. Validate analyst findings against the trace before using them. No top-20 live-agent inventory has been checked yet. |
 | Propose | Runtime `src/improvement/improve.ts`, `src/improvement/method-execution.ts`, `src/improvement/agentic-generator.ts`; Eval `src/campaign/` | Give an agent the development traces and task objective. Use a complete `OptimizationMethod` for profile edits or `agenticGenerator` for code edits. Record every proposal, rejection, and model cost. Do not author the treatment by hand. |
 | Select | Eval `src/campaign/optimization-method.ts`, `src/campaign/search-ledger.ts`; Runtime `src/improvement/method-execution.ts` | Search may inspect train and selection cases only. Bind candidate bytes, callbacks, resources, and closure state to an execution reference. Keep the optimizer's selected candidate, including a negative or unchanged selection. |
-| Final test | Eval `src/campaign/judge-snapshot.ts`, `src/campaign/gates/`, `src/paired-promotion-decision.ts`, `src/paired-promotion-power.ts`; Runtime `src/intelligence/improvement-cycle.ts` | Execute baseline and exact selected candidate on frozen, disjoint final cases using the production adapter. Pair on source units and equal actual resources. Report both task cohorts, the deciding interval, discordant pairs, exclusions, and the simulated power of the sealed decision. |
+| Final test | Eval `src/campaign/judge-snapshot.ts`, `src/campaign/gates/`, `src/paired-promotion-decision.ts`, `src/paired-promotion-power.ts`; Runtime `src/intelligence/improvement-cycle.ts` | Execute baseline and exact selected candidate on frozen, disjoint final cases using the production adapter. Pair on source units and equal actual resources. Report both task cohorts, the replay interval, discordant pairs, exclusions, and the simulated power of the sealed decision. |
 | Shadow | Runtime candidate experiment execution in `src/intelligence/improvement-cycle.ts`; product execution adapter | Run the candidate against copied or read-only tasks without customer-visible effects. The product must provide the shadow placement, data permissions, and separate billing attribution; Runtime does not switch traffic. |
-| Canary | Eval `defaultProductionGate` can inspect canary run history; product traffic and telemetry | Randomize concurrent incumbent and candidate assignment by customer, session, or workflow. Keep memory separate per arm and wait for delayed task outcomes. Monitor checked success, error classes, cost, and latency. The product must implement routing and the stop trigger. |
+| Canary | Eval `sealRandomizedCanaryRule` and `decideRandomizedCanary` in `/experiment`; product traffic and independent evidence verifier | Seal the rule before traffic, then randomize concurrent assignments by the registered unit. The product isolates arms, freezes the complete assignment roster and mature outcome and billing snapshot, and verifies source joins and served revisions. Eval returns a nominal 95% interval, a separate family-adjusted interval, or a refusal. The product applies registered cost and latency guardrails and owns routing and the stop trigger. |
 | Promote or revert | Runtime `src/intelligence/activation.ts`, `src/intelligence/delivery.ts`; product atomic state and promotion ledger | Bind approval to the exact proposal and current state, then atomically activate. Verify the served digest and one user flow. Use `revert-to-baseline` against the same sealed proposal if the canary crosses a stop threshold. Only the product owns these writes. |
 
 `proposeAgentProfileImprovement` already joins analysis, search, profile diffs, paired measurement, and a reviewable proposal.
@@ -75,10 +76,14 @@ These rules are fixed before the first Operator or Majo pilot result is read.
 The pilot is not sealed until the product owner supplies the agent, cohort, checker, placement, and cost joins below.
 
 - **Headline live gate:** improve independently checked task success on a served agent this week.
-  Randomize the incumbent and candidate concurrently by the frozen customer, session, or workflow unit.
+  Randomize the incumbent and candidate concurrently by the frozen customer or session unit.
   Use an intention-to-treat candidate-minus-incumbent risk difference with a 95% interval valid for that assignment, including clustering when one unit has multiple tasks.
   Its lower bound must exceed zero; retain every assignment and disclose missing or delayed outcomes.
   Freeze the observation window, sample size, coverage rule, and alpha-safe stopping rule before exposure.
+  Eval's `sealRandomizedCanaryRule` and `decideRandomizedCanary` implement a fixed-horizon, cluster-robust decision over independently verified assignments.
+  An independent host verifier must attest the seal, complete roster, outcome and billing joins, served revisions, and arm isolation.
+  The decision also reports a family-adjusted interval for the registered confirmatory family.
+  Its `successCriterionMet` covers checked-success lift only; the product applies the frozen cost and latency guardrails.
   Calibrate the exact interval on known null and positive laws before it becomes a live decision.
   Keep this zero threshold and its denominator fixed; report any stricter useful-effect margin separately.
 - **Replay candidate gate:** use Eval's `decidePairedPromotion(baseline, candidate, { binaryScale: 1, threshold: 0, confidence: 0.95, minPairs })` on frozen final pairs.

@@ -20,14 +20,17 @@ afterEach(() => {
 
 describe('release cohort', () => {
   it.each(Object.values(readReleaseCohort().packages))(
-    'selects $name@$version within its workspace catalog range',
+    'selects $name@$version admitted by Runtime',
     ({ name, version }) => {
       const { catalog } = parse(
         readFileSync(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8'),
       )
+      const runtime = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+      const declared = runtime.dependencies?.[name] ?? runtime.devDependencies?.[name]
+      const range = declared === 'catalog:' ? catalog[name] : declared
       expect(
-        rangeAdmits(catalog[name], version),
-        `${name}@${version} must be admitted by catalog range ${catalog[name]}`,
+        range === version || rangeAdmits(range, version),
+        `${name}@${version} must be admitted by Runtime dependency ${String(range)}`,
       ).toBe(true)
     },
   )

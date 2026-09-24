@@ -259,6 +259,8 @@ export {
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runAgentRounds.
 export { inlineSandboxClient } from './inline-sandbox-client'
 export {
+  type IsolatedCheckBox,
+  type IsolatedCheckBoxEvidence,
   type IsolatedCheckOptions,
   type IsolatedCheckResult,
   runIsolatedCheck,

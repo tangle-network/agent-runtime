@@ -48,12 +48,12 @@ const officialOptimizerEnv = {
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
-// The catalog bounds the installed development version. The peer contract may
-// admit other versions verified by the packed cohort.
+// Runtime's own declarations bound the installed development versions. A declaration
+// uses the workspace catalog only when it says catalog:; Bench may have another pin.
 assertCohortRange('@tangle-network/agent-eval', agentEvalVersion)
 assertCohortRange('@tangle-network/agent-interface', workspaceAgentInterfaceVersion)
 assertCohortRange('@tangle-network/sandbox', workspaceSandboxVersion)
-assertCatalogAdmits('@tangle-network/agent-knowledge', workspaceAgentKnowledgeVersion)
+assertRuntimeDependencyAdmits('@tangle-network/agent-knowledge', workspaceAgentKnowledgeVersion)
 
 try {
   run('pnpm', ['build'], repoRoot)
@@ -111,11 +111,12 @@ try {
       workspaceAgentKnowledgeVersion,
     ],
   ]) {
+    const declaredRange = runtimeDependencyRange(name)
     const valid = isExactVersionSpec(spec)
-      ? spec === version && rangeAdmits(catalogRange(name), version)
-      : rangeAdmits(spec, version) && rangeAdmits(catalogRange(name), version)
+      ? spec === version && rangeAdmits(declaredRange, version)
+      : rangeAdmits(spec, version) && rangeAdmits(declaredRange, version)
     if (!valid) {
-      throw new Error(`packed ${name}@${spec} does not admit ${version} within catalog range ${catalogRange(name)}`)
+      throw new Error(`packed ${name}@${spec} does not admit ${version} within Runtime dependency ${declaredRange}`)
     }
   }
   writeFileSync(
@@ -167,7 +168,7 @@ try {
   assertInstalledAdmitted(
     appDir,
     '@tangle-network/agent-knowledge',
-    catalogRange('@tangle-network/agent-knowledge'),
+    runtimeDependencyRange('@tangle-network/agent-knowledge'),
   )
   const installedKnowledge = readJson(
     join(appDir, 'node_modules', '@tangle-network', 'agent-knowledge', 'package.json'),
@@ -308,22 +309,23 @@ function assertInstalledAdmitted(appDir, packageName, range) {
   }
 }
 
-function catalogRange(packageName) {
-  const spec = workspaceCatalog[packageName]
+function runtimeDependencyRange(packageName) {
+  const declared = packageJson.dependencies?.[packageName] ?? packageJson.devDependencies?.[packageName]
+  const spec = declared === 'catalog:' ? workspaceCatalog[packageName] : declared
   if (typeof spec !== 'string' || spec.length === 0) {
-    throw new Error(`pnpm-workspace.yaml has no catalog entry for ${packageName}`)
+    throw new Error(`Runtime has no dependency declaration for ${packageName}`)
   }
   return cohortRange(spec)
 }
 
 function assertCohortRange(packageName, installedVersion) {
-  const peerRange = peerCompatibility[packageName]?.expectedRange ?? catalogRange(packageName)
+  const peerRange = peerCompatibility[packageName]?.expectedRange ?? runtimeDependencyRange(packageName)
   assertVersion(
     packageJson.peerDependencies?.[packageName],
     peerRange,
     `${packageName} peer dependency range`,
   )
-  assertCatalogAdmits(packageName, installedVersion)
+  assertRuntimeDependencyAdmits(packageName, installedVersion)
   if (!rangeAdmits(peerRange, installedVersion)) {
     throw new Error(`installed ${packageName}@${installedVersion} is outside its peer range ${peerRange}`)
   }
@@ -336,11 +338,11 @@ function assertCohortRange(packageName, installedVersion) {
   }
 }
 
-function assertCatalogAdmits(packageName, installedVersion) {
-  const range = catalogRange(packageName)
+function assertRuntimeDependencyAdmits(packageName, installedVersion) {
+  const range = runtimeDependencyRange(packageName)
   if (!rangeAdmits(range, installedVersion)) {
     throw new Error(
-      `installed ${packageName}@${installedVersion} is outside the catalog range ${range}`,
+      `installed ${packageName}@${installedVersion} is outside Runtime dependency ${range}`,
     )
   }
 }

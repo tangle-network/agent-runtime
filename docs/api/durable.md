@@ -1251,7 +1251,7 @@ A version improves when its score exceeds the best by more than this. Default 0.
 
 An outside judge. Runtime calls it after a version's settle record exists, never inside the
  version's tree, and gives it no handle into that tree. Place it where you like, such as its own
- sandbox.
+ sandbox through .
 
 #### Properties
 

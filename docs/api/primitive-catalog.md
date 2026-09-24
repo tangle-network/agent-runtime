@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.261.0` and `@tangle-network/agent-eval@0.186.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.261.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 962 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 964 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -650,7 +650,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 962 exports.
 | `runFinalizer` | function | Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the |
 | `runGraph` | function | Execute an {@link AgentGraph}. The root node becomes the supervisor (`supervise()` — the |
 | `runInWorkspace` | function | Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back |
-| `runIsolatedCheck` | function | Run untrusted checks inside Linux Bubblewrap. Never falls back to host execution. |
+| `runIsolatedCheck` | function | Run an untrusted check in Linux Bubblewrap, or in its own Sandbox box when `box` is set. |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
 | `runStrategyEvolution` | function | Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice. |
 | `safeWorkerFile` | function | A worker label reduced to a safe filename stem. Empty labels get a stable fallback. |
@@ -901,6 +901,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 962 exports.
 | `InteractiveWorkerOptions` | interface | Configuration shared by every worker produced by `workerFromInteractiveProvider`. |
 | `InteractiveWorkerResult` | interface | Native interactive worker output. Provider usage is intentionally not fabricated. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
+| `IsolatedCheckBox` | interface | A fresh Sandbox box for one check, owned by an account the judged run holds no key to. |
+| `IsolatedCheckBoxEvidence` | interface | The box a check ran in and the exact bytes it received. |
 | `KeyProvider` | interface | Resolve named secrets. The ONE seam every secret store adapts to. |
 | `LeaderboardBenchmarkAdapter` | interface | Structurally `BenchmarkAdapter` (bench registry shape): `name`, |
 | `LeaderboardBenchScore` | interface | Structurally `BenchScore` (bench registry shape). |
