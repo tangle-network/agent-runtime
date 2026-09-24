@@ -9,6 +9,7 @@ The stop rule requires all four caps: `patience` versions without improvement, `
 `<runDir>.versions/versions.jsonl` records each version's parent, change, verdict, dollars and lineage, and the stop; a call on a stopped chain reads it back, and a call on an unfinished chain resumes it without re-running or re-judging a settled version.
 `versions.run` places later versions outside this process; Runtime verifies each fork where the parent's records are before handing the version to it.
 `versions.usd` measures a version's dollars for the cap, such as the provider's charge; without it the chain sums the settled `spentTotal.usd`.
+`fork.acceptUncertain` forks a parent that settled with a node still in doubt, and the fork's root records those node ids as `forkParentUncertainNodes`; a version chain always sets it, because a deadline or a driver failure leaves such nodes and a version never replays its parent's children.
 `judge` and `next` may name entries in `registry.versionJudges` and `registry.nextVersions`, so a recorded run input can carry the option as data.
 
 ## 0.260.0

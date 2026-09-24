@@ -1698,6 +1698,15 @@ The sha256 of the parent's `result.json` bytes: the sealed point the fork starts
 
 The one change, applied to the parent's root profile. Its `id` is recorded.
 
+##### acceptUncertain?
+
+> `readonly` `optional` **acceptUncertain?**: `boolean`
+
+Fork a parent whose journal holds a node without a terminal record, an unbegun owned tree, an
+unconfirmed teardown, or work in flight. Such a node may still act, and a fork never replays
+the parent's children, so it can only duplicate work outside the fork's tree. The root then
+records those node ids as `forkParentUncertainNodes`. Omit it to refuse such a parent.
+
 ***
 
 ### RunDirectoryLockHolder
@@ -3117,6 +3126,14 @@ The ledger file inside the lineage directory.
 The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that
 supplies one is refused. `lineageRootRunId` is the first run of the chain of parents, so the
 spend of every version of one lineage groups under one id.
+
+***
+
+### FORK\_PARENT\_UNCERTAIN\_NODES\_KEY
+
+> `const` **FORK\_PARENT\_UNCERTAIN\_NODES\_KEY**: `"forkParentUncertainNodes"` = `'forkParentUncertainNodes'`
+
+The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined.
 
 ***
 

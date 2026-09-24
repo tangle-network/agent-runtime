@@ -93,7 +93,11 @@ export {
   type VersionJudge,
   type VersionVerdict,
 } from './pursuit-versions'
-export { type PursuitFork, RUN_FORK_CORRELATION_KEYS } from './run-fork'
+export {
+  FORK_PARENT_UNCERTAIN_NODES_KEY,
+  type PursuitFork,
+  RUN_FORK_CORRELATION_KEYS,
+} from './run-fork'
 export {
   acquireRunDirectoryLock,
   RUN_DIRECTORY_LOCK_FILE,

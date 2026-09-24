@@ -192,6 +192,20 @@ describe('supervisePursuit fork', () => {
     await expect(
       run(join(root, 'fork'), 'run:fork', { fork: { runDir: parentDir, settleDigest, change } }),
     ).rejects.toThrow(/uncertain nodes: run:parent:s9 \(no terminal record\)/)
+
+    // A deadline or a driver failure leaves such a node (measured 2026-09-24 on
+    // ft2-anomaly-referee-v3c-v2-anomaly-referee-lead-kn-on-ex-auto-reflect-v2: two children with
+    // no terminal record and teardown unconfirmed). Accepted, the fork records the node ids.
+    const accepted = await run(join(root, 'accepted'), 'run:accepted', {
+      fork: { runDir: parentDir, settleDigest, change, acceptUncertain: true },
+    })
+    expect(accepted.result.kind).toBe('winner')
+    expect(
+      (await rootSpawn(join(root, 'accepted'), 'run:accepted')).identity?.correlation,
+    ).toMatchObject({
+      forkParentRunId: 'run:parent',
+      forkParentUncertainNodes: 'run:parent:s9 (no terminal record)',
+    })
   })
 
   it('verifies the fork again on resume, so a resume cannot swap the change', async () => {

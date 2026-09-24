@@ -615,10 +615,14 @@ export async function runPursuitVersions(
                 `supervisePursuit versions: version ${spec.version}'s parent ${spec.parent.version} is not judged`,
               )
             }
+            // A version starts a new tree and never replays its parent's children, so a parent
+            // that settled with a child still in doubt (a deadline or a driver failure leaves
+            // them) is forked, and the version's root records those nodes.
             const fork: PursuitFork = {
               runDir: parent.runDir,
               settleDigest: parent.settleDigest,
               change: spec.change,
+              acceptUncertain: true,
             }
             const options: SupervisePursuitOptions = {
               ...base,

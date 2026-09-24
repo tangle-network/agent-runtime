@@ -223,7 +223,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 73 exports.
+Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -246,6 +246,7 @@ Import from `@tangle-network/agent-runtime/durable` — 73 exports.
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
+| `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
 | `PURSUIT_VERSIONS_FILE` | const | The ledger file inside the lineage directory. |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |

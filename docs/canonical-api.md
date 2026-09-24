@@ -333,6 +333,7 @@ Inside one run, the director works in rounds until its deliverable check passes 
 
 The chain checks its caps between versions and never starts a version once one is reached.
 A version's own `budget`, or the caller's spend watcher, bounds that version's dollars in flight.
+A deadline or a driver failure often leaves a child without a terminal record, so the chain forks with `fork.acceptUncertain`: a version never replays its parent's children, and its root records the parent's uncertain nodes as `forkParentUncertainNodes`.
 `versions.usd` lets the caller measure each version's dollars, such as the provider's charge to its keys; without it the chain sums the settled `spentTotal.usd`, which is Runtime's estimate when `usdKnown` is false.
 `<runDir>.versions/versions.jsonl` records each version, its parent, its change, its verdict, its dollars and its `AgentCandidateLineage`, and then the stop.
 A call on a stopped chain returns that record without running anything.
