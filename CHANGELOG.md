@@ -2,6 +2,9 @@
 
 ## 0.266.0
 
+Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
+Sandbox 0.52 adds voice on lines and a sandbox per line member; Runtime does not call those APIs itself.
+
 One pursuit's own tree can now grow to hundreds of agents; four structural limits are removed.
 
 A spawn past the worker bound waits in a queue instead of being refused.
