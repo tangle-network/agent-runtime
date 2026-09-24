@@ -28,6 +28,15 @@ export interface RetainedExecutorContext {
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
+  /**
+   * Start this node's next invocation in the environment and session its last one ran in, once
+   * that one committed its result. The scope journals `task` as the node's next
+   * `execution-input` and answers with the context the new invocation runs under. A Scope leaf
+   * has it; an owner's later invocations are its driver's re-entries, so an owner does not.
+   */
+  readonly continueInvocation?: (task: unknown) => Promise<RetainedExecutorContext>
+  /** Journal a pause of this node on an unavailable upstream: infrastructure time. */
+  readonly onPause?: (pause: RetainedExecutorPause) => Promise<void>
   /** The checkpoint a NEW environment of this invocation starts from: set only when the provider
    *  lost the environment the previous invocation ran in, and it holds a checkpoint of it. */
   readonly restoreWorkspace?: RetainedWorkspaceRestore
@@ -50,6 +59,12 @@ export interface RetainedWorkspaceRestoreReceipt {
   readonly verified: boolean
   readonly detail?: string
 }
+
+/** What a `paused` spawn event records, less the fields the scope supplies. */
+export type RetainedExecutorPause = Omit<
+  Extract<SpawnEvent, { kind: 'paused' }>,
+  'kind' | 'id' | 'seq' | 'at'
+>
 
 export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorContext | undefined {
   return ctx.seams[retainedExecutorSeamKey] as RetainedExecutorContext | undefined
@@ -232,10 +247,29 @@ export class RetainedExecutionPendingError extends Error {
 export interface RetainedChildRecovery {
   readonly spawned: Extract<SpawnEvent, { kind: 'spawned' }>
   readonly spec: AgentSpec
+  /** The node's original task, which its admitted identity digests. */
   readonly task: unknown
+  /** The admissions of the invocation being recovered. */
   readonly admissions: readonly RetainedRunAdmission[]
   readonly factory: ExecutorFactory<unknown>
   readonly priorMaterialization?: ProfileMaterializationReceipt
+  /** The invocation being recovered, when it is a leaf's continuation rather than its first. */
+  readonly continuation?: RetainedLeafContinuation
+}
+
+/** @internal A leaf's later invocation: its own task, input and execution identity, and the
+ *  environment admission of the invocation it continues. */
+export interface RetainedLeafContinuation {
+  readonly task: unknown
+  readonly inputSeq: number
+  readonly executionId: string
+  readonly priorSession: RetainedRunEnvironmentAdmission
+}
+
+/** The execution id of a leaf's later invocation, derived from its `execution-input` sequence so
+ *  a recovery derives the same one. A first invocation keeps the node id. */
+export function leafContinuationExecutionId(nodeId: string, inputSeq: number): string {
+  return `${nodeId}:input:${inputSeq}`
 }
 
 export interface RetainedExecutorPreparation {

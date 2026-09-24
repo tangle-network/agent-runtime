@@ -2,6 +2,18 @@
 
 ## 0.265.0
 
+A provider-backed leaf whose model provider refuses its turn for capacity now pauses and continues instead of settling `down`.
+It keeps its environment, waits by the driver's pause rule (15 s, doubling to 5 min), and continues in the same environment and harness session.
+The continuation tells the leaf to pick up where it stopped; it names neither the provider nor the refusal.
+Each continuation is the leaf's next invocation: an `execution-input`, its own admissions, and its own result, the way an owner's later drive is journaled.
+Each pause is a `paused` spawn event on the leaf, and each result carries the leaf's spend so far; a continuation counts no iteration.
+Only the leaf's deadline, cancellation and budget end its pauses.
+A process that stops during a continuation recovers that invocation in the same environment.
+`ProviderExecutorOptions.unavailablePause` sets the pause, and `false` ends a leaf on the refused turn as before.
+It applies to a retained provider execution under a Scope, the path a supervised leaf takes on a provider that declares `retainedControl`, and not with workspace retention.
+The refusal codes and the pause rule moved to one module that the driver and the leaf both read; `UnavailablePausePolicy` is exported.
+Measured 2026-09-24 on play anomaly-referee-v3d: 15 of 23 down children ended on `provider_quota_exhausted`, and in one lead lane five of five children had run 3 to 9 minutes and spent 117k to 856k input tokens first.
+
 A director re-entered in a replacement environment keeps its files.
 While a manager on a retained provider environment coordinates, Runtime checkpoints its workspace through the environment's `workspaceBranching.checkpoint`: the first coordination call at least 60 s after the last checkpoint starts one in the background.
 Before each checkpoint Runtime writes the marker `.agent-runtime-checkpoint` into the workspace, and journals the checkpoint as a `workspace-checkpoint` receipt; it keeps the newest two per environment and deletes the rest of an environment's checkpoints before it destroys that environment.
@@ -13,6 +25,14 @@ A re-entry whose files were kept or restored tells the director to read them bef
 The `repromptOnUnmet` documentation no longer claims every re-prompt re-enters the same live session.
 
 ## 0.264.0
+
+Runtime admits stable Sandbox 0.51.x through its peer range and packed compatibility cohort.
+Sandbox 0.51.0 adds `sandbox.lines` for phone lines on a sandbox; Runtime does not call that API itself.
+
+The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses a driver too: an operator restores the credential, and the agent can only wait.
+The caller's own key refused (401 `invalid_api_key`) stays terminal.
+`DriverLoopRecord.unavailableMs` is every pause plus every refused drive that made no progress; 0.263.0 counted every refused drive's whole duration.
+Both reached `main` after `v0.263.0` was tagged.
 
 A nested manager (a child that runs its own children through the driver executor) now settles with its own `harnessTranscript` receipt.
 `driveHarnessFromBackend` keeps the newest attempt's capture of the harness session store, and `DriveHarness`, the external supervisor agent, `driverChild` and the driver executor forward it as they already forward `traceSource` and `progress`.
@@ -30,9 +50,8 @@ A pause consumes neither `driverRetry.maxAttempts` nor `maxConsecutiveFailures`,
 It starts at `driverRetry.unavailablePauseMs` (default 15 s) and doubles to `maxUnavailablePauseMs` (default 5 min), restarting after a refused turn that still made progress.
 The driver re-enters with the original task and the coordinator's run state, as after a failure; `DriverReentry` gains an `upstream-unavailable` arm, and the director is told only that its turn was interrupted.
 Each pause is journaled as a `paused` spawn event on the manager node, with the signal, the refused attempt's duration and the pause, and `DriverAttemptRecord` carries `unavailableSignal`.
-The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`; `unavailableMs` is every pause plus every refused drive that made no progress.
+The settle record's `continuation` counts `unavailablePauses` and `unavailableMs` apart from `failureRetries`.
 `upstreamUnavailableSignal` returns the code or status that classified an error.
-The router's `provider_key_invalid`, which it answers with 503 when its own provider credential is refused, pauses too: an operator restores the credential, and the agent can only wait. The caller's own key refused (401 `invalid_api_key`) stays terminal.
 Measured 2026-09-24 on play anomaly-referee-v3d: four of five lead lanes ended `driver-failed` after 12 to 13 attempts on `provider_quota_exhausted`, 101 to 118 minutes into an 8-hour deadline.
 
 ## 0.262.0

@@ -1180,6 +1180,9 @@ export {
   type UntrackedCopyStats,
   withUntrackedArtifacts,
 } from './supervise/untracked-clone'
+// One pause rule for an upstream that cannot serve now: a driver re-enters after it, and a
+// provider-backed leaf continues in its environment after it (`ProviderExecutorOptions`).
+export type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
 // (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
 // deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
