@@ -41,6 +41,7 @@ These are internal working documents: design theses, research narrative, and roa
 | [durability-adapters.md](./durability-adapters.md) | subsystem | SQL-backed journal and restart behavior for conversations. Supervised-tree recovery is not implemented. |
 | [intelligence-sdk.md](./intelligence-sdk.md) | product SDK | Observe + OFF billing floor + effort tiers + certified delivery + capability resolver — the `/intelligence` subpath. Designed-not-shipped verbs fenced at the tail. |
 | [live-agent-improvement-loop.md](./live-agent-improvement-loop.md) | execution contract | Trace-to-candidate-to-promotion path, evidence gates, and missing product joins for a live agent. |
+| [recursive-improvement-readiness.md](./recursive-improvement-readiness.md) | evidence scorecard | Dated pass/fail decisions for the live-agent improvement requirements. |
 | [BUILDING.md](./BUILDING.md) | process | Building discipline: goal first, cheapest decisive proof, verification rules. |
 | [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes. |
 | [MAINTAINING.md](./MAINTAINING.md) | process | How the generated API reference + the docs-freshness gate stay honest. |
