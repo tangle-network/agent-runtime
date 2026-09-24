@@ -7,7 +7,7 @@ The call passes the parent's profile, task and budget; Runtime checks them again
 `fork.settleDigest` must equal the sha256 of the parent's `result.json`.
 A parent with a node that has no terminal record, an unbegun owned tree, or an unconfirmed teardown is refused before the fork's journal exists.
 The fork's root records `forkParentRunId`, `forkParentSettleDigest`, `forkProfileDiffId` and `lineageRootRunId` in `execution.correlation`, and `/durable` exports those names as `RUN_FORK_CORRELATION_KEYS`.
-The parent directory is read and never written.
+The fork's `runDir` must lie outside the parent's, and the parent's outside it; the parent directory is read and never written, and a refused fork writes nothing.
 A fork carries the parent's recorded inputs only; it does not replay the parent's settled children or continue its native session.
 
 `spawn_worker` accepts `successorOf`, the workerId of a settled worker that the new worker replaces.

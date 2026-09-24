@@ -295,8 +295,9 @@ For the full export inventory (every primitive, its import path, its summary: ge
 
 A fork is a new run in its own `runDir`, with its own `runId`.
 It executes the parent's recorded root profile with one `AgentProfileDiff` applied, on the parent's task and budget.
-Before the fork's journal exists, Runtime checks four facts and refuses on any failure:
+Before it writes anything, the fork's `runDir` included, Runtime checks five facts and refuses on any failure:
 
+- The fork's `runDir` is outside the parent's `runDir`, and the parent's is outside the fork's.
 - The parent's `result.json` bytes hash to `fork.settleDigest`.
 - The parent's journal holds no node without a terminal record, no unbegun owned tree, and no unconfirmed teardown.
 - The call's profile, task and budget produce the parent's journaled root `profileDigest`, `taskDigest` and budget.

@@ -36,8 +36,9 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * Run this pursuit as a version of a settled run: `profile`, `task` and `budget` must equal the
    * parent's recorded root, and Runtime executes the parent's profile with `fork.change` applied.
    * The root's `execution.correlation` records the parent, its sealed digest, the change and the
-   * lineage (`RUN_FORK_CORRELATION_KEYS`). The parent's directory is never written, and a parent
-   * with any uncertain node is refused before the fork's journal exists.
+   * lineage (`RUN_FORK_CORRELATION_KEYS`). The fork's `runDir` must lie outside the parent's, and
+   * the parent's outside it. The parent's directory is never written, and a refused fork, such as
+   * one whose parent has an uncertain node, writes nothing.
    */
   readonly fork?: PursuitFork
 }
@@ -117,6 +118,12 @@ export async function supervisePursuit(
   const runId = superviseOptions.runId ?? 'supervise'
   const now = superviseOptions.now ?? Date.now
 
+  // A fork is verified on every entry, a resume included, so the recorded root identity it
+  // derives is the one the Supervisor's resume contract compares against. It reads only the
+  // settled parent, and runs before the lock so a refused fork writes nothing, not even runDir.
+  const forked =
+    fork === undefined ? undefined : await prepareRunFork(profile, task, superviseOptions, fork)
+
   // The lock is taken before the settle record is read so a run that settles between the read
   // and the lock cannot be re-entered; both refusals happen before the observer journal is touched.
   const lock = await acquireRunDirectoryLock(runDir, runId, now)
@@ -125,10 +132,6 @@ export async function supervisePursuit(
     if (settled !== undefined) {
       throw new SettledRunDirectoryError(settlePath, settled.tree.root, runId)
     }
-    // A fork is verified on every entry, a resume included, so the recorded root identity it
-    // derives is the one the Supervisor's resume contract compares against.
-    const forked =
-      fork === undefined ? undefined : await prepareRunFork(profile, task, superviseOptions, fork)
 
     const observer = createFileObserverHooks(observerPath, pursuitId)
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -94,6 +94,8 @@ describe('supervisePursuit fork', () => {
     const parentDir = join(root, 'parent')
     await run(parentDir, 'run:parent')
     const settleDigest = await settleDigestOf(parentDir)
+    const unsettledDir = join(root, 'unsettled')
+    await mkdir(unsettledDir)
     const refusals: Array<[string, Record<string, unknown>, RegExp]> = [
       [
         'a different seal',
@@ -139,20 +141,36 @@ describe('supervisePursuit fork', () => {
       ],
       [
         'an unsettled parent',
-        { fork: { runDir: root, settleDigest, change } },
+        { fork: { runDir: unsettledDir, settleDigest, change } },
         /holds no result.json/,
       ],
     ]
     for (const [label, overrides, message] of refusals) {
       const forkDir = join(root, `refused-${label.replaceAll(' ', '-')}`)
       await expect(run(forkDir, 'run:fork', overrides), label).rejects.toThrow(message)
-      expect(await exists(join(forkDir, 'spawn-journal.jsonl')), label).toBe(false)
+      expect(await exists(forkDir), label).toBe(false)
     }
     await expect(
       run(join(root, 'same-run-id'), 'run:parent', {
         fork: { runDir: parentDir, settleDigest, change },
       }),
     ).rejects.toThrow(/a fork needs its own runId/)
+  })
+
+  it('refuses a fork directory inside or around the parent, which would write the parent', async () => {
+    const parentDir = join(root, 'parent')
+    await run(parentDir, 'run:parent')
+    const settleDigest = await settleDigestOf(parentDir)
+    const before = await treeDigests(parentDir)
+
+    for (const forkDir of [join(parentDir, 'forks', 'v2'), root]) {
+      await expect(
+        run(forkDir, 'run:fork', { fork: { runDir: parentDir, settleDigest, change } }),
+      ).rejects.toThrow(/overlaps the parent's runDir/)
+    }
+    expect(await treeDigests(parentDir)).toEqual(before)
+    expect(await exists(join(parentDir, 'forks'))).toBe(false)
+    expect(await exists(join(root, 'supervise.lock'))).toBe(false)
   })
 
   it('refuses a parent with a node that never reached a terminal record', async () => {
