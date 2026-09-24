@@ -1,0 +1,11 @@
+{
+  "taskId": "fix-permissions",
+  "label": "empty",
+  "artifactBytes": 0,
+  "wallMs": 34262,
+  "score": {
+    "resolved": false,
+    "score": 0,
+    "detail": "{\"test_script_permissions\":\"failed\"}"
+  }
+}

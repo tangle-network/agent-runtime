@@ -1,0 +1,33 @@
+{
+    "id": "01a5eeb2-788d-47f2-b591-e37ab96ffed6",
+    "results": [
+        {
+            "id": "d1d4c873-f9c0-42d5-827c-1d76cee55cd7",
+            "trial_name": "fix-permissions.1-of-1.cmp-fix-permissions-r1-20260924022638532",
+            "task_id": "fix-permissions",
+            "instruction": "A script called 'process_data.sh' in the current directory won't run. Figure out what's wrong and fix it so the script can run successfully.",
+            "is_resolved": true,
+            "failure_mode": "unset",
+            "parser_results": {
+                "test_script_permissions": "passed"
+            },
+            "recording_path": "cmp-fix-permissions-r1-20260924022638532/fix-permissions/fix-permissions.1-of-1.cmp-fix-permissions-r1-20260924022638532/sessions/agent.cast",
+            "total_input_tokens": 376,
+            "total_output_tokens": 98,
+            "trial_started_at": "2026-09-24T02:26:41.064509+00:00",
+            "trial_ended_at": "2026-09-24T02:27:45.558167+00:00",
+            "agent_started_at": "2026-09-24T02:26:46.221488+00:00",
+            "agent_ended_at": "2026-09-24T02:27:21.438330+00:00",
+            "test_started_at": "2026-09-24T02:27:24.643898+00:00",
+            "test_ended_at": "2026-09-24T02:27:29.562486+00:00"
+        }
+    ],
+    "pass_at_k": {},
+    "n_resolved": 1,
+    "n_unresolved": 0,
+    "resolved_ids": [
+        "fix-permissions"
+    ],
+    "unresolved_ids": [],
+    "accuracy": 1.0
+}

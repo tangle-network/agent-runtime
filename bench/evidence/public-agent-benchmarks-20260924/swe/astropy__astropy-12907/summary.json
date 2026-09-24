@@ -1,0 +1,112 @@
+{
+  "benchmark": "SWE-bench Verified",
+  "taskId": "astropy__astropy-12907",
+  "modelRequested": "glm-5.3",
+  "prompt": "Repository: astropy/astropy @ d16bfe05a744909de4b27f5875fe0d4ed41ce607\n\nThe repository is ALREADY cloned at ./swe-bench-repo relative to your initial session workspace, checked out at commit d16bfe05a744909de4b27f5875fe0d4ed41ce607. Work there directly (`cd ./swe-bench-repo`); do not re-clone.\n\nResolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests on a fresh checkout, so editing tests does not count. Keep the change minimal and confined to the cloned repo.\nWork iteratively: reproduce the issue, implement the fix in the source, and re-run the relevant tests until they pass. You do NOT need to print the diff — the harness reads your source edits directly from the repo, including uncommitted changes.\n\n--- Issue ---\nModeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.modeling.separable import separability_matrix\r\n\r\ncm = m.Linear1D(10) & m.Linear1D(5)\r\n```\r\n\r\nIt's separability matrix as you might expect is a diagonal:\r\n\r\n```python\r\n>>> separability_matrix(cm)\r\narray([[ True, False],\r\n       [False,  True]])\r\n```\r\n\r\nIf I make the model more complex:\r\n```python\r\n>>> separability_matrix(m.Pix2Sky_TAN() & m.Linear1D(10) & m.Linear1D(5))\r\narray([[ True,  True, False, False],\r\n       [ True,  True, False, False],\r\n       [False, False,  True, False],\r\n       [False, False, False,  True]])\r\n```\r\n\r\nThe output matrix is again, as expected, the outputs and inputs to the linear models are separable and independent of each other.\r\n\r\nIf however, I nest these compound models:\r\n```python\r\n>>> separability_matrix(m.Pix2Sky_TAN() & cm)\r\narray([[ True,  True, False, False],\r\n       [ True,  True, False, False],\r\n       [False, False,  True,  True],\r\n       [False, False,  True,  True]])\r\n```\r\nSuddenly the inputs and outputs are no longer separable?\r\n\r\nThis feels like a bug to me, but I might be missing something?\n",
+  "turnsLimit": 20,
+  "maxTokens": 4000,
+  "budget": 1,
+  "enableRun": true,
+  "shots": 1,
+  "completions": 20,
+  "tokens": {
+    "input": 270485,
+    "output": 14557,
+    "cacheBreakdownKnown": false
+  },
+  "tokensKnown": true,
+  "billedCostUsd": null,
+  "reportedUsd": 0,
+  "reportedUsdKnown": false,
+  "progression": [
+    1
+  ],
+  "runScore": 1,
+  "runResolved": true,
+  "wallMs": 444153,
+  "toolStats": {
+    "list": 3,
+    "read": 9,
+    "edit_ok": 1,
+    "edit_fail": 0,
+    "run": 0,
+    "run_err": 9
+  },
+  "patchBytes": 504,
+  "patchLines": 14,
+  "files": [
+    "astropy/modeling/separable.py"
+  ],
+  "patchApplies": true,
+  "score": {
+    "resolved": true,
+    "score": 1,
+    "detail": "{\"total_instances\":1,\"submitted_instances\":1,\"completed_instances\":1,\"resolved_instances\":1,\"unresolved_instances\":0,\"empty_patch_instances\":0,\"error_instances\":0,\"completed_ids\":[\"astropy__astropy-12907\"],\"incomplete_ids\":[],\"empty_patch_ids\":[],\"submitted_ids\":[\"astropy__astropy-12907\"],\"resolved_ids\":[\"astropy__astropy-12907\"],\"unresolved_ids\":[],\"error_ids\":[],\"schema_version\":2}",
+    "judgeArtifacts": {
+      "schema": "agent-bench/judge-artifacts/v1",
+      "directory": "/home/drew/code/_wt/eval-runtime-public-bench/.runs/public-bench-20260923/swe-glm53/astropy__astropy-12907/judge-1",
+      "evaluatorDirectory": "/home/drew/code/_wt/eval-runtime-public-bench/.runs/public-bench-20260923/swe-glm53/astropy__astropy-12907/judge-1/evaluator",
+      "manifestPath": "/home/drew/code/_wt/eval-runtime-public-bench/.runs/public-bench-20260923/swe-glm53/astropy__astropy-12907/judge-1/receipt.json",
+      "evaluatorSucceeded": true,
+      "files": [
+        {
+          "path": "evaluator/agent-runtime-bench.bench-astropy__astropy-12907.json",
+          "byteLength": 520,
+          "sha256": "sha256:ac336c3512d1f0de40d2dda9ea4256217030f7b893f4e81355f4b7eed9810f76",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/eval.sh",
+          "byteLength": 2123,
+          "sha256": "sha256:229f462fcbdcae232228507f9491b8538c5aeaeede709c5fc822b586245d9460",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/patch.diff",
+          "byteLength": 504,
+          "sha256": "sha256:0172ca0d430e58fc42e46d478f879e667a9a6e262295d7b49aea68cbc53d5986",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/report.json",
+          "byteLength": 2123,
+          "sha256": "sha256:fe3f3bddc9631279d3babf7270913070d91e9207c3468bd947823aee3e7b1b86",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/run_instance.log",
+          "byteLength": 4648,
+          "sha256": "sha256:6ddeb53204e412fc949da7353ad0d0866cdeba286afc819f240ebf7332bf10fa",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/test_output.txt",
+          "byteLength": 749603,
+          "sha256": "sha256:5453fd73caa425f351ba0394e1af936b2ebdb111954304a9855b3ffc69c2d9be",
+          "kind": "file"
+        },
+        {
+          "path": "evaluator/preds.json",
+          "byteLength": 619,
+          "sha256": "sha256:7ab80936f8b8f6cc9a32612d4acad2791f6c14bbae0fb53535a4054570afef8c",
+          "kind": "file"
+        },
+        {
+          "path": "process/stderr.bin",
+          "byteLength": 3794,
+          "sha256": "sha256:a3dc682be7f0dc195e493daab93f1c3df1520235604f32aa0e5024c519fc369f",
+          "kind": "file"
+        },
+        {
+          "path": "process/stdout.bin",
+          "byteLength": 394,
+          "sha256": "sha256:51362127ede3e7f8a6e1ed62b5dfb02ae3e706d7f35bcd05947ae122ac68966a",
+          "kind": "file"
+        }
+      ],
+      "fileCount": 9,
+      "byteLength": 764328,
+      "treeSha256": "sha256:6fe4a1ede18e899f1eb9c359402d05eb28cff5cb0c587f974e34ee67f3dd2822"
+    }
+  }
+}

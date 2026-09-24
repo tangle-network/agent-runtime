@@ -1,0 +1,37 @@
+=== TERMINAL-BENCH BLIND vs REFINE — run plan ===
+  dataset:        terminal-bench-core==0.1.1
+  model:          glm-5.2
+  tasks (1):      hello-world
+  rounds/task:    1 (blind) … up to 1 (refine on blind failure)
+  concurrency:    1
+  per-round cap:  420s
+  worst-case tb container runs: 1 (best case 1 if all blind-pass)
+
+  prebuild: hello-world … built
+
+  Running tasks (1/1, Accuracy: 100.00%) - Last: hello-world ✓ ━━━━━ 100% 0:01:…
+
+Results Summary:
++-------------------+---------+
+| Metric            | Value   |
++===================+=========+
+| Resolved Trials   | 1       |
++-------------------+---------+
+| Unresolved Trials | 0       |
++-------------------+---------+
+| Accuracy          | 100.00% |
++-------------------+---------+
+
+Results written to 
+/home/drew/code/_wt/eval-runtime-public-bench/bench/runs/cmp-hello-world-r1-2026
+0924021107148/results.json
+  [1/1] hello-world: blind=✓ refine=✓ =both✓  (r1=✓, 65s)
+        round 1 run dir: /home/drew/code/_wt/eval-runtime-public-bench/bench/runs/cmp-hello-world-r1-20260924021107148
+
+=== BLIND vs REFINE (n=1, rounds=1) ===
+  blind  (pass@1):     100.0%  (1/1)
+  refine (final):      100.0%  (1/1)
+  ► delta (refine − blind): 0.0 pp   [rescued 0, broke 0]
+
+  per-task:
+    hello-world: blind=✓ refine=✓  rounds=[r1:pass]

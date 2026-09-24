@@ -1,0 +1,13 @@
+{
+  "adapter": "terminal-bench",
+  "taskId": "hello-world",
+  "split": "0.1.1",
+  "artifactSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "artifactBytes": 0,
+  "wallMs": 34543,
+  "score": {
+    "resolved": false,
+    "score": 0,
+    "detail": "{\"test_hello_file_exists\":\"failed\",\"test_hello_file_content\":\"failed\"}"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "schema": "agent-bench/judge-artifacts/v1",
+  "directory": "/home/drew/code/_wt/eval-runtime-public-bench/.runs/public-bench-20260923/swe-glm53/astropy__astropy-12907/judge-1",
+  "evaluatorDirectory": "/home/drew/code/_wt/eval-runtime-public-bench/.runs/public-bench-20260923/swe-glm53/astropy__astropy-12907/judge-1/evaluator",
+  "manifestPath": "/home/drew/code/_wt/eval-runtime-public-bench/.runs/public-bench-20260923/swe-glm53/astropy__astropy-12907/judge-1/receipt.json",
+  "evaluatorSucceeded": true,
+  "files": [
+    {
+      "path": "evaluator/agent-runtime-bench.bench-astropy__astropy-12907.json",
+      "byteLength": 520,
+      "sha256": "sha256:ac336c3512d1f0de40d2dda9ea4256217030f7b893f4e81355f4b7eed9810f76",
+      "kind": "file"
+    },
+    {
+      "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/eval.sh",
+      "byteLength": 2123,
+      "sha256": "sha256:229f462fcbdcae232228507f9491b8538c5aeaeede709c5fc822b586245d9460",
+      "kind": "file"
+    },
+    {
+      "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/patch.diff",
+      "byteLength": 504,
+      "sha256": "sha256:0172ca0d430e58fc42e46d478f879e667a9a6e262295d7b49aea68cbc53d5986",
+      "kind": "file"
+    },
+    {
+      "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/report.json",
+      "byteLength": 2123,
+      "sha256": "sha256:fe3f3bddc9631279d3babf7270913070d91e9207c3468bd947823aee3e7b1b86",
+      "kind": "file"
+    },
+    {
+      "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/run_instance.log",
+      "byteLength": 4648,
+      "sha256": "sha256:6ddeb53204e412fc949da7353ad0d0866cdeba286afc819f240ebf7332bf10fa",
+      "kind": "file"
+    },
+    {
+      "path": "evaluator/logs/run_evaluation/bench-astropy__astropy-12907/agent-runtime-bench/astropy__astropy-12907/test_output.txt",
+      "byteLength": 749603,
+      "sha256": "sha256:5453fd73caa425f351ba0394e1af936b2ebdb111954304a9855b3ffc69c2d9be",
+      "kind": "file"
+    },
+    {
+      "path": "evaluator/preds.json",
+      "byteLength": 619,
+      "sha256": "sha256:7ab80936f8b8f6cc9a32612d4acad2791f6c14bbae0fb53535a4054570afef8c",
+      "kind": "file"
+    },
+    {
+      "path": "process/stderr.bin",
+      "byteLength": 3794,
+      "sha256": "sha256:a3dc682be7f0dc195e493daab93f1c3df1520235604f32aa0e5024c519fc369f",
+      "kind": "file"
+    },
+    {
+      "path": "process/stdout.bin",
+      "byteLength": 394,
+      "sha256": "sha256:51362127ede3e7f8a6e1ed62b5dfb02ae3e706d7f35bcd05947ae122ac68966a",
+      "kind": "file"
+    }
+  ],
+  "fileCount": 9,
+  "byteLength": 764328,
+  "treeSha256": "sha256:6fe4a1ede18e899f1eb9c359402d05eb28cff5cb0c587f974e34ee67f3dd2822"
+}

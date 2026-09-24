@@ -1,0 +1,44 @@
+HTTP/2 200 
+date: Thu, 24 Sep 2026 02:10:27 GMT
+content-type: application/json
+access-control-allow-origin: *
+access-control-expose-headers: X-Generation-Id,X-Tangle-Routing-Trace,X-Tangle-Operator,X-Tangle-BYOK,X-Tangle-Cache,X-Tangle-Caching,X-Tangle-Guardrails,X-Tangle-Prompt-Cache,X-Tangle-Prompt-Cache-Provider,X-Tangle-Prompt-Cache-Mode,X-Tangle-Prompt-Cache-Read-Tokens,X-Tangle-Prompt-Cache-Write-Tokens,X-Tangle-Prompt-Cache-Savings-USD,X-Tangle-Prompt-Cache-Upstream-Savings-USD,X-Tangle-Price-Input,X-Tangle-Price-Output,X-Tangle-Max-Cost-USD,X-Tangle-Requested-Model,X-Tangle-Served-Model,X-Tangle-Failover,X-Tangle-Refused-Substitutes,X-Tangle-Model-Catalog,X-Tangle-Web-Search-Requests,X-Tangle-Web-Fetch-Requests,X-Tangle-Datetime-Requests,X-Tangle-Image-Generation-Requests,X-Tangle-Response-Healing,X-Tangle-Structured-Output-Validation,X-Tangle-Context-Compression,X-Tangle-PDF-Inputs,X-Tangle-Service-Tier,X-Tangle-Design-Provider,X-Tangle-Design-Credits,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset,X-Payment-Settled,X-Payment-Required,X-Payment-Currency,X-Payment-Methods
+alt-svc: h3=":443"; ma=86400
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+origin-agent-cluster: ?1
+referrer-policy: same-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+vary: Accept-Encoding
+via: 1.1 Caddy
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-generation-id: gen_01M38JV4NV54W6F1KJ1ARY99C8
+x-permitted-cross-domain-policies: none
+x-ratelimit-limit: 500
+x-ratelimit-remaining: 499
+x-ratelimit-reset: 1790215881
+x-tangle-cache: MISS
+x-tangle-caching: auto
+x-tangle-price-input: 0.000001456
+x-tangle-price-output: 0.000004576000000000001
+x-tangle-prompt-cache: miss
+x-tangle-prompt-cache-mode: none
+x-tangle-prompt-cache-provider: zai
+x-tangle-prompt-cache-read-tokens: 0
+x-tangle-prompt-cache-savings-usd: 0.000000
+x-tangle-prompt-cache-upstream-savings-usd: 0.000000
+x-tangle-prompt-cache-write-tokens: 0
+x-tangle-requested-model: glm-5.2
+x-tangle-routing-trace: glm-5.2[zai(200:6122ms)]
+x-tangle-served-model: glm-5.2
+x-xss-protection: 1; mode=block
+cf-cache-status: DYNAMIC
+expect-ct: max-age=86400, enforce
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=2a2YU%2FK9orsmtR2mPSdJiXxEoc2j%2FJtS%2FRHkS356qlkzM9m0gBDAFhecRzWhR%2FsSSFq40h6v5ZCh7sx27O%2FsB3kaeS5Ngsqln%2BdajMf%2FTTH51zdX6uLCQYy5cHjucLAII03YoDQ%3D"}]}
+server: cloudflare
+cf-ray: a3fe408a1a678467-SJC
+

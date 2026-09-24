@@ -1,0 +1,4 @@
+Starting harness run
+Run ID: cmp-hello-world-r1-20260924021107148
+Published tb container id f453d2fb1784fab98e579627024d641dc86b0b31944a492327fa0d4ad2f07d98 -> /home/drew/code/_wt/eval-runtime-public-bench/bench/.tb-container-id
+opencode usage: input=2377 output=100

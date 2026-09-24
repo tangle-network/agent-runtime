@@ -16,7 +16,7 @@
  *     node_modules/.bin/tsx bench/src/swe-local-proof.mts
  */
 import { execFile } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -40,12 +40,24 @@ async function main(): Promise<void> {
   // WITH-TOOLS arm: RUN_TOOL=1 exposes the jailed `run` tool + the run-aware prompt. Default OFF ⇒
   // the read/edit-only baseline (glm-5.2 7/12) unchanged.
   const enableRun = ['1', 'true', 'yes'].includes((process.env.RUN_TOOL ?? '').toLowerCase())
+  const artifactDir = process.env.RUN_ARTIFACT_DIR
+  if (artifactDir) mkdirSync(artifactDir, { recursive: true })
 
   console.log(`═══ SWE-bench Verified — SEE-able LOCAL proof (no tangle sandbox) ═══`)
   console.log(`model=${model}  ids=${ids.join(',')}  innerTurns=${innerTurns}  maxTokens=${maxTokens}  budget=${budget}  runTool=${enableRun}`)
   console.log(`router=${routerBaseUrl}`)
 
-  const { environment, tasks, adapter } = await createSweBenchEnvironment(ids.length, { ids, enableRun })
+  const { environment, tasks, adapter } = await createSweBenchEnvironment(ids.length, {
+    ids,
+    enableRun,
+    ...(artifactDir ? {
+      adapterOptions: {
+        captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({
+          destination: join(artifactDir, taskId, `judge-${attemptSequence}`),
+        }),
+      },
+    } : {}),
+  })
   const workerProfile = withBenchProfile(
     {
       name: 'swe-local-proof-worker',
@@ -85,10 +97,27 @@ async function main(): Promise<void> {
   const captured = new Map<string, Rec>()
   const judged = new Map<string, BenchScore>()
   const toolStats = new Map<string, { list: number; read: number; edit_ok: number; edit_fail: number; run: number; run_err: number }>()
+  let activeTaskId = ''
+  const recordTool = (name: string, args: unknown, result: unknown, error?: string) => {
+    if (!artifactDir || !activeTaskId) return
+    const taskDir = join(artifactDir, activeTaskId)
+    mkdirSync(taskDir, { recursive: true })
+    appendFileSync(join(taskDir, 'tools.jsonl'), JSON.stringify({
+      at: new Date().toISOString(), name, args,
+      ...(error ? { error } : { result }),
+    }) + '\n')
+  }
   const proxy: AgenticSurface = {
     ...environment,
     async call(handle, name, args) {
-      const res = await environment.call(handle, name, args)
+      let res: string
+      try {
+        res = await environment.call(handle, name, args)
+      } catch (error) {
+        recordTool(name, args, undefined, error instanceof Error ? error.message : String(error))
+        throw error
+      }
+      recordTool(name, args, res)
       // Count tool usage per workspace so we can SEE whether the agent ever edited, and whether
       // edits succeeded or bounced off old_string matching. handle.id keys the workspace.
       const st = toolStats.get(handle.id) ?? { list: 0, read: 0, edit_ok: 0, edit_fail: 0, run: 0, run_err: 0 }
@@ -161,6 +190,7 @@ async function main(): Promise<void> {
 
   let anyResolved = 0
   for (const task of taskList) {
+    activeTaskId = task.id
     const t0 = Date.now()
     const r = await runAgentic({
       surface: proxy,
@@ -171,6 +201,13 @@ async function main(): Promise<void> {
       workerProfile,
       analystProfile,
       budget,
+      ...(artifactDir ? { hooks: { onEvent(event: unknown) {
+        const taskDir = join(artifactDir, activeTaskId)
+        mkdirSync(taskDir, { recursive: true })
+        appendFileSync(join(taskDir, 'runtime-events.jsonl'), JSON.stringify(event, (_key, value) =>
+          value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value,
+        ) + '\n')
+      } } } : {}),
     })
     const rec = captured.get(task.id)
     const st = toolStats.get(task.id)
@@ -186,6 +223,38 @@ async function main(): Promise<void> {
     console.log(`  patch APPLIED (git apply --check on clean base): ${rec?.applied ? 'YES' : 'NO'}${rec?.applyErr ? ` (${rec.applyErr})` : ''}`)
     console.log(`  swebench judge RESOLVED: ${resolved ? '1' : '0'}`)
     if (rec?.score?.detail) console.log(`  judge report: ${rec.score.detail.slice(0, 400)}`)
+    if (artifactDir) {
+      const taskDir = join(artifactDir, task.id)
+      mkdirSync(taskDir, { recursive: true })
+      writeFileSync(join(taskDir, 'patch.diff'), rec?.patch ?? '')
+      writeFileSync(join(taskDir, 'summary.json'), JSON.stringify({
+        benchmark: 'SWE-bench Verified',
+        taskId: task.id,
+        modelRequested: model,
+        prompt: task.userPrompt,
+        turnsLimit: innerTurns,
+        maxTokens,
+        budget,
+        enableRun,
+        shots: r.shots,
+        completions: r.completions,
+        tokens: r.tokens,
+        tokensKnown: r.tokensKnown,
+        billedCostUsd: null,
+        reportedUsd: r.usd,
+        reportedUsdKnown: r.usdKnown,
+        progression: r.progression,
+        runScore: r.score,
+        runResolved: r.resolved,
+        wallMs: Date.now() - t0,
+        toolStats: st ?? null,
+        patchBytes,
+        patchLines,
+        files,
+        patchApplies: rec?.applied ?? false,
+        score: rec?.score ?? null,
+      }, null, 2) + '\n')
+    }
   }
   console.log(`\n>>> resolved ${anyResolved}/${taskList.length}`)
 }

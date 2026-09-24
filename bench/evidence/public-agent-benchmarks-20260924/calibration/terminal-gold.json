@@ -1,0 +1,13 @@
+{
+  "adapter": "terminal-bench",
+  "taskId": "hello-world",
+  "split": "0.1.1",
+  "goldSha256": "83605fbcb8fb37355ef907dd073b5cb63b66e88ee9de5fa1352b0cdef46c1d37",
+  "goldBytes": 169,
+  "wallMs": 34125,
+  "score": {
+    "resolved": true,
+    "score": 1,
+    "detail": "{\"test_hello_file_exists\":\"passed\",\"test_hello_file_content\":\"passed\"}"
+  }
+}

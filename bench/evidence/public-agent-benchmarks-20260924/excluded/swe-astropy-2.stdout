@@ -1,0 +1,12 @@
+═══ SWE-bench Verified — SEE-able LOCAL proof (no tangle sandbox) ═══
+model=glm-5.2  ids=astropy__astropy-12907  innerTurns=20  maxTokens=4000  budget=1  runTool=true
+router=https://router.tangle.tools/v1
+
+──── astropy__astropy-12907 ────
+  agent shots=1 completions=0 tokens=in:0/out:0 usd=0 wall=13s
+  tools: list=0 read=0 edit_ok=0 edit_fail=0 run=0 run_err=0
+  patch: 0 bytes, 0 lines, files=[(none)]
+  patch APPLIED (git apply --check on clean base): NO
+  swebench judge RESOLVED: 0
+
+>>> resolved 0/1

@@ -1,0 +1,4 @@
+Starting harness run
+Run ID: cmp-hello-world-r1-20260924020856197
+Published tb container id 85ad97192fd947d27565a3292b57cc499aeb4f31c448c0c75cabfacdce005767 -> /home/drew/code/_wt/eval-runtime-public-bench/bench/.tb-container-id
+opencode reported zero usage; events=3062 bytes, stderr tail: 
