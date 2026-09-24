@@ -102,10 +102,10 @@ export function assertInteractionBinding(
   command: InteractionResponseCommand,
 ): void {
   // This digest identifies the interaction request, not the retained turn.
-  // The provider validates it against its durable interaction record.
+  // The inner provider can differ from the outer control provider. The provider validates
+  // the unchanged binding against its durable interaction record.
   if (
     command.binding.runId !== controlRef.runId ||
-    command.binding.provider !== controlRef.provider ||
     command.binding.environmentId !== controlRef.environmentId ||
     command.binding.sessionId !== controlRef.sessionId ||
     command.binding.executionId !== controlRef.executionId
@@ -300,7 +300,7 @@ export function assertEventBinding(
   }
 }
 
-/** Validate the nested coordinates carried by a canonical interaction request. */
+/** Validate the retained coordinates. The nested provider names the inner adapter. */
 export function assertCanonicalEventBinding(
   controlRef: AgentExactRunControlRef,
   event: StreamEvent,
@@ -309,7 +309,6 @@ export function assertCanonicalEventBinding(
   const binding = event.request.binding
   if (
     binding.runId !== controlRef.runId ||
-    binding.provider !== controlRef.provider ||
     binding.environmentId !== controlRef.environmentId ||
     binding.sessionId !== controlRef.sessionId ||
     binding.executionId !== controlRef.executionId ||

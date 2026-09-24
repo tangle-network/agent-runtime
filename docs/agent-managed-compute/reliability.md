@@ -108,6 +108,10 @@ The implementation is complete only when all of these hold:
 9. An unauthenticated or cross-run caller cannot invoke coordination actions.
 10. Parallel workspace writes cannot silently overwrite one another.
 
+A retained interaction can name an inner adapter provider different from the outer environment provider.
+Runtime checks its exact run, environment, session, execution, and interaction coordinates.
+The provider checks the inner identity against its durable interaction record before accepting a response.
+
 ## Delivery Semantics
 
 Network messages are at least once.
