@@ -520,6 +520,19 @@ export {
   SandboxRunAbortError,
   type TurnResult,
 } from './sandbox-run'
+// Many workers per Sandbox box, each as its own harness process with its own directory.
+export {
+  DEFAULT_SHARED_BOX_RESOURCES,
+  DEFAULT_SHARED_BOX_WORKERS,
+  type SharedBoxCloseReceipt,
+  type SharedBoxHandle,
+  type SharedBoxPlacement,
+  type SharedBoxPlacementOptions,
+  type SharedBoxProcess,
+  type SharedBoxStats,
+  sharedBoxPlacement,
+  sharedBoxRefusal,
+} from './shared-box'
 // Same-host stdio MCP: the ONE spawn+handshake connection (shared by the serve
 // verifier and the live consumers) + the profile.mcp materializer.
 export {

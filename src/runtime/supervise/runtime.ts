@@ -35,6 +35,7 @@ import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
+  placedProviderExecutor,
   providerAsExecutor,
   providerAsSandboxClient,
   resolveAgentEnvironmentProvider,
@@ -59,6 +60,7 @@ import {
   type SandboxOutputMarker,
   sandboxLeafOutputFromEvents,
 } from '../sandbox-executor-output'
+import type { SharedBoxPlacement } from '../shared-box'
 import type {
   AgentRunSpec,
   Driver,
@@ -367,6 +369,13 @@ export interface ProviderSeam extends ProviderExecutorOptions {
    * creation and session semantics.
    */
   steering?: SandboxSteeringOptions
+  /**
+   * Place each worker whose profile a shared box can carry as its own process in a pool of shared
+   * boxes, and keep a dedicated environment from `provider` for every other profile. Build it with
+   * `sharedBoxPlacement`. A manager never uses it: its coordination credential is create-time
+   * environment that every co-tenant of a shared box could read.
+   */
+  shared?: SharedBoxPlacement
 }
 
 const routerSeamKey = 'router'
@@ -2088,8 +2097,19 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         taskToTurn,
         validator,
         workspaceRetention,
+        shared,
         ...decisionData
       } = config
+      if (
+        shared !== undefined &&
+        (decisionData.steering !== undefined ||
+          decisionData.placements !== undefined ||
+          workspaceRetention !== undefined)
+      ) {
+        throw new ValidationError(
+          'createExecutor(provider): shared placement cannot combine with steering, placements, or workspaceRetention',
+        )
+      }
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
       // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
       // retain the resulting provider instance, never the registry lookup for later execution.
@@ -2101,6 +2121,8 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
         ...(validator === undefined ? {} : { validator }),
         ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
+        // A live pool: every worker of the run must lease from the same boxes.
+        ...(shared === undefined ? {} : { shared }),
       })
     }
     case 'sandbox': {
@@ -2360,20 +2382,38 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           return wrapper
         }
         const profileForCreate = providerSeam.profileForCreate
+        const exactProfileForCreate = (profile: AgentProfile): AgentProfile => {
+          const prepared = executableAgentProfileSnapshot(
+            profileForCreate?.(profile) ?? profile,
+            'createExecutor(provider)',
+          )
+          if (canonicalAgentProfileDigest(prepared) !== canonicalAgentProfileDigest(profile)) {
+            throw new ValidationError(
+              'createExecutor(provider): profileForCreate changed the exact AgentProfile; execution overlays are not allowed',
+            )
+          }
+          return prepared
+        }
+        const shared = providerSeam.shared
+        if (shared !== undefined && shared.refusal(spec.profile) === undefined) {
+          // The shared box owns the box-level create options, so the dedicated provider's
+          // defaults (its resources, egress and secrets) do not apply to a shared worker.
+          const {
+            provider: _provider,
+            registry: _registry,
+            shared: _shared,
+            defaults: _defaults,
+            ...turnOptions
+          } = providerSeam
+          return placedProviderExecutor(
+            shared.provider,
+            { ...turnOptions, profileForCreate: exactProfileForCreate },
+            shared.identity,
+          )(spec, seamed)
+        }
         return providerAsExecutor(provider, {
           ...providerSeam,
-          profileForCreate: (profile) => {
-            const prepared = executableAgentProfileSnapshot(
-              profileForCreate?.(profile) ?? profile,
-              'createExecutor(provider)',
-            )
-            if (canonicalAgentProfileDigest(prepared) !== canonicalAgentProfileDigest(profile)) {
-              throw new ValidationError(
-                'createExecutor(provider): profileForCreate changed the exact AgentProfile; execution overlays are not allowed',
-              )
-            }
-            return prepared
-          },
+          profileForCreate: exactProfileForCreate,
         })(spec, seamed)
       }
       case 'sandbox': {
