@@ -30,6 +30,7 @@ export const sandboxCompatibilityVersions = Object.freeze([
   '0.46.0',
   '0.47.0',
   '0.49.0',
+  '0.50.0',
 ])
 
 /**

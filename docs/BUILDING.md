@@ -66,7 +66,7 @@ remaining boilerplate is irreducible.
 To verify an unpublished Sandbox SDK, pass its archive after the Runtime and Knowledge archive arguments to `scripts/verify-package-exports.mjs`.
 Use an empty Knowledge argument to keep the installed release.
 For the packed cohort, pass `--sandbox-archive` to test the publisher archive before npm serves it.
-An archive for a `0.49.0` prerelease adds a strict-install row alongside the stable Sandbox matrix.
+An archive for a prerelease of the newest matrix Sandbox adds a strict-install row alongside the stable Sandbox matrix.
 Pass `--sandbox-repo` to pack a clean ADC checkout after its workspace dependency build.
 The cohort gate strict-installs the selected archive and runs its proposal across the declared Sandbox matrix.
 

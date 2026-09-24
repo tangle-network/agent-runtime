@@ -2,6 +2,9 @@
 
 ## 0.262.0
 
+Runtime admits stable Sandbox 0.50.x through its peer range and packed compatibility cohort.
+Sandbox 0.50.0 adds `client.instances` for isolated per-tenant sandboxes; Runtime does not call that API itself.
+
 A re-entered external director is told the run from the coordinator, not only the unmet items.
 The drive harness states what the next drive continues: a bridge reattaches the harness session, and a retained provider owner continues its environment while the provider still holds it.
 Only a proven-continuous session receives the unmet items alone, plus what changed.
