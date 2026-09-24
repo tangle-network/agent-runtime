@@ -515,25 +515,35 @@ describe('supervise tree-wide worker capacity', () => {
       (event) => event.kind === 'spawned' && event.label === 'retained',
     )?.id
     expect(retainedId).toBeDefined()
-    // The cursor slot stays open: this executor implements no `releaseRetained`, so the root's
-    // release sweep has nothing to release and never selects it. No terminal record exists for the
-    // node; the reconciled floor stands in its place, and the run reports it as never settled.
-    // (tests/kernel/retained-environment-release.test.ts pins the other half: an executor WITH
-    // `releaseRetained` gets a released terminal record at settlement.)
-    expect(events.filter((event) => event.id === retainedId && closesCursorSlot(event))).toEqual([])
+    // This executor implements no `releaseRetained`, so the root's release sweep has nothing to
+    // release. The in-memory run is final all the same, so its slot closes with the reconciled
+    // floor as the terminal spend, marked `release-unconfirmed`: the node is down, its gap is the
+    // floor, and it is not never-settled. (tests/kernel/retained-environment-release.test.ts pins
+    // the other half: an executor WITH `releaseRetained` gets a released terminal record.)
+    expect(
+      events.filter((event) => event.id === retainedId && closesCursorSlot(event)),
+    ).toMatchObject([
+      {
+        kind: 'settled',
+        status: 'down',
+        retainedExecution: 'release-unconfirmed',
+        spent: { tokens: { input: 7, output: 3 }, tokensKnown: false },
+      },
+    ])
     expect(events.filter((event) => event.kind === 'reconciled')).toMatchObject([
       { id: retainedId, spent: { tokens: { input: 7, output: 3 }, tokensKnown: false } },
     ])
     expect(result.fleetYield).toEqual({
       spawned: 2,
       done: 1,
-      down: 0,
+      down: 1,
       cancelled: 0,
-      neverSettled: 1,
+      neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 1,
     })
     expect(result.spendGaps).toEqual([
-      expect.objectContaining({ id: retainedId, kind: 'never-settled' }),
+      expect.objectContaining({ id: retainedId, kind: 'unreported' }),
     ])
     // Every journal reader charges that floor: terminal accounting, the ceiling list a restored
     // pool is charged from, and the materialized tree.

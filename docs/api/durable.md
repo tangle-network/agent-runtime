@@ -1042,7 +1042,8 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 > `readonly` `optional` **retainedExecution?**: [`RetainedExecutionState`](runtime.md#retainedexecutionstate)
 
 Recorded by Runtime on the `agent.child` payload: `'pending'` at a retained child's
- settlement, `'released'` when root settlement destroyed its environment without recovery.
+ settlement, `'released'` when root settlement destroyed its environment without recovery,
+ `'release-unconfirmed'` when a final settlement closed its slot without confirming that.
  The status stays `down` — the split is a sibling fact, not a fourth status. A second
  `agent.child` for one node is already how a live-recovered child flips down→done, so the
  fold overwrites in observed order; that event's `settledAt` is the original settlement, so
@@ -1058,7 +1059,7 @@ Why a retained child has no accepted result; see `RetainedPendingCause`.
 
 > `readonly` `optional` **releasedAt?**: `number`
 
-When the release sweep closed a retained node's slot; absent unless `'released'`.
+When a final settlement closed a retained node's slot; absent while it is `'pending'`.
 
 ##### budgetViolation?
 
