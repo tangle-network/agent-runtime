@@ -65,7 +65,9 @@ remaining boilerplate is irreducible.
 
 To verify an unpublished Sandbox SDK, pass its archive after the Runtime and Knowledge archive arguments to `scripts/verify-package-exports.mjs`.
 Use an empty Knowledge argument to keep the installed release.
-Registry checks continue to use the published versions in `scripts/lib/dependency-contract.mjs`.
+For the packed cohort, pass `--sandbox-archive` to test the publisher archive before npm serves it.
+Pass `--sandbox-repo` to pack a clean ADC checkout after its workspace dependency build.
+The cohort gate strict-installs the selected archive and runs its proposal across the declared Sandbox matrix.
 
 - `CLAUDE.md` / `AGENTS.md`: bootloader and repo-local deltas only.
 - `docs/BUILDING.md`: stable build rules.

@@ -48,8 +48,8 @@ const officialOptimizerEnv = {
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
-// The catalog states the cohort range once. A peer range repeats it, and the
-// installed version must be one the range admits.
+// The catalog bounds the installed development version. The peer contract may
+// admit other versions verified by the packed cohort.
 assertCohortRange('@tangle-network/agent-eval', agentEvalVersion)
 assertCohortRange('@tangle-network/agent-interface', workspaceAgentInterfaceVersion)
 assertCohortRange('@tangle-network/sandbox', workspaceSandboxVersion)
@@ -317,15 +317,18 @@ function catalogRange(packageName) {
 }
 
 function assertCohortRange(packageName, installedVersion) {
+  const peerRange = peerCompatibility[packageName]?.expectedRange ?? catalogRange(packageName)
   assertVersion(
     packageJson.peerDependencies?.[packageName],
-    catalogRange(packageName),
+    peerRange,
     `${packageName} peer dependency range`,
   )
   assertCatalogAdmits(packageName, installedVersion)
+  if (!rangeAdmits(peerRange, installedVersion)) {
+    throw new Error(`installed ${packageName}@${installedVersion} is outside its peer range ${peerRange}`)
+  }
   for (const version of peerCompatibility[packageName]?.admittedVersions ?? []) {
-    assertCatalogAdmits(packageName, version)
-    if (!rangeAdmits(packageJson.peerDependencies?.[packageName], version)) {
+    if (!rangeAdmits(peerRange, version)) {
       throw new Error(
         `${packageJson.name} peer dependency range does not admit ${packageName}@${version}`,
       )

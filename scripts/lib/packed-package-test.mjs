@@ -73,15 +73,19 @@ export function expectedPeerRange(version) {
   return Number(match[1]) >= 1 ? `^${version}` : currentMinorPeerRange(version)
 }
 
-/** A caret range admits a version when the major matches and the floor is at or below it. */
+/** A caret range admits versions through the next compatible semver boundary. */
 export function caretAdmits(range, version) {
   const floor = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range)
   const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
   if (floor === null || found === null) return false
   const [floorMajor, floorMinor, floorPatch] = floor.slice(1).map(Number)
   const [major, minor, patch] = found.slice(1).map(Number)
-  if (floorMajor < 1 || major !== floorMajor) return false
-  return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
+  if (major !== floorMajor) return false
+  if (floorMajor > 0) {
+    return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
+  }
+  if (minor !== floorMinor) return false
+  return floorMinor > 0 ? patch >= floorPatch : patch === floorPatch
 }
 
 const exactVersion = /^\d+\.\d+\.\d+(?:[-+].*)?$/
@@ -116,9 +120,13 @@ export function windowAdmits(range, version) {
   return target >= order(parts.slice(0, 3)) && target < order(parts.slice(3))
 }
 
-/** A range admits a version through either supported cohort shape. */
+/** A range admits a version through one of its supported cohort clauses. */
 export function rangeAdmits(range, version) {
-  return caretAdmits(range, version) || windowAdmits(range, version)
+  if (typeof range !== 'string') return false
+  return range.split('||').some((clause) => {
+    const trimmed = clause.trim()
+    return caretAdmits(trimmed, version) || windowAdmits(trimmed, version)
+  })
 }
 
 /**
