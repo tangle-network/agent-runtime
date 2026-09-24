@@ -4091,6 +4091,17 @@ installs `withProfileKb` here so each child carries its harness and model guidan
 
 `AgentProfile`
 
+##### profiles?
+
+> `readonly` `optional` **profiles?**: `ReadonlyMap`\<`string`, [`SuperviseProfileEntry`](runtime.md#superviseprofileentry)\>
+
+The run's profiles table, validated and frozen by `supervise` (`SuperviseRegistry.profiles`).
+When it holds an entry, `spawn_worker` also takes `profile` as one of its names and lists the
+names in its schema. The named profile replaces the authored one before composition,
+continuity, pre-flight, authorization, or the journal see it. An authored profile whose `name`
+is a table name is refused, so one name never means two profiles. Omit or empty = the tool is
+unchanged.
+
 ##### spawnResourceRoot?
 
 > `readonly` `optional` **spawnResourceRoot?**: `string`

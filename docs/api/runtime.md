@@ -1896,6 +1896,37 @@ it as a Runtime-owned MCP attachment beside its authored profile. A caller-owned
 
 ***
 
+### SuperviseProfileEntry
+
+One entry of a run's profiles table (`SuperviseRegistry.profiles`): the exact profile a manager
+may spawn by name, and, for a promoted entry, the verdict that promoted it.
+
+An entry without `promotion` is exploratory. An entry with it cites Eval's paired decision from
+a sealed play. `supervise` refuses the run unless the seal verifies, a treatment arm of that play
+names this profile's canonical digest, and the decision promoted. `PairedPromotionDecision`
+carries no experiment digest, so Runtime cannot prove the decision came from that play's rows;
+the caller that pairs them owns that claim.
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+##### promotion?
+
+> `readonly` `optional` **promotion?**: `object`
+
+###### experiment
+
+> `readonly` **experiment**: `SealedExperiment`
+
+###### decision
+
+> `readonly` **decision**: `PairedPromotionDecision`
+
+***
+
 ### SpawnRefusal
 
 A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it.
@@ -19015,17 +19046,37 @@ A name→value table, in this package's resolver-port shape (the same one `WaitP
 
 `T` \| `undefined`
 
+##### names()?
+
+> `optional` **names**(): readonly `string`[]
+
+The names the table holds. The four code-valued tables may omit it, because a caller names
+ their entries from data it already has. The profiles table must list them, because a
+ director can choose only from a menu it can read.
+
+###### Returns
+
+readonly `string`[]
+
 ***
 
 ### SuperviseRegistry
 
-The name→value tables that make the four CODE-valued options expressible as run DATA.
+The name→value tables that make the four CODE-valued options expressible as run DATA, and the
+profiles a director may spawn by name.
 
 `deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
 run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
 a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
 the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
 caller that owns the code registers it here once and names it from data thereafter.
+
+`profiles` is the profiles table: named AgentProfiles that every manager in the tree may spawn
+with `spawn_worker({ profile: '<name>' })` instead of retyping them. The table is read once, when
+`supervise` is called: each entry is validated like a root profile and frozen, so every spawn by
+a name starts from the same bytes. Unless `profileGuidance` or `authorizeSpawn` rewrites the
+profile, the journal records the entry's digest for the child. Omit the table, or list no names,
+and nothing about the run changes: `spawn_worker` keeps its object-only `profile`.
 
 #### Properties
 
@@ -19044,6 +19095,20 @@ caller that owns the code registers it here once and names it from data thereaft
 ##### probes?
 
 > `readonly` `optional` **probes?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`WaitProbeRegistry`](#waitproberegistry)\>
+
+##### profiles?
+
+> `readonly` `optional` **profiles?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`SuperviseProfileEntry`](#superviseprofileentry)\> & `object`
+
+###### Type Declaration
+
+###### names()
+
+> **names**(): readonly `string`[]
+
+###### Returns
+
+readonly `string`[]
 
 ***
 
@@ -20194,7 +20259,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-17)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-18)
 
 ##### task
 
@@ -20814,6 +20879,12 @@ Composition of each authored child profile before identity is fixed —
 ###### Returns
 
 `AgentProfile`
+
+##### profiles?
+
+> `readonly` `optional` **profiles?**: `ReadonlyMap`\<`string`, [`SuperviseProfileEntry`](#superviseprofileentry)\>
+
+The run's validated profiles table — `CoordinationToolsOptions.profiles`.
 
 ##### spawnResourceRoot?
 

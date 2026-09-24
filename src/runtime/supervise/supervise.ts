@@ -54,6 +54,7 @@ import type {
   EscalateQuestion,
   MakeWorkerAgent,
   SpawnPreflight,
+  SuperviseProfileEntry,
   WorkerSpawnContext,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
@@ -1455,22 +1456,37 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
  *  plugin loader, or a plain object all satisfy one interface. */
 export interface SuperviseRegistryTable<T> {
   resolve(name: string): T | undefined
+  /** The names the table holds. The four code-valued tables may omit it, because a caller names
+   *  their entries from data it already has. The profiles table must list them, because a
+   *  director can choose only from a menu it can read. */
+  names?(): readonly string[]
 }
 
 /**
- * The name→value tables that make the four CODE-valued options expressible as run DATA.
+ * The name→value tables that make the four CODE-valued options expressible as run DATA, and the
+ * profiles a director may spawn by name.
  *
  * `deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
  * run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
  * a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
  * the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
  * caller that owns the code registers it here once and names it from data thereafter.
+ *
+ * `profiles` is the profiles table: named AgentProfiles that every manager in the tree may spawn
+ * with `spawn_worker({ profile: '<name>' })` instead of retyping them. The table is read once, when
+ * `supervise` is called: each entry is validated like a root profile and frozen, so every spawn by
+ * a name starts from the same bytes. Unless `profileGuidance` or `authorizeSpawn` rewrites the
+ * profile, the journal records the entry's digest for the child. Omit the table, or list no names,
+ * and nothing about the run changes: `spawn_worker` keeps its object-only `profile`.
  */
 export interface SuperviseRegistry {
   readonly deliverables?: SuperviseRegistryTable<DeliverableSpec<unknown>>
   readonly finalizers?: SuperviseRegistryTable<SupervisorFinalizer>
   readonly analysts?: SuperviseRegistryTable<AnalystRegistry>
   readonly probes?: SuperviseRegistryTable<WaitProbeRegistry>
+  readonly profiles?: SuperviseRegistryTable<SuperviseProfileEntry> & {
+    names(): readonly string[]
+  }
 }
 
 /** Which registry table each nameable option resolves against. Indexing this map inside
@@ -1509,6 +1525,99 @@ function resolveNamed<K extends keyof SuperviseRegistryTableFor, T extends objec
     )
   }
   return entry
+}
+
+/** Read the profiles table once, before anything is built or spent, and freeze what it returns.
+ *  Every entry must parse as an AgentProfile (the schema refuses a credential written as a public
+ *  value), be executable, use an allowed model, and carry its table name as `profile.name`.
+ *  `assertMountable` applies the spawn path's own mount checks, so an entry that can never be
+ *  mounted fails here instead of after a director spent a turn on it. A promoted entry's decision
+ *  must promote, and a treatment arm of its sealed play must name the entry's canonical digest;
+ *  the seal itself is verified by {@link verifyProfilePromotions}. An empty table is no table. */
+function snapshotProfileTable(
+  table: SuperviseRegistry['profiles'],
+  allowedModels: readonly string[] | undefined,
+  assertMountable: ((profile: AgentProfile, context: string) => void) | undefined,
+): ReadonlyMap<string, SuperviseProfileEntry> | undefined {
+  if (table === undefined) return undefined
+  if (typeof table.names !== 'function' || typeof table.resolve !== 'function') {
+    throw new ConfigError(
+      'supervise: opts.registry.profiles must implement resolve(name) and names(): a director ' +
+        'can spawn only the names it is shown',
+    )
+  }
+  const entries = new Map<string, SuperviseProfileEntry>()
+  for (const name of table.names()) {
+    const at = `opts.registry.profiles ${JSON.stringify(name)}`
+    if (typeof name !== 'string' || name.trim().length === 0 || name !== name.trim()) {
+      throw new ConfigError(`supervise: ${at} is not a non-empty trimmed name`)
+    }
+    if (entries.has(name)) throw new ConfigError(`supervise: ${at} is listed twice`)
+    const entry = table.resolve(name)
+    if (entry === undefined) {
+      throw new ConfigError(`supervise: ${at} is listed, but the table resolved no entry under it`)
+    }
+    const parsed = agentProfileSchema.safeParse(entry.profile)
+    if (!parsed.success) {
+      throw new ValidationError(
+        `supervise: ${at} is not a valid AgentProfile: ${parsed.error.message}`,
+      )
+    }
+    const profile = freezeDetached(parsed.data)
+    if (profile.name !== name) {
+      throw new ValidationError(
+        `supervise: ${at} holds profile.name ${JSON.stringify(profile.name)}; a table entry is ` +
+          'spawned and continued by its name, so the two must be equal',
+      )
+    }
+    assertExecutableAgentProfile(profile, `supervise: ${at}`)
+    assertProfileModelsAllowed(profile, allowedModels)
+    assertMountable?.(profile, `supervise: ${at} would be refused at mount`)
+    const promotion = entry.promotion
+    if (promotion !== undefined) {
+      if (promotion.decision?.promote !== true) {
+        throw new ValidationError(
+          `supervise: ${at} cites a PairedPromotionDecision that did not promote; list it ` +
+            'without promotion to run it as exploratory',
+        )
+      }
+      const digest = canonicalAgentProfileDigest(profile)
+      const arms = promotion.experiment?.spec?.arms ?? []
+      if (!arms.some((arm) => arm.role === 'treatment' && arm.profileDigest === digest)) {
+        throw new ValidationError(
+          `supervise: ${at} cites sealed play ` +
+            `${JSON.stringify(promotion.experiment?.spec?.id)}, but no treatment arm of it names ` +
+            `this profile's digest ${digest}`,
+        )
+      }
+    }
+    entries.set(
+      name,
+      Object.freeze({
+        profile,
+        ...(promotion === undefined ? {} : { promotion: freezeDetached(promotion) }),
+      }),
+    )
+  }
+  return entries.size === 0 ? undefined : entries
+}
+
+/** Verify the seal of every promoted profiles-table entry. Eval's seal check is asynchronous, so it
+ *  runs at the start of the run, before the first model call; a broken seal refuses the run. */
+async function verifyProfilePromotions(
+  table: ReadonlyMap<string, SuperviseProfileEntry> | undefined,
+): Promise<void> {
+  const promoted = [...(table ?? [])].filter(([, entry]) => entry.promotion !== undefined)
+  if (promoted.length === 0) return
+  const { verifySealedExperiment } = await import('@tangle-network/agent-eval/experiment')
+  for (const [name, entry] of promoted) {
+    if (!(await verifySealedExperiment(entry.promotion!.experiment))) {
+      throw new ValidationError(
+        `supervise: opts.registry.profiles ${JSON.stringify(name)} cites a sealed play whose ` +
+          'digest does not match its spec',
+      )
+    }
+  }
 }
 
 export interface SuperviseOptions {
@@ -2787,6 +2896,35 @@ function superviseInternal(
     options.registry?.analysts,
   )
   const probes = resolveNamed('probes', 'probes', options.probes, options.registry?.probes)
+  // The spawn path applies these checks to the profile `authorizeSpawn` returns, so they can run
+  // early only when no caller-owned authorization or worker seam sits between the entry and mount.
+  const profileTable = snapshotProfileTable(
+    options.registry?.profiles,
+    options.allowedModels,
+    options.makeWorkerAgent === undefined && options.authorizeSpawn === undefined
+      ? (entry, context) => {
+          const security = validateAgentProfileSecurity(
+            entry,
+            options.profileSecurity ?? DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY,
+          )
+          if (!security.ok) {
+            const details = security.issues
+              .filter((issue) => issue.level === 'error')
+              .map((issue) => `${issue.code}${issue.path ? ` at ${issue.path}` : ''}`)
+              .join(', ')
+            throw new ValidationError(`${context}: ${details}`)
+          }
+          // A leaf runs on the worker backend, which refuses any profile axis it cannot carry.
+          if (
+            options.backend !== undefined &&
+            options.makeLeafAgent === undefined &&
+            declaredRuntimeToolNames(entry).length === 0
+          ) {
+            assertBackendProfileMaterialization(entry, options.backend, context)
+          }
+        }
+      : undefined,
+  )
   assertCoordinationBinding(options.coordination)
 
   // `withDriver: true` is the wiring invariant: a child constructed by `driverChild` must resolve
@@ -3198,6 +3336,7 @@ function superviseInternal(
             ? { resolveSpawnProfile: options.resolveSpawnProfile }
             : {}),
           ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
+          ...(profileTable ? { profiles: profileTable } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -3322,6 +3461,7 @@ function superviseInternal(
   // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
   // durable coordination replay needs to await, so the run begins inside this closure.
   const start = async () => {
+    await verifyProfilePromotions(profileTable)
     // The durable coordination side-log (file contexts only) loads prior questions, findings, and
     // authorized instruction receipts, then appends this process's evidence as it publishes. The
     // router arm receives all three in its resume brief; the external arm seeds prior questions and
@@ -3358,6 +3498,7 @@ function superviseInternal(
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
       ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
+      ...(profileTable ? { profiles: profileTable } : {}),
       ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),

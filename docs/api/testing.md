@@ -194,6 +194,12 @@ Composition of each authored child profile before identity is fixed —
 
 `AgentProfile`
 
+##### profiles?
+
+> `readonly` `optional` **profiles?**: `ReadonlyMap`\<`string`, [`SuperviseProfileEntry`](runtime.md#superviseprofileentry)\>
+
+The run's validated profiles table — `CoordinationToolsOptions.profiles`.
+
 ##### spawnResourceRoot?
 
 > `readonly` `optional` **spawnResourceRoot?**: `string`
@@ -2901,6 +2907,16 @@ Composition of each authored child profile before identity is fixed —
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`composeSpawnProfile`](runtime.md#composespawnprofile)
+
+##### profiles?
+
+> `readonly` `optional` **profiles?**: `ReadonlyMap`\<`string`, [`SuperviseProfileEntry`](runtime.md#superviseprofileentry)\>
+
+The run's validated profiles table — `CoordinationToolsOptions.profiles`.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`profiles`](runtime.md#profiles-2)
 
 ##### spawnResourceRoot?
 

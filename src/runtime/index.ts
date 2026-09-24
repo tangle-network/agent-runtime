@@ -69,6 +69,7 @@ export type {
   SpawnPreflightContext,
   SpawnRefusal,
   SpawnRefusalCause,
+  SuperviseProfileEntry,
   WorkerResumeContext,
   WorkerSpawnContext,
   WorkerWatchOptions,

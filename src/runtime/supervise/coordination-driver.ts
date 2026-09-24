@@ -45,6 +45,7 @@ import {
   normalizeAnalyzeOnSettle,
   type SettledWorker,
   type SpawnPreflight,
+  type SuperviseProfileEntry,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
@@ -166,6 +167,8 @@ export interface DriverAgentOptions {
   /** Composition of each authored child profile before identity is fixed —
    *  `CoordinationToolsOptions.composeSpawnProfile`. */
   readonly composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /** The run's validated profiles table — `CoordinationToolsOptions.profiles`. */
+  readonly profiles?: ReadonlyMap<string, SuperviseProfileEntry>
   /** See `CoordinationToolsOptions.spawnResourceRoot`. */
   readonly spawnResourceRoot?: string
   /** See `CoordinationToolsOptions.spawnResourceReader`. */
@@ -972,6 +975,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
         ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
+        ...(opts.profiles ? { profiles: opts.profiles } : {}),
         ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
         ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
         ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),

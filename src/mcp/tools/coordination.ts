@@ -9,7 +9,12 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AnalystFinding, TraceAnalysisStore } from '@tangle-network/agent-eval'
+import type {
+  AnalystFinding,
+  PairedPromotionDecision,
+  TraceAnalysisStore,
+} from '@tangle-network/agent-eval'
+import type { SealedExperiment } from '@tangle-network/agent-eval/experiment'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -51,7 +56,11 @@ import {
   workerTraceAnalysisStore,
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
-import { resolveSpawnResourcePaths, type SpawnResourceReader } from './spawn-resource-paths'
+import {
+  type ResolveSpawnResourcePathsResult,
+  resolveSpawnResourcePaths,
+  type SpawnResourceReader,
+} from './spawn-resource-paths'
 import {
   createWorkerOutputReader,
   WORKER_OUTPUT_PAGE_CHARS,
@@ -768,6 +777,24 @@ export type MakeWorkerAgent = (
   context?: WorkerSpawnContext,
 ) => SuperviseAgent<unknown, unknown>
 
+/**
+ * One entry of a run's profiles table (`SuperviseRegistry.profiles`): the exact profile a manager
+ * may spawn by name, and, for a promoted entry, the verdict that promoted it.
+ *
+ * An entry without `promotion` is exploratory. An entry with it cites Eval's paired decision from
+ * a sealed play. `supervise` refuses the run unless the seal verifies, a treatment arm of that play
+ * names this profile's canonical digest, and the decision promoted. `PairedPromotionDecision`
+ * carries no experiment digest, so Runtime cannot prove the decision came from that play's rows;
+ * the caller that pairs them owns that claim.
+ */
+export interface SuperviseProfileEntry {
+  readonly profile: AgentProfile
+  readonly promotion?: {
+    readonly experiment: SealedExperiment
+    readonly decision: PairedPromotionDecision
+  }
+}
+
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
   readonly blobs: ResultBlobStore
@@ -899,6 +926,15 @@ export interface CoordinationToolsOptions {
    * installs `withProfileKb` here so each child carries its harness and model guidance.
    */
   readonly composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /**
+   * The run's profiles table, validated and frozen by `supervise` (`SuperviseRegistry.profiles`).
+   * When it holds an entry, `spawn_worker` also takes `profile` as one of its names and lists the
+   * names in its schema. The named profile replaces the authored one before composition,
+   * continuity, pre-flight, authorization, or the journal see it. An authored profile whose `name`
+   * is a table name is refused, so one name never means two profiles. Omit or empty = the tool is
+   * unchanged.
+   */
+  readonly profiles?: ReadonlyMap<string, SuperviseProfileEntry>
   /**
    * Directory the coordination server may read on the manager's behalf when a spawn names an
    * inline resource by path (`{ kind: 'inline', name, path }` under `profile.resources`). The
@@ -1458,6 +1494,63 @@ function spawnProfileArg(): Record<string, unknown> {
   return spawnProfileArgCache
 }
 
+/** `spawn_worker`'s `profile` argument when the run has a profiles table: one of the table's names,
+ *  listed with each entry's description and whether a sealed verdict promoted it, or a profile the
+ *  manager authors. Without a table the argument is the authored shape alone, byte for byte. */
+function spawnProfileArgWithTable(
+  profiles: ReadonlyMap<string, SuperviseProfileEntry>,
+): Record<string, unknown> {
+  const menu = [...profiles].map(([name, entry]) => {
+    const description =
+      typeof entry.profile.description === 'string' && entry.profile.description.length > 0
+        ? ` — ${entry.profile.description}`
+        : ''
+    const status = entry.promotion
+      ? `promoted by sealed play ${JSON.stringify(entry.promotion.experiment.spec.id)}`
+      : 'exploratory'
+    return `- '${name}'${description} (${status})`
+  })
+  return {
+    anyOf: [
+      {
+        type: 'string',
+        enum: [...profiles.keys()],
+        description:
+          "The name of a profile in this run's profiles table. The runtime runs that exact " +
+          'profile, so do not retype it; other profile fields cannot be added to a name. ' +
+          'Promoted entries beat their control in a sealed comparison; exploratory ones have no ' +
+          `verdict yet.\n${menu.join('\n')}`,
+      },
+      spawnProfileArg(),
+    ],
+  }
+}
+
+/** Why `spawn_worker` cannot use this `profile` argument against the profiles table, or
+ *  `undefined` when it can. A name must be in the table. An authored profile must not take a table
+ *  name: continuity and every per-name record key on `profile.name`, so one name must mean one
+ *  profile. Without a table nothing is refused here, and the canonical schema answers as before. */
+function profileTableRefusal(
+  table: ReadonlyMap<string, SuperviseProfileEntry> | undefined,
+  profile: unknown,
+): string | undefined {
+  if (table === undefined) return undefined
+  if (typeof profile === 'string') {
+    if (table.has(profile)) return undefined
+    return `profile ${JSON.stringify(profile)} is not in this run's profiles table, which holds ${[
+      ...table.keys(),
+    ]
+      .map((name) => JSON.stringify(name))
+      .join(', ')}`
+  }
+  const name =
+    typeof profile === 'object' && profile !== null
+      ? (profile as { readonly name?: unknown }).name
+      : undefined
+  if (typeof name !== 'string' || !table.has(name)) return undefined
+  return `profile.name ${JSON.stringify(name)} is a profiles-table entry: pass profile: ${JSON.stringify(name)} to run that exact profile, or give the profile you wrote another name`
+}
+
 const BUDGET_FIELD: Readonly<Record<'tokens' | 'iterations' | 'usd', string>> = {
   tokens: 'maxTokens',
   iterations: 'maxIterations',
@@ -1547,6 +1640,8 @@ export function createCoordinationToolsForManager(
   lifetime?: AbortSignal,
 ): CoordinationTools {
   const deliverable = opts.deliverable
+  const profileTable =
+    opts.profiles !== undefined && opts.profiles.size > 0 ? opts.profiles : undefined
   // The manager owns one bounded reader so adjacent/concurrent pages share the immutable
   // content-addressed selection without allowing a caller-supplied blob reference to bypass the
   // worker lookup below.
@@ -2942,11 +3037,16 @@ export function createCoordinationToolsForManager(
         'is refused (`error: "duplicate-key"`). ' +
         'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
         'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
-        'waiting; parallel workers finish the run sooner than one at a time.',
+        'waiting; parallel workers finish the run sooner than one at a time.' +
+        (profileTable === undefined
+          ? ''
+          : " This run has a profiles table: pass `profile` as one of the table's names to run " +
+            'that exact profile, or write a new profile under a name the table does not hold.'),
       inputSchema: {
         type: 'object',
         properties: {
-          profile: spawnProfileArg(),
+          profile:
+            profileTable === undefined ? spawnProfileArg() : spawnProfileArgWithTable(profileTable),
           task: { description: 'The task the worker should perform.' },
           label: { type: 'string', description: 'Optional trace label.' },
           key: {
@@ -3031,13 +3131,27 @@ export function createCoordinationToolsForManager(
               freeSlots: freeWorkerSlots(),
             }))(liveWorkerCount()),
           )
+        // A name selects a profiles-table entry: its exact validated profile stands in for an
+        // authored one, and every step below treats it the same way.
+        const tableRefusal = profileTableRefusal(profileTable, a.profile)
+        if (tableRefusal !== undefined) {
+          return {
+            error: 'invalid-profile' as const,
+            reason: tableRefusal,
+            issues: [{ path: 'profile', message: tableRefusal }],
+          }
+        }
+        const tableEntry = typeof a.profile === 'string' ? profileTable?.get(a.profile) : undefined
         // A resource named by path is read here, under the manager's workspace root, so the
         // canonical schema validates the inline resource its bytes make and the journal records
-        // exactly what the child received.
-        const resourcePaths = await resolveSpawnResourcePaths(
-          a.profile,
-          opts.spawnResourceReader ?? opts.spawnResourceRoot,
-        )
+        // exactly what the child received. A table entry carries its own bytes.
+        const resourcePaths: ResolveSpawnResourcePathsResult =
+          tableEntry === undefined
+            ? await resolveSpawnResourcePaths(
+                a.profile,
+                opts.spawnResourceReader ?? opts.spawnResourceRoot,
+              )
+            : { ok: true as const, profile: tableEntry.profile, resolved: [] }
         if (!resourcePaths.ok) {
           return {
             error: 'invalid-profile' as const,
