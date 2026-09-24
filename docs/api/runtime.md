@@ -752,6 +752,47 @@ reservation.
 
 ***
 
+### ReservationWaitRefused
+
+A waiting reservation that can never be granted: every open reservation settled and the free
+balance still cannot cover it. `shortfalls` are the channels that did not fit at that moment.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new ReservationWaitRefused**(`shortfalls`): [`ReservationWaitRefused`](#reservationwaitrefused)
+
+###### Parameters
+
+###### shortfalls
+
+readonly [`ReservationShortfall`](#reservationshortfall)[]
+
+###### Returns
+
+[`ReservationWaitRefused`](#reservationwaitrefused)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"budget-exhausted"`
+
+##### shortfalls
+
+> `readonly` **shortfalls**: readonly [`ReservationShortfall`](#reservationshortfall)[]
+
+***
+
 ### FileCoordinationLog
 
 FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
@@ -13033,6 +13074,48 @@ The spawned node's id, once admission minted one. Absent for a reservation that 
 
 ***
 
+### ReservationFloor
+
+The part of each channel a reservation must leave free: a manager's own share of its slice,
+ which its children may not reserve.
+
+#### Properties
+
+##### tokens
+
+> `readonly` **tokens**: `number`
+
+##### iterations
+
+> `readonly` **iterations**: `number`
+
+##### usd?
+
+> `readonly` `optional` **usd?**: `number`
+
+***
+
+### ReserveOptions
+
+How a caller asks for a reservation.
+
+#### Properties
+
+##### wait?
+
+> `readonly` `optional` **wait?**: `boolean`
+
+Wait for budget instead of failing, when the reservations still open would return enough.
+ The reservation then holds nothing until it is granted.
+
+##### keep?
+
+> `readonly` `optional` **keep?**: [`ReservationFloor`](#reservationfloor)
+
+Leave this much of each channel free after the reservation.
+
+***
+
 ### ReservationShortfall
 
 One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
@@ -13058,6 +13141,13 @@ channel then refuses every reservation for the rest of the run.
 ##### free
 
 > `readonly` **free**: `number`
+
+##### held?
+
+> `readonly` `optional` **held?**: `number`
+
+What open reservations hold on this channel, when they hold any. A request of at most
+ `free + held` can wait for them to settle; a larger one never fits.
 
 ##### closedByUnknownSpend?
 
@@ -13090,11 +13180,17 @@ while the public readout remains explicitly unknown.
 
 ##### reserve()
 
-> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
+> **reserve**(`b`, `holder?`, `options?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover standard or named channels — the
 caller inspects `ok` before `ticket`.
+
+With `wait`, a request the free balance cannot cover now, but could once the open reservations
+return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
+rejects with [ReservationWaitRefused](#reservationwaitrefused) once nothing open could return enough. A waiting
+ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
+request queues behind it even when it would fit, so the order of asking is the order of grant.
 
 ###### Parameters
 
@@ -13106,9 +13202,13 @@ caller inspects `ok` before `ticket`.
 
 [`ReservationHolder`](#reservationholder)
 
+###### options?
+
+[`ReserveOptions`](#reserveoptions)
+
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 ##### attribute()
 

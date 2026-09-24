@@ -125,7 +125,8 @@ export function openSlotGroup(slots: WorkerSlots, owner?: SlotPermit): SlotGroup
   if (state === undefined) {
     throw new ValidationError('openSlotGroup: allocator was not created by createWorkerSlots')
   }
-  const ownerState = owner === undefined ? undefined : permitStates.get(owner)
+  const issued = owner === undefined ? undefined : (deferredPermits.get(owner)?.() ?? owner)
+  const ownerState = issued === undefined ? undefined : permitStates.get(issued)
   if (owner !== undefined && ownerState === undefined) {
     throw new ValidationError('openSlotGroup: owner permit was not issued by this allocator')
   }
@@ -148,6 +149,38 @@ export function openSlotGroup(slots: WorkerSlots, owner?: SlotPermit): SlotGroup
 }
 
 const permitStates = new WeakMap<SlotPermit, PermitState>()
+/** Each deferred permit's reader of the permit it acquired, once it has acquired one. */
+const deferredPermits = new WeakMap<SlotPermit, () => SlotPermit | undefined>()
+
+/**
+ * @internal A slot requested only once `after` resolves. A spawn that waits for budget takes no
+ * slot while it waits, so it cannot hold a slot that the work it waits on needs. `ready` rejects
+ * when `after` does; `release` before then withdraws the request.
+ */
+export function deferSlot(after: Promise<void>, acquire: () => SlotPermit): SlotPermit {
+  let inner: SlotPermit | undefined
+  let released = false
+  const ready = after.then(() => {
+    if (released) return
+    inner = acquire()
+    return inner.ready
+  })
+  // A spawn that is withdrawn before it awaits `ready` never reads a refusal of `after`.
+  ready.catch(() => undefined)
+  const handle: SlotPermit = {
+    ready,
+    get granted() {
+      return inner?.granted ?? false
+    },
+    release() {
+      if (released) return
+      released = true
+      inner?.release()
+    },
+  }
+  deferredPermits.set(handle, () => inner)
+  return handle
+}
 
 function acquire(
   state: AllocatorState,

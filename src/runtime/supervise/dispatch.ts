@@ -138,10 +138,10 @@ export async function rollingDispatch<Out>(
         queueDry = true
         return
       }
-      // The ONE admission path: the scope's own atomic reservation. A rejection is terminal for
-      // this dispatcher — the pool is conserved, so retrying the same spawn cannot succeed until
-      // a live child refunds, and admitting a DIFFERENT unit past a rejection would silently
-      // reorder the caller's queue.
+      // The ONE admission path: the scope's own atomic reservation. The scope already waits for
+      // what live children will refund, so a rejection means nothing running could fund this
+      // unit, and it is terminal for this dispatcher: admitting a DIFFERENT unit past it would
+      // silently reorder the caller's queue.
       const res = scope.spawn(unit.agent, unit.task, unit.opts)
       if (!res.ok) {
         rejected.push(`${unit.opts.label}: ${res.reason}`)

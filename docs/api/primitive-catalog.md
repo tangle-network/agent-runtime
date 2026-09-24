@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 982 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 985 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -776,6 +776,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 982 exports.
 | `InMemorySpawnJournal` | class | In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces |
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `ObservationError` | class | Analysis can fail after paid work; its measured subtotal must remain recoverable. |
+| `ReservationWaitRefused` | class | A waiting reservation that can never be granted: every open reservation settled and the free |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
 | `ActivityLog` | interface | A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. |
@@ -986,9 +987,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 982 exports.
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
+| `ReservationFloor` | interface | The part of each channel a reservation must leave free: a manager's own share of its slice, |
 | `ReservationHolder` | interface | Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission |
 | `ReservationShortfall` | interface | One budget channel a `budget-exhausted` reservation could not fit, with the amounts that |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
+| `ReserveOptions` | interface | How a caller asks for a reservation. |
 | `ResolvedMcpServerLaunch` | interface | The spawn-ready strings for one stdio MCP server: profile config values |
 | `ResolvedSupervisorProfile` | interface | The exact profile fields consumed by supervisor materialization. |
 | `ResolvedWorkerSpawnRetry` | interface | A policy with every bound decided — what {@link retryPreSpawnRefusals} acts on. Produced by |

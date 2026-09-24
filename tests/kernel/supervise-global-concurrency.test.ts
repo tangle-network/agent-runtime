@@ -317,17 +317,17 @@ describe('supervise tree-wide worker capacity', () => {
 
     try {
       await Promise.all([managersStarted.promise, ownerSecondTurn.promise])
-      expect(constructedCount).toBe(4)
+      expect(constructedCount).toBe(6)
       const firstSpawnReplies = seen[1]!
         .filter((message) => message.role === 'tool')
         .map((message) => JSON.parse(String(message.content)) as Record<string, unknown>)
       expect(firstSpawnReplies).toHaveLength(6)
       // The owner share keeps 4M tokens for the root's own turns, so only four 4M-token managers
-      // fit the 20M pool; the fifth and sixth are refused for budget, never for concurrency.
-      expect(firstSpawnReplies.slice(4).map((reply) => reply.error)).toEqual([
-        'budget-exhausted',
-        'budget-exhausted',
-      ])
+      // fit the 20M pool; the fifth and sixth wait for budget the first four may return, and are
+      // never refused for concurrency.
+      expect(firstSpawnReplies.map((reply) => reply.error)).toEqual(Array(6).fill(undefined))
+      expect(firstSpawnReplies.slice(4).map((reply) => reply.status)).toEqual(['queued', 'queued'])
+      expect(startedCount).toBe(4)
       managerGates[0]!.resolve()
       await descendantStarted.promise
       expect(descendantAdmission).toBe(true)
@@ -336,7 +336,7 @@ describe('supervise tree-wide worker capacity', () => {
       const firstLevel = rootEventsWhileStalled.filter(
         (event) => event.kind === 'spawned' && event.parent === 'held-recursive-reservation-policy',
       )
-      expect(firstLevel).toHaveLength(4)
+      expect(firstLevel).toHaveLength(6)
       const managerTree = firstLevel[0]?.ownedTreeRoot
       expect(managerTree).toBeDefined()
       const nestedEvents = (await journal.loadTree(managerTree!)) ?? []

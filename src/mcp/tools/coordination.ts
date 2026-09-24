@@ -1639,13 +1639,20 @@ function shortfallClause(shortfall: ReservationShortfall): string {
     return `${channel} is closed: work with unmeasured ${channel} usage ran under the run's enforced limit, so this run admits no further spawn at any budget`
   }
   const asked = `this spawn asked for budget.${field} ${requested}`
-  if (free === 0) {
-    return `${channel} has nothing free (${asked}); an unused reservation returns only when its live worker settles`
+  const held = shortfall.held ?? 0
+  const most = free + held
+  if (most === 0) {
+    return `${channel} has nothing free and none held by your running workers (${asked})`
   }
+  // A spawn of at most free + held is admitted and waits for the running workers to return it.
+  const room =
+    held > 0
+      ? `${free} free now and ${held} held by your running workers, which a spawn waits for`
+      : `${free} free${channel === 'iterations' || channel.startsWith('resource:') ? '' : ' right now'}`
   if (channel === 'iterations' || channel.startsWith('resource:')) {
-    return `${channel} has ${free} free (${asked}); budget.${field} at most ${free} fits`
+    return `${channel} has ${room} (${asked}); budget.${field} at most ${most} fits`
   }
-  return `${channel} has ${free} free right now (${asked}); your own turns draw ${channel} from this same pool before a retry is admitted, so ask for well under ${free}`
+  return `${channel} has ${room} (${asked}); your own turns draw ${channel} from this same pool before a retry is admitted, so ask for well under ${most}`
 }
 
 /**
@@ -1688,7 +1695,7 @@ export function spawnRefusalReason(
         const closed = shortfalls.find((shortfall) => shortfall.closedByUnknownSpend === true)!
         return `the run pool refused this spawn: ${shortfallClause(closed)}; the caller must re-run with a measurable or larger root budget`
       }
-      return `the run pool refused this spawn: ${shortfalls.map(shortfallClause).join('; ')}; or cancel_worker a worker you no longer need or that has stalled, since its unspent budget returns to your pool; or ask the caller for a larger root budget`
+      return `the run pool refused this spawn: ${shortfalls.map(shortfallClause).join('; ')}; or ask the caller for a larger root budget`
     }
   }
 }
@@ -3178,9 +3185,11 @@ export function createCoordinationToolsForManager(
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
         'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
         'merges over the per-worker default; the conserved pool is still the hard fence. When ' +
-        'every worker slot is busy the worker is admitted with `status: "queued"` and starts on ' +
-        'its own when a slot frees — it is never refused for concurrency, so spawn all the work ' +
-        'you want done and await_event for the results. ' +
+        'every worker slot is busy, or the pool cannot cover the budget until your running workers ' +
+        'return what they hold, the worker is admitted with `status: "queued"` and starts on its ' +
+        'own when a slot and its budget free — it is never refused for concurrency, so spawn all ' +
+        'the work you want done and await_event for the results. A queued worker whose budget ' +
+        'never frees settles down as budget-exhausted. ' +
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
         'nothing is spent), a key whose prior attempt failed (`down`) spawns fresh and says so ' +

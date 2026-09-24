@@ -17,6 +17,16 @@ Nested waits therefore cannot deadlock, whatever the bound and depth.
 `reservationPolicy` keeps only `ownerShare`; the per-depth reserved slots are gone, since lending replaces them.
 `effectiveConcurrency` and `ConcurrencyCaps` are removed.
 
+A spawn the budget cannot cover yet waits for it instead of being refused.
+When the pool is short only by what the manager's running workers hold, the spawn is admitted as `queued` and starts once their settlements return enough.
+It takes a worker slot only after its budget is granted, so it never holds a slot that the work it waits on needs.
+Waiting spawns are granted in the order they asked.
+A waiting spawn settles `down` with `budget-exhausted` when nothing left running could return enough, and a spawn that even every refund could not cover is still refused at once.
+`BudgetPool.reserve` takes `{ wait, keep }` and returns `granted` for a waiting ticket, which rejects with `ReservationWaitRefused`.
+A refusal's shortfalls carry `held`, what open reservations hold on the channel, and its text names the most one spawn can wait for.
+The refusal no longer suggests `cancel_worker`, since a waiting spawn already counts what running workers hold.
+Measured offline on a four-level audit with default slices (2026-09-24): every team lead's fourth checker was refused, and the tree stopped at 54 of 66 agents; with waiting it reached all 66.
+
 Children inherit spawn rights.
 A spawned profile that declares no Runtime coordination tool receives its manager's coordination grants, plus `submit_result`, so every child can lead a team of its own.
 An author's explicit coordination entry stands, and a `false` entry keeps the child a leaf.

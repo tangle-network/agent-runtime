@@ -240,11 +240,12 @@ it.each([
               'fresh task',
               {
                 key: 'fresh',
-                budget: { maxIterations: 1, maxTokens: 1 },
+                budget: { maxIterations: 1, maxTokens: 31 },
               },
             )
-            // The recovered manager still holds the whole pool, so the fresh spawn is refused for
-            // budget before anything is constructed; recovery took its slots past the bound.
+            // The recovered manager still holds the whole pool, so even what it returns could not
+            // cover this spawn: it is refused for budget before anything is constructed. Recovery
+            // took its slots past the bound.
             expect(fresh).toMatchObject({ ok: false, reason: 'budget-exhausted' })
             expect(freshFactories).toBe(0)
             releaseRoot()

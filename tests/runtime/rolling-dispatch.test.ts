@@ -175,10 +175,11 @@ describe('rollingDispatch', () => {
     expect(live.peak).toBe(9)
   })
 
-  it('fails closed on the conserved pool and never opens past the refused admission', async () => {
+  it('waits on the conserved pool, and fails closed once nothing running could fund a unit', async () => {
     const live = { now: 0, peak: 0 }
     let issued = 0
-    // Pool affords two live children of 250 tokens; width asks for three.
+    // Pool affords two live children of 250 tokens; width asks for three. The third waits for a
+    // refund instead of failing. Each child spends 20 tokens of its 250.
     const report = await underScope<DispatchReport<string>>(
       { maxIterations: 100, maxTokens: 700 },
       (scope) =>
@@ -196,10 +197,24 @@ describe('rollingDispatch', () => {
         }),
     )
     expect(report.stopReason).toBe('not-admitted')
-    expect(report.rejected).toEqual(['u2: budget-exhausted'])
-    // The two admitted children still drained to completion — a refused admission is not a leak.
-    expect(report.admitted).toBe(2)
-    expect(report.settled).toHaveLength(2)
+    // After 23 units, 700 - 23 × 20 = 240 tokens are left and nothing running holds more: the two
+    // units still waiting settle down, and the next is refused at admission.
+    expect(report.rejected).toEqual(['u25: budget-exhausted'])
+    expect(report.admitted).toBe(25)
+    // Every admitted child still settled — a refused wait is not a leak.
+    expect(report.settled.map((settled) => settled.kind)).toEqual([
+      ...Array.from({ length: 23 }, () => 'done'),
+      'down',
+      'down',
+    ])
+    const refusedWaits = report.settled.filter((settled) => settled.kind === 'down')
+    expect(refusedWaits.map((settled) => settled.handle.label)).toEqual(['u23', 'u24'])
+    for (const settled of refusedWaits) {
+      if (settled.kind === 'down') expect(settled.reason).toMatch(/^budget-exhausted/u)
+    }
+    // Three admitted at a time, but never more than the two the pool funds were running.
+    expect(report.peakLive).toBe(3)
+    expect(live.peak).toBe(2)
     expect(live.now).toBe(0)
   })
 

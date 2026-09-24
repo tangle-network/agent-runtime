@@ -644,11 +644,14 @@ export {
   BudgetReconcileFault,
   createBudgetPool,
   type LeakedReservation,
+  type ReservationFloor,
   type ReservationHolder,
   type ReservationRejection,
   type ReservationShortfall,
   type ReservationStage,
   type ReservationTicket,
+  ReservationWaitRefused,
+  type ReserveOptions,
   spendFromUsageEvents,
 } from './supervise/budget'
 // The chat-transport leaf (#721): a worker that IS a model conversation on a bare

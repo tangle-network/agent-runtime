@@ -60,11 +60,12 @@ describe('budget pool refusal', () => {
     })
     // A request sized from `free` on iterations is admitted.
     expect(pool.reserve({ maxIterations: 60, maxTokens: 800_000 }).ok).toBe(true)
-    // With the pool fully reserved, the free balance reads 0, never negative.
+    // With the pool fully reserved, the free balance reads 0, never negative, and the refusal
+    // says what the open reservation holds.
     expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
       ok: false,
       reason: 'budget-exhausted',
-      shortfalls: [{ channel: 'iterations', requested: 1, free: 0 }],
+      shortfalls: [{ channel: 'iterations', requested: 1, free: 0, held: 60 }],
     })
   })
 
@@ -130,7 +131,7 @@ describe('spawn refusal reaches the driver', () => {
         pinned,
       ),
     ).toBe(
-      'the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits; or cancel_worker a worker you no longer need or that has stalled, since its unspent budget returns to your pool; or ask the caller for a larger root budget',
+      'the run pool refused this spawn: iterations has 58 free (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits; or ask the caller for a larger root budget',
     )
   })
 
@@ -149,6 +150,18 @@ describe('spawn refusal reaches the driver', () => {
     }
   })
 
+  it('counts what running workers hold as room a spawn can wait for', () => {
+    expect(
+      spawnRefusalReason(
+        'budget-exhausted',
+        [{ channel: 'iterations', requested: 100, free: 10, held: 48 }],
+        pinned,
+      ),
+    ).toBe(
+      'the run pool refused this spawn: iterations has 10 free now and 48 held by your running workers, which a spawn waits for (this spawn asked for budget.maxIterations 100); budget.maxIterations at most 58 fits; or ask the caller for a larger root budget',
+    )
+  })
+
   it('names every short channel, and a closed channel as closed for the run', () => {
     const both = spawnRefusalReason(
       'budget-exhausted',
@@ -158,7 +171,9 @@ describe('spawn refusal reaches the driver', () => {
       ],
       pinned,
     )
-    expect(both).toMatch(/tokens has nothing free \(this spawn asked for budget\.maxTokens 900\)/u)
+    expect(both).toMatch(
+      /tokens has nothing free and none held by your running workers \(this spawn asked for budget\.maxTokens 900\)/u,
+    )
     expect(both).toMatch(/budget\.resources\.gpuSeconds\.limit at most 12 fits/u)
     expect(
       spawnRefusalReason(

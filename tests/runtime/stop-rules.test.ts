@@ -340,7 +340,11 @@ describe('a plateaued tree stops before its token ceiling — and a progressing 
     })
     expect(report.stopReason).toBe('not-admitted')
     expect(report.rejected[0]).toContain('budget-exhausted')
-    expect(report.admitted).toBe(3)
+    // The fourth unit waited for a refund the third never made (it spent its whole slice), so it
+    // settled down without running: three units ran, and the pool never went below zero.
+    expect(report.admitted).toBe(4)
+    expect(report.settled.map((settled) => settled.kind)).toEqual(['done', 'done', 'done', 'down'])
+    expect(scope.budget.tokensLeft).toBe(0)
   })
 })
 

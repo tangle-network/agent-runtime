@@ -178,7 +178,13 @@ import {
   type WaitSpec,
 } from './wait'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
-import { createWorkerSlots, openSlotGroup, type SlotPermit, type WorkerSlots } from './worker-slots'
+import {
+  createWorkerSlots,
+  deferSlot,
+  openSlotGroup,
+  type SlotPermit,
+  type WorkerSlots,
+} from './worker-slots'
 import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
@@ -985,37 +991,25 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // reservation, before registry resolution or any executor code.
     if (typeof agentOrFactory !== 'function') prepared ??= prepare()
 
-    if (!recovery && ownerFloor) {
-      const available = args.pool.readout()
-      const shortfalls: ReservationShortfall[] = []
-      const short = (channel: ReservationShortfall['channel'], requested: number, free: number) => {
-        if (requested > free) shortfalls.push({ channel, requested, free: Math.max(0, free) })
-      }
-      short('tokens', opts.budget.maxTokens, available.tokensLeft - ownerFloor.tokens)
-      short(
-        'iterations',
-        opts.budget.maxIterations,
-        available.iterationsLeft - ownerFloor.iterations,
-      )
-      if (ownerFloor.usd !== undefined) {
-        short('usd', opts.budget.maxUsd ?? 0, available.usdLeft - ownerFloor.usd)
-      }
-      if (shortfalls.length > 0) {
-        return { ok: false, reason: 'budget-exhausted', shortfalls }
-      }
-    }
-    // Reserve the child's whole ceiling atomically; fail CLOSED when the pool can't cover
-    // it (never read-then-spawn overcommit, so Σk is conserved by construction). This happens
+    // Reserve the child's whole ceiling atomically, never read-then-spawn overcommit, so Σk is
+    // conserved by construction. A ceiling the pool cannot cover now, but could once this scope's
+    // running children return what they hold, WAITS for it instead of failing: the child is
+    // admitted as `queued` and starts when settlements free enough. It fails CLOSED when nothing
+    // running could free enough. The manager's owner share stays free either way. This happens
     // before a fresh lazy agent factory is called: refused work constructs nothing.
     // The ticket is named from the moment it exists. A node id arrives only after admission, so
     // the holder is refined below; a leak caught before then still carries the assignment.
     const assignment = opts.assignmentId ?? opts.key
     let reservation: ReturnType<BudgetPool['reserve']>
-    reservation = args.pool.reserve(opts.budget, {
-      ...(assignment === undefined ? {} : { assignment }),
-      label: opts.label,
-      stage: 'admitted',
-    })
+    reservation = args.pool.reserve(
+      opts.budget,
+      {
+        ...(assignment === undefined ? {} : { assignment }),
+        label: opts.label,
+        stage: 'admitted',
+      },
+      recovery ? {} : { wait: true, ...(ownerFloor ? { keep: ownerFloor } : {}) },
+    )
     if (!reservation.ok) {
       return {
         ok: false,
@@ -1052,8 +1046,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
 
     // The child keeps its budget slice and takes a worker slot now, or waits in the allocator's
     // queue and starts when one frees. A recovered execution already runs remotely, so it takes a
-    // slot past the bound rather than waiting behind work that has not started.
-    const permit = slotGroup.acquire(args.depth + 1, { force: recovery !== undefined })
+    // slot past the bound rather than waiting behind work that has not started. A child that
+    // waits for budget asks for its slot only once the budget is granted, so it never holds a
+    // slot that the children it waits on need.
+    const budgetGranted = reservation.granted
+    const permit =
+      budgetGranted === undefined
+        ? slotGroup.acquire(args.depth + 1, { force: recovery !== undefined })
+        : deferSlot(budgetGranted, () => slotGroup.acquire(args.depth + 1))
 
     // Everything between reserve and runChild's hand-off owns the reservation. A SYNCHRONOUS
     // throw here (most likely the executor factory `resolved.value(spec, ctx)`) would otherwise
@@ -1579,6 +1579,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         childDeadlineAtMs,
         recovery !== undefined,
         closeRetainedWrites,
+        budgetGranted,
         permit.ready,
       )
       // `runChild` owns the ticket from here: only the child's settlement closes it, so a leak
@@ -3293,6 +3294,7 @@ async function runChild<C>(
   deadlineAtMs: number | undefined,
   recovering = false,
   closeRetainedWrites: () => Promise<void> = async () => {},
+  budgetReady: Promise<void> | undefined = undefined,
   slotReady: Promise<void> = Promise.resolve(),
 ): Promise<PreSeqSettled> {
   let reconciled = false
@@ -3390,8 +3392,10 @@ async function runChild<C>(
     // refunds its reservation; the executor observes zero calls.
     await executionReady
     if (childAbort.signal.aborted) throw abortError(childAbort.signal, 'execution aborted')
-    // A queued child holds its budget slice but runs nothing until the allocator grants it a
-    // worker slot. An abort while it waits settles it down with its whole slice refunded.
+    // A queued child runs nothing until the pool grants its budget slice and then the allocator
+    // grants it a worker slot. A refused budget wait settles it down as budget-exhausted; an abort
+    // while it waits settles it down with whatever it holds refunded.
+    if (budgetReady !== undefined) await awaitAbortable(budgetReady, childAbort.signal)
     await awaitAbortable(slotReady, childAbort.signal)
     // A budgetExempt WORKER (e.g. the raw `cli` printer) reports zero spend by contract; its
     // reconcile refunds the whole reservation, keeping it out of the conserved Σk by construction.
