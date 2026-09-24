@@ -6,7 +6,8 @@ Search returns a detached candidate; only the product can change the served agen
 
 ## Decision and evidence unit
 
-The unit is one sealed baseline/candidate pair on one independent task source.
+The replay unit is one sealed baseline/candidate pair on one independent task source.
+The served canary unit is the customer, session, or workflow assigned to one arm before its outcome is known.
 Record the tenant-safe source reference, task family, profile and code digests, model, tool set, worker revision, seed, and execution placement.
 Retain the raw run trace, checked outcome, errors, usage, cost, latency, and missing fields for each cell.
 Keep customer content in its authorized store; pass redacted references to analysts and reports.
@@ -18,7 +19,8 @@ Report cost and wall time beside it, and refuse promotion for a material regress
 The final checker must assess the user's task outcome, not just the agent's explanation or a judge's preference.
 Freeze the checker implementation, version, thresholds, independent observation unit, sample size, and stopping rule before candidate search.
 The final set needs a random live-traffic cohort and a separately reported failure-enriched cohort.
-Report each cohort's paired estimate and the traffic-weighted aggregate.
+Report each replay cohort's paired estimate and the traffic-weighted aggregate.
+Report the served canary's randomized-arm estimate separately, using its assignment unit.
 Failure mining alone changes the task mix and cannot establish a population lift.
 
 ## Run the loop
@@ -72,10 +74,16 @@ The product adapter must require the registered sample size and coverage, cost a
 These rules are fixed before the first Operator or Majo pilot result is read.
 The pilot is not sealed until the product owner supplies the agent, cohort, checker, placement, and cost joins below.
 
-- **Headline gate:** improve independently checked task success on a live agent this week.
-  The 95% paired risk-difference score interval must have a lower bound above zero.
-  Use Eval's `decidePairedPromotion(baseline, candidate, { binaryScale: 1, threshold: 0, confidence: 0.95, minPairs })` on frozen final pairs.
+- **Headline live gate:** improve independently checked task success on a served agent this week.
+  Randomize the incumbent and candidate concurrently by the frozen customer, session, or workflow unit.
+  Use an intention-to-treat candidate-minus-incumbent risk difference with a 95% interval valid for that assignment, including clustering when one unit has multiple tasks.
+  Its lower bound must exceed zero; retain every assignment and disclose missing or delayed outcomes.
+  Freeze the observation window, sample size, coverage rule, and alpha-safe stopping rule before exposure.
+  Calibrate the exact interval on known null and positive laws before it becomes a live decision.
   Keep this zero threshold and its denominator fixed; report any stricter useful-effect margin separately.
+- **Replay candidate gate:** use Eval's `decidePairedPromotion(baseline, candidate, { binaryScale: 1, threshold: 0, confidence: 0.95, minPairs })` on frozen final pairs.
+  Join arms by a unique source ID before passing ordered arrays; reject duplicate IDs, absent arms, and mismatched sources.
+  A replay interval above zero permits a shadow or canary candidate, but does not establish the headline live result.
 - **Same-path baseline:** run the incumbent served revision and exact selected candidate through the same hosted adapter on each independent source task.
   Match model identity, tool grants, task input, resource caps, and read-only state snapshot.
   Isolate candidate memory and side effects; record each arm's profile digest, served model, execution ID, and placement.
@@ -92,6 +100,8 @@ The pilot is not sealed until the product owner supplies the agent, cohort, chec
   Freeze each predicate and its allowed evidence source before the run, then compare it with independent task labels.
   None of these proxies replaces checked task success in the headline gate.
 - **Size and stopping:** use Eval's `requiredPairsForPairedPromotion` with a declared joint outcome law before candidate search.
+  Register its independently confirmed `nAtLowerBound`, or report that power was unavailable within the declared maximum.
+  Size the served randomized canary separately under its assignment unit and expected checked-outcome rate.
   Run one small same-path execution and result-capture proof before the full matrix.
   Keep final source units disjoint from development and selection; count missing pairs, worker failures, and exclusions without turning them into zeros.
   Gate B keeps its separate floor of 100 fresh independent episode pairs and the original headline count.
@@ -99,10 +109,11 @@ The pilot is not sealed until the product owner supplies the agent, cohort, chec
   Diagnose the dominant checked failure class and test one candidate that changes the responsible execution mechanism.
   Register its mechanism event and use fresh final units or an alpha-safe sequential rule before that candidate is evaluated.
 
-A positive replay interval remains a candidate result until the served canary has checked outcomes and a verified revision.
+A positive replay interval remains a candidate result until the served canary has checked outcomes, a valid randomized-arm interval, and a verified revision.
 
-Before this registration becomes a runnable pilot, pin the agent and served revision, the authorized cohort and split, the exact checker and calibration fixtures, the product-state proxy predicates, and the shadow placement.
+Before this registration becomes a runnable pilot, pin the agent and served revision, the authorized cohort and assignment unit, the exact checker and calibration fixtures, the product-state proxy predicates, and the shadow placement.
 Also pin the baseline joint outcome law, final pair count, cost and latency guardrails, model grant, billed-cost join, and stopping rule.
+Pin the canary interval implementation, calibration, sample size, observation window, and missing-outcome rule before traffic assignment.
 Until these fields have checked receipts, neither the scorecard nor a proxy may report a live improvement.
 
 ## Across-run learning, Gate B
