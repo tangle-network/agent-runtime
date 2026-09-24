@@ -440,7 +440,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 978 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
