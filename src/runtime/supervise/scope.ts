@@ -884,6 +884,17 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         identity: prior.identity,
         reason: prior.settled.reason,
       })
+    } else if (prior.state === 'down' && prior.settled === undefined) {
+      // A derived `down`: the resume itself proved the attempt dead (an `inline` runtime cannot
+      // outlive its process), so there is no settlement to fold — the derived reason is the
+      // terminal evidence a same-key re-spawn reports as `resumed: "retried"`.
+      if (prior.identity === undefined) continue
+      keyed.set(key, {
+        state: 'down',
+        id: prior.id,
+        identity: prior.identity,
+        reason: prior.reason ?? 'interrupted: resume proved the prior attempt dead',
+      })
     } else if (prior.identity !== undefined) {
       keyed.set(key, { state: 'in-doubt', id: prior.id, identity: prior.identity })
     }

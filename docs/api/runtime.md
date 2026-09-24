@@ -15918,6 +15918,22 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 
 [`SuperviseOptions`](#superviseoptions).[`peerMail`](#peermail-1)
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`recoverExecutor`](#recoverexecutor-1)
+
 ##### profileSecurity?
 
 > `readonly` `optional` **profileSecurity?**: `AgentProfileSecurityPolicy`
@@ -20365,6 +20381,18 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
  This is the seam an offline test or a pinning layer (an agent graph) should use.
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
 ##### driverBackend?
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](#executorconfig)
@@ -23557,10 +23585,14 @@ Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
 idempotent per key: once a child spawned under a key settles `done` — in this process or in a
 journaled prior one — spawning the same key returns that committed result (`prior.state:
 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
-journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
-still exist and must be recovered before replacement. A key that is currently LIVE is refused
-(`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
+spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
+`down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
+its process — so a worker killed mid-flight under a plain in-process executor retries under
+its own key instead of wedging. A key whose un-settled prior attempt may still exist
+elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
+may still be running and must be recovered before replacement. A key that is currently LIVE
+is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
+always run.
 
 ##### successorOf?
 
@@ -24198,7 +24230,15 @@ Identity recorded when this key was first admitted. Every reuse must match it ex
 
 > `readonly` `optional` **settled?**: [`Settled`](#settled-4)\<`Out`\>
 
-The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
+The rehydrated settlement; absent when `state` is `'in-doubt'`, and when `'down'` was
+*derived* — the resume itself proved the execution dead (an `inline` runtime cannot outlive
+its process), so there is no settlement to rehydrate and `reason` says how it died.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+Why a derived `'down'` state exists. Absent on every state backed by a settlement.
 
 ***
 

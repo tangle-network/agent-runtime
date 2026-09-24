@@ -3193,7 +3193,10 @@ export function createCoordinationToolsForManager(
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
         'nothing is spent), a key whose prior attempt failed (`down`) spawns fresh and says so ' +
-        '(`resumed: "retried"`), and a key with no terminal receipt is refused ' +
+        '(`resumed: "retried"`), and a key the process died with IN FLIGHT retries under the same ' +
+        'key when the executor provably died with the process (an inline worker — the same ' +
+        '`resumed: "retried"`, naming the interruption). A key with no terminal receipt whose ' +
+        'execution may still exist elsewhere (sandbox, CLI bridge, router) is refused ' +
         '(`error: "in-doubt"`) until its exact prior execution is recovered. A key still running ' +
         'is refused (`error: "duplicate-key"`). ' +
         'Returns `freeSlots`: how many MORE workers start at once (`null` = no slot bound), and ' +

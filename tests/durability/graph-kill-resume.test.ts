@@ -178,6 +178,19 @@ describe('runGraph kill-and-resume conformance (file run context)', () => {
         ).not.toContain(node)
       }
 
+      // 3b. An interrupted in-process key retries under ITS OWN key — the runtime's automatic
+      // escalation (an `inline` execution provably died with the process), so the driver never
+      // invents a replacement key: no manual escalations, one distinct key per node label.
+      expect(report.escalations, 'the runtime should auto-retry interrupted inline keys').toEqual(
+        [],
+      )
+      for (const node of WORKER_NODES) {
+        expect(
+          final.spawnedKeysByLabel[node],
+          `node ${node} must keep ONE key across processes (no reminted replacement keys)`,
+        ).toEqual([`step:${node}`])
+      }
+
       // 4. Side effect exactly once, always under the same key.
       expect(report.committedEffects).toEqual([ARTIFACT_KEY])
       const invocationText = await readFile(join(dir, 'side-effect-invocations.jsonl'), 'utf8')

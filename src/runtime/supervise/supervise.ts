@@ -1814,6 +1814,14 @@ export interface SuperviseOptions {
    *  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
    *  This is the seam an offline test or a pinning layer (an agent graph) should use. */
   readonly makeLeafAgent?: MakeWorkerAgent
+  /** Reconstruct executors for interrupted children on resume, for a run that owns its worker
+   *  factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+   *  automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+   *  across a process boundary (a sandbox session, a CLI bridge session — an executor that
+   *  journals its admission through the retained seam) needs this for a resume to recover the
+   *  in-flight child instead of refusing its key `in-doubt`. The factory receives the
+   *  reconstructed spec and the child's journaled context, including its prior admissions. */
+  readonly recoverExecutor?: ExecutorFactory<unknown>
   /** Run harness-brained supervisors here. Automatic execution supports a local `bridge`, or a
    * provider advertising runtime MCP attachments with authenticated `coordination.publicUrl`.
    *  Defaults to `backend`; separate it when managers and workers use different services. */
@@ -2262,6 +2270,7 @@ const superviseOptionKeys = [
   'workerRetry',
   'onWorkerRetry',
   'workerSlots',
+  'recoverExecutor',
 ] as const
 
 type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
@@ -2386,6 +2395,7 @@ const superviseExecutableOptionKeys = [
   'onProgressStop',
   'onUnmetContract',
   'onWorkerRetry',
+  'recoverExecutor',
   'resolveDeliverable',
   'resolveDriveHarness',
   'resolveSpawnProfile',
@@ -2485,6 +2495,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     analysts,
     makeWorkerAgent,
     makeLeafAgent,
+    recoverExecutor,
     resolveSpawnProfile,
     blobs,
     journal,
@@ -2625,6 +2636,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
     ...(makeLeafAgent === undefined ? {} : { makeLeafAgent }),
+    ...(recoverExecutor === undefined ? {} : { recoverExecutor }),
     ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
@@ -3780,8 +3792,11 @@ function superviseInternal(
       journal,
       blobs,
       executors: ctx.executors,
-      ...(recoveryFactories.get(workerFactory)
-        ? { recoverExecutor: recoveryFactories.get(workerFactory) }
+      // A caller-supplied recovery factory wins: it owns the worker seam (makeWorkerAgent /
+      // makeLeafAgent), so only it can reconstruct an interrupted child's executor. The derived
+      // registration below serves backend-built recursive managers, which no caller can name.
+      ...((options.recoverExecutor ?? recoveryFactories.get(workerFactory))
+        ? { recoverExecutor: options.recoverExecutor ?? recoveryFactories.get(workerFactory) }
         : {}),
       rootIdentity: rootExecution.identity,
       ...(rootOwnerRuntime === undefined
