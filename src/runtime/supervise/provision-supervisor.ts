@@ -298,7 +298,7 @@ export async function provisionSupervisor(
       ...context,
       interactiveBindingDir: eventDir,
       maxDepth: 1,
-      maxLiveWorkers: 1,
+      workerSlots: 1,
     })
     .then(
       (result) => {

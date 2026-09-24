@@ -39,6 +39,7 @@ import type {
   Settled,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { createWorkerSlots } from '../../src/runtime/supervise/worker-slots'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../src/runtime-hooks'
 import { testAgentProfile } from './test-agent-profile'
 
@@ -805,13 +806,13 @@ describe('runPersonified · hooks forwarding', () => {
   })
 })
 
-// ── runPersonified · resume / rootIdentity / maxLiveWorkers forwarding ────────────
+// ── runPersonified · resume / rootIdentity / workerSlots forwarding ────────────
 //
-// `SupervisorOpts.resume`, `rootIdentity` and `maxLiveWorkers` existed on the keystone but never
+// `SupervisorOpts.resume`, `rootIdentity` and `workerSlots` existed on the keystone but never
 // reached it through this entry point, so a second `runPersonified` under a journaled runId could
 // only throw. Each case below proves the field lands where the supervisor reads it.
 
-describe('runPersonified · resume, rootIdentity and maxLiveWorkers forwarding', () => {
+describe('runPersonified · resume, rootIdentity and workerSlots forwarding', () => {
   let dir: string
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'personify-resume-'))
@@ -886,7 +887,7 @@ describe('runPersonified · resume, rootIdentity and maxLiveWorkers forwarding',
     expect(executions).toBe(6)
   })
 
-  it('maxLiveWorkers reaches the scope: over-cap fanout angles are refused, not queued', async () => {
+  it('workerSlots reaches the scope: over-bound fanout angles queue and all run', async () => {
     const persona = makePersona<string>('analyst', 'equity analyst', (task) => {
       const i = indexOf(task)
       return {
@@ -896,6 +897,8 @@ describe('runPersonified · resume, rootIdentity and maxLiveWorkers forwarding',
       }
     })
     const events: RuntimeHookEvent[] = []
+    const slots = createWorkerSlots(1)
+    const queuedAtSpawn: number[] = []
     const out = expectOutcome(
       await runPersonified<{ topic: string }, string>({
         persona,
@@ -907,15 +910,24 @@ describe('runPersonified · resume, rootIdentity and maxLiveWorkers forwarding',
         journal: new InMemorySpawnJournal(),
         blobs: new InMemoryResultBlobStore(),
         now: () => 0,
-        maxLiveWorkers: 1,
-        hooks: { onEvent: (event) => void events.push(event) },
+        workerSlots: slots,
+        hooks: {
+          onEvent: (event) => {
+            events.push(event)
+            if (event.target === 'agent.spawn') queuedAtSpawn.push(slots.queued)
+          },
+        },
       }),
     )
-    // The batch fanout spawns all three angles before draining, so with one live slot only
-    // angle 0 is admitted; uncapped, the winner is `thesis-2` (the highest score).
-    expect(events.filter((e) => e.target === 'agent.spawn')).toHaveLength(1)
+    // The batch fanout spawns all three angles before draining. With one slot the later angles
+    // wait in the queue instead of being refused, and every angle still runs, so the winner is
+    // the highest score, `thesis-2`.
+    expect(events.filter((e) => e.target === 'agent.spawn')).toHaveLength(3)
+    expect(Math.max(...queuedAtSpawn)).toBeGreaterThan(0)
+    expect(slots.working).toBe(0)
+    expect(slots.queued).toBe(0)
     expect(out.kind).toBe('done')
-    if (out.kind === 'done') expect(out.deliverable).toBe('thesis-0')
+    if (out.kind === 'done') expect(out.deliverable).toBe('thesis-2')
   })
 })
 

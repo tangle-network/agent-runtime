@@ -752,6 +752,47 @@ reservation.
 
 ***
 
+### ReservationWaitRefused
+
+A waiting reservation that can never be granted: every open reservation settled and the free
+balance still cannot cover it. `shortfalls` are the channels that did not fit at that moment.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new ReservationWaitRefused**(`shortfalls`): [`ReservationWaitRefused`](#reservationwaitrefused)
+
+###### Parameters
+
+###### shortfalls
+
+readonly [`ReservationShortfall`](#reservationshortfall)[]
+
+###### Returns
+
+[`ReservationWaitRefused`](#reservationwaitrefused)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"budget-exhausted"`
+
+##### shortfalls
+
+> `readonly` **shortfalls**: readonly [`ReservationShortfall`](#reservationshortfall)[]
+
+***
+
 ### FileCoordinationLog
 
 FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
@@ -998,7 +1039,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-23)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-24)
 
 ##### parent?
 
@@ -1014,7 +1055,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`label`](#label-21)
+[`NodeSnapshot`](#nodesnapshot).[`label`](#label-22)
 
 ##### status
 
@@ -1022,7 +1063,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-17)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-18)
 
 ##### runtime
 
@@ -1159,7 +1200,7 @@ Canonical retained output pointer; a failed or cancelled node may also have usef
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`outRef`](#outref-6)
+[`NodeSnapshot`](#nodesnapshot).[`outRef`](#outref-7)
 
 ##### trace?
 
@@ -6011,12 +6052,12 @@ OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000.
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Forwarded to `SupervisorOpts.maxLiveWorkers`: the hard tree-wide cap on simultaneously
- executing spawned workers. Omit to leave the worker count uncapped.
+Forwarded to `SupervisorOpts.workerSlots`: the tree-wide bound on simultaneously working
+ agents; spawns past it queue. Omit to bound concurrency by the budget alone.
 
 ##### resume?
 
@@ -6921,6 +6962,12 @@ Whether the child's OWN harness transcript survived its environment, or why it d
 > `optional` **budgetViolation?**: [`BudgetViolation`](#budgetviolation-3)
 
 Present when the measured spend exceeded this child's reservation.
+
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+Present when this child led workers of its own: a bounded account of its team.
 
 ###### settledAt?
 
@@ -12961,12 +13008,12 @@ The self-improvement lens fed to the driver on each settled worker. Default `fai
 
 The strategy each worker runs over the surface. Default `refine` (iterate-with-feedback).
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number`
 
-Max workers live at once. Default 1 (serial — required when workers share a persistent artifact, so
- they continue each other instead of racing the file).
+Max workers working at once; later spawns queue. Default 1 (serial — required when workers share
+ a persistent artifact, so they continue each other instead of racing the file).
 
 ***
 
@@ -13426,6 +13473,48 @@ The spawned node's id, once admission minted one. Absent for a reservation that 
 
 ***
 
+### ReservationFloor
+
+The part of each channel a reservation must leave free: a manager's own share of its slice,
+ which its children may not reserve.
+
+#### Properties
+
+##### tokens
+
+> `readonly` **tokens**: `number`
+
+##### iterations
+
+> `readonly` **iterations**: `number`
+
+##### usd?
+
+> `readonly` `optional` **usd?**: `number`
+
+***
+
+### ReserveOptions
+
+How a caller asks for a reservation.
+
+#### Properties
+
+##### wait?
+
+> `readonly` `optional` **wait?**: `boolean`
+
+Wait for budget instead of failing, when the reservations still open would return enough.
+ The reservation then holds nothing until it is granted.
+
+##### keep?
+
+> `readonly` `optional` **keep?**: [`ReservationFloor`](#reservationfloor)
+
+Leave this much of each channel free after the reservation.
+
+***
+
 ### ReservationShortfall
 
 One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
@@ -13451,6 +13540,13 @@ channel then refuses every reservation for the rest of the run.
 ##### free
 
 > `readonly` **free**: `number`
+
+##### held?
+
+> `readonly` `optional` **held?**: `number`
+
+What open reservations hold on this channel, when they hold any. A request of at most
+ `free + held` can wait for them to settle; a larger one never fits.
 
 ##### closedByUnknownSpend?
 
@@ -13483,11 +13579,17 @@ while the public readout remains explicitly unknown.
 
 ##### reserve()
 
-> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
+> **reserve**(`b`, `holder?`, `options?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover standard or named channels — the
 caller inspects `ok` before `ticket`.
+
+With `wait`, a request the free balance cannot cover now, but could once the open reservations
+return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
+rejects with [ReservationWaitRefused](#reservationwaitrefused) once nothing open could return enough. A waiting
+ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
+request queues behind it even when it would fit, so the order of asking is the order of grant.
 
 ###### Parameters
 
@@ -13499,9 +13601,13 @@ caller inspects `ok` before `ticket`.
 
 [`ReservationHolder`](#reservationholder)
 
+###### options?
+
+[`ReserveOptions`](#reserveoptions)
+
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 ##### attribute()
 
@@ -14596,8 +14702,7 @@ One unit of queued work: the agent to run, its task, and the spawn options (budg
 
 How many children to hold in flight. Must be a positive integer. This is a SIMULTANEITY fence
 only — the conserved pool still bounds total work, and a `width` larger than the pool can
-afford simply hits `not-admitted` sooner. Derive it with `effectiveConcurrency` when the host
-also runs a fleet-level box governor.
+afford simply hits `not-admitted` sooner.
 
 #### Methods
 
@@ -14681,28 +14786,6 @@ Admission rejections, in order — `label: reason`. Non-empty ⇒ the pool or de
 
 The highest simultaneous live count actually reached — the number to compare against
  `width` when asking "did the slots really stay full?"
-
-***
-
-### ConcurrencyCaps
-
-The caps a host can set on simultaneous work. See the ledger in this module's header for what
- each one actually bounds.
-
-#### Properties
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Supervisor level: max spawned-but-unsettled workers.
-
-##### maxSandboxes?
-
-> `readonly` `optional` **maxSandboxes?**: `number`
-
-Fleet level: max live sandboxes/boxes across the host process (a `ComputeGovernor`-style
- cap). Applies to the worker layer, so it participates in the minimum.
 
 ***
 
@@ -16154,8 +16237,8 @@ Each handler receives that manager scope's live cancellation signal in its trust
 context, including recursive parent and root cascades, plus `context.verbs` — that manager's
 own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
 chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
+the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 
@@ -16216,7 +16299,9 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-18)
 
-Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+ of the part of the pool children may reserve (the pool less any owner share). A nested
+ manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn.
 
 ###### Inherited from
 
@@ -16226,23 +16311,27 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+ free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+ beside it. Default: off.
 
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`reservationPolicy`](#reservationpolicy-2)
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
- root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
- the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound).
+Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+ `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+ its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+ lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+ slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound).
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`maxLiveWorkers`](#maxliveworkers-5)
+[`SuperviseOptions`](#superviseoptions).[`workerSlots`](#workerslots-4)
 
 ##### watchWorkers?
 
@@ -16384,6 +16473,10 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
+
+Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+ level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+ `DEFAULT_MAX_DEPTH` (16).
 
 ###### Inherited from
 
@@ -17566,6 +17659,52 @@ A one-line human-readable state ("turn 3, running tests").
 
 ***
 
+### TeamProgress
+
+The team a worker leads, as its own lead observes it mid-flight: every agent below the worker,
+ at every depth. A lead reads this instead of the team's raw outputs, so the read stays bounded
+ however large the team grows.
+
+#### Properties
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Agents spawned below the worker, at every depth.
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+Levels below the worker: `1` when it leads only workers that lead no one.
+
+##### working
+
+> `readonly` **working**: `number`
+
+Agents below it that hold a worker slot and are running.
+
+##### queued
+
+> `readonly` **queued**: `number`
+
+Agents below it waiting for a worker slot.
+
+##### done
+
+> `readonly` **done**: `number`
+
+Agents below it that settled done.
+
+##### down
+
+> `readonly` **down**: `number`
+
+Agents below it that settled down or were cancelled.
+
+***
+
 ### WorkerProgress
 
 The full live view of one worker, as `observe_agent` returns it mid-flight.
@@ -17601,7 +17740,8 @@ True when this worker's executor exposes an inbox (`Executor.deliver`) — i.e. 
 
 > `readonly` **lastActivityAt**: `number`
 
-Epoch ms of the last metered usage event or executor-reported activity.
+Epoch ms of the last metered usage event or executor-reported activity. For a worker that
+ leads a team, the newest activity anywhere in that team counts, its own turns included.
 
 ##### idleMs
 
@@ -17610,6 +17750,8 @@ Epoch ms of the last metered usage event or executor-reported activity.
 ##### stalled
 
 > `readonly` **stalled**: `boolean`
+
+Live, not waiting for a worker slot, and idle past `stallAfterMs`.
 
 ##### stallAfterMs
 
@@ -17678,6 +17820,12 @@ What the executor changed about the caller's declaration; absent when it changed
 ##### note?
 
 > `readonly` `optional` **note?**: `string`
+
+##### team?
+
+> `readonly` `optional` **team?**: [`TeamProgress`](#teamprogress)
+
+The team this worker leads; absent while it leads no one.
 
 ***
 
@@ -17786,6 +17934,12 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ##### resources?
 
 > `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceSpend`](#resourcespend)\>\>
+
+##### team?
+
+> `readonly` `optional` **team?**: [`TeamProgress`](#teamprogress)
+
+The team the worker leads, when it leads one.
 
 ***
 
@@ -19536,17 +19690,18 @@ This scope's recursion depth (root = 0).
 
 Runtime recursion-depth ceiling — a spawn past it fails closed `depth-exceeded`.
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: [`WorkerSlots`](#workerslots-6)
 
-Root-owned limit on live spawned workers across this scope and every nested scope.
+The allocator that bounds concurrently working agents across this scope, every nested scope,
+ and every other tree that shares it. Absent means no bound: only the budget limits concurrency.
 
 ##### reservationPolicy?
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Optional policy that holds owner inference capacity and a path of descendant slots.
+Optional policy that keeps part of each manager's budget for its own inference.
 
 ##### ownerBudget?
 
@@ -20356,6 +20511,21 @@ OPT-IN standing guidance from the profile knowledge base
  profile a manager spawns, before identity is fixed, so receipts bind the prompt that ran.
  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself.
 
+##### inheritSpawnRights?
+
+> `readonly` `optional` **inheritSpawnRights?**: `boolean`
+
+Whether a spawned profile that declares no Runtime coordination tool receives its manager's
+ coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+ can still deliver work it does itself), so every child can lead children of its own. Default
+ `true`. A child whose author wrote any coordination entry, true or false, keeps what was
+ written (a `false` entry is dropped once it has kept the child a leaf). A child this run
+ cannot drive as a manager (no driver for its harness, or no `router` for a harness-less one)
+ stays a leaf, and so does every child of a run with no completion check (`deliverable` or
+ `resolveDeliverable`), since a manager delivers its own work only through `submit_result`.
+ `false` runs every authored profile exactly as written. Applies to backend-derived workers;
+ a caller-owned `makeWorkerAgent` decides its own children.
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-2)
@@ -20520,8 +20690,8 @@ Each handler receives that manager scope's live cancellation signal in its trust
 context, including recursive parent and root cascades, plus `context.verbs` — that manager's
 own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
 chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
+the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### escalateQuestion?
 
@@ -20591,21 +20761,27 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-18)
 
-Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+ of the part of the pool children may reserve (the pool less any owner share). A nested
+ manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn.
 
 ##### reservationPolicy?
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+ free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+ beside it. Default: off.
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
- root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
- the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound).
+Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+ `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+ its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+ lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+ slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound).
 
 ##### analysts?
 
@@ -20757,6 +20933,10 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
+
+Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+ level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+ `DEFAULT_MAX_DEPTH` (16).
 
 ##### maxTurns?
 
@@ -20998,7 +21178,7 @@ The coordination verbs THIS manager serves, callable in code from a product tool
 
 Each verb dispatches by name to the live coordination descriptor's own handler, so a spawn made
 here crosses the identical path the MCP verb crosses: `makeWorkerAgent` → `authorizeSpawn` /
-security / `allowedModels`, the conserved pool reservation, `maxLiveWorkers`, the journal, and
+security / `allowedModels`, the conserved pool reservation, the worker-slot queue, the journal, and
 the event bus. There is no second spawn path and no way to bypass a gate by calling in code.
 
 The set is deliberately the COORDINATION surface only. `submit_result`, `stop`, and `ask_parent`
@@ -21201,7 +21381,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-4)
+[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-5)
 
 ##### identity
 
@@ -21563,14 +21743,6 @@ Receives a result only after this manager's completion check accepted it.
 ###### Returns
 
 `void`
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
- this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
- boxes/sandboxes, not total work). Omit/`<= 0` = no cap.
 
 ##### router?
 
@@ -23464,6 +23636,93 @@ Phantom: binds the handle to the child's output type so `spawn<C>` returns a
 
 ***
 
+### SubtreeSummary
+
+A bounded account of the team a manager led, carried up on its settlement.
+
+A lead reads its children's summaries instead of every descendant's output: the counts cover
+the whole subtree, and `results` lists only the manager's own direct children, best first.
+Every listed result stays addressable by its content address (`outRef`), so the lead can read
+any one of them in full. The summary is bounded at every level, so a tree of hundreds of agents
+reaches its root as a handful of summaries.
+
+#### Properties
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Spawned agents below this node, at every depth.
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+Levels below this node: `1` when it led only workers that led no one.
+
+##### done
+
+> `readonly` **done**: `number`
+
+Agents below this node that settled done.
+
+##### down
+
+> `readonly` **down**: `number`
+
+Agents below this node that settled down or were cancelled.
+
+##### results
+
+> `readonly` **results**: readonly [`SubtreeResult`](#subtreeresult)[]
+
+This node's own direct children, done before down and then by score, at most
+ `SUBTREE_RESULT_LIMIT` of them.
+
+##### omitted
+
+> `readonly` **omitted**: `number`
+
+Direct children not listed in `results`.
+
+***
+
+### SubtreeResult
+
+One direct child of a manager, as its lead sees it in a [SubtreeSummary](#subtreesummary).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### status
+
+> `readonly` **status**: `"done"` \| `"down"`
+
+##### outRef?
+
+> `readonly` `optional` **outRef?**: `string`
+
+Content address of the child's retained output, when it produced one.
+
+##### score?
+
+> `readonly` `optional` **score?**: `number`
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Agents in this child's own subtree, itself excluded.
+
+***
+
 ### Scope
 
 **`Stable`**
@@ -23522,12 +23781,13 @@ Conserved-pool readouts (post-reservation).
 
 ##### workerCapacity
 
-> `readonly` **workerCapacity**: `Readonly`\<\{ `live`: `number`; `freeSlots`: `number` \| `null`; `unconfirmed`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; \}\>
+> `readonly` **workerCapacity**: `Readonly`\<\{ `working`: `number`; `queued`: `number`; `freeSlots`: `number` \| `null`; `unconfirmed`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; \}\>
 
-One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
- the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
- `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
- the nodes still holding a capacity slot. Empty on every healthy run.
+The worker-slot allocator as this scope sees it. Every scope of a tree, and every tree that
+ shares the allocator, reads the same counts; the root agent itself holds no slot. `working`
+ counts agents that hold a slot, `queued` counts admitted spawns that wait for one, and
+ `freeSlots` is `null` when no bound is set. `unconfirmed` NAMES this scope's settled children
+ whose executor teardown was never acknowledged. Empty on every healthy run.
 
 #### Methods
 
@@ -24087,7 +24347,7 @@ The live tree — what `scope.view` / `RootHandle.view()` materialize for a view
 
 > `readonly` **inFlight**: `number`
 
-Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
+Count of nodes in `queued`, `acquiring`, or `running` — the "what's in flow?" answer.
 
 ##### waiting
 
@@ -24262,8 +24522,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 ### RecursiveReservationPolicy
 
 Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
-kept free for its own inference while children hold their full declared ceilings. The same
-policy reserves one live worker slot per remaining depth, up to `maxDepth`.
+kept free for its own inference while children hold their declared slices.
 
 #### Properties
 
@@ -24338,21 +24597,24 @@ Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its p
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Runtime recursion-depth ceiling (paired with the conserved pool per R3).
+Recursion ceiling (root = 0). The conserved pool bounds depth; this only stops a runaway
+ recursion. Omit = `DEFAULT_MAX_DEPTH` (16).
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Hard tree-wide cap on simultaneously executing spawned workers. The root is excluded; every
- nested driver and leaf shares this one allocation. Omit/`<= 0` leaves worker count uncapped.
+The bound on concurrently working agents across the whole tree, as a number or as an
+ allocator from `createWorkerSlots` that several runs share. A spawn past it waits in a queue
+ instead of being refused. The root holds no slot. Omit/`<= 0` bounds concurrency by the budget
+ alone.
 
 ##### reservationPolicy?
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Opt in to reserving each manager's inference share and enough tree-wide worker slots for a
-descendant path to `maxDepth`. Omit to retain full-ceiling admission behavior.
+Opt in to keeping each manager's inference share free of its children's slices. A resumed
+ run must use the same policy.
 
 ##### maxRestarts?
 
@@ -25286,6 +25548,32 @@ A policy with every bound decided — what [retryPreSpawnRefusals](#retryprespaw
 ##### signatures
 
 > `readonly` **signatures**: readonly `RegExp`[]
+
+***
+
+### WorkerSlots
+
+A fleet-wide bound on concurrently working agents, with a queue for the spawns past it.
+
+#### Properties
+
+##### max
+
+> `readonly` **max**: `number` \| `undefined`
+
+The bound on working agents, or `undefined` when only the budget bounds concurrency.
+
+##### working
+
+> `readonly` **working**: `number`
+
+Working agents that hold a slot now.
+
+##### queued
+
+> `readonly` **queued**: `number`
+
+Spawns that hold a budget slice and wait for a slot.
 
 ***
 
@@ -30316,10 +30604,12 @@ construction args without pre-instantiating; it never bypasses exact-profile val
 
 ### NodeStatus
 
-> **NodeStatus** = `"pending"` \| `"acquiring"` \| `"running"` \| `"waiting"` \| `"done"` \| `"failed"` \| `"cancelled"`
+> **NodeStatus** = `"pending"` \| `"queued"` \| `"acquiring"` \| `"running"` \| `"waiting"` \| `"done"` \| `"failed"` \| `"cancelled"`
 
-`'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
- during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
+`'queued'` is an admitted child that holds its budget slice and waits for a worker slot
+ (`workerSlots`); it runs nothing until the allocator grants one. `'acquiring'` is first-class
+ (M1): a node spends real time + reaps an orphan box during sandbox acquire BEFORE it is
+ `running`, so abort must be defined over it.
  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
  box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
  a terminal status describes it (see `Scope.wait`).
@@ -30336,7 +30626,7 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"` \| `"scope-settled"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"scope-aborted"` \| `"scope-settled"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
@@ -30375,7 +30665,7 @@ recovery before a replacement can run.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -30391,7 +30681,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -30445,6 +30735,12 @@ Whether the child's OWN harness transcript survived its environment, or why it d
 
 Present when the measured spend exceeded this child's reservation.
 
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+Present when this child led workers of its own: a bounded account of its team.
+
 ###### settledAt?
 
 > `optional` **settledAt?**: `number`
@@ -30459,7 +30755,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -30538,6 +30834,12 @@ WHY the retained execution has no accepted result, as a value: the safety refusa
  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
  have to parse it (#1204).
 
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+Present when this child led workers of its own: a bounded account of its team.
+
 ###### settledAt?
 
 > `optional` **settledAt?**: `number`
@@ -30552,7 +30854,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); `maxDepth`: `number`; `maxLiveWorkers`: `number`; \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -30561,7 +30863,7 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); `maxDepth`: `number`; `maxLiveWorkers`: `number`; \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30610,20 +30912,12 @@ The settled sibling node this spawn replaces (`SpawnOpts.successorOf`).
 
 > `optional` **recursiveAdmission?**: `object`
 
-Root-only opt-in admission contract. A resumed run must use the same policy and fleet
-limits; absent on historical and default-off records.
+Root-only opt-in owner-share contract. A resumed run must use the same policy; absent on
+records that set none.
 
 ###### recursiveAdmission.policy
 
 > **policy**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
-
-###### recursiveAdmission.maxDepth
-
-> **maxDepth**: `number`
-
-###### recursiveAdmission.maxLiveWorkers
-
-> **maxLiveWorkers**: `number`
 
 ###### ownedTreeRoot?
 
@@ -30819,7 +31113,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30908,6 +31202,12 @@ Written by the release sweep in the settling process, on the same tree, after ev
 
 > `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
 
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+The bounded account of the team this child led, when it led one.
+
 ###### seq
 
 > **seq**: `number`
@@ -30920,7 +31220,7 @@ Written by the release sweep in the settling process, on the same tree, after ev
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30979,6 +31279,12 @@ As on `settled`: a retained child that was cancelled settles `cancelled`, and th
 ###### retainedPendingCause?
 
 > `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+The bounded account of the team this child led, when it led one.
 
 ###### seq
 
@@ -32781,12 +33087,31 @@ Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded 
 
 ***
 
+### SUBTREE\_RESULT\_LIMIT
+
+> `const` **SUBTREE\_RESULT\_LIMIT**: `8` = `8`
+
+How many of a manager's direct children its summary lists; the counts always cover all.
+
+***
+
 ### DEFAULT\_AUTHORED\_PROFILE\_SECURITY\_POLICY
 
 > `const` **DEFAULT\_AUTHORED\_PROFILE\_SECURITY\_POLICY**: `AgentProfileSecurityPolicy`
 
 Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and
 ambient connection grants therefore fail closed by default, in addition to local MCP and hooks.
+
+***
+
+### DEFAULT\_MAX\_DEPTH
+
+> `const` **DEFAULT\_MAX\_DEPTH**: `16` = `16`
+
+The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every
+ level draws its slice from the level above, so a tree ends when its slices run out. This
+ ceiling only stops a runaway recursion that keeps spawning tiny slices, so it sits well above
+ any depth a budget can usefully pay for.
 
 ***
 
@@ -37001,33 +37326,6 @@ The one place the answer is computed, so the driver-facing tool payload and a di
 
 ***
 
-### effectiveConcurrency()
-
-> **effectiveConcurrency**(`caps`): `number` \| `undefined`
-
-The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually
-bound the worker layer. Ignores unset/non-positive caps; returns `undefined` when no cap applies
-(uncapped — the conserved pool remains the only fence).
-
-Deliberately does NOT fold in `SandboxLineage`'s fork concurrency: that bounds boxes inside ONE
-leaf's fork wave, a different unit. Folding it in would report a 4-worker ceiling for what is
-really a 4-box fanout inside a single worker.
-
-Use it once, at the top of a run, and pass the result to BOTH `maxLiveWorkers` and a
-dispatcher's `width` — that is what turns three unrelated numbers into one.
-
-#### Parameters
-
-##### caps
-
-[`ConcurrencyCaps`](#concurrencycaps)
-
-#### Returns
-
-`number` \| `undefined`
-
-***
-
 ### queueOf()
 
 > **queueOf**\<`Out`\>(`units`, `budget`): () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
@@ -39578,6 +39876,26 @@ without reimplementing the two proofs.
 #### Returns
 
 [`Executor`](#executor-3)\<`Out`\>
+
+***
+
+### createWorkerSlots()
+
+> **createWorkerSlots**(`max?`): [`WorkerSlots`](#workerslots-6)
+
+Create a worker-slot allocator. `max` omitted, `0`, or negative leaves concurrency bounded by the
+budget alone, and every spawn starts at once. Pass the returned allocator as `workerSlots` to each
+run that should share one bound.
+
+#### Parameters
+
+##### max?
+
+`number`
+
+#### Returns
+
+[`WorkerSlots`](#workerslots-6)
 
 ***
 

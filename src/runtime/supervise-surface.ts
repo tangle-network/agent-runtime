@@ -429,9 +429,9 @@ export interface SuperviseSurfaceOptions {
   readonly analysts?: AnalystRegistry | null
   /** The strategy each worker runs over the surface. Default `refine` (iterate-with-feedback). */
   readonly strategy?: Strategy
-  /** Max workers live at once. Default 1 (serial — required when workers share a persistent artifact, so
-   *  they continue each other instead of racing the file). */
-  readonly maxLiveWorkers?: number
+  /** Max workers working at once; later spawns queue. Default 1 (serial — required when workers share
+   *  a persistent artifact, so they continue each other instead of racing the file). */
+  readonly workerSlots?: number
 }
 
 /** The deployable outcome of a supervised surface run. */
@@ -503,7 +503,7 @@ export async function superviseSurface(
     makeWorkerAgent,
     deliverable,
     budget,
-    maxLiveWorkers: opts.maxLiveWorkers ?? 1,
+    workerSlots: opts.workerSlots ?? 1,
     // A SMALL per-worker reservation so MULTIPLE workers fit the pool (the default reserves the whole pool
     // per worker → only one ever spawns, defeating the spawn-a-targeted-worker steering).
     perWorker: { maxIterations: innerTurns + 2, maxTokens: workerMaxTokens },

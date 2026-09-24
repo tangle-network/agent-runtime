@@ -71,6 +71,7 @@ function runSupervisor(
   root: Agent<unknown, unknown>,
   blobs: InMemoryResultBlobStore,
   journal: InMemorySpawnJournal,
+  workerSlots?: number,
 ) {
   return createSupervisor<unknown, unknown>().run(root, 'solve it', {
     budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -80,6 +81,7 @@ function runSupervisor(
     executors: createExecutorRegistry(),
     maxDepth: 4,
     now: () => 0,
+    ...(workerSlots === undefined ? {} : { workerSlots }),
   })
 }
 
@@ -689,19 +691,14 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
             task: 'go',
             label: 'composed-a',
           })
-          // The second spawn crosses the same maxLiveWorkers fence the MCP verb crosses.
-          let secondError: string | undefined
-          try {
-            await context.verbs.spawnAgent({
-              profile: testAgentProfile('composed-b'),
-              task: 'go',
-              label: 'composed-b',
-            })
-          } catch (error) {
-            secondError = error instanceof Error ? error.message : String(error)
-          }
+          // The second spawn crosses the same worker-slot queue the MCP verb crosses.
+          const second = await context.verbs.spawnAgent({
+            profile: testAgentProfile('composed-b'),
+            task: 'go',
+            label: 'composed-b',
+          })
           const settled = await context.verbs.awaitEvent({ kinds: ['settled'] })
-          return { first, secondError, settled }
+          return { first, second, settled }
         },
       },
     ]
@@ -721,7 +718,6 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         blobs,
         makeWorkerAgent,
         perWorker,
-        maxLiveWorkers: 1,
         nodeContext: { runId: 'sup', runNamespace: 'verbs-ns', ownerId: 'owner-root', depth: 0 },
         resolveSupervisorTools,
       }
@@ -743,6 +739,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           ),
           blobs,
           journal,
+          1,
         )
         return { journal, result: composeResult }
       }
@@ -765,6 +762,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         ),
         blobs,
         journal,
+        1,
       )
       return { journal, result: composeResult }
     }
@@ -774,11 +772,15 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       const { journal } = await runArm(arm)
       // authorizeSpawn (makeWorkerAgent) observed the composed spawn on this arm.
       expect(authorized).toContain('composed-a')
-      // The second spawn was refused by the live-worker cap, not silently accepted.
-      expect(authorized).not.toContain('composed-b')
-      // The child is journaled under THIS manager's scope, like any coordination spawn.
+      // The second spawn met a full slot bound and was queued, not refused.
+      expect(authorized).toContain('composed-b')
+      if (arm === 'external') {
+        expect(JSON.stringify(composeResult)).toMatch(/\\?"status\\?":\\?"queued/u)
+      }
+      // The children are journaled under THIS manager's scope, like any coordination spawn.
       const events = (await journal.loadTree('sup')) as SpawnEvent[]
       expect(events.some((e) => e.kind === 'spawned' && e.label === 'composed-a')).toBe(true)
+      expect(events.some((e) => e.kind === 'spawned' && e.label === 'composed-b')).toBe(true)
       expect(events.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
     }
   })

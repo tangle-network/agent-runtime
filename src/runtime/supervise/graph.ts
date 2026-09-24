@@ -225,6 +225,8 @@ const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'onCoordinationEvent',
   'analyzeOnSettle',
   'continuityByProfile',
+  // A graph pins every node and its delegation edges; a node never gains spawn rights it lacks.
+  'inheritSpawnRights',
 ] as const
 
 /** Caller-facing on `RunGraphOptions`, but the graph wraps or defaults the value before it goes in:
@@ -291,7 +293,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'executeExtraTool',
   'perWorker',
   'reservationPolicy',
-  'maxLiveWorkers',
+  'workerSlots',
   'watchWorkers',
   'stallAfterMs',
   'awaitTimeoutMs',
@@ -1280,6 +1282,7 @@ export function superviseAgentGraph(
       deliverable: graph.deliverable,
       authorizeSpawn: graphAuthorizeSpawn,
       resolveSpawnProfile,
+      inheritSpawnRights: false,
       ...(opts.makeLeafAgent ? { makeLeafAgent: opts.makeLeafAgent } : {}),
       journal,
       blobs,
