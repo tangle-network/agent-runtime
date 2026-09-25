@@ -1,14 +1,16 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  assertDeclaredCheck,
   checkProgramDigest,
   type DeclaredCheck,
   type DeclaredCheckPlacement,
   declaredCheckDeliverable,
+  declaredCheckDigest,
   declaredCheckJudge,
   readDeclaredCheck,
 } from '../../src/runtime/declared-check'
@@ -21,12 +23,27 @@ import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
  * recorded so a test can read the egress policy the check asked for.
  */
 function localBoxes(root: string) {
-  const created: Array<{ egressPolicy: unknown; environment: unknown }> = []
+  const created: Array<{
+    egressPolicy: unknown
+    environment: unknown
+    agent: unknown
+    ephemeral: unknown
+  }> = []
   let boxes = 0
   const client = {
     getIdentity: async () => ({ customerId: 'cust_check' }),
-    createIsolated: async (options: { egressPolicy?: unknown; environment?: unknown }) => {
-      created.push({ egressPolicy: options.egressPolicy, environment: options.environment })
+    createIsolated: async (options: {
+      egressPolicy?: unknown
+      environment?: unknown
+      agent?: unknown
+      ephemeral?: unknown
+    }) => {
+      created.push({
+        egressPolicy: options.egressPolicy,
+        environment: options.environment,
+        agent: options.agent,
+        ephemeral: options.ephemeral,
+      })
       boxes += 1
       const dir = join(root, `box-${boxes}`)
       await mkdir(dir, { recursive: true })
@@ -100,6 +117,11 @@ if (set === 'sealed') {
   const hidden = readFileSync('_sealed/case.txt', 'utf8').trim()
   dimensions['sealed-case'] = hidden === 'hidden' ? 1 : 0
 }
+if (process.env.CHECK_STATE) {
+  const output = readFileSync(process.env.CHECK_STATE + '/out/output.txt', 'utf8').trim()
+  dimensions.state = output === 'done' ? 1 : 0
+  if (dimensions.state < 1) notes.push('FAIL state out/output.txt: holds ' + output)
+}
 console.log('reading the result')
 const values = Object.values(dimensions)
 console.log(JSON.stringify({ dimensions, composite: values.reduce((a, b) => a + b, 0) / values.length, notes: notes.join('\\n') }))
@@ -159,7 +181,27 @@ describe('a declared check', () => {
         includeImplicitDomains: false,
       },
       environment: 'node-22',
+      // No container daemon and an in-memory home: the default box starts fastest.
+      agent: false,
+      ephemeral: true,
     })
+  })
+
+  it('gives a check that runs containers a box with a container daemon and a disk home', async () => {
+    const containers: DeclaredCheck = {
+      ...check,
+      containers: true,
+      resources: { cpuCores: 2, memoryMB: 8192, diskGB: 40 },
+    }
+    await readDeclaredCheck(containers, placement, { result: { answer: 42 }, set: 'development' })
+    expect(boxes.created[0]).toMatchObject({ agent: true, ephemeral: false })
+    // The version judge's digest names the containers only when a record sets them, so every
+    // digest recorded before the field existed still matches.
+    expect(declaredCheckDigest(containers)).not.toBe(declaredCheckDigest(check))
+    expect(declaredCheckDigest({ ...check, containers: false })).toBe(declaredCheckDigest(check))
+    expect(() =>
+      assertDeclaredCheck({ ...check, containers: 'yes' as unknown as boolean }, 'record'),
+    ).toThrow(/record: check containers must be a boolean/)
   })
 
   it('is the manager deliverable: submits pass on development cases, and a state read has no result', async () => {
@@ -177,6 +219,47 @@ describe('a declared check', () => {
       pass: false,
       failures: ['FAIL answer result.json: nothing submitted'],
     })
+  })
+
+  it('reads the run state the host captures before each read, beside the submitted result', async () => {
+    const captured: string[] = []
+    let output = 'draft'
+    const deliverable = declaredCheckDeliverable(check, placement, {
+      state: async (into) => {
+        captured.push(into)
+        await mkdir(join(into, 'out'))
+        await writeFile(join(into, 'out', 'output.txt'), `${output}\n`)
+      },
+    })
+    expect(await deliverable.checkState?.()).toMatchObject({
+      pass: false,
+      items: { answer: 0, state: 0 },
+      failures: [
+        'FAIL answer result.json: nothing submitted',
+        'FAIL state out/output.txt: holds draft',
+      ],
+    })
+    output = 'done'
+    expect(await deliverable.check({ answer: 42 })).toMatchObject({
+      pass: true,
+      items: { answer: 1, state: 1 },
+    })
+    expect(captured).toHaveLength(2)
+    // Each capture directory is Runtime's own and is gone after its read.
+    for (const into of captured) await expect(access(into)).rejects.toThrow()
+  })
+
+  it('gives no verdict when the state cannot be captured, and creates no box', async () => {
+    const deliverable = declaredCheckDeliverable(check, placement, {
+      state: async () => {
+        throw new Error('the root box has no container task')
+      },
+    })
+    await expect(deliverable.check({ answer: 42 })).rejects.toThrow(
+      /the run's state could not be captured: the root box has no container task/,
+    )
+    await expect(deliverable.checkState?.()).rejects.toThrow(CheckUnavailableError)
+    expect(boxes.created).toHaveLength(0)
   })
 
   it('scores a version on the sealed cases, which no in-run read ever mounts', async () => {

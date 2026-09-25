@@ -3797,6 +3797,16 @@ Bound on one read. Default 15 minutes.
 
 > `readonly` `optional` **resources?**: `SandboxResources`
 
+The check box's size. With `containers`, `diskGB` sizes the disk that holds the images.
+
+##### containers?
+
+> `readonly` `optional` **containers?**: `boolean`
+
+The program runs containers, as a benchmark's own verifier does. The check box then runs a
+rootless container daemon, whose socket is `/run/user/<uid>/docker.sock` once it starts, and its
+home is on a disk rather than in memory. Absent: neither, and the box starts faster.
+
 ***
 
 ### DeclaredCheckPlacement
@@ -5336,6 +5346,15 @@ Sandbox environment or image that holds the check's toolchain.
 
 Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
  box's egress is blocked. Otherwise strict: these domains only, with no implicit list.
+
+##### containers?
+
+> `optional` **containers?**: `boolean`
+
+The check runs containers. Sandbox starts a box's rootless container daemon only with its
+managed agent runtime, so this box is created with `agent: true`; it still receives no owner
+secret, which its create receipt must confirm. It is not `ephemeral`, so its home is a disk
+sized by `resources.diskGB` instead of a small in-memory home that image layers overflow.
 
 ***
 
@@ -14859,17 +14878,19 @@ Every check read so far, oldest first.
 
 The expanded questions, one per atomic question.
 
-##### rootStreamPath?
+##### traces
 
-> `readonly` `optional` **rootStreamPath?**: `string`
+> `readonly` **traces**: `TraceAnalysisStore`
 
-`<runDir>/root-stream.jsonl`, the director's own trace, when the run has a directory.
+The run's own traces, one per agent and named by its node id: the manager's root stream, when
+it is the root, and each settled worker's tool trace (`./run-traces.ts`). The panel runs only
+when the run has recorded a span.
 
 ##### workers
 
 > `readonly` **workers**: readonly `object`[]
 
-Settled workers, with the evidence reference their trace is read from.
+Settled workers; each one's trace in `traces` is named by its `id`.
 
 ##### bar?
 
@@ -15200,6 +15221,12 @@ The panel's part: questions asked, findings admitted, dollars (`null` = unknown)
 ###### usd
 
 > `readonly` **usd**: `number` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string`
+
+Why the panel asked nothing this time, when it could not run.
 
 ##### appended
 
@@ -23291,7 +23318,7 @@ Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
 
 > `readonly` `optional` **rootStreamPath?**: `string`
 
-The root manager's `root-stream.jsonl`, which the question panel reads.
+The root manager's `root-stream.jsonl`; the question panel reads it as the director's trace.
 
 ##### nodeContext?
 
@@ -29937,6 +29964,27 @@ A fork this reader could not isolate. `own` is absent; nothing may be charged.
 
 ***
 
+### DeclaredCheckStateCapture
+
+> **DeclaredCheckStateCapture** = (`into`) => `Promise`\<`void`\>
+
+Write the run's state into `into`, an empty directory Runtime created and removes after the read.
+The host decides what the state is and reads it from the run's live environment, for example
+the declared output files of a task's container. A capture that throws gives no verdict: the read
+is [CheckUnavailableError](#checkunavailableerror), never a failure blamed on the run.
+
+#### Parameters
+
+##### into
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### AgentEnvironmentProviderRef
 
 > **AgentEnvironmentProviderRef** = `AgentEnvironmentProvider` \| `string`
@@ -35433,8 +35481,9 @@ The digest a version judge records: the program, the sealed cases, and how they 
 > **readDeclaredCheck**(`check`, `placement`, `read`): `Promise`\<[`CheckVerdict`](#checkverdict)\>
 
 Read the check once. `result` is the submitted result, absent for a read of the run's state.
-`set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when the program
-could not run or printed no score.
+`state` is a local directory of the run's state; the box receives a copy of its files at
+`_input/state/`. `set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when
+the program could not run or printed no score.
 
 #### Parameters
 
@@ -35452,6 +35501,10 @@ could not run or printed no score.
 
 `unknown`
 
+###### state?
+
+`string`
+
 ###### set
 
 `"sealed"` \| `"development"`
@@ -35468,9 +35521,11 @@ could not run or printed no score.
 
 ### declaredCheckDeliverable()
 
-> **declaredCheckDeliverable**(`check`, `placement`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+> **declaredCheckDeliverable**(`check`, `placement`, `options?`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 The declared check as a manager's completion check: every in-run read uses development cases.
+With `state`, each read first captures the run's state and the check reads it beside the
+submitted result, on `submit_result` and at a turn end alike.
 
 #### Parameters
 
@@ -35481,6 +35536,12 @@ The declared check as a manager's completion check: every in-run read uses devel
 ##### placement
 
 [`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+##### options?
+
+###### state?
+
+[`DeclaredCheckStateCapture`](#declaredcheckstatecapture)
 
 #### Returns
 

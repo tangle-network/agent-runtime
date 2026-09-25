@@ -1,8 +1,36 @@
-## 0.274.1
+## 0.275.1
 
 Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
-Runtime's own imports from `agent-eval` (MCP tool annotations, redaction core) are unchanged across that range; a scan of every `@tangle-network/agent-eval` import against 0.193.1 finds nothing missing.
+Runtime's own imports from `agent-eval` (MCP tool annotations, redaction core) are unchanged across that range; a scan of every `@tangle-network/agent-eval` import against 0.193.2 finds nothing missing.
 `agent-knowledge` needs the matching bump (its own peer range capped at `<0.191.0` too) to actually install alongside; see its 17.1.6 release.
+
+## 0.275.0
+
+A declared check reads the run's state and may run containers, and the question panel reads the
+run's own traces. Together these let a record judge a Terminal-Bench task in the run: the task is
+done when its container holds the right files, and the task's own verifier runs in containers.
+
+- **A check reads the run's state.** `declaredCheckDeliverable(check, placement, { state })` takes
+  a `DeclaredCheckStateCapture`. Before each in-run read, on `submit_result` and at a turn end
+  alike, Runtime makes an empty directory and the host writes the run's state into it. The check
+  box receives those files at `_input/state/`, and `CHECK_STATE` names that directory. Runtime
+  removes the directory after the read. A capture that throws gives no verdict: the read is a
+  `CheckUnavailableError`, and no box is created. `readDeclaredCheck` takes `state`, a local
+  directory, for a host that reads the check itself, such as a gold and null admission. A check
+  without `state` reads exactly as before.
+- **A check may run containers.** `DeclaredCheck.containers: true` creates the check box with its
+  rootless container daemon (Sandbox starts it only with the managed agent runtime, so the box is
+  created with `agent: true`; its receipt must still show no owner secret) and with a disk home
+  sized by `resources.diskGB` rather than an in-memory one (`ephemeral: false`). The daemon's
+  socket is `/run/user/<uid>/docker.sock`. `declaredCheckDigest` names `containers` only when it
+  is set, so every digest recorded before this release still matches.
+- **Breaking: the panel reads one trace store.** `ContinuationPanelInput.rootStreamPath` is removed.
+  `traces` is an agent-eval `TraceAnalysisStore` Runtime builds at each continuation: the root
+  stream as tool spans (each tool call with its result, and each run of the director's text and
+  reasoning as `assistant_text` and `assistant_reasoning`), and every settled worker's tool trace,
+  one trace per agent named by its node id. A panel could read the director's stream before, but
+  no worker's trace, which only Runtime's blob store holds. With no span yet, the panel is not
+  asked, and the continuation's `panel.unavailable` says why.
 
 ## 0.274.0
 
