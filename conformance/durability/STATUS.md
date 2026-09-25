@@ -111,10 +111,64 @@ spawn journal.
 | `tests/durability/conversation-kill-resume.test.ts` | the 18-point matrix × both conversation backends + halted-run replay |
 | `tests/durability/known-defects.test.ts` | the two autopsy signatures: both now guarded and green (08-11 journal cleanliness; 09-16 re-entry contract) |
 
-## Operational note (shared hosts)
+## Inotify: measured, and what was actually fixed
 
-Each durable run opens one inotify watch (cancellation controls); a full test-suite run on a
-shared machine can sit near the kernel's `fs.inotify.max_user_instances` default (128) when many
-agent sessions, browsers, and watchers already hold instances — transient EMFILE failures in
-whichever child is unlucky are host contention, not durability defects. `npx vitest run
---maxWorkers=4` reproduces logic deterministically on such hosts; idle CI runners are unaffected.
+Asked whether a run should share one watcher per runDir, the measurement says a run already holds
+exactly ONE inotify instance, and cannot hold fewer:
+
+- A live durable child (the conformance graph runner, sampled mid-run via /proc/<pid>/fd) holds
+  **1** inotify instance — the cancellation observer's `fs.watch`.
+- libuv multiplexes every `fs.watch` in a process over one shared inotify instance: a process
+  with 4 open watches measures **1** inotify fd. A per-runDir shared watcher is therefore a no-op
+  (1 → 1), and was not built.
+
+What the box pressure actually is: the inotify instance budget is **per process**, and this host's
+baseline is ~110 of the 128 default user instances held by OTHER fleet processes (agent sessions,
+browsers, editors). The suites' transient children each hold ≤1 for their ~3–5 s life — a
+marginal peak of ~5 during a full run. The real defect the pressure exposed: when the budget WAS
+exhausted, `fs.watch()` threw EMFILE at observer creation and **crashed the durable run**, even
+though the observer already carries a 100 ms poll loop that needs no watcher. Fixed
+(`run-cancellation.ts`): EMFILE/ENOSPC at watch creation degrades to poll-only (instant pickup →
+≤100 ms), every other creation error still fails loudly. Regression tests cover both arms.
+
+For local verification on a loaded shared host, `npx vitest run --maxWorkers=4` stays
+deterministic; idle CI runners are unaffected either way.
+
+## Verdict: keep and harden the own journal layer
+
+**Recommendation: keep the shipped journal layer and keep hardening it. Do not adopt
+Temporal/Restate/Cloudflare Workflows for the current product shape.**
+
+What is proven today (the evidence above, 94/94):
+
+- Single-coordinator kill-and-resume works on every shipped durable backend: the file run context
+  (23/23 kill points incl. mid-step and mid-side-effect), session-backed workers through the
+  `recoverExecutor` recovery channel (23/23 — every session step exactly once across a real
+  SIGKILL), and the conversation layer on both `FileConversationJournal` and
+  `SqlConversationJournal` over real sqlite (18/18 each, plus halted-run replay).
+- The distributed-systems core the "adopt an engine" argument usually rests on is present and
+  pinned: exactly-once keyed side effects across process death, committed work never re-executed,
+  interrupted in-process work auto-retried under its own key, remote-class work recovered by
+  re-attachment, one clean root record per run across processes (the 2026-08-11 signature), and a
+  self-sufficient re-entry contract for directors (the 2026-09-16 fix, pinned).
+- Cost profile: resume is correct but the driver RE-DERIVES its plan from the resume brief (it
+  re-pays planning and reading, not work); the orchestration journal is single-host file-only; the
+  coordination layer is single-writer by design (the repo's own `docs/agent-managed-compute`
+  "Not implemented" table says so).
+
+When to revisit — concrete triggers, not vibes:
+
+1. A product requirement for **multi-coordinator or automatic failover** (two writers on one run,
+   no operator/wrapper restart). That is exactly the fencing/leases problem engines solve.
+2. Orchestration durability that must live in **SQL or a remote store** (the conversation layer
+   already has `SqlConversationJournal`; the spawn layer would need an adapter — the seams
+   (`SpawnJournal`, `ResultBlobStore`, `recoverExecutor`) are interfaces, so an adapter is a
+   contained build, and that same interface boundary is also the migration path if an engine is
+   ever adopted underneath).
+3. **Durable timers/workflows across services** (events that must fire days later, workflows
+   spanning multiple services' failures).
+
+None of these is on the current product path; until one is, an engine would add infrastructure
+and a second durability model to operate for capabilities this runtime now proves on its own
+evidence. The conformance suite is the gate that keeps that statement true: any regression on
+these axes turns the matrix red before it ships.
