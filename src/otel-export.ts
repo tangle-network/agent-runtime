@@ -518,8 +518,14 @@ export function buildRuntimeEventOtelSpans(
       // result would otherwise both count as a tool span, doubling the true
       // invocation count. The result still exports losslessly (tool.output
       // below, joined to the call by tool.call_id); it is just not a second
-      // declared TOOL kind for anyone counting tool spans.
-      if (event.type === 'tool_call') attrs[ATTR.spanKind] = 'TOOL'
+      // declared TOOL kind for anyone counting tool spans. The result span
+      // still carries 'tool.name' (for lookup and MCP identity below), and the
+      // contract's inference falls back to TOOL from that same key on ANY
+      // undeclared span — so the result must declare a kind explicitly (a
+      // real UNKNOWN, not silence) or a reader with no declared-only path
+      // (agent-trace-contract's resolveSpanKind, and traces/the validator's
+      // TOOL breakdown, which both fall back to inference) double-counts it.
+      attrs[ATTR.spanKind] = event.type === 'tool_call' ? 'TOOL' : 'UNKNOWN'
       attrs['tool.name'] = event.toolName
       // tool.call_id joins the call and its result. It is NOT
       // ATTR.operationId: that key names a retry-safety operation that a
@@ -612,9 +618,10 @@ export function buildLoopOtelSpans(
   events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
   traceId: string,
   rootParentSpanId?: string,
+  redact?: (value: unknown) => unknown,
 ): OtelSpan[] {
   const tid = padTraceId(traceId)
-  return buildLoopSpanNodes(events).map((node) => ({
+  return buildLoopSpanNodes(events, redact).map((node) => ({
     traceId: tid,
     spanId: node.spanId,
     parentSpanId: node.parentSpanId
@@ -658,6 +665,7 @@ const LOOP_SPAN_KIND: Record<LoopSpanNode['kind'], SpanKind> = {
  */
 export function buildLoopSpanNodes(
   events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
+  redact?: (value: unknown) => unknown,
 ): LoopSpanNode[] {
   if (events.length === 0) return []
   const out: LoopSpanNode[] = []
@@ -665,6 +673,16 @@ export function buildLoopSpanNodes(
     typeof v === 'number' && Number.isFinite(v) ? v : undefined
   const str = (v: unknown): string | undefined =>
     typeof v === 'string' && v.length > 0 ? v : undefined
+  // Free-text node fields (rationale, decision, error, output preview) are model- or
+  // customer-authored and may carry secrets — every one goes through the same redactor
+  // as `tangle.input`/`tangle.output` before it becomes a span attribute.
+  const strRedacted = (v: unknown): string | undefined => {
+    const s = str(v)
+    if (s === undefined) return undefined
+    if (!redact) return s
+    const safe = redact(s)
+    return typeof safe === 'string' ? safe : JSON.stringify(safe)
+  }
   const rec = (v: unknown): Record<string, unknown> =>
     v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
 
@@ -760,7 +778,7 @@ export function buildLoopSpanNodes(
           'tangle.loop.move.round': roundIdx,
           'tangle.loop.move.width': num(p.plannedCount) ?? 0,
         }
-        const r = str(p.rationale)
+        const r = strRedacted(p.rationale)
         if (r) attrs['tangle.loop.move.rationale'] = r
         const parent = num(p.parentIndex)
         if (parent !== undefined) attrs['tangle.loop.move.parent_index'] = parent
@@ -795,7 +813,7 @@ export function buildLoopSpanNodes(
       case 'loop.iteration.ended': {
         const idx = num(p.iterationIndex) ?? 0
         const start = iterStartTs.get(idx) ?? e.timestamp
-        const err = str(p.error)
+        const err = strRedacted(p.error)
         const attrs: Record<string, string | number | boolean> = {
           [GEN_AI.operation]: 'invoke_agent',
           'tangle.loop.iteration.index': idx,
@@ -824,7 +842,7 @@ export function buildLoopSpanNodes(
         if (par !== undefined) attrs['tangle.loop.iteration.parent_index'] = par
         const dur = num(p.durationMs)
         if (dur !== undefined) attrs['tangle.loop.iteration.duration_ms'] = dur
-        const preview = str(p.outputPreview)
+        const preview = strRedacted(p.outputPreview)
         if (preview) attrs['tangle.loop.iteration.output_preview'] = preview
         Object.assign(attrs, placementByIdx.get(idx) ?? {})
         out.push(
@@ -843,7 +861,7 @@ export function buildLoopSpanNodes(
       }
       case 'loop.decision': {
         if (pendingRound) {
-          const dec = str(p.decision)
+          const dec = strRedacted(p.decision)
           if (dec) pendingRound.attrs['tangle.loop.decision'] = dec
           flushRound(e.timestamp)
         }

@@ -1,4 +1,4 @@
-## 0.274.0
+## 0.275.0
 
 A declared check reads the run's state and may run containers, and the question panel reads the
 run's own traces. Together these let a record judge a Terminal-Bench task in the run: the task is
@@ -25,6 +25,13 @@ done when its container holds the right files, and the task's own verifier runs 
   one trace per agent named by its node id. A panel could read the director's stream before, but
   no worker's trace, which only Runtime's blob store holds. With no span yet, the panel is not
   asked, and the continuation's `panel.unavailable` says why.
+
+## 0.274.0
+
+`buildLoopOtelSpans` and `buildLoopSpanNodes` take the run's redactor and apply it to every free-text loop node attribute (rationale, decision, error and output preview).
+Their exported signatures changed, so this is a minor release.
+Before it, `exportRunRecord` redacted a run's input, output and runtime events but exported loop-topology spans with raw model and customer text, including credentials.
+A caller that builds loop spans itself should pass the same redactor it uses for `tangle.input` and `tangle.output`.
 
 ## 0.273.5
 
