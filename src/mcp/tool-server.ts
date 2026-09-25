@@ -33,7 +33,12 @@ export const PROTOCOL_VERSION = '2024-11-05'
  * the client's requested version when it is listed here, and otherwise with
  * `PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
  */
-export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = ['2025-11-25', '2025-06-18', '2025-03-26', PROTOCOL_VERSION]
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
+  '2025-11-25',
+  '2025-06-18',
+  '2025-03-26',
+  PROTOCOL_VERSION,
+]
 
 /** @experimental */
 export interface StdioToolServerOptions {
@@ -75,7 +80,8 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
       return rpcError(message.id ?? null, -32099, 'server stopped')
     }
     if (message.method === 'initialize') {
-      const requested = (message.params as { protocolVersion?: unknown } | undefined)?.protocolVersion
+      const requested = (message.params as { protocolVersion?: unknown } | undefined)
+        ?.protocolVersion
       return rpcResult(message.id ?? null, {
         protocolVersion:
           typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
