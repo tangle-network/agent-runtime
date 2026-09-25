@@ -51,6 +51,12 @@ export interface InMemoryRunContextOptions {
  * The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
  */
 export interface InMemoryRunContext {
+  /** SQL contexts bind all stores and ownership to this durable run identity. */
+  readonly runId?: string
+  readonly namespace?: string
+  readonly durability?: 'sql'
+  /** Present only on an unacquired context. An acquired context cannot reacquire itself. */
+  readonly acquire?: (signal?: AbortSignal) => Promise<RunContextLease>
   readonly journal: SpawnJournal
   readonly blobs: ResultBlobStore
   readonly executors: ExecutorRegistry
@@ -73,6 +79,33 @@ export interface InMemoryRunContext {
 /** The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the
  *  historical name for the same shape. */
 export type RunContext = InMemoryRunContext
+
+/** An immutable capability for one run ownership generation. */
+export interface RunContextLease {
+  readonly context: RunContext
+  readonly signal: AbortSignal
+  release(): Promise<void>
+}
+
+/** Hold a run context's ownership (when it has any) across the whole run, releasing after. */
+export async function withRunContext<T>(
+  context: RunContext,
+  signal: AbortSignal | undefined,
+  run: (context: RunContext, signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+  if (context.acquire === undefined) return run(context, signal)
+  const lease = await context.acquire(signal)
+  try {
+    const result = await run(
+      lease.context,
+      signal === undefined ? lease.signal : AbortSignal.any([signal, lease.signal]),
+    )
+    lease.signal.throwIfAborted()
+    return result
+  } finally {
+    await lease.release()
+  }
+}
 
 /**
  * Build a fresh in-memory run context. Every call returns NEW stores (no shared global

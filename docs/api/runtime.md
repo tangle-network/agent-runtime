@@ -523,6 +523,36 @@ writes never loses an acknowledged event.
 
 ***
 
+### SqlRunOwnershipError
+
+Refuses a competing or stale SQL run owner before it can publish new work.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlRunOwnershipError**(`message`): [`SqlRunOwnershipError`](#sqlrunownershiperror)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### Returns
+
+[`SqlRunOwnershipError`](#sqlrunownershiperror)
+
+###### Overrides
+
+`Error.constructor`
+
+***
+
 ### HarvestError
 
 The completed batch evidence remains available even when every analysis failed.
@@ -16065,6 +16095,16 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 [`AuthorizedDownMessage`](#authorizeddownmessage)
 
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`runContext`](#runcontext-2)
+
 ##### rootHandle?
 
 > `readonly` `optional` **rootHandle?**: [`RootHandle`](#roothandle-2)\<`unknown`\>
@@ -16085,7 +16125,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-22)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-23)
 
 ##### execution?
 
@@ -16680,7 +16720,7 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-7)
+[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-8)
 
 ##### steerDir?
 
@@ -18591,6 +18631,10 @@ Always `true` — a SQL context is durable by construction, so runs resume-first
 
 Options for a supervised run context.
 
+#### Extended by
+
+- [`SqlRunContextOptions`](#sqlruncontextoptions)
+
 #### Properties
 
 ##### withDriver?
@@ -18610,6 +18654,36 @@ The bundle of stores a supervised run needs, shaped to spread into `SupervisorOp
 The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 
 #### Properties
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+SQL contexts bind all stores and ownership to this durable run identity.
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+##### durability?
+
+> `readonly` `optional` **durability?**: `"sql"`
+
+##### acquire?
+
+> `readonly` `optional` **acquire?**: (`signal?`) => `Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+Present only on an unacquired context. An acquired context cannot reacquire itself.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RunContextLease`](#runcontextlease)\>
 
 ##### journal
 
@@ -18640,6 +18714,32 @@ findings, answer decisions, and authorized continuation receipts that the spawn 
 not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
 Continuation receipts are evidence and are never auto-delivered to a replacement worker.
 In-memory contexts have none: nothing outlives the process.
+
+***
+
+### RunContextLease
+
+An immutable capability for one run ownership generation.
+
+#### Properties
+
+##### context
+
+> `readonly` **context**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+#### Methods
+
+##### release()
+
+> **release**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ***
 
@@ -20137,6 +20237,165 @@ Prior committed spend summed off the journal (settled child work + metered infer
 
 ***
 
+### SqlRunContextOptions
+
+Options for a supervised run context.
+
+#### Extends
+
+- [`InMemoryRunContextOptions`](#inmemoryruncontextoptions)
+
+#### Properties
+
+##### tablePrefix?
+
+> `readonly` `optional` **tablePrefix?**: `string`
+
+###### Inherited from
+
+`SqlRunStoreOptions.tablePrefix`
+
+##### leaseMs?
+
+> `readonly` `optional` **leaseMs?**: `number`
+
+###### Inherited from
+
+`SqlRunStoreOptions.leaseMs`
+
+##### heartbeatMs?
+
+> `readonly` `optional` **heartbeatMs?**: `number`
+
+###### Inherited from
+
+`SqlRunStoreOptions.heartbeatMs`
+
+##### withDriver?
+
+> `readonly` `optional` **withDriver?**: `boolean`
+
+Wrap the executor registry with `withDriverExecutor` so a child constructed by `driverChild`
+resolves to the recursive driver-executor (agents driving agents
+over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
+leaf workers. Default `false`.
+
+###### Inherited from
+
+[`InMemoryRunContextOptions`](#inmemoryruncontextoptions).[`withDriver`](#withdriver)
+
+***
+
+### FencedSqlRunContext
+
+A `RunContext` bound to one fenced SQL ownership generation; read-only until acquired.
+
+#### Extends
+
+- [`RunContext`](#runcontext-1)
+
+#### Properties
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+###### Inherited from
+
+`RunContext.namespace`
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+###### Inherited from
+
+`RunContext.journal`
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+###### Inherited from
+
+`RunContext.blobs`
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+###### Inherited from
+
+`RunContext.executors`
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
+context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
+leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
+
+###### Inherited from
+
+`RunContext.resume`
+
+##### coordinationLog?
+
+> `readonly` `optional` **coordinationLog?**: [`CoordinationLog`](#coordinationlog)
+
+Present only on a DURABLE context: the coordination side-log stores questions, analyst
+findings, answer decisions, and authorized continuation receipts that the spawn journal does
+not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
+Continuation receipts are evidence and are never auto-delivered to a replacement worker.
+In-memory contexts have none: nothing outlives the process.
+
+###### Inherited from
+
+`RunContext.coordinationLog`
+
+##### durability
+
+> `readonly` **durability**: `"sql"`
+
+###### Overrides
+
+`RunContext.durability`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+SQL contexts bind all stores and ownership to this durable run identity.
+
+###### Overrides
+
+`RunContext.runId`
+
+#### Methods
+
+##### acquire()
+
+> **acquire**(`signal?`): `Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+Present only on an unacquired context. An acquired context cannot reacquire itself.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+###### Overrides
+
+`RunContext.acquire`
+
+***
+
 ### ProgressSample
 
 One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own
@@ -20539,6 +20798,12 @@ readonly `string`[]
 - [`SuperviseTestOptions`](testing.md#supervisetestoptions)
 
 #### Properties
+
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
 
 ##### budget
 
@@ -21666,7 +21931,7 @@ in code (see [CoordinationVerbs](#coordinationverbs)).
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-20)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-22)
 
 ##### runNamespace
 
@@ -24762,6 +25027,26 @@ recovery; `appendEvent` runs only AFTER the event is observed-committed (never s
 
 `Promise`\<`void`\>
 
+##### appendEvents()?
+
+> `optional` **appendEvents**(`root`, `events`): `Promise`\<`void`\>
+
+Publish all events together or none; SQL contexts use this for initialization records.
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### events
+
+readonly [`SpawnEvent`](#spawnevent)[]
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ***
 
 ### ResultBlobStore
@@ -25426,7 +25711,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-28)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-29)
 
 ##### abort()
 
@@ -38408,6 +38693,38 @@ Build a durable run context over one SQL statement seam. Tables are created on f
 
 ***
 
+### withRunContext()
+
+> **withRunContext**\<`T`\>(`context`, `signal`, `run`): `Promise`\<`T`\>
+
+Hold a run context's ownership (when it has any) across the whole run, releasing after.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### context
+
+[`InMemoryRunContext`](#inmemoryruncontext)
+
+##### signal
+
+`AbortSignal` \| `undefined`
+
+##### run
+
+(`context`, `signal`) => `Promise`\<`T`\>
+
+#### Returns
+
+`Promise`\<`T`\>
+
+***
+
 ### createInMemoryRunContext()
 
 > **createInMemoryRunContext**(`opts?`): [`InMemoryRunContext`](#inmemoryruncontext)
@@ -39261,6 +39578,40 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 #### Returns
 
 [`Iteration`](#iteration-1)\<`unknown`, `Out`\>
+
+***
+
+### createFencedSqlRunContext()
+
+> **createFencedSqlRunContext**(`db`, `runId`, `options?`): `Promise`\<[`FencedSqlRunContext`](#fencedsqlruncontext)\>
+
+**`Experimental`**
+
+A cross-machine run context on the existing autocommit SqlAdapter. Reuse the same database,
+tablePrefix and runId on every host; no runDir or shared filesystem is required.
+
+Each ownership generation gets fresh store capabilities. The public context can inspect SQL
+at any time, but cannot write without acquire(). runGraph/supervise acquire and release it.
+Retained provider execution supplies external admission/result idempotency; SQL does not turn
+an arbitrary unkeyed network effect into an exactly-once operation.
+
+#### Parameters
+
+##### db
+
+[`SqlAdapter`](index.md#sqladapter)
+
+##### runId
+
+`string`
+
+##### options?
+
+[`SqlRunContextOptions`](#sqlruncontextoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`FencedSqlRunContext`](#fencedsqlruncontext)\>
 
 ***
 
@@ -40421,7 +40772,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-31), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-32), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

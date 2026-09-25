@@ -30,7 +30,7 @@ import {
   type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import { closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
+import { appendSpawnEvents, closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import {
@@ -1453,27 +1453,30 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         : args.blobs
             .put(profileRef, spec.profile)
             .then(() => (taskRef === undefined ? undefined : args.blobs.put(taskRef, task)))
-            .then(() =>
-              args.journal.appendEvent(args.root, {
-                kind: 'spawned',
-                id,
-                parent: args.parentId,
-                label: opts.label,
-                ...(opts.key !== undefined ? { key: opts.key } : {}),
-                ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-                ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
-                budget: opts.budget,
-                runtime: executor.runtime,
-                ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-                ...(identity ? { identity } : {}),
-                profileRef,
-                seq: ordinal,
-                at: new Date(now()).toISOString(),
-              }),
-            )
             .then(async () => {
+              // The spawn record and its execution input publish as ONE grouped record where the
+              // store supports it, so a SQL context's fenced head advances once per spawn — a crash
+              // between the two can never leave a spawned node whose task bytes are unreferenced.
+              const events: SpawnEvent[] = [
+                {
+                  kind: 'spawned',
+                  id,
+                  parent: args.parentId,
+                  label: opts.label,
+                  ...(opts.key !== undefined ? { key: opts.key } : {}),
+                  ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+                  ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
+                  budget: opts.budget,
+                  runtime: executor.runtime,
+                  ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+                  ...(identity ? { identity } : {}),
+                  profileRef,
+                  seq: ordinal,
+                  at: new Date(now()).toISOString(),
+                },
+              ]
               if (taskRef !== undefined) {
-                await args.journal.appendEvent(args.root, {
+                events.push({
                   kind: 'execution-input',
                   id,
                   taskRef,
@@ -1481,6 +1484,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   at: new Date(now()).toISOString(),
                 })
               }
+              await appendSpawnEvents(args.journal, args.root, events)
             })
             .then(async () => {
               // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
