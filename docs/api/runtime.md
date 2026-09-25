@@ -34714,11 +34714,10 @@ systemPrompt + model reach the harness via §1.5.
 
 ### DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS
 
-> `const` **DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS**: `0` = `0`
+> `const` **DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS**: `24` = `24`
 
-Default ceiling on continuation turns: `0`, no count. Turn 0 is the task and every later turn
- is a folded steer; each turn is metered against the worker's budget slice, which with the run
- deadline and cancellation bounds how often a supervisor may redirect one worker.
+Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
+ this bounds how many times a supervisor may redirect ONE worker before it must respawn.
 
 ***
 
