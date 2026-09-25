@@ -3797,6 +3797,16 @@ Bound on one read. Default 15 minutes.
 
 > `readonly` `optional` **resources?**: `SandboxResources`
 
+The check box's size. With `containers`, `diskGB` sizes the disk that holds the images.
+
+##### containers?
+
+> `readonly` `optional` **containers?**: `boolean`
+
+The program runs containers, as a benchmark's own verifier does. The check box then runs a
+rootless container daemon, whose socket is `/run/user/<uid>/docker.sock` once it starts, and its
+home is on a disk rather than in memory. Absent: neither, and the box starts faster.
+
 ***
 
 ### DeclaredCheckPlacement
@@ -5336,6 +5346,15 @@ Sandbox environment or image that holds the check's toolchain.
 
 Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
  box's egress is blocked. Otherwise strict: these domains only, with no implicit list.
+
+##### containers?
+
+> `optional` **containers?**: `boolean`
+
+The check runs containers. Sandbox starts a box's rootless container daemon only with its
+managed agent runtime, so this box is created with `agent: true`; it still receives no owner
+secret, which its create receipt must confirm. It is not `ephemeral`, so its home is a disk
+sized by `resources.diskGB` instead of a small in-memory home that image layers overflow.
 
 ***
 
@@ -14859,17 +14878,19 @@ Every check read so far, oldest first.
 
 The expanded questions, one per atomic question.
 
-##### rootStreamPath?
+##### traces
 
-> `readonly` `optional` **rootStreamPath?**: `string`
+> `readonly` **traces**: `TraceAnalysisStore`
 
-`<runDir>/root-stream.jsonl`, the director's own trace, when the run has a directory.
+The run's own traces, one per agent and named by its node id: the manager's root stream, when
+it is the root, and each settled worker's tool trace (`./run-traces.ts`). The panel runs only
+when the run has recorded a span.
 
 ##### workers
 
 > `readonly` **workers**: readonly `object`[]
 
-Settled workers, with the evidence reference their trace is read from.
+Settled workers; each one's trace in `traces` is named by its `id`.
 
 ##### bar?
 
@@ -15200,6 +15221,12 @@ The panel's part: questions asked, findings admitted, dollars (`null` = unknown)
 ###### usd
 
 > `readonly` **usd**: `number` \| `null`
+
+###### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string`
+
+Why the panel asked nothing this time, when it could not run.
 
 ##### appended
 
@@ -23291,7 +23318,7 @@ Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
 
 > `readonly` `optional` **rootStreamPath?**: `string`
 
-The root manager's `root-stream.jsonl`, which the question panel reads.
+The root manager's `root-stream.jsonl`; the question panel reads it as the director's trace.
 
 ##### nodeContext?
 
