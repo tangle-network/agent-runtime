@@ -1,3 +1,9 @@
+## 0.274.1
+
+Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
+Runtime's own imports from `agent-eval` (MCP tool annotations, redaction core) are unchanged across that range; a scan of every `@tangle-network/agent-eval` import against 0.193.1 finds nothing missing.
+`agent-knowledge` needs the matching bump (its own peer range capped at `<0.191.0` too) to actually install alongside; see its 17.1.6 release.
+
 ## 0.274.0
 
 `buildLoopOtelSpans` and `buildLoopSpanNodes` take the run's redactor and apply it to every free-text loop node attribute (rationale, decision, error and output preview).
