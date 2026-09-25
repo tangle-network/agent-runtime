@@ -163,41 +163,51 @@ test goes red — which is exactly the moment a per-runDir shared watcher become
 For local verification on a loaded shared host, `npx vitest run --maxWorkers=4` stays
 deterministic; idle CI runners are unaffected either way.
 
-## Verdict: keep and harden the own journal layer
+## Verdict (FINAL): keep and harden the own journal layer
 
 **Recommendation: keep the shipped journal layer and keep hardening it. Do not adopt
 Temporal/Restate/Cloudflare Workflows for the current product shape.**
 
-What is proven today (the evidence above, 94/94):
+What is proven, as of this writing — **119/119 green** (`pnpm run conformance:durability`;
+machine record: `results.json`):
 
-- Single-coordinator kill-and-resume works on every shipped durable backend: the file run context
-  (23/23 kill points incl. mid-step and mid-side-effect), session-backed workers through the
-  `recoverExecutor` recovery channel (23/23 — every session step exactly once across a real
-  SIGKILL), and the conversation layer on both `FileConversationJournal` and
-  `SqlConversationJournal` over real sqlite (18/18 each, plus halted-run replay).
-- The distributed-systems core the "adopt an engine" argument usually rests on is present and
-  pinned: exactly-once keyed side effects across process death, committed work never re-executed,
-  interrupted in-process work auto-retried under its own key, remote-class work recovered by
-  re-attachment, one clean root record per run across processes (the 2026-08-11 signature), and a
-  self-sufficient re-entry contract for directors (the 2026-09-16 fix, pinned).
-- Cost profile: resume is correct but the driver RE-DERIVES its plan from the resume brief (it
-  re-pays planning and reading, not work); the orchestration journal is single-host file-only; the
-  coordination layer is single-writer by design (the repo's own `docs/agent-managed-compute`
-  "Not implemented" table says so).
+- **Kill-and-resume works on every shipped durable backend, file AND SQL**: the file run context
+  (23/23 kill points incl. mid-step and mid-side-effect), the SQL run context over real sqlite
+  (`SqlSpawnJournal` + `SqlResultBlobStore`, 23/23 — the killed process resumes from the database
+  alone), session-backed workers through the `recoverExecutor` re-attach channel (23/23 — every
+  session step exactly once across a real SIGKILL), and the conversation layer on both
+  `FileConversationJournal` and `SqlConversationJournal` (18/18 each, plus halted-run replay);
+  the runDir regression locks (2) and the inotify budget invariant (1) close it out.
+- **The distributed-systems core the "adopt an engine" argument usually rests on is present and
+  pinned**: exactly-once keyed side effects across process death, committed work never
+  re-executed, interrupted in-process work auto-retried under its own key, remote-class work
+  recovered by re-attachment, one clean root record per run across processes (the 2026-08-11
+  signature, guarded), and a self-sufficient re-entry contract for directors (the 2026-09-16
+  fix, pinned as a case).
+- **The baseline this replaced**: the same suite at `6ef05994` (before the first fix) ran 28/70
+  red with 24 more cases un-runnable — the durability work moved 52 cases' worth of surface from
+  red-or-absent to proven.
+- Cost profile, honestly: resume is correct but the driver RE-DERIVES its plan from the resume
+  brief (it re-pays planning and reading, not work); coordination remains single-writer by
+  design; and the SQL arm proves process-kill durability (a deployment that must survive power
+  loss sets its driver's synchronous mode at the adapter).
 
 When to revisit — concrete triggers, not vibes:
 
-1. A product requirement for **multi-coordinator or automatic failover** (two writers on one run,
-   no operator/wrapper restart). That is exactly the fencing/leases problem engines solve.
-2. Orchestration durability that must live in **SQL or a remote store** (the conversation layer
-   already has `SqlConversationJournal`; the spawn layer would need an adapter — the seams
-   (`SpawnJournal`, `ResultBlobStore`, `recoverExecutor`) are interfaces, so an adapter is a
-   contained build, and that same interface boundary is also the migration path if an engine is
-   ever adopted underneath).
+1. **Multi-coordinator or automatic failover** (two writers on one run, no operator/wrapper
+   restart). That is exactly the fencing/leases problem engines solve, and it is not on the
+   current product path.
+2. ~~Orchestration durability in SQL~~ — **CLOSED** by the SQL run context (#1381): journal and
+   blobs run on any `SqlStatements` backend with the full matrix green. What remains open on SQL
+   is the coordination side-log (questions/findings/continuation receipts, still file-based) and
+   machine-visible cross-run ownership — neither needs an engine; both are contained builds
+   behind existing seams.
 3. **Durable timers/workflows across services** (events that must fire days later, workflows
    spanning multiple services' failures).
 
-None of these is on the current product path; until one is, an engine would add infrastructure
-and a second durability model to operate for capabilities this runtime now proves on its own
-evidence. The conformance suite is the gate that keeps that statement true: any regression on
-these axes turns the matrix red before it ships.
+None of the open triggers is on the current product path. Until one is, an engine would add
+infrastructure and a second durability model to operate for capabilities this runtime proves on
+its own evidence — and the seams (`SpawnJournal`, `ResultBlobStore`, `recoverExecutor`) are also
+the migration path if an engine is ever adopted underneath. The conformance suite is the gate
+that keeps that statement true: any regression on these axes turns the matrix red before it
+ships.
