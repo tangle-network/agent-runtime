@@ -8,6 +8,16 @@ It answers `initialize` with the client's requested protocol version when that v
 `McpToolDescriptor` gains an optional `annotations` field, and `/mcp` exports `McpToolAnnotations` and `SUPPORTED_PROTOCOL_VERSIONS`; no existing caller must change.
 The v0.270.0 tag never published, because #1386 merged before its publish run started; this release carries 0.267.0 through 0.270.0 as well.
 
+Exported spans declare their kind (`openinference.span.kind`), so a reader no longer counts one
+run's tokens three times. The run span `tangle.intelligence.run` carries the run's model and token
+total and is now `AGENT`; loop and round spans are `CHAIN`; iteration spans, which carry the
+iteration's token total, are `AGENT`; `gen_ai.client.inference` is `LLM`; tool call and result
+spans are `TOOL`. Measured on a real run (the real `runAgentRounds` kernel, two workers, one real
+router chat completion each, 46 provider-reported input tokens, exported through `withIntelligence`
+to a loopback collector): agent-eval 0.187.0 read 138 input tokens before (3.00x) and 46 after
+(1.00x). The contract classifier needs agent-trace-contract 1.1.0 to read the declaration on a
+flattened OTLP row.
+
 ## 0.270.0
 
 SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
