@@ -1814,6 +1814,14 @@ export interface SuperviseOptions {
    *  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
    *  This is the seam an offline test or a pinning layer (an agent graph) should use. */
   readonly makeLeafAgent?: MakeWorkerAgent
+  /** Reconstruct executors for interrupted children on resume, for a run that owns its worker
+   *  factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+   *  automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+   *  across a process boundary (a sandbox session, a CLI bridge session — an executor that
+   *  journals its admission through the retained seam) needs this for a resume to recover the
+   *  in-flight child instead of refusing its key `in-doubt`. The factory receives the
+   *  reconstructed spec and the child's journaled context, including its prior admissions. */
+  readonly recoverExecutor?: ExecutorFactory<unknown>
   /** Run harness-brained supervisors here. Automatic execution supports a local `bridge`, or a
    * provider advertising runtime MCP attachments with authenticated `coordination.publicUrl`.
    *  Defaults to `backend`; separate it when managers and workers use different services. */
@@ -2099,6 +2107,11 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+   * `blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+   * context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+   * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
+  readonly resume?: boolean
   /** Durable steer directory when it differs from the run-control directory. */
   readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
@@ -2250,6 +2263,7 @@ const superviseOptionKeys = [
   'rootHandle',
   'router',
   'runDir',
+  'resume',
   'runId',
   'signal',
   'stallAfterMs',
@@ -2262,6 +2276,7 @@ const superviseOptionKeys = [
   'workerRetry',
   'onWorkerRetry',
   'workerSlots',
+  'recoverExecutor',
 ] as const
 
 type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
@@ -2386,6 +2401,7 @@ const superviseExecutableOptionKeys = [
   'onProgressStop',
   'onUnmetContract',
   'onWorkerRetry',
+  'recoverExecutor',
   'resolveDeliverable',
   'resolveDriveHarness',
   'resolveSpawnProfile',
@@ -2485,6 +2501,8 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     analysts,
     makeWorkerAgent,
     makeLeafAgent,
+    recoverExecutor,
+    resume,
     resolveSpawnProfile,
     blobs,
     journal,
@@ -2625,9 +2643,11 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
     ...(makeLeafAgent === undefined ? {} : { makeLeafAgent }),
+    ...(recoverExecutor === undefined ? {} : { recoverExecutor }),
     ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
+    ...(resume === undefined ? {} : { resume }),
     // A number is decision data; a shared allocator is a live collaborator other runs also hold.
     ...(workerSlots === undefined ? {} : { workerSlots }),
     ...(probes === undefined ? {} : { probes }),
@@ -3780,8 +3800,11 @@ function superviseInternal(
       journal,
       blobs,
       executors: ctx.executors,
-      ...(recoveryFactories.get(workerFactory)
-        ? { recoverExecutor: recoveryFactories.get(workerFactory) }
+      // A caller-supplied recovery factory wins: it owns the worker seam (makeWorkerAgent /
+      // makeLeafAgent), so only it can reconstruct an interrupted child's executor. The derived
+      // registration below serves backend-built recursive managers, which no caller can name.
+      ...((options.recoverExecutor ?? recoveryFactories.get(workerFactory))
+        ? { recoverExecutor: options.recoverExecutor ?? recoveryFactories.get(workerFactory) }
         : {}),
       rootIdentity: rootExecution.identity,
       ...(rootOwnerRuntime === undefined
@@ -3808,7 +3831,9 @@ function superviseInternal(
       ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
       ...(probes ? { probes } : {}),
-      ...(ctx.resume === true ? { resume: true } : {}),
+      ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
+        ? { resume: true }
+        : {}),
       ...(options.now ? { now: options.now } : {}),
       signal: options.signal
         ? AbortSignal.any([options.signal, durableCancellation.signal])

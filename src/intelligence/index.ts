@@ -28,6 +28,7 @@ import {
   createOtelExporter,
   flatOtelSpan,
   type OtelExporter,
+  type OtelExportStats,
 } from '../otel-export'
 import { type Redactor, resolveRedactor } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
@@ -498,6 +499,12 @@ export interface IntelligenceClient {
   doctor(): DoctorReport
   /** Flush any pending export spans. Best-effort; resolves even if export fails. */
   flush(): Promise<void>
+  /**
+   * Delivery accounting for the spans this client sent: written, dropped, pending and the last
+   * error. `undefined` when no exporter exists (no tenant key). `flush()` stays best-effort, so
+   * this is where a caller checks that a run's telemetry actually reached Intelligence.
+   */
+  exportStats(): OtelExportStats | undefined
 }
 
 /** One mode's readiness verdict. */
@@ -897,8 +904,12 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       try {
         await ex.flush()
       } catch {
-        // Best-effort — a flush failure must not surface to the caller.
+        // Best-effort: the loss stays visible through exportStats().
       }
+    },
+
+    exportStats(): OtelExportStats | undefined {
+      return getExporter()?.stats()
     },
   }
 }

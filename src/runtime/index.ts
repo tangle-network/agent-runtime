@@ -37,6 +37,13 @@ export {
   type SpawnForestNode,
   type SpawnForestTree,
 } from '../durable/spawn-journal'
+// The SQL-backed durable stores — the same begin/append/load contract over the SqlStatements
+// seam SqlConversationJournal takes. @experimental (draft): single-writer by convention.
+export {
+  SqlResultBlobStore,
+  SqlSpawnJournal,
+  type SqlStatements,
+} from '../durable/spawn-journal-sql'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
@@ -957,6 +964,7 @@ export {
   type InMemoryRunContextOptions,
   type RunContext,
 } from './supervise/run-context'
+export { createSqlRunContext, type SqlRunContext } from './supervise/run-context-sql'
 // The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
 // published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
 // readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the

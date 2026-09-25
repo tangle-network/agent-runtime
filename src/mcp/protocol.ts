@@ -7,11 +7,30 @@
  * @experimental
  */
 
+/**
+ * MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads
+ * before calling, for example to run a read-only tool without confirmation.
+ * They describe the tool; they do not enforce anything. @experimental
+ */
+export interface McpToolAnnotations {
+  title?: string
+  /** The tool does not modify its environment. */
+  readOnlyHint?: boolean
+  /** The tool may perform destructive updates. Meaningful only when not read-only. */
+  destructiveHint?: boolean
+  /** Repeating a call with the same arguments has no additional effect. */
+  idempotentHint?: boolean
+  /** The tool may reach entities outside its own data, such as the web. */
+  openWorldHint?: boolean
+}
+
 /** A callable MCP tool exposed by either stdio server. @experimental */
 export interface McpToolDescriptor {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** Published in `tools/list` when present. */
+  annotations?: McpToolAnnotations
   handler: (raw: unknown) => Promise<unknown>
 }
 

@@ -425,6 +425,49 @@ describe('projectPursuit', () => {
     expect(plain).not.toHaveProperty('releasedAt')
   })
 
+  it('folds a retained child a final settlement closed unconfirmed, as it folds a released one', () => {
+    const floor = spend(7, 3, 0, { tokensKnown: false, usdKnown: false })
+    const childEvent = (
+      id: string,
+      timestamp: number,
+      payload: Record<string, unknown>,
+    ): Parameters<typeof chain>[0][number] => ({
+      kind: 'event',
+      event: {
+        id,
+        pursuitId: 'pursuit:test',
+        runId: 'run:retained',
+        target: 'agent.child',
+        phase: 'after',
+        timestamp,
+        parentId: 'run:retained',
+        payload: { childId: 'root:s0', status: 'down', ...payload },
+      },
+    })
+    const view = projectPursuit(
+      chain([
+        spawn('run:retained', 'root:s0', 'run:retained', 'retained'),
+        childEvent('root:s0:settled', 2, {
+          retainedExecution: 'pending',
+          settledAt: 2,
+          spent: floor,
+        }),
+        childEvent('root:s0:release-unconfirmed', 9, {
+          retainedExecution: 'release-unconfirmed',
+          releasedAt: 9,
+          settledAt: 2,
+          spent: floor,
+        }),
+      ]),
+    )
+    expect(view.nodes.find((entry) => entry.id === 'root:s0')).toMatchObject({
+      status: 'down',
+      retainedExecution: 'release-unconfirmed',
+      settledAt: 2,
+      releasedAt: 9,
+    })
+  })
+
   it('keeps a reported, estimated, partly-priced and unpriced cost distinguishable', () => {
     const view = projectPursuit(
       chain([

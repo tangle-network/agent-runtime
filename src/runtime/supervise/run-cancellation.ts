@@ -44,6 +44,7 @@ export function applyRunCancellation(
 export function watchRunCancellation(
   dir: string,
   abortRun: (reason: string, request?: RunCancelRequest) => void,
+  createWatch: typeof watch = watch,
 ) {
   mkdirSync(workerCancellationsDir(dir), { recursive: true })
   let active = true
@@ -57,16 +58,29 @@ export function watchRunCancellation(
     failure = error
     abortRun(`durable run cancellation observer failed: ${String(error)}`)
   }
-  const watcher = watch(workerCancellationsDir(dir), (_event, filename) => {
-    if (!active || (filename !== null && filename !== 'run.request.json')) return
-    try {
-      check()
-    } catch (error) {
-      fail(error)
-    }
-  })
-  watcher.on('error', fail)
-  // Filesystem notifications are advisory. Scan the same durable inbox when one is dropped.
+  // The watcher is an optimization over the poll loop below (instant pickup instead of ≤100 ms).
+  // Creating it can fail for reasons that say NOTHING about this run: the host's inotify budget is
+  // exhausted (EMFILE — a shared box with many agents held ~110 of the 128 default user instances
+  // when this was measured), or the kernel caps watches (ENOSPC). Degrading to poll-only keeps
+  // every durable behavior; failing the run would make a neighboring process's resource use kill
+  // runs that never touched the limit. Any other creation error still fails loudly.
+  let watcher: ReturnType<typeof watch> | undefined
+  try {
+    watcher = createWatch(workerCancellationsDir(dir), (_event, filename) => {
+      if (!active || (filename !== null && filename !== 'run.request.json')) return
+      try {
+        check()
+      } catch (error) {
+        fail(error)
+      }
+    })
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'EMFILE' && code !== 'ENOSPC') throw error
+  }
+  watcher?.on('error', fail)
+  // Filesystem notifications are advisory. Scan the same durable inbox when one is dropped —
+  // and carry the whole observer alone whenever the watcher above could not be created.
   const fallback = setInterval(() => {
     try {
       check('fallback')
@@ -79,7 +93,7 @@ export function watchRunCancellation(
     check,
     close(): void {
       active = false
-      watcher.close()
+      watcher?.close()
       clearInterval(fallback)
     },
   }

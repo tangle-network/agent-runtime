@@ -4,6 +4,7 @@ import {
   type AgentProfile,
   type AgentProfileResourceRef,
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
@@ -317,7 +318,7 @@ export function createProfileCandidateMaterializer(
       skills,
       profileComponents,
     )
-    if (canonicalCandidateDigest(reappliedBaseline) !== canonicalCandidateDigest(profile)) {
+    if (canonicalAgentProfileDigest(reappliedBaseline) !== canonicalAgentProfileDigest(profile)) {
       throw new ConfigError(
         'improve(): profileComponents.apply(profile, profileComponents.read(profile)) must reproduce the complete baseline profile exactly',
       )

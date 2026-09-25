@@ -132,6 +132,7 @@ export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-too
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
+  McpToolAnnotations,
   McpToolDescriptor,
   McpTransport,
 } from './protocol'
@@ -152,6 +153,7 @@ export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
 // The generic stdio JSON-RPC core every in-repo MCP server serves on.
 export {
   createStdioToolServer,
+  SUPPORTED_PROTOCOL_VERSIONS,
   type StdioToolServer,
   type StdioToolServerOptions,
 } from './tool-server'

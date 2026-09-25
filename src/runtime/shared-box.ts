@@ -43,6 +43,7 @@ import { randomUUID } from 'node:crypto'
 import {
   type AgentProfile,
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
@@ -772,6 +773,8 @@ async function createWorker(
     const timeoutMs = options?.timeoutMs ?? 0
     const turnDeadline = timeoutMs > 0 ? Date.now() + timeoutMs : undefined
     let sessionId: string | undefined
+    // Every harness subagent any run of this turn started, a run the provider refused included.
+    const subagents = new Set<string>()
     let refusalsInARow = 0
     let prompt = message
     for (let invocation = 1; ; invocation += 1) {
@@ -811,6 +814,7 @@ async function createWorker(
         running = undefined
       }
       sessionId = parsed.sessionId() ?? sessionId
+      for (const child of parsed.subagentSessionIds()) subagents.add(child)
       const failure = parsed.failure(exitCode, errorText)
       const refusal =
         failure === undefined || unavailablePause === false || signal?.aborted
@@ -828,6 +832,11 @@ async function createWorker(
         (turnDeadline !== undefined && Date.now() + pauseMs >= turnDeadline)
       ) {
         if (sessionId !== undefined) await exportSession(run, collect, paths, sessionId)
+        // Each harness subagent ran in a session of its own, which the parent's export does not
+        // hold: without these, its steps are in no record (#1264).
+        for (const child of subagents) {
+          if (child !== sessionId) await exportSession(run, collect, paths, child)
+        }
         signal?.throwIfAborted()
         yield* parsed.finish(exitCode, errorText, invocation)
         return
@@ -862,7 +871,7 @@ async function createWorker(
           ? createProfile
           : agentProfileSchema.parse(options.backend.profile)
       if (
-        canonicalCandidateDigest(turnProfile) !== canonicalCandidateDigest(createProfile) &&
+        canonicalAgentProfileDigest(turnProfile) !== canonicalAgentProfileDigest(createProfile) &&
         sharedBoxRefusal(turnProfile) !== undefined
       ) {
         throw new ValidationError(`sharedBoxPlacement: ${sharedBoxRefusal(turnProfile)}`)
@@ -1116,7 +1125,7 @@ async function exportSession(
   paths: WorkerPaths,
   sessionId: string,
 ): Promise<void> {
-  if (!/^[A-Za-z0-9_-]+$/u.test(sessionId)) return
+  if (!SESSION_ID.test(sessionId)) return
   const target = `${paths.home}/.local/share/opencode/export/${sessionId}.json`
   const process = await run(
     [
@@ -1130,6 +1139,36 @@ async function exportSession(
     DEFAULT_EXEC_TIMEOUT_MS,
   )
   await collect(process)
+}
+
+const SESSION_ID = /^[A-Za-z0-9_-]+$/u
+
+/** A subagent's session id in a `task` result (`<task id="ses_…">`) or failure (`task_id: ses_…`). */
+const TASK_SESSION = /(?:<task id="|task_id: )(ses_[A-Za-z0-9]+)/u
+
+/**
+ * The session a harness subagent ran in, named by its parent's `task` tool part.
+ *
+ * opencode starts each subagent in a child session and refuses a nested one unless the
+ * configuration raises `subagent_depth` above 1, so under the default the parent's parts name
+ * every subagent session. A running part carries the id in `state.metadata.sessionId`; a finished
+ * one also carries it in its output, and a failed one in its error.
+ */
+function subagentSessionOf(part: Record<string, unknown>): string | undefined {
+  if (part.type !== 'tool' || part.tool !== 'task') return undefined
+  const state = part.state
+  if (state === undefined || state === null || typeof state !== 'object') return undefined
+  const { metadata, output, error } = state as Record<string, unknown>
+  const named =
+    metadata !== null && typeof metadata === 'object'
+      ? (metadata as Record<string, unknown>).sessionId
+      : undefined
+  if (typeof named === 'string' && SESSION_ID.test(named)) return named
+  for (const text of [output, error]) {
+    const match = typeof text === 'string' ? TASK_SESSION.exec(text) : null
+    if (match !== null) return match[1]
+  }
+  return undefined
 }
 
 // ── opencode `run --format json` to the Sandbox event wire ──────────────────────────────────
@@ -1154,6 +1193,7 @@ function createOpencodeEventParser(model: string) {
   let sessionId: string | undefined
   let finalMessageId: string | undefined
   const textByMessage = new Map<string, string[]>()
+  const subagentSessions = new Set<string>()
   const errors: string[] = []
   let malformed = 0
   let spentTokens = false
@@ -1168,6 +1208,7 @@ function createOpencodeEventParser(model: string) {
   }
   return {
     sessionId: () => sessionId,
+    subagentSessionIds: (): readonly string[] => [...subagentSessions],
     /** Why this run failed, or `undefined` when it answered. */
     failure: failureOf,
     /** Whether this run spent any model tokens before it ended. */
@@ -1189,6 +1230,8 @@ function createOpencodeEventParser(model: string) {
       }
       const part = event.part
       if (part === undefined || part === null || typeof part !== 'object') return
+      const subagent = subagentSessionOf(part)
+      if (subagent !== undefined) subagentSessions.add(subagent)
       yield { type: 'message.part.updated', data: { part } } as unknown as SandboxEvent
       const messageId = typeof part.messageID === 'string' ? part.messageID : undefined
       if (part.type === 'text' && messageId !== undefined && typeof part.text === 'string') {

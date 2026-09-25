@@ -1042,7 +1042,8 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 > `readonly` `optional` **retainedExecution?**: [`RetainedExecutionState`](runtime.md#retainedexecutionstate)
 
 Recorded by Runtime on the `agent.child` payload: `'pending'` at a retained child's
- settlement, `'released'` when root settlement destroyed its environment without recovery.
+ settlement, `'released'` when root settlement destroyed its environment without recovery,
+ `'release-unconfirmed'` when a final settlement closed its slot without confirming that.
  The status stays `down` — the split is a sibling fact, not a fourth status. A second
  `agent.child` for one node is already how a live-recovered child flips down→done, so the
  fold overwrites in observed order; that event's `settledAt` is the original settlement, so
@@ -1058,7 +1059,7 @@ Why a retained child has no accepted result; see `RetainedPendingCause`.
 
 > `readonly` `optional` **releasedAt?**: `number`
 
-When the release sweep closed a retained node's slot; absent unless `'released'`.
+When a final settlement closed a retained node's slot; absent while it is `'pending'`.
 
 ##### budgetViolation?
 
@@ -2091,6 +2092,22 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`makeLeafAgent`](runtime.md#makeleafagent-1)
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-1)
+
 ##### driverBackend?
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](runtime.md#executorconfig)
@@ -2710,7 +2727,20 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-6)
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
 
 ##### steerDir?
 
@@ -2731,7 +2761,7 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-5)
 
 ##### probes?
 

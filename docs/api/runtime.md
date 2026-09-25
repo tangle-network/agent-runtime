@@ -15,6 +15,190 @@ concurrency, abort, cost aggregation, and trace emission.
 
 ## Classes
 
+### SqlSpawnJournal
+
+SQL-backed `SpawnJournal`. One row per event; insertion order is replay order.
+
+#### Implements
+
+- [`SpawnJournal`](#spawnjournal)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlSpawnJournal**(`db`, `table?`): [`SqlSpawnJournal`](#sqlspawnjournal)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_spawn_journal'`
+
+###### Returns
+
+[`SqlSpawnJournal`](#sqlspawnjournal)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+Create the journal's tables if absent. Idempotent.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### loadTree()
+
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
+
+##### beginTree()
+
+> **beginTree**(`root`, `at`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
+
+##### appendEvent()
+
+> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### ev
+
+[`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+
+***
+
+### SqlResultBlobStore
+
+SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
+
+#### Implements
+
+- [`ResultBlobStore`](#resultblobstore)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlResultBlobStore**(`db`, `table?`): [`SqlResultBlobStore`](#sqlresultblobstore)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_result_blobs'`
+
+###### Returns
+
+[`SqlResultBlobStore`](#sqlresultblobstore)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### put()
+
+> **put**(`outRef`, `artifact`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### artifact
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+
+##### get()
+
+> **get**(`outRef`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+
+***
+
 ### InMemoryResultBlobStore
 
 **`Stable`**
@@ -59,7 +243,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -77,7 +261,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -131,7 +315,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -149,7 +333,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -195,7 +379,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -217,7 +401,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -239,7 +423,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
 
 ***
 
@@ -291,7 +475,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -313,7 +497,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -335,7 +519,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
 
 ***
 
@@ -503,7 +687,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -580,7 +764,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -971,6 +1155,60 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 
 ## Interfaces
 
+### SqlStatements
+
+The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts.
+
+#### Methods
+
+##### exec()
+
+> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+Execute a write statement (INSERT/UPDATE/DELETE/DDL).
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+##### query()
+
+> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
+
+Execute a read statement (SELECT). Returns rows as plain objects.
+
+###### Type Parameters
+
+###### TRow
+
+`TRow` = `Record`\<`string`, `unknown`\>
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<`TRow`[]\>
+
+***
+
 ### SpawnForestTree
 
 One journal tree in a recursively loaded supervision forest.
@@ -1226,10 +1464,10 @@ Present once a settled node's measured spend exceeded its reservation.
 
 > `readonly` `optional` **retainedExecution?**: [`RetainedExecutionState`](#retainedexecutionstate)
 
-Present on a retained child: `'pending'` while its cursor slot is open, `'released'` once
- the release sweep closed it. The live view (`makeTreeView`) and the journal view
- (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
- retained-vs-down question without the observer journal.
+Present on a retained child: `'pending'` while its cursor slot is open, `'released'` or
+ `'release-unconfirmed'` once a final settlement closed it. The live view (`makeTreeView`)
+ and the journal view (`materializeTreeView`) state the same fact, so a settle record's
+ `tree` answers the retained-vs-down question without the observer journal.
 
 ###### Inherited from
 
@@ -15918,6 +16156,22 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 
 [`SuperviseOptions`](#superviseoptions).[`peerMail`](#peermail-1)
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`recoverExecutor`](#recoverexecutor-1)
+
 ##### profileSecurity?
 
 > `readonly` `optional` **profileSecurity?**: `AgentProfileSecurityPolicy`
@@ -16414,6 +16668,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`runDir`](#rundir-2)
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-7)
 
 ##### steerDir?
 
@@ -18293,6 +18560,30 @@ What the completion check requires, when the caller described it.
 > `readonly` **attempt**: `number`
 
 1-based driver attempt this task starts.
+
+***
+
+### SqlRunContext
+
+#### Properties
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+##### resume
+
+> `readonly` **resume**: `true`
+
+Always `true` — a SQL context is durable by construction, so runs resume-first.
 
 ***
 
@@ -20365,6 +20656,18 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
  This is the seam an offline test or a pinning layer (an agent graph) should use.
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
 ##### driverBackend?
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](#executorconfig)
@@ -20883,6 +21186,15 @@ exact prior execution is recovered, so restart cannot duplicate work or slide th
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
 ##### steerDir?
 
@@ -23557,10 +23869,14 @@ Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
 idempotent per key: once a child spawned under a key settles `done` — in this process or in a
 journaled prior one — spawning the same key returns that committed result (`prior.state:
 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
-journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
-still exist and must be recovered before replacement. A key that is currently LIVE is refused
-(`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
+spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
+`down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
+its process — so a worker killed mid-flight under a plain in-process executor retries under
+its own key instead of wedging. A key whose un-settled prior attempt may still exist
+elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
+may still be running and must be recovered before replacement. A key that is currently LIVE
+is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
+always run.
 
 ##### successorOf?
 
@@ -24198,7 +24514,15 @@ Identity recorded when this key was first admitted. Every reuse must match it ex
 
 > `readonly` `optional` **settled?**: [`Settled`](#settled-4)\<`Out`\>
 
-The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
+The rehydrated settlement; absent when `state` is `'in-doubt'`, and when `'down'` was
+*derived* — the resume itself proved the execution dead (an `inline` runtime cannot outlive
+its process), so there is no settlement to rehydrate and `reason` says how it died.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+Why a derived `'down'` state exists. Absent on every state backed by a settlement.
 
 ***
 
@@ -24327,10 +24651,10 @@ Present once a settled node's measured spend exceeded its reservation.
 
 > `readonly` `optional` **retainedExecution?**: [`RetainedExecutionState`](#retainedexecutionstate)
 
-Present on a retained child: `'pending'` while its cursor slot is open, `'released'` once
- the release sweep closed it. The live view (`makeTreeView`) and the journal view
- (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
- retained-vs-down question without the observer journal.
+Present on a retained child: `'pending'` while its cursor slot is open, `'released'` or
+ `'release-unconfirmed'` once a final settlement closed it. The live view (`makeTreeView`)
+ and the journal view (`materializeTreeView`) state the same fact, so a settle record's
+ `tree` answers the retained-vs-down question without the observer journal.
 
 ##### retainedPendingCause?
 
@@ -24698,10 +25022,16 @@ the paid execution inside it.
   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
-  `fleetYield.releasedUnrecovered` counts it; a refused release leaves the slot open and
-  the node in `teardownUnconfirmed`. A process that dies between the last `destroyed: true`
-  receipt and that record leaves the slot open only until the next resume, whose
-  `healReleasedSlots` writes the identical record from the `reconciled` record.
+  `fleetYield.releasedUnrecovered` counts it. A release that is refused or cannot be
+  confirmed names the node in `teardownUnconfirmed` and its `teardown-unconfirmed` record,
+  and after the retry window closes its slot with `retainedExecution: 'release-unconfirmed'`,
+  counted by `fleetYield.releaseUnconfirmed`: the settlement is final, so the slot closes
+  whether or not the environment is confirmed gone. Measured 2026-09-23/24 on the Discovery
+  fleet (Runtime 0.249.1 to 0.261.0): 338 of 1,620 agents never settled, and 179 of the
+  retained ones had an admission that never named an environment. A process that dies
+  between the last `destroyed: true` receipt and the released record leaves the slot open
+  only until the next resume, whose `healReleasedSlots` writes the identical record from the
+  `reconciled` record.
 - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
 
 Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
@@ -24884,8 +25214,9 @@ Every `spawned` record with a parent; the run root and an owned tree's re-rooted
 
 > `readonly` **neverSettled**: `number`
 
-Spawned with no terminal record: a crash-orphaned child, a refused release, or a retained
- executor with nothing to release. Named after `SpendGap`'s `never-settled`.
+Spawned with no terminal record: a crash-orphaned child, or a retained child of a run that
+ keeps its environments for a resume (`retainedAtSettlement: 'keep'`). Named after
+ `SpendGap`'s `never-settled`.
 
 ##### releasedUnrecovered
 
@@ -24894,6 +25225,14 @@ Spawned with no terminal record: a crash-orphaned child, a refused release, or a
 Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
  A nested manager whose OWN retained execution was released counts here beside the
  grandchildren it released, because its execution was destroyed unrecovered too.
+
+##### releaseUnconfirmed
+
+> `readonly` **releaseUnconfirmed**: `number`
+
+Terminal records marked `retainedExecution: 'release-unconfirmed'` — a subset of
+ `down + cancelled`, disjoint from `releasedUnrecovered`: executions a final settlement left
+ unrecovered without confirming their environment destroyed.
 
 ***
 
@@ -30830,8 +31169,9 @@ Present when the spend reconciled for this child exceeded its reservation.
 
 Present only when this child's provider execution was RETAINED (see
  `RetainedExecutionState`); absent on an ordinary down. `'pending'` on the settlement the
- driver receives at the reconcile; `'released'` on the replayed settlement of a node the
- release sweep closed. The driver and every replay reader see the fact the journal
+ driver receives at the reconcile; `'released'` or `'release-unconfirmed'` on the
+ replayed settlement of a node a final settlement closed. The driver and every replay
+ reader see the fact the journal
  states, so a reader never splits this population on `reason` text — which is identical
  on every one of these children.
 
@@ -30865,7 +31205,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -31124,7 +31464,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31191,15 +31531,17 @@ Present when the reconciled spend exceeded the reservation, on either status.
 
 ###### retainedExecution?
 
-> `optional` **retainedExecution?**: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>
+> `optional` **retainedExecution?**: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>
 
-Written by the release sweep in the settling process, on the same tree, after every
- `environment-teardown` receipt for the node reads `destroyed: true` and the executor's
- own teardown confirmed — or by `healReleasedSlots` on the next resume, when that process
- died between the last `destroyed: true` receipt and this record: the same builder, `seq`
- and `at`, read from the `reconciled` record, so the bytes are identical either way. A
- `destroyed: false` receipt, an empty receipt set, or a `reconciled` record without
- `settledSeq` leaves the slot open.
+`'released'` is written by the release sweep in the settling process, on the same tree,
+ after every `environment-teardown` receipt for the node reads `destroyed: true` and the
+ executor's own teardown confirmed — or by `healReleasedSlots` on the next resume, when
+ that process died between the last `destroyed: true` receipt and this record: the same
+ builder, `seq` and `at`, read from the `reconciled` record, so the bytes are identical
+ either way. `'release-unconfirmed'` is written by the same builder at the end of a final
+ settlement for every retained node the release could not confirm: a `destroyed: false`
+ receipt, an empty receipt set, or a refused teardown probe. Only a crash before that point
+ or a `reconciled` record without `settledSeq` leaves the slot open.
  `spent` is this node's child-work component of the reconcile the pool committed — for
  a leaf the streamed floor itself, for a recursive executor its `accounting().reported`
  split with the remainder on its `metered` records — never the reservation ceiling.
@@ -31231,7 +31573,7 @@ The bounded account of the team this child led, when it led one.
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31282,7 +31624,7 @@ The child's harness transcript receipt, when the executor could still be read at
 
 ###### retainedExecution?
 
-> `optional` **retainedExecution?**: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>
+> `optional` **retainedExecution?**: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>
 
 As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
  builder writes whichever kind the settlement had.
@@ -31620,12 +31962,14 @@ A retained child's reservation was reconciled at the child-work floor its execut
  observed, while its cursor slot stays OPEN so a resume can recover the execution. It stands
  in for the `settled` record an open node cannot carry: cost readers and a restored pool
  charge this floor for the node instead of its declared ceiling, and a later `settled` or
- `cancelled` record for the same node supersedes it. That record has three writers: a
+ `cancelled` record for the same node supersedes it. That record has four writers: a
  resumed process's recovered settlement, the release sweep's terminal record marked
- `retainedExecution: 'released'`, or `healReleasedSlots` on the next resume when the
- process died between the last `environment-teardown` receipt and that record. The last
- two write the same bytes, because both read the settlement from THIS record: it is
- literally the settlement it stands in for, minus the cursor position it cannot hold. A
+ `retainedExecution: 'released'`, the final settlement's record marked
+ `'release-unconfirmed'` for a node whose release it could not confirm, or
+ `healReleasedSlots` on the next resume when the process died between the last
+ `environment-teardown` receipt and the released record. The last three carry the same
+ settlement, because each reads it from THIS record or from the live child it mirrors: it
+ is literally the settlement it stands in for, minus the cursor position it cannot hold. A
  driver's own inference travels on its `metered` record as on every other path, so
  `reconciled + metered` is what the pool committed. Its `seq` lives outside the
  cursor-uniqueness namespace; `settledSeq` is the cursor seq.
@@ -31890,8 +32234,10 @@ One provider environment a settled retained-pending child held, released at root
  terminal `settled`/`cancelled` record with `retainedExecution: 'released'` follows on
  the same tree and closes the cursor slot; when the settling process dies between this
  receipt and that record, `healReleasedSlots` writes the same record on the next resume
- from the `reconciled` record. A `destroyed: false` receipt, an empty receipt set, or an
- unconfirmed teardown leaves the slot open because the environment may still exist.
+ from the `reconciled` record. After a `destroyed: false` receipt, an empty receipt set, or
+ an unconfirmed teardown, the environment may still exist: the node is journaled as
+ `teardown-unconfirmed`, and its slot closes with `retainedExecution:
+ 'release-unconfirmed'` instead, because the settlement is final either way.
  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
  per node, outside the cursor-uniqueness namespace.
 
@@ -32149,7 +32495,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### RetainedExecutionState
 
-> **RetainedExecutionState** = `"pending"` \| `"released"`
+> **RetainedExecutionState** = `"pending"` \| `"released"` \| `"release-unconfirmed"`
 
 The recorded fate of a child whose provider execution was RETAINED: admitted durably, with no
 accepted terminal result when local observation stopped (the `RetainedExecutionPendingError`
@@ -32167,11 +32513,18 @@ path). Not a failure classification — the child is `down` either way.
   `destroyed: true` receipt and the record (same builder, `seq` and `at`, from the
   `reconciled` record). The pool's own admission fault, if the reconcile raised one, is not
   on this record.
+- `'release-unconfirmed'`: root settlement under `retainedAtSettlement: 'release'` ended with
+  the execution unrecovered and its environment NOT confirmed destroyed: the provider refused
+  the delete, the executor could not confirm it, or the admission never named an environment
+  (a create that timed out). The settlement is final, so no process will recover the execution
+  and the slot closes anyway, with the same builder, `seq` and `at` as `'released'`. What the
+  node may still hold stays named by its `teardown-unconfirmed` record and in
+  `teardownUnconfirmed`, for a sweeper.
 
 Absent = an ordinary child. The live `Settled` a driver branched on carried `'pending'` where
-replay yields `'released'` for the same seq, so a resume-aware driver must not branch on the
-two values. No `'recovered'` value exists yet: a live-adopted recovery settles on the ordinary
-path and the recorded-result path writes no marker.
+replay yields `'released'` or `'release-unconfirmed'` for the same seq, so a resume-aware driver
+must not branch on these values. No `'recovered'` value exists yet: a live-adopted recovery
+settles on the ordinary path and the recorded-result path writes no marker.
 
 ***
 
@@ -38024,6 +38377,24 @@ Compose the task for one re-entered drive.
 #### Returns
 
 `string`
+
+***
+
+### createSqlRunContext()
+
+> **createSqlRunContext**(`db`): [`SqlRunContext`](#sqlruncontext)
+
+Build a durable run context over one SQL statement seam. Tables are created on first use.
+
+#### Parameters
+
+##### db
+
+[`SqlStatements`](#sqlstatements)
+
+#### Returns
+
+[`SqlRunContext`](#sqlruncontext)
 
 ***
 

@@ -702,6 +702,22 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail-1)
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-1)
+
 ##### profileSecurity?
 
 > `readonly` `optional` **profileSecurity?**: `AgentProfileSecurityPolicy`
@@ -1199,6 +1215,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`
@@ -1546,6 +1575,22 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`makeLeafAgent`](runtime.md#makeleafagent-1)
+
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`recoverExecutor`](runtime.md#recoverexecutor-1)
 
 ##### driverBackend?
 
@@ -2181,7 +2226,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-6)
 
 ##### runDir?
 
@@ -2214,6 +2259,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`
@@ -2233,7 +2291,7 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-5)
 
 ##### probes?
 
@@ -2440,7 +2498,7 @@ entry; production supervisor surfaces cannot replace profile-derived model execu
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-6)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-7)
 
 ##### makeWorkerAgent
 

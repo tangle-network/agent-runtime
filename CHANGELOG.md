@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.270.0
+
+SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
+conformance work recorded. `SqlSpawnJournal` and `SqlResultBlobStore` (`/kernel`, @experimental)
+run the same begin/append/load contract as the file stores over the `SqlStatements` seam
+`SqlConversationJournal` already takes — D1, postgres, sqlite, libSQL — with the same corruption
+guards (begin precedes events by schema, the shared `SpawnEventIndex` refuses duplicate cursor
+seqs and duplicate materialization receipts on append AND replay, insertion order is replay
+order) and the same content-address law for blobs. `createSqlRunContext(db)` bundles them with
+`resume: true`, and `supervise`/`runGraph` now accept an explicit `resume` option so
+caller-supplied durable stores resume-first without a `runDir` (the file context keeps owning the
+flag when both are set). Proven against a REAL sqlite file with real SIGKILLs: the conformance
+suite's new SQL arm resumes a killed graph run from the database alone — same winner, committed
+nodes never re-executed, one key per assignment, side effect exactly once. Draft status: the full
+23-point sweep, a SQL coordination side-log, and machine-visible cross-run ownership are the
+named follow-ups; single-writer by convention, like the file context.
+
+
+## 0.269.1
+
+A durable run whose cancellation observer cannot create its inotify watch degrades to poll-only
+instead of dying. Creating `fs.watch` can fail for reasons that say nothing about the run — the
+host's inotify instance budget is exhausted (measured on a shared agent box holding ~110 of the
+128 default user instances; a neighboring process's usage was killing durable runs at startup
+with EMFILE), or the kernel caps watches (ENOSPC). The observer already carried a 100 ms poll
+loop; EMFILE/ENOSPC at watch creation now proceed on that loop alone (instant pickup becomes
+≤100 ms), while any other creation error still fails loudly. Measured while here: a durable run
+holds exactly one inotify instance regardless of how many directories it watches (libuv
+multiplexes), so no further sharing was possible or needed.
+
+Runtime now has one AgentProfile identity: `canonicalAgentProfileDigest`.
+`improve()` computed a candidate's `profileDigest`, `lineage.baselineProfileDigest`, and its profile equality checks with the generic `canonicalCandidateDigest`, while supervise, preparation receipts, retained interactive runs, profile training, and VerticalBench used `canonicalAgentProfileDigest`.
+Both functions give the same digest on every recorded profile: 31 distinct profiles across VerticalBench climbs, boards, and repository profiles, the 4 materialized candidates of the 2 completed climbs, and 13 recorded VerticalBench base digests. No recorded identity moves.
+They differ on values that no recorded file holds: a profile with an optional field set to `undefined` makes `canonicalCandidateDigest` throw, and a schema-invalid profile (an unknown key or a wrong type) receives a `canonicalCandidateDigest` but fails `canonicalAgentProfileDigest`.
+A schema-invalid profile now fails at identity time, and an inline retained-run profile records the same `requestedProfileDigest` as a retained interactive run.
+
+## 0.269.0
+
+A final settlement now closes every retained child's slot, including one whose release it could not confirm.
+Under `retainedAtSettlement: 'release'`, a child whose provider delete was refused, whose teardown probe failed, or whose create timed out before naming an environment kept its slot open forever, so every reader counted it as never settled (#1301).
+The Discovery fleet's records of 2026-09-23 and 2026-09-24 hold 338 such agents out of 1,620.
+After the retry window, each such slot now closes with the settlement the driver received, under the seq it saw, marked `retainedExecution: 'release-unconfirmed'`.
+Its `teardown-unconfirmed` record still names what a sweeper must delete.
+`FleetYield.releaseUnconfirmed` counts these records beside `releasedUnrecovered`, and the spend gap is the committed floor, `unreported`, not the `never-settled` ceiling.
+A run that declares `release` and is resumed anyway no longer recovers such a child: the declaration says no resume comes.
+
+A retained release now reads the child's harness session before it destroys the box.
+The failure path reads it when the child drops, and often the box is out of reach then: 105 of the 150 dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24 carry `enumeration-failed`.
+When the release can reach the box, the record that closes the slot carries the session it read, so a transport that came back before settlement no longer costs the transcript.
+Only a capture replaces the earlier receipt, and the `reconciled` floor keeps the one the driver saw.
+
+`createOtelExporter` now accounts for every span, and a failed export is no longer silent. Before,
+it POSTed each batch without reading the response and swallowed every error in an empty `catch`: a
+401, a 503 or a dead collector lost the batch with no count and no message, so a missing trace read
+like a run that emitted nothing. Concurrent batch POSTs had no limit, and a collector that never
+answered held `flush()` and the exporter's shutdown forever (the old exporter hung past the 20 s test
+timeout). The exporter now sends one batch at a time, bounds queued plus in-flight spans at
+`maxQueueSize` (default 2048), abandons a POST after `timeoutMs` (default 10000), and counts spans a
+non-2xx response, a network error, a timeout, an OTLP `partialSuccess.rejectedSpans` reply or a full
+queue lost. `OtelExporter` gains `stats()` (`written`, `dropped`, `pending`, `lastError`), and
+`flush()` rejects when spans were dropped since the previous flush, the rule the OpenInference file
+exporter already followed. `IntelligenceClient.exportStats()` exposes the same counts, because the
+client's `flush()` stays best-effort. A custom `OtelExporter` passed to `supervise()` must now
+implement `stats()`.
+
+## 0.268.0
+
+A keyed spawn the process died with in flight no longer wedges. Two arms:
+
+An `inline` worker (an executor that runs inside the coordinator process) provably died with that
+process, so a resume now resolves its key `down` instead of `in-doubt`: a re-spawn under the SAME
+key returns `resumed: "retried"` with the interruption named as the reason. Before, the key was
+refused forever and a driver had to invent a replacement key; the side-effect site then saw two
+keys for one logical commit. The predicate is the one the budget layer already used to charge no
+uncertain reservation, so the two layers cannot disagree about what "proved dead" means. The
+run-once contract is unchanged for executions that may outlive the process (sandbox, CLI bridge,
+router): those stay `in-doubt` until recovered.
+
+A run that owns its worker seam can now recover those: `supervise({ recoverExecutor })` and
+`runGraph({ recoverExecutor })` accept an `ExecutorFactory` that reconstructs an interrupted
+child's executor from the journal (previously only backend-derived recursive managers registered
+one; a caller-owned `makeLeafAgent`/`makeWorkerAgent` had no recovery channel at all). The
+resumed process prepares the recovery from the child's journaled admissions, the scope adopts the
+child before the driver drives, and the executor re-attaches its session and continues.
+
+Both arms are pinned by the kill-and-resume conformance suite's new matrices
+(`conformance/durability/STATUS.md`): interrupted `inline` keys retry under their own key with no
+manual escalation and one key per assignment, and mid-session kills of session-backed workers
+recover and re-attach — every session step runs exactly once across processes, and the keyed side
+effect commits exactly once.
+
 ## 0.267.0
 
 `runGraph({ runDir })` now journals durably. Before, the graph unconditionally defaulted its
@@ -24,6 +115,14 @@ effect exactly once, and a resume-contract-clean journal (one root `spawned`, at
 signature). The 2026-09-16 re-entry defect is asserted as a contract case: a fresh-environment
 re-entry must carry the original task and the coordinator's run state (`composeReentryTask`,
 #1356), not the unmet-items fragment alone.
+
+A shared worker now also exports the session of each harness subagent it ran.
+opencode runs a `task` subagent in a child session, and the parent's export does not hold it, so a subagent's steps reached no record (#1264).
+The Lab fleet's records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+After each turn, the worker exports every child session that its `task` parts name: by `state.metadata.sessionId`, by the result's `<task id="ses_…">` header, or by the `task_id:` in a failure.
+Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
+opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
+A dedicated Tangle box still keeps only the parent's sidecar records.
 
 ## 0.266.0
 
