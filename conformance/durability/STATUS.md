@@ -19,9 +19,11 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
 | `runGraph` | any SQL store | — | **journal + blobs: CLOSED** (`SqlSpawnJournal`/`SqlResultBlobStore`, full 23-point matrix green). Still open on SQL: the coordination side-log (file-based behind `runDir`) and machine-visible cross-run ownership |
 
-Totals from the run: **119/119 green** — the inline matrix (24), the session re-attach matrix (24),
-the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the
-known-defect cases (5), and the inotify invariant (1). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
+Totals from the run: **158/158 green** — the inline matrix (24), the session re-attach matrix (24),
+the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the known-defect cases (5), the inotify invariant (1), and the
+fenced-SQL salvage from #1373 (39: the fenced store + context unit suites, 19 lost-ack kill
+points across TWO hosts, lease takeover/contention, plus 6 expected-fail cases that document
+the never-dispatched recovery gap against current retained machinery). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
 landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
 which the suite's driver now drains correctly.
 
@@ -162,6 +164,30 @@ test goes red — which is exactly the moment a per-runDir shared watcher become
 
 For local verification on a loaded shared host, `npx vitest run --maxWorkers=4` stays
 deterministic; idle CI runners are unaffected either way.
+
+## Salvage from #1373: fenced SQL run context (cross-machine)
+
+The superseded #1373 branch's unique work — ported onto main and proven here:
+
+- **`openSqlRunStore`** (src/durable/sql-run-store.ts): a fenced append-only log — hash-chained
+  records, publication and takeover as ONE compare-and-set on the run's head row, generation
+  fencing, lease liveness via a persisted progress counter (no host clocks), lost-ack recovery on
+  both claim and publish, fenced release. This is the machine-visible cross-run ownership the
+  STATUS previously listed as open.
+- **`createFencedSqlRunContext`**: the cross-machine run context over it — SQL journal + blobs +
+  COORDINATION SIDE-LOG (the other open item), read-only until a lease is acquired;
+  `supervise`/`runGraph` accept `runContext` and hold ownership for the whole run.
+- **Evidence (39 cases)**: the fenced store suite (5), the context stores suite (3), and the
+  two-host conformance suite — 19 lost-ack kill points where the process dies between a SQLite
+  statement's commit and its acknowledgement, on either side of every publication, and resumes
+  ON ANOTHER HOST with an empty working directory (no replacement keys, exactly-once provider
+  effects), plus lease takeover (a rejected contender, then takeover after the owner's SIGKILL)
+  and publish-contention tests.
+- **Known gap, documented as expected-fail (6)**: kills in the never-dispatched window
+  (spawned+input committed, no admission, no dispatch) — current retained machinery classifies
+  the recovered never-dispatched session `pending: unobservable` where #1368-era main started it
+  fresh. Follow-up named in the suite header; every checkpoint before the grouped spawn record
+  and from provider create/dispatch onward passes.
 
 ## Verdict (FINAL): keep and harden the own journal layer
 

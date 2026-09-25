@@ -223,6 +223,20 @@ export function assertContentAddress(outRef: string, artifact: unknown): void {
 // ── Spawn journal ──────────────────────────────────────────────────────────────
 
 /**
+ * Append every event as one grouped publication where the journal supports it (`appendEvents`),
+ * preserving legacy per-event appends otherwise — the SQL contexts' fenced head advances once.
+ * @internal
+ */
+export async function appendSpawnEvents(
+  journal: SpawnJournal,
+  root: NodeId,
+  events: ReadonlyArray<SpawnEvent>,
+): Promise<void> {
+  if (journal.appendEvents !== undefined) return journal.appendEvents(root, events)
+  for (const event of events) await journal.appendEvent(root, event)
+}
+
+/**
  * In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces
  * the corruption guards a durable replay rests on:
  *  - an event before `beginTree` is a corrupted tree (fail loud),

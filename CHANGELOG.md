@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.272.0
+
+The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine
+run ownership and a SQL coordination side-log, the two items this runtime's durability STATUS
+listed as open after 0.270.0. `openSqlRunStore` is a fenced append-only log — hash-chained
+records, publication and takeover as one compare-and-set on the run's head row, generation
+fencing, lease liveness through a persisted progress counter (never host clocks), lost-ack
+recovery on both claim and publish, and fenced release. `createFencedSqlRunContext` composes it
+with the SQL journal, blobs, and coordination log into a run context that is read-only until a
+lease is acquired; `supervise`/`runGraph` accept `runContext` and hold ownership for the whole
+run, and grouped publication (`appendEvents`) advances the fenced head once per spawn and once
+for the root's initialization records. Proven by two-host conformance: 19 lost-ack kill points
+(the process dies between a SQLite commit and its acknowledgement, on either side of every
+publication) resume on another host with an empty working directory — no replacement keys,
+exactly-once provider effects — plus lease takeover and publish-contention tests (39 cases; 6
+expected-fail cases document the never-dispatched recovery gap against current retained
+machinery). Durability conformance totals: 158/158.
+
+
 ## 0.271.0
 
 `createStdioToolServer` passes each tool's annotations (`readOnlyHint`, `idempotentHint`, and the rest) through `tools/list` (#1386).

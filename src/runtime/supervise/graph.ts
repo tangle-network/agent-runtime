@@ -76,6 +76,7 @@ import {
   type PromptHandle,
   type PromptRegistry,
 } from './prompt-registry'
+import { withRunContext } from './run-context'
 import {
   profileGuidanceComposer,
   type SuperviseOptions,
@@ -306,6 +307,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'awaitTimeoutMs',
   'runDir',
   'resume',
+  'runContext',
   'steerDir',
   'probes',
   'stopRule',
@@ -828,6 +830,19 @@ export function superviseAgentGraph(
   brain?: ToolLoopChat,
 ): Promise<GraphResult> {
   const registry = opts.registry ?? kernelPromptRegistry()
+  if (opts.runContext?.acquire !== undefined) {
+    return withRunContext(opts.runContext, opts.signal, (runContext, signal) =>
+      superviseAgentGraph(
+        graph,
+        {
+          ...opts,
+          runContext,
+          ...(signal === undefined ? {} : { signal }),
+        },
+        brain,
+      ),
+    )
+  }
   const { root, workers, delegatesByWorker, analyzes, analystNodes } = assertRunGraphAuthoring(
     graph,
     opts,
@@ -842,16 +857,19 @@ export function superviseAgentGraph(
   // Layout owner: `createFileRunContext` (run-context.ts); keep these paths byte-identical to it.
   const journal =
     opts.journal ??
+    opts.runContext?.journal ??
     (opts.runDir !== undefined
       ? new FileSpawnJournal(`${resolve(opts.runDir)}/spawn-journal.jsonl`)
       : new InMemorySpawnJournal())
   const blobs =
     opts.blobs ??
+    opts.runContext?.blobs ??
     (opts.runDir !== undefined
       ? new FileResultBlobStore(`${resolve(opts.runDir)}/blobs`)
       : new InMemoryResultBlobStore())
   const runId =
     opts.runId ??
+    opts.runContext?.runId ??
     `graph-${canonicalCandidateDigest(graph.nodes.map((n) => n.id)).slice('sha256:'.length, 'sha256:'.length + 12)}`
   const now = opts.now ?? Date.now
 
