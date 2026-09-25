@@ -147,11 +147,11 @@ describe('SqlResultBlobStore', () => {
       )}`
     await blobs.put(ref, artifact)
     expect(await blobs.get(ref)).toEqual(artifact)
-    expect(await blobs.get('sha256:' + '0'.repeat(64))).toBeUndefined()
+    expect(await blobs.get(`sha256:${'0'.repeat(64)}`)).toBeUndefined()
   })
 
   it('refuses a ref that does not match the artifact content hash', async () => {
-    await expect(blobs.put('sha256:' + '0'.repeat(64), { no: 'match' })).rejects.toThrow(
+    await expect(blobs.put(`sha256:${'0'.repeat(64)}`, { no: 'match' })).rejects.toThrow(
       /content hash/,
     )
   })

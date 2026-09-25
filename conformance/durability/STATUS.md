@@ -136,7 +136,11 @@ measurement answers with exact numbers:
 
 - **Before: 1 instance per run.** A durable run sampled in-process across its whole lifetime
   (0 before start, peak 1 while running, 1 until cleanup) holds exactly one inotify instance —
-  the cancellation observer's `fs.watch`. A live child sampled via /proc/<pid>/fd agrees.
+  the cancellation observer's `fs.watch`. A live child sampled via /proc/<pid>/fd agrees. The
+  ADVERSARIAL configuration — `runDir` plus a SEPARATE `steerDir`, the maximum control surface a
+  run can have — also peaks at exactly 1 (sampled every 25 ms for the run's lifetime): there is
+  exactly one `fs.watch` call site in the runtime (run-cancellation.ts), and every other durable
+  control surface (steer acknowledgers, worker-control observers) already polls.
 - **Why there is nothing to share: libuv multiplexes every `fs.watch` in a process over ONE
   inotify instance** (a process with 4 open watches measures 1 fd). The kernel's
   `max_user_instances` budget is consumed per PROCESS, and a durable run is one process. A
