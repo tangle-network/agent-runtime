@@ -26,7 +26,7 @@ const sandboxPeerRange = declaredPeerRange('@tangle-network/sandbox')
 export { sandboxPeerRange }
 
 function stableVersionTuple(version) {
-  const match = /^(\\d+)\\.(\\d+)\\.(\\d+)$/.exec(version)
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
   return match ? match.slice(1).map(Number) : null
 }
 
@@ -46,11 +46,11 @@ function rangeAdmitsStable(range, version) {
   const order = ([major, minor, patch]) => major * 1_000_000_000_000 + minor * 1_000_000 + patch
   return range.split('||').some((rawClause) => {
     const clause = rawClause.trim()
-    const window = /^>=(\\d+\\.\\d+\\.\\d+)\\s+<(\\d+\\.\\d+\\.\\d+)$/.exec(clause)
+    const window = /^>=(\d+\.\d+\.\d+)\s+<(\d+\.\d+\.\d+)$/.exec(clause)
     if (window) {
       return order(target) >= order(stableVersionTuple(window[1])) && order(target) < order(stableVersionTuple(window[2]))
     }
-    const caret = /^\\^(\\d+)\\.(\\d+)\\.(\\d+)(?:-0)?$/.exec(clause)
+    const caret = /^\^(\d+)\.(\d+)\.(\d+)(?:-0)?$/.exec(clause)
     if (!caret) return false
     const floor = caret.slice(1).map(Number)
     if (order(target) < order(floor) || target[0] !== floor[0]) return false
