@@ -41,7 +41,7 @@ function baseRef() {
   return null
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   const notes = readReleaseNotes()
   const base = baseRef()
   if (!base) {
