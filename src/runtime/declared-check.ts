@@ -74,7 +74,14 @@ export interface DeclaredCheck {
   readonly describe?: string
   /** Bound on one read. Default 15 minutes. */
   readonly timeoutMs?: number
+  /** The check box's size. With `containers`, `diskGB` sizes the disk that holds the images. */
   readonly resources?: SandboxResources
+  /**
+   * The program runs containers, as a benchmark's own verifier does. The check box then runs a
+   * rootless container daemon, whose socket is `/run/user/<uid>/docker.sock` once it starts, and its
+   * home is on a disk rather than in memory. Absent: neither, and the box starts faster.
+   */
+  readonly containers?: boolean
 }
 
 /** Where a declared check's boxes are created: a client on the check account, and every account
@@ -130,6 +137,9 @@ export function assertDeclaredCheck(check: DeclaredCheck, context: string): void
     if (!/^[A-Z_][A-Z0-9_]*$/u.test(name))
       fail(`secret name ${JSON.stringify(name)} is not an env name`)
   }
+  if (check.containers !== undefined && typeof check.containers !== 'boolean') {
+    fail('containers must be a boolean')
+  }
 }
 
 /** The canonical digest of a directory's files: the digest a record names a program by. */
@@ -147,6 +157,8 @@ export function declaredCheckDigest(check: DeclaredCheck): Sha256Digest {
         command: check.command,
         environment: check.environment,
         pass: check.pass,
+        // Only when set, so a digest recorded before the field existed still matches.
+        ...(check.containers === true ? { containers: true } : {}),
       }),
     ),
   )
@@ -225,6 +237,7 @@ export async function readDeclaredCheck(
         environment: check.environment,
         ...(check.egress === undefined ? {} : { egress: check.egress }),
         ...(check.resources === undefined ? {} : { resources: check.resources }),
+        ...(check.containers === true ? { containers: true } : {}),
       },
     })
     return verdictOf(outcome, check.pass)

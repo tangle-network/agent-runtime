@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  assertDeclaredCheck,
   checkProgramDigest,
   type DeclaredCheck,
   type DeclaredCheckPlacement,
   declaredCheckDeliverable,
+  declaredCheckDigest,
   declaredCheckJudge,
   readDeclaredCheck,
 } from '../../src/runtime/declared-check'
@@ -21,12 +23,27 @@ import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
  * recorded so a test can read the egress policy the check asked for.
  */
 function localBoxes(root: string) {
-  const created: Array<{ egressPolicy: unknown; environment: unknown }> = []
+  const created: Array<{
+    egressPolicy: unknown
+    environment: unknown
+    agent: unknown
+    ephemeral: unknown
+  }> = []
   let boxes = 0
   const client = {
     getIdentity: async () => ({ customerId: 'cust_check' }),
-    createIsolated: async (options: { egressPolicy?: unknown; environment?: unknown }) => {
-      created.push({ egressPolicy: options.egressPolicy, environment: options.environment })
+    createIsolated: async (options: {
+      egressPolicy?: unknown
+      environment?: unknown
+      agent?: unknown
+      ephemeral?: unknown
+    }) => {
+      created.push({
+        egressPolicy: options.egressPolicy,
+        environment: options.environment,
+        agent: options.agent,
+        ephemeral: options.ephemeral,
+      })
       boxes += 1
       const dir = join(root, `box-${boxes}`)
       await mkdir(dir, { recursive: true })
@@ -164,7 +181,27 @@ describe('a declared check', () => {
         includeImplicitDomains: false,
       },
       environment: 'node-22',
+      // No container daemon and an in-memory home: the default box starts fastest.
+      agent: false,
+      ephemeral: true,
     })
+  })
+
+  it('gives a check that runs containers a box with a container daemon and a disk home', async () => {
+    const containers: DeclaredCheck = {
+      ...check,
+      containers: true,
+      resources: { cpuCores: 2, memoryMB: 8192, diskGB: 40 },
+    }
+    await readDeclaredCheck(containers, placement, { result: { answer: 42 }, set: 'development' })
+    expect(boxes.created[0]).toMatchObject({ agent: true, ephemeral: false })
+    // The version judge's digest names the containers only when a record sets them, so every
+    // digest recorded before the field existed still matches.
+    expect(declaredCheckDigest(containers)).not.toBe(declaredCheckDigest(check))
+    expect(declaredCheckDigest({ ...check, containers: false })).toBe(declaredCheckDigest(check))
+    expect(() =>
+      assertDeclaredCheck({ ...check, containers: 'yes' as unknown as boolean }, 'record'),
+    ).toThrow(/record: check containers must be a boolean/)
   })
 
   it('is the manager deliverable: submits pass on development cases, and a state read has no result', async () => {
