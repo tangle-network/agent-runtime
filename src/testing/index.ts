@@ -2,6 +2,7 @@ import {
   type AgentImprovementProposal,
   type AgentProfile,
   type AgentProfileImprovementMeasuredComparison,
+  canonicalAgentProfileDigest,
   SANDBOX_SIZE_PRESET_NAMES,
   type SandboxSizePreset,
 } from '@tangle-network/agent-interface'
@@ -83,7 +84,8 @@ export function loadAgentProfileImprovementFixture(): AgentProfileImprovementFix
     state.baselineProfile,
   )
   if (
-    canonicalCandidateDigest(appliedCandidate) !== canonicalCandidateDigest(state.candidateProfile)
+    canonicalAgentProfileDigest(appliedCandidate) !==
+    canonicalAgentProfileDigest(state.candidateProfile)
   ) {
     throw new Error('profile improvement fixture candidate does not match its proposal changes')
   }

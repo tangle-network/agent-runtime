@@ -3,6 +3,7 @@ import {
   AgentEnvironmentCapabilitiesSchema,
   AgentExactRunControlRefSchema,
   ContextTransferRequestSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
@@ -559,7 +560,13 @@ function retainedRunIntent(
   identity: { readonly sessionId: string; readonly executionId: string },
   contextTransfer: ContextTransferRequest | undefined,
 ): RetainedRunIntentAdmission {
-  const requestedProfileDigest = canonicalCandidateDigest(options.environment.profile)
+  // A named profile is only its name until the provider resolves it; an inline
+  // profile has the one AgentProfile identity every other Runtime record uses.
+  const { profile } = options.environment
+  const requestedProfileDigest =
+    typeof profile === 'string'
+      ? canonicalCandidateDigest(profile)
+      : canonicalAgentProfileDigest(profile)
   const requestDigest = canonicalCandidateDigest({
     kind: 'retained-run-intent.v1',
     provider: options.provider.name,
