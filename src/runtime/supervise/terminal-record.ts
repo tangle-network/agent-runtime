@@ -22,11 +22,17 @@ import type {
   NodeSnapshot,
   ProfileMaterializationReceipt,
   ProviderModelExecutionEvidence,
+  RetainedExecutionState,
   SpawnEvent,
   Spend,
+  SubtreeSummary,
 } from './types'
 
 export type DownSettlement = Extract<PreSeqSettled, { kind: 'down' }>
+
+/** The states a terminal record states: the slot closed at a final settlement, with the
+ *  environment confirmed destroyed or not. `'pending'` is never journaled. */
+type ClosedRetainedExecution = Exclude<RetainedExecutionState, 'pending'>
 
 /** What the terminal record needs from the node beyond its settlement. `RunCancellationReason`
  *  has `readonly source: string`, so a live child's `cancellationReason` fits as it is. */
@@ -35,6 +41,8 @@ export type TerminalDownSubject = {
   readonly spent: Spend
   readonly budgetViolation?: BudgetViolation
   readonly cancellationReason?: { readonly source: string }
+  /** The bounded account of the team this node led, when it led one. */
+  readonly subtree?: SubtreeSummary
 }
 
 /** The settlement fields every writer copies, in the terminal record's key order. The
@@ -53,6 +61,7 @@ export function settlementFields(
   trace: DownSettlement['trace']
   harnessTranscript?: DownSettlement['harnessTranscript']
   retainedPendingCause?: DownSettlement['retainedPendingCause']
+  subtree?: SubtreeSummary
 } {
   return {
     spent: subject.spent,
@@ -66,6 +75,7 @@ export function settlementFields(
     ...(subject.budgetViolation ? { budgetViolation: subject.budgetViolation } : {}),
     trace: settlement.trace,
     ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+    ...(subject.subtree === undefined ? {} : { subtree: subject.subtree }),
   }
 }
 
@@ -76,7 +86,7 @@ export function terminalDownEvent(
   settlement: DownSettlement,
   seq: number,
   at: string,
-  retainedExecution?: 'released',
+  retainedExecution?: ClosedRetainedExecution,
 ): Extract<SpawnEvent, { kind: 'settled' | 'cancelled' }> {
   const cancellation = subject.cancellationReason
   return {
@@ -140,19 +150,21 @@ export function settledNodeEvidence(
   }
 }
 
-/** The `agent.child` payload of the release: the settlement restated as released, `settledAt`
- *  kept at the settlement instant and `metered` omitted so the driver's inference is not summed
- *  twice. The sweep and the resume heal emit it from the same builder. */
+/** The `agent.child` payload of a closed retained slot: the settlement restated with the state
+ *  the slot closed in, `settledAt` kept at the settlement instant and `metered` omitted so the
+ *  driver's inference is not summed twice. The sweep, the final close and the resume heal emit
+ *  it from the same builder. */
 export function releasedChildPayload(
   subject: TerminalDownSubject & SettledEvidenceSubject,
   settlement: DownSettlement,
   settledAt: number,
   releasedAt: number,
+  retainedExecution: ClosedRetainedExecution = 'released',
 ): Record<string, unknown> {
   return {
     childId: subject.id,
     status: 'down',
-    retainedExecution: 'released',
+    retainedExecution,
     ...(settlement.retainedPendingCause === undefined
       ? {}
       : { retainedPendingCause: settlement.retainedPendingCause }),

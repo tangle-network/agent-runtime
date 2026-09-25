@@ -2685,7 +2685,7 @@ Exact complete profile produced by Runtime's configured materializer.
 
 > **profileDigest**: `` `sha256:${string}` ``
 
-Interface identity of `profile`.
+`canonicalAgentProfileDigest(profile)`: the one AgentProfile identity Runtime records.
 
 ##### diffs
 
@@ -2933,7 +2933,7 @@ Complete callback, materializer, model, tool, and closure identity for a profile
 
 > `optional` **baselineProfileDigest?**: `` `sha256:${string}` ``
 
-Complete baseline profile identity for a profile run.
+`canonicalAgentProfileDigest` of the baseline profile for a profile run.
 
 ***
 
@@ -3011,7 +3011,7 @@ Complete callback, materializer, model, tool, and closure identity for a profile
 
 > **baselineProfileDigest**: `` `sha256:${string}` ``
 
-Complete baseline profile identity for a profile run.
+`canonicalAgentProfileDigest` of the baseline profile for a profile run.
 
 ###### Overrides
 
@@ -4873,6 +4873,20 @@ Batch size before flush. Default 64.
 
 Flush interval ms. Default 5000.
 
+##### maxQueueSize?
+
+> `optional` **maxQueueSize?**: `number`
+
+Most spans held at once, queued plus in flight. Default 2048, the OpenTelemetry batch
+processor's own default. A span that arrives when the queue is full is dropped and counted in
+[OtelExportStats.dropped](#dropped), so a stalled collector costs a bounded amount of memory.
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Milliseconds one POST may take before it is abandoned and its spans count as dropped. Default 10000.
+
 ##### resourceAttributes?
 
 > `optional` **resourceAttributes?**: `Record`\<`string`, `string` \| `number` \| `boolean`\>
@@ -4895,7 +4909,7 @@ Service name. Default 'agent-runtime'.
 
 > **exportSpan**(`span`): `void`
 
-Export a span.
+Export a span. Never throws: a sink that cannot take the span counts it as dropped.
 
 ###### Parameters
 
@@ -4911,7 +4925,8 @@ Export a span.
 
 > **flush**(): `Promise`\<`void`\>
 
-Force flush pending spans.
+Deliver everything queued so far. Rejects when spans were dropped since the previous `flush`,
+naming how many and the last error, because a caller that awaits delivery is owed the answer.
 
 ###### Returns
 
@@ -4921,11 +4936,54 @@ Force flush pending spans.
 
 > **shutdown**(): `Promise`\<`void`\>
 
-Shutdown cleanly.
+Stop accepting spans and deliver what is queued. Never rejects.
 
 ###### Returns
 
 `Promise`\<`void`\>
+
+##### stats()
+
+> **stats**(): [`OtelExportStats`](#otelexportstats)
+
+What this sink has delivered and lost so far.
+
+###### Returns
+
+[`OtelExportStats`](#otelexportstats)
+
+***
+
+### OtelExportStats
+
+Delivery accounting for one exporter. `written + dropped + pending` covers every span handed to
+`exportSpan`, so a trace that arrives short can be told apart from a run that emitted less.
+
+#### Properties
+
+##### written
+
+> **written**: `number`
+
+Spans the sink confirmed: a 2xx collector response, or a completed file append.
+
+##### dropped
+
+> **dropped**: `number`
+
+Spans lost: refused by the collector, failed in transit, over the queue bound, or unwritable.
+
+##### pending
+
+> **pending**: `number`
+
+Spans accepted and not yet written or dropped.
+
+##### lastError?
+
+> `optional` **lastError?**: `string`
+
+The most recent failure, when there has been one.
 
 ***
 
@@ -9896,7 +9954,13 @@ useless for the runs you most want to look at.
 
 > **createOtelExporter**(`config?`): [`OtelExporter`](#otelexporter) \| `undefined`
 
-Create an OTEL exporter. Returns undefined when no endpoint is configured.
+Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured.
+
+One batch is in flight at a time; spans that arrive meanwhile wait in a queue bounded by
+`maxQueueSize`. Every span ends in exactly one of `written` or `dropped`: a non-2xx response, a
+network error, a timeout, an OTLP `partialSuccess.rejectedSpans` count and a full queue each count
+as drops and set `lastError`. Nothing here throws into the caller's run; `flush()` reports the
+loss, the same rule [createOpenInferenceFileExporter](#createopeninferencefileexporter) follows.
 
 #### Parameters
 
@@ -9982,7 +10046,7 @@ readonly [`RuntimeStreamEvent`](#runtimestreamevent)[]
 
 ### buildLoopOtelSpans()
 
-> **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`): [`OtelSpan`](#otelspan)[]
+> **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`, `redact?`): [`OtelSpan`](#otelspan)[]
 
 Build a nested, real-duration OTLP span tree for ONE loop run from its full
 ordered `LoopTraceEvent` stream. Unlike `loopEventToOtelSpan` (one flat,
@@ -10013,6 +10077,10 @@ readonly `object`[]
 
 `string`
 
+##### redact?
+
+(`value`) => `unknown`
+
 #### Returns
 
 [`OtelSpan`](#otelspan)[]
@@ -10021,7 +10089,7 @@ readonly `object`[]
 
 ### buildLoopSpanNodes()
 
-> **buildLoopSpanNodes**(`events`): [`LoopSpanNode`](#loopspannode)[]
+> **buildLoopSpanNodes**(`events`, `redact?`): [`LoopSpanNode`](#loopspannode)[]
 
 Sink-neutral core behind [buildLoopOtelSpans](#buildloopotelspans): reconstruct the
 loop → round → branch span tree from one run's ordered `LoopTraceEvent`
@@ -10035,6 +10103,10 @@ at the last observed event's timestamp).
 ##### events
 
 readonly `object`[]
+
+##### redact?
+
+(`value`) => `unknown`
 
 #### Returns
 

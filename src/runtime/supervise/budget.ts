@@ -50,6 +50,12 @@
  * then a ceiling, not a measurement. It does not close admission the way the dollar channel does:
  * tokens are always capped, so one unreported turn must not end the run.
  *
+ * A reservation the free balance cannot cover now can WAIT instead of failing (`reserve(b, holder,
+ * { wait: true })`) when it would fit once the reservations still open return. It holds nothing
+ * while it waits, so conservation is untouched. Waiting reservations are granted in the order they
+ * asked, as settlements return budget, and are refused once no open reservation is left to return
+ * any: then nothing could ever cover them.
+ *
  * A pool can be RESTORED from a prior process's durable record (same-host restart): measured
  * committed spend is debited exactly once, and each child journaled as started but never settled
  * is charged at its full declared ceiling — restart never mints capacity, and the unknown flags
@@ -184,6 +190,45 @@ export type BudgetReadout = Readonly<{
   deadlineMs: number
   reservedTokens: number
 }>
+/** The part of each channel a reservation must leave free: a manager's own share of its slice,
+ *  which its children may not reserve. */
+export interface ReservationFloor {
+  readonly tokens: number
+  readonly iterations: number
+  readonly usd?: number
+}
+
+/** How a caller asks for a reservation. */
+export interface ReserveOptions {
+  /** Wait for budget instead of failing, when the reservations still open would return enough.
+   *  The reservation then holds nothing until it is granted. */
+  readonly wait?: boolean
+  /** Leave this much of each channel free after the reservation. */
+  readonly keep?: ReservationFloor
+}
+
+/**
+ * A waiting reservation that can never be granted: every open reservation settled and the free
+ * balance still cannot cover it. `shortfalls` are the channels that did not fit at that moment.
+ */
+export class ReservationWaitRefused extends Error {
+  readonly reason = 'budget-exhausted' as const
+  readonly shortfalls: readonly ReservationShortfall[]
+
+  constructor(shortfalls: readonly ReservationShortfall[]) {
+    super(
+      `budget-exhausted: nothing left running could return enough budget for this worker (${shortfalls
+        .map(
+          (shortfall) =>
+            `${shortfall.channel} requested ${shortfall.requested}, free ${shortfall.free}`,
+        )
+        .join('; ')})`,
+    )
+    this.name = 'ReservationWaitRefused'
+    this.shortfalls = shortfalls
+  }
+}
+
 /** Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
  * budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
  * unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
@@ -202,6 +247,9 @@ export interface ReservationShortfall {
   readonly channel: 'tokens' | 'iterations' | 'usd' | `resource:${string}`
   readonly requested: number
   readonly free: number
+  /** What open reservations hold on this channel, when they hold any. A request of at most
+   *  `free + held` can wait for them to settle; a larger one never fits. */
+  readonly held?: number
   readonly closedByUnknownSpend?: true
 }
 
@@ -306,12 +354,19 @@ export interface BudgetPool {
    * Atomically reserve a child's full ceiling from the free balance. Fails closed
    * ({ ok: false }) when the pool can't cover standard or named channels — the
    * caller inspects `ok` before `ticket`.
+   *
+   * With `wait`, a request the free balance cannot cover now, but could once the open reservations
+   * return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
+   * rejects with {@link ReservationWaitRefused} once nothing open could return enough. A waiting
+   * ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
+   * request queues behind it even when it would fit, so the order of asking is the order of grant.
    */
   reserve(
     b: Budget,
     holder?: ReservationHolder,
+    options?: ReserveOptions,
   ):
-    | { ok: true; ticket: ReservationTicket }
+    | { ok: true; ticket: ReservationTicket; granted?: Promise<void> }
     | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] }
   /**
    * Name (or rename) who holds an open reservation. Merges into what `reserve` recorded, so a
@@ -603,11 +658,127 @@ export function createBudgetPool(
   let nextTicketId = 0
   const open = new Map<number, ReservationHolder>()
 
+  /** Tickets admitted to wait for budget, in the order they asked. Each is also in `open`. */
+  const waiting: Array<{
+    readonly ticket: ReservationTicket
+    readonly budget: Budget
+    readonly keep: ReservationFloor | undefined
+    readonly grant: () => void
+    readonly refuse: (error: ReservationWaitRefused) => void
+  }> = []
+  /** Open tickets that hold nothing: waiting, or refused and not yet reconciled. */
+  const holdingNothing = new Set<number>()
+
+  /** Every channel `b` does not fit, measured against the free balance less `keep`. */
+  function shortfallsFor(b: Budget, keep: ReservationFloor | undefined): ReservationShortfall[] {
+    const wantTokens = b.maxTokens
+    const wantUsd = b.maxUsd ?? 0
+    const wantIterations = b.maxIterations
+    const shortfalls: ReservationShortfall[] = []
+    const short = (
+      channel: ReservationShortfall['channel'],
+      requested: number,
+      free: number,
+      held: number,
+      closedByUnknownSpend = false,
+    ): void => {
+      shortfalls.push({
+        channel,
+        requested,
+        free: closedByUnknownSpend ? 0 : Math.max(0, free),
+        ...(closedByUnknownSpend || held <= 0 ? {} : { held }),
+        ...(closedByUnknownSpend ? { closedByUnknownSpend: true as const } : {}),
+      })
+    }
+    for (const [name, state] of resources) {
+      const limit = b.resources![name]!.limit
+      if (!state.known) short(`resource:${name}`, limit, 0, 0, true)
+      else if (limit > state.remaining)
+        short(`resource:${name}`, limit, state.remaining, state.reserved)
+    }
+    if (usdCapped && usdTainted) short('usd', wantUsd, 0, 0, true)
+    const tokensFree = freeTokens - (keep?.tokens ?? 0)
+    const iterationsFree = freeIterations - (keep?.iterations ?? 0)
+    if (wantTokens > tokensFree) short('tokens', wantTokens, tokensFree, reservedTokens)
+    if (wantIterations > iterationsFree)
+      short('iterations', wantIterations, iterationsFree, reservedIterations)
+    const usdFree = freeUsd - (keep?.usd ?? 0)
+    if (usdCapped && !usdTainted && wantUsd > usdFree) short('usd', wantUsd, usdFree, reservedUsd)
+    return shortfalls
+  }
+
+  /** Whether every short channel would fit once the open reservations return what they hold. */
+  function fitsAfterRefunds(shortfalls: readonly ReservationShortfall[]): boolean {
+    return shortfalls.every(
+      (shortfall) =>
+        shortfall.closedByUnknownSpend !== true &&
+        shortfall.requested <= shortfall.free + (shortfall.held ?? 0),
+    )
+  }
+
+  /** Move `b` from free to reserved. The caller has checked that it fits. */
+  function take(b: Budget): void {
+    for (const [name, state] of resources) {
+      const amount = b.resources![name]!.limit
+      state.remaining -= amount
+      state.reserved += amount
+    }
+    freeTokens -= b.maxTokens
+    reservedTokens += b.maxTokens
+    freeIterations -= b.maxIterations
+    reservedIterations += b.maxIterations
+    const wantUsd = b.maxUsd ?? 0
+    if (wantUsd > 0) {
+      freeUsd -= wantUsd
+      reservedUsd += wantUsd
+    }
+  }
+
+  function ticketFor(id: number, b: Budget): ReservationTicket {
+    return {
+      id,
+      reserved: {
+        ...(b.resources === undefined
+          ? {}
+          : {
+              resources: Object.fromEntries(
+                Object.entries(b.resources).map(([name, value]) => [name, { ...value }]),
+              ),
+            }),
+        tokens: b.maxTokens,
+        usd: b.maxUsd ?? 0,
+        iterations: b.maxIterations,
+        usdBudgeted: b.maxUsd !== undefined,
+      },
+    }
+  }
+
+  /** Grant waiting tickets in the order they asked while the head fits. When the head does not
+   *  fit and no reservation is held that could return budget, nothing can ever cover it: refuse
+   *  it, and go on with the next. */
+  function grantWaiting(): void {
+    while (waiting.length > 0) {
+      const head = waiting[0]!
+      const shortfalls = shortfallsFor(head.budget, head.keep)
+      if (shortfalls.length === 0) {
+        waiting.shift()
+        take(head.budget)
+        holdingNothing.delete(head.ticket.id)
+        head.grant()
+        continue
+      }
+      if (open.size > holdingNothing.size) return
+      waiting.shift()
+      head.refuse(new ReservationWaitRefused(shortfalls))
+    }
+  }
+
   function reserve(
     b: Budget,
     holder: ReservationHolder = { stage: 'admitted' },
+    options: ReserveOptions = {},
   ):
-    | { ok: true; ticket: ReservationTicket }
+    | { ok: true; ticket: ReservationTicket; granted?: Promise<void> }
     | { ok: false; reason: ReservationRejection; shortfalls?: readonly ReservationShortfall[] } {
     assertValidBudget(b, 'reservation budget')
     for (const [name, state] of resources) {
@@ -619,34 +790,12 @@ export function createBudgetPool(
       if (!resources.has(name))
         throw new ValidationError(`resource ${name}: root must declare its limit`)
     }
-    const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
-    const wantIterations = b.maxIterations
+    const keep = options.keep
     // Fail-closed admission: every requested channel must fit the free balance. Every channel
     // that does not fit is reported, so a caller that shrinks one request is not refused again
     // on a second channel it was never told about.
-    const shortfalls: ReservationShortfall[] = []
-    const short = (
-      channel: ReservationShortfall['channel'],
-      requested: number,
-      free: number,
-      closedByUnknownSpend = false,
-    ): void => {
-      shortfalls.push({
-        channel,
-        requested,
-        free: closedByUnknownSpend ? 0 : Math.max(0, free),
-        ...(closedByUnknownSpend ? { closedByUnknownSpend: true as const } : {}),
-      })
-    }
-    for (const [name, state] of resources) {
-      const limit = b.resources![name]!.limit
-      if (!state.known) short(`resource:${name}`, limit, 0, true)
-      else if (limit > state.remaining) short(`resource:${name}`, limit, state.remaining)
-    }
-    if (usdCapped && usdTainted) short('usd', wantUsd, 0, true)
-    if (wantTokens > freeTokens) short('tokens', wantTokens, freeTokens)
-    if (wantIterations > freeIterations) short('iterations', wantIterations, freeIterations)
+    const shortfalls = shortfallsFor(b, keep)
     // A dollar request against a root that declared no dollar ceiling can never be satisfied at
     // ANY amount, which is a different fact from an exhausted balance and calls for a different
     // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
@@ -656,44 +805,32 @@ export function createBudgetPool(
     if (shortfalls.length === 0 && wantUsd > 0 && !usdCapped) {
       return { ok: false, reason: 'usd-unbudgeted' }
     }
-    if (usdCapped && !usdTainted && wantUsd > freeUsd) short('usd', wantUsd, freeUsd)
-    if (shortfalls.length > 0) return { ok: false, reason: 'budget-exhausted', shortfalls }
-
-    for (const [name, state] of resources) {
-      const amount = b.resources![name]!.limit
-      state.remaining -= amount
-      state.reserved += amount
+    const queueAhead = options.wait === true && waiting.length > 0
+    if (shortfalls.length === 0 && !queueAhead) {
+      take(b)
+      const id = nextTicketId++
+      open.set(id, holder)
+      return { ok: true, ticket: ticketFor(id, b) }
     }
-    freeTokens -= wantTokens
-    reservedTokens += wantTokens
-    freeIterations -= wantIterations
-    reservedIterations += wantIterations
-    if (wantUsd > 0) {
-      freeUsd -= wantUsd
-      reservedUsd += wantUsd
+    if (options.wait !== true || !fitsAfterRefunds(shortfalls)) {
+      return { ok: false, reason: 'budget-exhausted', shortfalls }
     }
-
+    // Admit it to wait: it holds nothing until settlements return enough, in the order asked.
     const id = nextTicketId++
     open.set(id, holder)
-    return {
-      ok: true,
-      ticket: {
-        id,
-        reserved: {
-          ...(b.resources === undefined
-            ? {}
-            : {
-                resources: Object.fromEntries(
-                  Object.entries(b.resources).map(([name, value]) => [name, { ...value }]),
-                ),
-              }),
-          tokens: wantTokens,
-          usd: wantUsd,
-          iterations: wantIterations,
-          usdBudgeted: b.maxUsd !== undefined,
-        },
-      },
-    }
+    const ticket = ticketFor(id, b)
+    let grant!: () => void
+    let refuse!: (error: ReservationWaitRefused) => void
+    const granted = new Promise<void>((resolve, reject) => {
+      grant = resolve
+      refuse = reject
+    })
+    // The caller may withdraw a waiting ticket before it awaits `granted`; a refusal it never
+    // reads must not surface as an unhandled rejection.
+    granted.catch(() => undefined)
+    holdingNothing.add(id)
+    waiting.push({ ticket, budget: b, keep, grant, refuse })
+    return { ok: true, ticket, granted }
   }
 
   function attribute(ticket: ReservationTicket, holder: ReservationHolder): void {
@@ -708,7 +845,17 @@ export function createBudgetPool(
     }
     assertValidSpend(spent, `budget pool ticket ${ticket.id} spend`)
     validateResourceUnits(spent)
-    const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
+    // A ticket still waiting, or refused while waiting, reserved nothing: it settles against a
+    // zero reservation, and a waiting one leaves the queue.
+    const heldNothing = holdingNothing.delete(ticket.id)
+    if (heldNothing) {
+      const index = waiting.findIndex((entry) => entry.ticket.id === ticket.id)
+      if (index >= 0) waiting.splice(index, 1)
+    }
+    const held = heldNothing
+      ? { tokens: 0, usd: 0, iterations: 0, resources: undefined }
+      : ticket.reserved
+    const { tokens: rTokens, usd: rUsd, iterations: rIterations } = held
     const unknownUnderCap = usdCapped && spent.usdKnown === false
     const spentTokens = chargedTokens(spent.tokens)
     // A child whose `Budget` named no `maxUsd` reserved NO dollar allocation, so it has no
@@ -785,9 +932,12 @@ export function createBudgetPool(
       committedUsd += spent.usd
     }
 
-    const resourceSettlement = commitResources(spent, ticket.reserved.resources ?? {})
+    const resourceSettlement = commitResources(spent, held.resources ?? {})
     fault ??= resourceSettlement.fault
     overspent.push(...resourceSettlement.overspent)
+    // The refund may cover waiting tickets, and a settlement that leaves nothing held ends the
+    // wait of any ticket that cannot fit.
+    grantWaiting()
     // Frozen: the same record reaches the journal, the settlement, and every observer.
     const violation =
       overspent.length === 0

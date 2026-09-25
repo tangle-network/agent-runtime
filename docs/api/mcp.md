@@ -2800,6 +2800,56 @@ What the memory bin resolved from its environment.
 
 ***
 
+### McpToolAnnotations
+
+**`Experimental`**
+
+MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads
+before calling, for example to run a read-only tool without confirmation.
+They describe the tool; they do not enforce anything.
+
+#### Properties
+
+##### title?
+
+> `optional` **title?**: `string`
+
+**`Experimental`**
+
+##### readOnlyHint?
+
+> `optional` **readOnlyHint?**: `boolean`
+
+**`Experimental`**
+
+The tool does not modify its environment.
+
+##### destructiveHint?
+
+> `optional` **destructiveHint?**: `boolean`
+
+**`Experimental`**
+
+The tool may perform destructive updates. Meaningful only when not read-only.
+
+##### idempotentHint?
+
+> `optional` **idempotentHint?**: `boolean`
+
+**`Experimental`**
+
+Repeating a call with the same arguments has no additional effect.
+
+##### openWorldHint?
+
+> `optional` **openWorldHint?**: `boolean`
+
+**`Experimental`**
+
+The tool may reach entities outside its own data, such as the web.
+
+***
+
 ### McpToolDescriptor
 
 **`Experimental`**
@@ -2825,6 +2875,14 @@ A callable MCP tool exposed by either stdio server.
 > **inputSchema**: `Record`\<`string`, `unknown`\>
 
 **`Experimental`**
+
+##### annotations?
+
+> `optional` **annotations?**: [`McpToolAnnotations`](#mcptoolannotations)
+
+**`Experimental`**
+
+Published in `tools/list` when present.
 
 ##### handler
 
@@ -3700,6 +3758,13 @@ True when projected from a prior process of the same durable run.
 Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
  to answer "how long since anything landed?" without inventing a timestamp at read time.
 
+##### subtree?
+
+> `readonly` `optional` **subtree?**: [`SubtreeSummary`](runtime.md#subtreesummary)
+
+Present when this worker led workers of its own: its team's counts and its own direct
+ children's results, each readable in full through `observe_agent({ outRef })`.
+
 ***
 
 ### QuestionOption
@@ -3890,7 +3955,25 @@ Called once when this manager declares completion through `stop` or an accepted 
 
 The same independent completion check used for workers. When present, the driver receives a
 `submit_result` tool and may finish work itself instead of being forced to delegate it. The
-first passing submission is retained; a false or throwing check fails closed.
+first passing submission is retained; a false or throwing check fails closed. A manager with a
+check is not served `stop`: it ends through `submit_result` or `report_blocked`.
+
+##### readContinuation?
+
+> `readonly` `optional` **readContinuation?**: (`continuation`) => `unknown`
+
+Serve `read_continuation`: the full continuation files the note refers to. Supplied by the
+ manager's continuation policy; the director's box cannot read the driver's run directory.
+
+###### Parameters
+
+###### continuation
+
+`number` \| `undefined`
+
+###### Returns
+
+`unknown`
 
 ##### analysts?
 
@@ -3949,17 +4032,6 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
  findings (see [AnalyzeOnSettleRoute.agent](runtime.md#agent)). Omit/empty = no auto-analysis (default;
  the driver can still run lenses on demand via `run_analyst`). Lens routes require
  `analysts`; agent routes do not.
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_worker`
- counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
- reserving from the pool when the cap is already met — a concurrency fence on top of the
- conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
- sandboxes/boxes). A tree-wide limit owned by `Scope` takes precedence when present; this field
- is the local form for a caller-owned scope. Omit or `<= 0` = no local cap.
 
 ##### awaitTimeoutMs?
 
@@ -4455,6 +4527,43 @@ The run state a re-entered manager is told, read from this coordinator's own rec
 ###### Returns
 
 [`ManagerReentryState`](runtime.md#managerreentrystate)
+
+##### checkReads()
+
+> **checkReads**(): readonly [`CheckRead`](runtime.md#checkread)[]
+
+Every time this manager's completion check ran, oldest first: each `submit_result`, and each
+ turn end the manager recorded through [CoordinationTools.recordCheckRead](#recordcheckread).
+
+###### Returns
+
+readonly [`CheckRead`](runtime.md#checkread)[]
+
+##### recordCheckRead()
+
+> **recordCheckRead**(`read`): [`CheckRead`](runtime.md#checkread)
+
+Record a check read that happened outside `submit_result`, such as a turn end.
+
+###### Parameters
+
+###### read
+
+###### source
+
+`"submit"` \| `"turn-end"`
+
+###### verdict?
+
+[`CheckVerdict`](runtime.md#checkverdict)
+
+###### unavailable?
+
+`string`
+
+###### Returns
+
+[`CheckRead`](runtime.md#checkread)
 
 ##### blocked()
 
@@ -6188,6 +6297,16 @@ Env var naming the JSONL retrieval log (one row per `memory_search`).
 > `const` **MEMORY\_NAME\_ENV**: `"AGENT_MEMORY_NAME"` = `'AGENT_MEMORY_NAME'`
 
 Env var overriding the served display name (default 'agent-memory').
+
+***
+
+### SUPPORTED\_PROTOCOL\_VERSIONS
+
+> `const` **SUPPORTED\_PROTOCOL\_VERSIONS**: readonly `string`[]
+
+Protocol versions this server speaks, newest first. `initialize` answers with
+the client's requested version when it is listed here, and otherwise with
+`PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
 
 ***
 

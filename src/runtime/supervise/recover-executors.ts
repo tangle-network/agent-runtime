@@ -275,7 +275,13 @@ export async function prepareInterruptedExecutors(
     const admissions = current.flatMap((event) =>
       event.kind === 'execution-admitted' ? [event.admission] : [],
     )
-    if (!opts.recoverExecutor || (admissions.length === 0 && !node.ownedTreeRoot)) continue
+    if (
+      !opts.recoverExecutor ||
+      (admissions.length === 0 &&
+        !node.ownedTreeRoot &&
+        (opts.journal.appendEvents === undefined || latestInput === undefined))
+    )
+      continue
     const taskRef = inputs[0]?.taskRef
     if (
       !node.profileRef ||
@@ -442,7 +448,11 @@ export type ScopeResumeState = NonNullable<ScopeArgs['resumeFrom']> & {
  * The keyed assignments a prior journal proves: every `spawned` event carrying a `key`, resolved
  * against the replayed settlements. A key spawned more than once (a retry chain) resolves to its
  * LATEST attempt — iterate in ordinal order so later spawns overwrite earlier ones. A spawned
- * event with no matching settlement is `in-doubt`: the process died with it in flight.
+ * event with no matching settlement is `in-doubt`: the process died with it in flight — UNLESS
+ * the spawn's own runtime proves the execution cannot have outlived the process (`inline`, the
+ * same predicate the budget layer charges no uncertain reservation for), in which case the resume
+ * itself is the terminal evidence and the key resolves `down` with a derived reason, so a re-spawn
+ * under the same key retries instead of wedging in-doubt.
  */
 function keyedAssignments(
   events: SpawnEvent[],
@@ -467,7 +477,15 @@ function keyedAssignments(
     keys.set(
       ev.key,
       s === undefined
-        ? { id: ev.id, label: ev.label, identity: ev.identity, state: 'in-doubt' }
+        ? ev.runtime === 'inline'
+          ? {
+              id: ev.id,
+              label: ev.label,
+              identity: ev.identity,
+              state: 'down',
+              reason: `interrupted: the process died with '${ev.label}' in flight and its '${ev.runtime}' runtime cannot outlive that process, so the resume proves the attempt dead`,
+            }
+          : { id: ev.id, label: ev.label, identity: ev.identity, state: 'in-doubt' }
         : {
             id: ev.id,
             label: ev.label,

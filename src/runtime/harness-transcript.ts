@@ -39,7 +39,19 @@ import type { ResultBlobStore } from './supervise/types'
 const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'claude-code': Object.freeze(['.claude/projects', '.claude/history.jsonl', '.claude/todos']),
   codex: Object.freeze(['.codex/sessions', '.codex/history.jsonl']),
-  opencode: Object.freeze(['.local/share/opencode/storage', '.local/share/opencode/log']),
+  // Current opencode keeps sessions in SQLite, which a text capture cannot carry. A shared-box
+  // worker exports each session as JSON under `export`; a dedicated Tangle box's sidecar keeps
+  // its own per-session record under `.opencode/sessions` and `.opencode/messages`, and the
+  // capture exports each harness subagent session those records name under `export`
+  // (`exportSubagentSessions`). The sidecar's records come first, so a subagent's export can
+  // never push the agent's own record out of the byte budget.
+  opencode: Object.freeze([
+    '.opencode/sessions',
+    '.opencode/messages',
+    '.local/share/opencode/export',
+    '.local/share/opencode/storage',
+    '.local/share/opencode/log',
+  ]),
   // Pi keeps a session tree per cwd; it had no entry, so a pi child captured nothing.
   pi: Object.freeze(['.pi/agent/sessions']),
 })
@@ -180,6 +192,134 @@ export function harnessTranscriptUnavailable(
   return unavailable(reason)
 }
 
+/**
+ * Read one executor's harness-transcript receipt without letting a broken port escape.
+ *
+ * The three answers this has to keep apart, because #1214 and #1244 are both about an artifact
+ * that reads as coverage without being coverage:
+ *   - `available`                              the transcript survived;
+ *   - a reason the CAPTURE produced            a box existed and could not be read;
+ *   - `executor-exposes-no-transcript`     this runtime has no transcript to offer at all;
+ *   - `execution-never-started`                no environment was ever created (the executor's
+ *                                              own seed, set before `create`);
+ *   - `capture-did-not-run`                    the port answered nothing, so the capture was
+ *                                              skipped rather than attempted and failed.
+ *
+ * Mirrors the supervise scope's `readInteractiveSession`: an absence is always a named reason,
+ * never `undefined`. The scope reads each child with it, and `supervise` reads the root with it.
+ */
+export function readHarnessTranscript(executor: {
+  harnessTranscript?: () => unknown
+}): HarnessTranscriptCapture {
+  if (!executor.harnessTranscript) {
+    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+  }
+  let reported: unknown
+  try {
+    reported = executor.harnessTranscript()
+  } catch {
+    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+  }
+  if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
+  const capture = reported as HarnessTranscriptCapture
+  if (capture.status === 'captured' && capture.artifact) return capture
+  if (capture.status === 'unavailable' && capture.reason) return capture
+  return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+}
+
+/**
+ * Bounds on the subagent export, per capture. The capture runs after every turn and again at
+ * release, so they bound how long a turn's end or a teardown can wait on it; each session they
+ * leave out is named in `skipped`.
+ */
+const MAX_SUBAGENT_EXPORTS = 32
+const SUBAGENT_EXPORT_SECONDS = 120
+/** The script starts no export after SUBAGENT_EXPORT_SECONDS and bounds each one at 30 s, so it
+ *  ends inside this. It is passed to `exec`, because the Sandbox SDK's default is 30 s. */
+const SUBAGENT_EXPORT_EXEC_MS = (SUBAGENT_EXPORT_SECONDS + 60) * 1000
+const SUBAGENT_EXPORT_DIR = '~/.local/share/opencode/export'
+
+/**
+ * The export, run in the box. For each sidecar record it reads the runtime home and the parent
+ * session, collects the subagent sessions its messages name, and writes `opencode export` of each
+ * one under `export`, where the capture reads it. It prints one `<state> <sessionId>` line per
+ * subagent: `exported`, `failed`, or `unexported` (over a bound), then `done`. Every capture exports again,
+ * because a later turn can continue a subagent and the store changes with every turn; an export
+ * takes about 2 s in a Tangle box. Each export goes to a temporary file first, so a failed or
+ * interrupted export never leaves a partial file for the capture to read.
+ */
+const SUBAGENT_EXPORT_SCRIPT = String.raw`cd "$HOME" 2>/dev/null || exit 0
+out="$HOME/.local/share/opencode/export"
+t=""; command -v timeout >/dev/null 2>&1 && t="timeout 30"
+start=$(date +%s); n=0
+for rec in .opencode/sessions/*.json; do
+  [ -f "$rec" ] || continue
+  h=$(sed -n 's/.*"providerSessionHome"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$rec" | head -n 1)
+  p=$(sed -n 's/.*"providerSessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$rec" | head -n 1)
+  db="$h/.local/share/opencode/opencode.db"
+  case "$h" in /*) [ -f "$db" ] || continue ;; *) continue ;; esac
+  ids=$(grep -rhoE '<task id=\\?"ses_[A-Za-z0-9]+|task_id: ses_[A-Za-z0-9]+|"sessionId"[[:space:]]*:[[:space:]]*"ses_[A-Za-z0-9]+' ".opencode/messages/$(basename "$rec" .json)" 2>/dev/null | grep -oE 'ses_[A-Za-z0-9]+' | sort -u)
+  for id in $ids; do
+    [ "$id" = "$p" ] && continue
+    n=$((n + 1))
+    if [ "$n" -gt ${MAX_SUBAGENT_EXPORTS} ] || [ $(($(date +%s) - start)) -ge ${SUBAGENT_EXPORT_SECONDS} ]; then echo "unexported $id"; continue; fi
+    mkdir -p "$out" && tmp=$(mktemp) || { echo "failed $id"; continue; }
+    if HOME="$h" XDG_DATA_HOME="$h/.local/share" XDG_CONFIG_HOME="$h/.config" XDG_STATE_HOME="$h/.local/state" XDG_CACHE_HOME="$h/.cache" OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1 $t opencode export "$id" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+      mv "$tmp" "$out/$id.json" && echo "exported $id"
+    else
+      rm -f "$tmp"; echo "failed $id"
+    fi
+  done
+done
+echo done`
+
+/**
+ * Export each opencode subagent session a Tangle box's sidecar names, so the capture carries the
+ * subagent's own steps (#1264).
+ *
+ * The sidecar runs opencode under a private runtime home and records the parent session under
+ * `.opencode/sessions` and `.opencode/messages`. A `task` subagent runs in a child session, and
+ * those records name it only in the tool's result (`<task id="ses_…">`, or `task_id: ses_…` on a
+ * failure). Its steps are only in the runtime home's `opencode.db`, which a text capture cannot
+ * carry. Each sidecar record names that home as `providerSessionHome`, so `opencode export` reads
+ * the child from there. A shared-box worker exports its own subagents after each turn (#1371) and
+ * keeps no sidecar record, so the export finds nothing to do for it.
+ *
+ * Returns the sessions it could not export, as `skipped` entries. An export that did not run, or
+ * stopped before its `done` line, is named once, because the subagents it did not reach are
+ * unknown.
+ */
+async function exportSubagentSessions(
+  environment: ReadableEnvironment,
+  signal?: AbortSignal,
+): Promise<{ readonly path: string; readonly reason: string }[]> {
+  if (!environment.exec || signal?.aborted) return []
+  let stdout: string
+  try {
+    const result = await environment.exec(SUBAGENT_EXPORT_SCRIPT, {
+      timeoutMs: SUBAGENT_EXPORT_EXEC_MS,
+      ...(signal ? { signal } : {}),
+    })
+    stdout = result.stdout ?? ''
+  } catch {
+    return [{ path: SUBAGENT_EXPORT_DIR, reason: 'subagent-export-did-not-run' }]
+  }
+  const lines = stdout.split('\n').map((line) => line.trim())
+  const gaps: { path: string; reason: string }[] = []
+  for (const line of lines) {
+    const match = /^(failed|unexported) (ses_[A-Za-z0-9]+)$/u.exec(line)
+    if (match === null) continue
+    gaps.push({
+      path: `${SUBAGENT_EXPORT_DIR}/${match[2]}.json`,
+      reason: match[1] === 'failed' ? 'subagent-export-failed' : 'subagent-export-over-bound',
+    })
+  }
+  if (!lines.includes('done')) {
+    gaps.push({ path: SUBAGENT_EXPORT_DIR, reason: 'subagent-export-incomplete' })
+  }
+  return gaps
+}
+
 interface Enumeration {
   /** Paths to read, at most MAX_FILES of them. */
   readonly paths: readonly string[]
@@ -260,15 +400,19 @@ export async function captureHarnessTranscript(
   const roots = HARNESS_ROOTS[harness]
   if (!roots) return unavailable('unknown-harness')
 
+  // Before the listing, so the subagent sessions it exports are listed with the rest.
+  const unexported = harness === 'opencode' ? await exportSubagentSessions(environment, signal) : []
   const enumerated = await enumerate(environment, roots, signal)
   if (enumerated === undefined) return unavailable('enumeration-failed')
   const { paths } = enumerated
-  if (paths.length === 0 && enumerated.omitted.length === 0) return unavailable('no-transcript')
+  if (paths.length === 0 && enumerated.omitted.length === 0 && unexported.length === 0) {
+    return unavailable('no-transcript')
+  }
 
   const files: HarnessTranscriptFile[] = []
-  // Seeded with what the enumeration itself left out, so an incomplete listing is never a
-  // receipt with skippedCount 0.
-  const skipped: { path: string; reason: string }[] = [...enumerated.omitted]
+  // Seeded with what the export and the enumeration left out, so an incomplete capture is never
+  // a receipt with skippedCount 0.
+  const skipped: { path: string; reason: string }[] = [...unexported, ...enumerated.omitted]
   let total = 0
   for (const path of paths) {
     // Stop on abort rather than attempting every remaining read and failing each: a
@@ -315,6 +459,76 @@ export async function captureHarnessTranscript(
     })
   }
 
+  const artifact: HarnessTranscriptArtifact = Object.freeze({
+    schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
+    harness,
+    files: Object.freeze(files),
+    skipped: Object.freeze(skipped),
+  })
+  return Object.freeze({
+    status: 'captured',
+    artifact,
+    fileCount: files.length,
+    totalBytes: total,
+    skippedCount: skipped.length,
+  })
+}
+
+/**
+ * A transcript this process holds in memory, one JSON line per record, as a capture under the same
+ * bounds a box's session files get: each file at most MAX_FILE_BYTES, all files together at most
+ * MAX_TOTAL_BYTES. Lines fill `<name>-000.jsonl`, `<name>-001.jsonl`, ... in order, and a line is
+ * never split. A line longer than one file, and every line past the total, is named in `skipped`
+ * with its line number, so a cut transcript never reads as the whole one.
+ */
+export function harnessTranscriptFromLines(
+  harness: string,
+  name: string,
+  lines: ReadonlyArray<string>,
+): HarnessTranscriptCapture {
+  if (lines.length === 0) return unavailable('no-transcript')
+  const files: HarnessTranscriptFile[] = []
+  const skipped: { path: string; reason: string }[] = []
+  let total = 0
+  let chunk: string[] = []
+  let chunkBytes = 0
+  const flush = (): void => {
+    if (chunk.length === 0) return
+    const content = `${chunk.join('\n')}\n`
+    files.push(
+      Object.freeze({
+        path: `${name}-${String(files.length).padStart(3, '0')}.jsonl`,
+        bytes: Buffer.byteLength(content, 'utf8'),
+        content,
+      }),
+    )
+    chunk = []
+    chunkBytes = 0
+  }
+  lines.forEach((line, index) => {
+    const bytes = Buffer.byteLength(line, 'utf8') + 1
+    const where = `${name} line ${index + 1}`
+    if (bytes > MAX_FILE_BYTES) {
+      skipped.push({ path: where, reason: 'file-exceeds-byte-bound' })
+      return
+    }
+    if (total + bytes > MAX_TOTAL_BYTES) {
+      skipped.push({ path: where, reason: 'total-byte-budget-exhausted' })
+      return
+    }
+    if (chunkBytes + bytes > MAX_FILE_BYTES) flush()
+    chunk.push(line)
+    chunkBytes += bytes
+    total += bytes
+  })
+  flush()
+  if (files.length === 0) {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'nothing-carried',
+      skipped: Object.freeze(skipped),
+    })
+  }
   const artifact: HarnessTranscriptArtifact = Object.freeze({
     schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
     harness,

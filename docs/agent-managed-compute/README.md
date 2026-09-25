@@ -4,7 +4,8 @@ This directory is the canonical plan for agents that allocate, steer, and recove
 
 ## Verdict
 
-The repository is on the right architectural track, but it is not yet a distributed coordination system.
+The runtime supports single-owner SQL failover for retained provider runs.
+It is not a general distributed workflow engine.
 
 The core execution model is sound:
 
@@ -28,7 +29,11 @@ Providers must advertise runtime MCP attachment support before receiving coordin
 One-shot providers remain nonsteerable.
 
 The file run lock coordinates local ownership.
-Distributed generation fencing and live multi-provider recovery validation remain open.
+`createFencedSqlRunContext` adds a SQL ownership lease, generation-checked publications, and a durable coordination log.
+A second live process cannot acquire the run; after owner loss, a contender can take over without local files.
+This requires a shared durable SQL service and a retained provider with idempotent create/dispatch.
+External keyed effects must deduplicate at the effect site. Arbitrary unkeyed effects are not made exactly-once by SQL.
+Live multi-provider recovery and generation-fenced remote steering remain separate validation work.
 See [reliability.md](./reliability.md) for the supported recovery boundary and remaining distributed requirements.
 
 ## Product Definition
@@ -101,9 +106,9 @@ This table tracks the existing documents that materially overlap this plan.
 | One-shot delegation restart recovery | Partially implemented | `src/mcp/task-queue.ts` |
 | Conversation turn restart recovery | Implemented for one writer | `src/conversation/run-conversation.ts` |
 | Supervised tree restart recovery | Committed replay, retained children, and reconstructed nested managers with original reservations and finalizers | `src/runtime/supervise/supervisor.ts` |
-| Durable cross-process coordination messages | Not implemented | `src/runtime/supervise/event-bus.ts` |
+| Durable cross-process coordination messages | Owner-scoped SQL side-log, replayed with original bus stamps | `tests/durability/sql-context-stores.test.ts` |
 | Authenticated remote coordination MCP | Implemented; requires caller-provided reachable endpoint | `src/runtime/supervise/coordination-mcp.ts` |
-| Concurrent coordinator failover | Not implemented | Current file stores have no compare-and-set or ownership claim. |
+| Concurrent coordinator failover | Fenced SQL claim, live-owner exclusion, SIGKILL takeover, and stale-owner rejection | `tests/durability/sql-run-context.test.ts`, `tests/durability/sql-run-store.test.ts` |
 | One simple multi-round public API | Not implemented | `runConversation`, `runPersonified`, `runAgentic`, and `runAgentRounds` overlap. |
 | Acyclic runtime and knowledge packages | Implemented | `agent-knowledge` imports no runtime code; `agent-runtime` owns the optional composition in `src/knowledge/`; direct release lines align, while transitive packages may retain internal copies. |
 

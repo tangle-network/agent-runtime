@@ -42,6 +42,15 @@ import { type RouterTransportConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { linkAbort, runAbortable } from './abortable'
 import type { DeliverableSpec } from './completion-gate'
+import {
+  admitContinuationPolicy,
+  bestComposite,
+  CheckUnavailableError,
+  type ContinuationKeeper,
+  type ContinuationPolicy,
+  checkVerdictOf,
+  createContinuationKeeper,
+} from './continuation'
 import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import {
@@ -53,10 +62,7 @@ import {
   type DriverAttemptRecord,
   type DriverContinuationRecord,
   type DriverProgressMark,
-  type DriverRepromptPolicy,
   type DriverRetryPolicy,
-  defaultUnmetContractSteer,
-  type OnUnmetContract,
   runDriverWithRetry,
   summarizeDriverAttempts,
 } from './driver-retry'
@@ -73,6 +79,7 @@ import {
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
+import { createRouterTranscript } from './router-transcript'
 import { applyRunCancellation } from './run-cancellation'
 import { beginScopeOwnerAttempt, recordScopeOwnerPause } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -276,7 +283,7 @@ export type SupervisorNodeContextSeed = Omit<SupervisorNodeContext, 'nodeId' | '
  *
  * Each verb dispatches by name to the live coordination descriptor's own handler, so a spawn made
  * here crosses the identical path the MCP verb crosses: `makeWorkerAgent` → `authorizeSpawn` /
- * security / `allowedModels`, the conserved pool reservation, `maxLiveWorkers`, the journal, and
+ * security / `allowedModels`, the conserved pool reservation, the worker-slot queue, the journal, and
  * the event bus. There is no second spawn path and no way to bypass a gate by calling in code.
  *
  * The set is deliberately the COORDINATION surface only. `submit_result`, `stop`, and `ask_parent`
@@ -477,10 +484,6 @@ export interface SupervisorAgentDeps {
   readonly deliverable?: DeliverableSpec<unknown>
   /** Receives a result only after this manager's completion check accepted it. */
   readonly onAcceptedSubmission?: (result: unknown) => void
-  /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
-   *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
-   *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
-  readonly maxLiveWorkers?: number
   /** Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
    *  profile's model wins. */
   readonly router?: RouterTransportConfig
@@ -497,19 +500,19 @@ export interface SupervisorAgentDeps {
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   /** Called once when the external driver loop ends, returned or thrown, with what it did. */
   readonly onDriverLoopSettled?: (record: DriverContinuationRecord) => void
-  /** How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
-   *  with the unmet items: into the same harness session where the backend proves it, and
-   *  otherwise with the whole re-entry task (`reentry.ts`). The harness owns its own turn loop, so it can
-   *  end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
-   *  ended on the driver's own completion, and the completion gate could only label that result,
-   *  never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
-   *  live children, same budget/deadline/abort bounds. Successful turns do not consume failure
-   *  retries. Use `'until-complete'` with a finite positive scope deadline to omit the count cap.
-   *  Requires `deliverable`; refused for a router-brained supervisor. Omit/`0` = never re-prompt. */
-  readonly repromptOnUnmet?: DriverRepromptPolicy['maxReprompts']
-  /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
-   *  Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's own instruction. */
-  readonly onUnmetContract?: OnUnmetContract
+  /** How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
+   *  unmet: the deadline, `maxBarren`, and the note's profile and switches (`./continuation.ts`).
+   *  Required with `deliverable` on the external arm, refused without one, and refused for a
+   *  router-brained supervisor, which runs its own turn loop in process. The harness owns its own
+   *  turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
+   *  discovery-lab runs (2026-09-01) ended on the driver's own completion. A continuation reuses the
+   *  retry path: same scope, same coordination server, same live children, same bounds. */
+  readonly continuation?: ContinuationPolicy
+  /** Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
+   *  `panel.jsonl`). Omit to keep them in memory, where `read_continuation` still serves them. */
+  readonly continuationDir?: string
+  /** The root manager's `root-stream.jsonl`, which the question panel reads. */
+  readonly rootStreamPath?: string
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
   readonly nodeContext?: SupervisorNodeContextSeed
   /** Resolve product-owned tools for this exact manager. Static `extraTools` remain a router-only
@@ -770,41 +773,39 @@ function buildSupervisorAgent(
     )
   }
 
-  if (
-    harness === null &&
-    (deps.repromptOnUnmet !== undefined || deps.onUnmetContract !== undefined)
-  ) {
+  if (harness === null && deps.continuation !== undefined) {
     throw new ValidationError(
-      'supervisorAgent: repromptOnUnmet/onUnmetContract apply to an EXTERNAL-harness supervisor ' +
-        'only (profile.harness set). A router-brained supervisor runs its own turn loop in ' +
-        'process, so this option would be silently ignored.',
+      'supervisorAgent: continuation applies to an EXTERNAL-harness supervisor only (profile.harness ' +
+        'set). A router-brained supervisor runs its own turn loop in process, so the policy would ' +
+        'be silently ignored.',
     )
   }
-
-  if (
-    deps.repromptOnUnmet !== undefined &&
-    deps.repromptOnUnmet !== 'until-complete' &&
-    (!Number.isInteger(deps.repromptOnUnmet) || deps.repromptOnUnmet < 0)
-  ) {
+  if (deps.continuation !== undefined && deps.deliverable === undefined) {
     throw new ValidationError(
-      "supervisorAgent: repromptOnUnmet must be a non-negative integer or 'until-complete' (0 = never re-prompt)",
+      'supervisorAgent: continuation needs a `deliverable` completion check — with no check there ' +
+        'is no contract that can be unmet',
     )
   }
-
-  const repromptEnabled =
-    deps.repromptOnUnmet === 'until-complete' || (deps.repromptOnUnmet ?? 0) > 0
-  if (deps.onUnmetContract !== undefined && !repromptEnabled) {
+  if (harness !== null && deps.deliverable !== undefined && deps.continuation === undefined) {
     throw new ValidationError(
-      "supervisorAgent: onUnmetContract needs repromptOnUnmet >= 1 or 'until-complete'",
+      'supervisorAgent: a manager with a completion check needs a continuation policy (deadline, ' +
+        'maxBarren, the note profile and switches). Runtime supplies no default: how long to send ' +
+        "a director back, and what to tell it, is the record's decision",
     )
   }
-
-  if (repromptEnabled && deps.deliverable === undefined) {
+  // One way out: a manager with a check ends when the check passes, when `report_blocked` shows a
+  // tool really failed, or when a bound ends it. Refused before any compute, on both arms.
+  if (deps.deliverable !== undefined && runtimeToolNames.includes('stop')) {
     throw new ValidationError(
-      'supervisorAgent: repromptOnUnmet needs a `deliverable` completion check — with no check ' +
-        'there is no contract that can be unmet, and every run would re-prompt',
+      `supervisorAgent: the profile grants ${coordinationProfileToolPrefix}stop to a manager with a ` +
+        'completion check. Such a manager ends only through submit_result (the check passes) or ' +
+        'report_blocked (a failed probe); remove stop from its tools',
     )
   }
+  const continuationDeadlineMs =
+    deps.continuation === undefined
+      ? undefined
+      : admitContinuationPolicy(deps.continuation, 'supervisorAgent')
 
   if (harness === null) {
     // ROUTER arm: the in-process tool-loop. `routerBrain` is an internal detail — a production
@@ -813,6 +814,8 @@ function buildSupervisorAgent(
     assertRouterArmResourcePolicy(stableProfile)
     const brain = testBrain ?? routerBrainFromProfile(stableProfile, stableRouter)
     const inbox = createInbox()
+    // One conversation per agent, whichever driver `act` builds for an attempt.
+    const transcript = createRouterTranscript()
     const build = (
       priorCoordination?: PriorCoordination,
       nodeTools?: ReadonlyArray<McpToolDescriptor>,
@@ -822,6 +825,7 @@ function buildSupervisorAgent(
       driverAgent({
         name,
         brain,
+        transcript,
         ...(testBrain === undefined
           ? { expectedModel: resolveSupervisorModelId(stableProfile) }
           : {}),
@@ -838,7 +842,6 @@ function buildSupervisorAgent(
         ...(deps.onAcceptedSubmission ? { onAcceptedSubmission: deps.onAcceptedSubmission } : {}),
         toolNames: runtimeToolNames,
         ...(nodeTools?.length ? { nodeTools } : {}),
-        ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
@@ -877,6 +880,7 @@ function buildSupervisorAgent(
       deliver(message): boolean {
         return inbox.deliver(message)
       },
+      harnessTranscript: () => transcript.capture(),
       async act(task, scope) {
         const context = nodeContextSeed
           ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
@@ -980,6 +984,8 @@ function buildSupervisorAgent(
               if (!stopController.signal.aborted) stopController.abort(decision.reason)
             }
           : nodeObserver
+      // Built once the coordinator exists, because it reads the check's reads from it.
+      let keeper: ContinuationKeeper | undefined
       const { handle: mcp, controls } = await serveCoordinationMcpForManager(
         {
           scope,
@@ -994,12 +1000,17 @@ function buildSupervisorAgent(
           // Forward the policy so direct server construction and manager preflight enforce the same
           // authentication and request limits.
           ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+          ...(deps.continuation
+            ? {
+                readContinuation: (n: number | undefined) =>
+                  keeper?.read(n) ?? { found: false, reason: 'no continuation has been sent' },
+              }
+            : {}),
           onStop: (reason) => {
             if (!stopController.signal.aborted) {
               stopController.abort(reason ?? 'coordination stop')
             }
           },
-          ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
@@ -1089,15 +1100,63 @@ function buildSupervisorAgent(
         // check unmet, spend and settlements alone do not buy another attempt.
         const baseTokensLeft = scope.budget.tokensLeft
         const contractDeclared = deps.deliverable !== undefined
-        const maxReprompts = deps.repromptOnUnmet ?? 0
+        const continuation = deps.continuation
+        if (continuation !== undefined && deps.deliverable !== undefined) {
+          keeper = createContinuationKeeper({
+            policy: continuation,
+            task,
+            ...(deps.deliverable.describe === undefined ? {} : { owed: deps.deliverable.describe }),
+            ...(deps.deliverable.feedback === undefined
+              ? {}
+              : { feedback: deps.deliverable.feedback }),
+            ...(deps.deliverable.sealed === true ? { sealed: true } : {}),
+            reads: () => controls.checkReads(),
+            workers: () => {
+              const labels = new Map(
+                ((scope as Partial<Scope<unknown>>).view?.nodes ?? []).map((node) => [
+                  node.id,
+                  node.label,
+                ]),
+              )
+              return mcp
+                .settled()
+                .map((worker) => ({ id: worker.id, label: labels.get(worker.id) ?? worker.id }))
+            },
+            ...(deps.continuationDir === undefined ? {} : { dir: deps.continuationDir }),
+            ...(deps.rootStreamPath === undefined ? {} : { rootStreamPath: deps.rootStreamPath }),
+            canReadMore: runtimeToolNames.includes('read_continuation'),
+          })
+        }
         let candidate: unknown
+        // The finalizer's check of the best delivered child is a check read like any other: the
+        // continuation note reports what the check said about the candidate the run would return.
+        const finalizerDeliverable =
+          deps.deliverable === undefined
+            ? undefined
+            : {
+                ...deps.deliverable,
+                check: async (out: unknown) => {
+                  let verdict: ReturnType<typeof checkVerdictOf>
+                  try {
+                    verdict = checkVerdictOf(await deps.deliverable?.check(out))
+                  } catch (error) {
+                    controls.recordCheckRead({
+                      source: 'turn-end',
+                      unavailable: error instanceof Error ? error.message : String(error),
+                    })
+                    throw error
+                  }
+                  controls.recordCheckRead({ source: 'turn-end', verdict })
+                  return verdict
+                },
+              }
         const finalize = () =>
           runFinalizer(deps.finalizer ?? bestDelivered, {
             settled: mcp.settled(),
             blobs: deps.blobs,
             tree: runTree(scope),
             budget: scope.budget,
-            ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+            ...(finalizerDeliverable ? { deliverable: finalizerDeliverable } : {}),
           })
         const readProgress = (): DriverProgressMark => {
           const settled = mcp.settled()
@@ -1106,6 +1165,7 @@ function buildSupervisorAgent(
             (w) => w.status === 'done' && w.valid === true,
           ).length
           const submitted = Boolean(mcp.submittedResult())
+          const composite = bestComposite(controls.checkReads())
           return {
             poolTokensSpent: baseTokensLeft - scope.budget.tokensLeft,
             settledCount: settled.length,
@@ -1116,6 +1176,36 @@ function buildSupervisorAgent(
               : submitted || candidate !== undefined
                 ? 'met'
                 : 'unmet',
+            ...(composite === undefined ? {} : { composite }),
+          }
+        }
+        /**
+         * The check runs when a turn ends without an accepted result. A read already taken in this
+         * turn stands (the manager just heard it); otherwise a check that judges state reads the
+         * run now. A check that could not run is not a verdict: the loop pauses.
+         */
+        const readCheckAtTurnEnd = async (attempt: number): Promise<void> => {
+          const deliverable = deps.deliverable
+          if (deliverable === undefined) return
+          const thisTurn = controls.checkReads().filter((read) => read.attempt === attempt)
+          const last = thisTurn.at(-1)
+          if (last === undefined && deliverable.checkState !== undefined) {
+            try {
+              const verdict = checkVerdictOf(await deliverable.checkState())
+              controls.recordCheckRead({ source: 'turn-end', verdict })
+              return
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error)
+              controls.recordCheckRead({ source: 'turn-end', unavailable: message })
+              throw new CheckUnavailableError(`the completion check could not run: ${message}`, {
+                cause: error,
+              })
+            }
+          }
+          if (last?.unavailable !== undefined) {
+            throw new CheckUnavailableError(
+              `the completion check could not run: ${last.unavailable}`,
+            )
           }
         }
         const loopRecords: DriverAttemptRecord[] = []
@@ -1139,6 +1229,7 @@ function buildSupervisorAgent(
             workspaceRestores,
             ...(closedBy === undefined ? {} : { closedBy }),
             ...(stopReason === undefined ? {} : { stopReason }),
+            continuations: keeper?.entries() ?? [],
           })
         }
         try {
@@ -1211,34 +1302,23 @@ function buildSupervisorAgent(
               if (contractDeclared && !mcp.submittedResult()) {
                 await mcp.drainResolved()
                 candidate = await finalize()
+                if (candidate === undefined && !mcp.isStopped()) await readCheckAtTurnEnd(attempt)
               }
             },
             progress: readProgress,
             budget: () => scope.budget,
             signal: scope.signal,
             ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
-            ...(repromptEnabled
+            ...(continuation !== undefined && keeper !== undefined && continuationDeadlineMs
               ? {
-                  reprompt: {
-                    maxReprompts,
-                    ...(deps.deliverable?.describe === undefined
-                      ? {}
-                      : { describe: deps.deliverable.describe }),
-                    onUnmetContract: async (context) => {
-                      // A run the coordination server STOPPED ended on purpose — the driver called
-                      // `stop`, a stop rule fired, or the turn cap closed it. Re-prompting would
-                      // re-enter a session whose stop signal is already aborted and argue with a
-                      // decision the run already made. Runtime refuses that before the product hook
-                      // is consulted, so no hook can override a declared stop. A progress stop rule
-                      // that fired is the same decision: it aborted the stop signal, and a re-prompt
-                      // would only re-enter a harness told to stop.
-                      if (mcp.isStopped() || progressStopReason !== undefined) return 'stop'
-                      return (
-                        (await deps.onUnmetContract?.(context)) ?? {
-                          steer: defaultUnmetContractSteer(context),
-                        }
-                      )
-                    },
+                  continuation: {
+                    maxBarren: continuation.maxBarren,
+                    deadlineMs: continuationDeadlineMs,
+                    compose: (context) => (keeper as ContinuationKeeper).compose(context),
+                    // A run the coordination server closed ended on purpose — a failed
+                    // `report_blocked` probe, or a progress stop rule that aborted the stop
+                    // signal. A continuation would re-enter a harness told to stop.
+                    closed: () => mcp.isStopped() || progressStopReason !== undefined,
                   },
                 }
               : {}),

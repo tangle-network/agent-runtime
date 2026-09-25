@@ -288,6 +288,7 @@ export type {
   OtelAttribute,
   OtelExportConfig,
   OtelExporter,
+  OtelExportStats,
   OtelSpan,
   RuntimeEventOtelOptions,
 } from './otel-export'

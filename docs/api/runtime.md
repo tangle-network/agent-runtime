@@ -15,6 +15,190 @@ concurrency, abort, cost aggregation, and trace emission.
 
 ## Classes
 
+### SqlSpawnJournal
+
+SQL-backed `SpawnJournal`. One row per event; insertion order is replay order.
+
+#### Implements
+
+- [`SpawnJournal`](#spawnjournal)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlSpawnJournal**(`db`, `table?`): [`SqlSpawnJournal`](#sqlspawnjournal)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_spawn_journal'`
+
+###### Returns
+
+[`SqlSpawnJournal`](#sqlspawnjournal)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+Create the journal's tables if absent. Idempotent.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### loadTree()
+
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
+
+##### beginTree()
+
+> **beginTree**(`root`, `at`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
+
+##### appendEvent()
+
+> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### ev
+
+[`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+
+***
+
+### SqlResultBlobStore
+
+SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
+
+#### Implements
+
+- [`ResultBlobStore`](#resultblobstore)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlResultBlobStore**(`db`, `table?`): [`SqlResultBlobStore`](#sqlresultblobstore)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_result_blobs'`
+
+###### Returns
+
+[`SqlResultBlobStore`](#sqlresultblobstore)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### put()
+
+> **put**(`outRef`, `artifact`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### artifact
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+
+##### get()
+
+> **get**(`outRef`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+
+***
+
 ### InMemoryResultBlobStore
 
 **`Stable`**
@@ -59,7 +243,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -77,7 +261,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -131,7 +315,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -149,7 +333,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -195,7 +379,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -217,7 +401,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -239,7 +423,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
 
 ***
 
@@ -291,7 +475,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -313,7 +497,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -335,7 +519,37 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+
+***
+
+### SqlRunOwnershipError
+
+Refuses a competing or stale SQL run owner before it can publish new work.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlRunOwnershipError**(`message`): [`SqlRunOwnershipError`](#sqlrunownershiperror)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### Returns
+
+[`SqlRunOwnershipError`](#sqlrunownershiperror)
+
+###### Overrides
+
+`Error.constructor`
 
 ***
 
@@ -503,7 +717,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -580,7 +794,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -752,6 +966,85 @@ reservation.
 
 ***
 
+### ReservationWaitRefused
+
+A waiting reservation that can never be granted: every open reservation settled and the free
+balance still cannot cover it. `shortfalls` are the channels that did not fit at that moment.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new ReservationWaitRefused**(`shortfalls`): [`ReservationWaitRefused`](#reservationwaitrefused)
+
+###### Parameters
+
+###### shortfalls
+
+readonly [`ReservationShortfall`](#reservationshortfall)[]
+
+###### Returns
+
+[`ReservationWaitRefused`](#reservationwaitrefused)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"budget-exhausted"`
+
+##### shortfalls
+
+> `readonly` **shortfalls**: readonly [`ReservationShortfall`](#reservationshortfall)[]
+
+***
+
+### CheckUnavailableError
+
+The check could not run: its box did not start, its judge's provider refused, its program
+crashed. It is not a verdict on the result. Inside a run the loop pauses, as it does for an
+unavailable upstream, and the refusal tells the director its result was not judged.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new CheckUnavailableError**(`message`, `options?`): [`CheckUnavailableError`](#checkunavailableerror)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`CheckUnavailableError`](#checkunavailableerror)
+
+###### Overrides
+
+`Error.constructor`
+
+***
+
 ### FileCoordinationLog
 
 FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
@@ -802,7 +1095,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ###### Implementation of
 
-[`CoordinationLog`](#coordinationlog).[`append`](#append-3)
+[`CoordinationLog`](#coordinationlog).[`append`](#append-4)
 
 ##### load()
 
@@ -930,6 +1223,60 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 
 ## Interfaces
 
+### SqlStatements
+
+The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts.
+
+#### Methods
+
+##### exec()
+
+> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+Execute a write statement (INSERT/UPDATE/DELETE/DDL).
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+##### query()
+
+> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
+
+Execute a read statement (SELECT). Returns rows as plain objects.
+
+###### Type Parameters
+
+###### TRow
+
+`TRow` = `Record`\<`string`, `unknown`\>
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<`TRow`[]\>
+
+***
+
 ### SpawnForestTree
 
 One journal tree in a recursively loaded supervision forest.
@@ -998,7 +1345,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-22)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-25)
 
 ##### parent?
 
@@ -1014,7 +1361,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`label`](#label-21)
+[`NodeSnapshot`](#nodesnapshot).[`label`](#label-22)
 
 ##### status
 
@@ -1022,7 +1369,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-17)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-18)
 
 ##### runtime
 
@@ -1066,7 +1413,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-10)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-11)
 
 ##### materialization?
 
@@ -1159,7 +1506,7 @@ Canonical retained output pointer; a failed or cancelled node may also have usef
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`outRef`](#outref-6)
+[`NodeSnapshot`](#nodesnapshot).[`outRef`](#outref-7)
 
 ##### trace?
 
@@ -1185,10 +1532,10 @@ Present once a settled node's measured spend exceeded its reservation.
 
 > `readonly` `optional` **retainedExecution?**: [`RetainedExecutionState`](#retainedexecutionstate)
 
-Present on a retained child: `'pending'` while its cursor slot is open, `'released'` once
- the release sweep closed it. The live view (`makeTreeView`) and the journal view
- (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
- retained-vs-down question without the observer journal.
+Present on a retained child: `'pending'` while its cursor slot is open, `'released'` or
+ `'release-unconfirmed'` once a final settlement closed it. The live view (`makeTreeView`)
+ and the journal view (`materializeTreeView`) state the same fact, so a settle record's
+ `tree` answers the retained-vs-down question without the observer journal.
 
 ###### Inherited from
 
@@ -3364,6 +3711,145 @@ Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
 ***
 
+### DeclaredCheck
+
+A check program as a record declares it.
+
+#### Properties
+
+##### program
+
+> `readonly` **program**: `object`
+
+The evaluator program's files. A directory whose canonical digest differs is refused.
+
+###### dir
+
+> `readonly` **dir**: `string`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### command
+
+> `readonly` **command**: readonly \[`string`, `string`\]
+
+Executable and arguments, run in the program's directory.
+
+##### environment
+
+> `readonly` **environment**: `string`
+
+The box environment or image that holds the program's toolchain.
+
+##### egress?
+
+> `readonly` `optional` **egress?**: readonly `string`[]
+
+Domains the program may reach. Absent or empty: egress is blocked.
+
+##### secrets?
+
+> `readonly` `optional` **secrets?**: readonly `string`[]
+
+Names of this process's environment variables the program receives. A missing one refuses.
+
+##### pass
+
+> `readonly` **pass**: `number`
+
+The pass threshold on the score's `composite`.
+
+##### feedback
+
+> `readonly` **feedback**: `"verbatim"` \| `"pass-only"`
+
+`pass-only` keeps the FAIL lines from the director, for a check whose tests stay hidden.
+
+##### sealed?
+
+> `readonly` `optional` **sealed?**: `object`
+
+Cases the director never sees. They score a run and a version, never an in-run read.
+
+###### dir
+
+> `readonly` **dir**: `string`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### describe?
+
+> `readonly` `optional` **describe?**: `string`
+
+What the run owes, for the director's tools and the note.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Bound on one read. Default 15 minutes.
+
+##### resources?
+
+> `readonly` `optional` **resources?**: `SandboxResources`
+
+***
+
+### DeclaredCheckPlacement
+
+Where a declared check's boxes are created: a client on the check account, and every account
+ the judged run holds a key to, so the check refuses a box the run could reach.
+
+#### Properties
+
+##### client
+
+> `readonly` **client**: `object`
+
+###### getIdentity()
+
+> **getIdentity**(): `Promise`\<\{ `customerId`: `string`; \}\>
+
+###### Returns
+
+`Promise`\<\{ `customerId`: `string`; \}\>
+
+###### createIsolated()
+
+> **createIsolated**(`options`, `requestOptions?`): `Promise`\<`SandboxInstance`\>
+
+###### Parameters
+
+###### options
+
+`Omit`\<`CreateSandboxOptions`, `"ownerContext"`\>
+
+###### requestOptions?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`SandboxInstance`\>
+
+##### builderAccounts
+
+> `readonly` **builderAccounts**: readonly \[`string`, `string`\]
+
+##### env?
+
+> `readonly` `optional` **env?**: `Readonly`\<`Record`\<`string`, `string` \| `undefined`\>\>
+
+The environment the secrets are read from. Default `process.env`.
+
+***
+
 ### LeaderboardScore
 
 Structured per-case verdict a `score` function may return (a bare number is
@@ -4774,6 +5260,13 @@ Executable and arguments, without host shell interpretation.
 
 Run the check in its own Sandbox box instead of Linux Bubblewrap on this host.
 
+##### env?
+
+> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Environment the command receives beside PATH, HOME and LANG: a declared check's named
+ secrets and its own settings. Nothing else of this process's environment reaches it.
+
 ***
 
 ### IsolatedCheckBox
@@ -4836,6 +5329,13 @@ Sandbox environment or image that holds the check's toolchain.
 ##### resources?
 
 > `optional` **resources?**: `SandboxResources`
+
+##### egress?
+
+> `optional` **egress?**: readonly `string`[]
+
+Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
+ box's egress is blocked. Otherwise strict: these domains only, with no implicit list.
 
 ***
 
@@ -6011,12 +6511,12 @@ OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000.
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Forwarded to `SupervisorOpts.maxLiveWorkers`: the hard tree-wide cap on simultaneously
- executing spawned workers. Omit to leave the worker count uncapped.
+Forwarded to `SupervisorOpts.workerSlots`: the tree-wide bound on simultaneously working
+ agents; spawns past it queue. Omit to bound concurrency by the budget alone.
 
 ##### resume?
 
@@ -6922,6 +7422,12 @@ Whether the child's OWN harness transcript survived its environment, or why it d
 
 Present when the measured spend exceeded this child's reservation.
 
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+Present when this child led workers of its own: a bounded account of its team.
+
 ###### settledAt?
 
 > `optional` **settledAt?**: `number`
@@ -7729,7 +8235,7 @@ The provider-derived outcome, when one was available before cleanup.
 
 > `readonly` **signal**: `AbortSignal`
 
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-1).
+A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-2).
 
 ***
 
@@ -7878,7 +8384,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-2)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-3)
 
 ##### interactiveIdempotencyKey
 
@@ -8643,7 +9149,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-4)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-5)
 
 ##### existingEnvironmentId?
 
@@ -10233,6 +10739,396 @@ Bounds box-creation bursts inside lineage fanout. Default from lineage.
 
 Base backoff (ms) for retrying a transient artifact `fs.read` failure; the i-th
  retry waits `readRetryDelayMs * i`. Default 1000. Set 0 to disable the wait (tests).
+
+***
+
+### SharedBoxHandle
+
+The Sandbox box surface a shared box uses. The Sandbox SDK's `SandboxInstance` satisfies it.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### fs
+
+> `readonly` **fs**: `object`
+
+###### read()
+
+> **read**(`path`): `Promise`\<`string`\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+`Promise`\<`string`\>
+
+###### write()
+
+> **write**(`path`, `content`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### content
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### process
+
+> `readonly` **process**: `object`
+
+###### spawnExact()
+
+> **spawnExact**(`executable`, `args`, `options?`): `Promise`\<[`SharedBoxProcess`](#sharedboxprocess)\>
+
+###### Parameters
+
+###### executable
+
+`string`
+
+###### args
+
+readonly `string`[]
+
+###### options?
+
+###### cwd?
+
+`string`
+
+###### env?
+
+`Record`\<`string`, `string`\>
+
+###### timeoutMs?
+
+`number`
+
+###### Returns
+
+`Promise`\<[`SharedBoxProcess`](#sharedboxprocess)\>
+
+###### list()
+
+> **list**(): `Promise`\<readonly `object`[]\>
+
+###### Returns
+
+`Promise`\<readonly `object`[]\>
+
+###### get()
+
+> **get**(`pid`): `Promise`\<[`SharedBoxProcess`](#sharedboxprocess) \| `null`\>
+
+###### Parameters
+
+###### pid
+
+`number`
+
+###### Returns
+
+`Promise`\<[`SharedBoxProcess`](#sharedboxprocess) \| `null`\>
+
+#### Methods
+
+##### exec()
+
+> **exec**(`command`, `options?`): `Promise`\<\{ `exitCode?`: `number` \| `null`; `stdout?`: `string`; `stderr?`: `string`; \}\>
+
+###### Parameters
+
+###### command
+
+`string`
+
+###### options?
+
+###### timeoutMs?
+
+`number`
+
+###### Returns
+
+`Promise`\<\{ `exitCode?`: `number` \| `null`; `stdout?`: `string`; `stderr?`: `string`; \}\>
+
+##### delete()
+
+> **delete**(): `Promise`\<`unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### SharedBoxProcess
+
+One process in a shared box, as the Sandbox SDK's process manager returns it.
+
+#### Properties
+
+##### pid
+
+> `readonly` **pid**: `number`
+
+#### Methods
+
+##### wait()
+
+> **wait**(): `Promise`\<`number`\>
+
+###### Returns
+
+`Promise`\<`number`\>
+
+##### kill()
+
+> **kill**(`signal?`, `options?`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### signal?
+
+`"SIGKILL"` \| `"SIGTERM"`
+
+###### options?
+
+###### tree?
+
+`boolean`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### stdout()
+
+> **stdout**(): `AsyncIterable`\<`string`\>
+
+###### Returns
+
+`AsyncIterable`\<`string`\>
+
+##### stderr()
+
+> **stderr**(): `AsyncIterable`\<`string`\>
+
+###### Returns
+
+`AsyncIterable`\<`string`\>
+
+***
+
+### SharedBoxPlacementOptions
+
+Options for [sharedBoxPlacement](#sharedboxplacement-1).
+
+#### Properties
+
+##### client
+
+> **client**: [`SandboxClient`](#sandboxclient-6)
+
+The Sandbox client that creates and deletes the shared boxes.
+
+##### box?
+
+> `optional` **box?**: `Omit`\<`CreateSandboxOptions`, `"backend"`\>
+
+Create options for every shared box: resources, egress, secrets, lifetime and billing.
+Runtime owns `backend`, so the box's sidecar never serves a worker turn.
+
+##### workersPerBox?
+
+> `optional` **workersPerBox?**: `number`
+
+The most workers one box carries at once. Defaults to [DEFAULT\_SHARED\_BOX\_WORKERS](#default_shared_box_workers).
+
+##### workerRoot?
+
+> `optional` **workerRoot?**: `string`
+
+Absolute directory in each box that holds one directory per worker.
+
+##### retryDelayMs?
+
+> `optional` **retryDelayMs?**: `number`
+
+First wait before repeating a Sandbox call that failed transiently; doubles per attempt.
+
+##### unavailablePause?
+
+> `optional` **unavailablePause?**: `false` \| [`UnavailablePausePolicy`](#unavailablepausepolicy)
+
+How a worker waits out a model provider that cannot serve now: a quota, a rate limit, an
+overload, or the router's own refused credential (`unavailableSignalOfFailure`). The worker
+pauses 15 s, doubling to 5 min, the rule a driver and a dedicated leaf follow, then continues
+its own opencode session in its own directory. Only cancellation, the turn's `timeoutMs` and
+the node's deadline and budget, which abort the turn, end the pauses. `false` ends the turn on
+the refused run.
+
+***
+
+### SharedBoxStats
+
+Counts that show how the pool placed its workers.
+
+#### Properties
+
+##### boxesCreated
+
+> `readonly` **boxesCreated**: `number`
+
+##### boxesLive
+
+> `readonly` **boxesLive**: `number`
+
+##### workersPlaced
+
+> `readonly` **workersPlaced**: `number`
+
+##### workersLive
+
+> `readonly` **workersLive**: `number`
+
+##### peakWorkersPerBox
+
+> `readonly` **peakWorkersPerBox**: `number`
+
+The most workers any one box carried at the same time.
+
+##### boxes
+
+> `readonly` **boxes**: readonly `object`[]
+
+Every box this pool created, with the workers it served.
+
+***
+
+### SharedBoxCloseReceipt
+
+What [SharedBoxPlacement.close](#close-2) did to each box.
+
+#### Properties
+
+##### boxId
+
+> `readonly` **boxId**: `string`
+
+##### deleted
+
+> `readonly` **deleted**: `boolean`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+***
+
+### SharedWorkerIdentity
+
+Who a shared worker is, for the router rows its model calls leave on the box's key.
+
+#### Properties
+
+##### nodeId?
+
+> `readonly` `optional` **nodeId?**: `string`
+
+The supervised node the worker runs. Absent for a worker outside a supervised tree.
+
+***
+
+### SharedBoxPlacement
+
+A shared-box placement: the provider Runtime uses for a profile the placement accepts.
+
+#### Properties
+
+##### identity
+
+> `readonly` **identity**: `object`
+
+Public identity of this placement, recorded on every execution it serves.
+
+###### id
+
+> `readonly` **id**: `string`
+
+###### digest
+
+> `readonly` **digest**: `string`
+
+#### Methods
+
+##### providerFor()
+
+> **providerFor**(`worker?`): `AgentEnvironmentProvider`
+
+The environment provider that places one accepted worker in a shared box. A worker with a
+`nodeId` sends `x-tangle-client: agent-runtime-node/<nodeId>` on its router calls; without
+one, its calls carry no client name and stay charged to the box.
+
+###### Parameters
+
+###### worker?
+
+[`SharedWorkerIdentity`](#sharedworkeridentity)
+
+###### Returns
+
+`AgentEnvironmentProvider`
+
+##### refusal()
+
+> **refusal**(`profile`): `string` \| `undefined`
+
+Why a shared box cannot carry this profile, or `undefined` when it can.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`string` \| `undefined`
+
+##### stats()
+
+> **stats**(): [`SharedBoxStats`](#sharedboxstats)
+
+###### Returns
+
+[`SharedBoxStats`](#sharedboxstats)
+
+##### close()
+
+> **close**(): `Promise`\<readonly [`SharedBoxCloseReceipt`](#sharedboxclosereceipt)[]\>
+
+Delete every box this placement created and still holds. Call it when the run settles.
+
+###### Returns
+
+`Promise`\<readonly [`SharedBoxCloseReceipt`](#sharedboxclosereceipt)[]\>
 
 ***
 
@@ -12582,12 +13478,12 @@ The self-improvement lens fed to the driver on each settled worker. Default `fai
 
 The strategy each worker runs over the surface. Default `refine` (iterate-with-feedback).
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number`
 
-Max workers live at once. Default 1 (serial — required when workers share a persistent artifact, so
- they continue each other instead of racing the file).
+Max workers working at once; later spawns queue. Default 1 (serial — required when workers share
+ a persistent artifact, so they continue each other instead of racing the file).
 
 ***
 
@@ -13047,6 +13943,48 @@ The spawned node's id, once admission minted one. Absent for a reservation that 
 
 ***
 
+### ReservationFloor
+
+The part of each channel a reservation must leave free: a manager's own share of its slice,
+ which its children may not reserve.
+
+#### Properties
+
+##### tokens
+
+> `readonly` **tokens**: `number`
+
+##### iterations
+
+> `readonly` **iterations**: `number`
+
+##### usd?
+
+> `readonly` `optional` **usd?**: `number`
+
+***
+
+### ReserveOptions
+
+How a caller asks for a reservation.
+
+#### Properties
+
+##### wait?
+
+> `readonly` `optional` **wait?**: `boolean`
+
+Wait for budget instead of failing, when the reservations still open would return enough.
+ The reservation then holds nothing until it is granted.
+
+##### keep?
+
+> `readonly` `optional` **keep?**: [`ReservationFloor`](#reservationfloor)
+
+Leave this much of each channel free after the reservation.
+
+***
+
 ### ReservationShortfall
 
 One budget channel a `budget-exhausted` reservation could not fit, with the amounts that
@@ -13072,6 +14010,13 @@ channel then refuses every reservation for the rest of the run.
 ##### free
 
 > `readonly` **free**: `number`
+
+##### held?
+
+> `readonly` `optional` **held?**: `number`
+
+What open reservations hold on this channel, when they hold any. A request of at most
+ `free + held` can wait for them to settle; a larger one never fits.
 
 ##### closedByUnknownSpend?
 
@@ -13104,11 +14049,17 @@ while the public readout remains explicitly unknown.
 
 ##### reserve()
 
-> **reserve**(`b`, `holder?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
+> **reserve**(`b`, `holder?`, `options?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover standard or named channels — the
 caller inspects `ok` before `ticket`.
+
+With `wait`, a request the free balance cannot cover now, but could once the open reservations
+return, is admitted as a WAITING ticket: `granted` resolves when the pool reserves it, and
+rejects with [ReservationWaitRefused](#reservationwaitrefused) once nothing open could return enough. A waiting
+ticket reserves nothing; reconciling it withdraws it. While any ticket waits, a new waiting
+request queues behind it even when it would fit, so the order of asking is the order of grant.
 
 ###### Parameters
 
@@ -13120,9 +14071,13 @@ caller inspects `ok` before `ticket`.
 
 [`ReservationHolder`](#reservationholder)
 
+###### options?
+
+[`ReserveOptions`](#reserveoptions)
+
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
 ##### attribute()
 
@@ -13492,9 +14447,11 @@ Optional caller-authored deadline for one `execute` call. Omit it to run until t
 ### DeliverableSpec
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
-decides DELIVERED (settles `valid` ⟺ it resolves true) plus an optional `describe` of
-what the spawn was supposed to produce. The check reads the child's output — never the
-model judging itself.
+decides DELIVERED (settles `valid` ⟺ it passes) plus an optional `describe` of what the spawn
+was supposed to produce. The check reads the child's output — never the model judging itself.
+
+The same check decides a manager's `submit_result`, runs when a manager's turn ends without an
+accepted result, and supplies the verdict the continuation note reports (`./continuation.ts`).
 
 #### Type Parameters
 
@@ -13506,9 +14463,12 @@ model judging itself.
 
 ##### check
 
-> **check**: (`out`) => `boolean` \| `Promise`\<`boolean`\>
+> **check**: (`out`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
-The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves true`.
+The deployable check that decides DELIVERED. Return a `CheckVerdict` to report the items it
+ read and one `FAIL <item> <where>: <reason>` line per failed item; `true` or a passing verdict
+ delivers. Throw `CheckUnavailableError` (or anything) when the check could not run: that is
+ never a verdict on the result.
 
 ###### Parameters
 
@@ -13518,7 +14478,7 @@ The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves tr
 
 ###### Returns
 
-`boolean` \| `Promise`\<`boolean`\>
+`boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
 ##### describe?
 
@@ -13526,22 +14486,31 @@ The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves tr
 
 What the spawn was supposed to produce — surfaced in traces/reports.
 
-##### explainFailure?
+##### checkState?
 
-> `optional` **explainFailure?**: (`out`) => `string` \| `Promise`\<`string` \| `undefined`\> \| `undefined`
+> `optional` **checkState?**: () => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
-Explain a refused submission after `check` returns false. This diagnostic cannot accept
- a result or replace the check. A missing explanation retains the generic refusal.
-
-###### Parameters
-
-###### out
-
-`Out`
+Judge the run's current state with no submitted result. Runtime calls it when a manager's
+ turn ends and no result reached the check during that turn. Omit for a check that reads only
+ the submitted value.
 
 ###### Returns
 
-`string` \| `Promise`\<`string` \| `undefined`\> \| `undefined`
+`boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
+
+##### feedback?
+
+> `optional` **feedback?**: `"verbatim"` \| `"pass-only"`
+
+`verbatim` (the default) returns the check's FAIL lines to the manager; `pass-only` tells it
+ only that the check failed and how many times it has read the check, for a check whose tests
+ must stay hidden.
+
+##### sealed?
+
+> `optional` **sealed?**: `boolean`
+
+True when the score comes from sealed cases the manager never sees. Stated in the note.
 
 ***
 
@@ -13566,6 +14535,739 @@ Explain a refused submission after `check` returns false. This diagnostic cannot
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
+
+***
+
+### CheckVerdict
+
+One reading of a completion check.
+
+A check program prints an agent-eval `JudgeScore`; [verdictFromJudgeScore](#verdictfromjudgescore) reads it into
+this shape. A plain boolean check is a verdict with no items.
+
+#### Properties
+
+##### pass
+
+> `readonly` **pass**: `boolean`
+
+Whether the check accepts the result.
+
+##### items?
+
+> `readonly` `optional` **items?**: `Readonly`\<`Record`\<`string`, `number`\>\>
+
+Every item the check read, by name: 1 when it passes, lower when it does not. The
+ `JudgeScore.dimensions` of the check program.
+
+##### composite?
+
+> `readonly` `optional` **composite?**: `number`
+
+The check's score.
+
+##### threshold?
+
+> `readonly` `optional` **threshold?**: `number`
+
+The pass threshold on `composite`, when the check has one.
+
+##### failures?
+
+> `readonly` `optional` **failures?**: readonly `string`[]
+
+One `FAIL <item> <where>: <reason>` line per failed item, in the check's order.
+
+##### review?
+
+> `readonly` `optional` **review?**: `string`
+
+The check's prose review of the result, when it writes one.
+
+***
+
+### CheckRead
+
+One time the check ran inside the run, whatever started it.
+
+#### Properties
+
+##### read
+
+> `readonly` **read**: `number`
+
+1-based count of check reads in this manager, the unavailable ones included.
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The driver attempt the read belongs to.
+
+##### at
+
+> `readonly` **at**: `number`
+
+Epoch ms.
+
+##### source
+
+> `readonly` **source**: `"submit"` \| `"turn-end"`
+
+`submit`: a `submit_result` call. `turn-end`: the turn ended with no accepted result.
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](#checkverdict)
+
+Absent when the check could not run.
+
+##### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string`
+
+Why the check could not run.
+
+***
+
+### ContinuationPolicy
+
+How a manager with a completion check is sent back when its turn ends unmet.
+
+Required for an external manager with a check: Runtime supplies no default, because a retry
+default in source is a research decision the record must make. There is no re-prompt count.
+The loop re-enters until the check passes, `report_blocked` ends the run, or a bound ends it:
+this deadline, the budget, `maxBarren` turns in a row without progress, or cancellation.
+Progress means the check's best composite rose, an accepted result, or a worker that delivered.
+
+#### Properties
+
+##### deadline
+
+> `readonly` **deadline**: `string` \| `number`
+
+No re-entry starts at or after this instant: epoch ms, or an ISO 8601 time.
+
+##### maxBarren
+
+> `readonly` **maxBarren**: `number`
+
+Re-entered turns in a row that may end without progress before the run ends. Minimum 1.
+ The evidence for 2: repair loses most of its effect within two or three attempts, and a
+ fresh start at the same budget scored higher (Debugging Decay Index).
+
+##### profile
+
+> `readonly` **profile**: [`ContinuationProfile`](#continuationprofile)
+
+Every instruction word of the note.
+
+##### failures
+
+> `readonly` **failures**: `"off"` \| `"verbatim"`
+
+`verbatim` sends the check's FAIL lines, the protected items, and what changed. A check with
+ `feedback: 'pass-only'` overrides this to `off`.
+
+##### panel
+
+> `readonly` **panel**: `"off"` \| `"on"`
+
+`on` runs the question panel at each continuation and puts its admitted findings in the note.
+ Requires `runPanel`.
+
+##### bar
+
+> `readonly` **bar**: `"off"` \| `"on"`
+
+`on` states the bar: every check item with its state, the best version's verdict and the
+ gap, the reference result, and the check's review.
+
+##### reference?
+
+> `readonly` `optional` **reference?**: `string`
+
+The play's registered reference result, for the bar.
+
+##### best?
+
+> `readonly` `optional` **best?**: `object`
+
+The best version's verdict on the same check, for the bar. The version loop sets it.
+
+###### label
+
+> `readonly` **label**: `string`
+
+###### verdict
+
+> `readonly` **verdict**: [`CheckVerdict`](#checkverdict)
+
+##### panelUsd?
+
+> `readonly` `optional` **panelUsd?**: `object`
+
+The panel's dollar caps. Required with `panel: 'on'`.
+
+###### perContinuation
+
+> `readonly` **perContinuation**: `number`
+
+###### perRun
+
+> `readonly` **perRun**: `number`
+
+##### runPanel?
+
+> `readonly` `optional` **runPanel?**: [`ContinuationPanel`](#continuationpanel)
+
+The question panel. Required with `panel: 'on'`.
+
+##### append?
+
+> `readonly` `optional` **append?**: [`ContinuationAppend`](#continuationappend)
+
+A play's own section, appended after Runtime's sections. It cannot remove or rewrite one.
+
+***
+
+### ContinuationProfile
+
+Every instruction word of the note. Runtime supplies the facts and their order; this data
+supplies the words, so the note can be improved (by a person, reflection, or GEPA) without a code
+change. Templates may name the facts in [CONTINUATION\_FACTS](#continuation_facts) as `{name}`.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+Recorded with every note, so each continuation names the words it carried.
+
+##### opening
+
+> `readonly` **opening**: `string`
+
+Section 1, the verdict. The first line should state the failure as a fact.
+
+##### plan
+
+> `readonly` **plan**: `string`
+
+Section 7: what to do before the next submit.
+
+##### rules
+
+> `readonly` **rules**: `string`
+
+Section 8: what the harness enforces, and the honest exit.
+
+##### headings
+
+> `readonly` **headings**: `object`
+
+Section headings; an empty heading prints the section without one.
+
+###### failures
+
+> `readonly` **failures**: `string`
+
+###### protected
+
+> `readonly` **protected**: `string`
+
+###### changed
+
+> `readonly` **changed**: `string`
+
+###### findings
+
+> `readonly` **findings**: `string`
+
+###### bar
+
+> `readonly` **bar**: `string`
+
+###### plan
+
+> `readonly` **plan**: `string`
+
+###### rules
+
+> `readonly` **rules**: `string`
+
+##### barRule?
+
+> `readonly` `optional` **barRule?**: `string`
+
+The bar's standing instruction, printed under its heading.
+
+##### questions?
+
+> `readonly` `optional` **questions?**: readonly `string`[]
+
+The panel's question templates. `{item}` expands over failed items and `{worker}` over
+ settled workers; a template with neither is asked once.
+
+##### panelModel?
+
+> `readonly` `optional` **panelModel?**: `string`
+
+The panel's model, when the profile chooses one.
+
+##### review?
+
+> `readonly` `optional` **review?**: `string`
+
+What a new version's director reads about the best version's review, for the version
+ chain's `'review-of-best'`. It may name `{version}`, `{path}` and `{score}`.
+
+***
+
+### ContinuationPanelInput
+
+What the question panel reads for one continuation.
+
+#### Properties
+
+##### continuation
+
+> `readonly` **continuation**: `number`
+
+1-based continuation number.
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](#checkverdict)
+
+The check's verdict this note reports; absent when no result reached the check.
+
+##### reads
+
+> `readonly` **reads**: readonly [`CheckRead`](#checkread)[]
+
+Every check read so far, oldest first.
+
+##### questions
+
+> `readonly` **questions**: readonly `string`[]
+
+The expanded questions, one per atomic question.
+
+##### rootStreamPath?
+
+> `readonly` `optional` **rootStreamPath?**: `string`
+
+`<runDir>/root-stream.jsonl`, the director's own trace, when the run has a directory.
+
+##### workers
+
+> `readonly` **workers**: readonly `object`[]
+
+Settled workers, with the evidence reference their trace is read from.
+
+##### bar?
+
+> `readonly` `optional` **bar?**: `object`
+
+###### label
+
+> `readonly` **label**: `string`
+
+###### verdict
+
+> `readonly` **verdict**: [`CheckVerdict`](#checkverdict)
+
+##### reference?
+
+> `readonly` `optional` **reference?**: `string`
+
+##### usdCap
+
+> `readonly` **usdCap**: `number`
+
+The dollars this panel call may spend.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+***
+
+### PanelFinding
+
+One answer the panel proposes for the note.
+
+#### Extended by
+
+- [`AdmittedFinding`](#admittedfinding)
+
+#### Properties
+
+##### question
+
+> `readonly` **question**: `string`
+
+##### claim
+
+> `readonly` **claim**: `string`
+
+The finding, stated as a claim about the run.
+
+##### citations
+
+> `readonly` **citations**: readonly `object`[]
+
+Every `trace://` citation in the answer, and whether the trace store holds it.
+
+##### verified
+
+> `readonly` **verified**: `boolean`
+
+Whether an independent verifier, shown only the cited spans, agreed with the claim.
+
+##### items?
+
+> `readonly` `optional` **items?**: readonly `string`[]
+
+The failed check items the finding explains, when it names any.
+
+***
+
+### ContinuationPanelResult
+
+#### Properties
+
+##### findings
+
+> `readonly` **findings**: readonly [`PanelFinding`](#panelfinding)[]
+
+##### usd
+
+> `readonly` **usd**: `number` \| `null`
+
+Dollars spent; `null` when the provider reported no cost. Unknown is never zero.
+
+##### receipts?
+
+> `readonly` `optional` **receipts?**: `unknown`
+
+Provider receipts, recorded verbatim in `panel.jsonl`.
+
+***
+
+### AdmittedFinding
+
+A finding that reached the note, with the continuation that admitted it.
+
+#### Extends
+
+- [`PanelFinding`](#panelfinding)
+
+#### Properties
+
+##### question
+
+> `readonly` **question**: `string`
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`question`](#question-1)
+
+##### claim
+
+> `readonly` **claim**: `string`
+
+The finding, stated as a claim about the run.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`claim`](#claim-1)
+
+##### citations
+
+> `readonly` **citations**: readonly `object`[]
+
+Every `trace://` citation in the answer, and whether the trace store holds it.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`citations`](#citations)
+
+##### verified
+
+> `readonly` **verified**: `boolean`
+
+Whether an independent verifier, shown only the cited spans, agreed with the claim.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`verified`](#verified)
+
+##### items?
+
+> `readonly` `optional` **items?**: readonly `string`[]
+
+The failed check items the finding explains, when it names any.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`items`](#items-1)
+
+##### admittedAt
+
+> `readonly` **admittedAt**: `number`
+
+##### resolvedAt?
+
+> `readonly` `optional` **resolvedAt?**: `number`
+
+Set once every item the finding named passes.
+
+***
+
+### ContinuationNoteInput
+
+The facts one note is written from.
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: [`ContinuationProfile`](#continuationprofile)
+
+##### continuation
+
+> `readonly` **continuation**: `number`
+
+1-based.
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](#checkverdict)
+
+The verdict this turn ended on; absent when no result has reached the check.
+
+##### previous?
+
+> `readonly` `optional` **previous?**: [`CheckVerdict`](#checkverdict)
+
+The verdict the previous note reported, for what changed.
+
+##### reads
+
+> `readonly` **reads**: `number`
+
+Check reads so far, the unavailable ones included.
+
+##### failures
+
+> `readonly` **failures**: `"off"` \| `"verbatim"`
+
+`verbatim` only when the policy and the check both allow the FAIL lines.
+
+##### findings?
+
+> `readonly` `optional` **findings?**: readonly [`AdmittedFinding`](#admittedfinding)[]
+
+##### bar?
+
+> `readonly` `optional` **bar?**: `object`
+
+###### best?
+
+> `readonly` `optional` **best?**: `object`
+
+###### best.label
+
+> `readonly` **label**: `string`
+
+###### best.verdict
+
+> `readonly` **verdict**: [`CheckVerdict`](#checkverdict)
+
+###### reference?
+
+> `readonly` `optional` **reference?**: `string`
+
+##### appended?
+
+> `readonly` `optional` **appended?**: readonly `object`[]
+
+##### owed?
+
+> `readonly` `optional` **owed?**: `string`
+
+What the run owes, from the check's description.
+
+##### progress
+
+> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
+
+##### canReadMore
+
+> `readonly` **canReadMore**: `boolean`
+
+Whether `read_continuation` is served to this manager.
+
+##### sealed?
+
+> `readonly` `optional` **sealed?**: `boolean`
+
+Whether the check's score comes from cases the director cannot see.
+
+***
+
+### ContinuationEntry
+
+One continuation as the settle record carries it (`DriverContinuationRecord.continuations`).
+
+#### Properties
+
+##### continuation
+
+> `readonly` **continuation**: `number`
+
+1-based.
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The driver attempt whose end this note answered.
+
+##### noteDigest
+
+> `readonly` **noteDigest**: `string`
+
+sha256 of the note's text.
+
+##### profile
+
+> `readonly` **profile**: `string`
+
+##### switches
+
+> `readonly` **switches**: `object`
+
+###### failures
+
+> `readonly` **failures**: `"off"` \| `"verbatim"`
+
+###### panel
+
+> `readonly` **panel**: `"off"` \| `"on"`
+
+###### bar
+
+> `readonly` **bar**: `"off"` \| `"on"`
+
+##### before
+
+> `readonly` **before**: [`VerdictSummary`](#verdictsummary) \| `null`
+
+The verdict the note reported: `null` when no result had reached the check.
+
+##### after
+
+> `readonly` **after**: [`VerdictSummary`](#verdictsummary) \| `null`
+
+The verdict at the director's next turn end: `null` when the run ended first.
+
+##### panel?
+
+> `readonly` `optional` **panel?**: `object`
+
+The panel's part: questions asked, findings admitted, dollars (`null` = unknown).
+
+###### asked
+
+> `readonly` **asked**: `number`
+
+###### proposed
+
+> `readonly` **proposed**: `number`
+
+###### admitted
+
+> `readonly` **admitted**: `number`
+
+###### usd
+
+> `readonly` **usd**: `number` \| `null`
+
+##### appended
+
+> `readonly` **appended**: `number`
+
+Sections a play appended.
+
+***
+
+### VerdictSummary
+
+#### Properties
+
+##### pass
+
+> `readonly` **pass**: `boolean`
+
+##### composite?
+
+> `readonly` `optional` **composite?**: `number`
+
+##### failed?
+
+> `readonly` `optional` **failed?**: `number`
+
+##### total?
+
+> `readonly` `optional` **total?**: `number`
+
+***
+
+### ContinuationContext
+
+The readout a continuation is composed from.
+
+#### Properties
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The attempt that just completed, 1-based.
+
+##### continuations
+
+> `readonly` **continuations**: `number`
+
+Continuations this run has already sent.
+
+##### progress
+
+> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
+
+The mark read after the completed drive.
+
+##### budget
+
+> `readonly` **budget**: [`DriverBudgetReadout`](#driverbudgetreadout)
+
+##### barrenReentries
+
+> `readonly` **barrenReentries**: `number`
+
+Re-entered drives in a row, this one included, that ended without progress.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
 
 ***
 
@@ -14217,8 +15919,7 @@ One unit of queued work: the agent to run, its task, and the spawn options (budg
 
 How many children to hold in flight. Must be a positive integer. This is a SIMULTANEITY fence
 only — the conserved pool still bounds total work, and a `width` larger than the pool can
-afford simply hits `not-admitted` sooner. Derive it with `effectiveConcurrency` when the host
-also runs a fleet-level box governor.
+afford simply hits `not-admitted` sooner.
 
 #### Methods
 
@@ -14302,28 +16003,6 @@ Admission rejections, in order — `label: reason`. Non-empty ⇒ the pool or de
 
 The highest simultaneous live count actually reached — the number to compare against
  `width` when asking "did the slots really stay full?"
-
-***
-
-### ConcurrencyCaps
-
-The caps a host can set on simultaneous work. See the ledger in this module's header for what
- each one actually bounds.
-
-#### Properties
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Supervisor level: max spawned-but-unsettled workers.
-
-##### maxSandboxes?
-
-> `readonly` `optional` **maxSandboxes?**: `number`
-
-Fleet level: max live sandboxes/boxes across the host process (a `ComputeGovernor`-style
- cap). Applies to the worker layer, so it participates in the minimum.
 
 ***
 
@@ -14463,14 +16142,14 @@ The completion check's verdict after this attempt. Absent when the caller declar
 
 > `readonly` `optional` **reprompted?**: `boolean`
 
-True when this COMPLETED attempt's unmet contract sent the loop back into the live session.
+True when this COMPLETED attempt's unmet contract sent the loop back with a continuation.
 
 ##### repromptRefusedBy?
 
 > `readonly` `optional` **repromptRefusedBy?**: [`DriverRepromptRefusal`](#driverrepromptrefusal)
 
 Why an unmet contract did NOT re-enter the session. Absent when the contract was met, when
- the caller configured no re-prompt, or when the re-prompt was issued.
+ the manager has no continuation policy, or when the continuation was sent.
 
 ***
 
@@ -14518,89 +16197,12 @@ The completion check's verdict right now. Omit (or `'none'`) when the caller dec
 Monotone count of settled children that PASSED the completion check. A child that ran and
  settled without delivering does not count here, which is the whole point.
 
-***
+##### composite?
 
-### DriverUnmetContractContext
+> `readonly` `optional` **composite?**: `number`
 
-What the caller sees when a drive returns with its completion check unmet.
-
-#### Properties
-
-##### attempt
-
-> `readonly` **attempt**: `number`
-
-The attempt that just completed, 1-based.
-
-##### reprompts
-
-> `readonly` **reprompts**: `number`
-
-How many re-prompts this run has already issued.
-
-##### maxReprompts
-
-> `readonly` **maxReprompts**: `number` \| `"until-complete"`
-
-##### progress
-
-> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
-
-The mark read AFTER the completed drive.
-
-##### budget
-
-> `readonly` **budget**: [`DriverBudgetReadout`](#driverbudgetreadout)
-
-##### describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-What the run was supposed to produce, from the caller's completion check.
-
-##### barrenReentries
-
-> `readonly` **barrenReentries**: `number`
-
-Consecutive re-entered drives, this one included, that completed without a delivery.
-
-***
-
-### DriverRepromptPolicy
-
-How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where
- such a drive ends the run and only the completion gate's label records what happened.
-
-#### Properties
-
-##### maxReprompts
-
-> `readonly` **maxReprompts**: `number` \| `"until-complete"`
-
-How many times one run may re-enter its driver with the unmet items. `0` = never.
- `'until-complete'` removes the count cap and requires a finite positive scope deadline.
- Budget, cancellation, explicit stop, the barren bound, and failure retry limits still apply.
-
-##### maxBarren?
-
-> `readonly` `optional` **maxBarren?**: `number`
-
-Consecutive re-entered drives that may complete without a delivery before re-prompting stops
- (`repromptRefusedBy: 'no-progress'`). Default [DEFAULT\_MAX\_BARREN\_REPROMPTS](#default_max_barren_reprompts); minimum 1.
- A delivery — an accepted submission, a child that passed its check, the contract turning
- met — resets the count.
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
-
-Compose the instruction, or return `'stop'`. Omit = [defaultUnmetContractSteer](#defaultunmetcontractsteer).
-
-##### describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-What the run owes, surfaced in the default instruction.
+The best composite any check read has scored so far. A rise is progress: the director moved
+ the outside check even though it has not passed.
 
 ***
 
@@ -14701,7 +16303,7 @@ Genuine continuations: completed drives with the contract unmet that were re-ent
 
 ###### Inherited from
 
-[`DriverLoopRecord`](#driverlooprecord).[`reprompts`](#reprompts-1)
+[`DriverLoopRecord`](#driverlooprecord).[`reprompts`](#reprompts)
 
 ##### failureRetries
 
@@ -14773,26 +16375,27 @@ Why a completed-but-unmet drive was not re-entered, when that ended the loop.
 
 Re-entries that ran in a new environment because the provider no longer held the old one.
 
-##### workspaceRestores
-
-> `readonly` **workspaceRestores**: `number`
-
-Of those, the ones whose new environment was created from the lost one's latest checkpoint.
- The journal's `workspace-restored` receipts say whether each restore was verified.
-
 ##### closedBy?
 
 > `readonly` `optional` **closedBy?**: `"stop"` \| `"blocked"` \| `"result-accepted"` \| `"stop-rule"`
 
 How the run was closed, when something closed it: an accepted `submit_result`, the
- manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
- `stopRule`. Absent when the loop ended on a bound or a failure.
+ manager's own `stop` (served only to a manager with no check), a `report_blocked` whose
+ probe failed, or the caller's progress `stopRule`. Absent when the loop ended on a bound or a
+ failure.
 
 ##### stopReason?
 
 > `readonly` `optional` **stopReason?**: `string`
 
 The reason the manager gave, or the failed probe, verbatim.
+
+##### continuations
+
+> `readonly` **continuations**: readonly [`ContinuationEntry`](#continuationentry)[]
+
+Every continuation note this manager was sent, with the check's verdict before and after it.
+ Empty for a manager with no check.
 
 ***
 
@@ -15361,6 +16964,16 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 [`AuthorizedDownMessage`](#authorizeddownmessage)
 
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`runContext`](#runcontext-2)
+
 ##### rootHandle?
 
 > `readonly` `optional` **rootHandle?**: [`RootHandle`](#roothandle-2)\<`unknown`\>
@@ -15381,7 +16994,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-22)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-25)
 
 ##### execution?
 
@@ -15451,6 +17064,22 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`peerMail`](#peermail-1)
+
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`recoverExecutor`](#recoverexecutor-1)
 
 ##### profileSecurity?
 
@@ -15670,48 +17299,34 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 [`SuperviseOptions`](#superviseoptions).[`onWorkerRetry`](#onworkerretry-1)
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
-How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered with the unmet items. The same harness session is reused only where the backend
-proves it: a bridge, or a retained provider environment the provider still holds. Any other
-re-entry, including one into a replacement environment, receives the whole re-entry task
-composed from the coordinator (`composeReentryTask`), and a replacement created from the lost
-environment's latest workspace checkpoint keeps the files that checkpoint held.
+How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+director heard held no line of the check's verdict.
 
-A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, and abort bounds. Successful continuations do
-not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-run the coordination server already stopped is never re-prompted — that stop was a decision.
+A continuation is the retry path, not a second loop: same scope, same coordination server,
+same live children, and the same budget, deadline, and abort bounds. There is no count: the
+loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+profile owns its words, and `append` may add a section but never replace one.
 
-Requires `deliverable`, and applies to every external manager with a completion check. A
-recursive manager receives the check selected for its exact assignment. Refused for a
-router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`repromptOnUnmet`](#repromptonunmet-1)
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
-
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
- owes and reports how many workers passed the check.
+Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+every external manager with a completion check in the tree. Refused for a router-brained
+manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`onUnmetContract`](#onunmetcontract-3)
+[`SuperviseOptions`](#superviseoptions).[`continuation`](#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -15786,8 +17401,8 @@ Each handler receives that manager scope's live cancellation signal in its trust
 context, including recursive parent and root cascades, plus `context.verbs` — that manager's
 own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
 chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
+the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 
@@ -15848,7 +17463,9 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-18)
 
-Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+ of the part of the pool children may reserve (the pool less any owner share). A nested
+ manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn.
 
 ###### Inherited from
 
@@ -15858,23 +17475,27 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+ free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+ beside it. Default: off.
 
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`reservationPolicy`](#reservationpolicy-2)
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
- root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
- the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound).
+Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+ `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+ its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+ lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+ slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound).
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`maxLiveWorkers`](#maxliveworkers-5)
+[`SuperviseOptions`](#superviseoptions).[`workerSlots`](#workerslots-4)
 
 ##### watchWorkers?
 
@@ -15947,6 +17568,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](#superviseoptions).[`runDir`](#rundir-2)
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-8)
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`
@@ -15972,7 +17606,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -15987,6 +17621,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 
@@ -16016,6 +17653,10 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
+
+Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+ level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+ `DEFAULT_MAX_DEPTH` (16).
 
 ###### Inherited from
 
@@ -16669,6 +18310,17 @@ to call twice; never throws — a telemetry failure is not a run failure.
 
 `Promise`\<`void`\>
 
+##### stats()
+
+> **stats**(): [`OtelExportStats`](index.md#otelexportstats)
+
+What this run's exporter has delivered and lost so far. Also surfaced once, as a
+ `console.warn`, on `finish()` when the closing flush dropped spans.
+
+###### Returns
+
+[`OtelExportStats`](index.md#otelexportstats)
+
 ***
 
 ### PatchDeliverableOptions
@@ -17198,6 +18850,52 @@ A one-line human-readable state ("turn 3, running tests").
 
 ***
 
+### TeamProgress
+
+The team a worker leads, as its own lead observes it mid-flight: every agent below the worker,
+ at every depth. A lead reads this instead of the team's raw outputs, so the read stays bounded
+ however large the team grows.
+
+#### Properties
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Agents spawned below the worker, at every depth.
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+Levels below the worker: `1` when it leads only workers that lead no one.
+
+##### working
+
+> `readonly` **working**: `number`
+
+Agents below it that hold a worker slot and are running.
+
+##### queued
+
+> `readonly` **queued**: `number`
+
+Agents below it waiting for a worker slot.
+
+##### done
+
+> `readonly` **done**: `number`
+
+Agents below it that settled done.
+
+##### down
+
+> `readonly` **down**: `number`
+
+Agents below it that settled down or were cancelled.
+
+***
+
 ### WorkerProgress
 
 The full live view of one worker, as `observe_agent` returns it mid-flight.
@@ -17233,7 +18931,8 @@ True when this worker's executor exposes an inbox (`Executor.deliver`) — i.e. 
 
 > `readonly` **lastActivityAt**: `number`
 
-Epoch ms of the last metered usage event or executor-reported activity.
+Epoch ms of the last metered usage event or executor-reported activity. For a worker that
+ leads a team, the newest activity anywhere in that team counts, its own turns included.
 
 ##### idleMs
 
@@ -17242,6 +18941,8 @@ Epoch ms of the last metered usage event or executor-reported activity.
 ##### stalled
 
 > `readonly` **stalled**: `boolean`
+
+Live, not waiting for a worker slot, and idle past `stallAfterMs`.
 
 ##### stallAfterMs
 
@@ -17310,6 +19011,12 @@ What the executor changed about the caller's declaration; absent when it changed
 ##### note?
 
 > `readonly` `optional` **note?**: `string`
+
+##### team?
+
+> `readonly` `optional` **team?**: [`TeamProgress`](#teamprogress)
+
+The team this worker leads; absent while it leads no one.
 
 ***
 
@@ -17418,6 +19125,12 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ##### resources?
 
 > `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceSpend`](#resourcespend)\>\>
+
+##### team?
+
+> `readonly` `optional` **team?**: [`TeamProgress`](#teamprogress)
+
+The team the worker leads, when it leads one.
 
 ***
 
@@ -17721,14 +19434,9 @@ Whether the next drive runs in the environment the previous drive used. `replace
 
 ##### workspace
 
-> `readonly` **workspace**: `"lost"` \| `"unknown"` \| `"kept"` \| `"restored"`
+> `readonly` **workspace**: `"lost"` \| `"unknown"` \| `"kept"`
 
-What the next environment holds of the previous one's files. `restored`: the files as of
- the checkpoint taken at `checkpointAt`; anything written after it is gone.
-
-##### checkpointAt?
-
-> `readonly` `optional` **checkpointAt?**: `string`
+What the next environment holds of the previous one's files.
 
 ***
 
@@ -17768,9 +19476,37 @@ What the completion check requires, when the caller described it.
 
 ***
 
+### SqlRunContext
+
+#### Properties
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+##### resume
+
+> `readonly` **resume**: `true`
+
+Always `true` — a SQL context is durable by construction, so runs resume-first.
+
+***
+
 ### InMemoryRunContextOptions
 
 Options for a supervised run context.
+
+#### Extended by
+
+- [`SqlRunContextOptions`](#sqlruncontextoptions)
 
 #### Properties
 
@@ -17791,6 +19527,36 @@ The bundle of stores a supervised run needs, shaped to spread into `SupervisorOp
 The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 
 #### Properties
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+SQL contexts bind all stores and ownership to this durable run identity.
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+##### durability?
+
+> `readonly` `optional` **durability?**: `"sql"`
+
+##### acquire?
+
+> `readonly` `optional` **acquire?**: (`signal?`) => `Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+Present only on an unacquired context. An acquired context cannot reacquire itself.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RunContextLease`](#runcontextlease)\>
 
 ##### journal
 
@@ -17821,6 +19587,32 @@ findings, answer decisions, and authorized continuation receipts that the spawn 
 not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
 Continuation receipts are evidence and are never auto-delivered to a replacement worker.
 In-memory contexts have none: nothing outlives the process.
+
+***
+
+### RunContextLease
+
+An immutable capability for one run ownership generation.
+
+#### Properties
+
+##### context
+
+> `readonly` **context**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+#### Methods
+
+##### release()
+
+> **release**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ***
 
@@ -18752,6 +20544,15 @@ The exact profile must name its harness, and the provider must expose live
 continuation plus session controls. The provider still owns environment
 creation and session semantics.
 
+##### shared?
+
+> `optional` **shared?**: [`SharedBoxPlacement`](#sharedboxplacement)
+
+Place each worker whose profile a shared box can carry as its own process in a pool of shared
+boxes, and keep a dedicated environment from `provider` for every other profile. Build it with
+`sharedBoxPlacement`. A manager never uses it: its coordination credential is create-time
+environment that every co-tenant of a shared box could read.
+
 ***
 
 ### RouterToolsSeam
@@ -19164,17 +20965,18 @@ This scope's recursion depth (root = 0).
 
 Runtime recursion-depth ceiling — a spawn past it fails closed `depth-exceeded`.
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: [`WorkerSlots`](#workerslots-6)
 
-Root-owned limit on live spawned workers across this scope and every nested scope.
+The allocator that bounds concurrently working agents across this scope, every nested scope,
+ and every other tree that shares it. Absent means no bound: only the budget limits concurrency.
 
 ##### reservationPolicy?
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Optional policy that holds owner inference capacity and a path of descendant slots.
+Optional policy that keeps part of each manager's budget for its own inference.
 
 ##### ownerBudget?
 
@@ -19305,6 +21107,165 @@ Prior committed spend summed off the journal (settled child work + metered infer
 ###### priorSpend.driverInference
 
 > `readonly` **driverInference**: [`Spend`](#spend)
+
+***
+
+### SqlRunContextOptions
+
+Options for a supervised run context.
+
+#### Extends
+
+- [`InMemoryRunContextOptions`](#inmemoryruncontextoptions)
+
+#### Properties
+
+##### tablePrefix?
+
+> `readonly` `optional` **tablePrefix?**: `string`
+
+###### Inherited from
+
+`SqlRunStoreOptions.tablePrefix`
+
+##### leaseMs?
+
+> `readonly` `optional` **leaseMs?**: `number`
+
+###### Inherited from
+
+`SqlRunStoreOptions.leaseMs`
+
+##### heartbeatMs?
+
+> `readonly` `optional` **heartbeatMs?**: `number`
+
+###### Inherited from
+
+`SqlRunStoreOptions.heartbeatMs`
+
+##### withDriver?
+
+> `readonly` `optional` **withDriver?**: `boolean`
+
+Wrap the executor registry with `withDriverExecutor` so a child constructed by `driverChild`
+resolves to the recursive driver-executor (agents driving agents
+over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
+leaf workers. Default `false`.
+
+###### Inherited from
+
+[`InMemoryRunContextOptions`](#inmemoryruncontextoptions).[`withDriver`](#withdriver)
+
+***
+
+### FencedSqlRunContext
+
+A `RunContext` bound to one fenced SQL ownership generation; read-only until acquired.
+
+#### Extends
+
+- [`RunContext`](#runcontext-1)
+
+#### Properties
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+###### Inherited from
+
+`RunContext.namespace`
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+###### Inherited from
+
+`RunContext.journal`
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+###### Inherited from
+
+`RunContext.blobs`
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+###### Inherited from
+
+`RunContext.executors`
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
+context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
+leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
+
+###### Inherited from
+
+`RunContext.resume`
+
+##### coordinationLog?
+
+> `readonly` `optional` **coordinationLog?**: [`CoordinationLog`](#coordinationlog)
+
+Present only on a DURABLE context: the coordination side-log stores questions, analyst
+findings, answer decisions, and authorized continuation receipts that the spawn journal does
+not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
+Continuation receipts are evidence and are never auto-delivered to a replacement worker.
+In-memory contexts have none: nothing outlives the process.
+
+###### Inherited from
+
+`RunContext.coordinationLog`
+
+##### durability
+
+> `readonly` **durability**: `"sql"`
+
+###### Overrides
+
+`RunContext.durability`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+SQL contexts bind all stores and ownership to this durable run identity.
+
+###### Overrides
+
+`RunContext.runId`
+
+#### Methods
+
+##### acquire()
+
+> **acquire**(`signal?`): `Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+Present only on an unacquired context. An acquired context cannot reacquire itself.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+###### Overrides
+
+`RunContext.acquire`
 
 ***
 
@@ -19711,6 +21672,12 @@ readonly `string`[]
 
 #### Properties
 
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
+
 ##### budget
 
 > `readonly` **budget**: [`Budget`](#budget-18)
@@ -19826,6 +21793,18 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
  factory instead of `backend`. A child that IS a driver still becomes a nested supervisor, whose
  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
  This is the seam an offline test or a pinning layer (an agent graph) should use.
+
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct executors for interrupted children on resume, for a run that owns its worker
+ factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+ automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+ across a process boundary (a sandbox session, a CLI bridge session — an executor that
+ journals its admission through the retained seam) needs this for a resume to recover the
+ in-flight child instead of refusing its key `in-doubt`. The factory receives the
+ reconstructed spec and the child's journaled context, including its prior admissions.
 
 ##### driverBackend?
 
@@ -19984,6 +21963,21 @@ OPT-IN standing guidance from the profile knowledge base
  profile a manager spawns, before identity is fixed, so receipts bind the prompt that ran.
  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself.
 
+##### inheritSpawnRights?
+
+> `readonly` `optional` **inheritSpawnRights?**: `boolean`
+
+Whether a spawned profile that declares no Runtime coordination tool receives its manager's
+ coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+ can still deliver work it does itself), so every child can lead children of its own. Default
+ `true`. A child whose author wrote any coordination entry, true or false, keeps what was
+ written (a `false` entry is dropped once it has kept the child a leaf). A child this run
+ cannot drive as a manager (no driver for its harness, or no `router` for a harness-less one)
+ stays a leaf, and so does every child of a run with no completion check (`deliverable` or
+ `resolveDeliverable`), since a manager delivers its own work only through `submit_result`.
+ `false` runs every authored profile exactly as written. Applies to backend-derived workers;
+ a caller-owned `makeWorkerAgent` decides its own children.
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-2)
@@ -20064,40 +22058,30 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 `void`
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
-How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered with the unmet items. The same harness session is reused only where the backend
-proves it: a bridge, or a retained provider environment the provider still holds. Any other
-re-entry, including one into a replacement environment, receives the whole re-entry task
-composed from the coordinator (`composeReentryTask`), and a replacement created from the lost
-environment's latest workspace checkpoint keeps the files that checkpoint held.
+How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+director heard held no line of the check's verdict.
 
-A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, and abort bounds. Successful continuations do
-not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-run the coordination server already stopped is never re-prompted — that stop was a decision.
+A continuation is the retry path, not a second loop: same scope, same coordination server,
+same live children, and the same budget, deadline, and abort bounds. There is no count: the
+loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+profile owns its words, and `append` may add a section but never replace one.
 
-Requires `deliverable`, and applies to every external manager with a completion check. A
-recursive manager receives the check selected for its exact assignment. Refused for a
-router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
-
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
- owes and reports how many workers passed the check.
+Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+every external manager with a completion check in the tree. Refused for a router-brained
+manager, which runs its turn loop in process.
 
 ##### childSettleGraceMs?
 
@@ -20152,8 +22136,8 @@ Each handler receives that manager scope's live cancellation signal in its trust
 context, including recursive parent and root cascades, plus `context.verbs` — that manager's
 own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
 chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
+the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### escalateQuestion?
 
@@ -20223,21 +22207,27 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-18)
 
-Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+ of the part of the pool children may reserve (the pool less any owner share). A nested
+ manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn.
 
 ##### reservationPolicy?
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Opt-in owner inference share plus reserved live slots for descendants. Default: off.
+Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+ free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+ beside it. Default: off.
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
- root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
- the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound).
+Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+ `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+ its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+ lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+ slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound).
 
 ##### analysts?
 
@@ -20329,6 +22319,15 @@ exact prior execution is recovered, so restart cannot duplicate work or slide th
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`
@@ -20353,7 +22352,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -20368,6 +22367,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ##### onProgressStop?
 
@@ -20389,6 +22391,10 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
+
+Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+ level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+ `DEFAULT_MAX_DEPTH` (16).
 
 ##### maxTurns?
 
@@ -20630,7 +22636,7 @@ The coordination verbs THIS manager serves, callable in code from a product tool
 
 Each verb dispatches by name to the live coordination descriptor's own handler, so a spawn made
 here crosses the identical path the MCP verb crosses: `makeWorkerAgent` → `authorizeSpawn` /
-security / `allowedModels`, the conserved pool reservation, `maxLiveWorkers`, the journal, and
+security / `allowedModels`, the conserved pool reservation, the worker-slot queue, the journal, and
 the event bus. There is no second spawn path and no way to bypass a gate by calling in code.
 
 The set is deliberately the COORDINATION surface only. `submit_result`, `stop`, and `ask_parent`
@@ -20795,7 +22801,7 @@ in code (see [CoordinationVerbs](#coordinationverbs)).
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-20)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-22)
 
 ##### runNamespace
 
@@ -20815,7 +22821,7 @@ Concrete Scope node that owns this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`nodeId`](#nodeid-3)
+[`SupervisorNodeContext`](#supervisornodecontext).[`nodeId`](#nodeid-4)
 
 ##### ownerId
 
@@ -20833,7 +22839,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-4)
+[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-5)
 
 ##### identity
 
@@ -20841,7 +22847,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-5)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-6)
 
 ##### assignmentId?
 
@@ -20859,7 +22865,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-18)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-21)
 
 ##### task
 
@@ -20867,7 +22873,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-24)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-25)
 
 ##### signal
 
@@ -20947,6 +22953,16 @@ One product-owned tool. It reuses the canonical MCP descriptor fields while Runt
 ###### Inherited from
 
 [`McpToolDescriptor`](mcp.md#mcptooldescriptor).[`inputSchema`](mcp.md#inputschema)
+
+##### annotations?
+
+> `optional` **annotations?**: [`McpToolAnnotations`](mcp.md#mcptoolannotations)
+
+Published in `tools/list` when present.
+
+###### Inherited from
+
+[`McpToolDescriptor`](mcp.md#mcptooldescriptor).[`annotations`](mcp.md#annotations)
 
 ##### handler
 
@@ -21196,14 +23212,6 @@ Receives a result only after this manager's completion check accepted it.
 
 `void`
 
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
- this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
- boxes/sandboxes, not total work). Omit/`<= 0` = no cap.
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
@@ -21260,26 +23268,30 @@ Called once when the external driver loop ends, returned or thrown, with what it
 
 `void`
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
-How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
- with the unmet items: into the same harness session where the backend proves it, and
- otherwise with the whole re-entry task (`reentry.ts`). The harness owns its own turn loop, so it can
- end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
- ended on the driver's own completion, and the completion gate could only label that result,
- never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
- live children, same budget/deadline/abort bounds. Successful turns do not consume failure
- retries. Use `'until-complete'` with a finite positive scope deadline to omit the count cap.
- Requires `deliverable`; refused for a router-brained supervisor. Omit/`0` = never re-prompt.
+How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
+ unmet: the deadline, `maxBarren`, and the note's profile and switches (`./continuation.ts`).
+ Required with `deliverable` on the external arm, refused without one, and refused for a
+ router-brained supervisor, which runs its own turn loop in process. The harness owns its own
+ turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
+ discovery-lab runs (2026-09-01) ended on the driver's own completion. A continuation reuses the
+ retry path: same scope, same coordination server, same live children, same bounds.
 
-##### onUnmetContract?
+##### continuationDir?
 
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
+> `readonly` `optional` **continuationDir?**: `string`
 
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's own instruction.
+Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
+ `panel.jsonl`). Omit to keep them in memory, where `read_continuation` still serves them.
+
+##### rootStreamPath?
+
+> `readonly` `optional` **rootStreamPath?**: `string`
+
+The root manager's `root-stream.jsonl`, which the question panel reads.
 
 ##### nodeContext?
 
@@ -23007,10 +25019,14 @@ Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
 idempotent per key: once a child spawned under a key settles `done` — in this process or in a
 journaled prior one — spawning the same key returns that committed result (`prior.state:
 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
-journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
-still exist and must be recovered before replacement. A key that is currently LIVE is refused
-(`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
+spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
+`down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
+its process — so a worker killed mid-flight under a plain in-process executor retries under
+its own key instead of wedging. A key whose un-settled prior attempt may still exist
+elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
+may still be running and must be recovered before replacement. A key that is currently LIVE
+is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
+always run.
 
 ##### successorOf?
 
@@ -23097,6 +25113,93 @@ Phantom: binds the handle to the child's output type so `spawn<C>` returns a
 
 ***
 
+### SubtreeSummary
+
+A bounded account of the team a manager led, carried up on its settlement.
+
+A lead reads its children's summaries instead of every descendant's output: the counts cover
+the whole subtree, and `results` lists only the manager's own direct children, best first.
+Every listed result stays addressable by its content address (`outRef`), so the lead can read
+any one of them in full. The summary is bounded at every level, so a tree of hundreds of agents
+reaches its root as a handful of summaries.
+
+#### Properties
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Spawned agents below this node, at every depth.
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+Levels below this node: `1` when it led only workers that led no one.
+
+##### done
+
+> `readonly` **done**: `number`
+
+Agents below this node that settled done.
+
+##### down
+
+> `readonly` **down**: `number`
+
+Agents below this node that settled down or were cancelled.
+
+##### results
+
+> `readonly` **results**: readonly [`SubtreeResult`](#subtreeresult)[]
+
+This node's own direct children, done before down and then by score, at most
+ `SUBTREE_RESULT_LIMIT` of them.
+
+##### omitted
+
+> `readonly` **omitted**: `number`
+
+Direct children not listed in `results`.
+
+***
+
+### SubtreeResult
+
+One direct child of a manager, as its lead sees it in a [SubtreeSummary](#subtreesummary).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### status
+
+> `readonly` **status**: `"done"` \| `"down"`
+
+##### outRef?
+
+> `readonly` `optional` **outRef?**: `string`
+
+Content address of the child's retained output, when it produced one.
+
+##### score?
+
+> `readonly` `optional` **score?**: `number`
+
+##### agents
+
+> `readonly` **agents**: `number`
+
+Agents in this child's own subtree, itself excluded.
+
+***
+
 ### Scope
 
 **`Stable`**
@@ -23155,12 +25258,13 @@ Conserved-pool readouts (post-reservation).
 
 ##### workerCapacity
 
-> `readonly` **workerCapacity**: `Readonly`\<\{ `live`: `number`; `freeSlots`: `number` \| `null`; `unconfirmed`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; \}\>
+> `readonly` **workerCapacity**: `Readonly`\<\{ `working`: `number`; `queued`: `number`; `freeSlots`: `number` \| `null`; `unconfirmed`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; \}\>
 
-One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
- the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
- `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
- the nodes still holding a capacity slot. Empty on every healthy run.
+The worker-slot allocator as this scope sees it. Every scope of a tree, and every tree that
+ shares the allocator, reads the same counts; the root agent itself holds no slot. `working`
+ counts agents that hold a slot, `queued` counts admitted spawns that wait for one, and
+ `freeSlots` is `null` when no bound is set. `unconfirmed` NAMES this scope's settled children
+ whose executor teardown was never acknowledged. Empty on every healthy run.
 
 #### Methods
 
@@ -23560,7 +25664,15 @@ Identity recorded when this key was first admitted. Every reuse must match it ex
 
 > `readonly` `optional` **settled?**: [`Settled`](#settled-4)\<`Out`\>
 
-The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
+The rehydrated settlement; absent when `state` is `'in-doubt'`, and when `'down'` was
+*derived* — the resume itself proved the execution dead (an `inline` runtime cannot outlive
+its process), so there is no settlement to rehydrate and `reason` says how it died.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+Why a derived `'down'` state exists. Absent on every state backed by a settlement.
 
 ***
 
@@ -23689,10 +25801,10 @@ Present once a settled node's measured spend exceeded its reservation.
 
 > `readonly` `optional` **retainedExecution?**: [`RetainedExecutionState`](#retainedexecutionstate)
 
-Present on a retained child: `'pending'` while its cursor slot is open, `'released'` once
- the release sweep closed it. The live view (`makeTreeView`) and the journal view
- (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
- retained-vs-down question without the observer journal.
+Present on a retained child: `'pending'` while its cursor slot is open, `'released'` or
+ `'release-unconfirmed'` once a final settlement closed it. The live view (`makeTreeView`)
+ and the journal view (`materializeTreeView`) state the same fact, so a settle record's
+ `tree` answers the retained-vs-down question without the observer journal.
 
 ##### retainedPendingCause?
 
@@ -23720,7 +25832,7 @@ The live tree — what `scope.view` / `RootHandle.view()` materialize for a view
 
 > `readonly` **inFlight**: `number`
 
-Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
+Count of nodes in `queued`, `acquiring`, or `running` — the "what's in flow?" answer.
 
 ##### waiting
 
@@ -23729,25 +25841,6 @@ Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
 Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
  a wait burns no executor and no budget, so counting it as flow would misreport both idle
  capacity and how much work is actually running.
-
-***
-
-### WorkspaceCheckpointMarker
-
-The file Runtime writes into a retained owner's workspace immediately before a checkpoint, and
- reads back from a restored environment before any turn runs there.
-
-#### Properties
-
-##### path
-
-> `readonly` **path**: `string`
-
-Workspace-relative path.
-
-##### content
-
-> `readonly` **content**: `string`
 
 ***
 
@@ -23804,6 +25897,26 @@ recovery; `appendEvent` runs only AFTER the event is observed-committed (never s
 ###### ev
 
 [`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### appendEvents()?
+
+> `optional` **appendEvents**(`root`, `events`): `Promise`\<`void`\>
+
+Publish all events together or none; SQL contexts use this for initialization records.
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### events
+
+readonly [`SpawnEvent`](#spawnevent)[]
 
 ###### Returns
 
@@ -23914,8 +26027,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 ### RecursiveReservationPolicy
 
 Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
-kept free for its own inference while children hold their full declared ceilings. The same
-policy reserves one live worker slot per remaining depth, up to `maxDepth`.
+kept free for its own inference while children hold their declared slices.
 
 #### Properties
 
@@ -23990,21 +26102,24 @@ Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its p
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Runtime recursion-depth ceiling (paired with the conserved pool per R3).
+Recursion ceiling (root = 0). The conserved pool bounds depth; this only stops a runaway
+ recursion. Omit = `DEFAULT_MAX_DEPTH` (16).
 
-##### maxLiveWorkers?
+##### workerSlots?
 
-> `readonly` `optional` **maxLiveWorkers?**: `number`
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
 
-Hard tree-wide cap on simultaneously executing spawned workers. The root is excluded; every
- nested driver and leaf shares this one allocation. Omit/`<= 0` leaves worker count uncapped.
+The bound on concurrently working agents across the whole tree, as a number or as an
+ allocator from `createWorkerSlots` that several runs share. A spawn past it waits in a queue
+ instead of being refused. The root holds no slot. Omit/`<= 0` bounds concurrency by the budget
+ alone.
 
 ##### reservationPolicy?
 
 > `readonly` `optional` **reservationPolicy?**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-Opt in to reserving each manager's inference share and enough tree-wide worker slots for a
-descendant path to `maxDepth`. Omit to retain full-ceiling admission behavior.
+Opt in to keeping each manager's inference share free of its children's slices. A resumed
+ run must use the same policy.
 
 ##### maxRestarts?
 
@@ -24077,10 +26192,16 @@ the paid execution inside it.
   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
-  `fleetYield.releasedUnrecovered` counts it; a refused release leaves the slot open and
-  the node in `teardownUnconfirmed`. A process that dies between the last `destroyed: true`
-  receipt and that record leaves the slot open only until the next resume, whose
-  `healReleasedSlots` writes the identical record from the `reconciled` record.
+  `fleetYield.releasedUnrecovered` counts it. A release that is refused or cannot be
+  confirmed names the node in `teardownUnconfirmed` and its `teardown-unconfirmed` record,
+  and after the retry window closes its slot with `retainedExecution: 'release-unconfirmed'`,
+  counted by `fleetYield.releaseUnconfirmed`: the settlement is final, so the slot closes
+  whether or not the environment is confirmed gone. Measured 2026-09-23/24 on the Discovery
+  fleet (Runtime 0.249.1 to 0.261.0): 338 of 1,620 agents never settled, and 179 of the
+  retained ones had an admission that never named an environment. A process that dies
+  between the last `destroyed: true` receipt and the released record leaves the slot open
+  only until the next resume, whose `healReleasedSlots` writes the identical record from the
+  `reconciled` record.
 - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
 
 Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
@@ -24263,8 +26384,9 @@ Every `spawned` record with a parent; the run root and an owned tree's re-rooted
 
 > `readonly` **neverSettled**: `number`
 
-Spawned with no terminal record: a crash-orphaned child, a refused release, or a retained
- executor with nothing to release. Named after `SpendGap`'s `never-settled`.
+Spawned with no terminal record: a crash-orphaned child, or a retained child of a run that
+ keeps its environments for a resume (`retainedAtSettlement: 'keep'`). Named after
+ `SpendGap`'s `never-settled`.
 
 ##### releasedUnrecovered
 
@@ -24273,6 +26395,14 @@ Spawned with no terminal record: a crash-orphaned child, a refused release, or a
 Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
  A nested manager whose OWN retained execution was released counts here beside the
  grandchildren it released, because its execution was destroyed unrecovered too.
+
+##### releaseUnconfirmed
+
+> `readonly` **releaseUnconfirmed**: `number`
+
+Terminal records marked `retainedExecution: 'release-unconfirmed'` — a subset of
+ `down + cancelled`, disjoint from `releasedUnrecovered`: executions a final settlement left
+ unrecovered without confirming their environment destroyed.
 
 ***
 
@@ -24456,7 +26586,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-28)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-31)
 
 ##### abort()
 
@@ -24938,6 +27068,32 @@ A policy with every bound decided — what [retryPreSpawnRefusals](#retryprespaw
 ##### signatures
 
 > `readonly` **signatures**: readonly `RegExp`[]
+
+***
+
+### WorkerSlots
+
+A fleet-wide bound on concurrently working agents, with a queue for the spawns past it.
+
+#### Properties
+
+##### max
+
+> `readonly` **max**: `number` \| `undefined`
+
+The bound on working agents, or `undefined` when only the budget bounds concurrency.
+
+##### working
+
+> `readonly` **working**: `number`
+
+Working agents that hold a slot now.
+
+##### queued
+
+> `readonly` **queued**: `number`
+
+Spawns that hold a budget slice and wait for a slot.
 
 ***
 
@@ -28594,7 +30750,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ##### root
 
-[`NodeId`](#nodeid-6)
+[`NodeId`](#nodeid-7)
 
 ##### options?
 
@@ -28976,6 +31132,56 @@ Buffered OpenAI-compatible completion port used only for offline execution.
 
 ***
 
+### ContinuationPanel
+
+> **ContinuationPanel** = (`input`) => `Promise`\<[`ContinuationPanelResult`](#continuationpanelresult)\>
+
+Ask the panel's questions over the run's own traces.
+
+#### Parameters
+
+##### input
+
+[`ContinuationPanelInput`](#continuationpanelinput)
+
+#### Returns
+
+`Promise`\<[`ContinuationPanelResult`](#continuationpanelresult)\>
+
+***
+
+### ContinuationAppend
+
+> **ContinuationAppend** = (`context`) => `Promise`\<\{ `heading`: `string`; `text`: `string`; \} \| `undefined`\>
+
+A play's own section for one note. Return `undefined` to add nothing this time.
+
+#### Parameters
+
+##### context
+
+###### continuation
+
+`number`
+
+###### verdict?
+
+[`CheckVerdict`](#checkverdict)
+
+###### reads
+
+`ReadonlyArray`\<[`CheckRead`](#checkread)\>
+
+###### signal
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<\{ `heading`: `string`; `text`: `string`; \} \| `undefined`\>
+
+***
+
 ### CoordinationOwnerId
 
 > **CoordinationOwnerId** = `string`
@@ -29032,28 +31238,29 @@ Why the retry loop stopped. `completed` is the only non-failure.
 
 ### DriverRepromptRefusal
 
-> **DriverRepromptRefusal** = `"reprompts-exhausted"` \| `"caller-stop"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"` \| `"no-progress"`\>
+> **DriverRepromptRefusal** = `"closed"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"` \| `"no-progress"`\>
 
 Why a completed drive with an unmet contract was not re-entered. `no-progress` means
- `reprompt.maxBarren` consecutive re-entered drives completed without a delivery.
+ `continuation.maxBarren` consecutive re-entered drives completed without progress. `closed`
+ means the run was already closed: a failed `report_blocked` probe or a progress stop rule.
 
 ***
 
 ### DriverReentry
 
-> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
+> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
 
 Why the loop is entering the driver again. Absent on the first attempt only.
 
- An `unmet-contract` re-entry carries the unmet items. A `driver-failure` re-entry carries no
- instruction of its own: the drive that failed may never have read the last one, so the caller
- re-enters with the ORIGINAL task and the run's state, never with the unmet-items text alone.
+ An `unmet-contract` re-entry carries Runtime's continuation note. A `driver-failure` re-entry
+ carries no instruction of its own: the drive that failed may never have read the last one, so
+ the caller re-enters with the ORIGINAL task and the run's state, never with the note alone.
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \}
+\{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; \}
 
 ###### reason
 
@@ -29063,14 +31270,14 @@ Why the loop is entering the driver again. Absent on the first attempt only.
 
 > `readonly` **steer**: `string`
 
-The unmet items. Whether they are the whole turn depends on where the drive runs: only a
- backend that proves the same harness session may be re-entered with this text alone.
+The continuation note. Whether it is the whole turn depends on where the drive runs: only
+ a backend that proves the same harness session may be re-entered with this text alone.
 
-###### reprompt
+###### continuation
 
-> `readonly` **reprompt**: `number`
+> `readonly` **continuation**: `number`
 
-1-based: which re-prompt this is.
+1-based: which continuation this is.
 
 ***
 
@@ -29104,8 +31311,9 @@ The failure that ended the previous drive, as recorded.
 
 > `readonly` **reason**: `"upstream-unavailable"`
 
-The upstream refused the previous drive for capacity, and the loop paused before this
- one. Re-entered like a failure, with the original task and the run's state.
+The upstream refused the previous drive for capacity, or the check could not run, and the
+ loop paused before this one. Re-entered like a failure, with the original task and the
+ run's state.
 
 ###### signal
 
@@ -29118,32 +31326,6 @@ The code or status that classified the refusal, such as `provider_quota_exhauste
 > `readonly` **pause**: `number`
 
 1-based: which pause this is.
-
-***
-
-### DriverUnmetContractDecision
-
-> **DriverUnmetContractDecision** = \{ `steer`: `string`; \} \| `"stop"`
-
-The caller's answer: re-enter the session with `steer`, or end the run here.
-
-***
-
-### OnUnmetContract
-
-> **OnUnmetContract** = (`context`) => [`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
-
-Compose the re-entry instruction for a completed drive that delivered nothing, or refuse.
-
-#### Parameters
-
-##### context
-
-[`DriverUnmetContractContext`](#driverunmetcontractcontext)
-
-#### Returns
-
-[`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
 
 ***
 
@@ -29181,13 +31363,13 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ### GraphEdge
 
-> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-6); `to`: [`NodeId`](#nodeid-6); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-6)\>; `to`: [`NodeId`](#nodeid-6); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-7); `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-7)\>; `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-6); `to`: [`NodeId`](#nodeid-6); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \}
+\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-7); `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \}
 
 Work flows down. The delegation directive is DATA → versionable, sweepable, optimizable.
  Each spawn of `to` by `from` — and each mid-run steer from `from` to a live `to` worker —
@@ -29199,11 +31381,11 @@ Work flows down. The delegation directive is DATA → versionable, sweepable, op
 
 ###### from
 
-> `readonly` **from**: [`NodeId`](#nodeid-6)
+> `readonly` **from**: [`NodeId`](#nodeid-7)
 
 ###### to
 
-> `readonly` **to**: [`NodeId`](#nodeid-6)
+> `readonly` **to**: [`NodeId`](#nodeid-7)
 
 ###### directive
 
@@ -29233,7 +31415,7 @@ Default continuity for this edge's SPAWN traversals. `'resume'` makes every spaw
 
 ##### Type Literal
 
-\{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-6)\>; `to`: [`NodeId`](#nodeid-6); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+\{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-7)\>; `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
 
 Findings flow anywhere: an analyst over N nodes' settled traces, delivered to ONE node.
  With a LENS analyst the directive wraps the findings for the recipient; with a NODE analyst
@@ -29256,11 +31438,11 @@ The analyst REFERENCE, in one of two forms: a lens id resolved against
 
 ###### over
 
-> `readonly` **over**: `ReadonlyArray`\<[`NodeId`](#nodeid-6)\>
+> `readonly` **over**: `ReadonlyArray`\<[`NodeId`](#nodeid-7)\>
 
 ###### to
 
-> `readonly` **to**: [`NodeId`](#nodeid-6)
+> `readonly` **to**: [`NodeId`](#nodeid-7)
 
 ###### directive
 
@@ -29968,10 +32150,12 @@ construction args without pre-instantiating; it never bypasses exact-profile val
 
 ### NodeStatus
 
-> **NodeStatus** = `"pending"` \| `"acquiring"` \| `"running"` \| `"waiting"` \| `"done"` \| `"failed"` \| `"cancelled"`
+> **NodeStatus** = `"pending"` \| `"queued"` \| `"acquiring"` \| `"running"` \| `"waiting"` \| `"done"` \| `"failed"` \| `"cancelled"`
 
-`'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
- during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
+`'queued'` is an admitted child that holds its budget slice and waits for a worker slot
+ (`workerSlots`); it runs nothing until the allocator grants one. `'acquiring'` is first-class
+ (M1): a node spends real time + reaps an orphan box during sandbox acquire BEFORE it is
+ `running`, so abort must be defined over it.
  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
  box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
  a terminal status describes it (see `Scope.wait`).
@@ -29988,7 +32172,7 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"` \| `"scope-settled"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"scope-aborted"` \| `"scope-settled"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
@@ -30008,7 +32192,7 @@ child nobody joins.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-7); `reason`: `string`; \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
@@ -30027,7 +32211,7 @@ recovery before a replacement can run.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -30043,7 +32227,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -30097,6 +32281,12 @@ Whether the child's OWN harness transcript survived its environment, or why it d
 
 Present when the measured spend exceeded this child's reservation.
 
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+Present when this child led workers of its own: a bounded account of its team.
+
 ###### settledAt?
 
 > `optional` **settledAt?**: `number`
@@ -30111,7 +32301,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -30175,8 +32365,9 @@ Present when the spend reconciled for this child exceeded its reservation.
 
 Present only when this child's provider execution was RETAINED (see
  `RetainedExecutionState`); absent on an ordinary down. `'pending'` on the settlement the
- driver receives at the reconcile; `'released'` on the replayed settlement of a node the
- release sweep closed. The driver and every replay reader see the fact the journal
+ driver receives at the reconcile; `'released'` or `'release-unconfirmed'` on the
+ replayed settlement of a node a final settlement closed. The driver and every replay
+ reader see the fact the journal
  states, so a reader never splits this population on `reason` text — which is identical
  on every one of these children.
 
@@ -30189,6 +32380,12 @@ WHY the retained execution has no accepted result, as a value: the safety refusa
  transport, or a nested recovery that could not be reconstructed. Present iff
  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
  have to parse it (#1204).
+
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+Present when this child led workers of its own: a bounded account of its team.
 
 ###### settledAt?
 
@@ -30204,13 +32401,16 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-6); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); `maxDepth`: `number`; `maxLiveWorkers`: `number`; \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-6); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-6); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+
+Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
+ timestamp for human inspection only (NOT a replay input).
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-6); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); `maxDepth`: `number`; `maxLiveWorkers`: `number`; \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30218,11 +32418,11 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### parent?
 
-> `optional` **parent?**: [`NodeId`](#nodeid-6)
+> `optional` **parent?**: [`NodeId`](#nodeid-7)
 
 ###### label
 
@@ -30243,7 +32443,7 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 
 ###### successorOf?
 
-> `optional` **successorOf?**: [`NodeId`](#nodeid-6)
+> `optional` **successorOf?**: [`NodeId`](#nodeid-7)
 
 The settled sibling node this spawn replaces (`SpawnOpts.successorOf`).
 
@@ -30259,24 +32459,16 @@ The settled sibling node this spawn replaces (`SpawnOpts.successorOf`).
 
 > `optional` **recursiveAdmission?**: `object`
 
-Root-only opt-in admission contract. A resumed run must use the same policy and fleet
-limits; absent on historical and default-off records.
+Root-only opt-in owner-share contract. A resumed run must use the same policy; absent on
+records that set none.
 
 ###### recursiveAdmission.policy
 
 > **policy**: [`RecursiveReservationPolicy`](#recursivereservationpolicy)
 
-###### recursiveAdmission.maxDepth
-
-> **maxDepth**: `number`
-
-###### recursiveAdmission.maxLiveWorkers
-
-> **maxLiveWorkers**: `number`
-
 ###### ownedTreeRoot?
 
-> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-6)
+> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-7)
 
 Exact nested journal tree this node owns. Runtime writes this only after privately
 attesting the executor as a recursive scope owner. Its absence means no tree is followed,
@@ -30309,7 +32501,7 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
 
 ##### Type Literal
 
-\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30319,7 +32511,7 @@ Exact task bytes durable before admitting a retained invocation.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### taskRef
 
@@ -30337,7 +32529,7 @@ Exact task bytes durable before admitting a retained invocation.
 
 ##### Type Literal
 
-\{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30347,7 +32539,7 @@ Credential-free retained-provider admission, committed before the next external 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### admission
 
@@ -30365,7 +32557,7 @@ Credential-free retained-provider admission, committed before the next external 
 
 ##### Type Literal
 
-\{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30385,7 +32577,7 @@ Recoverable output committed before releasing its provider environment.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### outRef
 
@@ -30411,7 +32603,7 @@ Recoverable output committed before releasing its provider environment.
 
 ##### Type Literal
 
-\{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30422,7 +32614,7 @@ only by digest; descriptor fields are safe structural labels, never credential-b
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### binding
 
@@ -30440,7 +32632,7 @@ only by digest; descriptor fields are safe structural labels, never credential-b
 
 ##### Type Literal
 
-\{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30450,7 +32642,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### receipt
 
@@ -30468,7 +32660,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30476,7 +32668,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### status
 
@@ -30535,15 +32727,17 @@ Present when the reconciled spend exceeded the reservation, on either status.
 
 ###### retainedExecution?
 
-> `optional` **retainedExecution?**: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>
+> `optional` **retainedExecution?**: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>
 
-Written by the release sweep in the settling process, on the same tree, after every
- `environment-teardown` receipt for the node reads `destroyed: true` and the executor's
- own teardown confirmed — or by `healReleasedSlots` on the next resume, when that process
- died between the last `destroyed: true` receipt and this record: the same builder, `seq`
- and `at`, read from the `reconciled` record, so the bytes are identical either way. A
- `destroyed: false` receipt, an empty receipt set, or a `reconciled` record without
- `settledSeq` leaves the slot open.
+`'released'` is written by the release sweep in the settling process, on the same tree,
+ after every `environment-teardown` receipt for the node reads `destroyed: true` and the
+ executor's own teardown confirmed — or by `healReleasedSlots` on the next resume, when
+ that process died between the last `destroyed: true` receipt and this record: the same
+ builder, `seq` and `at`, read from the `reconciled` record, so the bytes are identical
+ either way. `'release-unconfirmed'` is written by the same builder at the end of a final
+ settlement for every retained node the release could not confirm: a `destroyed: false`
+ receipt, an empty receipt set, or a refused teardown probe. Only a crash before that point
+ or a `reconciled` record without `settledSeq` leaves the slot open.
  `spent` is this node's child-work component of the reconcile the pool committed — for
  a leaf the streamed floor itself, for a recursive executor its `accounting().reported`
  split with the remainder on its `metered` records — never the reservation ceiling.
@@ -30557,6 +32751,12 @@ Written by the release sweep in the settling process, on the same tree, after ev
 
 > `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
 
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+The bounded account of the team this child led, when it led one.
+
 ###### seq
 
 > **seq**: `number`
@@ -30569,7 +32769,7 @@ Written by the release sweep in the settling process, on the same tree, after ev
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30577,7 +32777,7 @@ Written by the release sweep in the settling process, on the same tree, after ev
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### reason
 
@@ -30620,7 +32820,7 @@ The child's harness transcript receipt, when the executor could still be read at
 
 ###### retainedExecution?
 
-> `optional` **retainedExecution?**: `Extract`\<[`RetainedExecutionState`](#retainedexecutionstate), `"released"`\>
+> `optional` **retainedExecution?**: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>
 
 As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
  builder writes whichever kind the settlement had.
@@ -30628,6 +32828,12 @@ As on `settled`: a retained child that was cancelled settles `cancelled`, and th
 ###### retainedPendingCause?
 
 > `optional` **retainedPendingCause?**: [`RetainedPendingCause`](#retainedpendingcause-1)
+
+###### subtree?
+
+> `optional` **subtree?**: [`SubtreeSummary`](#subtreesummary)
+
+The bounded account of the team this child led, when it led one.
 
 ###### seq
 
@@ -30641,7 +32847,7 @@ As on `settled`: a retained child that was cancelled settles `cancelled`, and th
 
 ##### Type Literal
 
-\{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30653,7 +32859,7 @@ GRAPH ENGINE fold input: the exact inputs one node instance was given, pinned by
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 The engine instance label (`<node>#<visit>`), which the matching `spawned` also carries.
 
@@ -30681,7 +32887,7 @@ The engine instance label (`<node>#<visit>`), which the matching `spawned` also 
 
 ##### Type Literal
 
-\{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30694,7 +32900,7 @@ GRAPH ENGINE fold input: what the scheduler DECIDED about one edge on one source
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### edge
 
@@ -30736,7 +32942,7 @@ A consumption the traversal cap refused: the edge stays satisfied, the target ma
 
 ##### Type Literal
 
-\{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30747,7 +32953,7 @@ GRAPH ENGINE fold input: one join release — which gating edges produced it and
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### node
 
@@ -30783,7 +32989,7 @@ The instance this release entered (`<node>#<visit>`).
 
 ##### Type Literal
 
-\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30796,11 +33002,11 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### parent?
 
-> `optional` **parent?**: [`NodeId`](#nodeid-6)
+> `optional` **parent?**: [`NodeId`](#nodeid-7)
 
 ###### label
 
@@ -30826,7 +33032,7 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ##### Type Literal
 
-\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30839,7 +33045,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### by
 
@@ -30865,7 +33071,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ##### Type Literal
 
-\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30881,7 +33087,7 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### spend
 
@@ -30911,7 +33117,7 @@ Runtime-owned provider attempt evidence for this driver's own inference turn.
 
 ##### Type Literal
 
-\{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30924,7 +33130,7 @@ without charging the same spend twice.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### spend
 
@@ -30942,7 +33148,7 @@ without charging the same spend twice.
 
 ##### Type Literal
 
-\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -30952,19 +33158,21 @@ A retained child's reservation was reconciled at the child-work floor its execut
  observed, while its cursor slot stays OPEN so a resume can recover the execution. It stands
  in for the `settled` record an open node cannot carry: cost readers and a restored pool
  charge this floor for the node instead of its declared ceiling, and a later `settled` or
- `cancelled` record for the same node supersedes it. That record has three writers: a
+ `cancelled` record for the same node supersedes it. That record has four writers: a
  resumed process's recovered settlement, the release sweep's terminal record marked
- `retainedExecution: 'released'`, or `healReleasedSlots` on the next resume when the
- process died between the last `environment-teardown` receipt and that record. The last
- two write the same bytes, because both read the settlement from THIS record: it is
- literally the settlement it stands in for, minus the cursor position it cannot hold. A
+ `retainedExecution: 'released'`, the final settlement's record marked
+ `'release-unconfirmed'` for a node whose release it could not confirm, or
+ `healReleasedSlots` on the next resume when the process died between the last
+ `environment-teardown` receipt and the released record. The last three carry the same
+ settlement, because each reads it from THIS record or from the live child it mirrors: it
+ is literally the settlement it stands in for, minus the cursor position it cannot hold. A
  driver's own inference travels on its `metered` record as on every other path, so
  `reconciled + metered` is what the pool committed. Its `seq` lives outside the
  cursor-uniqueness namespace; `settledSeq` is the cursor seq.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### spent
 
@@ -31047,7 +33255,7 @@ Present iff the child had a `RunCancellationReason` when it settled; decides `se
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31062,7 +33270,7 @@ A settled child whose executor teardown stayed unconfirmed after the settlement 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### label
 
@@ -31114,7 +33322,7 @@ Why the last attempt did not confirm destruction.
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31131,7 +33339,7 @@ A settled node whose teardown was unconfirmed when the join barrier opened its
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### label
 
@@ -31181,7 +33389,7 @@ Why the last attempt before the window did not confirm destruction.
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-6); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31192,7 +33400,7 @@ A `teardown-pending` node whose teardown a retry inside the settlement window co
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### seq
 
@@ -31206,7 +33414,7 @@ A `teardown-pending` node whose teardown a retry inside the settlement window co
 
 ##### Type Literal
 
-\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31222,14 +33430,16 @@ One provider environment a settled retained-pending child held, released at root
  terminal `settled`/`cancelled` record with `retainedExecution: 'released'` follows on
  the same tree and closes the cursor slot; when the settling process dies between this
  receipt and that record, `healReleasedSlots` writes the same record on the next resume
- from the `reconciled` record. A `destroyed: false` receipt, an empty receipt set, or an
- unconfirmed teardown leaves the slot open because the environment may still exist.
+ from the `reconciled` record. After a `destroyed: false` receipt, an empty receipt set, or
+ an unconfirmed teardown, the environment may still exist: the node is journaled as
+ `teardown-unconfirmed`, and its slot closes with `retainedExecution:
+ 'release-unconfirmed'` instead, because the settlement is final either way.
  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
  per node, outside the cursor-uniqueness namespace.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### provider
 
@@ -31259,110 +33469,7 @@ One provider environment a settled retained-pending child held, released at root
 
 ##### Type Literal
 
-\{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \}
-
-###### kind
-
-> **kind**: `"workspace-checkpoint"`
-
-A durable checkpoint of a retained owner's workspace, taken while its manager coordinated.
- When the provider later loses the owner's environment, the next invocation is created from
- the latest of these, so a re-entered director keeps the files it wrote. `marker` is the
- file Runtime wrote into the workspace immediately before the checkpoint; a restored
- environment is accepted only when it holds that file with that content. Informational:
- replay, `materializeTreeView`, and cost readers skip it, and its `seq` is per node,
- outside the cursor-uniqueness namespace.
-
-###### id
-
-> **id**: [`NodeId`](#nodeid-6)
-
-###### provider
-
-> **provider**: `string`
-
-###### environmentId
-
-> **environmentId**: `string`
-
-The environment the checkpoint was taken from.
-
-###### checkpoint
-
-> **checkpoint**: `WorkspaceCheckpointRef`
-
-###### marker?
-
-> `optional` **marker?**: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker)
-
-###### seq
-
-> **seq**: `number`
-
-###### at
-
-> **at**: `string`
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
-
-###### kind
-
-> **kind**: `"workspace-restored"`
-
-A new environment of a retained owner was created from a `workspace-checkpoint`, and
- Runtime read the checkpoint's marker back from it. `verified` is true only when the file
- held the exact content written before the checkpoint. Informational, like
- `workspace-checkpoint`.
-
-###### id
-
-> **id**: [`NodeId`](#nodeid-6)
-
-###### provider
-
-> **provider**: `string`
-
-###### environmentId
-
-> **environmentId**: `string`
-
-The new environment.
-
-###### checkpointId
-
-> **checkpointId**: `string`
-
-###### sourceEnvironmentId
-
-> **sourceEnvironmentId**: `string`
-
-The environment the checkpoint was taken from.
-
-###### verified
-
-> **verified**: `boolean`
-
-###### detail?
-
-> `optional` **detail?**: `string`
-
-###### seq
-
-> **seq**: `number`
-
-###### at
-
-> **at**: `string`
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31376,7 +33483,7 @@ One GRAPH-EDGE traversal (`runGraph`): what the runtime actually DELIVERED acros
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 The destination node when known (a spawned worker's id), else `graph:<node>`.
 
@@ -31453,7 +33560,7 @@ Why a non-`delivered` outcome happened, when the runtime knows.
 
 ##### Type Literal
 
-\{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31468,7 +33575,7 @@ A spawned worker ran WITHOUT the run's trace context because its backend has no 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### expectedTraceId
 
@@ -31498,7 +33605,7 @@ The worker-execution backend that has no propagation channel.
 
 ##### Type Literal
 
-\{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-6); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -31512,7 +33619,7 @@ A manager's driver turn was refused by an unavailable upstream (an exhausted quo
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-6)
+> **id**: [`NodeId`](#nodeid-7)
 
 ###### attempt
 
@@ -31584,7 +33691,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### RetainedExecutionState
 
-> **RetainedExecutionState** = `"pending"` \| `"released"`
+> **RetainedExecutionState** = `"pending"` \| `"released"` \| `"release-unconfirmed"`
 
 The recorded fate of a child whose provider execution was RETAINED: admitted durably, with no
 accepted terminal result when local observation stopped (the `RetainedExecutionPendingError`
@@ -31602,17 +33709,24 @@ path). Not a failure classification — the child is `down` either way.
   `destroyed: true` receipt and the record (same builder, `seq` and `at`, from the
   `reconciled` record). The pool's own admission fault, if the reconcile raised one, is not
   on this record.
+- `'release-unconfirmed'`: root settlement under `retainedAtSettlement: 'release'` ended with
+  the execution unrecovered and its environment NOT confirmed destroyed: the provider refused
+  the delete, the executor could not confirm it, or the admission never named an environment
+  (a create that timed out). The settlement is final, so no process will recover the execution
+  and the slot closes anyway, with the same builder, `seq` and `at` as `'released'`. What the
+  node may still hold stays named by its `teardown-unconfirmed` record and in
+  `teardownUnconfirmed`, for a sweeper.
 
 Absent = an ordinary child. The live `Settled` a driver branched on carried `'pending'` where
-replay yields `'released'` for the same seq, so a resume-aware driver must not branch on the
-two values. No `'recovered'` value exists yet: a live-adopted recovery settles on the ordinary
-path and the recorded-result path writes no marker.
+replay yields `'released'` or `'release-unconfirmed'` for the same seq, so a resume-aware driver
+must not branch on these values. No `'recovered'` value exists yet: a live-adopted recovery
+settles on the ordinary path and the recorded-result path writes no marker.
 
 ***
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -31626,7 +33740,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -31671,6 +33785,14 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](durable.md#rootstreamreceipt)
 
 The root manager's retained provider stream, when the run directory holds one.
+
+###### rootHarnessTranscript?
+
+> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+The root manager's native harness session, persisted like a child's receipt. A child's
+ receipt rides its settle record and the root has none, so the result carries it. Absent
+ for a router-brained root, which runs no driver.
 
 ###### continuation?
 
@@ -31735,7 +33857,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 ###### kind
 
@@ -31780,6 +33902,14 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](durable.md#rootstreamreceipt)
 
 The root manager's retained provider stream, when the run directory holds one.
+
+###### rootHarnessTranscript?
+
+> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+The root manager's native harness session, persisted like a child's receipt. A child's
+ receipt rides its settle record and the root has none, so the result carries it. Absent
+ for a router-brained root, which runs no driver.
 
 ###### continuation?
 
@@ -32253,6 +34383,36 @@ stay visibly distinct.
 
 ***
 
+### DEFAULT\_SHARED\_BOX\_WORKERS
+
+> `const` **DEFAULT\_SHARED\_BOX\_WORKERS**: `8` = `8`
+
+The most workers one default box carries at once.
+
+It keeps a worker count that the 512-task pids limit of a Tangle box can hold with headroom
+for the sidecar's own processes and the workers' tool shells: 118 idle tasks plus 8 workers at
+about 34 tasks each is 390. Memory is not the binding limit: 8 workers used about 4 GB in a
+16 GB box. Raise it only for a box whose pids limit was raised with it.
+
+***
+
+### DEFAULT\_SHARED\_BOX\_RESOURCES
+
+> `const` **DEFAULT\_SHARED\_BOX\_RESOURCES**: `Readonly`\<\{ `cpuCores`: `4`; `memoryMB`: `8192`; \}\>
+
+The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus
+ the sidecar, and 4 cores, because the workers wait on the model most of the time.
+
+***
+
+### ROUTER\_CLIENT\_HEADER
+
+> `const` **ROUTER\_CLIENT\_HEADER**: `"x-tangle-client"` = `'x-tangle-client'`
+
+The request header the router records as a usage row's `clientName`.
+
+***
+
 ### strategyAuthorContract
 
 > `const` **strategyAuthorContract**: "\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\n\n  shot(spec?: \{ handle?, messages?, steer?, profile?, tools? \}): Promise\<ShotResult \| null\>\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\n    - steer        =\> a corrective instruction injected before the shot.\n    - profile      =\> a complete AgentProfile — give THIS shot its own instructions,\n      model, skills, tools, hooks, and subagents. Include name, harness, and\n      model: \{ provider, default \}; put standing instructions in prompt.systemPrompt.\n      For example: \{ ...opts.workerProfile, name: 'researcher',\n        prompt: \{ ...opts.workerProfile.prompt,\n          systemPrompt: 'Inspect the evidence before proposing a change.' \} \}.\n      Choose an available model from the current execution setup. Omit profile to use\n      the worker's exact profile. Every shot spends from the same conserved budget.\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\n    Returns null if the attempt failed infra-wise.\n\n  critique(messages): Promise\<string \| null\>\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\n    instruction (or null when it judges the work complete). Costs ~1 completion.\n\n  consult(messages, instruction): Promise\<string \| null\>\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\n    (a decision, a prediction). Costs ~1 completion.\n\n  surface.open(task) / surface.close(handle)\n    Open a persistent artifact you manage yourself (remember to close in a finally).\n    close is idempotent — closing an already-closed handle is a safe no-op.\n\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\n    names from an example kills your shots on every task whose tools differ.\n\nRules:\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\n  crashes the whole benchmark run.\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\n  ShotResult.messages unchanged.\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\n  you reached (keep-best, never final-state), progression = score after each shot.\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\n\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/kernel'\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, opts, budget, shot, critique, listTools \}) =\> \{\n  // your composition (listTools comes from the destructured context — it is NOT a global)\n\})\n"
@@ -32323,6 +34483,23 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 
 ***
 
+### CONTINUATION\_FACTS
+
+> `const` **CONTINUATION\_FACTS**: readonly \[`"composite"`, `"threshold"`, `"failed"`, `"total"`, `"reads"`, `"owed"`, `"settled"`, `"delivered"`, `"continuation"`\]
+
+The facts a profile template may name.
+
+***
+
+### CONTINUATIONS\_DIR
+
+> `const` **CONTINUATIONS\_DIR**: `"continuations"` = `'continuations'`
+
+A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested
+ manager's at `<runDir>/continuations/managers/<owner>/<n>/`.
+
+***
+
 ### defaultDelegateBudget
 
 > `const` **defaultDelegateBudget**: [`Budget`](#budget-18)
@@ -32330,14 +34507,6 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
  A modest token ceiling + a small iteration ceiling — generous enough for a few-worker decompose,
  bounded enough that an unsupervised intent cannot run away. Callers override via `opts.budget`.
-
-***
-
-### DEFAULT\_MAX\_BARREN\_REPROMPTS
-
-> `const` **DEFAULT\_MAX\_BARREN\_REPROMPTS**: `2` = `2`
-
-Two re-prompted drives in a row that deliver nothing end the re-prompts.
 
 ***
 
@@ -32503,12 +34672,31 @@ Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded 
 
 ***
 
+### SUBTREE\_RESULT\_LIMIT
+
+> `const` **SUBTREE\_RESULT\_LIMIT**: `8` = `8`
+
+How many of a manager's direct children its summary lists; the counts always cover all.
+
+***
+
 ### DEFAULT\_AUTHORED\_PROFILE\_SECURITY\_POLICY
 
 > `const` **DEFAULT\_AUTHORED\_PROFILE\_SECURITY\_POLICY**: `AgentProfileSecurityPolicy`
 
 Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and
 ambient connection grants therefore fail closed by default, in addition to local MCP and hooks.
+
+***
+
+### DEFAULT\_MAX\_DEPTH
+
+> `const` **DEFAULT\_MAX\_DEPTH**: `16` = `16`
+
+The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every
+ level draws its slice from the level above, so a tree ends when its slices run out. This
+ ceiling only stops a runaway recursion that keeps spawning tiny slices, so it sits well above
+ any depth a budget can usefully pay for.
 
 ***
 
@@ -33182,6 +35370,149 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 
 ***
 
+### assertDeclaredCheck()
+
+> **assertDeclaredCheck**(`check`, `context`): `void`
+
+Refuse a malformed declaration before any compute.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### context
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### checkProgramDigest()
+
+> **checkProgramDigest**(`dir`): `Promise`\<`` `sha256:${string}` ``\>
+
+The canonical digest of a directory's files: the digest a record names a program by.
+
+#### Parameters
+
+##### dir
+
+`string`
+
+#### Returns
+
+`Promise`\<`` `sha256:${string}` ``\>
+
+***
+
+### declaredCheckDigest()
+
+> **declaredCheckDigest**(`check`): `` `sha256:${string}` ``
+
+The digest a version judge records: the program, the sealed cases, and how they are run.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+#### Returns
+
+`` `sha256:${string}` ``
+
+***
+
+### readDeclaredCheck()
+
+> **readDeclaredCheck**(`check`, `placement`, `read`): `Promise`\<[`CheckVerdict`](#checkverdict)\>
+
+Read the check once. `result` is the submitted result, absent for a read of the run's state.
+`set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when the program
+could not run or printed no score.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+##### read
+
+###### result?
+
+`unknown`
+
+###### set
+
+`"sealed"` \| `"development"`
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`CheckVerdict`](#checkverdict)\>
+
+***
+
+### declaredCheckDeliverable()
+
+> **declaredCheckDeliverable**(`check`, `placement`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+The declared check as a manager's completion check: every in-run read uses development cases.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+#### Returns
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+***
+
+### declaredCheckJudge()
+
+> **declaredCheckJudge**(`check`, `placement`): [`VersionJudge`](durable.md#versionjudge)
+
+The declared check as a version chain's judge: it scores a settled version on its sealed cases
+when the record has them, and on its development cases otherwise. The per-item verdict rides in
+the ledger, so the next version's review names each item. A read that could not run scores
+`null`, which never counts as an improvement.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+#### Returns
+
+[`VersionJudge`](durable.md#versionjudge)
+
+***
+
 ### defineLeaderboard()
 
 > **defineLeaderboard**\<`TCase`, `TArtifact`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`, `TArtifact`\>
@@ -33537,8 +35868,9 @@ The canonical input path remains the working directory; copy writes are discarde
 Limits bound command time and captured output, not copy size or memory consumption.
 Callers must keep the input and trusted toolchains stable while preparing the check.
 
-A box check creates one fresh box with no owner secrets and blocked egress, delivers the
-tree's regular files verified by sha256, runs the command there, and deletes the box.
+A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
+the placement's named domains), delivers the tree's regular files verified by sha256, runs the
+command there with only the environment `env` names, and deletes the box.
 
 #### Parameters
 
@@ -35432,6 +37764,74 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 ***
 
+### sharedWorkerClientName()
+
+> **sharedWorkerClientName**(`nodeId`): `string`
+
+The router client name of the worker that runs supervised node `nodeId`.
+
+The node id is already in the spawn journal, so a keeper joins a router row to a node without
+a new record: the row whose `clientName` is `agent-runtime-node/<nodeId>` is that node's spend.
+
+#### Parameters
+
+##### nodeId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### sharedBoxRefusal()
+
+> **sharedBoxRefusal**(`profile`): `string` \| `undefined`
+
+Why a shared box cannot carry `profile`, or `undefined` when it can.
+
+A shared box carries a profile whose whole behavior reaches an opencode process through its own
+working directory, its own configuration and the box's own model credential. Everything else
+keeps a dedicated box: another harness, a model the box credential cannot reach, a replaced
+system prompt, MCP servers, connections, hooks, subagents, extensions, tool grants, and any
+resource the materializer does not lower into the worker's directory.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
+### sharedBoxPlacement()
+
+> **sharedBoxPlacement**(`options`): [`SharedBoxPlacement`](#sharedboxplacement)
+
+Place accepted workers as processes in a pool of shared Sandbox boxes.
+
+The pool fills a box before it creates the next one and deletes a box when its last worker
+releases it. Runtime reaches this placement through `createExecutor({ backend: 'provider',
+shared })`: a profile that [SharedBoxPlacement.refusal](#refusal) accepts runs here, and every other
+profile keeps the dedicated provider.
+
+#### Parameters
+
+##### options
+
+[`SharedBoxPlacementOptions`](#sharedboxplacementoptions)
+
+#### Returns
+
+[`SharedBoxPlacement`](#sharedboxplacement)
+
+***
+
 ### connectStdioMcp()
 
 > **connectStdioMcp**(`spec`): `Promise`\<[`StdioMcpConnection`](#stdiomcpconnection)\>
@@ -36478,6 +38878,221 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 ***
 
+### checkVerdictOf()
+
+> **checkVerdictOf**(`outcome`): [`CheckVerdict`](#checkverdict)
+
+Read a check function's return value into a verdict. Anything but `true` or a passing verdict
+ is a failure: a check fails closed.
+
+#### Parameters
+
+##### outcome
+
+`unknown`
+
+#### Returns
+
+[`CheckVerdict`](#checkverdict)
+
+***
+
+### verdictFromJudgeScore()
+
+> **verdictFromJudgeScore**(`score`, `threshold`): [`CheckVerdict`](#checkverdict)
+
+Read an agent-eval `JudgeScore` from a check program into a verdict.
+
+Each dimension is a checked item. `notes` lines that start with `FAIL ` are the failures; the
+remaining lines are the check's review. The verdict passes when `composite >= threshold` and the
+score is not marked `failed`; a `failed` score means the judge itself did not run, which is
+[CheckUnavailableError](#checkunavailableerror), not a verdict.
+
+#### Parameters
+
+##### score
+
+###### dimensions
+
+`Readonly`\<`Record`\<`string`, `number`\>\>
+
+###### composite
+
+`number`
+
+###### notes
+
+`string`
+
+###### failed?
+
+`true`
+
+##### threshold
+
+`number`
+
+#### Returns
+
+[`CheckVerdict`](#checkverdict)
+
+***
+
+### failedItems()
+
+> **failedItems**(`verdict`): readonly `string`[]
+
+Items that fail in `verdict`: every item below 1, or the named items of its FAIL lines.
+
+#### Parameters
+
+##### verdict
+
+[`CheckVerdict`](#checkverdict)
+
+#### Returns
+
+readonly `string`[]
+
+***
+
+### passedItems()
+
+> **passedItems**(`verdict`): readonly `string`[]
+
+Items that pass in `verdict`.
+
+#### Parameters
+
+##### verdict
+
+[`CheckVerdict`](#checkverdict)
+
+#### Returns
+
+readonly `string`[]
+
+***
+
+### admitContinuationPolicy()
+
+> **admitContinuationPolicy**(`policy`, `context`): `number`
+
+Resolve and check a policy before any compute. Returns the deadline in epoch ms.
+
+#### Parameters
+
+##### policy
+
+[`ContinuationPolicy`](#continuationpolicy)
+
+##### context
+
+`string`
+
+#### Returns
+
+`number`
+
+***
+
+### admitFinding()
+
+> **admitFinding**(`finding`): `boolean`
+
+Findings reach the note only when every citation resolves, at least two distinct spans are
+ cited, and the independent verifier agreed. The best method in Who&When found the failing step
+ 14.2% of the time, so an unverified finding is noise with a citation.
+
+#### Parameters
+
+##### finding
+
+[`PanelFinding`](#panelfinding)
+
+#### Returns
+
+`boolean`
+
+***
+
+### distillFindings()
+
+> **distillFindings**(`prior`, `proposed`, `failing`, `continuation`): readonly [`AdmittedFinding`](#admittedfinding)[]
+
+Rank the admitted findings by how many failed items they explain, drop repeats, and keep them
+within the note's cap. Earlier findings stay as they were written (ACE: itemized additions keep
+detail that repeated rewrites lose); a finding whose items all pass now is marked resolved.
+
+#### Parameters
+
+##### prior
+
+readonly [`AdmittedFinding`](#admittedfinding)[]
+
+##### proposed
+
+readonly [`PanelFinding`](#panelfinding)[]
+
+##### failing
+
+`ReadonlySet`\<`string`\>
+
+##### continuation
+
+`number`
+
+#### Returns
+
+readonly [`AdmittedFinding`](#admittedfinding)[]
+
+***
+
+### expandQuestions()
+
+> **expandQuestions**(`templates`, `failing`, `workers`): readonly `string`[]
+
+Expand the profile's question templates over the failed items and the settled workers.
+
+#### Parameters
+
+##### templates
+
+readonly `string`[]
+
+##### failing
+
+readonly `string`[]
+
+##### workers
+
+readonly `object`[]
+
+#### Returns
+
+readonly `string`[]
+
+***
+
+### composeContinuationNote()
+
+> **composeContinuationNote**(`input`): `string`
+
+Write one continuation note, sections 1 to 8 of docs/38. Section 9, the run's state, is
+`composeReentryTask`, which wraps this text. Pure: the same input writes the same note.
+
+#### Parameters
+
+##### input
+
+[`ContinuationNoteInput`](#continuationnoteinput)
+
+#### Returns
+
+`string`
+
+***
+
 ### finalizeBestDelivered()
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
@@ -36655,33 +39270,6 @@ The one place the answer is computed, so the driver-facing tool payload and a di
 
 ***
 
-### effectiveConcurrency()
-
-> **effectiveConcurrency**(`caps`): `number` \| `undefined`
-
-The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually
-bound the worker layer. Ignores unset/non-positive caps; returns `undefined` when no cap applies
-(uncapped — the conserved pool remains the only fence).
-
-Deliberately does NOT fold in `SandboxLineage`'s fork concurrency: that bounds boxes inside ONE
-leaf's fork wave, a different unit. Folding it in would report a 4-worker ceiling for what is
-really a 4-box fanout inside a single worker.
-
-Use it once, at the top of a run, and pass the result to BOTH `maxLiveWorkers` and a
-dispatcher's `width` — that is what turns three unrelated numbers into one.
-
-#### Parameters
-
-##### caps
-
-[`ConcurrencyCaps`](#concurrencycaps)
-
-#### Returns
-
-`number` \| `undefined`
-
-***
-
 ### queueOf()
 
 > **queueOf**\<`Out`\>(`units`, `budget`): () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
@@ -36708,27 +39296,6 @@ readonly `object`[]
 #### Returns
 
 () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
-
-***
-
-### defaultUnmetContractSteer()
-
-> **defaultUnmetContractSteer**(`context`): `string`
-
-The instruction a completed-but-undelivered drive is re-entered with when the caller supplies no
-`onUnmetContract`. It states the verdict, names what is owed, reports the ledger, and gives the
-three steps — the same shape `depthStrategy` re-prompts a resumed session with, said in the
-driver's own terms.
-
-#### Parameters
-
-##### context
-
-[`DriverUnmetContractContext`](#driverunmetcontractcontext)
-
-#### Returns
-
-`string`
 
 ***
 
@@ -37369,6 +39936,56 @@ Compose the task for one re-entered drive.
 #### Returns
 
 `string`
+
+***
+
+### createSqlRunContext()
+
+> **createSqlRunContext**(`db`): [`SqlRunContext`](#sqlruncontext)
+
+Build a durable run context over one SQL statement seam. Tables are created on first use.
+
+#### Parameters
+
+##### db
+
+[`SqlStatements`](#sqlstatements)
+
+#### Returns
+
+[`SqlRunContext`](#sqlruncontext)
+
+***
+
+### withRunContext()
+
+> **withRunContext**\<`T`\>(`context`, `signal`, `run`): `Promise`\<`T`\>
+
+Hold a run context's ownership (when it has any) across the whole run, releasing after.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### context
+
+[`InMemoryRunContext`](#inmemoryruncontext)
+
+##### signal
+
+`AbortSignal` \| `undefined`
+
+##### run
+
+(`context`, `signal`) => `Promise`\<`T`\>
+
+#### Returns
+
+`Promise`\<`T`\>
 
 ***
 
@@ -38228,6 +40845,40 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 ***
 
+### createFencedSqlRunContext()
+
+> **createFencedSqlRunContext**(`db`, `runId`, `options?`): `Promise`\<[`FencedSqlRunContext`](#fencedsqlruncontext)\>
+
+**`Experimental`**
+
+A cross-machine run context on the existing autocommit SqlAdapter. Reuse the same database,
+tablePrefix and runId on every host; no runDir or shared filesystem is required.
+
+Each ownership generation gets fresh store capabilities. The public context can inspect SQL
+at any time, but cannot write without acquire(). runGraph/supervise acquire and release it.
+Retained provider execution supplies external admission/result idempotency; SQL does not turn
+an arbitrary unkeyed network effect into an exactly-once operation.
+
+#### Parameters
+
+##### db
+
+[`SqlAdapter`](index.md#sqladapter)
+
+##### runId
+
+`string`
+
+##### options?
+
+[`SqlRunContextOptions`](#sqlruncontextoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`FencedSqlRunContext`](#fencedsqlruncontext)\>
+
+***
+
 ### createProgressTracker()
 
 > **createProgressTracker**(`opts?`): [`ProgressTracker`](#progresstracker)
@@ -38422,7 +41073,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 **`Stable`**
 
@@ -38444,7 +41095,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 ***
 
@@ -39235,6 +41886,26 @@ without reimplementing the two proofs.
 
 ***
 
+### createWorkerSlots()
+
+> **createWorkerSlots**(`max?`): [`WorkerSlots`](#workerslots-6)
+
+Create a worker-slot allocator. `max` omitted, `0`, or negative leaves concurrency bounded by the
+budget alone, and every spawn starts at once. Pass the returned allocator as `workerSlots` to each
+run that should share one bound.
+
+#### Parameters
+
+##### max?
+
+`number`
+
+#### Returns
+
+[`WorkerSlots`](#workerslots-6)
+
+***
+
 ### readWorkerTraceContext()
 
 > **readWorkerTraceContext**(`ctx`): [`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
@@ -39365,7 +42036,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-31), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-34), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

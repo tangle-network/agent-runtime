@@ -156,7 +156,7 @@ export async function runPersonified<Task, D>(
     executors,
     ...(options.rootIdentity !== undefined ? { rootIdentity: options.rootIdentity } : {}),
     ...(options.maxDepth !== undefined ? { maxDepth: options.maxDepth } : {}),
-    ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
+    ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
     ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
     ...(options.withinMs !== undefined ? { withinMs: options.withinMs } : {}),
     ...(options.teardownConfirmMs !== undefined

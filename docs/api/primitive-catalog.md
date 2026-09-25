@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.265.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.274.0` and `@tangle-network/agent-eval@0.190.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 298 exports.
+Import from `@tangle-network/agent-runtime` — 299 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -36,7 +36,7 @@ Import from `@tangle-network/agent-runtime` — 298 exports.
 | `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
 | `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createOpenInferenceFileExporter` | function | Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per |
-| `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
+| `createOtelExporter` | function | Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured. |
 | `createProfileExecutionBackend` | function | Bind one exact profile and Runtime executor to the stable `AgentExecutionBackend` contract used |
 | `createProfileImprovementHarness` | function | Bind one exact profile and executor into a repeatable self-improvement |
 | `createRuntimeEventCollector` | function | Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. |
@@ -146,6 +146,7 @@ Import from `@tangle-network/agent-runtime` — 298 exports.
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OfficialOptimizerContextOptions` | interface | Runtime context appended to an official optimizer's own configuration. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
+| `OtelExportStats` | interface | Delivery accounting for one exporter. `written + dropped + pending` covers every span handed to |
 | `ProfileImprovementHarness` | interface | A small, reusable front door over `improve(profile, options)`. |
 | `ProfileTrainer` | interface | Managed adapters use this same port: cancel the job on abort and download one exact checkpoint file. |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
@@ -248,6 +249,7 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
 | `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
 | `PURSUIT_VERSIONS_FILE` | const | The ledger file inside the lineage directory. |
+| `REVIEW_DIR` | const | Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
@@ -272,7 +274,6 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
-| `PursuitVersionRegistry` | interface | The registry tables `versions.judge` and `versions.next` resolve a name against. |
 | `PursuitVersions` | interface | Continue a pursuit across versions: after each version settles, an outside judge scores it, and |
 | `PursuitVersionsRecord` | interface | The chain's record, returned beside the best version's result and kept in `versions.jsonl`. |
 | `PursuitVersionStop` | interface | The chain's stop rule. The chain never starts a version once any cap is reached. |
@@ -328,7 +329,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 | `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
 | `createOptimizationActivationReceipt` | function | Build a detached receipt only for methods backed by an identified external optimizer. |
 | `createProtectedExactProcessCandidateExperimentExecutor` | function | Compose host-owned execution ports with protected model access for one exact-process run. |
-| `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
+| `defaultRedactor` | function | The built-in redactor. Cycle-safe, depth-bounded and total: it never throws |
 | `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
 | `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
 | `isAgentImprovementProfileSurface` | function | Return whether a measured surface can be delivered through an agent profile. |
@@ -440,12 +441,14 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1042 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `acquireSandbox` | function | Cold-start-resilient sandbox acquisition: create by name, observe readiness from the sandbox's own status (not the create call), and re-attach after gateway timeouts. |
 | `addHarnessUsage` | function | Sum two usage reports on every counter both of them state. |
+| `admitContinuationPolicy` | function | Resolve and check a policy before any compute. Returns the deadline in epoch ms. |
+| `admitFinding` | function | Findings reach the note only when every citation resolves, at least two distinct spans are |
 | `allOf` | function | Stop only when EVERY rule stops — for a conservative gate that needs corroboration. |
 | `allWorkersStalled` | function | "Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for |
 | `analystsFromRegistry` | function | Adapt an `agent-eval` `AnalystRegistry` into the lens shape `supervise({ analysts })` takes. |
@@ -455,6 +458,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `areaUnderCurve` | function | Mean of a best-so-far curve — the anytime AUC when the curve is normalized to [0,1]. Higher = |
 | `asAuthoredProfile` | function | Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the |
 | `assertCoordinationBinding` | function | Validate a manager's coordination authentication and request limits before execution. |
+| `assertDeclaredCheck` | function | Refuse a malformed declaration before any compute. |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
 | `assertProfileModelsAllowed` | function | Check every canonical model-bearing field in a complete profile, including the models a |
 | `assertSandboxServedModel` | function | Fail the execution when the platform reports serving a model other than the exact one asked for. |
@@ -475,6 +479,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `chatTransportExecutor` | function | Build one exact profile-driven chat executor through `createExecutor`. |
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
+| `checkProgramDigest` | function | The canonical digest of a directory's files: the digest a record names a program by. |
+| `checkVerdictOf` | function | Read a check function's return value into a verdict. Anything but `true` or a passing verdict |
 | `claimRetainedInteractiveControl` | function | Acquire provider-issued write authority without reading authority from status. |
 | `claimsAuthority` | function | True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because |
 | `classifyDriverFailure` | function | Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an |
@@ -484,6 +490,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `compareCheckOutcomes` | function | The selection order: crash < ran; then official pass-fraction; authored guesses only |
 | `completionAuthorizes` | function | Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. |
 | `composeCheckSources` | function | Concatenate check sources (official first by convention — ordering does not affect |
+| `composeContinuationNote` | function | Write one continuation note, sections 1 to 8 of docs/38. Section 9, the run's state, is |
 | `composeReentryTask` | function | Compose the task for one re-entered drive. |
 | `composeWorkerEvidence` | function | Compose the settle evidence block. Section order is priority order under the |
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
@@ -498,13 +505,14 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `createEventBus` | function | Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. |
 | `createExecutor` | function | The single built-in executor factory. Picks a leaf backend by data (`config.backend`), |
 | `createExecutorRegistry` | function | The open resolver/registry. Pre-registers the three built-ins under their |
+| `createFencedSqlRunContext` | function | A cross-machine run context on the existing autocommit SqlAdapter. Reuse the same database, |
 | `createFileRunContext` | function | Build a DURABLE run context: the spawn journal and the result blobs are file-backed (fsynced |
 | `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop drains them at step boundaries and be |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
 | `createInPlaceCliExecutor` | function | Build an in-place CLI leaf `Executor`. Per-spawn, but NOT per-workspace: repeated spawns against |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
 | `createOpenInferenceFileExporter` | function | Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per |
-| `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
+| `createOtelExporter` | function | Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured. |
 | `createPeerMailbox` | function | Create the run's post office. One per manager scope; the manager's siblings are its addresses. |
 | `createProgressTracker` | function | Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by |
 | `createPromptRegistry` | function | Create a registry, optionally seeded. Entries are copied; the registry never aliases caller state. |
@@ -516,6 +524,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
 | `createScopeAnalyst` | function | Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is |
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
+| `createSqlRunContext` | function | Build a durable run context over one SQL statement seam. Tables are created on first use. |
 | `createSteerableSandboxSession` | function | One steerable sandbox worker. The returned session is inert until `stream()` is drained. |
 | `createSupervisor` | function | Create a supervisor that owns one recursive agent execution tree. |
 | `createSupervisorSpanRecorder` | function | Build the span recorder for one supervised run, or `undefined` when no exporter resolves — the |
@@ -523,13 +532,16 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
 | `createWaitProbes` | function | Registry over a plain name→predicate record. |
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
+| `createWorkerSlots` | function | Create a worker-slot allocator. `max` omitted, `0`, or negative leaves concurrency bounded by the |
 | `createWorktreeCliExecutor` | function | Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a |
+| `declaredCheckDeliverable` | function | The declared check as a manager's completion check: every in-run read uses development cases. |
+| `declaredCheckDigest` | function | The digest a version judge records: the program, the sealed cases, and how they are run. |
+| `declaredCheckJudge` | function | The declared check as a version chain's judge: it scores a settled version on its sealed cases |
 | `decodeHarnessUsage` | function | Decode a sandbox event with one harness's adapter, or `undefined` when the event carries no |
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
 | `defaultExtractCandidate` | function | The candidate a shot produced, read from its conversation: the LAST `submit_answer` |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
-| `defaultUnmetContractSteer` | function | The instruction a completed-but-undelivered drive is re-entered with when the caller supplies no |
 | `defineLeaderboard` | function | Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable |
 | `definePersona` | function | Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with |
 | `defineStrategy` | function | Author a Strategy from the composable steps — the open, compact way. |
@@ -537,10 +549,12 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `depthStrategy` | function | DEPTH: one persistent artifact, carried across analyst-steered shots. |
 | `deterministicCompletion` | function | Completion for a DETERMINISTIC check (build/test/lint/citation/proof): done iff the check |
 | `discriminatingMeans` | function | Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field |
-| `effectiveConcurrency` | function | The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually |
+| `distillFindings` | function | Rank the admitted findings by how many failed items they explain, drop repeats, and keep them |
 | `envKeyProvider` | function | The env-backed provider: reads the (dotenvx-loaded) process env. Empty / |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
+| `expandQuestions` | function | Expand the profile's question templates over the failed items and the settled workers. |
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
+| `failedItems` | function | Items that fail in `verdict`: every item below 1, or the named items of its FAIL lines. |
 | `failuresAnalyst` | function | The default self-improvement LENS — authored content, not a code path. On each settled worker it hands |
 | `fanout` | function | `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved |
 | `filterAuthoredAsserts` | function | The proven authored-assert filter (lifted from the rigs' generateTests): keep only |
@@ -585,9 +599,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `observe` | function | Analyze through the selected implementation, then retain its validated findings in the corpus. |
 | `officialChecksFromMeta` | function | Official checks the surface stashed on the task (e.g. MBPP's shown assert). Reads |
 | `openSandboxRun` | function | Open a sandbox run. Harness-agnostic: the harness lives in |
+| `openSqlRunStore` | function | Append-only immutable records, published by ONE compare-and-set of the run's head. |
 | `pairwiseSignificance` | function | Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real |
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
 | `parseWorkerToolTraceArtifact` | function | Validate a stored trace artifact before an analyst or replay trusts it. |
+| `passedItems` | function | Items that pass in `verdict`. |
 | `patchDelivered` | function | Build the `DeliverableSpec<WorktreePatchArtifact>`: `check(artifact)` runs the shared mechanical |
 | `peerMailTools` | function | The two tools ONE capability serves. `capabilityId` is closed over and `from` is not a parameter, |
 | `pendingWaits` | function | The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the |
@@ -610,6 +626,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
 | `readCodexRolloutSession` | function | Read one rollout's rows into a session record. |
+| `readDeclaredCheck` | function | Read the check once. `result` is the submitted result, absent for a read of the run's state. |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
@@ -670,6 +687,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `serveCoordinationMcp` | function | Stand up the existing coordination tools with bounded HTTP access over one live scope. |
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
+| `sharedBoxPlacement` | function | Place accepted workers as processes in a pool of shared Sandbox boxes. |
+| `sharedBoxRefusal` | function | Why a shared box cannot carry `profile`, or `undefined` when it can. |
+| `sharedWorkerClientName` | function | The router client name of the worker that runs supervised node `nodeId`. |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `startRetainedInteractiveRun` | function | Start one retry-safe native coding-agent TUI without dispatching a headless turn. |
 | `startRetainedRun` | function | Dispatch one detached, replayable run and return only after exact durable |
@@ -692,11 +712,13 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `unsafeInProcessRunner` | function | An in-process runner for TRUSTED model output ONLY. NOT a security boundary. |
 | `upstreamUnavailableSignal` | function | The code or status that marks `error` as an upstream capacity refusal, or `undefined`. |
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
+| `verdictFromJudgeScore` | function | Read an agent-eval `JudgeScore` from a check program into a verdict. |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
 | `visibleCheckScore` | function | Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1, |
 | `waitUntil` | function | The absolute instant a spec is bounded by, or `undefined` for an unbounded wait. |
 | `watchTrace` | function | Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an |
 | `widen` | function | `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS |
+| `withRunContext` | function | Hold a run context's ownership (when it has any) across the whole run, releasing after. |
 | `withUntrackedArtifacts` | function | Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside |
 | `withWorkerSpawnRetry` | function | Wrap a worker seam so a leaf whose spawn is refused before it runs is re-entered instead of |
 | `workerCancellationFile` | function | The acknowledgement file for one cancel operation. The filename is a sanitized stem of the |
@@ -729,12 +751,16 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `cliInPlaceExecutor` | const | The leaf `createInPlaceCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `collectDelivered` | const | Every verified distinct output, highest score first — the shape for competing hypotheses, a |
+| `CONTINUATION_FACTS` | const | The facts a profile template may name. |
+| `CONTINUATIONS_DIR` | const | A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested |
 | `DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY` | const | Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and |
 | `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote |
-| `DEFAULT_MAX_BARREN_REPROMPTS` | const | Two re-prompted drives in a row that deliver nothing end the re-prompts. |
+| `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
 | `DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS` | const | The idle timeout this adapter sends when nothing else names one: 1,800 seconds. |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
+| `DEFAULT_SHARED_BOX_RESOURCES` | const | The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus |
+| `DEFAULT_SHARED_BOX_WORKERS` | const | The most workers one default box carries at once. |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
 | `defaultAuditorInstruction` | const | Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. |
@@ -752,16 +778,19 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `PEER_MAIL_WIRE_KEY` | const | The wire property carrying an envelope to a worker inbox. Deliberately its OWN discriminant: |
 | `peerMailVerbNames` | const | The tool names a mail capability endpoint serves. It serves NOTHING else. |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
+| `ROUTER_CLIENT_HEADER` | const | The request header the router records as a usage row's `clientName`. |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
 | `strategyAuthorSystemPrompt` | const | Standing behavior callers put in the strategy-author AgentProfile. |
+| `SUBTREE_RESULT_LIMIT` | const | How many of a manager's direct children its summary lists; the counts always cover all. |
 | `TERMINAL_DECISIONS` | const | Decision values the kernel treats as terminal. Every other value returned by |
 | `UNPROVEN_CONTINUITY` | const | Continuity when nothing is proven: compose the full state. |
 | `VERIFY_TAIL_CHARS` | const | Tail of the verify output — the failing assertion lives at the END of a test log. |
 | `WORKER_TOOL_TRACE_SCHEMA_VERSION` | const | Schema version for content-addressed worker tool-trace artifacts. |
 | `workerTraceSeamKey` | const | Seam key the `Scope` seeds a {@link TraceContext} under on each child's `ExecutorContext.seams`. |
 | `BudgetReconcileFault` | class | A reconciliation whose spend the pool cannot verify. It is thrown after the reservation has |
+| `CheckUnavailableError` | class | The check could not run: its box did not start, its judge's provider refused, its program |
 | `DriverAttemptsExhaustedError` | class | The error a give-up throws: the original cause, re-described with the attempt history so |
 | `FileCoordinationLog` | class | FS-backed `CoordinationLog`: append-only JSONL, fsynced per record. |
 | `FileCorpus` | class | JSONL on disk — one validated `CorpusRecord` per line, append-only. `query` replays the whole |
@@ -774,10 +803,15 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `InMemorySpawnJournal` | class | In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces |
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `ObservationError` | class | Analysis can fail after paid work; its measured subtotal must remain recoverable. |
+| `ReservationWaitRefused` | class | A waiting reservation that can never be granted: every open reservation settled and the free |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
+| `SqlResultBlobStore` | class | SQL-backed `ResultBlobStore`. One content-addressed row per settled result. |
+| `SqlRunOwnershipError` | class | Refuses a competing or stale SQL run owner before it can publish new work. |
+| `SqlSpawnJournal` | class | SQL-backed `SpawnJournal`. One row per event; insertion order is replay order. |
 | `ActivityLog` | interface | A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. |
 | `ActivityNote` | interface | The most recent activity the executor can name — one tool call, one turn, or a free-form note. |
+| `AdmittedFinding` | interface | A finding that reached the note, with the continuation that admitted it. |
 | `Agent` | interface | One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver |
 | `AgentEnvironmentProviderRegistry` | interface | In-memory registry for named `AgentEnvironmentProvider` instances. |
 | `AgentExecutionRef` | interface | Caller-owned identity beyond the exact profile/task bytes Scope can compute itself. |
@@ -818,9 +852,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `CheckExecChannel` | interface | Minimal exec channel the default runner needs. `SandboxInstance` (and therefore |
 | `CheckOutcome` | interface | How one candidate fared against the frozen visible checks, split by check kind. |
 | `CheckpointCapableBox` | interface | Loop-side widening of the box's optional checkpoint method. The |
+| `CheckRead` | interface | One time the check ran inside the run, whatever started it. |
 | `CheckRunner` | interface | Executes the frozen checks against one candidate. Implementations MUST fail loud |
 | `CheckSource` | interface | Produces the task's visible checks. MUST derive them from agent-visible information |
 | `CheckSourceCtx` | interface | What a CheckSource composes with. `consult` is the strategy family's raw analyst |
+| `CheckVerdict` | interface | One reading of a completion check. |
 | `ClaimRetainedInteractiveControlOptions` | interface | Input for acquiring write authority over one exact interactive process. |
 | `CliInPlaceSeam` | interface | cli-in-place seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI |
 | `CliSeam` | interface | UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn. |
@@ -837,8 +873,13 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |
 | `CompletionVerdict` | interface | The "is it done?" verdict an analyst returns to the parent. |
-| `ConcurrencyCaps` | interface | The caps a host can set on simultaneous work. See the ledger in this module's header for what |
+| `ContinuationContext` | interface | The readout a continuation is composed from. |
+| `ContinuationEntry` | interface | One continuation as the settle record carries it (`DriverContinuationRecord.continuations`). |
 | `ContinuationInstruction` | interface | Durable authorization receipt written before a continuation reaches a worker. |
+| `ContinuationNoteInput` | interface | The facts one note is written from. |
+| `ContinuationPanelInput` | interface | What the question panel reads for one continuation. |
+| `ContinuationPolicy` | interface | How a manager with a completion check is sent back when its turn ends unmet. |
+| `ContinuationProfile` | interface | Every instruction word of the note. Runtime supplies the facts and their order; this data |
 | `CoordinationHttpOptions` | interface | Transport limits apply before parsing or executing a coordination action. |
 | `CoordinationLog` | interface | The durable coordination side-log seam. `append` records one bus event (kinds it does not |
 | `CoordinationStats` | interface | Bus throughput plus the pre-flight's own refusal ledger. |
@@ -850,6 +891,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `CreateSandboxOptions` | interface | Configuration for creating a new sandbox. |
 | `CreateScopeAnalystOptions` | interface | The analyst run an `Agent<unknown, AnalystFinding[]>` performs over the children settled so far. |
 | `CriuCapableClient` | interface | Narrowed view of the optional CRIU probe. The loop-side `SandboxClient` |
+| `DeclaredCheck` | interface | A check program as a record declares it. |
+| `DeclaredCheckPlacement` | interface | Where a declared check's boxes are created: a client on the check account, and every account |
 | `DefaultVerdict` | interface | Minimal verdict shape — `valid` + `score` are required; `scores` + |
 | `DefinedAnalystRecord` | interface | What the coordination layer records when a definition is admitted: the exact accepted bytes, the |
 | `DefinePersonaInput` | interface | The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder default |
@@ -865,9 +908,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `DriverContinuationRecord` | interface | A manager's driver loop as its run's settle record carries it (`SupervisedResult.continuation`). |
 | `DriverLoopRecord` | interface | What one driver loop did, counted from its attempt records: the numbers a run's settle record |
 | `DriverProgressMark` | interface | The comparable mark used to decide whether an attempt moved the run TOWARD ITS DELIVERABLE. |
-| `DriverRepromptPolicy` | interface | How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where |
 | `DriverRetryPolicy` | interface | How hard the root driver is retried after a transient failure. The defaults retry; a caller |
-| `DriverUnmetContractContext` | interface | What the caller sees when a drive returns with its completion check unmet. |
 | `EdgeTraversal` | interface | One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. |
 | `EnvironmentTeardownReceipt` | interface | The receipt for one provider environment an executor held for a RETAINED execution and was |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
@@ -891,6 +932,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `ExecutorToolCall` | interface | One tool call retained in an executor artifact. Every Runtime-owned executor reports this exact |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
+| `FencedSqlRunContext` | interface | A `RunContext` bound to one fenced SQL ownership generation; read-only until acquired. |
 | `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
 | `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
 | `FleetYield` | interface | How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at |
@@ -941,6 +983,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `OpenSandboxRunBeforeStartContext` | interface | Context available after the box/session exists and before the first prompt is |
 | `OutputAdapter` | interface | Stream of `SandboxEvent`s → typed `Output`. |
 | `PairwiseVerdict` | interface | One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. |
+| `PanelFinding` | interface | One answer the panel proposes for the note. |
 | `PanelJudge` | interface | One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in |
 | `PanelSpec` | interface | `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its |
 | `PanelVerdict` | interface | One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no |
@@ -985,9 +1028,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
+| `ReservationFloor` | interface | The part of each channel a reservation must leave free: a manager's own share of its slice, |
 | `ReservationHolder` | interface | Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission |
 | `ReservationShortfall` | interface | One budget channel a `budget-exhausted` reservation could not fit, with the amounts that |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
+| `ReserveOptions` | interface | How a caller asks for a reservation. |
 | `ResolvedMcpServerLaunch` | interface | The spawn-ready strings for one stdio MCP server: profile config values |
 | `ResolvedSupervisorProfile` | interface | The exact profile fields consumed by supervisor materialization. |
 | `ResolvedWorkerSpawnRetry` | interface | A policy with every bound decided — what {@link retryPreSpawnRefusals} acts on. Produced by |
@@ -1018,6 +1063,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `RouterTransportConfig` | interface | Connection details for Runtime's Router-backed executors. |
 | `RunCancellation` | interface | The durable acknowledgement state for the run-scoped cancel operation, keyed by `operationId`. |
 | `RunCancelRequest` | interface | One durable run-scoped cancel request: cancel the WHOLE run, not one worker. |
+| `RunContextLease` | interface | An immutable capability for one run ownership generation. |
 | `RunGraphOptions` | interface | Options for one `runGraph` run. |
 | `RunPersonifiedOptions` | interface | The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then |
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
@@ -1046,6 +1092,13 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `ShapeBudget` | interface | Budget knobs a shape reads to size its fanout/children WITHOUT owning the conserved pool. |
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
 | `ShapeRegistry` | interface | The open shape registry — the extension point that makes a new loop-shape ONE file + one |
+| `SharedBoxCloseReceipt` | interface | What {@link SharedBoxPlacement.close} did to each box. |
+| `SharedBoxHandle` | interface | The Sandbox box surface a shared box uses. The Sandbox SDK's `SandboxInstance` satisfies it. |
+| `SharedBoxPlacement` | interface | A shared-box placement: the provider Runtime uses for a profile the placement accepts. |
+| `SharedBoxPlacementOptions` | interface | Options for {@link sharedBoxPlacement}. |
+| `SharedBoxProcess` | interface | One process in a shared box, as the Sandbox SDK's process manager returns it. |
+| `SharedBoxStats` | interface | Counts that show how the pool placed its workers. |
+| `SharedWorkerIdentity` | interface | Who a shared worker is, for the router rows its model calls leave on the box's key. |
 | `SpawnForest` | interface | Complete cold-readable view of one recursive supervision run. |
 | `SpawnForestEvent` | interface | One event with the journal tree that establishes its cursor namespace. |
 | `SpawnForestInDoubtNode` | interface | A spawned worker with no terminal record in a cold snapshot. Resume treats the same state as |
@@ -1057,6 +1110,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `SpawnRefusal` | interface | A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it. |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd are separate |
 | `SpendGap` | interface | One journaled node whose usage accounting is incomplete — the named gap behind a `false` |
+| `SqlStatements` | interface | The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts. |
 | `StartRetainedInteractiveRunOptions` | interface | Start one retry-safe native coding-agent TUI in a new environment. |
 | `StartRetainedRunInEnvironmentOptions` | interface | A fresh retained session inside a provider environment that already exists. |
 | `StartRetainedRunOptions` | interface | A retained start is retry-safe only when environment and turn keys are explicit. |
@@ -1068,6 +1122,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `StrategyShotResult` | interface | Measured result of one strategy shot. |
 | `StructuralRolloutPolicy` | interface | The rollout's compute recipe — promoted from the proven rigs' env vars (K/REPAIRS/ |
 | `StructuralRolloutResult` | interface | The body's deliverable — a `StrategyResult` plus selection provenance. The extra |
+| `SubtreeResult` | interface | One direct child of a manager, as its lead sees it in a {@link SubtreeSummary}. |
+| `SubtreeSummary` | interface | A bounded account of the team a manager led, carried up on its settlement. |
 | `SuperviseDispatchOptions` | interface | Adapt a recursive Runtime `supervise()` tree to one Agent Eval profile-matrix cell. |
 | `SuperviseProfileEntry` | interface | One entry of a run's profiles table (`SuperviseRegistry.profiles`): the exact profile a manager |
 | `SuperviseRegistry` | interface | The name→value tables that make the four CODE-valued options expressible as run DATA, and the |
@@ -1083,6 +1139,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `SurfaceReadBox` | interface | The minimal box surface the box-backed reader needs — structurally typed so the real |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
+| `TeamProgress` | interface | The team a worker leads, as its own lead observes it mid-flight: every agent below the worker, |
 | `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |
@@ -1106,6 +1163,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `WorkerCancelRequest` | interface | One durable worker-scoped cancel request appended to the run's cancellation inbox. |
 | `WorkerProgress` | interface | The full live view of one worker, as `observe_agent` returns it mid-flight. |
 | `WorkerResumeContext` | interface | The resume lineage a `'resume'` spawn hands the executor seam |
+| `WorkerSlots` | interface | A fleet-wide bound on concurrently working agents, with a queue for the spawns past it. |
 | `WorkerSpawnContext` | interface | Immutable task, allocation, identity attribution, and semantic key supplied while a manager's |
 | `WorkerSpawnRetryAttempt` | interface | One re-entry, reported before it waits. |
 | `WorkerSpawnRetryPolicy` | interface | How hard a pre-spawn worker refusal is re-entered. Absent from `supervise` means NO retry — the |
@@ -1131,6 +1189,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `ChatCompletionsTransport` | type | Buffered OpenAI-compatible completion port used only for offline execution. |
 | `CodexForkBoundary` | type | How this reader isolated the session's own rows from the parent rows prepended to its file. |
 | `CombinatorShape` | type | A combinator is just a `LoopShape`: a factory `(ShapeContext) => Agent` whose `Agent.act` |
+| `ContinuationAppend` | type | A play's own section for one note. Return `undefined` to add nothing this time. |
+| `ContinuationPanel` | type | Ask the panel's questions over the run's own traces. |
 | `ContinuityMode` | type | How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default, |
 | `CoordinationBinding` | type | Listener, authenticated remote endpoint, and bounded request policy for one manager. |
 | `CoordinationDeliveryEvidence` | type | Durable delivery evidence retained in commit order. An attempt without a later event carrying |
@@ -1148,7 +1208,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `DriverFailureClass` | type | How one driver failure is answered. |
 | `DriverReentry` | type | Why the loop is entering the driver again. Absent on the first attempt only. |
 | `DriverRepromptRefusal` | type | Why a completed drive with an unmet contract was not re-entered. `no-progress` means |
-| `DriverUnmetContractDecision` | type | The caller's answer: re-enter the session with `steer`, or end the run here. |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `EscalateQuestion` | type | Where a question leaves this manager when `ask_parent` is called. |
@@ -1173,10 +1232,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `NativeContextContinuationExecution` | type | Result of one verified same-session continuation. |
 | `NativeContextContinuationInput` | type | Runtime controls plus the exact user turn bound into a continuation request. |
 | `NodeId` | type | Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock. |
-| `NodeStatus` | type | `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box |
+| `NodeStatus` | type | `'queued'` is an admitted child that holds its budget slice and waits for a worker slot |
 | `ObservationAnalysis` | type | A caller-selected analysis retains the same findings, usage, and corpus contract. |
 | `ObserveSupervisorNodeEvent` | type | Context-aware observer used internally to bind product transactions to the actual live node. |
-| `OnUnmetContract` | type | Compose the re-entry instruction for a completed drive that delivered nothing, or refuse. |
 | `OpenSandboxRunPromptOptions` | type | Prompt options forwarded to every sandbox prompt turn in this run. The |
 | `Outcome` | type | The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete |
 | `Panel` | type | `panel(spec)` — build the M-judge write-only-merge combinator. |
@@ -1256,7 +1314,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 979 exports.
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IntentAudit`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReentryTaskInput`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `EdgeDeliveryOutcome`, `GraphEdge`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SpawnEvent`, `UsageEvent`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IntentAudit`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReentryTaskInput`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `SqlRunContext`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `EdgeDeliveryOutcome`, `GraphEdge`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SpawnEvent`, `UsageEvent`, `WorkspaceCommit`.
 
 ### Analyst loop — trace findings on a running loop
 
@@ -1453,7 +1511,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 242 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1544,6 +1602,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 242 exports.
 | `questionEscalationTargets` | const | Where a question this driver cannot answer goes next. `answer_question` accepts these and |
 | `sourcedHarnesses` | const | The harnesses this registry has a sourced list for. |
 | `SPAWN_RESOURCE_PATH_MAX_BYTES` | const | Inline resources a manager hands a child by PATH instead of by content. |
+| `SUPPORTED_PROTOCOL_VERSIONS` | const | Protocol versions this server speaks, newest first. `initialize` answers with |
 | `CodexExecutionDiagnosticError` | class | Thrown when reproducible Codex exits without one valid terminal usage event. |
 | `DelegationPersistenceError` | class | A delegation-store read or write failed (filesystem error, store |
 | `DelegationStateCorruptError` | class | The persisted delegation state exists but cannot be parsed into |
@@ -1583,6 +1642,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 242 exports.
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
 | `ManagerReentryState` | interface | What a manager's coordinator knows about its run, read when the manager is entered again. |
+| `McpToolAnnotations` | interface | MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads |
 | `McpToolDescriptor` | interface | A callable MCP tool exposed by either stdio server. |
 | `McpTransport` | interface | Stdio-shaped transport used by the shared JSON-RPC server implementation. |
 | `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
@@ -1745,7 +1805,7 @@ Import from `@tangle-network/agent-eval` — 59 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 417 exports.
+Import from `@tangle-network/agent-eval/campaign` — 471 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1754,8 +1814,8 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `assertCampaignDesign` | function | Reject campaign designs whose denominator cannot be identified exactly. |
 | `assertCampaignSplitIdentity` | function | Refuse a campaign whose retained task identities contradict its split digest. |
 | `assertCodeSurfaceIdentity` | function | Validate the immutable identity shape; the owning executor verifies the Git objects and patch. |
-| `assertCompleteSearchHistory` | function | Require a receipt owned by this producer and a terminal, denominator-complete history. |
-| `assertSearchHistoryMatchesReplay` | function | Prove that a receipt still describes the exact canonical replay supplied. |
+| `assertCompleteSearchHistory` | function | Require a receipt owned by this producer over a closed search. |
+| `assertSearchHistoryMatchesState` | function | Prove that a receipt describes exactly the supplied replayed state. |
 | `autoevalsScorerJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `buildCellSchedule` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `buildEvidenceVector` | function | The Evidence Bus. For each objective, pair candidate vs baseline by full |
@@ -1780,14 +1840,18 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `createProfileMatrixPlan` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `createReferenceEquivalenceJudge` | function | Build the campaign-native expected-answer judge. |
 | `createRunCostLedger` | function | Open the durable spend account stored beside a logical run. |
-| `createSearchHistoryReceipt` | function | Build a bounded receipt from the projection returned by canonical ledger replay. |
+| `createSearchHistoryReceipt` | function | Read the ledger's bytes, replay them through the search codec, and build |
 | `crowdedFrontierParent` | function | NSGA-II crowded tournament selection over the frontier. Each generation |
 | `decodeExternalTextCandidate` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `defaultProductionGate` | function | Opinionated production gate composing held-out significance, red-team, reward-hacking, and canary checks into a single `Gate.decide` decision. |
 | `detectScale` | function | Detect the native scale of a set of scores: 0-100 when any magnitude clears |
+| `developmentClaim` | function | The default claim: development numbers over exactly the supplied tasks. |
 | `dimensionRegressions` | function | Report required-dimension evidence after full pairing and optional unit means. |
 | `discoverEvalFixtures` | function | Walk `evalsDir` and return the relative name of every fixture directory (one containing an exact-case `PROMPT.md`). |
 | `emitLoopProvenance` | function | Build the provenance record + OTel spans and persist them durably under the |
+| `estimateNode` | function | `estimateNodeFromCells` over the cells a search state holds: `nodeId` |
+| `estimateNodeFromCells` | function | The paired contrast of `nodeId` against `against` on the units both scored. |
+| `externalSurface` | function | An optimizer candidate as the mutable surface it represents. |
 | `externalTextOptimizationMethod` | function | Adapt a third-party text optimizer without reimplementing its search. |
 | `finalizeProfileMatrix` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
@@ -1795,6 +1859,8 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `gitWorktreeAdapter` | function | Git-backed `WorktreeAdapter`: creates isolated worktrees on fresh branches, commits agent changes, and discards losers. |
 | `heldOutGate` | function | Composable held-out gate: ships only when the lower bound of the DECIDING |
 | `heldoutSignificance` | function | Significance of the held-out composite lift: ship only when the lower bound |
+| `importExternalEvaluations` | function | Record every evaluation in the callback's observation log as an `external` |
+| `importGepaPopulation` | function | Register GEPA's population as nodes and its parent indices as `correlated` |
 | `inMemoryCampaignStorage` | function | In-memory storage for filesystem-less runtimes. Artifacts + trace spans |
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
 | `isTransientTransportFailure` | function | True when the error text describes an infrastructure hiccup that should be |
@@ -1823,10 +1889,10 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `readCachedCell` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `readExternalOptimizerObservationArtifact` | function | Read and verify the exact callback observation artifact addressed by method provenance. |
 | `readGepaCandidatePopulationArtifact` | function | Read GEPA's exact candidate graph from the artifact addressed by method provenance. |
-| `recordCandidatePopulationSearch` | function | Record an optimizer's own candidate graph into the same ledger. |
+| `recordGepaSearch` | function | Write GEPA's finished search into its ledger: the baseline as the seeded |
 | `renderScoreboardMarkdown` | function | Render the scoreboard as a launch-readiness Markdown document — the literal |
 | `renderSurfaceDiff` | function | Canonical customer-visible description of the exact before/after surfaces. |
-| `replaySearchLedgerText` | function | Replay immutable search-ledger JSONL through the same codec as FileSearchLedger. |
+| `replaySearchLedgerText` | function | Verify and project immutable search-ledger JSONL through the same codec as |
 | `resolveExternalOptimizerCallbackLimits` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `resolveExternalOptimizerProcessLimits` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `resolveRunDir` | function | Resolve a campaign `runDir`. An absolute path is honored as-is (the caller |
@@ -1842,28 +1908,39 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `scoreboardSummary` | function | Roll the per-requirement rows up into the launch headline counts. |
 | `scoreDiscrimination` | function | Rank scenarios by how well they DISCRIMINATE candidates. |
 | `scoreUserStory` | function | Score one story's produced state against its requirements. Thin wrapper over |
+| `searchCellId` | function | Deterministic cell id: one node on one task in one split at one repeat. |
+| `searchCellSetDigest` | function | Digest of the cells an estimate reads, with the contrast they serve. Cells |
+| `searchEdgeId` | function | Deterministic edge id: one proposal of one child within one search. |
 | `searchHistoryCoverageRow` | function | Classify one producer's history without treating malformed evidence as absence. |
+| `searchNodeId` | function | Deterministic node id: identical content in one search is one node. |
+| `searchPosterior` | function | The posterior every node's parent-selection draw uses. Each node's mean is |
+| `searchTaskSetDigest` | function | Digest a split's task list in taskId order. |
+| `searchUnitScores` | function | Per-unit means of scored cells, in unitId order. Each unit sums its cells in |
 | `selectDiscriminative` | function | Select the top-`k` most discriminative scenario ids for a holdout, EXCLUDING |
 | `sequentialDecide` | function | SurfaceProposer.decide adapter that stops exploration at an e-value threshold. |
 | `sequentialOptimizationMethod` | function | Each stage starts from the previous selected candidate, without an intervening release gate. |
 | `sequentialPairedGate` | function | Anytime-valid sequential paired gate. Conforms to the existing `Gate` |
 | `skillOptOptimizationMethod` | function | Run Microsoft's SkillOpt trainer as a complete optimization method. |
 | `surfaceContentHash` | function | Full SHA-256 content identity for a prompt or finalized code surface. |
+| `surfaceDiff` | function | A parent-to-child diff of two mutable surfaces, stored as a blob. |
 | `surfaceDispatchRef` | function | Bind a campaign cache entry to the exact surface and caller-owned execution revision. |
 | `surfaceHash` | function | Short loop key derived from the same content identity as provenance. |
+| `surfaceNode` | function | A mutable surface as a node: its content digest, stored bytes and declared surfaces. |
 | `tangleTracesRoot` | function | The shared, out-of-repo root for campaign/benchmark run bundles. Keeping run |
 | `traceAnalystQualityJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `transientDispatchFailure` | function | Ready-made `cellRetry.retryable` predicate: true for a dispatch-stage |
 | `userStoryScoreboard` | function | Flatten story verdicts into the per-requirement scoreboard — the literal |
-| `validateSearchLedgerEvent` | function | Validate and return a canonical copy. Arrays whose order is not semantic are |
+| `validateSearchLedgerEvent` | function | Validate and return a canonical copy. Arrays whose order carries no meaning |
 | `verifyCodeSurface` | function | Verify a finalized code surface against its current checkout. This rejects |
 | `verifyLoopProvenanceRecord` | function | Recompute and validate the self-addressed durable record. |
-| `verifySearchHistoryArtifact` | function | Verify resolved bytes with the canonical codec, never a caller-supplied replay projection. |
-| `verifySearchHistoryReceipt` | function | Verify the bounded receipt. Full ledger bytes are verified by SearchLedger. |
+| `verifySearchHistoryArtifact` | function | Verify the receipt, then resolve its ledger bytes, check them, and replay |
+| `verifySearchHistoryReceipt` | function | Verify a receipt's own consistency and digest. |
 | `DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `paretoPolicy` | const | Require a supported gain and every configured regression floor to clear. |
-| `FileSearchLedger` | class | Append-only file-backed search ledger with idempotent writes and replay. |
+| `SEARCH_ESTIMATOR` | const | The estimator every `NodeEstimate` names. |
+| `SEARCH_LEDGER_SCHEMA` | const | Schema tag every search-ledger entry carries. A ledger written under another |
+| `FileSearchLedger` | class | Append-only file-backed search ledger with idempotent writes. |
 | `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
 | `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, missing resolved model evidence, |
@@ -1871,7 +1948,9 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `SearchLedgerConflictError` | class | Error raised when an event identifier is reused with different content. |
 | `SearchLedgerError` | class | Base error for invalid search-ledger input or operations. |
 | `SearchLedgerIntegrityError` | class | Error raised when durable search-ledger data fails an integrity check. |
-| `SearchRecorder` | class | Recorder for one `runOptimization` run: `open()`, then `recordGeneration()` |
+| `SearchRecorder` | class | Writes one search's events into its ledger as they happen. |
+| `SearchState` | class | The pure, incremental projection of one search ledger. `apply` refuses any |
+| `SearchStateView` | class | A read of `SearchState` at one ledger position. Header, head, audit and |
 | `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
 | `CampaignCellFailureReceipt` | interface | Durable `<cell>/failure-receipt.json` written before a failed cell can |
@@ -1901,7 +1980,8 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `JudgeScore` | interface | The canonical judge verdict shape — one declaration, shared by campaign |
 | `LabeledScenarioWrite` | interface | Required-provenance write. The store rejects writes that |
 | `LoopProvenanceRecord` | interface | The durable provenance record. Aligns to the hosted `EvalRunEvent` path but |
-| `MeasuredSearchCandidate` | interface | One measured candidate, after its campaign scored. |
+| `NodeEstimate` | interface | A paired contrast of one node against another on shared units. `none` below |
+| `NodePosterior` | interface | A node's normal posterior on its improvement over the root. |
 | `OpenAICompatibleOptimizerModel` | interface | One metered model path supplied by the package that owns execution. |
 | `OptimizationMethod` | interface | A complete optimization method, including candidate generation and selection. |
 | `OptimizationMethodComposition` | interface | Exact child results; costs and usage remain attributable to their owning methods. |
@@ -1915,7 +1995,6 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `ProposalTrackContext` | interface | The lineage track that requested a proposal. |
 | `ProposeContext` | interface | Search state supplied to one candidate-generation call. |
 | `ProposedCandidate` | interface | A proposer output carrying the surface AND the WHY behind |
-| `ProposedSearchCandidate` | interface | One proposed candidate, before it is measured. |
 | `RolloutCall` | interface | One tool/action call observed in a rollout: a name plus its arguments. |
 | `Scenario` | interface | Stable identifier + kind tag for any scenario. Consumers |
 | `ScenarioSignal` | interface | Per-scenario observation: the composite scores each candidate earned on it. |
@@ -1924,12 +2003,25 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `ScoredRollout` | interface | A scored rollout: its calls plus the scalar outcome used to split pass/fail. |
 | `ScoredSurfaceOutcome` | interface | Exact measured state for the surface an optimizer is learning from. |
 | `SearchArtifactRef` | interface | Content-addressed artifact or receipt. Mutable paths are locators only; the |
-| `SearchHistoryAuditSummary` | interface | Bounded projection of the canonical replay audit. Exact ids stay in SearchLedger. |
-| `SearchHistoryReceipt` | interface | A bounded proof envelope over one canonical SearchLedger replay. |
-| `SearchPlanExtendedEvent` | interface | Additional candidate slots and operations for a search whose length is not |
-| `SearchRunIdentity` | interface | Immutable identities the ledger requires and a campaign cannot infer. |
+| `SearchAudit` | interface | Counts and sums over the whole search. Every field is a number or a short |
+| `SearchCellAllocatedEvent` | interface | One node on one task in one split at one repeat is planned. `cellId` is |
+| `SearchCellSettledEvent` | interface | One attempt at a cell finished. Its RunRecord, when the producer minted one, |
+| `SearchClaim` | interface | The claim made once, on the sealed test split. `selected` names the node the |
+| `SearchClosedEvent` | interface | Last event, once. More work on a closed search is a derived search. |
+| `SearchEdgeRecordedEvent` | interface | The proposal that derived a node from its parents. |
+| `SearchHistoryAuditSummary` | interface | Bounded summary of a search's audit. Exact ids stay in the ledger. |
+| `SearchHistoryReceipt` | interface | A bounded proof envelope over one search ledger. |
+| `SearchLedgerBinding` | interface | A ledger and the identities a loop records into it. |
+| `SearchNodeDecidedEvent` | interface | A policy, allocator or claim decision about a node. May repeat; the latest wins. |
+| `SearchNodeRegisteredEvent` | interface | A content-addressed artifact enters the search. `nodeId` is |
+| `SearchOpenedEvent` | interface | First event, once: what is searched, against what, on which tasks, under which budget. |
+| `SearchReservation` | interface | Dollars held for a cell or operation before it runs. `hard`: the lane |
+| `SearchRunIdentity` | interface | Identities the ledger needs and a loop cannot infer. |
+| `SearchScoredCell` | interface | A cell's scored attempt: the inputs of every per-unit statistic. |
 | `SearchSourceRef` | interface | Repository, dataset, or package source pinned to an immutable commit or |
-| `SearchSurfaceEvidence` | interface | Per-attempt proof that a declared candidate surface was or was not active, |
+| `SearchSurfaceEvidence` | interface | Per-attempt proof that a declared node surface did or did not fire. A |
+| `SearchUnitScore` | interface | Scores of one node on one unit of one split: the sum and count of its |
+| `SearchUnknown` | interface | A fact the producer does not have, with the reason. Unknown is never 0. |
 | `SeriesDistribution` | interface | Distribution summary of a number series: count, extremes, quantiles, sum. |
 | `SessionScript` | interface | One session within a multi-session journey. Dispatch is |
 | `SingleRunLockOptions` | interface | Single-run lock for evaluations that share one mutable environment. |
@@ -1962,11 +2054,17 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `PromotionPolicy` | type | A promotion strategy: a pure function from the evidence vector to a verdict. |
 | `ProposalFinding` | type | A finding explicitly admitted as candidate-generation input. |
 | `ProposalFindingOrigin` | type | Data sources that candidate generation may intentionally learn from. |
-| `SearchExecutionIdentity` | type | How a search operation executed. The shape the ledger event records. |
+| `SearchArtifactKind` | type | What a search's nodes are: a mutable agent surface, or an output artifact. |
+| `SearchCellStage` | type | Where a cell ran relative to the search's decisions. |
+| `SearchEdgeAttribution` | type | How an edge's parents are known. `explicit`: the proposer that created the |
 | `SearchLedgerTrustedHeadMode` | type | How this ledger uses its trusted head — the `(sequence, entryHash)` pin kept |
+| `SearchModelIdentity` | type | The model an attempt ran: an immutable snapshot, or a moving alias whose |
+| `SearchOpening` | type | The header of a search, with plain task lists; the recorder digests them. |
+| `SearchSplit` | type | train is the proposer's feedback, selection is private to the policy and |
+| `SearchTaskOutcome` | type | `failed` is the agent's defect and carries a score; `errored` is the |
 | `SequentialStreamState` | type | Snapshot of one observe-stream: the e-process state plus the gate's own |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalyzeCrossSurfaceInteractionsInput`, `AutoevalsScoreLike`, `AxisEvidence`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `BuildTraceAnalystSurfaceDispatchOptions`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CodeSurfaceVerification`, `CompareOptimizationMethodsOptions`, `CreateProfileMatrixPlanOptions`, `CreateSearchHistoryReceiptInput`, `CrossSurfaceAdditionDecision`, `CrossSurfaceBestSingleSelection`, `CrossSurfaceBootstrapPolicy`, `CrossSurfaceCandidateComparison`, `CrossSurfaceCandidateEvidence`, `CrossSurfaceCandidateOutcome`, `CrossSurfaceCandidateSummary`, `CrossSurfaceCompositionStep`, `CrossSurfaceDistribution`, `CrossSurfaceEligibility`, `CrossSurfaceEvidenceBreakdown`, `CrossSurfaceInteractionAwareSelection`, `CrossSurfaceInteractionEffect`, `CrossSurfaceInteractionReport`, `CrossSurfaceInteractionTask`, `CrossSurfaceNaiveStackSelection`, `CrossSurfacePairCompatibility`, `CrossSurfacePairEvidence`, `CrossSurfacePairwiseEntry`, `CrossSurfaceRankedSingle`, `CrossSurfaceRelativeCost`, `CrossSurfaceSelections`, `CrowdedFrontierParentOptions`, `DefaultProductionGateOptions`, `DimensionRegression`, `DiscriminationScore`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `ExternalOptimizationExample`, `ExternalOptimizerCallbackLimits`, `ExternalOptimizerExecutionSummary`, `ExternalOptimizerModelBudget`, `ExternalOptimizerObservationArtifact`, `ExternalOptimizerObservationSummary`, `ExternalOptimizerProcessLimits`, `ExternalOptimizerRunnerCommand`, `ExternalOptimizerSubmittedCandidate`, `ExternalTextEvaluationResponse`, `ExternalTextOptimizerContext`, `ExternalTextOptimizerResult`, `FinalEvidenceUse`, `FinalizedProfileMatrixResult`, `FinalizeProfileMatrixOptions`, `FsLabeledScenarioStoreOptions`, `GateContext`, `GateContribution`, `GateResult`, `GenerationRecord`, `GepaCandidatePopulationArtifact`, `GepaCandidatePopulationCandidate`, `GepaCandidatePopulationSummary`, `GepaCandidateSelectionScore`, `GepaOptimizationMethodConfig`, `GitWorktreeAdapterOptions`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceArgsFromResult`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `LoopProvenanceEvidence`, `LoopProvenanceOptimizationMethod`, `NeutralizationGateOptions`, `OpenAutoPrOptions`, `OpenAutoPrResult`, `OpenSearchLedgerOptions`, `OptimizationMethodComparison`, `OptimizationMethodPairwise`, `OptimizationMethodProvenance`, `OptimizationMethodResult`, `OptimizationMethodScore`, `OptimizationPackageSource`, `OptimizationTokenUsage`, `OptimizerConfig`, `PairedHoldout`, `ParetoSignificanceGateOptions`, `PendingCostCallView`, `PhoenixEvaluationResultLike`, `PhoenixEvaluatorLike`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `PowerPreflight`, `PremeasuredOptimizationBaseline`, `ProfileMatrixCoverage`, `ProfileMatrixPlan`, `ProfileMatrixRow`, `ProfileMatrixSegmentResult`, `ProfileSummary`, `PromotionObjective`, `ReferenceEquivalenceJudgeOptions`, `ReferenceEquivalenceScenario`, `RolloutArgumentDiff`, `RolloutArgumentDiffOptions`, `RunCampaignOptions`, `RunEvalOptions`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunProfileMatrixSegmentOptions`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SearchAttemptAccounting`, `SearchCandidateDecidedEvent`, `SearchCandidateLineage`, `SearchCandidateRegisteredEvent`, `SearchCandidateSlot`, `SearchCandidateSlotClosedEvent`, `SearchCandidateSurface`, `SearchCompletedEvent`, `SearchFailureReason`, `SearchHistoryAdmissionOptions`, `SearchHistoryCoverage`, `SearchHistoryCoverageRow`, `SearchLedger`, `SearchLedgerAppendResult`, `SearchLedgerBinding`, `SearchLedgerEntry`, `SearchLedgerReplay`, `SearchModelIdentity`, `SearchOperationRecordedEvent`, `SearchPlan`, `SearchPlannedEvent`, `SearchPlannedOperation`, `SearchPlannedTask`, `SearchRecorderOptions`, `SearchTaskAttemptedEvent`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SingleRunLock`, `SkillOptOptimizationMethodConfig`, `SkillOptTrainerConfig`, `TraceAnalystArtifact`, `TraceAnalystScenario`, `TraceSpan`, `TransientFailureOptions`, `UngroundedLiteralReport`, `Worktree`, `WorktreeAdapter`, `AutoevalsScorerLike`, `CacheIssueReason`, `CacheRead`, `CellScheduleSlot`, `CrossSurfaceAdditionRejectionReason`, `CrossSurfaceIneligibilityReason`, `CrossSurfacePairIncompatibilityReason`, `DefaultProductionGateCheck`, `DefaultProductionRewardHackingOptions`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `ExternalOptimizerEndpointFormat`, `ExternalOptimizerEvaluationRefusalReason`, `ExternalTextCandidate`, `OptimizerModelBudget`, `RedactionStatus`, `RunImprovementLoopOptions`, `RunOptimizationOptions`, `SearchAccountingAudit`, `SearchCostAccounting`, `SearchHistoryPolicy`, `SearchLedgerEvent`, `SearchLedgerHash`, `SearchOperationKind`, `SearchSurfaceEffect`, `SearchSurfaceKind`, `SearchTaskOutcome`, `SearchTokenAccounting`, `SequentialDecision`, `SkillOptRunnerCommand`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AllocateSearchCellInput`, `AnalyzeCrossSurfaceInteractionsInput`, `AutoevalsScoreLike`, `AxisEvidence`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `BuildTraceAnalystSurfaceDispatchOptions`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CodeSurfaceVerification`, `CompareOptimizationMethodsOptions`, `CreateProfileMatrixPlanOptions`, `CreateSearchHistoryReceiptInput`, `CrossSurfaceAdditionDecision`, `CrossSurfaceBestSingleSelection`, `CrossSurfaceBootstrapPolicy`, `CrossSurfaceCandidateComparison`, `CrossSurfaceCandidateEvidence`, `CrossSurfaceCandidateOutcome`, `CrossSurfaceCandidateSummary`, `CrossSurfaceCompositionStep`, `CrossSurfaceDistribution`, `CrossSurfaceEligibility`, `CrossSurfaceEvidenceBreakdown`, `CrossSurfaceInteractionAwareSelection`, `CrossSurfaceInteractionEffect`, `CrossSurfaceInteractionReport`, `CrossSurfaceInteractionTask`, `CrossSurfaceNaiveStackSelection`, `CrossSurfacePairCompatibility`, `CrossSurfacePairEvidence`, `CrossSurfacePairwiseEntry`, `CrossSurfaceRankedSingle`, `CrossSurfaceRelativeCost`, `CrossSurfaceSelections`, `CrowdedFrontierParentOptions`, `DefaultProductionGateOptions`, `DimensionRegression`, `DiscriminationScore`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EstimateNodeCellsInput`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `ExternalOptimizationExample`, `ExternalOptimizerCallbackLimits`, `ExternalOptimizerExecutionSummary`, `ExternalOptimizerModelBudget`, `ExternalOptimizerObservationArtifact`, `ExternalOptimizerObservationSummary`, `ExternalOptimizerProcessLimits`, `ExternalOptimizerRunnerCommand`, `ExternalOptimizerSubmittedCandidate`, `ExternalTextEvaluationResponse`, `ExternalTextOptimizerContext`, `ExternalTextOptimizerResult`, `FinalEvidenceUse`, `FinalizedProfileMatrixResult`, `FinalizeProfileMatrixOptions`, `FsLabeledScenarioStoreOptions`, `GateContext`, `GateContribution`, `GateResult`, `GenerationRecord`, `GepaCandidatePopulationArtifact`, `GepaCandidatePopulationCandidate`, `GepaCandidatePopulationSummary`, `GepaCandidateSelectionScore`, `GepaEvaluationImport`, `GepaOptimizationMethodConfig`, `GepaPopulationImport`, `GitWorktreeAdapterOptions`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceArgsFromResult`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `LoopProvenanceEvidence`, `LoopProvenanceOptimizationMethod`, `NeutralizationGateOptions`, `OpenAutoPrOptions`, `OpenAutoPrResult`, `OpenSearchLedgerOptions`, `OptimizationMethodComparison`, `OptimizationMethodPairwise`, `OptimizationMethodProvenance`, `OptimizationMethodResult`, `OptimizationMethodScore`, `OptimizationPackageSource`, `OptimizationTokenUsage`, `OptimizerConfig`, `PairedHoldout`, `ParetoSignificanceGateOptions`, `PendingCostCallView`, `PhoenixEvaluationResultLike`, `PhoenixEvaluatorLike`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `PowerPreflight`, `PremeasuredOptimizationBaseline`, `ProfileMatrixCoverage`, `ProfileMatrixPlan`, `ProfileMatrixRow`, `ProfileMatrixSegmentResult`, `ProfileSummary`, `PromotionObjective`, `RecordSearchEdgeInput`, `ReferenceEquivalenceJudgeOptions`, `ReferenceEquivalenceScenario`, `RegisterSearchNodeInput`, `RolloutArgumentDiff`, `RolloutArgumentDiffOptions`, `RunCampaignOptions`, `RunEvalOptions`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunProfileMatrixSegmentOptions`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SearchAttemptAccounting`, `SearchBudget`, `SearchCandidateSurface`, `SearchCell`, `SearchCellCancelledEvent`, `SearchCompletion`, `SearchDecisionRecord`, `SearchExecutionIdentity`, `SearchFailureReason`, `SearchHistoryAdmissionOptions`, `SearchHistoryCoverage`, `SearchHistoryCoverageRow`, `SearchLedger`, `SearchLedgerAppendResult`, `SearchLedgerEntry`, `SearchNode`, `SearchNodeRef`, `SearchOperation`, `SearchOperationRecordedEvent`, `SearchOperationStartedEvent`, `SearchPosterior`, `SearchProposer`, `SearchRecorderOptions`, `SearchSpend`, `SearchSplits`, `SearchSplitTasks`, `SearchTask`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SettleSearchCellInput`, `SingleRunLock`, `SkillOptOptimizationMethodConfig`, `SkillOptTrainerConfig`, `TraceAnalystArtifact`, `TraceAnalystScenario`, `TraceSpan`, `TransientFailureOptions`, `UngroundedLiteralReport`, `Worktree`, `WorktreeAdapter`, `AutoevalsScorerLike`, `CacheIssueReason`, `CacheRead`, `CellScheduleSlot`, `CrossSurfaceAdditionRejectionReason`, `CrossSurfaceIneligibilityReason`, `CrossSurfacePairIncompatibilityReason`, `DefaultProductionGateCheck`, `DefaultProductionRewardHackingOptions`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `ExternalOptimizerEndpointFormat`, `ExternalOptimizerEvaluationRefusalReason`, `ExternalTextCandidate`, `OptimizerModelBudget`, `RedactionStatus`, `RunImprovementLoopOptions`, `RunOptimizationOptions`, `SearchCancelReason`, `SearchClaimPower`, `SearchCloseReason`, `SearchCostAccounting`, `SearchEdgeOperator`, `SearchEstimateMethod`, `SearchHistoryPolicy`, `SearchLedgerEvent`, `SearchLedgerHash`, `SearchNodeDecision`, `SearchNodeStatus`, `SearchOperationKind`, `SearchProposerKind`, `SearchSurfaceEffect`, `SearchSurfaceKind`, `SearchTokenAccounting`, `SearchTraceRef`, `SequentialDecision`, `SkillOptRunnerCommand`.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 

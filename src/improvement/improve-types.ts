@@ -290,7 +290,7 @@ export interface ImprovementMaterializedProfilePopulationCandidate {
   surfaceDigest: Sha256Digest
   /** Exact complete profile produced by Runtime's configured materializer. */
   profile: ReadonlyAgentProfile
-  /** Interface identity of `profile`. */
+  /** `canonicalAgentProfileDigest(profile)`: the one AgentProfile identity Runtime records. */
   profileDigest: Sha256Digest
   /** Ordered Interface diffs that reproduce `profile` from the baseline. */
   diffs: readonly AgentProfileDiff[]
@@ -384,7 +384,7 @@ export interface ImproveLineage {
   scenarioPartitions?: ImproveScenarioPartitions
   /** Complete callback, materializer, model, tool, and closure identity for a profile run. */
   executionRef?: Sha256Digest
-  /** Complete baseline profile identity for a profile run. */
+  /** `canonicalAgentProfileDigest` of the baseline profile for a profile run. */
   baselineProfileDigest?: Sha256Digest
 }
 

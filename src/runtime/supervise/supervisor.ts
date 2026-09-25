@@ -39,6 +39,7 @@
 import { sha256DigestSchema } from '@tangle-network/agent-interface'
 import {
   aggregateProviderModelEvidence,
+  appendSpawnEvents,
   closesCursorSlot,
   contentAddress,
   loadSpawnForest,
@@ -67,6 +68,7 @@ import { withBudgetResources } from './resources'
 import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
 import {
   assertRecursiveReservationPolicy,
+  closeRetainedSlots,
   closeScopeAdmission,
   createScope,
   finalizeScopeOwnerMaterialization,
@@ -99,6 +101,7 @@ import type {
   TreeView,
   UnconfirmedTeardown,
 } from './types'
+import { resolveWorkerSlots } from './worker-slots'
 
 /** The driver-rejection shape a `reason: 'driver-failed'` result carries. Re-exported from the
  *  module that produces it so a consumer catching a driver failure names the type instead of
@@ -123,19 +126,13 @@ function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): Spawn
       `supervisor: resume budget mismatch for run '${opts.runId}'; use a new runId to change limits`,
     )
   }
-  const expectedAdmission = opts.reservationPolicy
-    ? {
-        policy: opts.reservationPolicy,
-        maxDepth: opts.maxDepth ?? defaultMaxDepth,
-        maxLiveWorkers: opts.maxLiveWorkers,
-      }
-    : undefined
+  const expectedAdmission = opts.reservationPolicy ? { policy: opts.reservationPolicy } : undefined
   if (
     contentAddress(recorded.recursiveAdmission ?? null) !==
     contentAddress(expectedAdmission ?? null)
   ) {
     throw new RuntimeRunStateError(
-      `supervisor: resume reservation policy or fleet limits mismatch for run '${opts.runId}'; use a new runId`,
+      `supervisor: resume reservation policy mismatch for run '${opts.runId}'; use a new runId`,
     )
   }
   if (!sameOptionalIdentity(recorded.identity, opts.rootIdentity)) {
@@ -322,9 +319,11 @@ function rootStartedAtMs(root: SpawnedEvent): number {
   return startedAt
 }
 
-/** The default runtime recursion-depth ceiling, paired with the conserved pool so a
- *  runaway recursion hits budget-exhaustion first and depth-exceeded second (R3). */
-const defaultMaxDepth = 4
+/** The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every
+ *  level draws its slice from the level above, so a tree ends when its slices run out. This
+ *  ceiling only stops a runaway recursion that keeps spawning tiny slices, so it sits well above
+ *  any depth a budget can usefully pay for. */
+export const DEFAULT_MAX_DEPTH = 16
 
 /** Every no-winner reason, pinned to the published `SupervisedResult` union so the contract
  *  and the impl cannot drift. */
@@ -390,7 +389,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       recoverExecutor,
       probes,
       maxDepth,
-      maxLiveWorkers,
+      workerSlots,
       reservationPolicy,
       maxRestarts,
       withinMs,
@@ -415,7 +414,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(rootIdentity === undefined ? {} : { rootIdentity }),
           ...(rootMaterialization === undefined ? {} : { rootMaterialization }),
           ...(maxDepth === undefined ? {} : { maxDepth }),
-          ...(maxLiveWorkers === undefined ? {} : { maxLiveWorkers }),
+          ...(typeof workerSlots === 'number' ? { workerSlots } : {}),
           ...(reservationPolicy === undefined ? {} : { reservationPolicy }),
           ...(maxRestarts === undefined ? {} : { maxRestarts }),
           ...(withinMs === undefined ? {} : { withinMs }),
@@ -431,7 +430,9 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       },
       'supervisor.run',
     )
-    assertRecursiveReservationPolicy(reservationPolicy, maxDepth ?? defaultMaxDepth, maxLiveWorkers)
+    assertRecursiveReservationPolicy(reservationPolicy)
+    // A shared allocator is a live collaborator, not decision data: it stays by reference.
+    const slots = resolveWorkerSlots(workerSlots)
     if (
       teardownConfirmMs !== undefined &&
       (typeof teardownConfirmMs !== 'number' ||
@@ -535,30 +536,30 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
         // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
         // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
-        await opts.journal.beginTree(opts.runId, runStartedAt)
+        // A crash may have committed only beginTree. It owns no root yet, but beginning it
+        // again with a different timestamp would reject a valid empty durable run.
+        if (existing === undefined) await opts.journal.beginTree(opts.runId, runStartedAt)
         const rootReceipt = rootMaterializationReceipt(opts)
         const rootRuntime = opts.rootMaterialization?.runtime ?? 'inline'
-        await opts.journal.appendEvent(opts.runId, {
-          kind: 'spawned',
-          id: opts.runId,
-          label: 'root',
-          budget: opts.budget,
-          runtime: rootRuntime,
-          ...(opts.reservationPolicy
-            ? {
-                recursiveAdmission: {
-                  policy: opts.reservationPolicy,
-                  maxDepth: opts.maxDepth ?? defaultMaxDepth,
-                  maxLiveWorkers: opts.maxLiveWorkers as number,
-                },
-              }
-            : {}),
-          ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
-          seq: 0,
-          at: runStartedAt,
-        })
+        // The root records publish as ONE grouped record where the store supports it, so a SQL
+        // context's fenced head advances once for the whole initialization.
+        const rootEvents: SpawnEvent[] = [
+          {
+            kind: 'spawned',
+            id: opts.runId,
+            label: 'root',
+            budget: opts.budget,
+            runtime: rootRuntime,
+            ...(opts.reservationPolicy
+              ? { recursiveAdmission: { policy: opts.reservationPolicy } }
+              : {}),
+            ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
+            seq: 0,
+            at: runStartedAt,
+          },
+        ]
         if (rootReceipt !== undefined) {
-          await opts.journal.appendEvent(opts.runId, {
+          rootEvents.push({
             kind: 'materialized',
             id: opts.runId,
             receipt: rootReceipt,
@@ -566,6 +567,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             at: runStartedAt,
           })
         }
+        await appendSpawnEvents(opts.journal, opts.runId, rootEvents)
       }
 
       const stableRootReceipt = resuming
@@ -642,8 +644,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         executors: opts.executors,
         seams: { [retainedOwnerWorkspaceRetentionSeamKey]: ownerWorkspaceRetention === true },
         depth: 0,
-        maxDepth: opts.maxDepth ?? defaultMaxDepth,
-        ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+        maxDepth: opts.maxDepth ?? DEFAULT_MAX_DEPTH,
+        workerSlots: slots,
         ...(opts.reservationPolicy
           ? { reservationPolicy: opts.reservationPolicy, ownerBudget: opts.budget }
           : {}),
@@ -826,6 +828,11 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
               at: new Date(now()).toISOString(),
             })
           }
+          // A released run is never resumed, so a retained child whose release the retries could
+          // not confirm is as final as a released one. Its slot closes now, marked
+          // `release-unconfirmed`, with the leak already named above; left open, it read as
+          // never-settled forever (#1301).
+          if (releasing) await closeRetainedSlots(openScope)
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
@@ -1141,13 +1148,25 @@ function createIntensityBreaker(opts: SupervisorOpts, trip: () => void): Intensi
  *  settlement either (it writes no `settled` record then), so `downCount` stays what it was:
  *  ordinary downs only; `fleetYield.down` is where a retained child is counted. */
 function wrapJournalForBreaker(journal: SpawnJournal, breaker: IntensityBreaker): SpawnJournal {
+  const recordDown = (ev: SpawnEvent): void => {
+    if (ev.kind === 'settled' && ev.status === 'down' && ev.retainedExecution === undefined) {
+      breaker.recordDown(Date.parse(ev.at))
+    }
+  }
   return {
     loadTree: (root) => journal.loadTree(root),
     beginTree: (root, at) => journal.beginTree(root, at),
+    ...(journal.appendEvents === undefined
+      ? {}
+      : {
+          appendEvents: (root: string, events: ReadonlyArray<SpawnEvent>) => {
+            for (const event of events) recordDown(event)
+            const batch = journal.appendEvents?.(root, events) ?? Promise.resolve()
+            return batch
+          },
+        }),
     appendEvent: (root, ev: SpawnEvent) => {
-      if (ev.kind === 'settled' && ev.status === 'down' && ev.retainedExecution === undefined) {
-        breaker.recordDown(Date.parse(ev.at))
-      }
+      recordDown(ev)
       return journal.appendEvent(root, ev)
     },
   }
@@ -1314,7 +1333,7 @@ function describeUnconfirmed(scope: Scope<unknown>): string {
         ].join(', ')})`,
     )
     .join(', ')
-  return `${scope.workerCapacity.live} executor resource(s) not confirmed destroyed${
+  return `${unconfirmed.length} executor resource(s) not confirmed destroyed${
     named.length > 0 ? `: ${named}` : ''
   }`
 }
@@ -1472,17 +1491,23 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
   // Each id lands in exactly one bucket, by its last terminal record in journal order.
   const terminal = new Map<NodeId, 'done' | 'down' | 'cancelled'>()
   const released = new Set<NodeId>()
+  const unconfirmed = new Set<NodeId>()
   for (const { event } of forest.events) {
     if (event.kind === 'spawned') {
       if (event.parent !== undefined) spawned.add(event.id)
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       const bucket = event.kind === 'cancelled' ? 'cancelled' : event.status
       terminal.set(event.id, bucket)
-      // `released` is a subset of down + cancelled BY CONSTRUCTION here, not by trust in the
-      // writer: only the release sweep writes the marker and it never writes `done`, but a
-      // hand-built `done` record carrying it must not count twice.
-      if (event.retainedExecution === 'released' && bucket !== 'done') released.add(event.id)
-      else released.delete(event.id)
+      // `released` and `release-unconfirmed` are subsets of down + cancelled BY CONSTRUCTION here,
+      // not by trust in the writer: only the release sweep and the final close write the markers
+      // and they never write `done`, but a hand-built `done` record carrying one must not count
+      // twice.
+      released.delete(event.id)
+      unconfirmed.delete(event.id)
+      if (bucket !== 'done' && event.retainedExecution === 'released') released.add(event.id)
+      if (bucket !== 'done' && event.retainedExecution === 'release-unconfirmed') {
+        unconfirmed.add(event.id)
+      }
     }
   }
   const count = (bucket: 'done' | 'down' | 'cancelled'): number =>
@@ -1494,6 +1519,7 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
     cancelled: count('cancelled'),
     neverSettled: forest.inDoubt.length,
     releasedUnrecovered: released.size,
+    releaseUnconfirmed: unconfirmed.size,
   }
   const accounted =
     fleetYield.done + fleetYield.down + fleetYield.cancelled + fleetYield.neverSettled
@@ -1502,7 +1528,10 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
       `supervisor: fleet yield does not partition the spawned children of '${forest.root}' (${JSON.stringify(fleetYield)})`,
     )
   }
-  if (fleetYield.releasedUnrecovered > fleetYield.down + fleetYield.cancelled) {
+  if (
+    fleetYield.releasedUnrecovered + fleetYield.releaseUnconfirmed >
+    fleetYield.down + fleetYield.cancelled
+  ) {
     throw new RuntimeRunStateError(
       `supervisor: released children exceed down + cancelled for '${forest.root}' (${JSON.stringify(fleetYield)})`,
     )

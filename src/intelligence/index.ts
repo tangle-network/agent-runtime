@@ -22,12 +22,14 @@
 
 import { contentHash } from '@tangle-network/agent-eval'
 import type { AgentProfile, CandidateExecutionEvidence } from '@tangle-network/agent-interface'
+import { ATTR } from '@tangle-network/agent-trace-contract'
 import {
   buildLoopOtelSpans,
   buildRuntimeEventOtelSpans,
   createOtelExporter,
   flatOtelSpan,
   type OtelExporter,
+  type OtelExportStats,
 } from '../otel-export'
 import { type Redactor, resolveRedactor } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
@@ -498,6 +500,12 @@ export interface IntelligenceClient {
   doctor(): DoctorReport
   /** Flush any pending export spans. Best-effort; resolves even if export fails. */
   flush(): Promise<void>
+  /**
+   * Delivery accounting for the spans this client sent: written, dropped, pending and the last
+   * error. `undefined` when no exporter exists (no tenant key). `flush()` stays best-effort, so
+   * this is where a caller checks that a run's telemetry actually reached Intelligence.
+   */
+  exportStats(): OtelExportStats | undefined
 }
 
 /** One mode's readiness verdict. */
@@ -639,7 +647,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       ex.exportSpan(
         flatOtelSpan(
           'tangle.intelligence.run',
-          { 'tangle.runId': outcome.runId, ...labels },
+          { 'tangle.runId': outcome.runId, ...labels, [ATTR.spanKind]: 'AGENT' },
           outcome.traceId,
           Date.now(),
         ),
@@ -750,7 +758,9 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       const now = Date.now()
       const runSpan = flatOtelSpan(
         'tangle.intelligence.run',
-        { 'tangle.runId': record.runId, ...labels },
+        // Declared AGENT: this span carries the run's model and token TOTAL, and an undeclared span
+        // with tokens reads as one LLM call, which counts every call beneath it a second time.
+        { 'tangle.runId': record.runId, ...labels, [ATTR.spanKind]: 'AGENT' },
         record.traceId,
         record.timing?.startedAt ?? now,
         undefined,
@@ -778,6 +788,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           }>,
           record.traceId,
           runSpan.spanId,
+          redactor,
         )
         for (const span of spans) ex.exportSpan(span)
       }
@@ -897,8 +908,12 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       try {
         await ex.flush()
       } catch {
-        // Best-effort — a flush failure must not surface to the caller.
+        // Best-effort: the loss stays visible through exportStats().
       }
+    },
+
+    exportStats(): OtelExportStats | undefined {
+      return getExporter()?.stats()
     },
   }
 }

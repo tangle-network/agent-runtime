@@ -80,7 +80,7 @@ function expectReason(result: unknown, contains?: RegExp): string {
 }
 
 describe('every coordination refusal names its unmet condition', () => {
-  it('spawn_worker: pool, cap, profile, continuity and pre-flight refusals all carry a reason', async () => {
+  it('spawn_worker: pool, profile, continuity and pre-flight refusals all carry a reason', async () => {
     const refusedPool = await tool(
       manager({}, mockScope({ admit: false })),
       'spawn_worker',
@@ -90,11 +90,6 @@ describe('every coordination refusal names its unmet condition', () => {
     })
     expect(refusedPool).toMatchObject({ error: 'budget-exhausted' })
     expectReason(refusedPool, /conserved pool/)
-
-    const capped = manager({ maxLiveWorkers: 1 })
-    const atCap = await tool(capped, 'spawn_worker').handler({ profile: {}, task: 'go' })
-    expect(atCap).toMatchObject({ error: 'max-live-workers' })
-    expectReason(atCap, /await_event/)
 
     const invalid = await tool(manager(), 'spawn_worker').handler({
       profile: { name: 42 },
@@ -462,7 +457,7 @@ describe('ask_parent at the top of the chain', () => {
     expectReason(undelivered, /observe_agent/)
   })
 
-  it('closure refuses submit_result and stop while a worker runs, and names it', async () => {
+  it('closure refuses submit_result while a worker runs, and names it', async () => {
     const tb = manager({ deliverable: { describe: 'a report', check: () => true } })
     const submitted = await tool(tb, 'submit_result').handler({ result: 'report' })
     expect(submitted).toMatchObject({
@@ -472,11 +467,16 @@ describe('ask_parent at the top of the chain', () => {
       running: [{ id: 'w0', status: 'running' }],
     })
     expectReason(submitted, /await_event/)
+    expect(tb.isStopped()).toBe(false)
+    expect(tb.submittedResult()).toBeUndefined()
+  })
+
+  it('closure refuses stop while a worker runs, and names it', async () => {
+    const tb = manager()
     const stopped = await tool(tb, 'stop').handler({ reason: 'done' })
     expect(stopped).toMatchObject({ stopped: false, error: 'open-work' })
     expectReason(stopped, /still running \(w0\)/)
     expect(tb.isStopped()).toBe(false)
-    expect(tb.submittedResult()).toBeUndefined()
   })
 
   it('a stop blocked only by answerable questions does not claim anything went unheard', async () => {

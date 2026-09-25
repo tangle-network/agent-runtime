@@ -30,14 +30,13 @@ import {
   type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import { closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
+import { appendSpawnEvents, closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import {
-  type HarnessTranscriptCapture,
   type HarnessTranscriptEvidence,
-  harnessTranscriptUnavailable,
   persistHarnessTranscript,
+  readHarnessTranscript,
 } from '../harness-transcript'
 import type {
   RetainedInteractiveAdmission,
@@ -91,6 +90,7 @@ import {
   DEFAULT_STALL_AFTER_MS,
   type ExecutorProgress,
   readWorkerProgress,
+  type TeamProgress,
   type WorkerProgress,
 } from './progress'
 import { prepareScopeResume } from './recover-executors'
@@ -160,6 +160,8 @@ import type {
   SpawnPrior,
   SpawnRejection,
   Spend,
+  SubtreeResult,
+  SubtreeSummary,
   TreeView,
   UnconfirmedTeardown,
   UsageEvent,
@@ -179,6 +181,13 @@ import {
   type WaitSpec,
 } from './wait'
 import { writeWorkerInteractiveBinding } from './worker-interactive'
+import {
+  createWorkerSlots,
+  deferSlot,
+  openSlotGroup,
+  type SlotPermit,
+  type WorkerSlots,
+} from './worker-slots'
 import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
@@ -208,15 +217,16 @@ export interface ScopeArgs {
   readonly depth: number
   /** Runtime recursion-depth ceiling — a spawn past it fails closed `depth-exceeded`. */
   readonly maxDepth?: number
-  /** Root-owned limit on live spawned workers across this scope and every nested scope. */
-  readonly maxLiveWorkers?: number
-  /** Optional policy that holds owner inference capacity and a path of descendant slots. */
+  /** The allocator that bounds concurrently working agents across this scope, every nested scope,
+   *  and every other tree that shares it. Absent means no bound: only the budget limits concurrency. */
+  readonly workerSlots?: WorkerSlots
+  /** @internal The slot this scope's own manager holds in its parent scope. A nested scope's first
+   *  running child works on it while the manager waits. Absent on a root scope. */
+  readonly slotOwner?: SlotPermit
+  /** Optional policy that keeps part of each manager's budget for its own inference. */
   readonly reservationPolicy?: RecursiveReservationPolicy
   /** The budget from which this scope's owner-share floor is derived. */
   readonly ownerBudget?: Budget
-  /** @internal Shared counter inherited by nested scopes. Callers set `maxLiveWorkers`; the root
-   *  scope creates this state once and passes the same object through its recursion seam. */
-  readonly liveWorkerCapacity?: LiveWorkerCapacityState
   /** Abort signal for this scope; an abort cascades into every live child's executor. */
   readonly signal: AbortSignal
   /** Injected clock — keeps the journal `at` timestamp deterministic in tests. */
@@ -305,6 +315,7 @@ export type ScopeOwnerPause = Omit<
 const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+const retainedSlotClosers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriable = new WeakMap<object, (release: boolean) => boolean>()
 /** The retained owner environments a scope's last release could not confirm destroyed. */
@@ -315,6 +326,26 @@ const nestedTeardownScopes = new WeakMap<object, () => Scope<unknown> | undefine
  *  kept for a resume any longer. */
 const releasingScopes = new WeakSet<object>()
 const admissionSeals = new WeakMap<object, () => void>()
+/** Each scope's reader of its own team, for the settlement its owner writes one level up. */
+const subtreeReaders = new WeakMap<object, () => SubtreeSummary | undefined>()
+/** A scope's live team and its owner's own turns, as the owner's lead observes them. */
+interface LiveTeam extends TeamProgress {
+  /** Newest activity anywhere in the scope: the owner's own turn, or any agent below it. */
+  readonly lastActivityAt: number
+  /** Turns the scope's owner metered for itself. */
+  readonly ownerTurns: number
+}
+/** Each scope's reader of its live team, for the progress its owner's lead reads mid-flight. */
+const liveTeamReaders = new WeakMap<object, () => LiveTeam>()
+
+/** How many of a manager's direct children its summary lists; the counts always cover all. */
+export const SUBTREE_RESULT_LIMIT = 8
+
+/** @internal The bounded account of the children a scope spawned and everything below them.
+ *  `undefined` when the scope spawned no worker. */
+export function subtreeSummaryOf(scope: Scope<unknown>): SubtreeSummary | undefined {
+  return subtreeReaders.get(scope)?.()
+}
 
 /** Per-child bound on a retained release: one remote destroy, answered or abandoned. */
 const RETAINED_RELEASE_TIMEOUT_MS = 30_000
@@ -391,6 +422,26 @@ export async function releaseRetainedEnvironments(
 }
 
 /**
+ * @internal Close the cursor slot of every retained child this scope and its nested scopes still
+ * hold open, once the settlement is final and the release and its retries are done.
+ *
+ * The release sweep closes a slot only when it confirms the environment destroyed, and nothing
+ * else ever closed the rest: a refused delete, a teardown probe that failed after a destroy, or an
+ * admission that timed out before `create` named an environment. Measured on the Discovery fleet
+ * of 2026-09-23/24 (Runtime 0.249.1 to 0.261.0): 338 of 1,620 agents never settled, so they had no
+ * terminal record, no spend but the reservation ceiling, and no transcript receipt (#1301). A
+ * settlement under `retainedAtSettlement: 'release'` is final, so no process will recover these
+ * executions. Each slot closes with the settlement the driver already received, under the seq it
+ * saw, marked `retainedExecution: 'release-unconfirmed'`. The environment it may still hold stays
+ * named by its `teardown-unconfirmed` record for a sweeper. Never call this on a run a later
+ * process may resume.
+ */
+export async function closeRetainedSlots(scope: Scope<unknown>): Promise<void> {
+  const close = retainedSlotClosers.get(scope)
+  if (close) await close()
+}
+
+/**
  * @internal Everything this scope cannot prove destroyed: its settled children whose teardown is
  * unconfirmed and, after a release, the retained owner environment that release could not
  * confirm. Read live, so a later retry that confirms a node removes it.
@@ -460,17 +511,9 @@ export function closeScopeAdmission(scope: Scope<unknown>): void {
   admissionSeals.get(scope)?.()
 }
 
-/** Mutable only inside Scope admission/release. Every nested scope receives this exact object. */
-export interface LiveWorkerCapacityState {
-  readonly max: number | undefined
-  live: number
-}
-
-/** Fail before execution when an opted-in run cannot leave a live slot at every depth. */
+/** Fail before execution when a reservation policy is malformed. */
 export function assertRecursiveReservationPolicy(
   policy: RecursiveReservationPolicy | undefined,
-  maxDepth: number | undefined,
-  maxLiveWorkers: number | undefined,
 ): void {
   if (policy === undefined) return
   if (
@@ -482,18 +525,6 @@ export function assertRecursiveReservationPolicy(
   }
   if (!Number.isFinite(policy.ownerShare) || policy.ownerShare <= 0 || policy.ownerShare >= 1) {
     throw new ValidationError('reservationPolicy.ownerShare must be greater than 0 and less than 1')
-  }
-  if (!Number.isSafeInteger(maxDepth) || maxDepth === undefined || maxDepth < 2) {
-    throw new ValidationError('reservationPolicy requires maxDepth >= 2')
-  }
-  if (
-    !Number.isSafeInteger(maxLiveWorkers) ||
-    maxLiveWorkers === undefined ||
-    maxLiveWorkers < maxDepth
-  ) {
-    throw new ValidationError(
-      'reservationPolicy requires maxLiveWorkers >= maxDepth to preserve a descendant path',
-    )
   }
 }
 
@@ -587,6 +618,11 @@ interface LiveChild {
   readonly readHeldEnvironments?: () => ReadonlyArray<HeldEnvironment>
   /** The scope this child's recursive executor owns, once it has mounted one. */
   readonly readNestedScope?: () => Scope<unknown> | undefined
+  /** Persist the executor's harness transcript as it stands now. A retained release may read a
+   *  session the failure path could not, and the record that closes the slot carries it. */
+  readonly readTranscriptAtRelease?: () => Promise<HarnessTranscriptEvidence>
+  /** The bounded account of the team this child led, read from its own scope at settlement. */
+  subtree?: SubtreeSummary
   /** How many teardown requests this child's executor was sent. */
   teardownAttempts: number
   /** Why the last teardown attempt did not confirm destruction. */
@@ -700,7 +736,8 @@ interface DeferredOwnerSlot {
 
 function makeNestedScopeSeam(
   args: ScopeArgs,
-  liveWorkerCapacity: LiveWorkerCapacityState,
+  workerSlots: WorkerSlots,
+  childSlot: SlotPermit,
   childNodeId: NodeId,
   childBudget: Budget,
   childDeadlineAtMs: number | undefined,
@@ -733,7 +770,8 @@ function makeNestedScopeSeam(
       seams: args.seams,
       depth: args.depth + 1,
       ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
-      liveWorkerCapacity,
+      workerSlots,
+      slotOwner: childSlot,
       ...(args.reservationPolicy
         ? { reservationPolicy: args.reservationPolicy, ownerBudget: nestedBudget }
         : {}),
@@ -785,12 +823,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // Set once by `closeScopeAdmission` at the join barrier; never cleared.
   let admissionClosed = false
   const interactiveBindingDir = args.interactiveBindingDir
-  const liveWorkerCapacity: LiveWorkerCapacityState = args.liveWorkerCapacity ?? {
-    max: normalizeLiveWorkerLimit(args.maxLiveWorkers),
-    live: 0,
-  }
+  const workerSlots = args.workerSlots ?? createWorkerSlots()
+  const slotGroup = openSlotGroup(workerSlots, args.slotOwner)
   const reservationPolicy = args.reservationPolicy
-  assertRecursiveReservationPolicy(reservationPolicy, args.maxDepth, liveWorkerCapacity.max)
+  assertRecursiveReservationPolicy(reservationPolicy)
   if (reservationPolicy && !args.ownerBudget) {
     throw new ValidationError('reservationPolicy requires the owning scope budget')
   }
@@ -805,11 +841,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             : { usd: ownerBudget.maxUsd * reservationPolicy.ownerShare }),
         }
       : undefined
-  // A shallow spawn may consume only the slots that leave one path to maxDepth open.
-  const admissionMax =
-    reservationPolicy && liveWorkerCapacity.max !== undefined && args.maxDepth !== undefined
-      ? liveWorkerCapacity.max - Math.max(0, args.maxDepth - (args.depth + 1))
-      : liveWorkerCapacity.max
   // Two distinct monotonic counters in two namespaces:
   //  - `spawnOrdinal` is the spawn order (0,1,2,…); it mints the deterministic node id
   //    `${parent}:s${ordinal}` and stamps the `spawned` event's `seq`. Known at spawn.
@@ -827,6 +858,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
   let waitOrdinal = args.resumeFrom ? args.resumeFrom.maxWaitOrdinal + 1 : 0
   let meterSeq = 0
+  // The owner's own turns, so its lead reads a manager that takes turns as active.
+  let ownerTurns = 0
+  let ownerLastTurnAt = 0
   let progressSeq = 0
   const now = args.now ?? Date.now
   // Waits the journal shows as armed but never woken, keyed by label. `wait` RE-ADOPTS one instead
@@ -872,6 +906,17 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         id: prior.id,
         identity: prior.identity,
         reason: prior.settled.reason,
+      })
+    } else if (prior.state === 'down' && prior.settled === undefined) {
+      // A derived `down`: the resume itself proved the attempt dead (an `inline` runtime cannot
+      // outlive its process), so there is no settlement to fold — the derived reason is the
+      // terminal evidence a same-key re-spawn reports as `resumed: "retried"`.
+      if (prior.identity === undefined) continue
+      keyed.set(key, {
+        state: 'down',
+        id: prior.id,
+        identity: prior.identity,
+        reason: prior.reason ?? 'interrupted: resume proved the prior attempt dead',
       })
     } else if (prior.identity !== undefined) {
       keyed.set(key, { state: 'in-doubt', id: prior.id, identity: prior.identity })
@@ -984,53 +1029,26 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // reservation, before registry resolution or any executor code.
     if (typeof agentOrFactory !== 'function') prepared ??= prepare()
 
-    // ONE admission counter is shared by the root scope and every recursive scope it mounts.
-    // Acquire before calling a lazy worker factory, resolving/constructing its executor, or
-    // reserving budget. A completed keyed assignment returned above never touches the counter.
-    if (!recovery && admissionMax !== undefined && liveWorkerCapacity.live >= admissionMax) {
-      return { ok: false, reason: 'max-live-workers' }
-    }
-    if (!recovery && ownerFloor) {
-      const available = args.pool.readout()
-      const shortfalls: ReservationShortfall[] = []
-      const short = (channel: ReservationShortfall['channel'], requested: number, free: number) => {
-        if (requested > free) shortfalls.push({ channel, requested, free: Math.max(0, free) })
-      }
-      short('tokens', opts.budget.maxTokens, available.tokensLeft - ownerFloor.tokens)
-      short(
-        'iterations',
-        opts.budget.maxIterations,
-        available.iterationsLeft - ownerFloor.iterations,
-      )
-      if (ownerFloor.usd !== undefined) {
-        short('usd', opts.budget.maxUsd ?? 0, available.usdLeft - ownerFloor.usd)
-      }
-      if (shortfalls.length > 0) {
-        return { ok: false, reason: 'budget-exhausted', shortfalls }
-      }
-    }
-    const permit = acquireLiveWorker(liveWorkerCapacity)
-    if (!permit.ok) return { ok: false, reason: 'max-live-workers' }
-
-    // Reserve the child's whole ceiling atomically; fail CLOSED when the pool can't cover
-    // it (never read-then-spawn overcommit, so Σk is conserved by construction). This happens
+    // Reserve the child's whole ceiling atomically, never read-then-spawn overcommit, so Σk is
+    // conserved by construction. A ceiling the pool cannot cover now, but could once this scope's
+    // running children return what they hold, WAITS for it instead of failing: the child is
+    // admitted as `queued` and starts when settlements free enough. It fails CLOSED when nothing
+    // running could free enough. The manager's owner share stays free either way. This happens
     // before a fresh lazy agent factory is called: refused work constructs nothing.
     // The ticket is named from the moment it exists. A node id arrives only after admission, so
     // the holder is refined below; a leak caught before then still carries the assignment.
     const assignment = opts.assignmentId ?? opts.key
     let reservation: ReturnType<BudgetPool['reserve']>
-    try {
-      reservation = args.pool.reserve(opts.budget, {
+    reservation = args.pool.reserve(
+      opts.budget,
+      {
         ...(assignment === undefined ? {} : { assignment }),
         label: opts.label,
         stage: 'admitted',
-      })
-    } catch (error) {
-      permit.release()
-      throw error
-    }
+      },
+      recovery ? {} : { wait: true, ...(ownerFloor ? { keep: ownerFloor } : {}) },
+    )
     if (!reservation.ok) {
-      permit.release()
       return {
         ok: false,
         reason: reservation.reason,
@@ -1038,7 +1056,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     }
 
-    // Resolve the leaf executor through the open registry after both worker and budget admission.
+    // Resolve the leaf executor through the open registry after budget admission.
     // If preparation fails, refund the reservation here because runChild never receives it.
     let spec: AgentSpec
     let resolved: { succeeded: true; value: (spec: AgentSpec, ctx: ExecutorContext) => Executor<C> }
@@ -1049,7 +1067,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       identity = prepared.identity
       if (opts.key !== undefined && !isCompleteIdentity(identity)) {
         args.pool.reconcile(reservation.ticket, withBudgetResources(zeroSpend(), opts.budget, true))
-        permit.release()
         return { ok: false, reason: 'invalid-identity' }
       }
       const outcome = recovery
@@ -1062,9 +1079,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       resolved = outcome
     } catch (error) {
       args.pool.reconcile(reservation.ticket, withBudgetResources(zeroSpend(), opts.budget, true))
-      permit.release()
       throw error
     }
+
+    // The child keeps its budget slice and takes a worker slot now, or waits in the allocator's
+    // queue and starts when one frees. A recovered execution already runs remotely, so it takes a
+    // slot past the bound rather than waiting behind work that has not started. A child that
+    // waits for budget asks for its slot only once the budget is granted, so it never holds a
+    // slot that the children it waits on need.
+    const budgetGranted = reservation.granted
+    const permit =
+      budgetGranted === undefined
+        ? slotGroup.acquire(args.depth + 1, { force: recovery !== undefined })
+        : deferSlot(budgetGranted, () => slotGroup.acquire(args.depth + 1))
 
     // Everything between reserve and runChild's hand-off owns the reservation. A SYNCHRONOUS
     // throw here (most likely the executor factory `resolved.value(spec, ctx)`) would otherwise
@@ -1278,7 +1305,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           ),
           [nestedScopeSeamKey]: makeNestedScopeSeam(
             args,
-            liveWorkerCapacity,
+            workerSlots,
+            permit,
             id,
             opts.budget,
             childDeadlineAtMs,
@@ -1333,7 +1361,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       })
       const live: LiveChild = {
         id,
-        status: 'acquiring',
+        status: permit.granted ? 'acquiring' : 'queued',
         runtime: executor.runtime,
         ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
         ...(identity ? { identity } : {}),
@@ -1382,6 +1410,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(nestedTeardownScopes.has(executor)
           ? { readNestedScope: nestedTeardownScopes.get(executor)! }
           : {}),
+        ...(executor.harnessTranscript
+          ? {
+              readTranscriptAtRelease: () =>
+                persistHarnessTranscript(readHarnessTranscript(executor), args.blobs),
+            }
+          : {}),
         teardownAttempts: 0,
         abortChild: (reason?: unknown): void => controller.abort(reason),
       }
@@ -1418,27 +1452,30 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         : args.blobs
             .put(profileRef, spec.profile)
             .then(() => (taskRef === undefined ? undefined : args.blobs.put(taskRef, task)))
-            .then(() =>
-              args.journal.appendEvent(args.root, {
-                kind: 'spawned',
-                id,
-                parent: args.parentId,
-                label: opts.label,
-                ...(opts.key !== undefined ? { key: opts.key } : {}),
-                ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-                ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
-                budget: opts.budget,
-                runtime: executor.runtime,
-                ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-                ...(identity ? { identity } : {}),
-                profileRef,
-                seq: ordinal,
-                at: new Date(now()).toISOString(),
-              }),
-            )
             .then(async () => {
+              // The spawn record and its execution input publish as ONE grouped record where the
+              // store supports it, so a SQL context's fenced head advances once per spawn — a crash
+              // between the two can never leave a spawned node whose task bytes are unreferenced.
+              const events: SpawnEvent[] = [
+                {
+                  kind: 'spawned',
+                  id,
+                  parent: args.parentId,
+                  label: opts.label,
+                  ...(opts.key !== undefined ? { key: opts.key } : {}),
+                  ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+                  ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
+                  budget: opts.budget,
+                  runtime: executor.runtime,
+                  ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+                  ...(identity ? { identity } : {}),
+                  profileRef,
+                  seq: ordinal,
+                  at: new Date(now()).toISOString(),
+                },
+              ]
               if (taskRef !== undefined) {
-                await args.journal.appendEvent(args.root, {
+                events.push({
                   kind: 'execution-input',
                   id,
                   taskRef,
@@ -1446,6 +1483,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   at: new Date(now()).toISOString(),
                 })
               }
+              await appendSpawnEvents(args.journal, args.root, events)
             })
             .then(async () => {
               // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
@@ -1627,6 +1665,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               childId: id,
               label: opts.label,
               ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+              ...(opts.key === undefined ? {} : { key: opts.key }),
               ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
               runtime: executor.runtime,
               ...(identity ? { identity } : {}),
@@ -1665,6 +1704,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         childDeadlineAtMs,
         recovery !== undefined,
         closeRetainedWrites,
+        budgetGranted,
+        permit.ready,
       )
       // `runChild` owns the ticket from here: only the child's settlement closes it, so a leak
       // found at the join barrier points at a child that never settled rather than at admission.
@@ -1728,8 +1769,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           return resolution
         })
         .finally(() => {
-          // `maxLiveWorkers` caps workers that are SIMULTANEOUSLY LIVE, and a terminally-settled
-          // child is not live. Gating the release on proof of destruction conflated two questions:
+          // The worker slot bounds agents that are SIMULTANEOUSLY WORKING, and a terminally-settled
+          // child is not working. Gating the release on proof of destruction conflated two questions:
           // how many workers are running, and how many remote environments were never reclaimed.
           // A child whose cleanup cannot be confirmed — which is every retained execution, because
           // its executor answers `destroyed: false` by construction while reconciliation is pending
@@ -2028,15 +2069,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     } catch {
       fromExecutor = undefined
     }
+    // A manager child reports no usage of its own until it settles, so without its team the lead
+    // would read a manager whose workers are busy as idle and, after `stallAfterMs`, as stalled.
+    const team = liveTeamOf(child)
     return readWorkerProgress(
       {
         id: child.id,
         status: child.status,
         steerable: child.deliver !== undefined && !child.delivered,
         startedAt: child.startedAt,
-        lastActivityAt: child.lastActivityAt,
+        lastActivityAt: Math.max(child.lastActivityAt, team?.lastActivityAt ?? 0),
         ...addResourceSpend(child.spent.resources),
-        turns: child.spent.iterations,
+        turns: Math.max(child.spent.iterations, team?.ownerTurns ?? 0),
+        ...(team && team.agents > 0 ? { team: teamProgress(team) } : {}),
         tokens: child.spent.tokens,
         ...(child.spent.tokensKnown === false ? { tokensKnown: false } : {}),
         usd: child.spent.usd,
@@ -2122,6 +2167,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     } catch (error) {
       observeError = error
     }
+    ownerLastTurnAt = now()
+    if (!accountingOnly) ownerTurns += 1
     // Journal it as a `metered` event — the durable TWIN of the pool debit (as `settled` is the
     // twin of `reconcile`), so every journal-based cost reader sums driver inference automatically.
     // Awaited like the settled append (cost-critical), so it has landed before the supervisor's
@@ -2188,8 +2235,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     },
     get workerCapacity() {
       return {
-        live: liveWorkerCapacity.live,
-        freeSlots: freeSlots(liveWorkerCapacity.live, admissionMax),
+        working: workerSlots.working,
+        queued: workerSlots.queued,
+        freeSlots: freeSlots(workerSlots.working, workerSlots.max),
         // The nodes behind a charged-but-idle slot: settled, yet their executor never
         // acknowledged teardown. This scope names its OWN children; a nested manager names its
         // own, so a leak is attributable rather than an integer.
@@ -2204,6 +2252,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   admissionSeals.set(scope as Scope<unknown>, () => {
     admissionClosed = true
   })
+  subtreeReaders.set(scope as Scope<unknown>, () => summarizeTeam(children.values()))
+  liveTeamReaders.set(scope as Scope<unknown>, () =>
+    readLiveTeam(children.values(), ownerTurns, ownerLastTurnAt),
+  )
   runtimeOwnedProviderMeters.set(
     scope as Scope<unknown>,
     async (spend, providerModel, detail, accountingOnly) =>
@@ -2468,54 +2520,95 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // `reconciled` — every one read as `never-settled` and charged its ceiling by every
       // journal reader although the pool had committed the floor. The gate is the same
       // `cleanupConfirmed` the barrier reads: a `destroyed: false` receipt, an executor throw, an
-      // environment-less `[]` answer or a refused `confirmTeardown` leave the slot open, because
-      // the environment may still exist and `[].every` would otherwise close it vacuously. A
-      // crash between the last receipt and this record no longer strands the slot: the
-      // reconciled record carries this settlement and the cursor seq, and `healReleasedSlots`
+      // environment-less `[]` answer or a refused `confirmTeardown` do not make a release, because
+      // the environment may still exist and `[].every` would otherwise close it vacuously; the
+      // final close (`closeRetainedSlots`) states those as `'release-unconfirmed'` once no retry
+      // is left. A crash between the last receipt and this record no longer strands the slot:
+      // the reconciled record carries this settlement and the cursor seq, and `healReleasedSlots`
       // (recover-executors.ts) writes this same record from it on the next resume, under the
       // same seq. A manager settled on the ordinary path already has its record and never
       // passes `recoveryPending`.
-      if (
-        child.cleanupConfirmed &&
-        child.recoveryPending === true &&
-        child.resolved?.kind === 'down' &&
-        child.settledSeq !== undefined &&
-        child.settledAt !== undefined &&
-        !prior.some((event) => event.id === child.id && closesCursorSlot(event))
-      ) {
-        child.budgetViolation = child.retainedViolation
-        const settledAt = child.settledAt
-        await args.journal.appendEvent(
-          args.root,
-          terminalDownEvent(
-            child,
-            child.resolved,
-            child.settledSeq,
-            new Date(settledAt).toISOString(),
-            'released',
-          ),
-        )
-        child.retainedExecution = 'released'
-        const releasedAt = now()
-        // A second `agent.child` for one node is already how a live-recovered child flips
-        // down→done, so the projection folds this in observed order; `settledAt` stays the
-        // settlement instant and `metered` is omitted so the driver's inference is not summed twice.
-        notifyRuntimeHookEvent(
-          args.hooks,
-          {
-            id: `${child.id}:released`,
-            runId: args.root,
-            target: 'agent.child',
-            phase: 'after',
-            timestamp: releasedAt,
-            stepIndex: child.settledSeq,
-            parentId: args.parentId,
-            payload: releasedChildPayload(child, child.resolved, settledAt, releasedAt),
-          },
-          { signal: args.signal },
-        )
-      }
+      if (child.cleanupConfirmed) await closeRetainedSlot(child, 'released', prior)
     }
+  })
+  // One writer for the record that closes a retained child's slot, in either state, so the
+  // released record and the unconfirmed one can never disagree on a field.
+  const closeRetainedSlot = async (
+    child: LiveChild,
+    state: Exclude<RetainedExecutionState, 'pending'>,
+    prior: ReadonlyArray<SpawnEvent>,
+  ): Promise<void> => {
+    if (
+      child.recoveryPending !== true ||
+      child.resolved?.kind !== 'down' ||
+      child.settledSeq === undefined ||
+      child.settledAt === undefined ||
+      child.retainedExecution === 'released' ||
+      child.retainedExecution === 'release-unconfirmed' ||
+      prior.some((event) => event.id === child.id && closesCursorSlot(event))
+    ) {
+      return
+    }
+    child.budgetViolation = child.retainedViolation
+    const settledAt = child.settledAt
+    // The record restates the driver's settlement, with one exception: a session the release read
+    // after the failure path could not. Only an available receipt replaces the earlier one.
+    let settlement = child.resolved
+    if (settlement.harnessTranscript?.status !== 'available' && child.readTranscriptAtRelease) {
+      const atRelease = await child.readTranscriptAtRelease()
+      if (atRelease.status === 'available')
+        settlement = { ...settlement, harnessTranscript: atRelease }
+    }
+    await args.journal.appendEvent(
+      args.root,
+      terminalDownEvent(
+        child,
+        settlement,
+        child.settledSeq,
+        new Date(settledAt).toISOString(),
+        state,
+      ),
+    )
+    child.retainedExecution = state
+    const closedAt = now()
+    // A second `agent.child` for one node is already how a live-recovered child flips
+    // down→done, so the projection folds this in observed order; `settledAt` stays the
+    // settlement instant and `metered` is omitted so the driver's inference is not summed twice.
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${child.id}:${state}`,
+        runId: args.root,
+        target: 'agent.child',
+        phase: 'after',
+        timestamp: closedAt,
+        stepIndex: child.settledSeq,
+        parentId: args.parentId,
+        payload: releasedChildPayload(child, settlement, settledAt, closedAt, state),
+      },
+      { signal: args.signal },
+    )
+  }
+  retainedSlotClosers.set(scope, async () => {
+    // Descendants first, in their own trees: a nested manager's retained children close where its
+    // scope journals them, whether the manager itself settled or is retained too.
+    for (const child of children.values()) {
+      const nested = child.readNestedScope?.()
+      if (nested !== undefined) await closeRetainedSlots(nested)
+    }
+    // A confirmed release is the sweep's to record, and after a crash the resume heal's, so this
+    // pass writes only the unconfirmed state and never a second `released` record.
+    const open = [...children.values()].filter(
+      (child) =>
+        child.recoveryPending === true &&
+        !child.cleanupConfirmed &&
+        isTerminalNodeStatus(child.status) &&
+        child.retainedExecution !== 'released' &&
+        child.retainedExecution !== 'release-unconfirmed',
+    )
+    if (open.length === 0) return
+    const prior = (await args.journal.loadTree(args.root)) ?? []
+    for (const child of open) await closeRetainedSlot(child, 'release-unconfirmed', prior)
   })
   registerScopeRetainedOwner(scope as Scope<unknown>, {
     rootId: args.root,
@@ -2671,7 +2764,7 @@ export async function recordScopeOwnerMaterialization(
         )
       }
       // The attempt ran in a DIFFERENT execution instance with everything else identical, which is
-      // Runtime's own doing: the `repromptOnUnmet` re-entry asks the provider for a new environment,
+      // Runtime's own doing: a continuation re-entry asks the provider for a new environment,
       // and a retained environment can be replaced between attempts. Rejecting it stranded a root
       // that had already completed a turn (agent-runtime#1225): the refusal surfaced as a transient
       // RetainedExecutionPendingError and every remaining driver attempt hit the same wall.
@@ -2697,7 +2790,7 @@ export async function recordScopeOwnerMaterialization(
 /** @internal Kernel identity for constructing the exact deferred owner executor. */
 /**
  * @internal Each driver attempt of the scope owner is its own execution attempt. A driver retry
- * after a failed drive, and the `repromptOnUnmet` re-entry after an unmet completion check, both
+ * after a failed drive, and the continuation re-entry after an unmet completion check, both
  * run the harness again and report a new execution binding; the journal keys owner bindings by
  * attempt id, so every attempt after the first is given a fresh kernel-minted id and its
  * published flags are cleared, and the new binding lands beside the earlier ones. The first
@@ -3091,6 +3184,9 @@ async function finalizeSettlement<Out>(
   // journal reader can separate zero-cost waiting from paid work without inspecting payloads
   // (`spentFromJournal` therefore sums waits as the zero they are, with no special case).
   if (child.wait) return finalizeWait<Out>(child, settlement, seq, args, now, handle)
+  const nestedScope = child.readNestedScope?.()
+  const subtree = nestedScope === undefined ? undefined : subtreeSummaryOf(nestedScope)
+  if (subtree !== undefined) child.subtree = subtree
   const settledAt = now()
   child.settledAt = settledAt
   child.settledSeq = seq
@@ -3175,6 +3271,7 @@ async function finalizeSettlement<Out>(
           ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
           ...retainedExecution,
           spent: child.spent,
+          ...(subtree === undefined ? {} : { subtree }),
           ...settledNodeEvidence(child, settlement, settledAt),
         },
       },
@@ -3191,6 +3288,7 @@ async function finalizeSettlement<Out>(
       ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
       trace: settlement.trace,
       ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+      ...(subtree === undefined ? {} : { subtree }),
       settledAt,
       seq,
     }
@@ -3212,6 +3310,7 @@ async function finalizeSettlement<Out>(
     ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
     trace: settlement.trace,
     ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+    ...(subtree === undefined ? {} : { subtree }),
     seq,
     at,
   })
@@ -3232,6 +3331,7 @@ async function finalizeSettlement<Out>(
         score: settlement.verdict?.score,
         valid: settlement.verdict?.valid,
         spent: settlement.spent,
+        ...(subtree === undefined ? {} : { subtree }),
         ...settledNodeEvidence(child, settlement, settledAt),
       },
     },
@@ -3248,6 +3348,7 @@ async function finalizeSettlement<Out>(
     ...(child.budgetViolation ? { budgetViolation: child.budgetViolation } : {}),
     trace: settlement.trace,
     ...(settlement.harnessTranscript ? { harnessTranscript: settlement.harnessTranscript } : {}),
+    ...(subtree === undefined ? {} : { subtree }),
     settledAt,
     seq,
   }
@@ -3359,6 +3460,8 @@ async function runChild<C>(
   deadlineAtMs: number | undefined,
   recovering = false,
   closeRetainedWrites: () => Promise<void> = async () => {},
+  budgetReady: Promise<void> | undefined = undefined,
+  slotReady: Promise<void> = Promise.resolve(),
 ): Promise<PreSeqSettled> {
   let reconciled = false
   let reconciliationError: unknown
@@ -3455,6 +3558,11 @@ async function runChild<C>(
     // refunds its reservation; the executor observes zero calls.
     await executionReady
     if (childAbort.signal.aborted) throw abortError(childAbort.signal, 'execution aborted')
+    // A queued child runs nothing until the pool grants its budget slice and then the allocator
+    // grants it a worker slot. A refused budget wait settles it down as budget-exhausted; an abort
+    // while it waits settles it down with whatever it holds refunded.
+    if (budgetReady !== undefined) await awaitAbortable(budgetReady, childAbort.signal)
+    await awaitAbortable(slotReady, childAbort.signal)
     // A budgetExempt WORKER (e.g. the raw `cli` printer) reports zero spend by contract; its
     // reconcile refunds the whole reservation, keeping it out of the conserved Σk by construction.
     // Only the DRIVER path refuses budget-exempt runtimes (`driveHarnessFromBackend`), because a
@@ -3779,33 +3887,139 @@ export function settledToIteration<Out>(settled: Settled<Out>): Iteration<unknow
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-function normalizeLiveWorkerLimit(value: number | undefined): number | undefined {
-  if (value === undefined || value <= 0) return undefined
-  if (!Number.isSafeInteger(value)) {
-    throw new ValidationError(
-      `createScope: maxLiveWorkers must be a positive safe integer or <= 0 for uncapped, got ${String(value)}`,
-    )
+/** Summarize one scope's children and everything below them, listing the best direct children
+ *  and counting the rest. Wait-states are not agents and are left out. */
+/** The live team a child manager leads, read through the nested scope it owns. */
+function liveTeamOf(child: LiveChild): LiveTeam | undefined {
+  let nested: Scope<unknown> | undefined
+  try {
+    nested = child.readNestedScope?.()
+  } catch {
+    return undefined
   }
-  return value
+  return nested === undefined ? undefined : liveTeamReaders.get(nested)?.()
 }
 
-function acquireLiveWorker(
-  capacity: LiveWorkerCapacityState,
-): { ok: true; release: () => void } | { ok: false } {
-  if (capacity.max !== undefined && capacity.live >= capacity.max) return { ok: false }
-  capacity.live += 1
-  let released = false
-  return {
-    ok: true,
-    release(): void {
-      if (released) return
-      released = true
-      capacity.live -= 1
-      if (capacity.live < 0) {
-        throw new ValidationError('scope: live-worker capacity released more than once')
-      }
-    },
+function teamProgress(team: LiveTeam): TeamProgress {
+  const { lastActivityAt: _lastActivityAt, ownerTurns: _ownerTurns, ...counts } = team
+  return Object.freeze(counts)
+}
+
+/** Latest activity an executor names, or 0. A throwing read is no evidence of activity. */
+function executorActivityAt(child: LiveChild): number {
+  try {
+    const recent = child.readProgress?.()?.recentActivity
+    return recent?.length ? (recent[recent.length - 1]?.at ?? 0) : 0
+  } catch {
+    return 0
   }
+}
+
+/** Count a scope's team at every depth and find its newest activity. Live members are read through
+ *  their own nested scopes; settled members contribute the summary their settlement carried. */
+function readLiveTeam(
+  children: Iterable<LiveChild>,
+  ownerTurns: number,
+  ownerLastTurnAt: number,
+): LiveTeam {
+  let agents = 0
+  let depth = 0
+  let working = 0
+  let queued = 0
+  let done = 0
+  let down = 0
+  let lastActivityAt = ownerLastTurnAt
+  for (const child of children) {
+    if (child.wait) continue
+    agents += 1
+    lastActivityAt = Math.max(
+      lastActivityAt,
+      child.lastActivityAt,
+      child.settledAt ?? 0,
+      executorActivityAt(child),
+    )
+    if (child.status === 'done') done += 1
+    else if (child.status === 'failed' || child.status === 'cancelled') down += 1
+    else if (child.status === 'queued' || child.status === 'pending') queued += 1
+    else working += 1
+    const below = isTerminalNodeStatus(child.status) ? child.subtree : liveTeamOf(child)
+    if (below === undefined || below.agents === 0) continue
+    agents += below.agents
+    depth = Math.max(depth, below.depth)
+    done += below.done
+    down += below.down
+    if ('working' in below) {
+      working += below.working
+      queued += below.queued
+      lastActivityAt = Math.max(lastActivityAt, below.lastActivityAt)
+    }
+  }
+  return {
+    agents,
+    depth: agents === 0 ? 0 : depth + 1,
+    working,
+    queued,
+    done,
+    down,
+    lastActivityAt,
+    ownerTurns,
+  }
+}
+
+function summarizeTeam(children: Iterable<LiveChild>): SubtreeSummary | undefined {
+  let agents = 0
+  let depth = 0
+  let done = 0
+  let down = 0
+  let members = 0
+  const results: Array<SubtreeResult & { readonly order: number }> = []
+  for (const child of children) {
+    if (child.wait) continue
+    members += 1
+    const below = child.subtree
+    agents += 1 + (below?.agents ?? 0)
+    depth = Math.max(depth, 1 + (below?.depth ?? 0))
+    done += below?.done ?? 0
+    down += below?.down ?? 0
+    const status =
+      child.status === 'done'
+        ? 'done'
+        : child.status === 'failed' || child.status === 'cancelled'
+          ? 'down'
+          : undefined
+    if (status === undefined) continue
+    if (status === 'done') done += 1
+    else down += 1
+    const score =
+      child.resolved?.kind === 'done' ? child.resolved.verdict?.score : (undefined as undefined)
+    results.push({
+      id: child.id,
+      label: child.label,
+      status,
+      ...(child.outRef === undefined ? {} : { outRef: child.outRef }),
+      ...(score === undefined ? {} : { score }),
+      agents: below?.agents ?? 0,
+      order: child.settledSeq ?? Number.MAX_SAFE_INTEGER,
+    })
+  }
+  if (members === 0) return undefined
+  results.sort(
+    (a, b) =>
+      (a.status === b.status ? 0 : a.status === 'done' ? -1 : 1) ||
+      (b.score ?? Number.NEGATIVE_INFINITY) - (a.score ?? Number.NEGATIVE_INFINITY) ||
+      a.order - b.order,
+  )
+  const listed = results
+    .slice(0, SUBTREE_RESULT_LIMIT)
+    .map(({ order: _order, ...result }) => Object.freeze(result))
+  return Object.freeze({
+    agents,
+    depth,
+    done,
+    down,
+    results: Object.freeze(listed),
+    omitted: members - listed.length,
+  })
 }
 
 function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView {
@@ -3840,7 +4054,9 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
   return {
     root,
     nodes,
-    inFlight: nodes.filter((n) => n.status === 'running' || n.status === 'acquiring').length,
+    inFlight: nodes.filter(
+      (n) => n.status === 'running' || n.status === 'acquiring' || n.status === 'queued',
+    ).length,
     waiting: nodes.filter((n) => n.status === 'waiting').length,
   }
 }
@@ -4120,40 +4336,6 @@ function downRecord(
     ...(metered ? { metered } : {}),
     ...(outRef === undefined ? {} : { outRef }),
   }
-}
-
-/**
- * Read one executor's harness-transcript receipt without letting a broken port escape.
- *
- * The three answers this has to keep apart, because #1214 and #1244 are both about an artifact
- * that reads as coverage without being coverage:
- *   - `available`                              the transcript survived;
- *   - a reason the CAPTURE produced            a box existed and could not be read;
- *   - `executor-exposes-no-transcript`     this runtime has no transcript to offer at all;
- *   - `execution-never-started`                no environment was ever created (the executor's
- *                                              own seed, set before `create`);
- *   - `capture-did-not-run`                    the port answered nothing, so the capture was
- *                                              skipped rather than attempted and failed.
- *
- * Mirrors `readInteractiveSession` above: an absence is always a named reason, never `undefined`.
- */
-function readHarnessTranscript(executor: {
-  harnessTranscript?: () => unknown
-}): HarnessTranscriptCapture {
-  if (!executor.harnessTranscript) {
-    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
-  }
-  let reported: unknown
-  try {
-    reported = executor.harnessTranscript()
-  } catch {
-    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
-  }
-  if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
-  const capture = reported as HarnessTranscriptCapture
-  if (capture.status === 'captured' && capture.artifact) return capture
-  if (capture.status === 'unavailable' && capture.reason) return capture
-  return harnessTranscriptUnavailable('executor-exposes-no-transcript')
 }
 
 /** The one place an absent interactive process is spelled, so every refusal reads the same. */

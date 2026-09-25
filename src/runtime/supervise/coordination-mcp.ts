@@ -228,11 +228,10 @@ export async function serveCoordinationMcp(
      *  still running at the fence returns a pending result, and an identical resubmission joins
      *  that check and returns its verdict. */
     deliverable?: DeliverableSpec<unknown>
+    /** Serve `read_continuation` from the manager's continuation records. */
+    readContinuation?: (continuation: number | undefined) => unknown
     /** Called once when the external manager accepts a result or declares completion. */
     onStop?: (reason: string | undefined) => void
-    /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
-     *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
-    maxLiveWorkers?: number
     /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
      *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
      *  the `coordinationResponseFenceMs` derived from the request timeout; `<= 0` = prior unbounded
@@ -457,8 +456,8 @@ export async function serveCoordinationMcpForManager(
       ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
       perWorker: opts.perWorker,
       ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+      ...(opts.readContinuation ? { readContinuation: opts.readContinuation } : {}),
       ...(opts.onStop ? { onStop: opts.onStop } : {}),
-      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
       awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),

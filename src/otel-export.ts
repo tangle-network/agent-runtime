@@ -11,7 +11,13 @@
 
 import { appendFileSync } from 'node:fs'
 
-import { deriveHexId, isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
+import {
+  ATTR,
+  deriveHexId,
+  isW3CSpanId,
+  isW3CTraceId,
+  type SpanKind,
+} from '@tangle-network/agent-trace-contract'
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
@@ -24,6 +30,14 @@ export interface OtelExportConfig {
   batchSize?: number
   /** Flush interval ms. Default 5000. */
   flushIntervalMs?: number
+  /**
+   * Most spans held at once, queued plus in flight. Default 2048, the OpenTelemetry batch
+   * processor's own default. A span that arrives when the queue is full is dropped and counted in
+   * {@link OtelExportStats.dropped}, so a stalled collector costs a bounded amount of memory.
+   */
+  maxQueueSize?: number
+  /** Milliseconds one POST may take before it is abandoned and its spans count as dropped. Default 10000. */
+  timeoutMs?: number
   /** Resource attributes stamped on every export. */
   resourceAttributes?: Record<string, string | number | boolean>
   /** Service name. Default 'agent-runtime'. */
@@ -31,12 +45,32 @@ export interface OtelExportConfig {
 }
 
 export interface OtelExporter {
-  /** Export a span. */
+  /** Export a span. Never throws: a sink that cannot take the span counts it as dropped. */
   exportSpan(span: OtelSpan): void
-  /** Force flush pending spans. */
+  /**
+   * Deliver everything queued so far. Rejects when spans were dropped since the previous `flush`,
+   * naming how many and the last error, because a caller that awaits delivery is owed the answer.
+   */
   flush(): Promise<void>
-  /** Shutdown cleanly. */
+  /** Stop accepting spans and deliver what is queued. Never rejects. */
   shutdown(): Promise<void>
+  /** What this sink has delivered and lost so far. */
+  stats(): OtelExportStats
+}
+
+/**
+ * Delivery accounting for one exporter. `written + dropped + pending` covers every span handed to
+ * `exportSpan`, so a trace that arrives short can be told apart from a run that emitted less.
+ */
+export interface OtelExportStats {
+  /** Spans the sink confirmed: a 2xx collector response, or a completed file append. */
+  written: number
+  /** Spans lost: refused by the collector, failed in transit, over the queue bound, or unwritable. */
+  dropped: number
+  /** Spans accepted and not yet written or dropped. */
+  pending: number
+  /** The most recent failure, when there has been one. */
+  lastError?: string
 }
 
 export interface OtelSpan {
@@ -101,29 +135,31 @@ const GEN_AI = {
  * useless for the runs you most want to look at.
  */
 export function createOpenInferenceFileExporter(filePath: string): OtelExporter {
-  const lines: string[] = []
+  let written = 0
+  let dropped = 0
   let failed: Error | undefined
-  const append = (line: string): void => {
-    try {
-      appendFileSync(filePath, `${line}\n`, 'utf8')
-    } catch (error) {
-      // Telemetry must never take the run down with it, but a silently dead exporter is how a
-      // missing trace gets mistaken for an empty one. Remember the first failure and surface it
-      // from flush(), where a caller is already awaiting an answer.
-      failed ??= error instanceof Error ? error : new Error(String(error))
-    }
-  }
   return {
     exportSpan(span: OtelSpan): void {
-      append(JSON.stringify(toOpenInferenceLine(span)))
-      lines.push('')
+      try {
+        appendFileSync(filePath, `${JSON.stringify(toOpenInferenceLine(span))}\n`, 'utf8')
+        written += 1
+      } catch (error) {
+        // Telemetry must never take the run down with it, but a silently dead exporter is how a
+        // missing trace gets mistaken for an empty one. Count the loss, remember the first failure
+        // and surface it from flush(), where a caller is already awaiting an answer.
+        dropped += 1
+        failed ??= error instanceof Error ? error : new Error(String(error))
+      }
     },
     async flush(): Promise<void> {
       if (failed)
-        throw new Error(`OpenInference file exporter failed writing ${filePath}: ${failed.message}`)
+        throw new Error(
+          `OpenInference file exporter failed writing ${filePath} (${dropped} spans dropped): ${failed.message}`,
+        )
     },
-    async shutdown(): Promise<void> {
-      lines.length = 0
+    async shutdown(): Promise<void> {},
+    stats(): OtelExportStats {
+      return { written, dropped, pending: 0, ...(failed ? { lastError: failed.message } : {}) }
     },
   }
 }
@@ -184,84 +220,177 @@ function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
 }
 
 /**
- * Create an OTEL exporter. Returns undefined when no endpoint is configured.
+ * Create an OTLP/HTTP exporter. Returns undefined when no endpoint is configured.
+ *
+ * One batch is in flight at a time; spans that arrive meanwhile wait in a queue bounded by
+ * `maxQueueSize`. Every span ends in exactly one of `written` or `dropped`: a non-2xx response, a
+ * network error, a timeout, an OTLP `partialSuccess.rejectedSpans` count and a full queue each count
+ * as drops and set `lastError`. Nothing here throws into the caller's run; `flush()` reports the
+ * loss, the same rule {@link createOpenInferenceFileExporter} follows.
  */
 export function createOtelExporter(config?: OtelExportConfig): OtelExporter | undefined {
   const resolvedEndpoint =
     config?.endpoint ??
     (typeof process !== 'undefined' ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT : undefined)
   if (!resolvedEndpoint) return undefined
-  const endpoint: string = resolvedEndpoint
+  const url = `${resolvedEndpoint.replace(/\/+$/, '')}/v1/traces`
 
   const headers = config?.headers ?? parseHeadersFromEnv()
-  const batchSize = config?.batchSize ?? 64
+  const batchSize = positiveInteger(config?.batchSize, 64)
   const flushIntervalMs = config?.flushIntervalMs ?? 5000
-  const serviceName = config?.serviceName ?? 'agent-runtime'
-  const resourceAttrs = config?.resourceAttributes ?? {}
-
-  const pending: OtelSpan[] = []
-  let timer: ReturnType<typeof setInterval> | undefined
-  let stopped = false
-
-  const exporter: OtelExporter = {
-    exportSpan(span: OtelSpan): void {
-      if (stopped) return
-      pending.push(span)
-      if (pending.length >= batchSize) {
-        void doFlush()
-      }
-    },
-
-    async flush(): Promise<void> {
-      await doFlush()
-    },
-
-    async shutdown(): Promise<void> {
-      stopped = true
-      if (timer !== undefined) {
-        clearInterval(timer)
-        timer = undefined
-      }
-      await doFlush()
-    },
+  const maxQueueSize = Math.max(positiveInteger(config?.maxQueueSize, 2048), batchSize)
+  const timeoutMs = positiveInteger(config?.timeoutMs, 10_000)
+  const resource = {
+    attributes: toOtelAttributes({
+      'service.name': config?.serviceName ?? 'agent-runtime',
+      ...(config?.resourceAttributes ?? {}),
+    }),
   }
 
-  timer = setInterval(() => {
-    if (pending.length > 0) void doFlush()
+  const queue: OtelSpan[] = []
+  let inFlight = 0
+  let written = 0
+  let dropped = 0
+  let droppedAtLastFlush = 0
+  let lastError: string | undefined
+  let sending: Promise<void> | undefined
+  let stopped = false
+
+  const drop = (count: number, reason: string): void => {
+    dropped += count
+    lastError = reason
+  }
+
+  async function send(batch: OtelSpan[]): Promise<void> {
+    const body: OtlpExport = {
+      resourceSpans: [{ resource, scopeSpans: [{ scope: SCOPE, spans: batch }] }],
+    }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      const text = await response.text().catch(() => '')
+      if (!response.ok) {
+        const detail = text ? `: ${text.slice(0, 200)}` : ''
+        drop(batch.length, `HTTP ${response.status} from ${url}${detail}`)
+        return
+      }
+      const rejected = rejectedSpans(text, batch.length)
+      if (rejected.count > 0) {
+        drop(rejected.count, `collector rejected ${rejected.count} spans: ${rejected.message}`)
+      }
+      written += batch.length - rejected.count
+    } catch (error) {
+      drop(batch.length, `POST ${url} failed: ${describeFetchError(error)}`)
+    }
+  }
+
+  /** The single sender: it drains the queue batch by batch until the queue is empty. */
+  function drain(): Promise<void> {
+    sending ??= (async () => {
+      try {
+        while (queue.length > 0) {
+          const batch = queue.splice(0, batchSize)
+          inFlight = batch.length
+          await send(batch)
+          inFlight = 0
+        }
+      } finally {
+        sending = undefined
+      }
+    })()
+    return sending
+  }
+
+  const timer = setInterval(() => {
+    if (queue.length > 0) void drain()
   }, flushIntervalMs)
   if (typeof timer === 'object' && 'unref' in timer) {
     ;(timer as NodeJS.Timeout).unref()
   }
 
-  async function doFlush(): Promise<void> {
-    if (pending.length === 0) return
-    const batch = pending.splice(0)
-    const body: OtlpExport = {
-      resourceSpans: [
-        {
-          resource: {
-            attributes: toOtelAttributes({
-              'service.name': serviceName,
-              ...resourceAttrs,
-            }),
-          },
-          scopeSpans: [{ scope: SCOPE, spans: batch }],
-        },
-      ],
-    }
-    const url = `${endpoint.replace(/\/+$/, '')}/v1/traces`
-    try {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...headers },
-        body: JSON.stringify(body),
-      })
-    } catch {
-      // Best-effort — telemetry export must not crash the runtime.
-    }
-  }
+  return {
+    exportSpan(span: OtelSpan): void {
+      if (stopped) {
+        drop(1, 'span exported after the exporter stopped')
+        return
+      }
+      if (queue.length + inFlight >= maxQueueSize) {
+        drop(1, `queue full: ${maxQueueSize} spans already waiting on ${url}`)
+        return
+      }
+      queue.push(span)
+      if (queue.length >= batchSize) void drain()
+    },
 
-  return exporter
+    async flush(): Promise<void> {
+      await drain()
+      const lost = dropped - droppedAtLastFlush
+      droppedAtLastFlush = dropped
+      if (lost > 0) {
+        throw new Error(`OTLP exporter dropped ${lost} spans since the last flush: ${lastError}`)
+      }
+    },
+
+    async shutdown(): Promise<void> {
+      stopped = true
+      clearInterval(timer)
+      await drain()
+    },
+
+    stats(): OtelExportStats {
+      return {
+        written,
+        dropped,
+        pending: queue.length + inFlight,
+        ...(lastError !== undefined ? { lastError } : {}),
+      }
+    },
+  }
+}
+
+/**
+ * Spans a 2xx OTLP/HTTP response still refused. The spec lets a collector accept a request and
+ * reject part of it through `partialSuccess.rejectedSpans`; reading only the status would count
+ * those spans as delivered. An empty or non-JSON body is a full success.
+ */
+function rejectedSpans(text: string, batchLength: number): { count: number; message: string } {
+  if (!text.trim()) return { count: 0, message: '' }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { count: 0, message: '' }
+  }
+  if (parsed === null || typeof parsed !== 'object') return { count: 0, message: '' }
+  const partial = (parsed as Record<string, unknown>).partialSuccess
+  if (partial === null || typeof partial !== 'object') return { count: 0, message: '' }
+  const { rejectedSpans: raw, errorMessage } = partial as Record<string, unknown>
+  // OTLP/JSON encodes int64 as a string; accept both spellings.
+  const count = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : 0
+  if (!Number.isSafeInteger(count) || count <= 0) return { count: 0, message: '' }
+  return {
+    count: Math.min(count, batchLength),
+    message: typeof errorMessage === 'string' && errorMessage ? errorMessage : 'no message',
+  }
+}
+
+/** Node's fetch reports every socket failure as "fetch failed"; the cause names which one. */
+function describeFetchError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  const cause = error.cause
+  const code =
+    cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string'
+      ? cause.code
+      : undefined
+  return code ? `${error.message} (${code})` : error.message
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : fallback
 }
 
 /**
@@ -381,10 +510,28 @@ export function buildRuntimeEventOtelSpans(
       'tangle.runtime.event': serialized(record),
     }
     let name = `tangle.runtime.${event.type}`
+    if (parentSpanId) attrs[ATTR.parentConfidence] = 'explicit'
 
     if (event.type === 'tool_call' || event.type === 'tool_result') {
       name = `agent.${event.type}`
+      // Only the call declares TOOL: one span per event means a call and its
+      // result would otherwise both count as a tool span, doubling the true
+      // invocation count. The result still exports losslessly (tool.output
+      // below, joined to the call by tool.call_id); it is just not a second
+      // declared TOOL kind for anyone counting tool spans. The result span
+      // still carries 'tool.name' (for lookup and MCP identity below), and the
+      // contract's inference falls back to TOOL from that same key on ANY
+      // undeclared span — so the result must declare a kind explicitly (a
+      // real UNKNOWN, not silence) or a reader with no declared-only path
+      // (agent-trace-contract's resolveSpanKind, and traces/the validator's
+      // TOOL breakdown, which both fall back to inference) double-counts it.
+      attrs[ATTR.spanKind] = event.type === 'tool_call' ? 'TOOL' : 'UNKNOWN'
       attrs['tool.name'] = event.toolName
+      // tool.call_id joins the call and its result. It is NOT
+      // ATTR.operationId: that key names a retry-safety operation that a
+      // supervised action's attempts share (see runtime/supervise/otel-spans.ts),
+      // a different span-tree concept a single tool call/result pair does not
+      // represent.
       if (event.toolCallId) attrs['tool.call_id'] = event.toolCallId
       const mcp = mcpIdentity(event.toolName)
       if (mcp.server) attrs['mcp.server'] = mcp.server
@@ -395,6 +542,7 @@ export function buildRuntimeEventOtelSpans(
       }
     } else if (event.type === 'llm_call') {
       name = 'gen_ai.client.inference'
+      attrs[ATTR.spanKind] = 'LLM'
       attrs['gen_ai.request.model'] = event.model
       if (event.tokensIn !== undefined) attrs['gen_ai.usage.input_tokens'] = event.tokensIn
       if (event.tokensOut !== undefined) attrs['gen_ai.usage.output_tokens'] = event.tokensOut
@@ -470,9 +618,10 @@ export function buildLoopOtelSpans(
   events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
   traceId: string,
   rootParentSpanId?: string,
+  redact?: (value: unknown) => unknown,
 ): OtelSpan[] {
   const tid = padTraceId(traceId)
-  return buildLoopSpanNodes(events).map((node) => ({
+  return buildLoopSpanNodes(events, redact).map((node) => ({
     traceId: tid,
     spanId: node.spanId,
     parentSpanId: node.parentSpanId
@@ -484,9 +633,26 @@ export function buildLoopOtelSpans(
     kind: 1,
     startTimeUnixNano: msToNs(node.startMs),
     endTimeUnixNano: msToNs(node.endMs),
-    attributes: toOtelAttributes(node.attrs),
+    attributes: toOtelAttributes({
+      ...node.attrs,
+      [ATTR.spanKind]: LOOP_SPAN_KIND[node.kind],
+      ...(node.parentSpanId === undefined && rootParentSpanId
+        ? { [ATTR.parentConfidence]: 'explicit' }
+        : {}),
+    }),
     status: { code: node.error ? 2 : 1 },
   }))
+}
+
+/**
+ * The declared kind of each loop level. An iteration span carries its own token total, and an
+ * undeclared span with tokens reads as an LLM call, so declaring AGENT keeps those tokens from
+ * being counted a second time beside the model-call spans beneath it.
+ */
+const LOOP_SPAN_KIND: Record<LoopSpanNode['kind'], SpanKind> = {
+  loop: 'CHAIN',
+  round: 'CHAIN',
+  branch: 'AGENT',
 }
 
 /**
@@ -499,6 +665,7 @@ export function buildLoopOtelSpans(
  */
 export function buildLoopSpanNodes(
   events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
+  redact?: (value: unknown) => unknown,
 ): LoopSpanNode[] {
   if (events.length === 0) return []
   const out: LoopSpanNode[] = []
@@ -506,6 +673,16 @@ export function buildLoopSpanNodes(
     typeof v === 'number' && Number.isFinite(v) ? v : undefined
   const str = (v: unknown): string | undefined =>
     typeof v === 'string' && v.length > 0 ? v : undefined
+  // Free-text node fields (rationale, decision, error, output preview) are model- or
+  // customer-authored and may carry secrets — every one goes through the same redactor
+  // as `tangle.input`/`tangle.output` before it becomes a span attribute.
+  const strRedacted = (v: unknown): string | undefined => {
+    const s = str(v)
+    if (s === undefined) return undefined
+    if (!redact) return s
+    const safe = redact(s)
+    return typeof safe === 'string' ? safe : JSON.stringify(safe)
+  }
   const rec = (v: unknown): Record<string, unknown> =>
     v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
 
@@ -571,21 +748,18 @@ export function buildLoopSpanNodes(
   const iterStartTs = new Map<number, number>()
   const placementByIdx = new Map<number, Record<string, string>>()
   let currentRoundId: string | undefined
+  /** Plan round index → its span id, so an iteration joins the round it records (`groupId`). */
+  const roundIdByIndex = new Map<number, string>()
   let pendingRound:
     | { id: string; start: number; attrs: Record<string, string | number | boolean> }
     | undefined
   const flushRound = (endMs: number) => {
     if (!pendingRound) return
     out.push(
-      make(
-        pendingRound.id,
-        rootId,
-        'loop.round',
-        'round',
-        pendingRound.start,
-        endMs,
-        pendingRound.attrs,
-      ),
+      make(pendingRound.id, rootId, 'loop.round', 'round', pendingRound.start, endMs, {
+        ...pendingRound.attrs,
+        [ATTR.parentConfidence]: 'explicit',
+      }),
     )
     pendingRound = undefined
   }
@@ -604,7 +778,7 @@ export function buildLoopSpanNodes(
           'tangle.loop.move.round': roundIdx,
           'tangle.loop.move.width': num(p.plannedCount) ?? 0,
         }
-        const r = str(p.rationale)
+        const r = strRedacted(p.rationale)
         if (r) attrs['tangle.loop.move.rationale'] = r
         const parent = num(p.parentIndex)
         if (parent !== undefined) attrs['tangle.loop.move.parent_index'] = parent
@@ -613,6 +787,7 @@ export function buildLoopSpanNodes(
         }
         pendingRound = { id, start: e.timestamp, attrs }
         currentRoundId = id
+        roundIdByIndex.set(roundIdx, id)
         break
       }
       case 'loop.iteration.started': {
@@ -638,7 +813,7 @@ export function buildLoopSpanNodes(
       case 'loop.iteration.ended': {
         const idx = num(p.iterationIndex) ?? 0
         const start = iterStartTs.get(idx) ?? e.timestamp
-        const err = str(p.error)
+        const err = strRedacted(p.error)
         const attrs: Record<string, string | number | boolean> = {
           [GEN_AI.operation]: 'invoke_agent',
           'tangle.loop.iteration.index': idx,
@@ -659,17 +834,21 @@ export function buildLoopSpanNodes(
         if (err) attrs['tangle.loop.error'] = err
         const gid = num(p.groupId)
         if (gid !== undefined) attrs['tangle.loop.iteration.group_id'] = gid
+        // The round the iteration recorded is its parent. Without one, the round open when it ended
+        // is only a guess from stream order.
+        const recordedRoundId = gid === undefined ? undefined : roundIdByIndex.get(gid)
+        attrs[ATTR.parentConfidence] = recordedRoundId ? 'explicit' : 'heuristic'
         const par = num(p.parentIndex)
         if (par !== undefined) attrs['tangle.loop.iteration.parent_index'] = par
         const dur = num(p.durationMs)
         if (dur !== undefined) attrs['tangle.loop.iteration.duration_ms'] = dur
-        const preview = str(p.outputPreview)
+        const preview = strRedacted(p.outputPreview)
         if (preview) attrs['tangle.loop.iteration.output_preview'] = preview
         Object.assign(attrs, placementByIdx.get(idx) ?? {})
         out.push(
           make(
             generateSpanId(),
-            currentRoundId ?? rootId,
+            recordedRoundId ?? currentRoundId ?? rootId,
             'loop.iteration',
             'branch',
             start,
@@ -682,7 +861,7 @@ export function buildLoopSpanNodes(
       }
       case 'loop.decision': {
         if (pendingRound) {
-          const dec = str(p.decision)
+          const dec = strRedacted(p.decision)
           if (dec) pendingRound.attrs['tangle.loop.decision'] = dec
           flushRound(e.timestamp)
         }

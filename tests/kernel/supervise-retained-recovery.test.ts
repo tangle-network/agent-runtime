@@ -71,8 +71,11 @@ describe('supervised retained provider recovery', () => {
                 type: 'result',
                 data: expect.objectContaining({
                   eventStreamComplete: false,
+                  // The redaction core replaces a message that holds a bearer token whole.
                   eventStreamError: expect.stringMatching(
-                    /^retained event connection lost.{0,2018}$/su,
+                    observationFailure === 'transport-secret'
+                      ? /^\[REDACTED:[a-z-]+\]$/u
+                      : /^retained event connection lost.{0,2018}$/su,
                   ),
                 }),
               }),

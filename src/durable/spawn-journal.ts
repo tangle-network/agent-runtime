@@ -194,7 +194,11 @@ export class FileResultBlobStore implements ResultBlobStore {
   }
 }
 
-function encodeResultBlob(outRef: string, artifact: unknown): { snapshot: unknown; text: string } {
+/** @internal shared with the SQL-backed store. */
+export function encodeResultBlob(
+  outRef: string,
+  artifact: unknown,
+): { snapshot: unknown; text: string } {
   const detached = detachedSnapshot(artifact, 'result blob')
   assertContentAddress(outRef, detached)
   const text = JSON.stringify(detached)
@@ -205,7 +209,8 @@ function encodeResultBlob(outRef: string, artifact: unknown): { snapshot: unknow
   return { snapshot, text }
 }
 
-function assertContentAddress(outRef: string, artifact: unknown): void {
+/** @internal shared with the SQL-backed store. */
+export function assertContentAddress(outRef: string, artifact: unknown): void {
   const expected = contentAddress(artifact)
   if (outRef !== expected) {
     throw new Error(
@@ -216,6 +221,20 @@ function assertContentAddress(outRef: string, artifact: unknown): void {
 }
 
 // ── Spawn journal ──────────────────────────────────────────────────────────────
+
+/**
+ * Append every event as one grouped publication where the journal supports it (`appendEvents`),
+ * preserving legacy per-event appends otherwise — the SQL contexts' fenced head advances once.
+ * @internal
+ */
+export async function appendSpawnEvents(
+  journal: SpawnJournal,
+  root: NodeId,
+  events: ReadonlyArray<SpawnEvent>,
+): Promise<void> {
+  if (journal.appendEvents !== undefined) return journal.appendEvents(root, events)
+  for (const event of events) await journal.appendEvent(root, event)
+}
 
 /**
  * In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces
@@ -809,7 +828,8 @@ interface JournalNodeIndex {
 }
 
 /** One validation implementation for memory, durable append, and cold replay. */
-class SpawnEventIndex {
+/** @internal shared with the SQL-backed store. */
+export class SpawnEventIndex {
   private readonly nodes = new Map<NodeId, JournalNodeIndex>()
   private readonly cursors = new Set<number>()
 
@@ -1169,6 +1189,7 @@ export async function replaySpawnTree(
         ...(ev.retainedPendingCause === undefined
           ? {}
           : { retainedPendingCause: ev.retainedPendingCause }),
+        ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1201,6 +1222,7 @@ export async function replaySpawnTree(
         ...(ev.retainedPendingCause === undefined
           ? {}
           : { retainedPendingCause: ev.retainedPendingCause }),
+        ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1233,6 +1255,7 @@ export async function replaySpawnTree(
       ...budgetViolationOf(ev),
       trace,
       ...(ev.harnessTranscript === undefined ? {} : { harnessTranscript: ev.harnessTranscript }),
+      ...(ev.subtree === undefined ? {} : { subtree: ev.subtree }),
       ...settlementTime(ev.at),
       seq: ev.seq,
     })

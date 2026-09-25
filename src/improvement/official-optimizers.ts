@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util'
 import { canonicalJson } from '@tangle-network/agent-eval'
 import {
   type GepaOptimizationMethodConfig,
@@ -8,14 +7,10 @@ import {
   type SkillOptOptimizationMethodConfig,
   skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
+import { redact } from '@tangle-network/agent-eval/traces'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
-import {
-  defaultRedactor,
-  defaultRedactorIdentityMaterial,
-  type Redactor,
-  resolveRedactor,
-} from '../redact'
+import { defaultRedactorIdentityMaterial, type Redactor, resolveRedactor } from '../redact'
 import type {
   ImproveCandidateValidationInput,
   ImproveMethodContext,
@@ -283,14 +278,18 @@ function assertSafeOptimizerCandidate(
   input: ImproveCandidateValidationInput,
   authorizeSensitiveCandidate: ((input: OfficialSensitiveCandidateInput) => boolean) | undefined,
 ): void {
-  const redactedValue = defaultRedactor(input.value)
-  const redactedSurface = defaultRedactor(input.candidateSurface)
-  if (
-    !isDeepStrictEqual(input.value, redactedValue) ||
-    !isDeepStrictEqual(input.candidateSurface, redactedSurface)
-  ) {
+  // The redaction core names each value it would change, so the refusal can say where.
+  const privatePaths = [
+    ...new Set(
+      [input.value, input.candidateSurface].flatMap((value) =>
+        redact(value).report.findings.map((finding) => jsonPathOf(finding.path)),
+      ),
+    ),
+  ]
+  if (privatePaths.length > 0) {
     throw new ConfigError(
-      `${label}: the selected profile surface contains a common credential or private value. ` +
+      `${label}: the selected profile surface contains a common credential or private value at ` +
+        `${privatePaths.slice(0, 8).join(', ')}. ` +
         'Store live credentials as provider references, or remove private data before starting an external optimizer.',
     )
   }
@@ -317,6 +316,18 @@ function assertSafeOptimizerCandidate(
         'or authorize the exact profile with authorizeSensitiveCandidate.',
     )
   }
+}
+
+/** `/remote/url` or `/tools/0/env` as `$.remote.url` or `$.tools[0].env`. */
+function jsonPathOf(pointer: string): string {
+  return pointer
+    .split('/')
+    .slice(1)
+    .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
+    .reduce(
+      (path, segment) => (/^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`),
+      '$',
+    )
 }
 
 function sensitiveProfileSurfacePaths(input: ImproveCandidateValidationInput): string[] {

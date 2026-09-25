@@ -7,6 +7,7 @@ import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/age
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
+import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
   assertCoordinationTransport,
@@ -1558,12 +1559,12 @@ async function withSlowCheck<T>(
   body: (input: {
     mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>
     checks: () => number
-    verdicts: ReadonlyArray<ReturnType<typeof deferred<boolean>>>
+    verdicts: ReadonlyArray<ReturnType<typeof deferred<boolean | CheckVerdict>>>
   }) => Promise<T>,
   transport: { maxConcurrentRequests?: number } = {},
 ): Promise<T> {
   let checks = 0
-  const verdicts: Array<ReturnType<typeof deferred<boolean>>> = []
+  const verdicts: Array<ReturnType<typeof deferred<boolean | CheckVerdict>>> = []
   const mcp = await serveCoordinationMcp({
     scope: { signal: new AbortController().signal } as Scope<unknown>,
     blobs: new InMemoryResultBlobStore(),
@@ -1578,11 +1579,10 @@ async function withSlowCheck<T>(
       describe: 'a verified product packet',
       check: () => {
         checks++
-        const verdict = deferred<boolean>()
+        const verdict = deferred<boolean | CheckVerdict>()
         verdicts.push(verdict)
         return verdict.promise
       },
-      explainFailure: () => 'verify_product failed: testCommand exited 1',
     },
   })
   try {
@@ -1622,11 +1622,15 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
       expect(second).toMatchObject({ pending: true, tool: 'submit_result' })
       expect(checks()).toBe(1)
 
-      verdicts[0]!.resolve(false)
+      verdicts[0]!.resolve({
+        pass: false,
+        items: { verify_product: 0 },
+        failures: ['FAIL verify_product testCommand: exited 1'],
+      })
       await tick()
       const collected = await structured(await submit(mcp, { status: 'complete', evidence: ['a'] }))
       expect(collected).toMatchObject({ accepted: false, stop: false })
-      expect(String(collected.reason)).toContain('verify_product failed: testCommand exited 1')
+      expect(String(collected.reason)).toContain('FAIL verify_product testCommand: exited 1')
       expect(checks()).toBe(1)
       expect(mcp.submittedResult()).toBeUndefined()
     })

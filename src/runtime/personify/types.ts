@@ -241,9 +241,9 @@ export interface RunPersonifiedOptions<Task, D> {
   /** Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
    *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000. */
   readonly teardownConfirmMs?: number
-  /** Forwarded to `SupervisorOpts.maxLiveWorkers`: the hard tree-wide cap on simultaneously
-   *  executing spawned workers. Omit to leave the worker count uncapped. */
-  readonly maxLiveWorkers?: number
+  /** Forwarded to `SupervisorOpts.workerSlots`: the tree-wide bound on simultaneously working
+   *  agents; spawns past it queue. Omit to bound concurrency by the budget alone. */
+  readonly workerSlots?: number | import('../supervise/worker-slots').WorkerSlots
   /**
    * Forwarded to `SupervisorOpts.resume`: replay the journaled tree for `runId` before beginning
    * fresh work (keyed spawns that already settled `done` return their committed result and spend

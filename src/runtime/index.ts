@@ -37,6 +37,18 @@ export {
   type SpawnForestNode,
   type SpawnForestTree,
 } from '../durable/spawn-journal'
+// The SQL-backed durable stores — the same begin/append/load contract over the SqlStatements
+// seam SqlConversationJournal takes. @experimental (draft): single-writer by convention.
+export {
+  SqlResultBlobStore,
+  SqlSpawnJournal,
+  type SqlStatements,
+} from '../durable/spawn-journal-sql'
+export {
+  openSqlRunStore,
+  type SqlRunLease,
+  type SqlRunStoreOptions,
+} from '../durable/sql-run-store'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
@@ -153,6 +165,18 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
+// A record's declared check: the frozen evaluator program Runtime runs in a fresh box on the
+// check account, as a manager's completion check and as a version chain's judge.
+export {
+  assertDeclaredCheck,
+  checkProgramDigest,
+  type DeclaredCheck,
+  type DeclaredCheckPlacement,
+  declaredCheckDeliverable,
+  declaredCheckDigest,
+  declaredCheckJudge,
+  readDeclaredCheck,
+} from './declared-check'
 // The declarative eval-leaderboard facade: cases + prompt + score → one
 // runProfileMatrix call (expandProfileAxes × loopDispatch × the naive retry driver),
 // with a structural BenchmarkAdapter view via toBenchmarkAdapter().
@@ -520,6 +544,22 @@ export {
   SandboxRunAbortError,
   type TurnResult,
 } from './sandbox-run'
+// Many workers per Sandbox box, each as its own harness process with its own directory.
+export {
+  DEFAULT_SHARED_BOX_RESOURCES,
+  DEFAULT_SHARED_BOX_WORKERS,
+  ROUTER_CLIENT_HEADER,
+  type SharedBoxCloseReceipt,
+  type SharedBoxHandle,
+  type SharedBoxPlacement,
+  type SharedBoxPlacementOptions,
+  type SharedBoxProcess,
+  type SharedBoxStats,
+  type SharedWorkerIdentity,
+  sharedBoxPlacement,
+  sharedBoxRefusal,
+  sharedWorkerClientName,
+} from './shared-box'
 // Same-host stdio MCP: the ONE spawn+handshake connection (shared by the serve
 // verifier and the live consumers) + the profile.mcp materializer.
 export {
@@ -644,11 +684,14 @@ export {
   BudgetReconcileFault,
   createBudgetPool,
   type LeakedReservation,
+  type ReservationFloor,
   type ReservationHolder,
   type ReservationRejection,
   type ReservationShortfall,
   type ReservationStage,
   type ReservationTicket,
+  ReservationWaitRefused,
+  type ReserveOptions,
   spendFromUsageEvents,
 } from './supervise/budget'
 // The chat-transport leaf (#721): a worker that IS a model conversation on a bare
@@ -680,6 +723,37 @@ export {
   gateOnDeliverable,
   mapExecutorResult,
 } from './supervise/completion-gate'
+// ONE CHECK, ONE RESEND RULE, ONE NOTE: the check's verdict, the continuation policy a manager
+// with a check must declare, and the note Runtime writes from the verdict. The profile owns every
+// instruction word; a play may append a section but never replace one.
+export {
+  type AdmittedFinding,
+  admitContinuationPolicy,
+  admitFinding,
+  type CheckRead,
+  CheckUnavailableError,
+  type CheckVerdict,
+  CONTINUATION_FACTS,
+  CONTINUATIONS_DIR,
+  type ContinuationAppend,
+  type ContinuationContext,
+  type ContinuationEntry,
+  type ContinuationNoteInput,
+  type ContinuationPanel,
+  type ContinuationPanelInput,
+  type ContinuationPanelResult,
+  type ContinuationPolicy,
+  type ContinuationProfile,
+  checkVerdictOf,
+  composeContinuationNote,
+  distillFindings,
+  expandQuestions,
+  failedItems,
+  type PanelFinding,
+  passedItems,
+  type VerdictSummary,
+  verdictFromJudgeScore,
+} from './supervise/continuation'
 export { finalizeBestDelivered } from './supervise/coordination-driver'
 // The durable coordination side-log a file-backed `RunContext` carries: questions, findings, answer
 // decisions, and authorized continuation receipts the spawn journal does not own. Receipts persist
@@ -718,14 +792,11 @@ export {
 } from './supervise/detector-monitor'
 // REFILLING dispatch: hold N children in flight and admit the next queued unit the moment one
 // settles, instead of draining a whole round (`fanout`) or opening one worker per driver turn.
-// `freeSlots` is the reading the driver sees; `effectiveConcurrency` collapses the supervisor and
-// fleet caps into the ONE number a host should pass to both `maxLiveWorkers` and `width`.
+// `freeSlots` is the reading the driver sees.
 export {
-  type ConcurrencyCaps,
   type DispatchReport,
   type DispatchStopReason,
   type DispatchUnit,
-  effectiveConcurrency,
   freeSlots,
   queueOf,
   type RollingDispatchOptions,
@@ -735,16 +806,13 @@ export {
 // ends `driver-failed`, the per-attempt record that makes the failure diagnosable, and the
 // deliverable-aware progress mark that decides whether an attempt earned another one. A drive that
 // RETURNS with its completion check unmet is a first-class moment here, not just a label on the
-// result: `SuperviseOptions.repromptOnUnmet` re-enters the live session with the unmet items, and
-// `onUnmetContract` composes what it says.
+// result: `SuperviseOptions.continuation` sends the manager back with Runtime's continuation note.
 export {
   classifyDriverFailure,
-  DEFAULT_MAX_BARREN_REPROMPTS,
   type DriverAttemptRecord,
   type DriverAttemptStop,
   DriverAttemptsExhaustedError,
-  // The pool readout an unmet-contract hook is handed, so a caller can type its own decision
-  // against the same budget the loop reads.
+  // The pool readout a continuation is composed against.
   type DriverBudgetReadout,
   type DriverContinuationRecord,
   type DriverContractState,
@@ -754,16 +822,12 @@ export {
   type DriverLoopRecord,
   type DriverProgressMark,
   type DriverReentry,
-  type DriverRepromptPolicy,
   type DriverRepromptRefusal,
   type DriverRetryPolicy,
-  type DriverUnmetContractContext,
-  type DriverUnmetContractDecision,
-  defaultUnmetContractSteer,
-  type OnUnmetContract,
   summarizeDriverAttempts,
   upstreamUnavailableSignal,
 } from './supervise/driver-retry'
+
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -891,6 +955,7 @@ export {
   type ExecutorProgress,
   readWorkerProgress,
   type ScopeProgressInput,
+  type TeamProgress,
   type WorkerProgress,
 } from './supervise/progress'
 // The kernel prompt registry: versioned prompt text as data (`<surface>/v<n>`), the directive
@@ -939,7 +1004,10 @@ export {
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
   type RunContext,
+  type RunContextLease,
+  withRunContext,
 } from './supervise/run-context'
+export { createSqlRunContext, type SqlRunContext } from './supervise/run-context-sql'
 // The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
 // published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
 // readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
@@ -1013,7 +1081,20 @@ export {
   type SteerableSandboxArgs,
   type SteerableSandboxSession,
 } from './supervise/sandbox-session'
-export { createScope, type ScopeArgs, settledToIteration } from './supervise/scope'
+export {
+  createScope,
+  type ScopeArgs,
+  SUBTREE_RESULT_LIMIT,
+  settledToIteration,
+} from './supervise/scope'
+// The fenced, cross-machine variant: one compare-and-set head, generation fencing, lease
+// heartbeats, lost-ack recovery, and a SQL coordination side-log. @experimental.
+export {
+  createFencedSqlRunContext,
+  type FencedSqlRunContext,
+  type SqlRunContextOptions,
+  SqlRunOwnershipError,
+} from './supervise/sql-run-context'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.
@@ -1049,7 +1130,7 @@ export {
   supervise,
   workerFromBackend,
 } from './supervise/supervise'
-export { createRootHandle, createSupervisor } from './supervise/supervisor'
+export { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervise/supervisor'
 // Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
 // `createExecutor({backend})` resolves a worker — omitted/`cli-base` → the in-process router tool-loop,
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
@@ -1155,6 +1236,8 @@ export type {
   SpendChannel,
   SpendGap,
   SteerableRootHandle,
+  SubtreeResult,
+  SubtreeSummary,
   SupervisedResult,
   Supervisor,
   SupervisorOpts,
@@ -1239,6 +1322,7 @@ export {
   type WorkerSpawnRetryPolicy,
   withWorkerSpawnRetry,
 } from './supervise/worker-retry'
+export { createWorkerSlots, type WorkerSlots } from './supervise/worker-slots'
 // The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
 // id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
 // package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans

@@ -19,6 +19,7 @@ import {
   watchTrace,
 } from '../../src/runtime'
 import { runAbortable } from '../../src/runtime/supervise/abortable'
+import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -399,8 +400,8 @@ describe('coordination tools', () => {
     expect(await submit.handler({ result: { answer: 0 } })).toEqual({
       accepted: false,
       stop: false,
-      reason:
-        'the independent check did not pass on this result. Expected: an object whose answer is 42',
+      reason: 'The outside check failed. Check read 1. Expected: an object whose answer is 42',
+      checkRead: 1,
     })
     expect(await submit.handler({ result: { answer: 'throw' } })).toMatchObject({
       accepted: false,
@@ -426,65 +427,70 @@ describe('coordination tools', () => {
       retained: 'earlier-passing-result',
       stop: true,
     })
-    expect(await tool(withCheck, 'stop').handler({ reason: 'redundant-stop' })).toEqual({
-      stopped: true,
-    })
+    // One way out: a manager with a check is never served `stop`.
+    expect(withCheck.tools.map((t) => t.name)).not.toContain('stop')
+    expect(withoutCheck.tools.map((t) => t.name)).toContain('stop')
     expect(checked).toHaveLength(3)
+    expect(
+      withCheck.checkReads().map((read) => [read.read, read.source, read.verdict?.pass]),
+    ).toEqual([
+      [1, 'submit', false],
+      [2, 'submit', undefined],
+      [3, 'submit', true],
+    ])
     expect(stopReasons).toEqual(['result-accepted'])
     expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
     expect(events).toEqual([{ type: 'submission', result: { answer: 42 } }])
   })
 
-  it('returns checked failure details without coercing packets or accepting diagnostic prose', async () => {
+  it("returns the check's located failures, and only the verdict when its tests stay hidden", async () => {
     const { scope } = mockScope({ children: false })
-    const explained: unknown[] = []
-    const failures = new Map<unknown, string>()
-    const stringPacket = JSON.stringify({ status: 'complete', accepted: { correctness: true } })
-    const aliasedPacket = { status: 'complete', accepted: { correctness: true } }
-    const failedEvidence = { dimensions: { correctness: 'verified' }, evidence: ['failed-test'] }
-    const tb = createCoordinationTools({
+    const verdict = {
+      pass: false,
+      items: { parses: 1, 'prime-count': 0, 'sorted-order': 0 },
+      composite: 1 / 3,
+      threshold: 1,
+      failures: [
+        'FAIL prime-count primes.txt:1: 19 primes, expected 20',
+        'FAIL sorted-order primes.txt:7: 23 before 19',
+      ],
+    }
+    const verbatim = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      deliverable: {
-        check(result) {
-          const failure =
-            typeof result === 'string'
-              ? 'result must be an object, not a JSON string'
-              : result !== null && typeof result === 'object' && !('dimensions' in result)
-                ? 'dimensions is required; accepted is not that field'
-                : 'the evidence check failed'
-          failures.set(result, failure)
-          return false
-        },
-        async explainFailure(result) {
-          explained.push(result)
-          return failures.get(result)
-        },
-      },
+      deliverable: { check: () => verdict },
     })
-    const submit = tool(tb, 'submit_result')
-    for (const [result, reason] of [
-      [stringPacket, 'result must be an object, not a JSON string'],
-      [aliasedPacket, 'dimensions is required; accepted is not that field'],
-      [failedEvidence, 'the evidence check failed'],
-    ]) {
-      expect(await submit.handler({ result })).toEqual({
-        accepted: false,
-        stop: false,
-        reason: `the independent check did not pass on this result. ${reason}`,
-      })
+    expect(await tool(verbatim, 'submit_result').handler({ result: 'primes.txt' })).toEqual({
+      accepted: false,
+      stop: false,
+      checkRead: 1,
+      reason: [
+        'The outside check failed: 2 of 3 items fail (composite 0.3333333333333333, passes at 1). Check read 1.',
+        'FAIL prime-count primes.txt:1: 19 primes, expected 20',
+        'FAIL sorted-order primes.txt:7: 23 before 19',
+      ].join('\n'),
+    })
+    expect(verbatim.reentryState().lastRejection?.reason).toContain('FAIL prime-count')
+    expect(verbatim.checkReads()[0]?.verdict).toEqual(verdict)
+
+    const hidden = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      deliverable: { check: () => verdict, feedback: 'pass-only' },
+    })
+    const refusal = (await tool(hidden, 'submit_result').handler({ result: 'primes.txt' })) as {
+      reason: string
     }
-    expect(explained[0]).toBe(stringPacket)
-    expect(explained[1]).toEqual(aliasedPacket)
-    expect(tb.isStopped()).toBe(false)
-    expect(tb.submittedResult()).toBeUndefined()
+    expect(refusal.reason).not.toContain('FAIL')
+    expect(refusal.reason).toContain('2 of 3 items fail')
   })
 
-  it('keeps diagnostic failures separate from check failures and never explains accepted results', async () => {
+  it('says a check that could not run did not judge the result', async () => {
     const { scope } = mockScope({ children: false })
-    let explanations = 0
     const tb = createCoordinationTools({
       scope,
       blobs,
@@ -493,28 +499,28 @@ describe('coordination tools', () => {
       deliverable: {
         describe: 'checked artifact',
         check(result) {
-          if (result === 'broken-check') throw new Error('check unavailable')
+          if (result === 'box-down') throw new CheckUnavailableError('check box did not start')
+          if (result === 'broken-check') throw new Error('TypeError in the check')
           return result === 'checked-artifact'
-        },
-        explainFailure() {
-          explanations += 1
-          throw new Error('diagnostic unavailable')
         },
       },
     })
     const submit = tool(tb, 'submit_result')
-    expect(await submit.handler({ result: 'unfinished' })).toEqual({
+    expect(await submit.handler({ result: 'box-down' })).toMatchObject({
       accepted: false,
-      stop: false,
-      reason: 'the independent check did not pass on this result. Expected: checked artifact',
-      diagnosticError: 'diagnostic unavailable',
+      reason:
+        'the check could not run, so this result was not judged (check read 1): check box did not start',
     })
     expect(await submit.handler({ result: 'broken-check' })).toMatchObject({
       accepted: false,
       reason: expect.stringContaining('the independent check THREW'),
     })
     expect(await submit.handler({ result: 'checked-artifact' })).toMatchObject({ accepted: true })
-    expect(explanations).toBe(1)
+    expect(tb.checkReads().map((read) => read.unavailable)).toEqual([
+      'check box did not start',
+      'TypeError in the check',
+      undefined,
+    ])
   })
 
   it('commits one passing submission when concurrent callers race the durable append', async () => {
@@ -565,12 +571,14 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    // No `maxLiveWorkers` cap ⇒ `freeSlots: null` (uncapped; the conserved pool is the fence).
+    // No worker-slot bound ⇒ `freeSlots: null` (the conserved pool is the fence).
     expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
       assignmentId: 'ordinal:0',
       continuity: 'fresh',
+      status: 'running',
       live: 1,
+      queued: 0,
       freeSlots: null,
     })
     setAdmit(false)
@@ -645,24 +653,17 @@ describe('coordination tools', () => {
     )
   })
 
-  it('spawn_worker fails closed at the maxLiveWorkers cap WITHOUT touching the pool', async () => {
-    // A scope whose live (non-terminal) node set is driven by the spawns we make: each successful
-    // spawn appends a `running` node; nothing settles. The conserved pool always admits, so the
-    // ONLY thing that can stop a spawn here is the concurrency cap.
-    const live: Array<{ status: string }> = []
-    const spawns: unknown[] = []
+  it('spawn_worker admits past the worker-slot bound and reports the worker queued', async () => {
+    // The scope owns the slot queue: a spawn past the bound is admitted with status `queued` and
+    // starts when a slot frees. The verb never refuses for concurrency and reports the reading.
+    const live: Array<{ id: string; status: string }> = []
     const cappedScope = {
       spawn: (_a: unknown, _t: unknown, opts: { label: string }) => {
-        spawns.push(opts)
-        live.push({ status: 'running' })
+        const status = live.length < 2 ? 'running' : 'queued'
+        live.push({ id: `w${live.length}`, status })
         return {
           ok: true as const,
-          handle: {
-            id: `w${live.length - 1}`,
-            label: opts.label,
-            status: 'running' as const,
-            abort() {},
-          },
+          handle: { id: `w${live.length - 1}`, label: opts.label, status, abort() {} },
         }
       },
       next: async () => null,
@@ -670,6 +671,10 @@ describe('coordination tools', () => {
       get view() {
         return { root: 'root', nodes: live, inFlight: live.length }
       },
+      get workerCapacity() {
+        const working = live.filter((node) => node.status === 'running').length
+        return { working, queued: live.length - working, freeSlots: 2 - working, unconfirmed: [] }
+      },
       budget: { tokensLeft: 1e9, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
       signal: new AbortController().signal,
     } as unknown as Scope<unknown>
@@ -679,165 +684,17 @@ describe('coordination tools', () => {
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      maxLiveWorkers: 2,
     })
     const spawn = () => tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })
-    // `freeSlots` counts down as the cap fills — the reading that tells the driver capacity is
-    // still idle, so it can fill slots instead of opening one worker per turn.
-    expect(await spawn()).toEqual({
-      workerId: 'w0',
-      assignmentId: 'ordinal:0',
-      continuity: 'fresh',
-      live: 1,
-      freeSlots: 1,
-    })
-    expect(await spawn()).toEqual({
-      workerId: 'w1',
-      assignmentId: 'ordinal:1',
-      continuity: 'fresh',
-      live: 2,
-      freeSlots: 0,
-    })
-    // The 2 live workers fill the cap → the 3rd fails closed BEFORE scope.spawn is called.
-    expect(await spawn()).toEqual({
-      error: 'max-live-workers',
-      reason:
-        "2 workers are already live, which is this manager's ceiling — await_event until one settles, then spawn",
-      live: 2,
-      freeSlots: 0,
-    })
-    expect(spawns).toHaveLength(2)
-    // A settled worker frees a slot — mark one terminal and the next spawn admits again.
-    live[0]!.status = 'done'
+    expect(await spawn()).toMatchObject({ workerId: 'w0', status: 'running', freeSlots: 1 })
+    expect(await spawn()).toMatchObject({ workerId: 'w1', status: 'running', freeSlots: 0 })
     expect(await spawn()).toEqual({
       workerId: 'w2',
       assignmentId: 'ordinal:2',
       continuity: 'fresh',
-      live: 2,
-      freeSlots: 0,
-    })
-
-    // No cap (omitted) → the pool stays the only fence; the same scope admits past the prior cap.
-    const uncapped = createCoordinationTools({
-      scope: cappedScope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-    })
-    expect(await tool(uncapped, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
-      workerId: 'w3',
-      assignmentId: 'ordinal:0',
-      continuity: 'fresh',
+      status: 'queued',
       live: 3,
-      freeSlots: null,
-    })
-  })
-
-  it('a key already delivered in THIS run resolves at the cap — it starts no worker', async () => {
-    // The fence bounds SIMULTANEOUS work. A keyed spawn whose key already delivered starts nothing
-    // and occupies no slot, so holding it behind the cap would contradict the verb's own contract
-    // ("a key that already completed returns the finished result — nothing is spent").
-    const live: Array<{ id: string; status: string }> = []
-    const settled = {
-      kind: 'done' as const,
-      handle: { id: 'w0', label: 'a', status: 'done' as const, abort() {} },
-      out: 'A',
-      outRef: 'blob:a',
-      verdict: { score: 1, valid: true },
-      spent: zeroSpend(),
-      trace: noTrace,
-      seq: 0,
-    }
-    let deliveredKey: string | undefined
-    let pending: typeof settled | undefined
-    const scope = {
-      spawn: (_a: unknown, _t: unknown, opts: { label: string; key?: string }) => {
-        // Mirrors the real scope: a key that already settled `done` resolves to it, spawning nothing.
-        if (opts.key !== undefined && opts.key === deliveredKey) {
-          return {
-            ok: true as const,
-            handle: settled.handle,
-            prior: { state: 'completed' as const, settled },
-          }
-        }
-        live.push({ id: `w${live.length}`, status: 'running' })
-        return {
-          ok: true as const,
-          handle: {
-            id: `w${live.length - 1}`,
-            label: opts.label,
-            status: 'running' as const,
-            abort() {},
-          },
-        }
-      },
-      next: async () => {
-        const s = pending
-        pending = undefined
-        return s ?? null
-      },
-      send: () => false,
-      get view() {
-        return { root: 'root', nodes: live, inFlight: live.length }
-      },
-      budget: { tokensLeft: 1e9, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
-      signal: new AbortController().signal,
-    } as unknown as Scope<unknown>
-
-    const tb = createCoordinationTools({
-      scope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-      maxLiveWorkers: 1,
-    })
-    const spawnKeyed = (key: string) =>
-      tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go', key })
-
-    // Key 'a' runs and takes the only slot, then delivers.
-    expect(await spawnKeyed('a')).toEqual({
-      workerId: 'w0',
-      assignmentId: 'key:a',
-      continuity: 'fresh',
-      live: 1,
-      freeSlots: 0,
-    })
-    live[0]!.status = 'done'
-    deliveredKey = 'a'
-    // Drain the settlement the way the driver does — this is what teaches the toolbox that key
-    // 'a' is complete.
-    pending = settled
-    await tool(tb, 'await_event').handler({ kinds: ['settled'] })
-
-    // A different assignment now occupies the single slot.
-    expect(await spawnKeyed('b')).toEqual({
-      workerId: 'w1',
-      assignmentId: 'key:b',
-      continuity: 'fresh',
-      live: 1,
-      freeSlots: 0,
-    })
-
-    // Re-asking for the DELIVERED key at the cap must return its committed result, not a refusal.
-    expect(await spawnKeyed('a')).toEqual({
-      workerId: 'w0',
-      resumed: 'completed',
-      status: 'done',
-      score: 1,
-      valid: true,
-      outRef: 'blob:a',
-      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w0' } },
-      spent: zeroSpend(),
-      trace: noTrace,
-      live: 1,
-      freeSlots: 0,
-    })
-    // An unrelated new assignment is still correctly fenced.
-    expect(await spawnKeyed('c')).toEqual({
-      error: 'max-live-workers',
-      reason:
-        "1 worker is already live, which is this manager's ceiling — await_event until one settles, then spawn",
-      live: 1,
+      queued: 1,
       freeSlots: 0,
     })
   })
@@ -874,7 +731,9 @@ describe('coordination tools', () => {
       workerId: 'w0',
       assignmentId: 'ordinal:0',
       continuity: 'fresh',
+      status: 'running',
       live: 1,
+      queued: 0,
       freeSlots: null,
     })
     expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 5000, maxUsd: 0.5 })

@@ -46,12 +46,18 @@
  * @experimental
  */
 
+import { resolve } from 'node:path'
 import {
   type AgentProfile,
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import {
+  FileResultBlobStore,
+  FileSpawnJournal,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../durable/spawn-journal'
 import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
@@ -70,6 +76,7 @@ import {
   type PromptHandle,
   type PromptRegistry,
 } from './prompt-registry'
+import { withRunContext } from './run-context'
 import {
   profileGuidanceComposer,
   type SuperviseOptions,
@@ -225,6 +232,8 @@ const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'onCoordinationEvent',
   'analyzeOnSettle',
   'continuityByProfile',
+  // A graph pins every node and its delegation edges; a node never gains spawn rights it lacks.
+  'inheritSpawnRights',
 ] as const
 
 /** Caller-facing on `RunGraphOptions`, but the graph wraps or defaults the value before it goes in:
@@ -279,8 +288,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'onDriverAttempt',
   'workerRetry',
   'onWorkerRetry',
-  'repromptOnUnmet',
-  'onUnmetContract',
+  'continuation',
   'childSettleGraceMs',
   'teardownConfirmMs',
   'retainedAtSettlement',
@@ -289,13 +297,16 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'resolveSupervisorTools',
   'extraTools',
   'executeExtraTool',
+  'recoverExecutor',
   'perWorker',
   'reservationPolicy',
-  'maxLiveWorkers',
+  'workerSlots',
   'watchWorkers',
   'stallAfterMs',
   'awaitTimeoutMs',
   'runDir',
+  'resume',
+  'runContext',
   'steerDir',
   'probes',
   'stopRule',
@@ -818,15 +829,46 @@ export function superviseAgentGraph(
   brain?: ToolLoopChat,
 ): Promise<GraphResult> {
   const registry = opts.registry ?? kernelPromptRegistry()
+  if (opts.runContext?.acquire !== undefined) {
+    return withRunContext(opts.runContext, opts.signal, (runContext, signal) =>
+      superviseAgentGraph(
+        graph,
+        {
+          ...opts,
+          runContext,
+          ...(signal === undefined ? {} : { signal }),
+        },
+        brain,
+      ),
+    )
+  }
   const { root, workers, delegatesByWorker, analyzes, analystNodes } = assertRunGraphAuthoring(
     graph,
     opts,
     brain,
   )
-  const journal = opts.journal ?? new InMemorySpawnJournal()
-  const blobs = opts.blobs ?? new InMemoryResultBlobStore()
+  // A durable graph needs its journal AND blob store on disk. `supervise()` already resolves this
+  // for its own context (`options.journal ?? createFileRunContext(runDir).journal`), but the graph
+  // passes an explicit `journal`/`blobs` — the edge ledger's twin writes ride on it — so the graph
+  // must do the same resolution itself or its in-memory default SHADOWS the file stores supervise
+  // would have built: `runGraph({ runDir })` journaled only to the process, a second process
+  // silently restarted the run from scratch, and `runDir/spawn-journal.jsonl` never existed.
+  // Layout owner: `createFileRunContext` (run-context.ts); keep these paths byte-identical to it.
+  const journal =
+    opts.journal ??
+    opts.runContext?.journal ??
+    (opts.runDir !== undefined
+      ? new FileSpawnJournal(`${resolve(opts.runDir)}/spawn-journal.jsonl`)
+      : new InMemorySpawnJournal())
+  const blobs =
+    opts.blobs ??
+    opts.runContext?.blobs ??
+    (opts.runDir !== undefined
+      ? new FileResultBlobStore(`${resolve(opts.runDir)}/blobs`)
+      : new InMemoryResultBlobStore())
   const runId =
     opts.runId ??
+    opts.runContext?.runId ??
     `graph-${canonicalCandidateDigest(graph.nodes.map((n) => n.id)).slice('sha256:'.length, 'sha256:'.length + 12)}`
   const now = opts.now ?? Date.now
 
@@ -1280,6 +1322,7 @@ export function superviseAgentGraph(
       deliverable: graph.deliverable,
       authorizeSpawn: graphAuthorizeSpawn,
       resolveSpawnProfile,
+      inheritSpawnRights: false,
       ...(opts.makeLeafAgent ? { makeLeafAgent: opts.makeLeafAgent } : {}),
       journal,
       blobs,

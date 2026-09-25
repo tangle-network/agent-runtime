@@ -66,7 +66,7 @@ describe('composeReentryTask', () => {
       reentry: {
         reason: 'unmet-contract',
         steer: 'The completion check has not passed.',
-        reprompt: 1,
+        continuation: 1,
       },
       continuity: { session: 'continued', environment: 'same', workspace: 'kept' },
       state: { ...withoutRejection, unacknowledged: [] },
@@ -81,7 +81,7 @@ describe('composeReentryTask', () => {
   it('still carries the objective when an unmet re-prompt lands in a session it cannot prove', () => {
     const task = composeReentryTask({
       originalTask: { program: 'factory', prompt: 'Build the product.' },
-      reentry: { reason: 'unmet-contract', steer: 'Submit the product packet.', reprompt: 2 },
+      reentry: { reason: 'unmet-contract', steer: 'Submit the product packet.', continuation: 2 },
       continuity: { session: 'new', environment: 'unknown', workspace: 'unknown' },
       state: {
         journalRows: 0,

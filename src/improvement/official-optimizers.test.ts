@@ -752,7 +752,7 @@ describe('official optimizer methods', () => {
     expect(outbound).not.toContain(customerName)
     expect(outbound).not.toContain('abcdefghijklmnop')
     expect(outbound).toContain('[customer]')
-    expect(outbound).toContain('[redacted]')
+    expect(outbound).toContain('[REDACTED:')
   })
 
   it.each([
@@ -1105,7 +1105,7 @@ describe('official optimizer methods', () => {
 
     const observed = readFileSync(observedInputPath, 'utf8')
     expect(observed).not.toContain(privateValue)
-    expect(observed).toContain('[redacted]')
+    expect(observed).toContain('[REDACTED:')
     expect(result.decision).toBe('ship')
   })
 
@@ -1150,7 +1150,7 @@ describe('official optimizer methods', () => {
     const observed = readFileSync(observedResponsePath, 'utf8')
     expect(observed).not.toContain(privateArtifact)
     expect(observed).not.toContain(privateNote)
-    expect(observed).toContain('[redacted]')
+    expect(observed).toContain('[REDACTED:')
     expect(result.provenance?.evaluationCount).toBe(1)
     expect(result.decision).toBe('ship')
   })

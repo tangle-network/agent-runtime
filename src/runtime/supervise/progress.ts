@@ -66,6 +66,24 @@ export interface ExecutorProgress {
   readonly note?: string
 }
 
+/** The team a worker leads, as its own lead observes it mid-flight: every agent below the worker,
+ *  at every depth. A lead reads this instead of the team's raw outputs, so the read stays bounded
+ *  however large the team grows. */
+export interface TeamProgress {
+  /** Agents spawned below the worker, at every depth. */
+  readonly agents: number
+  /** Levels below the worker: `1` when it leads only workers that lead no one. */
+  readonly depth: number
+  /** Agents below it that hold a worker slot and are running. */
+  readonly working: number
+  /** Agents below it waiting for a worker slot. */
+  readonly queued: number
+  /** Agents below it that settled done. */
+  readonly done: number
+  /** Agents below it that settled down or were cancelled. */
+  readonly down: number
+}
+
 /** The full live view of one worker, as `observe_agent` returns it mid-flight. */
 export interface WorkerProgress {
   readonly id: string
@@ -76,9 +94,11 @@ export interface WorkerProgress {
    *  can actually reach it. False means a steer would be recorded and dropped. */
   readonly steerable: boolean
   readonly startedAt: number
-  /** Epoch ms of the last metered usage event or executor-reported activity. */
+  /** Epoch ms of the last metered usage event or executor-reported activity. For a worker that
+   *  leads a team, the newest activity anywhere in that team counts, its own turns included. */
   readonly lastActivityAt: number
   readonly idleMs: number
+  /** Live, not waiting for a worker slot, and idle past `stallAfterMs`. */
   readonly stalled: boolean
   readonly stallAfterMs: number
   /** Metered iterations so far (the executor's own count when it reports one). */
@@ -101,6 +121,8 @@ export interface WorkerProgress {
    *  Unlike `recentActivity` this is never evicted, so it still answers on a failed run. */
   readonly derived?: ReadonlyArray<string>
   readonly note?: string
+  /** The team this worker leads; absent while it leads no one. */
+  readonly team?: TeamProgress
 }
 
 /** A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. */
@@ -155,6 +177,8 @@ export interface ScopeProgressInput {
   readonly usd: number
   readonly usdKnown?: boolean
   readonly resources?: Spend['resources']
+  /** The team the worker leads, when it leads one. */
+  readonly team?: TeamProgress
 }
 
 /** Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the
@@ -183,8 +207,9 @@ export function readWorkerProgress(
     startedAt: scope.startedAt,
     lastActivityAt,
     idleMs,
-    // Only a LIVE worker can stall; a settled one is simply finished.
-    stalled: live && idleMs > stallAfterMs,
+    // Only a LIVE worker can stall; a settled one is simply finished, and a queued one has not
+    // started: it waits for a worker slot, which no steer or cancel would free any sooner.
+    stalled: live && scope.status !== 'queued' && idleMs > stallAfterMs,
     stallAfterMs,
     turns: executor?.turns ?? scope.turns,
     tokens: scope.tokens,
@@ -199,5 +224,6 @@ export function readWorkerProgress(
     // report derivations" read the same way — neither is a claim that nothing was changed.
     ...(executor?.derived?.length ? { derived: executor.derived } : {}),
     ...(note ? { note } : {}),
+    ...(scope.team ? { team: scope.team } : {}),
   }
 }

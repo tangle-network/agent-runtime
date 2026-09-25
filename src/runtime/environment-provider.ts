@@ -683,6 +683,23 @@ export function providerAsExecutor(
   }
 }
 
+/**
+ * Run a provider under a placement Runtime chose for the whole execution, such as a shared box.
+ * The identity lands in the execution's materialization plan and binding, exactly where a
+ * declared {@link ProviderPlacement} lands, so a record says which placement served it.
+ * @internal
+ */
+export function placedProviderExecutor(
+  provider: AgentEnvironmentProvider,
+  options: ProviderExecutorOptions,
+  identity: { id: string; digest: string },
+): ExecutorFactory<unknown> {
+  if (options.placements !== undefined) {
+    throw new ValidationError('placedProviderExecutor: placements select within one provider')
+  }
+  return (spec, ctx) => createProviderExecutor(provider, spec.profile, ctx, options, identity)
+}
+
 function createProviderExecutor(
   provider: AgentEnvironmentProvider,
   profile: AgentProfile,
@@ -729,6 +746,7 @@ function createProviderExecutor(
   let workspaceCapturePromise: Promise<AgentCandidateWorkspaceSnapshotEvidence> | undefined
   let workspaceCleanupPromise: Promise<TeardownAnswer> | undefined
   let retainedReleasePromise: Promise<ReadonlyArray<EnvironmentTeardownReceipt>> | undefined
+  let releaseReadTried = false
   let workspaceOutcome: AgentRunOutcome | undefined
   let workspacePreservationRequired = false
   let workspaceRunActive = false
@@ -1237,6 +1255,22 @@ function createProviderExecutor(
           if (environment === undefined) {
             environment = target
             resetWorkspaceState(target)
+          }
+          // The failure path read this child's session while its box was out of reach: of the 150
+          // dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24,
+          // 105 carry `enumeration-failed`. The release is the last moment the box exists, so a
+          // box it can reach is read once more before it is destroyed. Only a capture replaces
+          // the earlier receipt; a second failure keeps the reason the first one named. One try
+          // per executor: the read shares the release's bound, and a retry of a refused destroy
+          // must not wait on a box that already failed to answer.
+          if (harnessTranscript.status !== 'captured' && !releaseReadTried) {
+            releaseReadTried = true
+            const capture = await captureHarnessTranscript(
+              target as Parameters<typeof captureHarnessTranscript>[0],
+              profile.harness,
+              signal,
+            )
+            if (capture.status === 'captured') harnessTranscript = capture
           }
           const result = await destroyEnvironment(signal)
           if (!result.destroyed) return [receipt(false, result.detail, result.permanent)]
@@ -1822,7 +1856,10 @@ async function providerExecutionSource(
       .find((admission) => admission.phase === 'dispatched')
     const intent = admissions.find((admission) => admission.phase === 'intent')
     const environmentAdmission = admissions.find((admission) => admission.phase === 'environment')
-    if (args.recovering) {
+    // A journaled execution input can precede the first provider admission. In that case
+    // no provider call happened: onAdmission(intent) is awaited before create/dispatch.
+    // Start with the original execution keys; once any admission exists, validate its intent.
+    if (args.recovering && admissions.length > 0) {
       if (!intent) throw new Error('retained provider execution has no original intent')
       assertRetainedRunReplayMaterial(args.provider, material, intent)
     }
@@ -1881,7 +1918,8 @@ async function providerExecutionSource(
         throw new Error(`retained provider execution is ${recovered.outcome}`)
       handle = recovered.handle
     } else {
-      if (args.recovering) throw new Error('retained provider execution has no durable admission')
+      if (args.recovering && admissions.length > 0)
+        throw new Error('retained provider execution has no durable admission')
       handle = await startRetainedRun({ provider: args.provider, ...material, onAdmission })
     }
     args.onRetained(handle)

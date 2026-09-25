@@ -890,13 +890,16 @@ export interface Spend {
 
 // ── Node lifecycle ────────────────────────────────────────────────────────────
 
-/** `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
- *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
+/** `'queued'` is an admitted child that holds its budget slice and waits for a worker slot
+ *  (`workerSlots`); it runs nothing until the allocator grants one. `'acquiring'` is first-class
+ *  (M1): a node spends real time + reaps an orphan box during sandbox acquire BEFORE it is
+ *  `running`, so abort must be defined over it.
  *  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
  *  box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
  *  a terminal status describes it (see `Scope.wait`). */
 export type NodeStatus =
   | 'pending'
+  | 'queued'
   | 'acquiring'
   | 'running'
   | 'waiting'
@@ -920,10 +923,14 @@ export interface SpawnOpts {
    * idempotent per key: once a child spawned under a key settles `done` — in this process or in a
    * journaled prior one — spawning the same key returns that committed result (`prior.state:
    * 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-   * spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
-   * journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
-   * still exist and must be recovered before replacement. A key that is currently LIVE is refused
-   * (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
+   * spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
+   * `down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
+   * its process — so a worker killed mid-flight under a plain in-process executor retries under
+   * its own key instead of wedging. A key whose un-settled prior attempt may still exist
+   * elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
+   * may still be running and must be recovered before replacement. A key that is currently LIVE
+   * is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
+   * always run.
    */
   readonly key?: string
   /** The settled sibling node this spawn replaces, so a run's record names which worker took over
@@ -953,7 +960,6 @@ export type SpawnRejection =
   | 'in-doubt'
   | 'invalid-identity'
   | 'key-conflict'
-  | 'max-live-workers'
   | 'scope-aborted'
   | 'scope-settled'
 
@@ -1017,6 +1023,8 @@ export type Settled<Out> =
       harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the measured spend exceeded this child's reservation. */
       budgetViolation?: BudgetViolation
+      /** Present when this child led workers of its own: a bounded account of its team. */
+      subtree?: SubtreeSummary
       /** Epoch ms parsed from the durable settlement record when available. */
       settledAt?: number
       seq: number
@@ -1047,8 +1055,9 @@ export type Settled<Out> =
       budgetViolation?: BudgetViolation
       /** Present only when this child's provider execution was RETAINED (see
        *  `RetainedExecutionState`); absent on an ordinary down. `'pending'` on the settlement the
-       *  driver receives at the reconcile; `'released'` on the replayed settlement of a node the
-       *  release sweep closed. The driver and every replay reader see the fact the journal
+       *  driver receives at the reconcile; `'released'` or `'release-unconfirmed'` on the
+       *  replayed settlement of a node a final settlement closed. The driver and every replay
+       *  reader see the fact the journal
        *  states, so a reader never splits this population on `reason` text — which is identical
        *  on every one of these children. */
       retainedExecution?: RetainedExecutionState
@@ -1058,10 +1067,49 @@ export type Settled<Out> =
        *  `retainedExecution` is; the `reason` text names the same thing, but a reader must never
        *  have to parse it (#1204). */
       retainedPendingCause?: RetainedPendingCause
+      /** Present when this child led workers of its own: a bounded account of its team. */
+      subtree?: SubtreeSummary
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
     }
+
+/**
+ * A bounded account of the team a manager led, carried up on its settlement.
+ *
+ * A lead reads its children's summaries instead of every descendant's output: the counts cover
+ * the whole subtree, and `results` lists only the manager's own direct children, best first.
+ * Every listed result stays addressable by its content address (`outRef`), so the lead can read
+ * any one of them in full. The summary is bounded at every level, so a tree of hundreds of agents
+ * reaches its root as a handful of summaries.
+ */
+export interface SubtreeSummary {
+  /** Spawned agents below this node, at every depth. */
+  readonly agents: number
+  /** Levels below this node: `1` when it led only workers that led no one. */
+  readonly depth: number
+  /** Agents below this node that settled done. */
+  readonly done: number
+  /** Agents below this node that settled down or were cancelled. */
+  readonly down: number
+  /** This node's own direct children, done before down and then by score, at most
+   *  `SUBTREE_RESULT_LIMIT` of them. */
+  readonly results: ReadonlyArray<SubtreeResult>
+  /** Direct children not listed in `results`. */
+  readonly omitted: number
+}
+
+/** One direct child of a manager, as its lead sees it in a {@link SubtreeSummary}. */
+export interface SubtreeResult {
+  readonly id: NodeId
+  readonly label: string
+  readonly status: 'done' | 'down'
+  /** Content address of the child's retained output, when it produced one. */
+  readonly outRef?: string
+  readonly score?: number
+  /** Agents in this child's own subtree, itself excluded. */
+  readonly agents: number
+}
 
 // ── The reactive Scope ─────────────────────────────────────────────────────────
 
@@ -1204,12 +1252,14 @@ export interface Scope<Out> {
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
   readonly budget: import('./budget').BudgetReadout
-  /** One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
-   *  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
-   *  `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
-   *  the nodes still holding a capacity slot. Empty on every healthy run. */
+  /** The worker-slot allocator as this scope sees it. Every scope of a tree, and every tree that
+   *  shares the allocator, reads the same counts; the root agent itself holds no slot. `working`
+   *  counts agents that hold a slot, `queued` counts admitted spawns that wait for one, and
+   *  `freeSlots` is `null` when no bound is set. `unconfirmed` NAMES this scope's settled children
+   *  whose executor teardown was never acknowledged. Empty on every healthy run. */
   readonly workerCapacity: Readonly<{
-    live: number
+    working: number
+    queued: number
     freeSlots: number | null
     unconfirmed: ReadonlyArray<UnconfirmedTeardown>
   }>
@@ -1276,8 +1326,12 @@ export interface ResumedKeyState<Out = unknown> {
   /** Identity recorded when this key was first admitted. Every reuse must match it exactly. */
   readonly identity?: NodeExecutionIdentity
   readonly state: 'completed' | 'down' | 'in-doubt'
-  /** The rehydrated settlement; absent exactly when `state` is `'in-doubt'`. */
+  /** The rehydrated settlement; absent when `state` is `'in-doubt'`, and when `'down'` was
+   * *derived* — the resume itself proved the execution dead (an `inline` runtime cannot outlive
+   * its process), so there is no settlement to rehydrate and `reason` says how it died. */
   readonly settled?: Settled<Out>
+  /** Why a derived `'down'` state exists. Absent on every state backed by a settlement. */
+  readonly reason?: string
 }
 
 // ── Observability view (read off the in-memory nursery) ────────────────────────
@@ -1325,10 +1379,10 @@ export interface NodeSnapshot {
   readonly trace?: WorkerTraceEvidence
   /** Present once a settled node's measured spend exceeded its reservation. */
   readonly budgetViolation?: BudgetViolation
-  /** Present on a retained child: `'pending'` while its cursor slot is open, `'released'` once
-   *  the release sweep closed it. The live view (`makeTreeView`) and the journal view
-   *  (`materializeTreeView`) state the same fact, so a settle record's `tree` answers the
-   *  retained-vs-down question without the observer journal. */
+  /** Present on a retained child: `'pending'` while its cursor slot is open, `'released'` or
+   *  `'release-unconfirmed'` once a final settlement closed it. The live view (`makeTreeView`)
+   *  and the journal view (`materializeTreeView`) state the same fact, so a settle record's
+   *  `tree` answers the retained-vs-down question without the observer journal. */
   readonly retainedExecution?: RetainedExecutionState
   /** Why a retained child has no accepted result; see `RetainedPendingCause`. */
   readonly retainedPendingCause?: RetainedPendingCause
@@ -1338,7 +1392,7 @@ export interface NodeSnapshot {
 export interface TreeView {
   readonly root: NodeId
   readonly nodes: ReadonlyArray<NodeSnapshot>
-  /** Count of nodes in `running` or `acquiring` — the "what's in flow?" answer. */
+  /** Count of nodes in `queued`, `acquiring`, or `running` — the "what's in flow?" answer. */
   readonly inFlight: number
   /** Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
    *  a wait burns no executor and no budget, so counting it as flow would misreport both idle
@@ -1374,12 +1428,10 @@ export type SpawnEvent =
       successorOf?: NodeId
       budget: Budget
       runtime: Runtime
-      /** Root-only opt-in admission contract. A resumed run must use the same policy and fleet
-       * limits; absent on historical and default-off records. */
+      /** Root-only opt-in owner-share contract. A resumed run must use the same policy; absent on
+       * records that set none. */
       recursiveAdmission?: {
         policy: RecursiveReservationPolicy
-        maxDepth: number
-        maxLiveWorkers: number
       }
       /** Exact nested journal tree this node owns. Runtime writes this only after privately
        * attesting the executor as a recursive scope owner. Its absence means no tree is followed,
@@ -1463,13 +1515,15 @@ export type SpawnEvent =
       harnessTranscript?: HarnessTranscriptEvidence
       /** Present when the reconciled spend exceeded the reservation, on either status. */
       budgetViolation?: BudgetViolation
-      /** Written by the release sweep in the settling process, on the same tree, after every
-       *  `environment-teardown` receipt for the node reads `destroyed: true` and the executor's
-       *  own teardown confirmed — or by `healReleasedSlots` on the next resume, when that process
-       *  died between the last `destroyed: true` receipt and this record: the same builder, `seq`
-       *  and `at`, read from the `reconciled` record, so the bytes are identical either way. A
-       *  `destroyed: false` receipt, an empty receipt set, or a `reconciled` record without
-       *  `settledSeq` leaves the slot open.
+      /** `'released'` is written by the release sweep in the settling process, on the same tree,
+       *  after every `environment-teardown` receipt for the node reads `destroyed: true` and the
+       *  executor's own teardown confirmed — or by `healReleasedSlots` on the next resume, when
+       *  that process died between the last `destroyed: true` receipt and this record: the same
+       *  builder, `seq` and `at`, read from the `reconciled` record, so the bytes are identical
+       *  either way. `'release-unconfirmed'` is written by the same builder at the end of a final
+       *  settlement for every retained node the release could not confirm: a `destroyed: false`
+       *  receipt, an empty receipt set, or a refused teardown probe. Only a crash before that point
+       *  or a `reconciled` record without `settledSeq` leaves the slot open.
        *  `spent` is this node's child-work component of the reconcile the pool committed — for
        *  a leaf the streamed floor itself, for a recursive executor its `accounting().reported`
        *  split with the remainder on its `metered` records — never the reservation ceiling.
@@ -1478,8 +1532,10 @@ export type SpawnEvent =
        *  delivery, so replay yields it at the position the driver saw it; `at` is the settlement
        *  instant, and the release instant is on the receipt immediately before it. Typed so a
        *  `'pending'` can never be journaled: the journal states that as `reconciled`. */
-      retainedExecution?: Extract<RetainedExecutionState, 'released'>
+      retainedExecution?: Exclude<RetainedExecutionState, 'pending'>
       retainedPendingCause?: RetainedPendingCause
+      /** The bounded account of the team this child led, when it led one. */
+      subtree?: SubtreeSummary
       seq: number
       at: string
     }
@@ -1499,8 +1555,10 @@ export type SpawnEvent =
       budgetViolation?: BudgetViolation
       /** As on `settled`: a retained child that was cancelled settles `cancelled`, and the one
        *  builder writes whichever kind the settlement had. */
-      retainedExecution?: Extract<RetainedExecutionState, 'released'>
+      retainedExecution?: Exclude<RetainedExecutionState, 'pending'>
       retainedPendingCause?: RetainedPendingCause
+      /** The bounded account of the team this child led, when it led one. */
+      subtree?: SubtreeSummary
       seq: number
       at: string
     }
@@ -1612,12 +1670,14 @@ export type SpawnEvent =
        *  observed, while its cursor slot stays OPEN so a resume can recover the execution. It stands
        *  in for the `settled` record an open node cannot carry: cost readers and a restored pool
        *  charge this floor for the node instead of its declared ceiling, and a later `settled` or
-       *  `cancelled` record for the same node supersedes it. That record has three writers: a
+       *  `cancelled` record for the same node supersedes it. That record has four writers: a
        *  resumed process's recovered settlement, the release sweep's terminal record marked
-       *  `retainedExecution: 'released'`, or `healReleasedSlots` on the next resume when the
-       *  process died between the last `environment-teardown` receipt and that record. The last
-       *  two write the same bytes, because both read the settlement from THIS record: it is
-       *  literally the settlement it stands in for, minus the cursor position it cannot hold. A
+       *  `retainedExecution: 'released'`, the final settlement's record marked
+       *  `'release-unconfirmed'` for a node whose release it could not confirm, or
+       *  `healReleasedSlots` on the next resume when the process died between the last
+       *  `environment-teardown` receipt and the released record. The last three carry the same
+       *  settlement, because each reads it from THIS record or from the live child it mirrors: it
+       *  is literally the settlement it stands in for, minus the cursor position it cannot hold. A
        *  driver's own inference travels on its `metered` record as on every other path, so
        *  `reconciled + metered` is what the pool committed. Its `seq` lives outside the
        *  cursor-uniqueness namespace; `settledSeq` is the cursor seq. */
@@ -1721,8 +1781,10 @@ export type SpawnEvent =
        *  terminal `settled`/`cancelled` record with `retainedExecution: 'released'` follows on
        *  the same tree and closes the cursor slot; when the settling process dies between this
        *  receipt and that record, `healReleasedSlots` writes the same record on the next resume
-       *  from the `reconciled` record. A `destroyed: false` receipt, an empty receipt set, or an
-       *  unconfirmed teardown leaves the slot open because the environment may still exist.
+       *  from the `reconciled` record. After a `destroyed: false` receipt, an empty receipt set, or
+       *  an unconfirmed teardown, the environment may still exist: the node is journaled as
+       *  `teardown-unconfirmed`, and its slot closes with `retainedExecution:
+       *  'release-unconfirmed'` instead, because the settlement is final either way.
        *  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
        *  per node, outside the cursor-uniqueness namespace. */
       kind: 'environment-teardown'
@@ -1853,6 +1915,8 @@ export interface SpawnJournal {
   loadTree(root: NodeId): Promise<SpawnEvent[] | undefined>
   beginTree(root: NodeId, at: string): Promise<void>
   appendEvent(root: NodeId, ev: SpawnEvent): Promise<void>
+  /** Publish all events together or none; SQL contexts use this for initialization records. */
+  appendEvents?(root: NodeId, events: ReadonlyArray<SpawnEvent>): Promise<void>
 }
 
 /** Content-addressed result blobs (the `outRef` → artifact map) backing the replay
@@ -1878,8 +1942,7 @@ export interface Supervisor<Task, Out> {
 }
 
 /** Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
- * kept free for its own inference while children hold their full declared ceilings. The same
- * policy reserves one live worker slot per remaining depth, up to `maxDepth`. */
+ * kept free for its own inference while children hold their declared slices. */
 export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
@@ -1906,13 +1969,16 @@ export interface SupervisorOpts {
    *  the wait can be journaled and re-armed by a later process; this is what the name resolves
    *  against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected. */
   readonly probes?: WaitProbeRegistry
-  /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
+  /** Recursion ceiling (root = 0). The conserved pool bounds depth; this only stops a runaway
+   *  recursion. Omit = `DEFAULT_MAX_DEPTH` (16). */
   readonly maxDepth?: number
-  /** Hard tree-wide cap on simultaneously executing spawned workers. The root is excluded; every
-   *  nested driver and leaf shares this one allocation. Omit/`<= 0` leaves worker count uncapped. */
-  readonly maxLiveWorkers?: number
-  /** Opt in to reserving each manager's inference share and enough tree-wide worker slots for a
-   * descendant path to `maxDepth`. Omit to retain full-ceiling admission behavior. */
+  /** The bound on concurrently working agents across the whole tree, as a number or as an
+   *  allocator from `createWorkerSlots` that several runs share. A spawn past it waits in a queue
+   *  instead of being refused. The root holds no slot. Omit/`<= 0` bounds concurrency by the budget
+   *  alone. */
+  readonly workerSlots?: number | import('./worker-slots').WorkerSlots
+  /** Opt in to keeping each manager's inference share free of its children's slices. A resumed
+   *  run must use the same policy. */
   readonly reservationPolicy?: RecursiveReservationPolicy
   /**
    * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
@@ -1970,10 +2036,16 @@ export interface SupervisorOpts {
    *   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
    *   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
    *   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
-   *   `fleetYield.releasedUnrecovered` counts it; a refused release leaves the slot open and
-   *   the node in `teardownUnconfirmed`. A process that dies between the last `destroyed: true`
-   *   receipt and that record leaves the slot open only until the next resume, whose
-   *   `healReleasedSlots` writes the identical record from the `reconciled` record.
+   *   `fleetYield.releasedUnrecovered` counts it. A release that is refused or cannot be
+   *   confirmed names the node in `teardownUnconfirmed` and its `teardown-unconfirmed` record,
+   *   and after the retry window closes its slot with `retainedExecution: 'release-unconfirmed'`,
+   *   counted by `fleetYield.releaseUnconfirmed`: the settlement is final, so the slot closes
+   *   whether or not the environment is confirmed gone. Measured 2026-09-23/24 on the Discovery
+   *   fleet (Runtime 0.249.1 to 0.261.0): 338 of 1,620 agents never settled, and 179 of the
+   *   retained ones had an admission that never named an environment. A process that dies
+   *   between the last `destroyed: true` receipt and the released record leaves the slot open
+   *   only until the next resume, whose `healReleasedSlots` writes the identical record from the
+   *   `reconciled` record.
    * - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
    *
    * Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
@@ -2108,13 +2180,20 @@ export interface SpendGap {
  *   `destroyed: true` receipt and the record (same builder, `seq` and `at`, from the
  *   `reconciled` record). The pool's own admission fault, if the reconcile raised one, is not
  *   on this record.
+ * - `'release-unconfirmed'`: root settlement under `retainedAtSettlement: 'release'` ended with
+ *   the execution unrecovered and its environment NOT confirmed destroyed: the provider refused
+ *   the delete, the executor could not confirm it, or the admission never named an environment
+ *   (a create that timed out). The settlement is final, so no process will recover the execution
+ *   and the slot closes anyway, with the same builder, `seq` and `at` as `'released'`. What the
+ *   node may still hold stays named by its `teardown-unconfirmed` record and in
+ *   `teardownUnconfirmed`, for a sweeper.
  *
  * Absent = an ordinary child. The live `Settled` a driver branched on carried `'pending'` where
- * replay yields `'released'` for the same seq, so a resume-aware driver must not branch on the
- * two values. No `'recovered'` value exists yet: a live-adopted recovery settles on the ordinary
- * path and the recorded-result path writes no marker.
+ * replay yields `'released'` or `'release-unconfirmed'` for the same seq, so a resume-aware driver
+ * must not branch on these values. No `'recovered'` value exists yet: a live-adopted recovery
+ * settles on the ordinary path and the recorded-result path writes no marker.
  */
-export type RetainedExecutionState = 'pending' | 'released'
+export type RetainedExecutionState = 'pending' | 'released' | 'release-unconfirmed'
 
 export type { RetainedPendingCause } from './retained-executor'
 
@@ -2136,13 +2215,18 @@ export interface FleetYield {
   /** `settled` records with `status: 'down'`, released records included. */
   readonly down: number
   readonly cancelled: number
-  /** Spawned with no terminal record: a crash-orphaned child, a refused release, or a retained
-   *  executor with nothing to release. Named after `SpendGap`'s `never-settled`. */
+  /** Spawned with no terminal record: a crash-orphaned child, or a retained child of a run that
+   *  keeps its environments for a resume (`retainedAtSettlement: 'keep'`). Named after
+   *  `SpendGap`'s `never-settled`. */
   readonly neverSettled: number
   /** Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
    *  A nested manager whose OWN retained execution was released counts here beside the
    *  grandchildren it released, because its execution was destroyed unrecovered too. */
   readonly releasedUnrecovered: number
+  /** Terminal records marked `retainedExecution: 'release-unconfirmed'` — a subset of
+   *  `down + cancelled`, disjoint from `releasedUnrecovered`: executions a final settlement left
+   *  unrecovered without confirming their environment destroyed. */
+  readonly releaseUnconfirmed: number
 }
 
 /**
@@ -2190,6 +2274,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** The root manager's native harness session, persisted like a child's receipt. A child's
+       *  receipt rides its settle record and the root has none, so the result carries it. Absent
+       *  for a router-brained root, which runs no driver. */
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
@@ -2235,6 +2323,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** The root manager's native harness session, persisted like a child's receipt. A child's
+       *  receipt rides its settle record and the root has none, so the result carries it. Absent
+       *  for a router-brained root, which runs no driver. */
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
@@ -2314,6 +2406,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** The root manager's native harness session, persisted like a child's receipt. A child's
+       *  receipt rides its settle record and the root has none, so the result carries it. Absent
+       *  for a router-brained root, which runs no driver. */
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */

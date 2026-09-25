@@ -58,6 +58,7 @@ const fleetYield: FleetYield = {
   cancelled: 0,
   neverSettled: 0,
   releasedUnrecovered: 0,
+  releaseUnconfirmed: 0,
 }
 
 function winner(out: unknown): SupervisedResult<unknown> {

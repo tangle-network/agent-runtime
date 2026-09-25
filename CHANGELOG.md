@@ -1,4 +1,336 @@
-# Changelog
+## 0.274.0
+
+`buildLoopOtelSpans` and `buildLoopSpanNodes` take the run's redactor and apply it to every free-text loop node attribute (rationale, decision, error and output preview).
+Their exported signatures changed, so this is a minor release.
+Before it, `exportRunRecord` redacted a run's input, output and runtime events but exported loop-topology spans with raw model and customer text, including credentials.
+A caller that builds loop spans itself should pass the same redactor it uses for `tangle.input` and `tangle.output`.
+
+## 0.273.5
+
+Runtime admits stable Sandbox 0.53.x through its peer range.
+Sandbox 0.53 adds email lines (`lines.fromConnection` with `transport: "email"`) and reports how `instances.ensure` started a box; Runtime does not call those APIs itself.
+The packed compatibility cohort adds its 0.53.0 row once npm serves that version.
+
+## 0.273.0
+
+One check decides "done", one resend rule sends a director back, and Runtime writes the one note
+it hears (discovery `docs/38-one-loop-and-continuation.md`). Measured before this release on 670
+settled discovery-lab runs: the note Runtime wrote carried no line of the check's verdict, 1,565
+of 1,596 re-entries followed a failed turn, 650 inputs chose seven different re-prompt counts,
+and 389 of 650 lead directors could call `stop` and end the run with no check.
+
+- **Breaking: `continuation` replaces `repromptOnUnmet` and `onUnmetContract`.** An external
+  manager with a completion check must declare `continuation: { deadline, maxBarren, profile,
+  failures, panel, bar }`; one without a check may not. There is no continuation count and no
+  default. The loop ends when the check passes, when `report_blocked` shows a tool really failed,
+  at the deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+  cancellation. Progress now includes a rise in the check's best composite.
+  `defaultUnmetContractSteer`, `DEFAULT_MAX_BARREN_REPROMPTS`, `OnUnmetContract`,
+  `DriverUnmetContractContext`, `DriverUnmetContractDecision`, `DriverRepromptPolicy`, and the
+  `reprompts-exhausted` and `caller-stop` refusals are removed; a closed run refuses as `closed`.
+- **Breaking: one way out.** A manager with a check is never served `stop`, and a profile that
+  grants it one is refused before any compute. It ends through `submit_result` or
+  `report_blocked`.
+- **Breaking: a check returns a verdict.** `DeliverableSpec.check` may return a `CheckVerdict`
+  (items, composite, threshold, `FAIL <item> <where>: <reason>` lines, review);
+  `verdictFromJudgeScore` reads an agent-eval `JudgeScore` into one. `explainFailure` is removed:
+  the verdict's lines replace it. `checkState` lets a check judge the run's state at a turn end
+  with no submitted result, `feedback: 'pass-only'` keeps the lines hidden, and `sealed` states
+  that the score comes from unseen cases. A `CheckUnavailableError` is not a verdict: the loop
+  pauses as it does for an unavailable upstream.
+- **The continuation note.** `composeContinuationNote` writes the verdict, the failures (at most
+  40, the rest through the new `read_continuation` tool), the protected items, what changed, the
+  question panel's admitted findings, the bar, the plan and the rules, then a play's appended
+  section; `composeReentryTask` still writes the run's state around it. Every instruction word
+  comes from the `ContinuationProfile`, which names the facts it may use.
+  `admitContinuationPolicy` lets a record's preflight refuse a malformed policy before spend.
+- **The question panel seam.** `continuation.runPanel` asks the profile's expanded questions over
+  the run's traces under `panelUsd` caps. A finding reaches the note only when every citation
+  resolves, it cites two distinct spans, and an independent verifier agreed; findings are added
+  and marked resolved, never rewritten.
+- **Declared checks.** `declaredCheckDeliverable(check, placement)` and
+  `declaredCheckJudge(check, placement)` run a record's frozen evaluator program, named by the
+  canonical digest of its files, in a fresh box on the check account. The program prints one
+  `JudgeScore`; the in-run reads use its development cases, and the version judge adds its sealed
+  cases, which no in-run read mounts. `runIsolatedCheck`'s box gains `egress` (strict, named
+  domains only) and the check gains `env` (named secrets); both stay blocked and empty by default.
+- **Breaking: one version loop.** `versions.judge` takes a `VersionJudge` (the declared check's, or
+  any judge with a digest); the `registry.versionJudges` and `registry.nextVersions` name lookups
+  and `PursuitVersionRegistry` are removed. `versions.next: 'review-of-best'` forks from the best
+  version with its check's per-item verdict mounted at `inputs/review/version-<n>.md`, replaces
+  the earlier review, uses `continuation.profile.review` for its words, and gives the next
+  version's continuation note the best version's verdict as its bar. `VersionVerdict.check`
+  carries that verdict.
+- **Declared stop rule.** `stopRule` also accepts `{ plateau: { window, minDelta } }` as data.
+- **Records.** Every check read is kept by the coordinator (`checkReads()`); each continuation
+  writes `continuations/<n>/note.md`, `verdict.json` and `panel.jsonl` under the run directory;
+  and `SupervisedResult.continuation.continuations` records every note's digest, profile,
+  switches, panel dollars, and the check's verdict before and after it.
+
+## 0.273.1
+
+SQL run-context synthesis preserves the incumbent stores and file path from #1381 and the
+fenced ownership/coordination context from #1391. Retained recovery now starts a journaled
+worker with no admission using its original execution keys, while any existing admission
+still requires its original validated intent. The six formerly expected-failure crash cases
+are ordinary passing tests. The SQL fixtures refuse in-doubt replacement keys and assert one
+original spawn and one done settlement per worker. A real SIGSTOP/SIGCONT test proves that
+a stale owner cannot publish or release its live successor. The conformance command now exits
+nonzero when its test report fails, while still writing the evidence.
+
+## 0.272.0
+
+Runtime redacts with agent-eval's redaction core (`@tangle-network/agent-eval/traces`) instead of three patterns of its own.
+`defaultRedactor`, the candidate-evidence redaction in `candidate-execution/protected-redaction.ts`, and every payload an event sanitizer includes on an opt-in flag now go through it.
+Token counts and model limits survive: on 40,704 real records the old `defaultRedactor` replaced 18,018 `input_tokens`, `output_tokens` and cache token counts each, and it let 3 of 7 raw credentials through; the core replaced no count and let no credential through.
+Credentials are replaced whole with `[REDACTED:<detector>]` instead of `[redacted]`, and candidate evidence marks a protected value `[REDACTED:known-secret]` instead of `[redacted:candidate-access]`.
+`defaultRedactorIdentityMaterial()` is now the core's name, profile and `REDACTION_VERSION`, so saved work keyed on it sees the change once.
+The Eval peer window becomes `>=0.188.0 <0.191.0`, because the core first shipped in 0.188.0; Runtime develops against 0.190.1, which fixes a data-URI scan/decode bypass and several missed bare-credential shapes in the core. Needs `@tangle-network/agent-knowledge` 17.1.5, which admits Eval 0.190.x.
+
+A Tangle box's harness-transcript capture now carries each harness subagent session its sidecar names.
+opencode runs a `task` subagent in a child session, and a dedicated box's sidecar records only the parent, so a subagent's steps reached no record (#1264).
+The Discovery fleet records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+Before it lists the session files, the opencode capture reads each sidecar record's `providerSessionHome` and runs `opencode export` for every subagent session the record's messages name.
+Each export lands under `.local/share/opencode/export`, where the capture reads it.
+This covers a root's box (`rootHarnessTranscript`, above) and a dedicated child's box; a shared-box worker already exports its own subagents (0.271.0).
+Each session the capture could not export is named in `skipped`: `subagent-export-failed`, or `subagent-export-over-bound` past 32 sessions or 120 s.
+An export that did not run or stopped early is named once, as `subagent-export-did-not-run` or `subagent-export-incomplete`.
+The sidecar's records now come first in the listing, so an export cannot push the agent's own record out of the 16 MiB budget.
+Tested in a live Tangle box with its opencode 1.18.25 against a seeded store: the subagent's export was written and listed, and an unknown session was named `failed`.
+
+The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
+A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
+The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a spawn journal, and none has a native-session receipt.
+27 of the 57 harness subagent calls seen in those runs were made by roots.
+The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
+A router-brained root runs no driver, so its result has no such field.
+`result.json` from `supervisePursuit` carries it with the rest of the result.
+
+The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine
+run ownership and a SQL coordination side-log, the two items this runtime's durability STATUS
+listed as open after 0.270.0. `openSqlRunStore` is a fenced append-only log — hash-chained
+records, publication and takeover as one compare-and-set on the run's head row, generation
+fencing, lease liveness through a persisted progress counter (never host clocks), lost-ack
+recovery on both claim and publish, and fenced release. `createFencedSqlRunContext` composes it
+with the SQL journal, blobs, and coordination log into a run context that is read-only until a
+lease is acquired; `supervise`/`runGraph` accept `runContext` and hold ownership for the whole
+run, and grouped publication (`appendEvents`) advances the fenced head once per spawn and once
+for the root's initialization records. Proven by two-host conformance: 19 lost-ack kill points
+(the process dies between a SQLite commit and its acknowledgement, on either side of every
+publication) resume on another host with an empty working directory — no replacement keys,
+exactly-once provider effects — plus lease takeover and publish-contention tests (39 cases; 6
+expected-fail cases document the never-dispatched recovery gap against current retained
+machinery). Durability conformance totals: 158/158.
+
+
+## 0.271.0
+
+`createStdioToolServer` passes each tool's annotations (`readOnlyHint`, `idempotentHint`, and the rest) through `tools/list` (#1386).
+It answers `ping` with an empty result instead of an unknown-method error.
+It answers `initialize` with the client's requested protocol version when that version is 2025-11-25, 2025-06-18, 2025-03-26, or 2024-11-05.
+`McpToolDescriptor` gains an optional `annotations` field, and `/mcp` exports `McpToolAnnotations` and `SUPPORTED_PROTOCOL_VERSIONS`; no existing caller must change.
+The v0.270.0 tag never published, because #1386 merged before its publish run started; this release carries 0.267.0 through 0.270.0 as well.
+
+Exported spans declare their kind (`openinference.span.kind`), so a reader no longer counts one
+run's tokens three times. The run span `tangle.intelligence.run` carries the run's model and token
+total and is now `AGENT`; loop and round spans are `CHAIN`; iteration spans, which carry the
+iteration's token total, are `AGENT`; `gen_ai.client.inference` is `LLM`; tool call and result
+spans are `TOOL`. Measured on a real run (the real `runAgentRounds` kernel, two workers, one real
+router chat completion each, 46 provider-reported input tokens, exported through `withIntelligence`
+to a loopback collector): agent-eval 0.187.0 read 138 input tokens before (3.00x) and 46 after
+(1.00x). The contract classifier needs agent-trace-contract 1.1.0 to read the declaration on a
+flattened OTLP row.
+
+## 0.270.0
+
+SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
+conformance work recorded. `SqlSpawnJournal` and `SqlResultBlobStore` (`/kernel`, @experimental)
+run the same begin/append/load contract as the file stores over the `SqlStatements` seam
+`SqlConversationJournal` already takes — D1, postgres, sqlite, libSQL — with the same corruption
+guards (begin precedes events by schema, the shared `SpawnEventIndex` refuses duplicate cursor
+seqs and duplicate materialization receipts on append AND replay, insertion order is replay
+order) and the same content-address law for blobs. `createSqlRunContext(db)` bundles them with
+`resume: true`, and `supervise`/`runGraph` now accept an explicit `resume` option so
+caller-supplied durable stores resume-first without a `runDir` (the file context keeps owning the
+flag when both are set). Proven against a REAL sqlite file with real SIGKILLs: the conformance
+suite's new SQL arm resumes a killed graph run from the database alone — same winner, committed
+nodes never re-executed, one key per assignment, side effect exactly once. Draft status: the full
+23-point sweep, a SQL coordination side-log, and machine-visible cross-run ownership are the
+named follow-ups; single-writer by convention, like the file context.
+
+
+## 0.269.1
+
+A durable run whose cancellation observer cannot create its inotify watch degrades to poll-only
+instead of dying. Creating `fs.watch` can fail for reasons that say nothing about the run — the
+host's inotify instance budget is exhausted (measured on a shared agent box holding ~110 of the
+128 default user instances; a neighboring process's usage was killing durable runs at startup
+with EMFILE), or the kernel caps watches (ENOSPC). The observer already carried a 100 ms poll
+loop; EMFILE/ENOSPC at watch creation now proceed on that loop alone (instant pickup becomes
+≤100 ms), while any other creation error still fails loudly. Measured while here: a durable run
+holds exactly one inotify instance regardless of how many directories it watches (libuv
+multiplexes), so no further sharing was possible or needed.
+
+Runtime now has one AgentProfile identity: `canonicalAgentProfileDigest`.
+`improve()` computed a candidate's `profileDigest`, `lineage.baselineProfileDigest`, and its profile equality checks with the generic `canonicalCandidateDigest`, while supervise, preparation receipts, retained interactive runs, profile training, and VerticalBench used `canonicalAgentProfileDigest`.
+Both functions give the same digest on every recorded profile: 31 distinct profiles across VerticalBench climbs, boards, and repository profiles, the 4 materialized candidates of the 2 completed climbs, and 13 recorded VerticalBench base digests. No recorded identity moves.
+They differ on values that no recorded file holds: a profile with an optional field set to `undefined` makes `canonicalCandidateDigest` throw, and a schema-invalid profile (an unknown key or a wrong type) receives a `canonicalCandidateDigest` but fails `canonicalAgentProfileDigest`.
+A schema-invalid profile now fails at identity time, and an inline retained-run profile records the same `requestedProfileDigest` as a retained interactive run.
+
+## 0.269.0
+
+A final settlement now closes every retained child's slot, including one whose release it could not confirm.
+Under `retainedAtSettlement: 'release'`, a child whose provider delete was refused, whose teardown probe failed, or whose create timed out before naming an environment kept its slot open forever, so every reader counted it as never settled (#1301).
+The Discovery fleet's records of 2026-09-23 and 2026-09-24 hold 338 such agents out of 1,620.
+After the retry window, each such slot now closes with the settlement the driver received, under the seq it saw, marked `retainedExecution: 'release-unconfirmed'`.
+Its `teardown-unconfirmed` record still names what a sweeper must delete.
+`FleetYield.releaseUnconfirmed` counts these records beside `releasedUnrecovered`, and the spend gap is the committed floor, `unreported`, not the `never-settled` ceiling.
+A run that declares `release` and is resumed anyway no longer recovers such a child: the declaration says no resume comes.
+
+A retained release now reads the child's harness session before it destroys the box.
+The failure path reads it when the child drops, and often the box is out of reach then: 105 of the 150 dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24 carry `enumeration-failed`.
+When the release can reach the box, the record that closes the slot carries the session it read, so a transport that came back before settlement no longer costs the transcript.
+Only a capture replaces the earlier receipt, and the `reconciled` floor keeps the one the driver saw.
+
+`createOtelExporter` now accounts for every span, and a failed export is no longer silent. Before,
+it POSTed each batch without reading the response and swallowed every error in an empty `catch`: a
+401, a 503 or a dead collector lost the batch with no count and no message, so a missing trace read
+like a run that emitted nothing. Concurrent batch POSTs had no limit, and a collector that never
+answered held `flush()` and the exporter's shutdown forever (the old exporter hung past the 20 s test
+timeout). The exporter now sends one batch at a time, bounds queued plus in-flight spans at
+`maxQueueSize` (default 2048), abandons a POST after `timeoutMs` (default 10000), and counts spans a
+non-2xx response, a network error, a timeout, an OTLP `partialSuccess.rejectedSpans` reply or a full
+queue lost. `OtelExporter` gains `stats()` (`written`, `dropped`, `pending`, `lastError`), and
+`flush()` rejects when spans were dropped since the previous flush, the rule the OpenInference file
+exporter already followed. `IntelligenceClient.exportStats()` exposes the same counts, because the
+client's `flush()` stays best-effort. A custom `OtelExporter` passed to `supervise()` must now
+implement `stats()`.
+
+A router-brained agent now keeps its conversation (#1377).
+Before, a router-brained manager or leaf settled as `executor-exposes-no-transcript`, and each `agent.turn` event named only its tool calls.
+A 316-agent tree on 2026-09-24 settled with 0 of 316 transcripts, and the 37 agents still running when its driver stopped left no record.
+Each router-brained manager turn now carries `conversation` in its `agent.turn` event: the messages the turn added, then the reply.
+A content longer than 256 KiB is cut there and marked with `contentCut` and its full `contentBytes`.
+So `observer.jsonl` holds every manager conversation while the run is live.
+Every router-brained manager and leaf also settles with an `available` harness transcript: `harness: 'router'`, one JSON message per line in `conversation-000.jsonl` and on, under the existing 2 MiB file and 16 MiB total bounds.
+A leaf streams nothing; its conversation arrives when it settles.
+
+## 0.268.0
+
+A keyed spawn the process died with in flight no longer wedges. Two arms:
+
+An `inline` worker (an executor that runs inside the coordinator process) provably died with that
+process, so a resume now resolves its key `down` instead of `in-doubt`: a re-spawn under the SAME
+key returns `resumed: "retried"` with the interruption named as the reason. Before, the key was
+refused forever and a driver had to invent a replacement key; the side-effect site then saw two
+keys for one logical commit. The predicate is the one the budget layer already used to charge no
+uncertain reservation, so the two layers cannot disagree about what "proved dead" means. The
+run-once contract is unchanged for executions that may outlive the process (sandbox, CLI bridge,
+router): those stay `in-doubt` until recovered.
+
+A run that owns its worker seam can now recover those: `supervise({ recoverExecutor })` and
+`runGraph({ recoverExecutor })` accept an `ExecutorFactory` that reconstructs an interrupted
+child's executor from the journal (previously only backend-derived recursive managers registered
+one; a caller-owned `makeLeafAgent`/`makeWorkerAgent` had no recovery channel at all). The
+resumed process prepares the recovery from the child's journaled admissions, the scope adopts the
+child before the driver drives, and the executor re-attaches its session and continues.
+
+Both arms are pinned by the kill-and-resume conformance suite's new matrices
+(`conformance/durability/STATUS.md`): interrupted `inline` keys retry under their own key with no
+manual escalation and one key per assignment, and mid-session kills of session-backed workers
+recover and re-attach — every session step runs exactly once across processes, and the keyed side
+effect commits exactly once.
+
+## 0.267.0
+
+`runGraph({ runDir })` now journals durably. Before, the graph unconditionally defaulted its
+journal and blob store to in-memory instances and passed them into `supervise()`, whose own
+`options.journal ?? createFileRunContext(runDir).journal` resolution then never built the file
+stores: a "durable" graph run wrote no `spawn-journal.jsonl`, `resume: true` loaded an empty
+in-memory tree, and a second process silently restarted the run from scratch while the run
+reported success. The graph now defaults to the file stores at the same `runDir` layout
+`createFileRunContext` owns (`spawn-journal.jsonl`, `blobs/`), so a graph killed mid-flight
+resumes: committed keyed work returns `resumed: "completed"` and is never re-executed. Found by
+the new kill-and-resume conformance suite, whose full matrix failed as "restarted from scratch"
+before this fix and passes after it.
+Durable kill-and-resume conformance is now a tracked capability
+(`conformance/capabilities.json`: `durable-kill-and-resume`; verdict and evidence:
+`conformance/durability/STATUS.md`, regenerable via `pnpm run conformance:durability`).
+The suite SIGKILLs real child processes at every step boundary and mid-step instant of a
+3-delegate graph run (file run context) and a 6-turn conversation (`FileConversationJournal` and
+`SqlConversationJournal` over real sqlite), resumes in a fresh process, and asserts: completes
+with the same final output, no step lost, no committed step repeated, the idempotency-keyed side
+effect exactly once, and a resume-contract-clean journal (one root `spawned`, at most one root
+`materialized`, distinct root binding attempt ids, unique cursor seqs — the 2026-08-11 autopsy
+signature). The 2026-09-16 re-entry defect is asserted as a contract case: a fresh-environment
+re-entry must carry the original task and the coordinator's run state (`composeReentryTask`,
+#1356), not the unmet-items fragment alone.
+
+A shared worker now also exports the session of each harness subagent it ran.
+opencode runs a `task` subagent in a child session, and the parent's export does not hold it, so a subagent's steps reached no record (#1264).
+The Lab fleet's records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+After each turn, the worker exports every child session that its `task` parts name: by `state.metadata.sessionId`, by the result's `<task id="ses_…">` header, or by the `task_id:` in a failure.
+Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
+opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
+A dedicated Tangle box still keeps only the parent's sidecar records.
+
+## 0.266.0
+
+Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
+Sandbox 0.52 adds voice on lines and a sandbox per line member; Runtime does not call those APIs itself.
+
+One pursuit's own tree can now grow to hundreds of agents; four structural limits are removed.
+
+A spawn past the worker bound waits in a queue instead of being refused.
+`SuperviseOptions.workerSlots` replaces `maxLiveWorkers`.
+It takes a number, or one `createWorkerSlots(n)` allocator that several runs in one process share.
+A spawn past the bound keeps its budget slice and starts when a slot frees, as a node with status `queued`.
+The queue releases the deepest waiting spawn first, then the oldest.
+The bound counts working agents: a manager lends its slot to its first running child and takes it back when its last running child ends.
+Nested waits therefore cannot deadlock, whatever the bound and depth.
+`Scope.spawn` no longer returns `max-live-workers`, and `spawn_worker` reports `status`, `queued` and `freeSlots`.
+`Scope.workerCapacity` reads `working`, `queued` and `freeSlots`.
+`TreeView.inFlight` counts queued nodes.
+`reservationPolicy` keeps only `ownerShare`; the per-depth reserved slots are gone, since lending replaces them.
+`effectiveConcurrency` and `ConcurrencyCaps` are removed.
+
+A spawn the budget cannot cover yet waits for it instead of being refused.
+When the pool is short only by what the manager's running workers hold, the spawn is admitted as `queued` and starts once their settlements return enough.
+It takes a worker slot only after its budget is granted, so it never holds a slot that the work it waits on needs.
+Waiting spawns are granted in the order they asked.
+A waiting spawn settles `down` with `budget-exhausted` when nothing left running could return enough, and a spawn that even every refund could not cover is still refused at once.
+`BudgetPool.reserve` takes `{ wait, keep }` and returns `granted` for a waiting ticket, which rejects with `ReservationWaitRefused`.
+A refusal's shortfalls carry `held`, what open reservations hold on the channel, and its text names the most one spawn can wait for.
+The refusal no longer suggests `cancel_worker`, since a waiting spawn already counts what running workers hold.
+Measured offline on a four-level audit with default slices (2026-09-24): every team lead's fourth checker was refused, and the tree stopped at 54 of 66 agents; with waiting it reached all 66.
+
+Children inherit spawn rights.
+A spawned profile that declares no Runtime coordination tool receives its manager's coordination grants, plus `submit_result`, so every child can lead a team of its own.
+An author's explicit coordination entry stands, and a `false` entry keeps the child a leaf.
+A child the run cannot drive as a manager stays a leaf: no driver for its harness, or no `router` for a harness-less profile.
+Every child also stays a leaf in a run without a completion check.
+`inheritSpawnRights: false` runs every profile exactly as written; `runGraph` always sets it.
+
+Depth is bounded by the budget.
+`DEFAULT_MAX_DEPTH` is 16 for both `supervise` and `createSupervisor`, which used 8 and 4.
+Each level's slice comes out of the level above, so the pool ends a tree long before the ceiling.
+With an `ownerShare`, a default child slice is a quarter of what the manager's children may reserve, so four default children fit beside the manager's own share.
+
+Each manager carries a bounded account of its team to its lead.
+A settlement of a child that led workers carries `subtree`: agents and depth below it, done and down counts, and at most `SUBTREE_RESULT_LIMIT` (8) of its own direct children's results, best first, each with its `outRef`.
+The `settled` journal event, replay and the `agent.child` hook carry the same field.
+`observe_agent({ outRef })` reads a result listed in a summary the manager received, and refuses any other digest.
+
+A lead reads a manager by the work of its team.
+A manager child reports no usage of its own until it settles, so its lead used to read it as idle, and as stalled after `stallAfterMs`, while its workers were busy.
+Its progress now counts its own turns, takes the newest activity anywhere in its team as its activity, and carries `team`: agents, depth, working, queued, done and down below it.
+A queued worker is never stalled: it waits for a slot, which no steer or cancel frees.
+Measured before this change on a four-level audit (2026-09-24): leads cancelled working sub-leads as stalled at 47 and 206 seconds.
+
+A lead takes back what a stalled worker holds.
+The new `cancel_worker` verb (grant `agent_runtime_coordination_cancel_worker`) cancels one of the manager's own running or queued workers, and its unspent slice returns to the pool when it settles.
+A `budget-exhausted` refusal names it.
+Measured on factory-test-2 continue-top5 (2026-09-23): four workers that never ran held 16M of an 18M-token pool, while their director saw the stall and had no way to reclaim it.
 
 ## 0.265.0
 
@@ -14,15 +346,28 @@ It applies to a retained provider execution under a Scope, the path a supervised
 The refusal codes and the pause rule moved to one module that the driver and the leaf both read; `UnavailablePausePolicy` is exported.
 Measured 2026-09-24 on play anomaly-referee-v3d: 15 of 23 down children ended on `provider_quota_exhausted`, and in one lead lane five of five children had run 3 to 9 minutes and spent 117k to 856k input tokens first.
 
-A director re-entered in a replacement environment keeps its files.
-While a manager on a retained provider environment coordinates, Runtime checkpoints its workspace through the environment's `workspaceBranching.checkpoint`: the first coordination call at least 60 s after the last checkpoint starts one in the background.
-Before each checkpoint Runtime writes the marker `.agent-runtime-checkpoint` into the workspace, and journals the checkpoint as a `workspace-checkpoint` receipt; it keeps the newest two per environment and deletes the rest of an environment's checkpoints before it destroys that environment.
-When the provider loses the environment, the next invocation is created with `workspace.checkpoint` set to the latest receipt, the re-entry task states the checkpoint's time, and Runtime journals a `workspace-restored` receipt with `verified: true` only when the new environment holds the marker.
-Before, the replacement started empty: the re-entered director in `autopsy-a-after-20260924b` found no `objective.md` and wrote a new nonce.
-Checkpoints are taken only from a provider whose capability document states `create.workspaceCheckpoint: true` (`@tangle-network/agent-interface` 2.13.0; `@tangle-network/agent-provider-tangle` 1.7.0 restores Sandbox snapshots).
-The settle record's `continuation` gains `workspaceRestores`, and the re-entry continuity gains `workspace: 'restored'` with `checkpointAt`.
-A re-entry whose files were kept or restored tells the director to read them before it repeats a step; in `autopsy-a-restore-after-20260924c` the director re-ran the task's first step and overwrote the restored `objective.md` without reading it.
-The `repromptOnUnmet` documentation no longer claims every re-prompt re-enters the same live session.
+Many workers can now share one Sandbox box.
+`sharedBoxPlacement({ client, box?, workersPerBox? })` runs each accepted worker as its own `opencode run` process in a pooled box, with its own working directory, HOME and materialized profile.
+`createExecutor({ backend: 'provider', provider, shared })` sends a profile the pool accepts to it and keeps a dedicated environment from `provider` for every other profile; `sharedBoxRefusal` names why a profile needs its own box.
+A manager never shares: its coordination credential is create-time box environment.
+The workers of one box share the box's router key, and each worker of a supervised node names itself to the router: its opencode provider sends `x-tangle-client: agent-runtime-node/<nodeId>`, which the router stores as the usage row's `clientName`.
+`tangle-admin router-spend --key <box key> --json` then returns one `by_client` row per worker, so a keeper prices a shared worker by its node id; a call without a node id stays charged to the box.
+`SharedBoxPlacement.providerFor({ nodeId })` gives the provider for one worker, and `sharedWorkerClientName` and `ROUTER_CLIENT_HEADER` name the value and the header.
+Measured 2026-09-24 with 64 workers in 8 boxes: the 8 box keys held 64 `by_client` rows, 8 per key, and no request without a client name; the router charged $0.073 in all, $0.0007 to $0.0018 per worker.
+The router counted 13% more prompt tokens than the workers' own step receipts, so price a shared worker from its router row, not from its token receipts.
+The pool fills a box before it creates the next, deletes a box when its last worker releases it, and reports boxes, workers and create latency through `stats()`; `close()` deletes what remains.
+`workersPerBox` defaults to 8 because a Tangle box has a fixed 512-task pids limit and an opencode worker holds about 34 tasks; at the limit the box's sidecar restarts.
+Sandbox calls that fail on platform key verification are repeated, and a launch whose answer was lost is adopted rather than started twice.
+Measured 2026-09-24: 64 workers in 8 boxes, 64 of 64 answering from their own instructions and brief, each transcript carrying only its own worker's text, 41.5 s wall; 16 workers in dedicated boxes took 16 boxes and 92 s.
+Sidecar sessions were not used for this, because 7 of 8 concurrent sessions in one box answered with another session's instructions.
+A shared worker takes the leaf pause above inside its own turn: its refused `opencode run` ends, the worker waits by the same rule, and `opencode run --session <id>` continues the same session with the same continuation instruction in the same directory.
+The turn stays one invocation, its result counts the session's runs as `sessionRuns`, and `SharedBoxPlacementOptions.unavailablePause: false` ends the turn on the refused run.
+opencode reports a refused model with its HTTP status and a prose message: for a refused `deepseek/deepseek-v4.1-flash` on 2026-09-24 it retried for about 70 seconds, then printed `Inference temporarily unavailable` with `statusCode: 503` and exited 1.
+A shared worker's failure text now carries that status as `(status code 503)` and the error line's message, so the refusal reader sees it.
+
+opencode transcript capture now reads the sidecar's per-session records under `.opencode/sessions` and `.opencode/messages`, and a shared worker's `opencode export`.
+Current opencode keeps its sessions in SQLite, so every opencode child used to settle `no-transcript`: 10 of 10 in two E1 metering runs.
+For opencode in a dedicated Tangle box this ends the `no-transcript` receipts that 0.264.0 describes: 12 of 12 successful dedicated workers captured their transcript. Claude Code and Codex boxes still read `no-transcript` (#1360).
 
 ## 0.264.0
 

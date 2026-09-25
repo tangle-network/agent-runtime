@@ -425,7 +425,7 @@ describe('materializeLocalMcp', () => {
     }).catch((error) => error)
     expect(err).toBeInstanceOf(Error)
     expect((err as Error).message).not.toContain(secret)
-    expect((err as Error).message).toContain('[redacted')
+    expect((err as Error).message).toContain('[REDACTED:')
   })
 
   it('redacts a provisioned secret returned as tool output', async () => {
@@ -449,7 +449,7 @@ describe('materializeLocalMcp', () => {
     try {
       const result = await mat.call('leaking__read', {})
       expect(result).not.toContain(secret)
-      expect(result).toContain('[redacted')
+      expect(result).toContain('[REDACTED:')
     } finally {
       await mat.close()
     }
@@ -487,7 +487,7 @@ describe('materializeLocalMcp', () => {
       expect(result).not.toContain(secret)
       expect(result).not.toContain(first)
       expect(result).not.toContain(second)
-      expect(result).toContain('[redacted')
+      expect(result).toContain('[REDACTED:')
     } finally {
       await mat.close()
     }
@@ -524,7 +524,7 @@ describe('materializeLocalMcp', () => {
       const result = await mat.call('leaking__read', {})
       expect(result).not.toContain(secret)
       expect(result).not.toContain(fragment)
-      expect(result).toContain('[redacted')
+      expect(result).toContain('[REDACTED:')
     } finally {
       await mat.close()
     }

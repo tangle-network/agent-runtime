@@ -47,22 +47,31 @@ function stubScope(): Scope<unknown> {
  *  analyst pair, and an `analysts.register` mounts `define_analyst`) so no published name can hide
  *  from the sweep behind an unset option. */
 function coordinationToolNames(): ReadonlyArray<string> {
-  return createCoordinationTools({
-    scope: stubScope(),
-    blobs,
-    makeWorkerAgent,
-    perWorker: { maxIterations: 1, maxTokens: 10 },
-    deliverable: { describe: 'anything', check: () => true },
-    analysts: {
-      kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
-      run: async () => [{ claim: 'x' }],
-      register: (definition) => ({
-        id: definition.id,
-        description: definition.description,
-        area: definition.area,
-      }),
-    },
-  }).tools.map((tool) => tool.name)
+  // A manager with a check is served submit_result and read_continuation; one without is served
+  // stop. The sweep reads both, so every reserved verb is built by one of them.
+  const build = (checked: boolean) =>
+    createCoordinationTools({
+      scope: stubScope(),
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      ...(checked
+        ? {
+            deliverable: { describe: 'anything', check: () => true },
+            readContinuation: () => ({ found: false }),
+          }
+        : {}),
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async () => [{ claim: 'x' }],
+        register: (definition) => ({
+          id: definition.id,
+          description: definition.description,
+          area: definition.area,
+        }),
+      },
+    }).tools.map((tool) => tool.name)
+  return [...new Set([...build(true), ...build(false)])]
 }
 
 /** The tools one peer-mail capability endpoint serves. */

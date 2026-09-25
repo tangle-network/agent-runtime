@@ -23,8 +23,13 @@ import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
-import { supervise } from '../helpers/runtime-with-test-brain'
+import { testContinuation } from '../helpers/continuation'
+import { supervise as superviseTree } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations } from './test-agent-profile'
+
+// These cases pin a fixed topology: every child runs exactly as its manager authored it.
+const supervise: typeof superviseTree = (profile, task, options) =>
+  superviseTree(profile, task, { inheritSpawnRights: false, ...options })
 
 type BridgeRequest = {
   model: string
@@ -1102,6 +1107,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             (out as { content?: unknown }).content === 'FALLBACK=ready',
           describe: 'fallback artifact is ready',
         },
+        continuation: testContinuation({ deadline: 1 }),
         brain: async () => {
           turn += 1
           if (turn === 1) {
@@ -1829,6 +1835,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           (out as { content?: unknown }).content === 'RESULT=42',
         describe: 'worker reports RESULT=42',
       },
+      continuation: testContinuation({ deadline: 1 }),
       profileSecurity: {
         allowLocalMcp: false,
         allowHooks: false,
@@ -2313,6 +2320,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           describe: 'an object whose answer is 42',
           check: (value) => (value as { answer?: unknown }).answer === 42,
         },
+        continuation: testContinuation({ deadline: 1 }),
         driverRetry: { enabled: false },
         journal,
         runId,
@@ -2697,6 +2705,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
               out !== null &&
               (out as { content?: unknown }).content === 'RESULT=42',
           },
+          continuation: testContinuation({ deadline: 1 }),
         },
       )
       expect(requests.map((request) => request.agent_profile.name)).toEqual(['root', 'worker'])

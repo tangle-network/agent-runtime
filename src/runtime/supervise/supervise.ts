@@ -43,41 +43,45 @@ import {
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
-import type {
-  AnalystRegistry,
-  AnalyzeOnSettleRoute,
-  AuthorizeDownMessage,
-  AuthorizedDownMessage,
-  ContinuityMode,
-  CoordinationEvent,
-  DownMessageAuthorizationInput,
-  EscalateQuestion,
-  MakeWorkerAgent,
-  SpawnPreflight,
-  SuperviseProfileEntry,
-  WorkerSpawnContext,
-  WorkerWatchOptions,
+import {
+  type AnalystRegistry,
+  type AnalyzeOnSettleRoute,
+  type AuthorizeDownMessage,
+  type AuthorizedDownMessage,
+  type ContinuityMode,
+  type CoordinationEvent,
+  coordinationVerbNames,
+  type DownMessageAuthorizationInput,
+  type EscalateQuestion,
+  type MakeWorkerAgent,
+  type SpawnPreflight,
+  type SuperviseProfileEntry,
+  type WorkerSpawnContext,
+  type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
-import type { HarnessTranscriptCapture } from '../harness-transcript'
+import {
+  type HarnessTranscriptCapture,
+  persistHarnessTranscript,
+  readHarnessTranscript,
+} from '../harness-transcript'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
 import { RunCancellationReason } from './abortable'
 import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import {
   type DriverAttemptRecord,
   type DriverContinuationRecord,
-  type DriverRepromptPolicy,
   type DriverRetryPolicy,
   HarnessTurnFailedError,
-  type OnUnmetContract,
 } from './driver-retry'
 import { errMessage } from './error-message'
 import type { BusRecord } from './event-bus'
@@ -120,9 +124,14 @@ import {
   scopeRetainedOwnerRestorePoint,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
-import { createRootStreamSink, type RootStreamSink } from './root-stream'
+import { createRootStreamSink, ROOT_STREAM_FILE, type RootStreamSink } from './root-stream'
 import { watchRunCancellation } from './run-cancellation'
-import { createFileRunContext, createInMemoryRunContext } from './run-context'
+import {
+  createFileRunContext,
+  createInMemoryRunContext,
+  type RunContext,
+  withRunContext,
+} from './run-context'
 import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
 import {
   type BridgeSeam,
@@ -146,8 +155,8 @@ import {
   scopeOwnerExecutorNodeContext,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
-import type { StopRule } from './stop-rules'
-import { createRootHandle, createSupervisor } from './supervisor'
+import { type PlateauOptions, plateau, type StopRule } from './stop-rules'
+import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
 import {
   assertCoordinationBinding,
   assertNoReservedCoordinationMcpAlias,
@@ -198,6 +207,7 @@ import {
   type WorkerSpawnRetryPolicy,
   withWorkerSpawnRetry,
 } from './worker-retry'
+import type { WorkerSlots } from './worker-slots'
 import { WORKER_TRACE_PROPAGATION } from './worker-trace'
 
 /**
@@ -509,6 +519,47 @@ function assertProfileContract(
  * has asynchronously resolved its exact product-tool descriptors. Runtime-owned declarations are
  * not provider tools; unsupported declarations still fail when the coordination surface resolves.
  */
+/** The child with its manager's Runtime coordination grants, unless the child's author wrote any
+ *  coordination entry: an explicit grant or refusal is the author's choice and stands. A refusal
+ *  (`false`) grants nothing, so it is removed once it has decided the child stays a leaf; a
+ *  harness-less leaf carries no tools axis at all. */
+function withInheritedSpawnRights(parent: AgentProfile, child: AgentProfile): AgentProfile {
+  const childTools = child.tools ?? {}
+  const authored = Object.entries(childTools).filter(([name]) =>
+    name.startsWith(coordinationProfileToolPrefix),
+  )
+  if (authored.length > 0) {
+    if (authored.every(([, enabled]) => enabled !== false)) return child
+    const kept = Object.entries(childTools).filter(
+      ([name, enabled]) => !(name.startsWith(coordinationProfileToolPrefix) && enabled === false),
+    )
+    const { tools: _tools, ...rest } = child
+    return agentProfileSchema.parse(
+      kept.length === 0 ? rest : { ...rest, tools: Object.fromEntries(kept) },
+    )
+  }
+  const inherited = Object.entries(parent.tools ?? {}).filter(
+    ([name, enabled]) =>
+      enabled === true &&
+      name.startsWith(coordinationProfileToolPrefix) &&
+      coordinationVerbNameSet.has(name.slice(coordinationProfileToolPrefix.length)),
+  )
+  if (!inherited.some(([name]) => name === `${coordinationProfileToolPrefix}spawn_worker`)) {
+    return child
+  }
+  // A worker that becomes a manager must still be able to deliver work it does itself.
+  return agentProfileSchema.parse({
+    ...child,
+    tools: {
+      ...childTools,
+      ...Object.fromEntries(inherited),
+      [`${coordinationProfileToolPrefix}submit_result`]: true,
+    },
+  })
+}
+
+const coordinationVerbNameSet: ReadonlySet<string> = new Set<string>(coordinationVerbNames)
+
 function profileWithoutDeclaredRuntimeCoordinationTools(profile: AgentProfile): AgentProfile {
   return providerVisibleProfile(profile)
 }
@@ -744,6 +795,16 @@ export const DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY: AgentProfileSecurityPolic
   allowConnections: false,
 })
 
+/**
+ * A manager keeps a dedicated environment. It serves its coordination credential through
+ * create-time environment, and every co-tenant of a shared box could read it.
+ */
+function managerExecutorConfig(config: ExecutorConfig): ExecutorConfig {
+  if (config.backend !== 'provider' || config.shared === undefined) return config
+  const { shared: _shared, ...dedicated } = config
+  return Object.freeze(dedicated)
+}
+
 function isExternalSupervisor(profile: AgentProfile): boolean {
   return harnessRunsAgent(profile.harness)
 }
@@ -797,7 +858,9 @@ function driveHarnessFromBackend(
     )
   }
   const turnCap = maxTurns ?? 0
-  const capturedBackend = captureReusableExecutorConfig(backend, 'driveHarnessFromBackend')
+  const capturedBackend = managerExecutorConfig(
+    captureReusableExecutorConfig(backend, 'driveHarnessFromBackend'),
+  )
   const boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
   const baseFactory = createExecutor(boundBackend)
   const ownerRuntime =
@@ -1704,6 +1767,8 @@ async function verifyProfilePromotions(
 }
 
 export interface SuperviseOptions {
+  /** Whole-run persistence and ownership. SQL contexts are acquired before replay and compute. */
+  readonly runContext?: RunContext
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
   /** Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
@@ -1764,6 +1829,14 @@ export interface SuperviseOptions {
    *  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
    *  This is the seam an offline test or a pinning layer (an agent graph) should use. */
   readonly makeLeafAgent?: MakeWorkerAgent
+  /** Reconstruct executors for interrupted children on resume, for a run that owns its worker
+   *  factory (`makeWorkerAgent`/`makeLeafAgent`). Backend-derived recursive managers register one
+   *  automatically; a caller-owned factory cannot be, so a leaf whose execution can RE-ATTACH
+   *  across a process boundary (a sandbox session, a CLI bridge session — an executor that
+   *  journals its admission through the retained seam) needs this for a resume to recover the
+   *  in-flight child instead of refusing its key `in-doubt`. The factory receives the
+   *  reconstructed spec and the child's journaled context, including its prior admissions. */
+  readonly recoverExecutor?: ExecutorFactory<unknown>
   /** Run harness-brained supervisors here. Automatic execution supports a local `bridge`, or a
    * provider advertising runtime MCP attachments with authenticated `coordination.publicUrl`.
    *  Defaults to `backend`; separate it when managers and workers use different services. */
@@ -1826,6 +1899,17 @@ export interface SuperviseOptions {
    *  profile a manager spawns, before identity is fixed, so receipts bind the prompt that ran.
    *  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself. */
   readonly profileGuidance?: 'profile-kb'
+  /** Whether a spawned profile that declares no Runtime coordination tool receives its manager's
+   *  coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+   *  can still deliver work it does itself), so every child can lead children of its own. Default
+   *  `true`. A child whose author wrote any coordination entry, true or false, keeps what was
+   *  written (a `false` entry is dropped once it has kept the child a leaf). A child this run
+   *  cannot drive as a manager (no driver for its harness, or no `router` for a harness-less one)
+   *  stays a leaf, and so does every child of a run with no completion check (`deliverable` or
+   *  `resolveDeliverable`), since a manager delivers its own work only through `submit_result`.
+   *  `false` runs every authored profile exactly as written. Applies to backend-derived workers;
+   *  a caller-owned `makeWorkerAgent` decides its own children. */
+  readonly inheritSpawnRights?: boolean
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -1871,34 +1955,28 @@ export interface SuperviseOptions {
    *  as waiting rather than as a worker that silently took longer. */
   readonly onWorkerRetry?: (attempt: WorkerSpawnRetryAttempt) => void
   /**
-   * How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-   * re-entered with the unmet items. The same harness session is reused only where the backend
-   * proves it: a bridge, or a retained provider environment the provider still holds. Any other
-   * re-entry, including one into a replacement environment, receives the whole re-entry task
-   * composed from the coordinator (`composeReentryTask`), and a replacement created from the lost
-   * environment's latest workspace checkpoint keeps the files that checkpoint held.
+   * How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+   * the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
    *
    * A harness owns its own turn loop, so it decides when it is finished — and it can decide that
    * while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
    * runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-   * could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+   * could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+   * 2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+   * director heard held no line of the check's verdict.
    *
-   * A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-   * live children, and the same budget, deadline, and abort bounds. Successful continuations do
-   * not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-   * run the coordination server already stopped is never re-prompted — that stop was a decision.
+   * A continuation is the retry path, not a second loop: same scope, same coordination server,
+   * same live children, and the same budget, deadline, and abort bounds. There is no count: the
+   * loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+   * deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+   * cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+   * profile owns its words, and `append` may add a section but never replace one.
    *
-   * Requires `deliverable`, and applies to every external manager with a completion check. A
-   * recursive manager receives the check selected for its exact assignment. Refused for a
-   * router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-   * Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-   * Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
+   * Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+   * every external manager with a completion check in the tree. Refused for a router-brained
+   * manager, which runs its turn loop in process.
    */
-  readonly repromptOnUnmet?: DriverRepromptPolicy['maxReprompts']
-  /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
-   *  Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
-   *  owes and reports how many workers passed the check. */
-  readonly onUnmetContract?: OnUnmetContract
+  readonly continuation?: ContinuationPolicy
   /**
    * How long live children may keep running after the root driver returns or fails, before the join
    * barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
@@ -1934,8 +2012,8 @@ export interface SuperviseOptions {
    * context, including recursive parent and root cascades, plus `context.verbs` — that manager's
    * own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
    * chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
-   * the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
-   * cap, journal, and bus the MCP verb crosses, at every depth and on both arms. */
+   * the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
+   * queue, journal, and bus the MCP verb crosses, at every depth and on both arms. */
   readonly resolveSupervisorTools?: ResolveSupervisorTools
   /**
    * Where an `ask_parent` question goes when it leaves a manager (see {@link EscalateQuestion}).
@@ -1966,14 +2044,20 @@ export interface SuperviseOptions {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<string | null | undefined>
-  /** Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens. */
+  /** The root's default slice for a child whose manager names no `budget`. Defaults to a quarter
+   *  of the part of the pool children may reserve (the pool less any owner share). A nested
+   *  manager always divides its own slice that way; `spawn_worker`'s `budget` overrides per spawn. */
   readonly perWorker?: Budget
-  /** Opt-in owner inference share plus reserved live slots for descendants. Default: off. */
+  /** Opt-in owner share: every manager, the root included, keeps this fraction of its own slice
+   *  free of its children's reservations, so its own turns keep budget. Default slices shrink to fit
+   *  beside it. Default: off. */
   readonly reservationPolicy?: RecursiveReservationPolicy
-  /** Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
-   *  root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
-   *  the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound). */
-  readonly maxLiveWorkers?: number
+  /** Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
+   *  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
+   *  its budget slice and waits in a queue (deepest first) instead of being refused, and a manager
+   *  lends its slot to its first running child, so nested waits cannot deadlock. The root holds no
+   *  slot. Omit/`<= 0` = no bound (the conserved pool stays the only bound). */
+  readonly workerSlots?: number | WorkerSlots
   /** Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
    *  (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
    *  `registry.analysts`. */
@@ -2036,6 +2120,11 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+   * `blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+   * context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+   * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
+  readonly resume?: boolean
   /** Durable steer directory when it differs from the run-control directory. */
   readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
@@ -2060,11 +2149,17 @@ export interface SuperviseOptions {
    * `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
    * thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
    * only (unchanged behavior).
+   *
+   * A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+   * product module builds it.
    */
-  readonly stopRule?: StopRule
+  readonly stopRule?: StopRule | { readonly plateau: PlateauOptions }
   /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
    *  reason instead of inferring an early stop from an unexhausted budget. */
   readonly onProgressStop?: (reason: string) => void
+  /** Recursion ceiling for the tree (root = 0). The conserved pool is what bounds depth, since each
+   *  level's slice comes out of the level above; this only stops a runaway recursion. Omit =
+   *  `DEFAULT_MAX_DEPTH` (16). */
   readonly maxDepth?: number
   /** Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns of the
    *  driver's tool loop. Harness arm: turns the harness reports, counted off its `iteration`
@@ -2157,12 +2252,12 @@ const superviseOptionKeys = [
   'extraTools',
   'finalizer',
   'hooks',
+  'inheritSpawnRights',
   'journal',
   'makeLeafAgent',
   'makeWorkerAgent',
   'escalateQuestion',
   'maxDepth',
-  'maxLiveWorkers',
   'maxTurns',
   'now',
   'onCoordinationEvent',
@@ -2184,6 +2279,8 @@ const superviseOptionKeys = [
   'rootHandle',
   'router',
   'runDir',
+  'resume',
+  'runContext',
   'runId',
   'signal',
   'stallAfterMs',
@@ -2191,10 +2288,11 @@ const superviseOptionKeys = [
   'steerDir',
   'stopRule',
   'watchWorkers',
-  'repromptOnUnmet',
-  'onUnmetContract',
+  'continuation',
   'workerRetry',
   'onWorkerRetry',
+  'workerSlots',
+  'recoverExecutor',
 ] as const
 
 type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
@@ -2269,18 +2367,27 @@ function captureDeliverable(
   if (typeof deliverable.check !== 'function') {
     throw new ValidationError(`${context}: deliverable.check must be a function`)
   }
+  if (deliverable.checkState !== undefined && typeof deliverable.checkState !== 'function') {
+    throw new ValidationError(`${context}: deliverable.checkState must be a function`)
+  }
   if (
-    deliverable.explainFailure !== undefined &&
-    typeof deliverable.explainFailure !== 'function'
+    deliverable.feedback !== undefined &&
+    deliverable.feedback !== 'verbatim' &&
+    deliverable.feedback !== 'pass-only'
   ) {
-    throw new ValidationError(`${context}: deliverable.explainFailure must be a function`)
+    throw new ValidationError(`${context}: deliverable.feedback must be 'verbatim' or 'pass-only'`)
   }
   return Object.freeze({
-    ...detachedSnapshot({ describe: deliverable.describe }, `${context} configuration`),
+    ...detachedSnapshot(
+      {
+        describe: deliverable.describe,
+        ...(deliverable.feedback === undefined ? {} : { feedback: deliverable.feedback }),
+        ...(deliverable.sealed === undefined ? {} : { sealed: deliverable.sealed === true }),
+      },
+      `${context} configuration`,
+    ),
     check: deliverable.check,
-    ...(deliverable.explainFailure === undefined
-      ? {}
-      : { explainFailure: deliverable.explainFailure }),
+    ...(deliverable.checkState === undefined ? {} : { checkState: deliverable.checkState }),
   })
 }
 
@@ -2294,10 +2401,11 @@ function captureDeliverable(
  * the snapshot rather than the option, so a caller reads it as a bad value and not as a capability
  * the entry point cannot carry.
  *
- * That is what happened to `onUnmetContract`: added with the re-prompt path in 0.186.0, accepted by
- * the option-key check, forwarded by `supervisorAgent`, read by the retry loop, and never
- * destructured here. Every `supervisePursuit` run that passed the callback failed at construction
- * on 0.186.0, 0.187.1 and 0.188.0, and the only working configuration was the number alone.
+ * That is what happened to the retired `onUnmetContract`: added with the re-prompt path in 0.186.0,
+ * accepted by the option-key check, forwarded by `supervisorAgent`, read by the retry loop, and
+ * never destructured here. Every `supervisePursuit` run that passed the callback failed at
+ * construction on 0.186.0, 0.187.1 and 0.188.0, and the only working configuration was the number
+ * alone.
  *
  * The assignment below fails to COMPILE, naming the offender, when a callback-valued option is not
  * in this list, so the next one cannot be added silently. The list is not merely documentation:
@@ -2317,8 +2425,8 @@ const superviseExecutableOptionKeys = [
   'onCoordinationEvent',
   'onDriverAttempt',
   'onProgressStop',
-  'onUnmetContract',
   'onWorkerRetry',
+  'recoverExecutor',
   'resolveDeliverable',
   'resolveDriveHarness',
   'resolveSpawnProfile',
@@ -2418,9 +2526,12 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     analysts,
     makeWorkerAgent,
     makeLeafAgent,
+    recoverExecutor,
+    resume,
     resolveSpawnProfile,
     blobs,
     journal,
+    runContext,
     probes,
     registry,
     hooks,
@@ -2436,13 +2547,14 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     stopRule,
     onProgressStop,
     onDriverAttempt,
-    onUnmetContract,
+    continuation,
     workerRetry,
     onWorkerRetry,
     finalizer,
     now,
     signal,
     rootHandle,
+    workerSlots,
     ...decisionData
   } = opts
   assertNoUncapturedExecutableOption(decisionData)
@@ -2544,6 +2656,19 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
           ...(typeof analysts.register === 'function' ? { register: analysts.register } : {}),
         })
 
+  // The policy is decision data except its two functions, which are captured by reference.
+  const capturedContinuation =
+    continuation === undefined
+      ? undefined
+      : (() => {
+          const { runPanel, append, ...policy } = continuation
+          return Object.freeze({
+            ...detachedSnapshot(policy, 'supervise continuation'),
+            ...(runPanel === undefined ? {} : { runPanel }),
+            ...(append === undefined ? {} : { append }),
+          })
+        })()
+
   return Object.freeze({
     ...capturedData,
     ...(capturedCoordination === undefined ? {} : { coordination: capturedCoordination }),
@@ -2557,9 +2682,14 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
     ...(makeLeafAgent === undefined ? {} : { makeLeafAgent }),
+    ...(recoverExecutor === undefined ? {} : { recoverExecutor }),
     ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
+    ...(resume === undefined ? {} : { resume }),
+    ...(runContext === undefined ? {} : { runContext }),
+    // A number is decision data; a shared allocator is a live collaborator other runs also hold.
+    ...(workerSlots === undefined ? {} : { workerSlots }),
     ...(probes === undefined ? {} : { probes }),
     ...(authorizeSpawn === undefined ? {} : { authorizeSpawn }),
     ...(authorizeMessage === undefined ? {} : { authorizeMessage }),
@@ -2572,7 +2702,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(stopRule === undefined ? {} : { stopRule }),
     ...(onProgressStop === undefined ? {} : { onProgressStop }),
     ...(onDriverAttempt === undefined ? {} : { onDriverAttempt }),
-    ...(onUnmetContract === undefined ? {} : { onUnmetContract }),
+    ...(capturedContinuation === undefined ? {} : { continuation: capturedContinuation }),
     ...(capturedWorkerRetry === undefined ? {} : { workerRetry: capturedWorkerRetry }),
     ...(onWorkerRetry === undefined ? {} : { onWorkerRetry }),
     ...(finalizer === undefined ? {} : { finalizer }),
@@ -2698,7 +2828,11 @@ function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
   }
 }
 
-function defaultPerWorker(budget: Budget): Budget {
+/** The slice a child gets when its manager names none: a quarter of the part of the manager's
+ *  budget its children may reserve, so four default children fill that part and the manager's
+ *  own share stays free for its turns. Each nested manager divides its own slice the same way. */
+function defaultPerWorker(budget: Budget, ownerShare: number): Budget {
+  const share = (1 - ownerShare) / 4
   return {
     ...(budget.resources === undefined
       ? {}
@@ -2706,13 +2840,13 @@ function defaultPerWorker(budget: Budget): Budget {
           resources: Object.fromEntries(
             Object.entries(budget.resources).map(([name, value]) => [
               name,
-              { unit: value.unit, limit: Math.floor(value.limit / 4) },
+              { unit: value.unit, limit: Math.floor(value.limit * share) },
             ]),
           ),
         }),
-    maxIterations: Math.max(1, Math.floor(budget.maxIterations / 4)),
-    maxTokens: Math.max(1, Math.floor(budget.maxTokens / 4)),
-    ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd / 4 } : {}),
+    maxIterations: Math.max(1, Math.floor(budget.maxIterations * share)),
+    maxTokens: Math.max(1, Math.floor(budget.maxTokens * share)),
+    ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd * share } : {}),
   }
 }
 
@@ -2835,7 +2969,16 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       'supervise: direct brain injection is test-only; production execution derives the model call from AgentProfile',
     )
   }
-  return superviseInternal(profile, task, opts)
+  return superviseWithContext(profile, task, opts)
+}
+
+/** A stop rule as a function, or the declared plateau form a record carries as data. */
+function stopRuleOf(rule: NonNullable<SuperviseOptions['stopRule']>): StopRule {
+  if (typeof rule === 'function') return rule
+  if (typeof rule === 'object' && rule !== null && 'plateau' in rule) return plateau(rule.plateau)
+  throw new ValidationError(
+    'supervise: stopRule must be a StopRule or { plateau: { window, minDelta } }',
+  )
 }
 
 /** Deterministic scripted-brain path for tests. Not exported from Runtime's main entry. */
@@ -2845,7 +2988,7 @@ export function superviseWithTestBrain(
   opts: SuperviseTestOptions,
 ) {
   const { brain, ...runtimeOptions } = opts
-  return superviseInternal(profile, task, runtimeOptions, brain)
+  return superviseWithContext(profile, task, runtimeOptions, brain)
 }
 
 /**
@@ -2891,6 +3034,30 @@ export function superviseRootProfile(
   return freezeDetachedProfile(compose ? compose(parsedProfile.data) : parsedProfile.data)
 }
 
+function superviseWithContext(
+  profile: SupervisorProfile,
+  task: unknown,
+  opts: SuperviseOptions,
+  brain?: ToolLoopChat,
+): ReturnType<typeof superviseInternal> {
+  if (opts.runContext?.acquire === undefined) return superviseInternal(profile, task, opts, brain)
+  const options = captureSuperviseOptions(opts)
+  const capturedProfile = freezeDetached(profile)
+  const capturedTask = freezeDetached(task)
+  return withRunContext(opts.runContext, options.signal, (runContext, signal) =>
+    superviseInternal(
+      capturedProfile,
+      capturedTask,
+      {
+        ...options,
+        runContext,
+        ...(signal === undefined ? {} : { signal }),
+      },
+      brain,
+    ),
+  )
+}
+
 function superviseInternal(
   profile: SupervisorProfile,
   task: unknown,
@@ -2898,6 +3065,27 @@ function superviseInternal(
   testBrain?: ToolLoopChat,
 ) {
   const options = captureSuperviseOptions(opts)
+  if (options.runContext?.durability === 'sql') {
+    if (
+      options.runDir !== undefined ||
+      (options.journal !== undefined && options.journal !== options.runContext.journal) ||
+      (options.blobs !== undefined && options.blobs !== options.runContext.blobs) ||
+      (options.runId !== undefined && options.runId !== options.runContext.runId)
+    ) {
+      throw new ValidationError(
+        'supervise: SQL runContext cannot be mixed with another run identity or persistence path',
+      )
+    }
+    if (
+      options.backend?.backend !== 'provider' ||
+      options.makeWorkerAgent ||
+      options.makeLeafAgent
+    ) {
+      throw new ValidationError(
+        'supervise: SQL runContext requires backend-derived retained provider workers',
+      )
+    }
+  }
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
@@ -3020,11 +3208,14 @@ function superviseInternal(
   // `withDriver: true` is the wiring invariant: a child constructed by `driverChild` must resolve
   // to the nested-scope executor; `runDir` only changes where the journal and blobs live.
   const ctx =
-    options.runDir !== undefined
+    options.runContext ??
+    (options.runDir !== undefined
       ? createFileRunContext(options.runDir, { withDriver: true })
-      : createInMemoryRunContext({ withDriver: true })
+      : createInMemoryRunContext({ withDriver: true }))
   const blobs = options.blobs ?? ctx.blobs
-  const perWorker = options.perWorker ?? defaultPerWorker(options.budget)
+  assertRecursiveReservationPolicy(options.reservationPolicy)
+  const ownerShare = options.reservationPolicy?.ownerShare ?? 0
+  const perWorker = options.perWorker ?? defaultPerWorker(options.budget, ownerShare)
   assertValidBudget(perWorker, 'supervise perWorker')
   // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
   // silently misleads the caller: the child is capped by the reservation instead and settles with
@@ -3033,14 +3224,9 @@ function superviseInternal(
   // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)
-  assertRecursiveReservationPolicy(
-    options.reservationPolicy,
-    options.maxDepth ?? 8,
-    options.maxLiveWorkers,
-  )
   const journal = options.journal ?? ctx.journal
-  const runId = options.runId ?? 'supervise'
-  const runNamespace = supervisionRunNamespace(options.runDir, runId)
+  const runId = options.runId ?? ctx.runId ?? 'supervise'
+  const runNamespace = ctx.namespace ?? supervisionRunNamespace(options.runDir, runId)
   const log = ctx.coordinationLog
   const rootOwnerId = rootCoordinationOwner(rootExecution.identity)
   const rootProviderModels: Array<string | undefined> = []
@@ -3109,6 +3295,33 @@ function superviseInternal(
     throw new ValidationError(
       `supervise: external supervisor profile.harness=${JSON.stringify(canonicalProfile.harness)} requires a local bridge, a provider with authenticated coordination.publicUrl and runtime MCP attachments, or an explicit driveHarness with reachable coordination transport`,
     )
+  }
+  // Every child that this run can drive as a manager inherits its manager's coordination grants,
+  // so depth is the director's choice rather than an author's omission. A profile's own explicit
+  // grants win; a child with no driver for its harness stays a leaf rather than failing to start.
+  const externalManagersAvailable =
+    hasCustomDriveHarness ||
+    (managerBackend !== undefined &&
+      automaticDriverBackendSupported(managerBackend, options.coordination))
+  const canLead = (child: AgentProfile): boolean =>
+    isExternalSupervisor(child) ? externalManagersAvailable : options.router !== undefined
+  // A manager delivers its own work only through `submit_result`, which exists only under a
+  // completion check. Without one, a worker turned manager could not finish work it did itself.
+  const childrenCanSubmit = deliverable !== undefined || options.resolveDeliverable !== undefined
+  const composeSpawnProfileFor = (
+    parent: AgentProfile,
+  ): ((profile: AgentProfile) => AgentProfile) | undefined => {
+    if (
+      options.inheritSpawnRights === false ||
+      options.makeWorkerAgent !== undefined ||
+      !childrenCanSubmit
+    ) {
+      return composeSpawnProfile
+    }
+    return (authored) => {
+      const composed = composeSpawnProfile ? composeSpawnProfile(authored) : authored
+      return canLead(composed) ? withInheritedSpawnRights(parent, composed) : composed
+    }
   }
   const harnessClaims = new WeakMap<
     DriveHarness,
@@ -3390,7 +3603,7 @@ function superviseInternal(
           depth + 1,
           ownerId,
         )
-        const nestedPerWorker = defaultPerWorker(spawnContext.budget)
+        const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
         const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
         let acceptedSubmission = false
         const nested = supervisorAgent(authorized, {
@@ -3398,7 +3611,7 @@ function superviseInternal(
           makeWorkerAgent: childFactory,
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
-          ...(options.reservationPolicy ? { preserveOwnerTurns: true } : {}),
+          ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),
           ...(options.router ? { router: options.router } : {}),
           ...(nestedDriveHarness ? { driveHarness: nestedDriveHarness } : {}),
           ...(options.coordination && isExternalSupervisor(authorized)
@@ -3431,10 +3644,12 @@ function superviseInternal(
           ...(options.resolveSpawnProfile
             ? { resolveSpawnProfile: options.resolveSpawnProfile }
             : {}),
-          ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
+          ...(composeSpawnProfileFor(authorized)
+            ? { composeSpawnProfile: composeSpawnProfileFor(authorized) }
+            : {}),
           ...(profileTable ? { profiles: profileTable } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
-          ...(options.stopRule ? { stopRule: options.stopRule } : {}),
+          ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
           ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
           ...(options.compaction ? { compaction: options.compaction } : {}),
@@ -3450,10 +3665,23 @@ function superviseInternal(
                 },
               }
             : {}),
-          ...(options.repromptOnUnmet !== undefined
-            ? { repromptOnUnmet: options.repromptOnUnmet }
+          // Every external manager with a check in the tree is sent back under the run's one
+          // continuation policy. Its files sit beside the root's, under its own owner id.
+          ...(childDeliverable && options.continuation && isExternalSupervisor(authorized)
+            ? {
+                continuation: options.continuation,
+                ...(options.runDir === undefined
+                  ? {}
+                  : {
+                      continuationDir: resolve(
+                        options.runDir,
+                        CONTINUATIONS_DIR,
+                        'managers',
+                        encodeURIComponent(ownerId),
+                      ),
+                    }),
+              }
             : {}),
-          ...(options.onUnmetContract ? { onUnmetContract: options.onUnmetContract } : {}),
           ...(log
             ? {
                 onEvent: (_event, record) => log.append(runId, record, ownerId),
@@ -3559,6 +3787,34 @@ function superviseInternal(
   // The root driver loop reports what it did once it ends; the settle record carries it.
   let rootContinuation: DriverContinuationRecord | undefined
   const start = async () => {
+    if (ctx.durability === 'sql') {
+      if (
+        options.backend?.backend !== 'provider' ||
+        options.backend.steering ||
+        options.driveHarness ||
+        options.resolveDriveHarness ||
+        options.driverBackend
+      ) {
+        throw new ValidationError(
+          'supervise: SQL runContext requires a local coordinator and non-steering retained provider workers',
+        )
+      }
+      const provider = resolveAgentEnvironmentProvider(
+        options.backend.provider,
+        options.backend.registry,
+      )
+      const capabilities = await provider.capabilities()
+      if (
+        !capabilities.retainedControl ||
+        !capabilities.streaming.turnIdempotency ||
+        !capabilities.streaming.replay ||
+        !provider.get
+      ) {
+        throw new ValidationError(
+          'supervise: SQL runContext requires retainedControl, replay, turn idempotency, and provider.get',
+        )
+      }
+    }
     await verifyProfilePromotions(profileTable)
     // The durable coordination side-log (file contexts only) loads prior questions, findings, and
     // authorized instruction receipts, then appends this process's evidence as it publishes. The
@@ -3572,7 +3828,7 @@ function superviseInternal(
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
       perWorker,
-      ...(options.reservationPolicy ? { preserveOwnerTurns: true } : {}),
+      ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),
       ...(log
         ? {
             onEvent: (_event, record) => log.append(runId, record, rootOwnerId),
@@ -3599,11 +3855,12 @@ function superviseInternal(
         : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
-      ...(composeSpawnProfile ? { composeSpawnProfile } : {}),
+      ...(composeSpawnProfileFor(canonicalProfile)
+        ? { composeSpawnProfile: composeSpawnProfileFor(canonicalProfile) }
+        : {}),
       ...(profileTable ? { profiles: profileTable } : {}),
       ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
-      ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),
       ...(rootDriveHarness ? { driveHarness: rootDriveHarness } : {}),
       nodeContext: {
@@ -3626,16 +3883,23 @@ function superviseInternal(
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
       ...(options.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: options.awaitTimeoutMs } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
-      ...(options.stopRule ? { stopRule: options.stopRule } : {}),
+      ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
       ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
       ...(options.compaction ? { compaction: options.compaction } : {}),
       ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
       ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
-      ...(options.repromptOnUnmet !== undefined
-        ? { repromptOnUnmet: options.repromptOnUnmet }
+      ...(deliverable && options.continuation && isExternalSupervisor(canonicalProfile)
+        ? {
+            continuation: options.continuation,
+            ...(options.runDir === undefined
+              ? {}
+              : {
+                  continuationDir: resolve(options.runDir, CONTINUATIONS_DIR),
+                  rootStreamPath: resolve(options.runDir, ROOT_STREAM_FILE),
+                }),
+          }
         : {}),
-      ...(options.onUnmetContract ? { onUnmetContract: options.onUnmetContract } : {}),
       // A durable run's layout dir doubles as the worker-cancel control surface: every
       // router-arm manager's turn loop acknowledges the `cancelWorker` requests it OWNS — the
       // root (default 'run' scope) resolves its direct children plus label/profile references,
@@ -3679,8 +3943,11 @@ function superviseInternal(
       journal,
       blobs,
       executors: ctx.executors,
-      ...(recoveryFactories.get(workerFactory)
-        ? { recoverExecutor: recoveryFactories.get(workerFactory) }
+      // A caller-supplied recovery factory wins: it owns the worker seam (makeWorkerAgent /
+      // makeLeafAgent), so only it can reconstruct an interrupted child's executor. The derived
+      // registration below serves backend-built recursive managers, which no caller can name.
+      ...((options.recoverExecutor ?? recoveryFactories.get(workerFactory))
+        ? { recoverExecutor: options.recoverExecutor ?? recoveryFactories.get(workerFactory) }
         : {}),
       rootIdentity: rootExecution.identity,
       ...(rootOwnerRuntime === undefined
@@ -3692,7 +3959,7 @@ function superviseInternal(
               authoredProfile: canonicalProfile,
             },
           }),
-      maxDepth: options.maxDepth ?? 8,
+      maxDepth: options.maxDepth ?? DEFAULT_MAX_DEPTH,
       ...(options.childSettleGraceMs !== undefined
         ? { childSettleGraceMs: options.childSettleGraceMs }
         : {}),
@@ -3704,10 +3971,12 @@ function superviseInternal(
         : {}),
       ownerWorkspaceRetention:
         managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
-      ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
+      ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
       ...(probes ? { probes } : {}),
-      ...(ctx.resume === true ? { resume: true } : {}),
+      ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
+        ? { resume: true }
+        : {}),
       ...(options.now ? { now: options.now } : {}),
       signal: options.signal
         ? AbortSignal.any([options.signal, durableCancellation.signal])
@@ -3737,6 +4006,14 @@ function superviseInternal(
         }
       }
       recordRunCancellationOutcome(options.runDir, result, now)
+      // A nested manager's session rides its settle record (#1359). The root has no settle
+      // record, so its session had no receipt anywhere: 312 of 312 Discovery roots of
+      // 2026-09-23/24 settled without one, and 27 of the 57 harness subagent calls seen in those
+      // runs were the roots' own (#1264). The result carries it, persisted the same way.
+      const rootHarnessTranscript =
+        rootDriveHarness === undefined
+          ? undefined
+          : await persistHarnessTranscript(readHarnessTranscript(rootDriveHarness), blobs)
       const rootProviderModel =
         ctx.resume === true
           ? rootProviderModelEvidence([])
@@ -3751,6 +4028,7 @@ function superviseInternal(
         ...result,
         rootProviderModel,
         ...(rootStream === undefined ? {} : { rootStream }),
+        ...(rootHarnessTranscript === undefined ? {} : { rootHarnessTranscript }),
         ...(rootContinuation === undefined ? {} : { continuation: rootContinuation }),
       }
     }

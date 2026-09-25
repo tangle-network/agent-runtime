@@ -1,9 +1,11 @@
 /**
  *
  * Sanitization for runtime telemetry. The rule: nothing user-controlled leaks
- * unless the caller opts in with a `RuntimeTelemetryOptions` flag. This is the
- * envelope that ends up in `agent_run.metadata.runtimeEvents` on every
- * consumer, so the default must be safe.
+ * unless the caller opts in with a `RuntimeTelemetryOptions` flag, and an
+ * opted-in payload or error message still passes through agent-eval's
+ * redaction core, so credentials never leak. This is the envelope that ends up
+ * in `agent_run.metadata.runtimeEvents` on every consumer, so the default must
+ * be safe.
  *
  * @stable
  */
@@ -17,6 +19,8 @@ import type {
   KnowledgeRequirement,
   UserQuestion,
 } from '@tangle-network/agent-eval'
+
+import { redact } from '@tangle-network/agent-eval/traces'
 
 import type {
   AgentRuntimeEvent,
@@ -134,7 +138,9 @@ export function sanitizeAgentRuntimeEvent<
     return {
       ...base,
       questions: event.questions.map((question) => sanitizeQuestion(question, options)),
-      userAnswers: options.includeUserAnswers ? event.userAnswers : redactRecord(event.userAnswers),
+      userAnswers: options.includeUserAnswers
+        ? included(event.userAnswers)
+        : redactRecord(event.userAnswers),
     }
   }
   if (event.type === 'acquisition_start') {
@@ -191,7 +197,9 @@ export function sanitizeRuntimeStreamEvent(
       ...withTask,
       timestamp: event.timestamp,
       questions: event.questions.map((question) => sanitizeQuestion(question, options)),
-      userAnswers: options.includeUserAnswers ? event.userAnswers : redactRecord(event.userAnswers),
+      userAnswers: options.includeUserAnswers
+        ? included(event.userAnswers)
+        : redactRecord(event.userAnswers),
     }
   }
   if (event.type === 'acquisition_start') {
@@ -220,7 +228,7 @@ export function sanitizeRuntimeStreamEvent(
       timestamp: event.timestamp,
       toolName: event.toolName,
       toolCallId: event.toolCallId,
-      args: options.includeControlPayloads ? event.args : undefined,
+      args: options.includeControlPayloads ? included(event.args) : undefined,
     }
   }
   if (event.type === 'tool_result') {
@@ -231,7 +239,7 @@ export function sanitizeRuntimeStreamEvent(
       timestamp: event.timestamp,
       toolName: event.toolName,
       toolCallId: event.toolCallId,
-      result: options.includeControlPayloads ? event.result : undefined,
+      result: options.includeControlPayloads ? included(event.result) : undefined,
     }
   }
   if (event.type === 'llm_call') {
@@ -258,8 +266,8 @@ export function sanitizeRuntimeStreamEvent(
       name: event.name,
       mimeType: event.mimeType,
       uri: options.includeEvidenceIds ? event.uri : undefined,
-      content: options.includeControlPayloads ? event.content : undefined,
-      metadata: options.includeMetadata ? event.metadata : undefined,
+      content: options.includeControlPayloads ? included(event.content) : undefined,
+      metadata: options.includeMetadata ? included(event.metadata) : undefined,
     }
   }
   if (event.type === 'proposal_created') {
@@ -269,8 +277,8 @@ export function sanitizeRuntimeStreamEvent(
       ...withSession,
       timestamp: event.timestamp,
       proposalId: event.proposalId,
-      title: options.includeControlPayloads ? event.title : undefined,
-      content: options.includeControlPayloads ? event.content : undefined,
+      title: options.includeControlPayloads ? included(event.title) : undefined,
+      content: options.includeControlPayloads ? included(event.content) : undefined,
       status: event.status,
     }
   }
@@ -283,9 +291,9 @@ export function sanitizeRuntimeStreamEvent(
       event.error !== undefined
         ? {
             kind: event.error.kind,
-            message: event.error.message,
+            message: included(event.error.message),
             status: event.error.status,
-            body: options.includeControlPayloads ? event.error.body : undefined,
+            body: options.includeControlPayloads ? included(event.error.body) : undefined,
           }
         : undefined
     return {
@@ -295,8 +303,8 @@ export function sanitizeRuntimeStreamEvent(
       timestamp: event.timestamp,
       status: event.status,
       reason: event.reason,
-      text: options.includeControlPayloads ? event.text : undefined,
-      metadata: options.includeMetadata ? event.metadata : undefined,
+      text: options.includeControlPayloads ? included(event.text) : undefined,
+      metadata: options.includeMetadata ? included(event.metadata) : undefined,
       ...(sanitizedError !== undefined ? { error: sanitizedError } : {}),
     }
   }
@@ -317,11 +325,15 @@ function sanitizeTask(
     id: task.id,
     intent: task.intent,
     domain: task.domain,
-    inputs: options.includeInputs ? task.inputs : task.inputs ? '[redacted]' : undefined,
+    inputs: options.includeInputs ? included(task.inputs) : task.inputs ? '[redacted]' : undefined,
     requiredKnowledge: task.requiredKnowledge?.map((requirement) =>
       sanitizeKnowledgeRequirement(requirement, options),
     ),
-    metadata: options.includeMetadata ? task.metadata : task.metadata ? '[redacted]' : undefined,
+    metadata: options.includeMetadata
+      ? included(task.metadata)
+      : task.metadata
+        ? '[redacted]'
+        : undefined,
   }
 }
 
@@ -337,7 +349,7 @@ function sanitizeRuntimeSession(
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     metadata: options.includeMetadata
-      ? session.metadata
+      ? included(session.metadata)
       : session.metadata
         ? '[redacted]'
         : undefined,
@@ -408,9 +420,12 @@ function sanitizeControlStep<TState, TAction, TActionResult, TEval extends Contr
     reason: step.decision.reason,
     action:
       options.includeControlPayloads && step.decision.type === 'continue'
-        ? step.decision.action
+        ? included(step.decision.action)
         : undefined,
-    result: options.includeControlPayloads && actionOutcome?.ok ? actionOutcome.result : undefined,
+    result:
+      options.includeControlPayloads && actionOutcome?.ok
+        ? included(actionOutcome.result)
+        : undefined,
     actionOk: actionOutcome?.ok,
     actionError: actionOutcome?.ok === false ? actionOutcome.error : undefined,
     durationMs: actionOutcome?.durationMs,
@@ -451,9 +466,17 @@ function summarizeEvals(
     score: evalResult.score,
     severity: evalResult.severity,
     objective: evalResult.objective,
-    detail: options.includeEvalDetails ? evalResult.detail : undefined,
-    evidence: options.includeEvalDetails ? evalResult.evidence : undefined,
+    detail: options.includeEvalDetails ? included(evalResult.detail) : undefined,
+    evidence: options.includeEvalDetails ? included(evalResult.evidence) : undefined,
   }))
+}
+
+/**
+ * An opted-in payload still goes through agent-eval's redaction core: the
+ * flags decide whether content is shared, never whether credentials are.
+ */
+function included<T>(value: T): T {
+  return value === undefined ? value : redact(value).value
 }
 
 function redactRecord(record: Record<string, string>): Record<string, string> {
@@ -479,7 +502,7 @@ function pickPublicStreamFields(event: RuntimeStreamEvent): Record<string, unkno
         : undefined
     return {
       backend: event.backend,
-      message: event.message,
+      message: included(event.message),
       recoverable: event.recoverable,
       ...(sanitizedError !== undefined ? { error: sanitizedError } : {}),
     }

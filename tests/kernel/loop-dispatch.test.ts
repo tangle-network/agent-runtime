@@ -26,6 +26,7 @@ import type {
   ProviderModelExecutionEvidence,
   SupervisedResult,
 } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 import { refineDriver } from './refine-driver'
 import { runtimeToolDeclarations } from './test-agent-profile'
 
@@ -481,6 +482,8 @@ describe('superviseDispatch', () => {
           check: (value) => (value as { answer?: unknown }).answer === 42,
           describe: 'an answer of 42',
         },
+        // One turn per scenario: the deadline has passed before the first continuation.
+        continuation: testContinuation({ deadline: 1 }),
       }),
     })
   }
@@ -791,6 +794,8 @@ describe('superviseDispatch', () => {
           check: (value) => (value as { answer?: unknown }).answer === 42,
           describe: 'an answer of 42',
         },
+        // One turn per scenario: the deadline has passed before the first continuation.
+        continuation: testContinuation({ deadline: 1 }),
         router: {
           routerBaseUrl: 'http://offline.test/v1',
           routerKey: 'test',
@@ -861,6 +866,8 @@ describe('superviseDispatch', () => {
           check: (value) => (value as { answer?: unknown }).answer === 42,
           describe: 'an answer of 42',
         },
+        // One turn per scenario: the deadline has passed before the first continuation.
+        continuation: testContinuation({ deadline: 1 }),
         router: {
           routerBaseUrl: 'http://offline.test/v1',
           routerKey: 'test',
@@ -922,6 +929,8 @@ describe('superviseDispatch', () => {
           check: (value) => (value as { answer?: unknown }).answer === 42,
           describe: 'an answer of 42',
         },
+        // One turn per scenario: the deadline has passed before the first continuation.
+        continuation: testContinuation({ deadline: 1 }),
         router: {
           routerBaseUrl: 'http://offline.test/v1',
           routerKey: 'test',
@@ -984,6 +993,8 @@ describe('superviseDispatch', () => {
           check: (value) => (value as { answer?: unknown }).answer === 42,
           describe: 'an answer of 42',
         },
+        // One turn per scenario: the deadline has passed before the first continuation.
+        continuation: testContinuation({ deadline: 1 }),
         router: {
           routerBaseUrl: 'http://offline.test/v1',
           routerKey: 'test',
@@ -1162,6 +1173,8 @@ describe('superviseDispatch', () => {
             (value as { answer?: unknown; content?: unknown }).content === 'child result',
           describe: 'the root answer or checked child result',
         },
+        // One turn per scenario: the deadline has passed before the first continuation.
+        continuation: testContinuation({ deadline: 1 }),
         router: {
           routerBaseUrl: 'http://offline.test/v1',
           routerKey: 'test',
