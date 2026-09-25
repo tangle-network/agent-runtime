@@ -33,7 +33,7 @@ export const sandboxCompatibilityVersions = Object.freeze([
   '0.50.0',
   '0.51.0',
   '0.52.0',
-  // '0.53.0' joins after npm serves it; ADC cannot publish 0.53.0 until this peer admits it.
+  '0.53.0',
 ])
 
 /**
