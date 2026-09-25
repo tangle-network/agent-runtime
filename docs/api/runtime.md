@@ -29937,6 +29937,27 @@ A fork this reader could not isolate. `own` is absent; nothing may be charged.
 
 ***
 
+### DeclaredCheckStateCapture
+
+> **DeclaredCheckStateCapture** = (`into`) => `Promise`\<`void`\>
+
+Write the run's state into `into`, an empty directory Runtime created and removes after the read.
+The host decides what the state is and reads it from the run's live environment, for example
+the declared output files of a task's container. A capture that throws gives no verdict: the read
+is [CheckUnavailableError](#checkunavailableerror), never a failure blamed on the run.
+
+#### Parameters
+
+##### into
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### AgentEnvironmentProviderRef
 
 > **AgentEnvironmentProviderRef** = `AgentEnvironmentProvider` \| `string`
@@ -35433,8 +35454,9 @@ The digest a version judge records: the program, the sealed cases, and how they 
 > **readDeclaredCheck**(`check`, `placement`, `read`): `Promise`\<[`CheckVerdict`](#checkverdict)\>
 
 Read the check once. `result` is the submitted result, absent for a read of the run's state.
-`set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when the program
-could not run or printed no score.
+`state` is a local directory of the run's state; the box receives a copy of its files at
+`_input/state/`. `set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when
+the program could not run or printed no score.
 
 #### Parameters
 
@@ -35452,6 +35474,10 @@ could not run or printed no score.
 
 `unknown`
 
+###### state?
+
+`string`
+
 ###### set
 
 `"sealed"` \| `"development"`
@@ -35468,9 +35494,11 @@ could not run or printed no score.
 
 ### declaredCheckDeliverable()
 
-> **declaredCheckDeliverable**(`check`, `placement`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+> **declaredCheckDeliverable**(`check`, `placement`, `options?`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 The declared check as a manager's completion check: every in-run read uses development cases.
+With `state`, each read first captures the run's state and the check reads it beside the
+submitted result, on `submit_result` and at a turn end alike.
 
 #### Parameters
 
@@ -35481,6 +35509,12 @@ The declared check as a manager's completion check: every in-run read uses devel
 ##### placement
 
 [`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+##### options?
+
+###### state?
+
+[`DeclaredCheckStateCapture`](#declaredcheckstatecapture)
 
 #### Returns
 
