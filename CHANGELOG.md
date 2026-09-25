@@ -22,6 +22,9 @@ Measured on the same tree with a brain that thinks for 100 ms between reads: man
 `spawn_worker` tells a lead how to widen its team.
 Every worker reserves its whole budget when it starts, so the pool divided by the per-worker budget is how many run at once; a smaller `budget` runs more.
 
+The `@tangle-network/agent-eval` peer range is `>=0.191.0 <0.194.0`, and the release cohort pins Eval 0.193.2.
+0.275.1 declared a floor of 0.188.0, which the peer-window gate refuses as more than two minors behind the 0.193.2 development version, while the cohort still pinned 0.190.1.
+
 ## 0.275.1
 
 Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
