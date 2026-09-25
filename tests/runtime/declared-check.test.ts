@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -100,6 +100,11 @@ if (set === 'sealed') {
   const hidden = readFileSync('_sealed/case.txt', 'utf8').trim()
   dimensions['sealed-case'] = hidden === 'hidden' ? 1 : 0
 }
+if (process.env.CHECK_STATE) {
+  const output = readFileSync(process.env.CHECK_STATE + '/out/output.txt', 'utf8').trim()
+  dimensions.state = output === 'done' ? 1 : 0
+  if (dimensions.state < 1) notes.push('FAIL state out/output.txt: holds ' + output)
+}
 console.log('reading the result')
 const values = Object.values(dimensions)
 console.log(JSON.stringify({ dimensions, composite: values.reduce((a, b) => a + b, 0) / values.length, notes: notes.join('\\n') }))
@@ -177,6 +182,47 @@ describe('a declared check', () => {
       pass: false,
       failures: ['FAIL answer result.json: nothing submitted'],
     })
+  })
+
+  it('reads the run state the host captures before each read, beside the submitted result', async () => {
+    const captured: string[] = []
+    let output = 'draft'
+    const deliverable = declaredCheckDeliverable(check, placement, {
+      state: async (into) => {
+        captured.push(into)
+        await mkdir(join(into, 'out'))
+        await writeFile(join(into, 'out', 'output.txt'), `${output}\n`)
+      },
+    })
+    expect(await deliverable.checkState?.()).toMatchObject({
+      pass: false,
+      items: { answer: 0, state: 0 },
+      failures: [
+        'FAIL answer result.json: nothing submitted',
+        'FAIL state out/output.txt: holds draft',
+      ],
+    })
+    output = 'done'
+    expect(await deliverable.check({ answer: 42 })).toMatchObject({
+      pass: true,
+      items: { answer: 1, state: 1 },
+    })
+    expect(captured).toHaveLength(2)
+    // Each capture directory is Runtime's own and is gone after its read.
+    for (const into of captured) await expect(access(into)).rejects.toThrow()
+  })
+
+  it('gives no verdict when the state cannot be captured, and creates no box', async () => {
+    const deliverable = declaredCheckDeliverable(check, placement, {
+      state: async () => {
+        throw new Error('the root box has no container task')
+      },
+    })
+    await expect(deliverable.check({ answer: 42 })).rejects.toThrow(
+      /the run's state could not be captured: the root box has no container task/,
+    )
+    await expect(deliverable.checkState?.()).rejects.toThrow(CheckUnavailableError)
+    expect(boxes.created).toHaveLength(0)
   })
 
   it('scores a version on the sealed cases, which no in-run read ever mounts', async () => {

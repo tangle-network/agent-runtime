@@ -172,6 +172,7 @@ export {
   checkProgramDigest,
   type DeclaredCheck,
   type DeclaredCheckPlacement,
+  type DeclaredCheckStateCapture,
   declaredCheckDeliverable,
   declaredCheckDigest,
   declaredCheckJudge,
