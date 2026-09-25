@@ -1665,6 +1665,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               childId: id,
               label: opts.label,
               ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+              ...(opts.key === undefined ? {} : { key: opts.key }),
               ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
               runtime: executor.runtime,
               ...(identity ? { identity } : {}),

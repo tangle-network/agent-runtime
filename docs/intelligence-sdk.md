@@ -60,6 +60,9 @@ The client surface:
 
 The best-effort law: telemetry-export failures are swallowed — a live agent never fails because Intelligence is down — but an error thrown by the agent itself propagates unchanged.
 Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs, outputs, and opted-in runtime payloads pass through the redactor and are exported without content truncation.
+Every span with a parent says how the parent was chosen in `agent.parent.confidence`: `explicit` when the parent id was handed over, `heuristic` for a loop iteration that recorded no round, `unknown` for a supervised node whose parent span this process never opened.
+A tool call and its result share the tool call id as `agent.operation.id`.
+A supervised node carries its assignment or spawn key as `agent.operation.id`, the kernel's attempt id as `agent.operation.attempt_id`, and the spawn key as `agent.operation.idempotency_key`, so a keyed retry reads as a second attempt of one operation.
 
 Unreported inference cost is unknown, including when an agent fails before reporting usage.
 Unreported Intelligence cost is also unknown above the OFF tier.
