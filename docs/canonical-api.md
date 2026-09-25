@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.276.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.188.0 <0.191.0`.
+> `agent-eval` must satisfy `>=0.191.0 <0.191.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0`.
 > The second clause admits prereleases of base `0.49.0` and stable `0.49.x`; it does not admit prereleases of `0.49.1`.
 > The last four clauses admit stable Sandbox `0.50.x`, `0.51.x`, `0.52.x` and `0.53.x`.
