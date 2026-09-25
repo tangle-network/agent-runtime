@@ -1,4 +1,4 @@
-## 0.276.0
+## 0.277.0
 
 A fleet grows to hundreds of agents with only money, time and safety bounds on it.
 
@@ -26,8 +26,30 @@ Measured on the same tree with a brain that thinks for 100 ms between reads: man
 Every worker reserves its whole budget when it starts, so the pool divided by the per-worker budget is how many run at once; a smaller `budget` runs more.
 
 The `@tangle-network/agent-eval` peer range is `>=0.191.0 <0.194.0`, and the release cohort pins Eval 0.193.2.
-Runtime requires `@tangle-network/agent-knowledge` ^17.1.6, the first Knowledge that admits Eval 0.193, and the cohort pins it.
+The release cohort pins Knowledge 17.1.6, the first Knowledge that admits Eval 0.193.
 0.275.1 declared a floor of 0.188.0, which the peer-window gate refuses as more than two minors behind the 0.193.2 development version, while the cohort still pinned 0.190.1.
+## 0.276.0
+
+The in-process tool loop (`localSandboxClient`/`runBrainLoop`) now records its own offered tool set
+as the OTel GenAI `gen_ai.tool.definitions` attribute on the `llm_call` span it exports.
+
+Review finding on trace-contract rows 13/14 (agent-eval's `tools.enforced` gate): agent-runtime
+emitted no offered-tool evidence at all, so the gate could not tell "offered nothing" from "never
+recorded the offered set" and failed closed on every agent-runtime-produced trace — the check
+worked only for a Claude Code `-p --output-format stream-json` capture, whose own `init` record
+traces' adapter already reads. `RuntimeStreamEvent`'s `llm_call` variant gains an optional
+`tools?: readonly string[]`; `localSandboxClient` fills it from the same `mcp.tools` it already
+passes to `runBrainLoop`; `sandbox-events.ts` carries it through `mapSandboxEvent`; `otel-export.ts`
+emits it. A sandboxed CLI harness (whose tool list is the harness's own) is unaffected — it still
+carries no offered-set evidence from this producer, same as before.
+
+Proof (real run, no unit tests): a real local stdio MCP server + a real `runBrainLoop` tool loop
+(only the HTTP model call is stubbed, since this environment holds no live router key) through
+`localSandboxClient`, then the real `mapSandboxEvent` → `buildRuntimeEventOtelSpans` → agent-eval's
+real `checkTraceContracts`. The exported span's `gen_ai.tool.definitions` reads
+`[{"type":"function","name":"proof__echo"}]`; agent-eval's `toolsOffered` rule goes from `fail`
+("no span records the tools offered to the model ... so what the harness enforced is unknown") on
+the same span-builder fed an event with no `tools`, to `pass` on the real one.
 
 ## 0.275.1
 
