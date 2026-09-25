@@ -1,3 +1,9 @@
+## 0.275.1
+
+Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
+Runtime's own imports from `agent-eval` (MCP tool annotations, redaction core) are unchanged across that range; a scan of every `@tangle-network/agent-eval` import against 0.193.2 finds nothing missing.
+`agent-knowledge` needs the matching bump (its own peer range capped at `<0.191.0` too) to actually install alongside; see its 17.1.6 release.
+
 ## 0.275.0
 
 A declared check reads the run's state and may run containers, and the question panel reads the
