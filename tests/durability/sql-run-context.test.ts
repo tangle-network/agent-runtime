@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
-import { EXPECTED_OUT } from '../helpers/durability/conformance-graph'
+import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
 import { openSql } from '../helpers/durability/sql-adapter'
 
 const roots: string[] = []
@@ -108,13 +108,14 @@ function start(shared: string, cwd: string, mode = 'run', checkpoint = '') {
         rootMaterializations: number
         uniqueRootAttempts: boolean
         uniqueCursorSequences: boolean
+        workerRecords: Array<{ label: string; spawns: number; settlements: number }>
       }
     },
   }
 }
 
 function assertComplete(report: Awaited<ReturnType<ReturnType<typeof start>['report']>>) {
-  expect(report.kind).toBe('winner')
+  expect(report.kind, JSON.stringify(report)).toBe('winner')
   expect(report.out).toEqual(EXPECTED_OUT)
   expect(report.roots).toBe(1)
   expect(report.rootMaterializations).toBe(1)
@@ -124,6 +125,9 @@ function assertComplete(report: Awaited<ReturnType<ReturnType<typeof start>['rep
   expect(report.completed).toBe(3)
   expect(report.inDoubt).toBe(0)
   expect(report.escalations).toEqual([])
+  expect(report.workerRecords).toEqual(
+    WORKER_NODES.map((label) => ({ label, spawns: 1, settlements: 1 })),
+  )
   expect(report.effects).toEqual(['artifact:conductor:final'])
   expect(report.creations).toBe(3)
   expect(report.dispatches).toBe(3)
@@ -196,35 +200,6 @@ describe('SQL run context', () => {
     expect(await readdir(host)).toEqual([])
   }, 45000)
 
-  // The never-dispatched window (spawned+input committed, no admission, no dispatch) is a KNOWN
-  // GAP against current main: the retained executor's recovery classifies a never-dispatched
-  // session `pending: unobservable` and the workers settle down (the branch this suite was
-  // written against, #1368-era main, started them fresh). Every checkpoint before the grouped
-  // spawn record and from provider create/dispatch onward — the lost-ack windows that motivated
-  // the salvage — passes below.
-  it.fails.each([
-    'sql:spawned-child:after',
-    'sql:execution-input:after',
-    'sql:execution-admitted-intent:before',
-    'sql:execution-admitted-intent:after',
-    'sql:execution-admitted-environment:before',
-    'sql:execution-admitted-environment:after',
-  ])(
-    'KNOWN GAP (never-dispatched window): SIGKILL at %s',
-    async (checkpoint) => {
-      const shared = await directory()
-      const firstHost = await directory()
-      const secondHost = await directory()
-      const first = start(shared, firstHost, 'kill', checkpoint)
-      await first.message('checkpoint')
-      expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
-      await rm(firstHost, { recursive: true, force: true })
-      assertComplete(await start(shared, secondHost).report())
-      expect(await readdir(secondHost)).toEqual([])
-    },
-    60000,
-  )
-
   // Before/after are on opposite sides of the actual SQLite statement commit. In the after
   // cases the adapter NEVER acknowledges the write to Runtime: the process dies first.
   it.each([
@@ -234,6 +209,12 @@ describe('SQL run context', () => {
     'sql:spawned-root:after',
     'sql:spawned-child:before',
     'sql:execution-input:before',
+    'sql:spawned-child:after',
+    'sql:execution-input:after',
+    'sql:execution-admitted-intent:before',
+    'sql:execution-admitted-intent:after',
+    'sql:execution-admitted-environment:before',
+    'sql:execution-admitted-environment:after',
     'provider:create:before',
     'provider:create:after',
     'provider:dispatch:before',
@@ -280,5 +261,32 @@ describe('SQL run context', () => {
     expect(await owner.exit).toEqual({ code: null, signal: 'SIGKILL' })
     contender.child.send('retry')
     assertComplete(await contender.report())
+  }, 60000)
+  it('fences a SIGSTOP/SIGCONT owner without releasing its live successor', async () => {
+    const shared = await directory()
+    const owner = start(shared, await directory(), 'lease')
+    await owner.message('owned')
+    owner.child.kill('SIGSTOP')
+    const successor = start(shared, await directory(), 'lease')
+    await successor.message('owned')
+    owner.child.kill('SIGCONT')
+    owner.child.send('write')
+    expect(String((await owner.message('fenced')).error)).toMatch(/lease|ownership/i)
+    expect(await owner.exit).toEqual({ code: 0, signal: null })
+
+    const db = openSql(join(shared, 'run-context.sqlite'))
+    try {
+      const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
+      await expect(observer.acquire()).rejects.toThrow(/owned|lease|busy/i)
+      successor.child.send('write')
+      await successor.message('written')
+      expect(await successor.exit).toEqual({ code: 0, signal: null })
+      expect(await observer.blobs.get(contentAddress({ pid: owner.child.pid }))).toBeUndefined()
+      expect(await observer.blobs.get(contentAddress({ pid: successor.child.pid }))).toEqual({
+        pid: successor.child.pid,
+      })
+    } finally {
+      db.database.close()
+    }
   }, 60000)
 })
