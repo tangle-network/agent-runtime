@@ -2703,11 +2703,11 @@ Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
 
 > `readonly` `optional` **rootStreamPath?**: `string`
 
-The root manager's `root-stream.jsonl`, which the question panel reads.
+The root manager's `root-stream.jsonl`; the question panel reads it as the director's trace.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`rootStreamPath`](runtime.md#rootstreampath-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`rootStreamPath`](runtime.md#rootstreampath)
 
 ##### nodeContext?
 
