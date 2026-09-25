@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.273.1` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.273.2` and `@tangle-network/agent-eval@0.190.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -329,7 +329,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 | `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
 | `createOptimizationActivationReceipt` | function | Build a detached receipt only for methods backed by an identified external optimizer. |
 | `createProtectedExactProcessCandidateExperimentExecutor` | function | Compose host-owned execution ports with protected model access for one exact-process run. |
-| `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
+| `defaultRedactor` | function | The built-in redactor. Cycle-safe, depth-bounded and total: it never throws |
 | `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
 | `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
 | `isAgentImprovementProfileSurface` | function | Return whether a measured surface can be delivered through an agent profile. |
@@ -1805,7 +1805,7 @@ Import from `@tangle-network/agent-eval` — 59 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 417 exports.
+Import from `@tangle-network/agent-eval/campaign` — 471 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1814,8 +1814,8 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `assertCampaignDesign` | function | Reject campaign designs whose denominator cannot be identified exactly. |
 | `assertCampaignSplitIdentity` | function | Refuse a campaign whose retained task identities contradict its split digest. |
 | `assertCodeSurfaceIdentity` | function | Validate the immutable identity shape; the owning executor verifies the Git objects and patch. |
-| `assertCompleteSearchHistory` | function | Require a receipt owned by this producer and a terminal, denominator-complete history. |
-| `assertSearchHistoryMatchesReplay` | function | Prove that a receipt still describes the exact canonical replay supplied. |
+| `assertCompleteSearchHistory` | function | Require a receipt owned by this producer over a closed search. |
+| `assertSearchHistoryMatchesState` | function | Prove that a receipt describes exactly the supplied replayed state. |
 | `autoevalsScorerJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `buildCellSchedule` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `buildEvidenceVector` | function | The Evidence Bus. For each objective, pair candidate vs baseline by full |
@@ -1840,14 +1840,18 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `createProfileMatrixPlan` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `createReferenceEquivalenceJudge` | function | Build the campaign-native expected-answer judge. |
 | `createRunCostLedger` | function | Open the durable spend account stored beside a logical run. |
-| `createSearchHistoryReceipt` | function | Build a bounded receipt from the projection returned by canonical ledger replay. |
+| `createSearchHistoryReceipt` | function | Read the ledger's bytes, replay them through the search codec, and build |
 | `crowdedFrontierParent` | function | NSGA-II crowded tournament selection over the frontier. Each generation |
 | `decodeExternalTextCandidate` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `defaultProductionGate` | function | Opinionated production gate composing held-out significance, red-team, reward-hacking, and canary checks into a single `Gate.decide` decision. |
 | `detectScale` | function | Detect the native scale of a set of scores: 0-100 when any magnitude clears |
+| `developmentClaim` | function | The default claim: development numbers over exactly the supplied tasks. |
 | `dimensionRegressions` | function | Report required-dimension evidence after full pairing and optional unit means. |
 | `discoverEvalFixtures` | function | Walk `evalsDir` and return the relative name of every fixture directory (one containing an exact-case `PROMPT.md`). |
 | `emitLoopProvenance` | function | Build the provenance record + OTel spans and persist them durably under the |
+| `estimateNode` | function | `estimateNodeFromCells` over the cells a search state holds: `nodeId` |
+| `estimateNodeFromCells` | function | The paired contrast of `nodeId` against `against` on the units both scored. |
+| `externalSurface` | function | An optimizer candidate as the mutable surface it represents. |
 | `externalTextOptimizationMethod` | function | Adapt a third-party text optimizer without reimplementing its search. |
 | `finalizeProfileMatrix` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
@@ -1855,6 +1859,8 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `gitWorktreeAdapter` | function | Git-backed `WorktreeAdapter`: creates isolated worktrees on fresh branches, commits agent changes, and discards losers. |
 | `heldOutGate` | function | Composable held-out gate: ships only when the lower bound of the DECIDING |
 | `heldoutSignificance` | function | Significance of the held-out composite lift: ship only when the lower bound |
+| `importExternalEvaluations` | function | Record every evaluation in the callback's observation log as an `external` |
+| `importGepaPopulation` | function | Register GEPA's population as nodes and its parent indices as `correlated` |
 | `inMemoryCampaignStorage` | function | In-memory storage for filesystem-less runtimes. Artifacts + trace spans |
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
 | `isTransientTransportFailure` | function | True when the error text describes an infrastructure hiccup that should be |
@@ -1883,10 +1889,10 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `readCachedCell` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `readExternalOptimizerObservationArtifact` | function | Read and verify the exact callback observation artifact addressed by method provenance. |
 | `readGepaCandidatePopulationArtifact` | function | Read GEPA's exact candidate graph from the artifact addressed by method provenance. |
-| `recordCandidatePopulationSearch` | function | Record an optimizer's own candidate graph into the same ledger. |
+| `recordGepaSearch` | function | Write GEPA's finished search into its ledger: the baseline as the seeded |
 | `renderScoreboardMarkdown` | function | Render the scoreboard as a launch-readiness Markdown document — the literal |
 | `renderSurfaceDiff` | function | Canonical customer-visible description of the exact before/after surfaces. |
-| `replaySearchLedgerText` | function | Replay immutable search-ledger JSONL through the same codec as FileSearchLedger. |
+| `replaySearchLedgerText` | function | Verify and project immutable search-ledger JSONL through the same codec as |
 | `resolveExternalOptimizerCallbackLimits` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `resolveExternalOptimizerProcessLimits` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `resolveRunDir` | function | Resolve a campaign `runDir`. An absolute path is honored as-is (the caller |
@@ -1902,28 +1908,39 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `scoreboardSummary` | function | Roll the per-requirement rows up into the launch headline counts. |
 | `scoreDiscrimination` | function | Rank scenarios by how well they DISCRIMINATE candidates. |
 | `scoreUserStory` | function | Score one story's produced state against its requirements. Thin wrapper over |
+| `searchCellId` | function | Deterministic cell id: one node on one task in one split at one repeat. |
+| `searchCellSetDigest` | function | Digest of the cells an estimate reads, with the contrast they serve. Cells |
+| `searchEdgeId` | function | Deterministic edge id: one proposal of one child within one search. |
 | `searchHistoryCoverageRow` | function | Classify one producer's history without treating malformed evidence as absence. |
+| `searchNodeId` | function | Deterministic node id: identical content in one search is one node. |
+| `searchPosterior` | function | The posterior every node's parent-selection draw uses. Each node's mean is |
+| `searchTaskSetDigest` | function | Digest a split's task list in taskId order. |
+| `searchUnitScores` | function | Per-unit means of scored cells, in unitId order. Each unit sums its cells in |
 | `selectDiscriminative` | function | Select the top-`k` most discriminative scenario ids for a holdout, EXCLUDING |
 | `sequentialDecide` | function | SurfaceProposer.decide adapter that stops exploration at an e-value threshold. |
 | `sequentialOptimizationMethod` | function | Each stage starts from the previous selected candidate, without an intervening release gate. |
 | `sequentialPairedGate` | function | Anytime-valid sequential paired gate. Conforms to the existing `Gate` |
 | `skillOptOptimizationMethod` | function | Run Microsoft's SkillOpt trainer as a complete optimization method. |
 | `surfaceContentHash` | function | Full SHA-256 content identity for a prompt or finalized code surface. |
+| `surfaceDiff` | function | A parent-to-child diff of two mutable surfaces, stored as a blob. |
 | `surfaceDispatchRef` | function | Bind a campaign cache entry to the exact surface and caller-owned execution revision. |
 | `surfaceHash` | function | Short loop key derived from the same content identity as provenance. |
+| `surfaceNode` | function | A mutable surface as a node: its content digest, stored bytes and declared surfaces. |
 | `tangleTracesRoot` | function | The shared, out-of-repo root for campaign/benchmark run bundles. Keeping run |
 | `traceAnalystQualityJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `transientDispatchFailure` | function | Ready-made `cellRetry.retryable` predicate: true for a dispatch-stage |
 | `userStoryScoreboard` | function | Flatten story verdicts into the per-requirement scoreboard — the literal |
-| `validateSearchLedgerEvent` | function | Validate and return a canonical copy. Arrays whose order is not semantic are |
+| `validateSearchLedgerEvent` | function | Validate and return a canonical copy. Arrays whose order carries no meaning |
 | `verifyCodeSurface` | function | Verify a finalized code surface against its current checkout. This rejects |
 | `verifyLoopProvenanceRecord` | function | Recompute and validate the self-addressed durable record. |
-| `verifySearchHistoryArtifact` | function | Verify resolved bytes with the canonical codec, never a caller-supplied replay projection. |
-| `verifySearchHistoryReceipt` | function | Verify the bounded receipt. Full ledger bytes are verified by SearchLedger. |
+| `verifySearchHistoryArtifact` | function | Verify the receipt, then resolve its ledger bytes, check them, and replay |
+| `verifySearchHistoryReceipt` | function | Verify a receipt's own consistency and digest. |
 | `DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `paretoPolicy` | const | Require a supported gain and every configured regression floor to clear. |
-| `FileSearchLedger` | class | Append-only file-backed search ledger with idempotent writes and replay. |
+| `SEARCH_ESTIMATOR` | const | The estimator every `NodeEstimate` names. |
+| `SEARCH_LEDGER_SCHEMA` | const | Schema tag every search-ledger entry carries. A ledger written under another |
+| `FileSearchLedger` | class | Append-only file-backed search ledger with idempotent writes. |
 | `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
 | `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, missing resolved model evidence, |
@@ -1931,7 +1948,9 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `SearchLedgerConflictError` | class | Error raised when an event identifier is reused with different content. |
 | `SearchLedgerError` | class | Base error for invalid search-ledger input or operations. |
 | `SearchLedgerIntegrityError` | class | Error raised when durable search-ledger data fails an integrity check. |
-| `SearchRecorder` | class | Recorder for one `runOptimization` run: `open()`, then `recordGeneration()` |
+| `SearchRecorder` | class | Writes one search's events into its ledger as they happen. |
+| `SearchState` | class | The pure, incremental projection of one search ledger. `apply` refuses any |
+| `SearchStateView` | class | A read of `SearchState` at one ledger position. Header, head, audit and |
 | `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
 | `CampaignCellFailureReceipt` | interface | Durable `<cell>/failure-receipt.json` written before a failed cell can |
@@ -1961,7 +1980,8 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `JudgeScore` | interface | The canonical judge verdict shape — one declaration, shared by campaign |
 | `LabeledScenarioWrite` | interface | Required-provenance write. The store rejects writes that |
 | `LoopProvenanceRecord` | interface | The durable provenance record. Aligns to the hosted `EvalRunEvent` path but |
-| `MeasuredSearchCandidate` | interface | One measured candidate, after its campaign scored. |
+| `NodeEstimate` | interface | A paired contrast of one node against another on shared units. `none` below |
+| `NodePosterior` | interface | A node's normal posterior on its improvement over the root. |
 | `OpenAICompatibleOptimizerModel` | interface | One metered model path supplied by the package that owns execution. |
 | `OptimizationMethod` | interface | A complete optimization method, including candidate generation and selection. |
 | `OptimizationMethodComposition` | interface | Exact child results; costs and usage remain attributable to their owning methods. |
@@ -1975,7 +1995,6 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `ProposalTrackContext` | interface | The lineage track that requested a proposal. |
 | `ProposeContext` | interface | Search state supplied to one candidate-generation call. |
 | `ProposedCandidate` | interface | A proposer output carrying the surface AND the WHY behind |
-| `ProposedSearchCandidate` | interface | One proposed candidate, before it is measured. |
 | `RolloutCall` | interface | One tool/action call observed in a rollout: a name plus its arguments. |
 | `Scenario` | interface | Stable identifier + kind tag for any scenario. Consumers |
 | `ScenarioSignal` | interface | Per-scenario observation: the composite scores each candidate earned on it. |
@@ -1984,12 +2003,25 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `ScoredRollout` | interface | A scored rollout: its calls plus the scalar outcome used to split pass/fail. |
 | `ScoredSurfaceOutcome` | interface | Exact measured state for the surface an optimizer is learning from. |
 | `SearchArtifactRef` | interface | Content-addressed artifact or receipt. Mutable paths are locators only; the |
-| `SearchHistoryAuditSummary` | interface | Bounded projection of the canonical replay audit. Exact ids stay in SearchLedger. |
-| `SearchHistoryReceipt` | interface | A bounded proof envelope over one canonical SearchLedger replay. |
-| `SearchPlanExtendedEvent` | interface | Additional candidate slots and operations for a search whose length is not |
-| `SearchRunIdentity` | interface | Immutable identities the ledger requires and a campaign cannot infer. |
+| `SearchAudit` | interface | Counts and sums over the whole search. Every field is a number or a short |
+| `SearchCellAllocatedEvent` | interface | One node on one task in one split at one repeat is planned. `cellId` is |
+| `SearchCellSettledEvent` | interface | One attempt at a cell finished. Its RunRecord, when the producer minted one, |
+| `SearchClaim` | interface | The claim made once, on the sealed test split. `selected` names the node the |
+| `SearchClosedEvent` | interface | Last event, once. More work on a closed search is a derived search. |
+| `SearchEdgeRecordedEvent` | interface | The proposal that derived a node from its parents. |
+| `SearchHistoryAuditSummary` | interface | Bounded summary of a search's audit. Exact ids stay in the ledger. |
+| `SearchHistoryReceipt` | interface | A bounded proof envelope over one search ledger. |
+| `SearchLedgerBinding` | interface | A ledger and the identities a loop records into it. |
+| `SearchNodeDecidedEvent` | interface | A policy, allocator or claim decision about a node. May repeat; the latest wins. |
+| `SearchNodeRegisteredEvent` | interface | A content-addressed artifact enters the search. `nodeId` is |
+| `SearchOpenedEvent` | interface | First event, once: what is searched, against what, on which tasks, under which budget. |
+| `SearchReservation` | interface | Dollars held for a cell or operation before it runs. `hard`: the lane |
+| `SearchRunIdentity` | interface | Identities the ledger needs and a loop cannot infer. |
+| `SearchScoredCell` | interface | A cell's scored attempt: the inputs of every per-unit statistic. |
 | `SearchSourceRef` | interface | Repository, dataset, or package source pinned to an immutable commit or |
-| `SearchSurfaceEvidence` | interface | Per-attempt proof that a declared candidate surface was or was not active, |
+| `SearchSurfaceEvidence` | interface | Per-attempt proof that a declared node surface did or did not fire. A |
+| `SearchUnitScore` | interface | Scores of one node on one unit of one split: the sum and count of its |
+| `SearchUnknown` | interface | A fact the producer does not have, with the reason. Unknown is never 0. |
 | `SeriesDistribution` | interface | Distribution summary of a number series: count, extremes, quantiles, sum. |
 | `SessionScript` | interface | One session within a multi-session journey. Dispatch is |
 | `SingleRunLockOptions` | interface | Single-run lock for evaluations that share one mutable environment. |
@@ -2022,11 +2054,17 @@ Import from `@tangle-network/agent-eval/campaign` — 417 exports.
 | `PromotionPolicy` | type | A promotion strategy: a pure function from the evidence vector to a verdict. |
 | `ProposalFinding` | type | A finding explicitly admitted as candidate-generation input. |
 | `ProposalFindingOrigin` | type | Data sources that candidate generation may intentionally learn from. |
-| `SearchExecutionIdentity` | type | How a search operation executed. The shape the ledger event records. |
+| `SearchArtifactKind` | type | What a search's nodes are: a mutable agent surface, or an output artifact. |
+| `SearchCellStage` | type | Where a cell ran relative to the search's decisions. |
+| `SearchEdgeAttribution` | type | How an edge's parents are known. `explicit`: the proposer that created the |
 | `SearchLedgerTrustedHeadMode` | type | How this ledger uses its trusted head — the `(sequence, entryHash)` pin kept |
+| `SearchModelIdentity` | type | The model an attempt ran: an immutable snapshot, or a moving alias whose |
+| `SearchOpening` | type | The header of a search, with plain task lists; the recorder digests them. |
+| `SearchSplit` | type | train is the proposer's feedback, selection is private to the policy and |
+| `SearchTaskOutcome` | type | `failed` is the agent's defect and carries a score; `errored` is the |
 | `SequentialStreamState` | type | Snapshot of one observe-stream: the e-process state plus the gate's own |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalyzeCrossSurfaceInteractionsInput`, `AutoevalsScoreLike`, `AxisEvidence`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `BuildTraceAnalystSurfaceDispatchOptions`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CodeSurfaceVerification`, `CompareOptimizationMethodsOptions`, `CreateProfileMatrixPlanOptions`, `CreateSearchHistoryReceiptInput`, `CrossSurfaceAdditionDecision`, `CrossSurfaceBestSingleSelection`, `CrossSurfaceBootstrapPolicy`, `CrossSurfaceCandidateComparison`, `CrossSurfaceCandidateEvidence`, `CrossSurfaceCandidateOutcome`, `CrossSurfaceCandidateSummary`, `CrossSurfaceCompositionStep`, `CrossSurfaceDistribution`, `CrossSurfaceEligibility`, `CrossSurfaceEvidenceBreakdown`, `CrossSurfaceInteractionAwareSelection`, `CrossSurfaceInteractionEffect`, `CrossSurfaceInteractionReport`, `CrossSurfaceInteractionTask`, `CrossSurfaceNaiveStackSelection`, `CrossSurfacePairCompatibility`, `CrossSurfacePairEvidence`, `CrossSurfacePairwiseEntry`, `CrossSurfaceRankedSingle`, `CrossSurfaceRelativeCost`, `CrossSurfaceSelections`, `CrowdedFrontierParentOptions`, `DefaultProductionGateOptions`, `DimensionRegression`, `DiscriminationScore`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `ExternalOptimizationExample`, `ExternalOptimizerCallbackLimits`, `ExternalOptimizerExecutionSummary`, `ExternalOptimizerModelBudget`, `ExternalOptimizerObservationArtifact`, `ExternalOptimizerObservationSummary`, `ExternalOptimizerProcessLimits`, `ExternalOptimizerRunnerCommand`, `ExternalOptimizerSubmittedCandidate`, `ExternalTextEvaluationResponse`, `ExternalTextOptimizerContext`, `ExternalTextOptimizerResult`, `FinalEvidenceUse`, `FinalizedProfileMatrixResult`, `FinalizeProfileMatrixOptions`, `FsLabeledScenarioStoreOptions`, `GateContext`, `GateContribution`, `GateResult`, `GenerationRecord`, `GepaCandidatePopulationArtifact`, `GepaCandidatePopulationCandidate`, `GepaCandidatePopulationSummary`, `GepaCandidateSelectionScore`, `GepaOptimizationMethodConfig`, `GitWorktreeAdapterOptions`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceArgsFromResult`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `LoopProvenanceEvidence`, `LoopProvenanceOptimizationMethod`, `NeutralizationGateOptions`, `OpenAutoPrOptions`, `OpenAutoPrResult`, `OpenSearchLedgerOptions`, `OptimizationMethodComparison`, `OptimizationMethodPairwise`, `OptimizationMethodProvenance`, `OptimizationMethodResult`, `OptimizationMethodScore`, `OptimizationPackageSource`, `OptimizationTokenUsage`, `OptimizerConfig`, `PairedHoldout`, `ParetoSignificanceGateOptions`, `PendingCostCallView`, `PhoenixEvaluationResultLike`, `PhoenixEvaluatorLike`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `PowerPreflight`, `PremeasuredOptimizationBaseline`, `ProfileMatrixCoverage`, `ProfileMatrixPlan`, `ProfileMatrixRow`, `ProfileMatrixSegmentResult`, `ProfileSummary`, `PromotionObjective`, `ReferenceEquivalenceJudgeOptions`, `ReferenceEquivalenceScenario`, `RolloutArgumentDiff`, `RolloutArgumentDiffOptions`, `RunCampaignOptions`, `RunEvalOptions`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunProfileMatrixSegmentOptions`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SearchAttemptAccounting`, `SearchCandidateDecidedEvent`, `SearchCandidateLineage`, `SearchCandidateRegisteredEvent`, `SearchCandidateSlot`, `SearchCandidateSlotClosedEvent`, `SearchCandidateSurface`, `SearchCompletedEvent`, `SearchFailureReason`, `SearchHistoryAdmissionOptions`, `SearchHistoryCoverage`, `SearchHistoryCoverageRow`, `SearchLedger`, `SearchLedgerAppendResult`, `SearchLedgerBinding`, `SearchLedgerEntry`, `SearchLedgerReplay`, `SearchModelIdentity`, `SearchOperationRecordedEvent`, `SearchPlan`, `SearchPlannedEvent`, `SearchPlannedOperation`, `SearchPlannedTask`, `SearchRecorderOptions`, `SearchTaskAttemptedEvent`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SingleRunLock`, `SkillOptOptimizationMethodConfig`, `SkillOptTrainerConfig`, `TraceAnalystArtifact`, `TraceAnalystScenario`, `TraceSpan`, `TransientFailureOptions`, `UngroundedLiteralReport`, `Worktree`, `WorktreeAdapter`, `AutoevalsScorerLike`, `CacheIssueReason`, `CacheRead`, `CellScheduleSlot`, `CrossSurfaceAdditionRejectionReason`, `CrossSurfaceIneligibilityReason`, `CrossSurfacePairIncompatibilityReason`, `DefaultProductionGateCheck`, `DefaultProductionRewardHackingOptions`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `ExternalOptimizerEndpointFormat`, `ExternalOptimizerEvaluationRefusalReason`, `ExternalTextCandidate`, `OptimizerModelBudget`, `RedactionStatus`, `RunImprovementLoopOptions`, `RunOptimizationOptions`, `SearchAccountingAudit`, `SearchCostAccounting`, `SearchHistoryPolicy`, `SearchLedgerEvent`, `SearchLedgerHash`, `SearchOperationKind`, `SearchSurfaceEffect`, `SearchSurfaceKind`, `SearchTaskOutcome`, `SearchTokenAccounting`, `SequentialDecision`, `SkillOptRunnerCommand`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AllocateSearchCellInput`, `AnalyzeCrossSurfaceInteractionsInput`, `AutoevalsScoreLike`, `AxisEvidence`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `BuildTraceAnalystSurfaceDispatchOptions`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CodeSurfaceVerification`, `CompareOptimizationMethodsOptions`, `CreateProfileMatrixPlanOptions`, `CreateSearchHistoryReceiptInput`, `CrossSurfaceAdditionDecision`, `CrossSurfaceBestSingleSelection`, `CrossSurfaceBootstrapPolicy`, `CrossSurfaceCandidateComparison`, `CrossSurfaceCandidateEvidence`, `CrossSurfaceCandidateOutcome`, `CrossSurfaceCandidateSummary`, `CrossSurfaceCompositionStep`, `CrossSurfaceDistribution`, `CrossSurfaceEligibility`, `CrossSurfaceEvidenceBreakdown`, `CrossSurfaceInteractionAwareSelection`, `CrossSurfaceInteractionEffect`, `CrossSurfaceInteractionReport`, `CrossSurfaceInteractionTask`, `CrossSurfaceNaiveStackSelection`, `CrossSurfacePairCompatibility`, `CrossSurfacePairEvidence`, `CrossSurfacePairwiseEntry`, `CrossSurfaceRankedSingle`, `CrossSurfaceRelativeCost`, `CrossSurfaceSelections`, `CrowdedFrontierParentOptions`, `DefaultProductionGateOptions`, `DimensionRegression`, `DiscriminationScore`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EstimateNodeCellsInput`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `ExternalOptimizationExample`, `ExternalOptimizerCallbackLimits`, `ExternalOptimizerExecutionSummary`, `ExternalOptimizerModelBudget`, `ExternalOptimizerObservationArtifact`, `ExternalOptimizerObservationSummary`, `ExternalOptimizerProcessLimits`, `ExternalOptimizerRunnerCommand`, `ExternalOptimizerSubmittedCandidate`, `ExternalTextEvaluationResponse`, `ExternalTextOptimizerContext`, `ExternalTextOptimizerResult`, `FinalEvidenceUse`, `FinalizedProfileMatrixResult`, `FinalizeProfileMatrixOptions`, `FsLabeledScenarioStoreOptions`, `GateContext`, `GateContribution`, `GateResult`, `GenerationRecord`, `GepaCandidatePopulationArtifact`, `GepaCandidatePopulationCandidate`, `GepaCandidatePopulationSummary`, `GepaCandidateSelectionScore`, `GepaEvaluationImport`, `GepaOptimizationMethodConfig`, `GepaPopulationImport`, `GitWorktreeAdapterOptions`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceArgsFromResult`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `LoopProvenanceEvidence`, `LoopProvenanceOptimizationMethod`, `NeutralizationGateOptions`, `OpenAutoPrOptions`, `OpenAutoPrResult`, `OpenSearchLedgerOptions`, `OptimizationMethodComparison`, `OptimizationMethodPairwise`, `OptimizationMethodProvenance`, `OptimizationMethodResult`, `OptimizationMethodScore`, `OptimizationPackageSource`, `OptimizationTokenUsage`, `OptimizerConfig`, `PairedHoldout`, `ParetoSignificanceGateOptions`, `PendingCostCallView`, `PhoenixEvaluationResultLike`, `PhoenixEvaluatorLike`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `PowerPreflight`, `PremeasuredOptimizationBaseline`, `ProfileMatrixCoverage`, `ProfileMatrixPlan`, `ProfileMatrixRow`, `ProfileMatrixSegmentResult`, `ProfileSummary`, `PromotionObjective`, `RecordSearchEdgeInput`, `ReferenceEquivalenceJudgeOptions`, `ReferenceEquivalenceScenario`, `RegisterSearchNodeInput`, `RolloutArgumentDiff`, `RolloutArgumentDiffOptions`, `RunCampaignOptions`, `RunEvalOptions`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunProfileMatrixSegmentOptions`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SearchAttemptAccounting`, `SearchBudget`, `SearchCandidateSurface`, `SearchCell`, `SearchCellCancelledEvent`, `SearchCompletion`, `SearchDecisionRecord`, `SearchExecutionIdentity`, `SearchFailureReason`, `SearchHistoryAdmissionOptions`, `SearchHistoryCoverage`, `SearchHistoryCoverageRow`, `SearchLedger`, `SearchLedgerAppendResult`, `SearchLedgerEntry`, `SearchNode`, `SearchNodeRef`, `SearchOperation`, `SearchOperationRecordedEvent`, `SearchOperationStartedEvent`, `SearchPosterior`, `SearchProposer`, `SearchRecorderOptions`, `SearchSpend`, `SearchSplits`, `SearchSplitTasks`, `SearchTask`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SettleSearchCellInput`, `SingleRunLock`, `SkillOptOptimizationMethodConfig`, `SkillOptTrainerConfig`, `TraceAnalystArtifact`, `TraceAnalystScenario`, `TraceSpan`, `TransientFailureOptions`, `UngroundedLiteralReport`, `Worktree`, `WorktreeAdapter`, `AutoevalsScorerLike`, `CacheIssueReason`, `CacheRead`, `CellScheduleSlot`, `CrossSurfaceAdditionRejectionReason`, `CrossSurfaceIneligibilityReason`, `CrossSurfacePairIncompatibilityReason`, `DefaultProductionGateCheck`, `DefaultProductionRewardHackingOptions`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `ExternalOptimizerEndpointFormat`, `ExternalOptimizerEvaluationRefusalReason`, `ExternalTextCandidate`, `OptimizerModelBudget`, `RedactionStatus`, `RunImprovementLoopOptions`, `RunOptimizationOptions`, `SearchCancelReason`, `SearchClaimPower`, `SearchCloseReason`, `SearchCostAccounting`, `SearchEdgeOperator`, `SearchEstimateMethod`, `SearchHistoryPolicy`, `SearchLedgerEvent`, `SearchLedgerHash`, `SearchNodeDecision`, `SearchNodeStatus`, `SearchOperationKind`, `SearchProposerKind`, `SearchSurfaceEffect`, `SearchSurfaceKind`, `SearchTokenAccounting`, `SearchTraceRef`, `SequentialDecision`, `SkillOptRunnerCommand`.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 

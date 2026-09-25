@@ -18310,6 +18310,17 @@ to call twice; never throws — a telemetry failure is not a run failure.
 
 `Promise`\<`void`\>
 
+##### stats()
+
+> **stats**(): [`OtelExportStats`](index.md#otelexportstats)
+
+What this run's exporter has delivered and lost so far. Also surfaced once, as a
+ `console.warn`, on `finish()` when the closing flush dropped spans.
+
+###### Returns
+
+[`OtelExportStats`](index.md#otelexportstats)
+
 ***
 
 ### PatchDeliverableOptions
