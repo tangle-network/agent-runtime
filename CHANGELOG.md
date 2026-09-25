@@ -43,6 +43,25 @@ and 389 of 650 lead directors could call `stop` and end the run with no check.
 
 ## 0.272.0
 
+A Tangle box's harness-transcript capture now carries each harness subagent session its sidecar names.
+opencode runs a `task` subagent in a child session, and a dedicated box's sidecar records only the parent, so a subagent's steps reached no record (#1264).
+The Discovery fleet records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.
+Before it lists the session files, the opencode capture reads each sidecar record's `providerSessionHome` and runs `opencode export` for every subagent session the record's messages name.
+Each export lands under `.local/share/opencode/export`, where the capture reads it.
+This covers a root's box (`rootHarnessTranscript`, above) and a dedicated child's box; a shared-box worker already exports its own subagents (0.271.0).
+Each session the capture could not export is named in `skipped`: `subagent-export-failed`, or `subagent-export-over-bound` past 32 sessions or 120 s.
+An export that did not run or stopped early is named once, as `subagent-export-did-not-run` or `subagent-export-incomplete`.
+The sidecar's records now come first in the listing, so an export cannot push the agent's own record out of the 16 MiB budget.
+Tested in a live Tangle box with its opencode 1.18.25 against a seeded store: the subagent's export was written and listed, and an unknown session was named `failed`.
+
+The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
+A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
+The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a spawn journal, and none has a native-session receipt.
+27 of the 57 harness subagent calls seen in those runs were made by roots.
+The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
+A router-brained root runs no driver, so its result has no such field.
+`result.json` from `supervisePursuit` carries it with the rest of the result.
+
 The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine
 run ownership and a SQL coordination side-log, the two items this runtime's durability STATUS
 listed as open after 0.270.0. `openSqlRunStore` is a fenced append-only log — hash-chained
