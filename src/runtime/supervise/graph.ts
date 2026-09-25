@@ -297,6 +297,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'resolveSupervisorTools',
   'extraTools',
   'executeExtraTool',
+  'recoverExecutor',
   'perWorker',
   'reservationPolicy',
   'workerSlots',

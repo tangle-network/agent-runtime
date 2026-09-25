@@ -30,13 +30,7 @@ function installFetchSpy(mode: 'ok' | 'throw'): { calls: FetchCall[] } {
       body: i.body ? JSON.parse(i.body) : undefined,
     })
     if (mode === 'throw') throw new Error('network down')
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {}
-      },
-    } as unknown as Response
+    return new Response('{}', { status: 200 })
   })
   vi.stubGlobal('fetch', spy)
   return { calls }

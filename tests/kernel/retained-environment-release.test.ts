@@ -19,8 +19,11 @@
  * marked `retainedExecution: 'released'`, under the seq the driver saw. Measured 2026-09-15: 0 of
  * 35 reconciled children on one pursuit ever settled, and 185 of 223 lost sandbox children across
  * 385 runs stopped at `reconciled` — read as `never-settled` and charged the ceiling although the
- * pool had committed the floor. A refused release writes nothing, because the environment may
- * still exist.
+ * pool had committed the floor. A release that is refused or cannot be confirmed is not a release,
+ * because the environment may still exist; the settlement is final all the same, so after the
+ * retry window the slot closes marked `retainedExecution: 'release-unconfirmed'`, and the node's
+ * `teardown-unconfirmed` record names what a sweeper must delete. Measured 2026-09-23/24 on the
+ * Discovery fleet: 338 of 1,620 agents never settled while that slot stayed open (#1301).
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -295,6 +298,7 @@ describe('retained environments at root settlement', () => {
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
     })
     expect(result.tree.nodes.find((node) => node.id === 'release:s0')).toMatchObject({
       status: 'failed',
@@ -527,10 +531,11 @@ describe('retained environments at root settlement', () => {
     ])
   })
 
-  it('writes nothing when the executor cannot confirm teardown after a destroyed receipt', async () => {
+  it('closes the slot unconfirmed when the executor cannot confirm teardown after a destroyed receipt', async () => {
     // A refused release in its second form: the provider destroyed the environment, but the
-    // executor's own teardown probe fails afterwards. The slot stays open — the run cannot prove
-    // the environment is gone from the executor's side — and nothing terminal is written.
+    // executor's own teardown probe fails afterwards. The run cannot prove the environment is gone
+    // from the executor's side, so this is not a release; the settlement is final all the same, so
+    // the slot closes marked `release-unconfirmed` and the node stays named as unconfirmed.
     const fleet = retainedProvider(directory)
     const context = createInMemoryRunContext()
     const factory = providerAsExecutor(fleet.provider())
@@ -572,18 +577,29 @@ describe('retained environments at root settlement', () => {
     expect(result.teardownUnconfirmed?.map((node) => node.id)).toEqual(['unconfirmed:s0'])
     const events = (await context.journal.loadTree('unconfirmed')) ?? []
     expect(releaseReceipts(events)).toMatchObject([{ id: 'unconfirmed:s0', destroyed: true }])
-    expect(terminalRecords(events, 'unconfirmed:s0')).toEqual([])
+    expect(terminalRecords(events, 'unconfirmed:s0')).toMatchObject([
+      { kind: 'settled', status: 'down', retainedExecution: 'release-unconfirmed', seq: 0 },
+    ])
+    // The record comes after the leak is named, so a reader of either order sees both facts.
+    expect(events.findIndex((event) => event.kind === 'teardown-unconfirmed')).toBeLessThan(
+      events.indexOf(terminalRecords(events, 'unconfirmed:s0')[0]!),
+    )
     expect(result.tree.nodes.find((node) => node.id === 'unconfirmed:s0')).toMatchObject({
-      retainedExecution: 'pending',
+      retainedExecution: 'release-unconfirmed',
     })
-    expect(result.spendGaps).toEqual([expect.objectContaining({ kind: 'never-settled' })])
+    expect(
+      materializeTreeView(events).nodes.find((node) => node.id === 'unconfirmed:s0'),
+    ).toMatchObject({ retainedExecution: 'release-unconfirmed' })
+    // A floor, as for a released node, never the reservation ceiling of a never-settled one.
+    expect(result.spendGaps).toEqual([expect.objectContaining({ kind: 'unreported' })])
     expect(result.fleetYield).toEqual({
       spawned: 1,
       done: 0,
-      down: 0,
+      down: 1,
       cancelled: 0,
-      neverSettled: 1,
+      neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 1,
     })
   })
 
@@ -647,6 +663,7 @@ describe('retained environments at root settlement', () => {
       cancelled: 1,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
     })
 
     fleet.state.observe = undefined
@@ -672,6 +689,7 @@ describe('retained environments at root settlement', () => {
       cancelled: 1,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
     })
   })
 
@@ -744,6 +762,7 @@ describe('retained environments at root settlement', () => {
       cancelled: 0,
       neverSettled: 1,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 0,
     })
 
     // A later process resumes the run and the provider delivers the retained result.
@@ -778,6 +797,7 @@ describe('retained environments at root settlement', () => {
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 0,
     })
   })
 
@@ -867,26 +887,96 @@ describe('retained environments at root settlement', () => {
     expect(
       events.some((event) => event.kind === 'teardown-unconfirmed' && event.id === 'refused:s0'),
     ).toBe(true)
-    // The environment still exists, so the slot honestly stays open: no terminal record, the
-    // reconciled floor stands, the gap is a ceiling, and the node is still pending.
-    expect(terminalRecords(events, 'refused:s0')).toEqual([])
+    // The environment may still exist, and the receipt and the barrier's record say so. The run
+    // is final all the same, so the slot closes with the settlement the driver received, marked
+    // `release-unconfirmed` rather than `released`: the gap is the floor the pool committed.
+    expect(terminalRecords(events, 'refused:s0')).toMatchObject([
+      {
+        kind: 'settled',
+        status: 'down',
+        retainedExecution: 'release-unconfirmed',
+        retainedPendingCause: 'unobservable',
+        seq: 0,
+      },
+    ])
     expect(events.some((event) => event.kind === 'reconciled' && event.id === 'refused:s0')).toBe(
       true,
     )
     expect(result.spendGaps).toEqual([
-      expect.objectContaining({ id: 'refused:s0', kind: 'never-settled' }),
+      expect.objectContaining({ id: 'refused:s0', kind: 'unreported' }),
     ])
     expect(result.tree.nodes.find((node) => node.id === 'refused:s0')).toMatchObject({
       status: 'failed',
-      retainedExecution: 'pending',
+      retainedExecution: 'release-unconfirmed',
     })
     expect(result.fleetYield).toEqual({
       spawned: 1,
       done: 0,
-      down: 0,
+      down: 1,
       cancelled: 0,
-      neverSettled: 1,
+      neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 1,
+    })
+  })
+
+  it('closes the slot of a retained child whose create never answered, naming no environment', async () => {
+    // The commonest never-settled child on the Discovery fleet of 2026-09-23/24: the platform
+    // took the create, the answer was lost to a timeout, and the admission never named an
+    // environment. The release has nothing to name, so it can never confirm anything, and the
+    // slot used to stay open for the life of every reader (#1301). The settlement is final, so it
+    // closes marked `release-unconfirmed`; the environment the platform made is a sweeper's.
+    const fleet = retainedProvider(directory)
+    const base = fleet.provider()
+    const answerLost: AgentEnvironmentProvider = {
+      ...base,
+      create: async (input) => {
+        await base.create(input)
+        throw Object.assign(new Error('HTTP 504: Sandbox create deadline exceeded'), {
+          name: 'TimeoutError',
+        })
+      },
+    }
+    const context = createInMemoryRunContext()
+    let live: Settled<unknown> | null = null
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(answerLost)))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'create-lost',
+        budget: { maxIterations: 2, maxTokens: 20 },
+        teardownConfirmMs: 0,
+      },
+    )
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(live).toMatchObject({ kind: 'down', retainedExecution: 'pending' })
+    // The platform holds an environment Runtime never learned the id of.
+    expect(fleet.environments()).toHaveLength(1)
+    const events = (await context.journal.loadTree('create-lost')) ?? []
+    expect(releaseReceipts(events)).toEqual([])
+    expect(
+      events.find(
+        (event) => event.kind === 'teardown-unconfirmed' && event.id === 'create-lost:s0',
+      ),
+    ).toBeDefined()
+    expect(terminalRecords(events, 'create-lost:s0')).toMatchObject([
+      { kind: 'settled', status: 'down', retainedExecution: 'release-unconfirmed', seq: 0 },
+    ])
+    expect(result.fleetYield).toEqual({
+      spawned: 1,
+      done: 0,
+      down: 1,
+      cancelled: 0,
+      neverSettled: 0,
+      releasedUnrecovered: 0,
+      releaseUnconfirmed: 1,
     })
   })
 
@@ -1007,6 +1097,59 @@ describe('retained environments at root settlement', () => {
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
+    })
+  })
+
+  it("closes a nested manager's refused grandchild unconfirmed, in the nested tree", async () => {
+    const fleet = retainedProvider(directory)
+    fleet.state.destroyFailure = new Error('409 Conflict: environment is still stopping')
+    const context = createInMemoryRunContext({ withDriver: true })
+    const manager = driverChild(
+      testAgentProfile('manager'),
+      {
+        name: 'manager',
+        async act(_task, scope) {
+          await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finalized manager'
+        },
+      },
+      context.journal,
+    )
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          expect(
+            scope.spawn(manager, 'manage', { budget: { maxIterations: 2, maxTokens: 20 } }).ok,
+          ).toBe(true)
+          await scope.next()
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...context,
+        runId: 'root',
+        budget: { maxIterations: 4, maxTokens: 100 },
+        teardownConfirmMs: 0,
+      },
+    )
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(fleet.environments()).toHaveLength(1)
+    const nested = (await context.journal.loadTree('root/root:s0')) ?? []
+    expect(releaseReceipts(nested)).toMatchObject([{ id: 'root:s0:s0', destroyed: false }])
+    // The grandchild closes where its manager's scope journals it, never in the root tree.
+    expect(terminalRecords(nested, 'root:s0:s0')).toMatchObject([
+      { kind: 'settled', status: 'down', retainedExecution: 'release-unconfirmed' },
+    ])
+    const rootEvents = (await context.journal.loadTree('root')) ?? []
+    expect(terminalRecords(rootEvents, 'root:s0:s0')).toEqual([])
+    expect(result.fleetYield).toMatchObject({
+      spawned: 2,
+      neverSettled: 0,
+      releasedUnrecovered: 0,
+      releaseUnconfirmed: 1,
     })
   })
 })
@@ -1218,6 +1361,7 @@ describe('a crash between the receipt and the released record heals on the next 
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
     })
     expect(resumed.spendGaps).toEqual([
       expect.objectContaining({ id: 'heal:s0', kind: 'unreported' }),
@@ -1400,10 +1544,15 @@ describe('a crash between the receipt and the released record heals on the next 
       cancelled: 1,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
     })
   })
 
-  it('leaves a refused release open: the node is still interrupted and the resume recovers it', async () => {
+  it('closes a refused release unconfirmed, so a resume that arrives anyway recovers nothing', async () => {
+    // `release` declares the settlement final. A refused release used to leave the slot open for a
+    // resume the declaration says never comes, and measured on the Discovery fleet those slots
+    // never closed (#1301). The slot now closes marked `release-unconfirmed`; the environment the
+    // provider still holds is named for a sweeper, and a resume finds nothing to recover.
     const fleet = retainedProvider(directory)
     fleet.state.destroyFailure = new Error('409 Conflict: environment is still stopping')
     const runDirectory = join(directory, 'run')
@@ -1414,25 +1563,31 @@ describe('a crash between the receipt and the released record heals on the next 
           await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
           return 'finished'
         }
-        // Still interrupted: the resumed process adopts the retained child before the root acts.
-        expect(scope.view.inFlight).toBe(1)
-        const settled = await scope.next()
-        return settled?.kind === 'done' ? 'recovered' : 'lost'
+        expect(scope.view.inFlight).toBe(0)
+        return 'resumed'
       },
     }
     const first = createFileRunContext(runDirectory)
     const refused = await createSupervisor<unknown, unknown>().run(root, 'task', {
       ...first,
       ...common('refused-heal'),
-      // The refusal must survive settlement so the resume below can heal it.
+      // One release, refused; the retry window has its own test.
       teardownConfirmMs: 0,
     })
     expect(refused.kind, JSON.stringify(refused)).toBe('winner')
     expect(fleet.environments()).toHaveLength(1)
     const before = (await first.journal.loadTree('refused-heal')) ?? []
     expect(releaseReceipts(before)).toMatchObject([{ id: 'refused-heal:s0', destroyed: false }])
-    expect(reconciledRecords(before, 'refused-heal:s0')[0]).toMatchObject({ settledSeq: 0 })
-    expect(terminalRecords(before, 'refused-heal:s0')).toEqual([])
+    const leak = before.find((event) => event.kind === 'teardown-unconfirmed')
+    expect(leak).toMatchObject({
+      id: 'refused-heal:s0',
+      environments: [{ environmentId: fleet.environments()[0] }],
+    })
+    const closed = terminalRecords(before, 'refused-heal:s0')
+    expect(closed).toMatchObject([
+      { kind: 'settled', status: 'down', retainedExecution: 'release-unconfirmed', seq: 0 },
+    ])
+    expect(refused.fleetYield).toMatchObject({ neverSettled: 0, releaseUnconfirmed: 1 })
 
     fleet.state.destroyFailure = undefined
     fleet.state.resultLost = false
@@ -1445,18 +1600,21 @@ describe('a crash between the receipt and the released record heals on the next 
     })
     expect(resumed.kind, JSON.stringify(resumed)).toBe('winner')
     if (resumed.kind !== 'winner') return
-    expect(resumed.out).toBe('recovered')
+    expect(resumed.out).toBe('resumed')
     const events = (await restarted.journal.loadTree('refused-heal')) ?? []
-    const terminal = terminalRecords(events, 'refused-heal:s0')
-    expect(terminal).toMatchObject([{ kind: 'settled', status: 'done' }])
-    expect(terminal[0]).not.toHaveProperty('retainedExecution')
+    // Nothing was healed or recovered: the one terminal record is the unconfirmed close.
+    expect(terminalRecords(events, 'refused-heal:s0')).toEqual(closed)
+    expect(await replaySpawnTree(restarted.journal, restarted.blobs, 'refused-heal')).toMatchObject(
+      [{ kind: 'down', retainedExecution: 'release-unconfirmed' }],
+    )
     expect(resumed.fleetYield).toEqual({
       spawned: 1,
-      done: 1,
-      down: 0,
+      done: 0,
+      down: 1,
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 0,
+      releaseUnconfirmed: 1,
     })
   })
 
@@ -1555,6 +1713,7 @@ describe('a crash between the receipt and the released record heals on the next 
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,
+      releaseUnconfirmed: 0,
     })
   })
 })

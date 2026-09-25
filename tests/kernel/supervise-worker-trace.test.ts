@@ -142,6 +142,7 @@ function recordingExporter(): { spans: OtelSpan[]; exporter: OtelExporter } {
       },
       flush: () => Promise.resolve(),
       shutdown: () => Promise.resolve(),
+      stats: () => ({ written: spans.length, dropped: 0, pending: 0 }),
     },
   }
 }
