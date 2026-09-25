@@ -514,13 +514,19 @@ export function buildRuntimeEventOtelSpans(
 
     if (event.type === 'tool_call' || event.type === 'tool_result') {
       name = `agent.${event.type}`
-      attrs[ATTR.spanKind] = 'TOOL'
+      // Only the call declares TOOL: one span per event means a call and its
+      // result would otherwise both count as a tool span, doubling the true
+      // invocation count. The result still exports losslessly (tool.output
+      // below, joined to the call by tool.call_id); it is just not a second
+      // declared TOOL kind for anyone counting tool spans.
+      if (event.type === 'tool_call') attrs[ATTR.spanKind] = 'TOOL'
       attrs['tool.name'] = event.toolName
-      if (event.toolCallId) {
-        attrs['tool.call_id'] = event.toolCallId
-        // The call and its result are one operation; the id joins them.
-        attrs[ATTR.operationId] = event.toolCallId
-      }
+      // tool.call_id joins the call and its result. It is NOT
+      // ATTR.operationId: that key names a retry-safety operation that a
+      // supervised action's attempts share (see runtime/supervise/otel-spans.ts),
+      // a different span-tree concept a single tool call/result pair does not
+      // represent.
+      if (event.toolCallId) attrs['tool.call_id'] = event.toolCallId
       const mcp = mcpIdentity(event.toolName)
       if (mcp.server) attrs['mcp.server'] = mcp.server
       if (mcp.tool) attrs['mcp.tool.name'] = mcp.tool

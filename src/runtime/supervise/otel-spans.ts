@@ -31,7 +31,7 @@
 
 import { ATTR } from '@tangle-network/agent-trace-contract'
 import { contentAddress } from '../../durable/spawn-journal'
-import type { OtelExportConfig, OtelExporter, OtelSpan } from '../../otel-export'
+import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
@@ -113,6 +113,9 @@ export interface SupervisorSpanRecorder {
    * to call twice; never throws — a telemetry failure is not a run failure.
    */
   finish(outcome?: SupervisorSpanOutcome): Promise<void>
+  /** What this run's exporter has delivered and lost so far. Also surfaced once, as a
+   *  `console.warn`, on `finish()` when the closing flush dropped spans. */
+  stats(): OtelExportStats
 }
 
 /** A node span held open between its `agent.spawn` and its `agent.child`. */
@@ -411,12 +414,26 @@ export function createSupervisorSpanRecorder(
             rootMessage(outcome),
           ),
         )
-        await exporter.flush()
-        if (ownsExporter) await exporter.shutdown()
       } catch {
-        // Telemetry is not the work.
+        // Telemetry is not the work: a failure building or emitting the closing
+        // spans above must never reach the run.
+      }
+      // Flush and shutdown run outside the span-building try so a rejected
+      // flush cannot skip shutdown, and are surfaced instead of swallowed: a
+      // 401 or a dead collector was previously silent even to someone
+      // awaiting finish(). One warning per finish() call, not per span.
+      try {
+        await exporter.flush()
+      } catch (error) {
+        const s = exporter.stats()
+        console.warn(
+          `[agent-runtime] supervisor span export dropped ${s.dropped} span(s): ${s.lastError ?? String(error)}`,
+        )
+      } finally {
+        if (ownsExporter) await exporter.shutdown()
       }
     },
+    stats: () => exporter.stats(),
   }
 }
 
