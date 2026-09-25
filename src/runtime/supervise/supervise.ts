@@ -62,7 +62,11 @@ import {
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
-import type { HarnessTranscriptCapture } from '../harness-transcript'
+import {
+  type HarnessTranscriptCapture,
+  persistHarnessTranscript,
+  readHarnessTranscript,
+} from '../harness-transcript'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
@@ -3853,6 +3857,14 @@ function superviseInternal(
         }
       }
       recordRunCancellationOutcome(options.runDir, result, now)
+      // A nested manager's session rides its settle record (#1359). The root has no settle
+      // record, so its session had no receipt anywhere: 312 of 312 Discovery roots of
+      // 2026-09-23/24 settled without one, and 27 of the 57 harness subagent calls seen in those
+      // runs were the roots' own (#1264). The result carries it, persisted the same way.
+      const rootHarnessTranscript =
+        rootDriveHarness === undefined
+          ? undefined
+          : await persistHarnessTranscript(readHarnessTranscript(rootDriveHarness), blobs)
       const rootProviderModel =
         ctx.resume === true
           ? rootProviderModelEvidence([])
@@ -3867,6 +3879,7 @@ function superviseInternal(
         ...result,
         rootProviderModel,
         ...(rootStream === undefined ? {} : { rootStream }),
+        ...(rootHarnessTranscript === undefined ? {} : { rootHarnessTranscript }),
         ...(rootContinuation === undefined ? {} : { continuation: rootContinuation }),
       }
     }
