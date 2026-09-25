@@ -2228,6 +2228,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** The root manager's native harness session, persisted like a child's receipt. A child's
+       *  receipt rides its settle record and the root has none, so the result carries it. Absent
+       *  for a router-brained root, which runs no driver. */
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
@@ -2273,6 +2277,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** The root manager's native harness session, persisted like a child's receipt. A child's
+       *  receipt rides its settle record and the root has none, so the result carries it. Absent
+       *  for a router-brained root, which runs no driver. */
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
@@ -2352,6 +2360,10 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** The root manager's retained provider stream, when the run directory holds one. */
       readonly rootStream?: RootStreamReceipt
+      /** The root manager's native harness session, persisted like a child's receipt. A child's
+       *  receipt rides its settle record and the root has none, so the result carries it. Absent
+       *  for a router-brained root, which runs no driver. */
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
       /** What the root's external driver loop did: genuine continuations, failure retries,
        *  environment replacements, why the loop ended, and how the root closed the run. Absent for
        *  a router-brained root, which runs no driver loop. */
