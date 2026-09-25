@@ -23,6 +23,7 @@ Measured on the same tree with a brain that thinks for 100 ms between reads: man
 Every worker reserves its whole budget when it starts, so the pool divided by the per-worker budget is how many run at once; a smaller `budget` runs more.
 
 The `@tangle-network/agent-eval` peer range is `>=0.191.0 <0.194.0`, and the release cohort pins Eval 0.193.2.
+Runtime requires `@tangle-network/agent-knowledge` ^17.1.6, the first Knowledge that admits Eval 0.193, and the cohort pins it.
 0.275.1 declared a floor of 0.188.0, which the peer-window gate refuses as more than two minors behind the 0.193.2 development version, while the cohort still pinned 0.190.1.
 
 ## 0.275.1
