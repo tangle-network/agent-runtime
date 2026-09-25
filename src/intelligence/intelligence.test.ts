@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultRedactorIdentityMaterial } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
 import {
   compileEffort,
   createIntelligenceClient,
-  defaultRedactor,
   isIntelligenceOff,
   resolveEffort,
   type UsageSplit,
@@ -122,89 +120,6 @@ describe('resolveEffort', () => {
 
   it('fails loud on an unknown tier', () => {
     expect(() => resolveEffort('turbo' as never)).toThrow(/unknown effort tier/)
-  })
-})
-
-describe('defaultRedactor', () => {
-  it('exposes every built-in behavior input used to identify saved optimizer work', () => {
-    const identity = defaultRedactorIdentityMaterial() as {
-      marker: string
-      maxDepth: number
-      valuePatterns: unknown[]
-      secretKeyPattern: { source: string; flags: string }
-      secretAssignmentPattern: { source: string; flags: string }
-      scrubString: string
-      walk: string
-      defaultRedactor: string
-    }
-
-    expect(identity.marker).toBe('[redacted]')
-    expect(identity.maxDepth).toBe(32)
-    expect(identity.valuePatterns).toHaveLength(6)
-    expect(identity.secretKeyPattern.source).toContain('api[-_]?key')
-    expect(identity.secretAssignmentPattern.flags).toContain('g')
-    expect(identity.scrubString).toContain('secretAssignmentPattern')
-    expect(identity.walk).toContain('maxDepth')
-    expect(identity.defaultRedactor).toContain('walk')
-  })
-
-  it('strips api keys, bearer tokens, emails, and secret-keyed values', () => {
-    const redacted = defaultRedactor({
-      message: 'contact me at alice@acme.com',
-      apiKey: 'sk-tan-supersecretvalue123',
-      headers: { authorization: 'Bearer abcd1234efgh5678ijkl' },
-      nested: { note: 'token sk-live-aaaaaaaaaaaaaaaa here' },
-    }) as Record<string, unknown>
-    const flat = JSON.stringify(redacted)
-    expect(flat).not.toContain('alice@acme.com')
-    expect(flat).not.toContain('supersecretvalue')
-    expect(flat).not.toContain('abcd1234efgh5678ijkl')
-    expect(flat).not.toContain('sk-live-aaaaaaaaaaaaaaaa')
-    expect(redacted.apiKey).toBe('[redacted]')
-    expect((redacted.headers as Record<string, unknown>).authorization).toBe('[redacted]')
-  })
-
-  it('is cycle-safe and total', () => {
-    const cyclic: Record<string, unknown> = { a: 1 }
-    cyclic.self = cyclic
-    expect(() => defaultRedactor(cyclic)).not.toThrow()
-  })
-
-  it('preserves numeric profile limits while redacting credentials and invalid limit values', () => {
-    const limits = {
-      maxVisibleOutputTokens: 8192,
-      maxReasoningTokens: 0,
-      maxTotalOutputTokens: 16384,
-    }
-    expect(defaultRedactor({ model: limits })).toEqual({ model: limits })
-    expect(defaultRedactor(JSON.stringify({ model: limits }))).toBe(
-      JSON.stringify({ model: limits }),
-    )
-    expect(
-      defaultRedactor({
-        token: 123456,
-        accessToken: 'private-value',
-        maxVisibleOutputTokens: 'private-value',
-        maxReasoningTokens: { token: 'private-value' },
-        maxTotalOutputTokens: -1,
-      }),
-    ).toEqual({
-      token: '[redacted]',
-      accessToken: '[redacted]',
-      maxVisibleOutputTokens: '[redacted]',
-      maxReasoningTokens: '[redacted]',
-      maxTotalOutputTokens: '[redacted]',
-    })
-  })
-
-  it('redacts secret assignments embedded in serialized text', () => {
-    const redacted = defaultRedactor('judge note: {"password":"hunter2"} token=plain-secret')
-    expect(redacted).toBe('judge note: {"password":[redacted]} token=[redacted]')
-  })
-
-  it('redacts a complete bearer token after an authorization label', () => {
-    const redacted = defaultRedactor('Authorization: Bearer abcdefghijklmnop')
-    expect(redacted).toBe('Authorization: [redacted]')
   })
 })
 

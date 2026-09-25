@@ -1231,7 +1231,7 @@ describe('atomic prepared candidate execution', () => {
       reason: expect.not.stringContaining(secret),
       usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, costUsdNanos: 10_000_000 },
     })
-    expect(result.reason).toContain('[redacted:candidate-access]')
+    expect(result.reason).toContain('[REDACTED:known-secret]')
     expect({ closed, settlementReads }).toEqual({ closed: true, settlementReads: 1 })
     expect(serveLateCall).toThrow(/closed/)
   })
@@ -1796,7 +1796,7 @@ describe('atomic prepared candidate execution', () => {
     ).toString('utf8')
     expect(traceJson).not.toContain(secret)
     expect(traceJson).not.toContain(Buffer.from(secret, 'utf8').toString('base64url'))
-    expect(traceJson).toContain('[redacted:candidate-access]')
+    expect(traceJson).toContain('[REDACTED:known-secret]')
     expect(Buffer.from(result.receipt.bytes).toString('utf8')).not.toContain(secret)
     const [storedRun] = await traceStore.listRuns()
     if (!storedRun) throw new Error('expected a stored candidate trace')
