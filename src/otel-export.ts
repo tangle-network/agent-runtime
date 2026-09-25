@@ -11,7 +11,13 @@
 
 import { appendFileSync } from 'node:fs'
 
-import { deriveHexId, isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
+import {
+  ATTR,
+  deriveHexId,
+  isW3CSpanId,
+  isW3CTraceId,
+  type SpanKind,
+} from '@tangle-network/agent-trace-contract'
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
@@ -507,6 +513,7 @@ export function buildRuntimeEventOtelSpans(
 
     if (event.type === 'tool_call' || event.type === 'tool_result') {
       name = `agent.${event.type}`
+      attrs[ATTR.spanKind] = 'TOOL'
       attrs['tool.name'] = event.toolName
       if (event.toolCallId) attrs['tool.call_id'] = event.toolCallId
       const mcp = mcpIdentity(event.toolName)
@@ -518,6 +525,7 @@ export function buildRuntimeEventOtelSpans(
       }
     } else if (event.type === 'llm_call') {
       name = 'gen_ai.client.inference'
+      attrs[ATTR.spanKind] = 'LLM'
       attrs['gen_ai.request.model'] = event.model
       if (event.tokensIn !== undefined) attrs['gen_ai.usage.input_tokens'] = event.tokensIn
       if (event.tokensOut !== undefined) attrs['gen_ai.usage.output_tokens'] = event.tokensOut
@@ -607,9 +615,20 @@ export function buildLoopOtelSpans(
     kind: 1,
     startTimeUnixNano: msToNs(node.startMs),
     endTimeUnixNano: msToNs(node.endMs),
-    attributes: toOtelAttributes(node.attrs),
+    attributes: toOtelAttributes({ ...node.attrs, [ATTR.spanKind]: LOOP_SPAN_KIND[node.kind] }),
     status: { code: node.error ? 2 : 1 },
   }))
+}
+
+/**
+ * The declared kind of each loop level. An iteration span carries its own token total, and an
+ * undeclared span with tokens reads as an LLM call, so declaring AGENT keeps those tokens from
+ * being counted a second time beside the model-call spans beneath it.
+ */
+const LOOP_SPAN_KIND: Record<LoopSpanNode['kind'], SpanKind> = {
+  loop: 'CHAIN',
+  round: 'CHAIN',
+  branch: 'AGENT',
 }
 
 /**

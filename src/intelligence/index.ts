@@ -22,6 +22,7 @@
 
 import { contentHash } from '@tangle-network/agent-eval'
 import type { AgentProfile, CandidateExecutionEvidence } from '@tangle-network/agent-interface'
+import { ATTR } from '@tangle-network/agent-trace-contract'
 import {
   buildLoopOtelSpans,
   buildRuntimeEventOtelSpans,
@@ -646,7 +647,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       ex.exportSpan(
         flatOtelSpan(
           'tangle.intelligence.run',
-          { 'tangle.runId': outcome.runId, ...labels },
+          { 'tangle.runId': outcome.runId, ...labels, [ATTR.spanKind]: 'AGENT' },
           outcome.traceId,
           Date.now(),
         ),
@@ -757,7 +758,9 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       const now = Date.now()
       const runSpan = flatOtelSpan(
         'tangle.intelligence.run',
-        { 'tangle.runId': record.runId, ...labels },
+        // Declared AGENT: this span carries the run's model and token TOTAL, and an undeclared span
+        // with tokens reads as one LLM call, which counts every call beneath it a second time.
+        { 'tangle.runId': record.runId, ...labels, [ATTR.spanKind]: 'AGENT' },
         record.traceId,
         record.timing?.startedAt ?? now,
         undefined,
