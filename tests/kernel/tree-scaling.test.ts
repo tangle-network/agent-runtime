@@ -253,7 +253,8 @@ function fleetBrain(
     }
     const settled = new Set<string>()
     for (const message of messages) {
-      if (message.role !== 'tool' || names.get(message.tool_call_id ?? '') !== 'await_event') continue
+      if (message.role !== 'tool' || names.get(message.tool_call_id ?? '') !== 'await_event')
+        continue
       for (const match of String(message.content).matchAll(/"settled":"([^"]+)"/gu)) {
         settled.add(match[1] as string)
       }

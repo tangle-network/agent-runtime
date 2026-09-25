@@ -2405,9 +2405,7 @@ export function createCoordinationToolsForManager(
   // publish its result as a `finding`. Returns false when the cursor is idle (no live workers). The
   // cursor is a once-per-child source, so a settlement is produced at most once.
   // `next` blocks on a live worker; `nextResolved` takes only a child that already settled.
-  const drainSettlement = async (
-    source: 'next' | 'nextResolved' = 'next',
-  ): Promise<boolean> => {
+  const drainSettlement = async (source: 'next' | 'nextResolved' = 'next'): Promise<boolean> => {
     if (!pendingSettlement) {
       const settled = await (source === 'next' ? opts.scope.next() : opts.scope.nextResolved())
       if (!settled) return false
@@ -3843,23 +3841,23 @@ export function createCoordinationToolsForManager(
         }
         return pullOne()
         async function pullOne(): Promise<Record<string, unknown>> {
-        // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
-        let ev = bus.pullRecord(kinds)
-        // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
-        // capacity frees up, so the answer travels with the event that freed it.
-        if (ev) return { ...deliver(ev), freeSlots: freeWorkerSlots() }
-        // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
-        // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
-        // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
-        // no working "wait for the worker" primitive. Race the single in-flight drain against the
-        // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
-        // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
-        const raced = await raceDrainWithTimeout(ensureDrain())
-        if (raced === undefined)
-          return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
-        ev = bus.pullRecord(kinds)
-        if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
-        return { ...deliver(ev), freeSlots: freeWorkerSlots() }
+          // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
+          let ev = bus.pullRecord(kinds)
+          // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
+          // capacity frees up, so the answer travels with the event that freed it.
+          if (ev) return { ...deliver(ev), freeSlots: freeWorkerSlots() }
+          // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
+          // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
+          // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
+          // no working "wait for the worker" primitive. Race the single in-flight drain against the
+          // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
+          // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
+          const raced = await raceDrainWithTimeout(ensureDrain())
+          if (raced === undefined)
+            return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
+          ev = bus.pullRecord(kinds)
+          if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
+          return { ...deliver(ev), freeSlots: freeWorkerSlots() }
         }
       },
     },
