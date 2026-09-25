@@ -189,6 +189,41 @@ export function harnessTranscriptUnavailable(
   return unavailable(reason)
 }
 
+/**
+ * Read one executor's harness-transcript receipt without letting a broken port escape.
+ *
+ * The three answers this has to keep apart, because #1214 and #1244 are both about an artifact
+ * that reads as coverage without being coverage:
+ *   - `available`                              the transcript survived;
+ *   - a reason the CAPTURE produced            a box existed and could not be read;
+ *   - `executor-exposes-no-transcript`     this runtime has no transcript to offer at all;
+ *   - `execution-never-started`                no environment was ever created (the executor's
+ *                                              own seed, set before `create`);
+ *   - `capture-did-not-run`                    the port answered nothing, so the capture was
+ *                                              skipped rather than attempted and failed.
+ *
+ * Mirrors the supervise scope's `readInteractiveSession`: an absence is always a named reason,
+ * never `undefined`. The scope reads each child with it, and `supervise` reads the root with it.
+ */
+export function readHarnessTranscript(executor: {
+  harnessTranscript?: () => unknown
+}): HarnessTranscriptCapture {
+  if (!executor.harnessTranscript) {
+    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+  }
+  let reported: unknown
+  try {
+    reported = executor.harnessTranscript()
+  } catch {
+    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+  }
+  if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
+  const capture = reported as HarnessTranscriptCapture
+  if (capture.status === 'captured' && capture.artifact) return capture
+  if (capture.status === 'unavailable' && capture.reason) return capture
+  return harnessTranscriptUnavailable('executor-exposes-no-transcript')
+}
+
 interface Enumeration {
   /** Paths to read, at most MAX_FILES of them. */
   readonly paths: readonly string[]

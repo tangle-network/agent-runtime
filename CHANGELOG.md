@@ -2,6 +2,14 @@
 
 ## 0.272.0
 
+The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
+A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
+The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a spawn journal, and none has a native-session receipt.
+27 of the 57 harness subagent calls seen in those runs were made by roots.
+The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
+A router-brained root runs no driver, so its result has no such field.
+`result.json` from `supervisePursuit` carries it with the rest of the result.
+
 The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine
 run ownership and a SQL coordination side-log, the two items this runtime's durability STATUS
 listed as open after 0.270.0. `openSqlRunStore` is a fenced append-only log — hash-chained
