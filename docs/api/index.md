@@ -2685,7 +2685,7 @@ Exact complete profile produced by Runtime's configured materializer.
 
 > **profileDigest**: `` `sha256:${string}` ``
 
-Interface identity of `profile`.
+`canonicalAgentProfileDigest(profile)`: the one AgentProfile identity Runtime records.
 
 ##### diffs
 
@@ -2933,7 +2933,7 @@ Complete callback, materializer, model, tool, and closure identity for a profile
 
 > `optional` **baselineProfileDigest?**: `` `sha256:${string}` ``
 
-Complete baseline profile identity for a profile run.
+`canonicalAgentProfileDigest` of the baseline profile for a profile run.
 
 ***
 
@@ -3011,7 +3011,7 @@ Complete callback, materializer, model, tool, and closure identity for a profile
 
 > **baselineProfileDigest**: `` `sha256:${string}` ``
 
-Complete baseline profile identity for a profile run.
+`canonicalAgentProfileDigest` of the baseline profile for a profile run.
 
 ###### Overrides
 
