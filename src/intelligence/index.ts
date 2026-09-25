@@ -788,6 +788,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           }>,
           record.traceId,
           runSpan.spanId,
+          redactor,
         )
         for (const span of spans) ex.exportSpan(span)
       }
