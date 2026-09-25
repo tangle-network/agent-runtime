@@ -1,11 +1,19 @@
 import { createHmac, randomBytes } from 'node:crypto'
 
 import {
-  DEFAULT_REDACTION_RULES,
+  emptyRedactionReport,
   REDACTION_VERSION,
-  type RedactionRule,
-  redactString,
-} from '@tangle-network/agent-eval'
+  redactText,
+} from '@tangle-network/agent-eval/traces'
+
+/**
+ * Candidate evidence redaction: agent-eval's redaction core with the
+ * execution's protected values as known secrets, applied string by string so
+ * the record's structure (keys, arrays, byte fields) is kept. Identifier fields
+ * that change get an execution-local HMAC suffix so relationships stay
+ * queryable, and every result is checked for surviving protected values in
+ * plain, base64, base64url and URL-encoded form.
+ */
 
 export interface ProtectedRedactionReport {
   version: string
@@ -94,8 +102,7 @@ export function redactProtectedValue<T>(
     redactionCount: 0,
     byRule: {},
   }
-  const rules = protectedRedactionRules(protectedValues)
-  const redacted = redactNode(value, protectedValues, rules, report) as T
+  const redacted = redactNode(value, protectedValues, report) as T
   assertNoProtectedEvidence(redacted, protectedValues)
   return { value: redacted, report }
 }
@@ -151,7 +158,6 @@ export function assertNoProtectedBytes(
 function redactNode(
   value: unknown,
   protectedValues: readonly string[],
-  rules: readonly RedactionRule[],
   report: ProtectedRedactionReport,
 ): unknown {
   if (value instanceof Uint8Array) {
@@ -166,25 +172,26 @@ function redactNode(
       recordRedaction(report, 'candidate-access-binary', 1)
       return '[redacted:candidate-access-binary]'
     }
-    const redacted = redactString(value, [...rules])
-    for (const [rule, count] of Object.entries(redacted.report.byRule)) {
-      recordRedaction(report, rule, count)
+    const core = emptyRedactionReport()
+    const redacted = redactText(value, { knownSecrets: protectedValues, report: core })
+    for (const [detector, count] of Object.entries(core.byDetector)) {
+      recordRedaction(report, detector, count)
     }
-    return redacted.output
+    return redacted
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => redactNode(entry, protectedValues, rules, report))
+    return value.map((entry) => redactNode(entry, protectedValues, report))
   }
   if (value && typeof value === 'object') {
     const entries: Array<[string, unknown]> = []
     const seenKeys = new Set<string>()
     for (const [key, entry] of Object.entries(value)) {
-      const redactedKey = redactNode(key, protectedValues, rules, report)
+      const redactedKey = redactNode(key, protectedValues, report)
       if (typeof redactedKey !== 'string' || seenKeys.has(redactedKey)) {
         throw new Error('protected evidence redaction produced an ambiguous object key')
       }
       seenKeys.add(redactedKey)
-      entries.push([redactedKey, redactNode(entry, protectedValues, rules, report)])
+      entries.push([redactedKey, redactNode(entry, protectedValues, report)])
     }
     return Object.fromEntries(entries)
   }
@@ -279,17 +286,6 @@ function isIdentifierFieldName(name: string): boolean {
   return /ids?$/i.test(name)
 }
 
-function protectedRedactionRules(protectedValues: readonly string[]): RedactionRule[] {
-  const exactRules = protectedValueVariants(protectedValues)
-    .sort((left, right) => right.length - left.length || left.localeCompare(right))
-    .map((value, index) => ({
-      id: `candidate-access-${index}`,
-      pattern: new RegExp(escapeRegularExpression(value), 'g'),
-      replacement: '[redacted:candidate-access]',
-    }))
-  return [...exactRules, ...DEFAULT_REDACTION_RULES]
-}
-
 function recordRedaction(report: ProtectedRedactionReport, rule: string, count: number): void {
   if (count <= 0) return
   report.redactionCount += count
@@ -330,8 +326,4 @@ function protectedValueVariants(protectedValues: readonly string[]): string[] {
 
 function normalizedProtectedValues(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.length > 0))]
-}
-
-function escapeRegularExpression(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

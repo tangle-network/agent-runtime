@@ -67,6 +67,13 @@ nonzero when its test report fails, while still writing the evidence.
 
 ## 0.272.0
 
+Runtime redacts with agent-eval's redaction core (`@tangle-network/agent-eval/traces`) instead of three patterns of its own.
+`defaultRedactor`, the candidate-evidence redaction in `candidate-execution/protected-redaction.ts`, and every payload an event sanitizer includes on an opt-in flag now go through it.
+Token counts and model limits survive: on 40,704 real records the old `defaultRedactor` replaced 18,018 `input_tokens`, `output_tokens` and cache token counts each, and it let 3 of 7 raw credentials through; the core replaced no count and let no credential through.
+Credentials are replaced whole with `[REDACTED:<detector>]` instead of `[redacted]`, and candidate evidence marks a protected value `[REDACTED:known-secret]` instead of `[redacted:candidate-access]`.
+`defaultRedactorIdentityMaterial()` is now the core's name, profile and `REDACTION_VERSION`, so saved work keyed on it sees the change once.
+The Eval peer window becomes `>=0.188.0 <0.191.0`, because the core first shipped in 0.188.0; Runtime develops against 0.190.1, which fixes a data-URI scan/decode bypass and several missed bare-credential shapes in the core. Needs `@tangle-network/agent-knowledge` 17.1.5, which admits Eval 0.190.x.
+
 A Tangle box's harness-transcript capture now carries each harness subagent session its sidecar names.
 opencode runs a `task` subagent in a child session, and a dedicated box's sidecar records only the parent, so a subagent's steps reached no record (#1264).
 The Discovery fleet records of 2026-09-23 and 2026-09-24 show 57 such calls and observe none of them.

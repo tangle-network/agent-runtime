@@ -5031,10 +5031,8 @@ thrown by the agent itself propagates unchanged.
 
 > **defaultRedactor**(`value`): `unknown`
 
-The built-in redactor. Walks objects and arrays; replaces values under
-secret-bearing keys wholesale; scrubs in-value patterns from every string.
-Cycle-safe (a seen-set short-circuits self-referential payloads to
-`'[circular]'`), depth-bounded, and total — never throws on customer input.
+The built-in redactor. Cycle-safe, depth-bounded and total: it never throws
+on customer input and never mutates it.
 
 #### Parameters
 
@@ -5054,8 +5052,8 @@ Cycle-safe (a seen-set short-circuits self-referential payloads to
 
 Resolve the redactor a client uses. A caller-supplied hook handles
 domain-specific values first, then the built-in scrubber still removes
-common credentials and email addresses. Returning `false` is the explicit
-opt-out for already-reviewed public values.
+credentials and personal data. Returning `false` is the explicit opt-out for
+already-reviewed public values.
 
 #### Parameters
 

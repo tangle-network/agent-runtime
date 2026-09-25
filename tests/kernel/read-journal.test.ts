@@ -179,7 +179,7 @@ describe('read_journal', () => {
     const text = JSON.stringify(page.entries[0]?.event)
     expect(text).not.toContain('sk-live-abcdefghijklmnop')
     expect(text).not.toContain('sk-live-zzzzzzzzzzzz')
-    expect(text).toContain('[redacted]')
+    expect(text).toContain('[REDACTED:')
   })
 
   it('a redactor that throws degrades one row, never leaks the raw event', async () => {
@@ -242,7 +242,7 @@ describe('read_journal', () => {
     const text = JSON.stringify((await read(tb)).entries[0]?.event)
     expect(text).toContain('[customer]')
     expect(text).not.toContain('sk-live-abcdefghijklmnop')
-    expect(text).toContain('[redacted]')
+    expect(text).toContain('[REDACTED:')
   })
 
   it('the byte budget bounds what the caller actually receives, stamp included', async () => {
