@@ -91,4 +91,40 @@ describe('external run cancellation observation', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('degrades to poll-only when the host inotify budget is exhausted (EMFILE)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
+    const abort = vi.fn()
+    const observer = watchRunCancellation(dir, abort, () => {
+      const error = new Error('too many open files') as NodeJS.ErrnoException
+      error.code = 'EMFILE'
+      throw error
+    })
+    try {
+      // No watcher exists; the observer still applies a durable request through its poll path.
+      cancelRun(dir, 'polled', { reason: 'operator' })
+      observer.check('fallback')
+      expect(abort).toHaveBeenCalledExactlyOnceWith(
+        'operator',
+        expect.objectContaining({ operationId: 'polled' }),
+      )
+      expect(readRunCancellation(dir, 'polled')?.effect).toBe('cancel_requested')
+    } finally {
+      observer.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('still fails loudly on a watch error that is not the host budget', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
+    const abort = vi.fn()
+    expect(() =>
+      watchRunCancellation(dir, abort, () => {
+        const error = new Error('bad fd') as NodeJS.ErrnoException
+        error.code = 'EBADF'
+        throw error
+      }),
+    ).toThrow('bad fd')
+    await rm(dir, { recursive: true, force: true })
+  })
 })

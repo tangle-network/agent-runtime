@@ -619,6 +619,9 @@ interface LiveChild {
   readonly readHeldEnvironments?: () => ReadonlyArray<HeldEnvironment>
   /** The scope this child's recursive executor owns, once it has mounted one. */
   readonly readNestedScope?: () => Scope<unknown> | undefined
+  /** Persist the executor's harness transcript as it stands now. A retained release may read a
+   *  session the failure path could not, and the record that closes the slot carries it. */
+  readonly readTranscriptAtRelease?: () => Promise<HarnessTranscriptEvidence>
   /** The bounded account of the team this child led, read from its own scope at settlement. */
   subtree?: SubtreeSummary
   /** How many teardown requests this child's executor was sent. */
@@ -1407,6 +1410,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           : {}),
         ...(nestedTeardownScopes.has(executor)
           ? { readNestedScope: nestedTeardownScopes.get(executor)! }
+          : {}),
+        ...(executor.harnessTranscript
+          ? {
+              readTranscriptAtRelease: () =>
+                persistHarnessTranscript(readHarnessTranscript(executor), args.blobs),
+            }
           : {}),
         teardownAttempts: 0,
         abortChild: (reason?: unknown): void => controller.abort(reason),
@@ -2538,11 +2547,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
     child.budgetViolation = child.retainedViolation
     const settledAt = child.settledAt
+    // The record restates the driver's settlement, with one exception: a session the release read
+    // after the failure path could not. Only an available receipt replaces the earlier one.
+    let settlement = child.resolved
+    if (settlement.harnessTranscript?.status !== 'available' && child.readTranscriptAtRelease) {
+      const atRelease = await child.readTranscriptAtRelease()
+      if (atRelease.status === 'available')
+        settlement = { ...settlement, harnessTranscript: atRelease }
+    }
     await args.journal.appendEvent(
       args.root,
       terminalDownEvent(
         child,
-        child.resolved,
+        settlement,
         child.settledSeq,
         new Date(settledAt).toISOString(),
         state,
@@ -2563,7 +2580,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         timestamp: closedAt,
         stepIndex: child.settledSeq,
         parentId: args.parentId,
-        payload: releasedChildPayload(child, child.resolved, settledAt, closedAt, state),
+        payload: releasedChildPayload(child, settlement, settledAt, closedAt, state),
       },
       { signal: args.signal },
     )
