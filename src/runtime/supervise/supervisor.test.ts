@@ -203,7 +203,10 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
     )
     const persisted = JSON.parse(JSON.stringify(result))
     expect(persisted.reason).toBe('driver-failed')
-    expect(persisted.error.message).toContain('backend attachments unavailable')
+    // The redaction core replaces a message that holds a bearer token whole.
+    expect(persisted.error.message).toContain(
+      'retained provider execution requires reconciliation before replacement',
+    )
     expect(JSON.stringify(persisted.error)).not.toContain('fixture-secret-value')
   })
 
