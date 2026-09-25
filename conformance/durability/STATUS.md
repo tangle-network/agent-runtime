@@ -19,9 +19,9 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
 | `runGraph` | any SQL store | — | **journal + blobs: CLOSED** (`SqlSpawnJournal`/`SqlResultBlobStore`, full 23-point matrix green). Still open on SQL: the coordination side-log (file-based behind `runDir`) and machine-visible cross-run ownership |
 
-Totals from the run: **118/118 green** — the inline matrix (24), the session re-attach matrix (24),
+Totals from the run: **119/119 green** — the inline matrix (24), the session re-attach matrix (24),
 the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the
-known-defect cases (5). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
+known-defect cases (5), and the inotify invariant (1). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
 landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
 which the suite's driver now drains correctly.
 
@@ -154,6 +154,11 @@ measurement answers with exact numbers:
   degrades to its existing 100 ms poll loop on EMFILE/ENOSPC (any other error still fails
   loudly), so a neighboring process's resource use can no longer kill runs that never touched
   the limit.
+
+The invariant is PINNED as a standing test (`tests/durability/inotify-invariant.test.ts`,
+included in the conformance totals): a max-control-surface run sampled every 25 ms must peak at
+<= 1 instance. If a change ever adds a second `fs.watch` call site to the durable run path, that
+test goes red — which is exactly the moment a per-runDir shared watcher becomes necessary.
 
 For local verification on a loaded shared host, `npx vitest run --maxWorkers=4` stays
 deterministic; idle CI runners are unaffected either way.

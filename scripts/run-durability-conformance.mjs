@@ -26,6 +26,7 @@ const testFiles = [
   'tests/durability/sql-kill-resume.test.ts',
   'tests/durability/conversation-kill-resume.test.ts',
   'tests/durability/known-defects.test.ts',
+  'tests/durability/inotify-invariant.test.ts',
 ]
 
 const tmp = mkdtempSync(join(tmpdir(), 'durability-conformance-'))
