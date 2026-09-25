@@ -43,8 +43,8 @@ Observer records detach their inputs before queued I/O, so later hook mutations 
 Completed director invocations reset the consecutive transport-failure counter even when the pursuit remains incomplete.
 The failure-attempt, deadline, cancellation, and resource bounds still apply.
 Successful incomplete invocations do not consume `driverRetry.maxAttempts`; only failed invocations consume that allowance.
-Use `repromptOnUnmet: 'until-complete'` with a completion check and finite positive budget deadline to omit the continuation count cap.
-Numeric continuation caps retain their meaning, and zero still disables continuation.
+A manager with a completion check declares a `continuation` policy: a deadline and `maxBarren`, with no continuation count.
+The loop ends when the check passes, when `report_blocked` shows a tool really failed, at the deadline, on the budget, or after `maxBarren` turns in a row without progress.
 
 The file run lock protects one local coordinator.
 It does not fence provider mutations from a partitioned coordinator on another machine.

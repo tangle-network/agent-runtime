@@ -14,6 +14,7 @@ import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
+import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -225,6 +226,7 @@ async function harnessFailureFixture(options: {
           describe: 'the answer from a turn that did not fail',
           check: (value) => (value as { answer?: unknown }).answer === 'retried',
         },
+        continuation: testContinuation(),
         coordination: {
           authentication: {
             signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },

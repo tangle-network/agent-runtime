@@ -7,15 +7,14 @@
  * the snapshot, not the option, so a caller reads it as a bad value rather than as a capability the
  * entry point cannot carry.
  *
- * `onUnmetContract` shipped that way in 0.186.0 and stayed broken through 0.188.0: the option-key
- * check accepted it, `supervisorAgent` forwarded it, the retry loop read it, and the capture
- * dropped it. Every run that passed the callback failed at construction, and the only working
- * configuration was `repromptOnUnmet` alone — which costs the caller its own unmet-item text.
+ * The retired `onUnmetContract` shipped that way in 0.186.0 and stayed broken through 0.188.0:
+ * the option-key check accepted it, `supervisorAgent` forwarded it, the retry loop read it, and the
+ * capture dropped it. Every run that passed the callback failed at construction. The continuation
+ * policy carries two callbacks inside a data object, so both halves are proven here.
  */
 
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../src/errors'
-import type { OnUnmetContract } from '../../src/runtime/supervise/driver-retry'
 import {
   captureSuperviseOptions,
   SUPERVISE_EXECUTABLE_OPTION_KEYS,
@@ -23,6 +22,7 @@ import {
   supervise,
 } from '../../src/runtime/supervise/supervise'
 import type { SupervisorProfile } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 
 const budget = { maxIterations: 4, maxTokens: 10_000 }
 
@@ -35,38 +35,38 @@ const baseOptions = (): SuperviseOptions => ({
 })
 
 describe('captureSuperviseOptions carries every callback option', () => {
-  it('carries onUnmetContract by reference, so the re-prompt hook reaches the run', () => {
-    const onUnmetContract: OnUnmetContract = (context) => ({
-      steer: `re-enter: ${context.describe ?? 'unnamed'}`,
-    })
-    const captured = captureSuperviseOptions({
-      ...baseOptions(),
-      repromptOnUnmet: 3,
-      onUnmetContract,
-    })
-    expect(captured.onUnmetContract).toBe(onUnmetContract)
-    expect(captured.repromptOnUnmet).toBe(3)
+  it("carries the continuation's panel and append by reference and snapshots its data", () => {
+    const runPanel = async () => ({ findings: [], usd: 0 })
+    const append = async () => undefined
+    const policy = {
+      ...testContinuation({ panel: 'on', panelUsd: { perContinuation: 0.5, perRun: 5 } }),
+      runPanel,
+      append,
+    }
+    const captured = captureSuperviseOptions({ ...baseOptions(), continuation: policy })
+    policy.maxBarren = 9
+    expect(captured.continuation?.runPanel).toBe(runPanel)
+    expect(captured.continuation?.append).toBe(append)
+    expect(captured.continuation?.maxBarren).toBe(2)
+    expect(Object.isFrozen(captured.continuation)).toBe(true)
   })
 
-  it('constructs a run that declares the callback instead of refusing it', () => {
-    // The exact shape the issue reports: the callback made `supervise()` throw
-    // `supervise options: input must be structured-cloneable` before any compute.
+  it('constructs a run that declares the continuation callbacks instead of refusing them', () => {
     expect(() =>
       supervise(rootProfile(), 'task', {
         ...baseOptions(),
         deliverable: { check: () => true, describe: 'one measured result' },
-        repromptOnUnmet: 2,
-        onUnmetContract: () => 'stop',
+        continuation: testContinuation({ append: async () => undefined }),
       }),
     ).not.toThrow(/structured-cloneable/)
   })
 
-  it('captures a deliverable diagnostic callback without reading it as mutable decision data', () => {
-    const explainFailure = () => 'required evidence is missing'
-    const deliverable = { check: () => false, describe: 'checked evidence', explainFailure }
+  it('captures a state check without reading it as mutable decision data', () => {
+    const checkState = () => false
+    const deliverable = { check: () => false, describe: 'checked evidence', checkState }
     const captured = captureSuperviseOptions({ ...baseOptions(), deliverable })
-    deliverable.explainFailure = () => 'later replacement'
-    expect(captured.deliverable).toMatchObject({ explainFailure })
+    deliverable.checkState = () => true
+    expect(captured.deliverable).toMatchObject({ checkState })
     expect(Object.isFrozen(captured.deliverable)).toBe(true)
   })
 

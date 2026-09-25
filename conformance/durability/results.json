@@ -1,6 +1,6 @@
 {
   "schema": "agent-runtime/durability-conformance-results/v1",
-  "generatedAt": "2026-09-25T08:57:53.619Z",
+  "generatedAt": "2026-09-25T09:56:24.247Z",
   "files": [
     "tests/durability/graph-rundir-journal.test.ts",
     "tests/durability/graph-kill-resume.test.ts",
@@ -25,1113 +25,1113 @@
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "reference run (file backend) completes with the expected transcript",
       "status": "passed",
-      "durationMs": 3.621135999999751
+      "durationMs": 2.4663470000000416
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "reference run (sqlite backend) completes with the expected transcript",
       "status": "passed",
-      "durationMs": 1.0204030000004423
+      "durationMs": 0.486227000000099
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:0:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1493.779301
+      "durationMs": 889.6941390000002
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:0:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1773.7731870000002
+      "durationMs": 931.3157029999998
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:0:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1528.5773630000003
+      "durationMs": 914.6811639999996
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:1:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1708.6014749999995
+      "durationMs": 921.5829560000002
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:1:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1643.0739599999997
+      "durationMs": 897.1445200000007
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:1:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1591.0655719999995
+      "durationMs": 963.8334880000002
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:2:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1655.0336960000004
+      "durationMs": 910.7603229999995
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:2:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1674.884845999999
+      "durationMs": 926.8463710000005
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:2:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1686.3670139999995
+      "durationMs": 921.4266370000005
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:3:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1695.9485539999987
+      "durationMs": 895.0157880000006
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:3:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1590.241119000002
+      "durationMs": 877.5032300000003
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:3:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1673.7445650000009
+      "durationMs": 891.34087
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:4:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1611.6675020000002
+      "durationMs": 883.9764989999985
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:4:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1721.3841109999994
+      "durationMs": 870.1534979999997
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:4:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1557.433723000002
+      "durationMs": 879.2029270000003
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:5:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1741.518451
+      "durationMs": 898.2120309999991
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:5:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1455.1751299999996
+      "durationMs": 851.4967670000005
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "file journal: SIGKILL at turn:5:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1626.6998139999996
+      "durationMs": 877.3079859999998
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:0:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1579.998865999998
+      "durationMs": 1074.5522710000005
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:0:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1624.8155409999963
+      "durationMs": 1102.9953619999978
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:0:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1475.1594160000022
+      "durationMs": 1168.165187999999
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:1:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1562.2064949999985
+      "durationMs": 1141.2523
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:1:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1549.213638000001
+      "durationMs": 1163.7831590000023
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:1:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1578.5015839999978
+      "durationMs": 1103.9924350000001
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:2:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1522.9602149999992
+      "durationMs": 1092.1161380000012
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:2:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1509.474049000004
+      "durationMs": 1163.6014099999993
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:2:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1571.1267389999994
+      "durationMs": 1161.396757999999
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:3:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1530.581588000001
+      "durationMs": 1203.030436000001
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:3:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1614.362341
+      "durationMs": 1200.4965059999995
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:3:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1540.8402510000014
+      "durationMs": 1083.6630509999995
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:4:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1638.2012130000003
+      "durationMs": 1094.3204780000015
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:4:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1525.303168999999
+      "durationMs": 1066.7919269999984
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:4:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1693.5401039999997
+      "durationMs": 1106.6267119999975
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:5:before → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1502.8769259999972
+      "durationMs": 1118.7563380000065
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:5:after-backend → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1598.8018520000041
+      "durationMs": 1106.4026599999997
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "sqlite journal: SIGKILL at turn:5:committed → resume completes, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 1487.8922690000036
+      "durationMs": 1083.7440300000017
     },
     {
       "file": "tests/durability/conversation-kill-resume.test.ts",
       "suite": "runConversation kill-and-resume conformance (File + Sql journals)",
       "title": "a journal that already recorded a halt replays its final state instead of re-running",
       "status": "passed",
-      "durationMs": 1610.3364910000018
+      "durationMs": 893.7419569999984
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "the reference run completes with the expected outcome and covers boundaries and mid-step",
       "status": "passed",
-      "durationMs": 6.910539999999855
+      "durationMs": 2.3571019999999407
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:1:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2804.5962719999998
+      "durationMs": 1813.2717930000003
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:1:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2694.1040729999995
+      "durationMs": 1761.563365
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:2:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2700.388185
+      "durationMs": 1890.2654819999998
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:2:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2699.413106
+      "durationMs": 1822.6024659999994
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at worker:surveyor:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2843.584708000002
-    },
-    {
-      "file": "tests/durability/graph-kill-resume.test.ts",
-      "suite": "runGraph kill-and-resume conformance (file run context)",
-      "title": "SIGKILL at worker:builder:before → resume completes, loses nothing, repeats no committed step",
-      "status": "passed",
-      "durationMs": 2861.0747379999993
+      "durationMs": 1910.040022000001
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at worker:verifier:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2803.3201960000006
+      "durationMs": 1954.578711
+    },
+    {
+      "file": "tests/durability/graph-kill-resume.test.ts",
+      "suite": "runGraph kill-and-resume conformance (file run context)",
+      "title": "SIGKILL at worker:builder:before → resume completes, loses nothing, repeats no committed step",
+      "status": "passed",
+      "durationMs": 2011.8713750000006
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at worker:surveyor:mid → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2837.2459420000014
-    },
-    {
-      "file": "tests/durability/graph-kill-resume.test.ts",
-      "suite": "runGraph kill-and-resume conformance (file run context)",
-      "title": "SIGKILL at worker:builder:mid → resume completes, loses nothing, repeats no committed step",
-      "status": "passed",
-      "durationMs": 2736.2014740000013
+      "durationMs": 1949.315074000002
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at worker:verifier:mid → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2756.1994559999985
+      "durationMs": 1960.8143600000003
+    },
+    {
+      "file": "tests/durability/graph-kill-resume.test.ts",
+      "suite": "runGraph kill-and-resume conformance (file run context)",
+      "title": "SIGKILL at worker:builder:mid → resume completes, loses nothing, repeats no committed step",
+      "status": "passed",
+      "durationMs": 2012.1398210000007
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at worker:surveyor:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2853.0135900000023
-    },
-    {
-      "file": "tests/durability/graph-kill-resume.test.ts",
-      "suite": "runGraph kill-and-resume conformance (file run context)",
-      "title": "SIGKILL at worker:builder:after → resume completes, loses nothing, repeats no committed step",
-      "status": "passed",
-      "durationMs": 2905.188227999999
+      "durationMs": 2079.889779000001
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at worker:verifier:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2748.6994049999994
+      "durationMs": 2011.0458870000002
+    },
+    {
+      "file": "tests/durability/graph-kill-resume.test.ts",
+      "suite": "runGraph kill-and-resume conformance (file run context)",
+      "title": "SIGKILL at worker:builder:after → resume completes, loses nothing, repeats no committed step",
+      "status": "passed",
+      "durationMs": 2056.834665999999
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:3:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2697.072106000007
+      "durationMs": 2064.381627999999
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:3:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2787.623823999995
+      "durationMs": 1944.9517489999998
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:4:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2714.2471300000034
+      "durationMs": 1871.370708999999
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:4:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2598.443944999999
+      "durationMs": 1880.6224369999982
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:5:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2665.6174730000057
+      "durationMs": 1812.684669999995
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:5:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2577.9718060000014
+      "durationMs": 1737.917515000001
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at tool:commit:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2646.6200160000008
+      "durationMs": 1776.3264510000008
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at tool:commit:after-effect → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2781.9505470000004
+      "durationMs": 1760.0850969999956
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:6:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2653.772711999998
+      "durationMs": 1776.3203190000058
     },
     {
       "file": "tests/durability/graph-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (file run context)",
       "title": "SIGKILL at driver:turn:6:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2526.5732519999947
+      "durationMs": 1766.6757760000037
     },
     {
       "file": "tests/durability/graph-rundir-journal.test.ts",
       "suite": "runGraph durable run context",
       "title": "runDir journals to the file stores supervise resumes from",
       "status": "passed",
-      "durationMs": 79.58805200000006
+      "durationMs": 67.57860899999991
     },
     {
       "file": "tests/durability/graph-rundir-journal.test.ts",
       "suite": "runGraph durable run context",
       "title": "a graph without runDir stays entirely in memory (no writes to disk)",
       "status": "passed",
-      "durationMs": 12.057657000000063
+      "durationMs": 5.746055000000069
     },
     {
       "file": "tests/durability/inotify-invariant.test.ts",
       "suite": "inotify budget invariant (one run = at most one instance)",
       "title": "a max-control-surface durable run peaks at <= 1 inotify instance",
       "status": "passed",
-      "durationMs": 78.75077699999997
+      "durationMs": 105.38469999999984
     },
     {
       "file": "tests/durability/known-defects.test.ts",
       "suite": "known defect: 2026-08-11 resume appended the root record twice",
       "title": "kill at driver:turn:5:before → resume still wins with one clean root record",
       "status": "passed",
-      "durationMs": 2623.215436
+      "durationMs": 1939.2545260000002
     },
     {
       "file": "tests/durability/known-defects.test.ts",
       "suite": "known defect: 2026-08-11 resume appended the root record twice",
       "title": "kill at tool:commit:after-effect → resume still wins with one clean root record",
       "status": "passed",
-      "durationMs": 2543.2899399999997
+      "durationMs": 1845.0856420000005
     },
     {
       "file": "tests/durability/known-defects.test.ts",
       "suite": "known defect: 2026-08-11 resume appended the root record twice",
       "title": "kill at driver:turn:6:before → resume still wins with one clean root record",
       "status": "passed",
-      "durationMs": 2476.001752000001
+      "durationMs": 1867.4268780000002
     },
     {
       "file": "tests/durability/known-defects.test.ts",
       "suite": "known defect: 2026-08-11 resume appended the root record twice",
       "title": "kill at driver:turn:6:after → resume still wins with one clean root record",
       "status": "passed",
-      "durationMs": 2526.5729659999997
+      "durationMs": 1894.0574900000001
     },
     {
       "file": "tests/durability/known-defects.test.ts",
       "suite": "known defect: 2026-09-16 re-entry lost the director state (non-retained path)",
       "title": "an unmet-contract re-entry carries the original task and run state, not a fragment",
       "status": "passed",
-      "durationMs": 77.60279099999934
+      "durationMs": 30.325458999999682
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "the reference run completes, running every session step exactly once",
       "status": "passed",
-      "durationMs": 3.8973590000000513
+      "durationMs": 2.6017329999999674
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:1:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2642.523365
+      "durationMs": 1813.7825079999998
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:1:after → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2631.8689369999993
+      "durationMs": 1824.4175110000006
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:2:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2537.3754500000005
+      "durationMs": 1905.4750740000009
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:2:after → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2615.412993
+      "durationMs": 1887.7919009999987
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at session:surveyor:step-1 → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2616.9387080000015
-    },
-    {
-      "file": "tests/durability/session-reattach.test.ts",
-      "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
-      "title": "SIGKILL at session:builder:step-1 → resume re-attaches the sessions, nothing lost or repeated",
-      "status": "passed",
-      "durationMs": 2677.2199310000015
+      "durationMs": 1790.2777399999995
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at session:verifier:step-1 → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2744.8296899999987
+      "durationMs": 1811.8719440000004
+    },
+    {
+      "file": "tests/durability/session-reattach.test.ts",
+      "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
+      "title": "SIGKILL at session:builder:step-1 → resume re-attaches the sessions, nothing lost or repeated",
+      "status": "passed",
+      "durationMs": 1835.9219940000003
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at session:surveyor:step-2 → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2713.449174999998
-    },
-    {
-      "file": "tests/durability/session-reattach.test.ts",
-      "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
-      "title": "SIGKILL at session:builder:step-2 → resume re-attaches the sessions, nothing lost or repeated",
-      "status": "passed",
-      "durationMs": 2558.0278670000007
+      "durationMs": 1786.5169529999985
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at session:verifier:step-2 → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2463.363075000001
+      "durationMs": 1810.478579999999
+    },
+    {
+      "file": "tests/durability/session-reattach.test.ts",
+      "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
+      "title": "SIGKILL at session:builder:step-2 → resume re-attaches the sessions, nothing lost or repeated",
+      "status": "passed",
+      "durationMs": 1826.1126670000012
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at session:surveyor:step-3 → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2593.7856250000004
-    },
-    {
-      "file": "tests/durability/session-reattach.test.ts",
-      "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
-      "title": "SIGKILL at session:builder:step-3 → resume re-attaches the sessions, nothing lost or repeated",
-      "status": "passed",
-      "durationMs": 2299.9176519999965
+      "durationMs": 1862.2656610000013
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at session:verifier:step-3 → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2059.133047999996
+      "durationMs": 1864.2853579999974
+    },
+    {
+      "file": "tests/durability/session-reattach.test.ts",
+      "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
+      "title": "SIGKILL at session:builder:step-3 → resume re-attaches the sessions, nothing lost or repeated",
+      "status": "passed",
+      "durationMs": 1843.832309999998
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:3:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2133.9928809999983
+      "durationMs": 1909.5600749999976
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:3:after → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2191.526988000005
+      "durationMs": 1935.8518889999978
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:4:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2129.46471
+      "durationMs": 1849.9442249999993
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:4:after → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2203.188495999995
+      "durationMs": 1815.9944890000006
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:5:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2183.446646000004
+      "durationMs": 1819.9511110000021
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:5:after → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2136.6334819999975
+      "durationMs": 1837.1750279999978
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at tool:commit:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2174.692713999997
+      "durationMs": 1828.2897099999973
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at tool:commit:after-effect → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2193.9456379999974
+      "durationMs": 1827.987454999995
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:6:before → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2151.850155
+      "durationMs": 1845.5396590000018
     },
     {
       "file": "tests/durability/session-reattach.test.ts",
       "suite": "runGraph kill-and-resume conformance (session-backed workers, re-attach)",
       "title": "SIGKILL at driver:turn:6:after → resume re-attaches the sessions, nothing lost or repeated",
       "status": "passed",
-      "durationMs": 2107.243177999997
+      "durationMs": 1841.3861789999937
     },
     {
       "file": "tests/durability/sql-context-stores.test.ts",
       "suite": "SQL context store invariants",
       "title": "rejects an invalid atomic group without exposing its valid prefix, and aborts its owner",
       "status": "passed",
-      "durationMs": 30.880900999999994
+      "durationMs": 129.988652
     },
     {
       "file": "tests/durability/sql-context-stores.test.ts",
       "suite": "SQL context store invariants",
       "title": "replays owner-scoped coordination with original bus stamps and no invented delivery outcome",
       "status": "passed",
-      "durationMs": 16.596160000000054
+      "durationMs": 131.31436199999985
     },
     {
       "file": "tests/durability/sql-context-stores.test.ts",
       "suite": "SQL context store invariants",
       "title": "refuses a non-retained custom executor before running a graph",
       "status": "passed",
-      "durationMs": 21.99162000000001
+      "durationMs": 81.39487800000006
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "the reference run completes with the expected outcome",
       "status": "passed",
-      "durationMs": 3.6470800000001873
+      "durationMs": 1.8465669999995953
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:1:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2436.721689
+      "durationMs": 2372.419178
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:1:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2585.0466450000004
+      "durationMs": 2453.4182459999993
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:2:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2530.174656
+      "durationMs": 2487.4204250000003
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:2:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2680.171936999999
+      "durationMs": 2448.0795209999997
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:surveyor:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2737.882132999999
+      "durationMs": 2795.3622400000004
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:builder:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2714.7604659999997
+      "durationMs": 2878.0342519999995
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:verifier:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2564.487591000001
+      "durationMs": 2897.4180129999986
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:surveyor:mid → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2513.6176239999986
+      "durationMs": 2869.7901459999994
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:builder:mid → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2693.457741000002
+      "durationMs": 2942.9302069999976
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:verifier:mid → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2239.8636850000003
+      "durationMs": 3201.0438570000006
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:surveyor:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2105.597423000003
+      "durationMs": 2793.3775369999967
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:3:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2169.9794139999976
+      "durationMs": 2702.7974810000014
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:3:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2142.901472999998
+      "durationMs": 2687.4928720000025
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:builder:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2190.3930890000047
+      "durationMs": 2709.0256139999983
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:4:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2181.615159000001
+      "durationMs": 2643.2559770000007
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:4:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2159.785183
+      "durationMs": 2565.9142100000026
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at worker:verifier:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2160.6383110000024
+      "durationMs": 2607.2553199999966
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:5:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2068.9863130000012
+      "durationMs": 2538.2886270000017
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:5:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2152.6635710000046
+      "durationMs": 2560.719699000001
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at tool:commit:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2101.3153939999975
+      "durationMs": 2947.613691000006
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at tool:commit:after-effect → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 2087.268974999999
+      "durationMs": 2475.8179539999983
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:6:before → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 1805.1900700000042
+      "durationMs": 2776.636843
     },
     {
       "file": "tests/durability/sql-kill-resume.test.ts",
       "suite": "runGraph kill-and-resume conformance (SQL run context, sqlite)",
       "title": "SIGKILL at driver:turn:6:after → resume completes, loses nothing, repeats no committed step",
       "status": "passed",
-      "durationMs": 1813.9998810000034
+      "durationMs": 2591.837907000001
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "retains a begun tree and content-addressed blobs across independent contexts",
       "status": "passed",
-      "durationMs": 37.365548999999646
+      "durationMs": 137.61949800000002
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "rejects a live second owner but does not serialize distinct runs",
       "status": "passed",
-      "durationMs": 427.50232300000016
+      "durationMs": 503.9539669999999
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "rejects unsafe SQL identifiers before executing any SQL",
       "status": "passed",
-      "durationMs": 0.7633730000002288
+      "durationMs": 0.5717160000003787
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "runs the graph with SQL as its only orchestration persistence",
       "status": "passed",
-      "durationMs": 1581.114826
+      "durationMs": 1721.7670160000002
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:begin:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3183.0504499999997
+      "durationMs": 2684.462272
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:begin:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3325.3854309999997
+      "durationMs": 2707.1298189999998
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:spawned-root:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3204.3900950000007
+      "durationMs": 2669.6385489999993
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:spawned-root:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3176.954113
+      "durationMs": 2644.916043000001
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:spawned-child:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3206.9439009999987
+      "durationMs": 2836.171804999998
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-input:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3243.942270000003
+      "durationMs": 2820.690888000001
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:spawned-child:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3198.6545899999983
+      "durationMs": 2886.756336999999
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-input:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3164.1412500000006
+      "durationMs": 2802.462298999999
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-admitted-intent:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3266.773097999998
+      "durationMs": 2974.741289999998
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-admitted-intent:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3240.217976
+      "durationMs": 2826.4674400000004
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-admitted-environment:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3295.2823290000015
+      "durationMs": 2668.4446919999973
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-admitted-environment:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3218.775879999994
+      "durationMs": 2686.280304
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at provider:create:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3139.5591150000037
+      "durationMs": 2735.3483510000005
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at provider:create:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3255.731584999994
+      "durationMs": 2780.2843900000007
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at provider:dispatch:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3242.8269319999963
+      "durationMs": 2786.1769549999954
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at provider:dispatch:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3203.447129
+      "durationMs": 2771.415313999998
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-admitted-dispatched:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3174.751044000004
+      "durationMs": 2719.2980210000023
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-admitted-dispatched:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3174.706745000003
+      "durationMs": 2672.357492000003
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:blob:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3211.948884999998
+      "durationMs": 2978.818922999999
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:blob:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3102.8881120000005
+      "durationMs": 2595.109930999999
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-result:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3341.8620260000025
+      "durationMs": 2971.059180000004
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:execution-result:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3246.2291740000073
+      "durationMs": 2858.4964739999996
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:settled:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3345.3027620000066
+      "durationMs": 3391.4951230000006
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at sql:settled:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3148.2372690000047
+      "durationMs": 3854.792782000004
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at tool:commit:before resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3178.782582999993
+      "durationMs": 3301.376204
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "SIGKILL at tool:commit:after resumes on another host without a replacement key",
       "status": "passed",
-      "durationMs": 3240.430932000003
+      "durationMs": 3178.451052999997
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "two live orchestrators: rejects the contender, then the SAME process takes over after SIGKILL",
       "status": "passed",
-      "durationMs": 3821.1803139999975
+      "durationMs": 3691.8408250000066
     },
     {
       "file": "tests/durability/sql-run-context.test.ts",
       "suite": "SQL run context",
       "title": "fences a SIGSTOP/SIGCONT owner without releasing its live successor",
       "status": "passed",
-      "durationMs": 3353.350219
+      "durationMs": 2222.4739509999927
     },
     {
       "file": "tests/durability/sql-run-store.test.ts",
       "suite": "SQL publication and fencing",
       "title": "recovers a committed publication whose acknowledgement was lost, exactly once",
       "status": "passed",
-      "durationMs": 10.973707999999988
+      "durationMs": 110.09112800000003
     },
     {
       "file": "tests/durability/sql-run-store.test.ts",
       "suite": "SQL publication and fencing",
       "title": "never replays a staged record that was not published",
       "status": "passed",
-      "durationMs": 8.954714999999993
+      "durationMs": 146.24400199999997
     },
     {
       "file": "tests/durability/sql-run-store.test.ts",
       "suite": "SQL publication and fencing",
       "title": "fences a stale publisher on the SAME row that changed ownership, and cannot release the successor",
       "status": "passed",
-      "durationMs": 8.088649000000004
+      "durationMs": 101.26871400000005
     },
     {
       "file": "tests/durability/sql-run-store.test.ts",
       "suite": "SQL publication and fencing",
       "title": "does not change the shared lease policy or namespace on another host",
       "status": "passed",
-      "durationMs": 6.045191000000017
+      "durationMs": 64.06036199999994
     },
     {
       "file": "tests/durability/sql-run-store.test.ts",
       "suite": "SQL publication and fencing",
       "title": "serializes concurrent appends with constant SQL work and no history reads",
       "status": "passed",
-      "durationMs": 128.34971699999997
+      "durationMs": 1517.599458
     }
   ]
 }

@@ -8,7 +8,8 @@ import {
   sha256Bytes,
 } from '@tangle-network/agent-interface'
 import { applyExactAgentProfileDiff } from '../candidate-execution/profile'
-import { ConfigError, RuntimeRunStateError, ValidationError } from '../errors'
+import { RuntimeRunStateError, ValidationError } from '../errors'
+import { type CheckVerdict, failedItems } from '../runtime/supervise/continuation'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { AgentExecutionRef, Budget, SupervisedResult } from '../runtime/supervise/types'
 import { contentAddress } from './content-address'
@@ -32,11 +33,13 @@ import type { SupervisedPursuitResult, SupervisePursuitOptions } from './supervi
  * parent, the parent's seal, the change and the lineage root on the version's root.
  */
 export interface PursuitVersions {
-  /** Scores each settled version from outside its tree. A string names `registry.versionJudges`. */
-  readonly judge: VersionJudge | string
-  /** The change the next version applies to the best version's profile. A string names
-   *  `registry.nextVersions`. */
-  readonly next: NextPursuitVersion | string
+  /** Scores each settled version from outside its tree: the run's declared check
+   *  (`declaredCheckJudge`), or any judge with a digest. */
+  readonly judge: VersionJudge
+  /** The change the next version applies to the best version's profile. `'review-of-best'` mounts
+   *  the best version's verdict under `inputs/review/`, replaces any earlier review, and gives the
+   *  next version's continuation note the best version's per-item verdict as its bar. */
+  readonly next: NextPursuitVersion | 'review-of-best'
   /** When the chain stops. Every cap is required: a chain without one is refused. */
   readonly stop: PursuitVersionStop
   /**
@@ -93,6 +96,9 @@ export interface VersionVerdict {
   readonly judgeDigest: Sha256Digest
   /** What the judge measured, retained verbatim in the ledger. JSON values only. */
   readonly detail?: unknown
+  /** The check's per-item verdict, when the judge is a check: what `'review-of-best'` mounts and
+   *  what the next version's bar compares against. */
+  readonly check?: CheckVerdict
 }
 
 /** A settled version, as the judge and `next` read it. */
@@ -192,12 +198,6 @@ export interface PursuitVersionsRecord {
   readonly stopped: { readonly reason: PursuitVersionStopReason; readonly at: string }
 }
 
-/** The registry tables `versions.judge` and `versions.next` resolve a name against. */
-export interface PursuitVersionRegistry {
-  readonly versionJudges?: { resolve(name: string): VersionJudge | undefined }
-  readonly nextVersions?: { resolve(name: string): NextPursuitVersion | undefined }
-}
-
 /** The longest delay Node's setTimeout honors. */
 const MAX_TIMER_MS = 2_147_483_647
 
@@ -280,19 +280,17 @@ export function assertPursuitVersions(versions: unknown): asserts versions is Pu
   }
   if (typeof versions !== 'object' || versions === null) fail('must be an object')
   const { judge, next, stop, run } = versions as Record<string, unknown>
-  if (typeof judge === 'string') {
-    if (judge.trim().length === 0) fail('judge must name a registry entry')
-  } else if (
+  if (
     typeof judge !== 'object' ||
     judge === null ||
     typeof (judge as VersionJudge).judge !== 'function'
   ) {
-    fail('judge must be a VersionJudge or a registry name')
+    fail('judge must be a VersionJudge, such as declaredCheckJudge(check)')
   } else if (!isSha256((judge as VersionJudge).digest)) {
     fail('judge.digest must be a sha256 digest (sha256:<64 hex>)')
   }
-  if (typeof next === 'string' ? next.trim().length === 0 : typeof next !== 'function') {
-    fail('next must be a function or a registry name')
+  if (next !== 'review-of-best' && typeof next !== 'function') {
+    fail("next must be a function or 'review-of-best'")
   }
   if (run !== undefined && typeof run !== 'function') fail('run must be a function when set')
   const { usd } = versions as Record<string, unknown>
@@ -344,12 +342,16 @@ export async function runPursuitVersions(
       )
     }
   }
-  const registry = rest.registry
-  const judge = resolveNamed('judge', 'versionJudges', versions.judge, registry?.versionJudges)
-  if (!isSha256(judge.digest)) {
-    throw new ValidationError('supervisePursuit versions: judge.digest must be a sha256 digest')
+  const judge = versions.judge
+  if (versions.next === 'review-of-best' && rest.continuation?.profile.review === undefined) {
+    throw new ValidationError(
+      "supervisePursuit versions: next 'review-of-best' needs continuation.profile.review, the words the next version reads about its review",
+    )
   }
-  const next = resolveNamed('next', 'nextVersions', versions.next, registry?.nextVersions)
+  const next: NextPursuitVersion =
+    versions.next === 'review-of-best'
+      ? reviewOfBest(rest.runId ?? 'supervise', rest.continuation?.profile.review ?? '')
+      : versions.next
   const stop = versions.stop
   const minImprovement = stop.minImprovement ?? 0
   const now = rest.now ?? Date.now
@@ -633,8 +635,19 @@ export async function runPursuitVersions(
               change: spec.change,
               acceptUncertain: true,
             }
+            // The version's continuation note states the bar against the version it forks from.
+            const bar =
+              base.continuation !== undefined && parent.verdict.check !== undefined
+                ? {
+                    continuation: {
+                      ...base.continuation,
+                      best: { label: `v${parent.version}`, verdict: parent.verdict.check },
+                    },
+                  }
+                : {}
             const options: SupervisePursuitOptions = {
               ...base,
+              ...bar,
               runId: spec.runId,
               runDir: spec.runDir,
               fork,
@@ -795,25 +808,88 @@ function canonicalStop(stop: PursuitVersionStop): PursuitVersionStop {
   }
 }
 
-function resolveNamed<T>(
-  option: 'judge' | 'next',
-  table: 'versionJudges' | 'nextVersions',
-  value: T | string,
-  registry: { resolve(name: string): T | undefined } | undefined,
-): T {
-  if (typeof value !== 'string') return value
-  if (registry === undefined) {
-    throw new ConfigError(
-      `supervisePursuit versions: ${option} = ${JSON.stringify(value)} names a registry entry, but no registry.${table} was provided`,
-    )
+/** Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
+ *  a profile at a time. */
+export const REVIEW_DIR = 'inputs/review/'
+
+/**
+ * `'review-of-best'`: fork from the best version with its check's verdict mounted under
+ * {@link REVIEW_DIR} and the profile's review words as one instruction. The previous review's
+ * mount and instruction are removed, so a profile carries one review. This is what the Lab's
+ * `continue-best` changes did in Lab code, now written once from the check's own verdict.
+ */
+function reviewOfBest(runId: string, words: string): NextPursuitVersion {
+  return ({ best, versions }) => {
+    const n = versions.length + 1
+    const verdict = best.verdict.check
+    const path = `${REVIEW_DIR}version-${best.version}.md`
+    const instruction = words
+      .replaceAll('{version}', String(best.version))
+      .replaceAll('{path}', path)
+      .replaceAll('{score}', best.verdict.score === null ? 'none' : String(best.verdict.score))
+      .trim()
+    const page = reviewPage(best.version, best.verdict.score, verdict)
+    const earlierInstructions = best.change?.set?.prompt?.instructions ?? []
+    const earlierMounts = (best.profile.resources?.files ?? [])
+      .map((file) => file.path)
+      .filter((mounted) => mounted.startsWith(REVIEW_DIR) && mounted !== path)
+    return {
+      kind: 'agent-profile-diff',
+      id: `${runId}-v${n}-review-of-v${best.version}`,
+      title: `Version ${n}: review of version ${best.version}`,
+      source: {
+        kind: 'optimizer',
+        notes: [`review-of-best: version ${best.version}`, `judge ${best.verdict.judgeDigest}`],
+      },
+      set: {
+        prompt: { instructions: [instruction] },
+        resources: {
+          files: [{ path, resource: { kind: 'inline', name: path, content: page } }],
+        },
+      },
+      ...(earlierInstructions.length > 0 || earlierMounts.length > 0
+        ? {
+            remove: {
+              ...(earlierInstructions.length > 0
+                ? { prompt: { instructions: [...earlierInstructions] } }
+                : {}),
+              ...(earlierMounts.length > 0 ? { resources: { files: earlierMounts } } : {}),
+            },
+          }
+        : {}),
+    } as AgentProfileDiff
   }
-  const entry = registry.resolve(value)
-  if (entry === undefined) {
-    throw new ConfigError(
-      `supervisePursuit versions: ${option} = ${JSON.stringify(value)} is not in registry.${table}`,
-    )
+}
+
+/** The review page: facts only, in the check's own lines. */
+function reviewPage(
+  version: number,
+  score: number | null,
+  verdict: CheckVerdict | undefined,
+): string {
+  if (verdict === undefined) {
+    return [
+      `# Version ${version}`,
+      '',
+      `Score: ${score ?? 'none'}. The judge reported no per-item verdict.`,
+      '',
+    ].join('\n')
   }
-  return entry
+  const failing = failedItems(verdict)
+  return [
+    `# Version ${version}`,
+    '',
+    `Score: ${score ?? 'none'}.${verdict.threshold === undefined ? '' : ` The check passes at ${verdict.threshold}.`}`,
+    '',
+    '## Items',
+    '',
+    ...Object.entries(verdict.items ?? {}).map(
+      ([item, value]) => `- ${item}: ${value >= 1 ? 'passes' : `fails (${value})`}`,
+    ),
+    '',
+    ...(failing.length === 0 ? [] : ['## Failures', '', ...(verdict.failures ?? []), '']),
+    ...(verdict.review === undefined ? [] : ["## The check's review", '', verdict.review, '']),
+  ].join('\n')
 }
 
 async function readLedger(path: string): Promise<LedgerLine[]> {

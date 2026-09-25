@@ -28,6 +28,9 @@ export interface IsolatedCheckOptions {
   signal?: AbortSignal
   /** Run the check in its own Sandbox box instead of Linux Bubblewrap on this host. */
   box?: IsolatedCheckBox
+  /** Environment the command receives beside PATH, HOME and LANG: a declared check's named
+   *  secrets and its own settings. Nothing else of this process's environment reaches it. */
+  env?: Readonly<Record<string, string>>
 }
 
 /**
@@ -54,6 +57,9 @@ export interface IsolatedCheckBox {
   /** Sandbox environment or image that holds the check's toolchain. */
   environment: string
   resources?: SandboxResources
+  /** Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
+   *  box's egress is blocked. Otherwise strict: these domains only, with no implicit list. */
+  egress?: readonly string[]
 }
 
 /** The box a check ran in and the exact bytes it received. */
@@ -99,8 +105,9 @@ const contains = (parent: string, child: string) => {
  * Limits bound command time and captured output, not copy size or memory consumption.
  * Callers must keep the input and trusted toolchains stable while preparing the check.
  *
- * A box check creates one fresh box with no owner secrets and blocked egress, delivers the
- * tree's regular files verified by sha256, runs the command there, and deletes the box.
+ * A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
+ * the placement's named domains), delivers the tree's regular files verified by sha256, runs the
+ * command there with only the environment `env` names, and deletes the box.
  */
 export async function runIsolatedCheck(
   options: IsolatedCheckOptions,
@@ -160,6 +167,7 @@ export async function runIsolatedCheck(
       '--setenv',
       'LANG',
       'C',
+      ...Object.entries(options.env ?? {}).flatMap(([name, value]) => ['--setenv', name, value]),
       ...binds,
       '--proc',
       '/proc',
@@ -267,7 +275,7 @@ async function runInBox(
         agent: false,
         bare: false,
         ephemeral: true,
-        egressPolicy: { mode: 'blocked' },
+        egressPolicy: egressFor(placement),
         ...(placement.resources ? { resources: placement.resources } : {}),
         maxLifetimeSeconds: Math.ceil(timeoutMs / 1_000) + BOX_SETUP_SECONDS,
         // A new identity per call: a replayed create could return a box another caller used.
@@ -284,8 +292,17 @@ async function runInBox(
     )
       throw new Error('Sandbox did not confirm a fresh box with no owner secrets')
     const egress = (await box.egress.get()).policy
-    if (egress.mode !== 'blocked')
-      throw new Error(`Check box egress is ${egress.mode}, not blocked`)
+    const wanted = egressFor(placement)
+    if (
+      egress.mode !== wanted.mode ||
+      (wanted.mode === 'strict' &&
+        (egress.includeImplicitDomains === true ||
+          [...(egress.allowDomains ?? [])].sort().join(',') !==
+            [...(wanted.allowDomains ?? [])].sort().join(',')))
+    )
+      throw new Error(
+        `Check box egress is ${egress.mode} ${JSON.stringify(egress.allowDomains ?? [])}, not ${wanted.mode} ${JSON.stringify(wanted.allowDomains ?? [])}`,
+      )
     await box.fs.mkdir(BOX_TREE, { recursive: true })
     const digests = new Map(captured.manifest.files.map((entry) => [entry.path, entry.sha256]))
     const target = box
@@ -314,7 +331,14 @@ async function runInBox(
       input: captured.manifest,
       inputDigest: canonicalCandidateDigest(captured.manifest),
     }
-    result = await executeInBox(box, options.command, timeoutMs, maxOutputBytes, options.signal)
+    result = await executeInBox(
+      box,
+      options.command,
+      timeoutMs,
+      maxOutputBytes,
+      options.env ?? {},
+      options.signal,
+    )
   } catch (error) {
     result = {
       succeeded: false,
@@ -342,17 +366,30 @@ async function runInBox(
   return evidence ? { ...result, box: evidence } : result
 }
 
+/** Blocked unless the placement names domains; then strict, with no implicit domain list. */
+function egressFor(placement: IsolatedCheckBox): {
+  mode: 'blocked' | 'strict'
+  allowDomains?: string[]
+  includeImplicitDomains?: false
+} {
+  const domains = [...new Set(placement.egress ?? [])].filter((domain) => domain.trim() !== '')
+  return domains.length === 0
+    ? { mode: 'blocked' }
+    : { mode: 'strict', allowDomains: domains, includeImplicitDomains: false }
+}
+
 async function executeInBox(
   box: SandboxInstance,
   command: readonly [string, ...string[]],
   timeoutMs: number,
   limit: number,
+  env: Readonly<Record<string, string>>,
   signal?: AbortSignal,
 ): Promise<IsolatedCheckResult> {
   const [executable, ...args] = command
   const child = await box.process.spawnExact(executable, args, {
     cwd: BOX_TREE,
-    env: { PATH: '/usr/bin:/bin', HOME: '/tmp', LANG: 'C' },
+    env: { PATH: '/usr/bin:/bin', HOME: '/tmp', LANG: 'C', ...env },
     inheritEnv: false,
     timeoutMs: timeoutMs + BOX_PROCESS_BACKSTOP_MS,
   })

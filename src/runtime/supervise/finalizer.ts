@@ -20,6 +20,7 @@
 
 import { ValidationError } from '../../errors'
 import type { DeliverableSpec } from './completion-gate'
+import { CheckUnavailableError, checkVerdictOf } from './continuation'
 import type { ResultBlobStore, Scope, TreeView } from './types'
 
 /** One settled worker as the finalizer sees it — the ledger row (structural fields only). */
@@ -156,8 +157,10 @@ export async function runFinalizer(
     if (candidate === undefined) return false
     if (args.deliverable === undefined) return true
     try {
-      return (await args.deliverable.check(candidate)) === true
+      return checkVerdictOf(await args.deliverable.check(candidate)).pass
     } catch (error) {
+      // A check that could not run is not a verdict: it reaches the driver loop, which pauses.
+      if (error instanceof CheckUnavailableError) throw error
       throw new ValidationError(
         `finalizer: parent completion check threw: ${error instanceof Error ? error.message : String(error)}`,
       )

@@ -3955,7 +3955,25 @@ Called once when this manager declares completion through `stop` or an accepted 
 
 The same independent completion check used for workers. When present, the driver receives a
 `submit_result` tool and may finish work itself instead of being forced to delegate it. The
-first passing submission is retained; a false or throwing check fails closed.
+first passing submission is retained; a false or throwing check fails closed. A manager with a
+check is not served `stop`: it ends through `submit_result` or `report_blocked`.
+
+##### readContinuation?
+
+> `readonly` `optional` **readContinuation?**: (`continuation`) => `unknown`
+
+Serve `read_continuation`: the full continuation files the note refers to. Supplied by the
+ manager's continuation policy; the director's box cannot read the driver's run directory.
+
+###### Parameters
+
+###### continuation
+
+`number` \| `undefined`
+
+###### Returns
+
+`unknown`
 
 ##### analysts?
 
@@ -4509,6 +4527,43 @@ The run state a re-entered manager is told, read from this coordinator's own rec
 ###### Returns
 
 [`ManagerReentryState`](runtime.md#managerreentrystate)
+
+##### checkReads()
+
+> **checkReads**(): readonly [`CheckRead`](runtime.md#checkread)[]
+
+Every time this manager's completion check ran, oldest first: each `submit_result`, and each
+ turn end the manager recorded through [CoordinationTools.recordCheckRead](#recordcheckread).
+
+###### Returns
+
+readonly [`CheckRead`](runtime.md#checkread)[]
+
+##### recordCheckRead()
+
+> **recordCheckRead**(`read`): [`CheckRead`](runtime.md#checkread)
+
+Record a check read that happened outside `submit_result`, such as a turn end.
+
+###### Parameters
+
+###### read
+
+###### source
+
+`"submit"` \| `"turn-end"`
+
+###### verdict?
+
+[`CheckVerdict`](runtime.md#checkverdict)
+
+###### unavailable?
+
+`string`
+
+###### Returns
+
+[`CheckRead`](runtime.md#checkread)
 
 ##### blocked()
 

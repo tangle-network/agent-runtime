@@ -1155,16 +1155,18 @@ parent, the parent's seal, the change and the lineage root on the version's root
 
 ##### judge
 
-> `readonly` **judge**: `string` \| [`VersionJudge`](#versionjudge)
+> `readonly` **judge**: [`VersionJudge`](#versionjudge)
 
-Scores each settled version from outside its tree. A string names `registry.versionJudges`.
+Scores each settled version from outside its tree: the run's declared check
+ (`declaredCheckJudge`), or any judge with a digest.
 
 ##### next
 
-> `readonly` **next**: `string` \| [`NextPursuitVersion`](#nextpursuitversion)
+> `readonly` **next**: [`NextPursuitVersion`](#nextpursuitversion) \| `"review-of-best"`
 
-The change the next version applies to the best version's profile. A string names
- `registry.nextVersions`.
+The change the next version applies to the best version's profile. `'review-of-best'` mounts
+ the best version's verdict under `inputs/review/`, replaces any earlier review, and gives the
+ next version's continuation note the best version's per-item verdict as its bar.
 
 ##### stop
 
@@ -1307,6 +1309,13 @@ Must equal `VersionJudge.digest`.
 > `readonly` `optional` **detail?**: `unknown`
 
 What the judge measured, retained verbatim in the ledger. JSON values only.
+
+##### check?
+
+> `readonly` `optional` **check?**: [`CheckVerdict`](runtime.md#checkverdict)
+
+The check's per-item verdict, when the judge is a check: what `'review-of-best'` mounts and
+ what the next version's bar compares against.
 
 ***
 
@@ -1627,50 +1636,6 @@ Sum of the versions' `usd`; a floor when any version's dollars are unknown.
 
 ***
 
-### PursuitVersionRegistry
-
-The registry tables `versions.judge` and `versions.next` resolve a name against.
-
-#### Properties
-
-##### versionJudges?
-
-> `readonly` `optional` **versionJudges?**: `object`
-
-###### resolve()
-
-> **resolve**(`name`): [`VersionJudge`](#versionjudge) \| `undefined`
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### Returns
-
-[`VersionJudge`](#versionjudge) \| `undefined`
-
-##### nextVersions?
-
-> `readonly` `optional` **nextVersions?**: `object`
-
-###### resolve()
-
-> **resolve**(`name`): [`NextPursuitVersion`](#nextpursuitversion) \| `undefined`
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### Returns
-
-[`NextPursuitVersion`](#nextpursuitversion) \| `undefined`
-
-***
-
 ### PursuitFork
 
 Start a run as a version of a settled run: the parent's recorded root inputs plus one change.
@@ -1929,16 +1894,6 @@ its change, its verdict and its dollars, and the stop. A call on a chain that st
 that record back; a call on a chain that did not resumes it without re-running or re-judging a
 settled version. The call returns the best version's result with the chain's record.
 
-##### registry?
-
-> `readonly` `optional` **registry?**: [`SuperviseRegistry`](runtime.md#superviseregistry) & [`PursuitVersionRegistry`](#pursuitversionregistry)
-
-Supervise's name tables, plus the version judges and changes `versions` may name.
-
-###### Overrides
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
-
 ##### runContext?
 
 > `readonly` `optional` **runContext?**: [`InMemoryRunContext`](runtime.md#inmemoryruncontext)
@@ -1979,7 +1934,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-23)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-25)
 
 ##### execution?
 
@@ -2036,6 +1991,17 @@ to use the run-wide `deliverable`; a managed child receives its selected check f
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDeliverable`](runtime.md#resolvedeliverable-1)
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`SuperviseRegistry`](runtime.md#superviseregistry)
+
+Name→value tables for the four code-valued options, so a recorded run configuration can name
+ them instead of carrying closures. See [SuperviseRegistry](runtime.md#superviseregistry).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
 
 ##### coordination?
 
@@ -2426,44 +2392,34 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`onWorkerRetry`](runtime.md#onworkerretry-1)
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](runtime.md#continuationpolicy)
 
-How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered on the SAME live session with the unmet items.
+How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+director heard held no line of the check's verdict.
 
-A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, and abort bounds. Successful continuations do
-not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-run the coordination server already stopped is never re-prompted — that stop was a decision.
+A continuation is the retry path, not a second loop: same scope, same coordination server,
+same live children, and the same budget, deadline, and abort bounds. There is no count: the
+loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+profile owns its words, and `append` may add a section but never replace one.
 
-Requires `deliverable`, and applies to every external manager with a completion check. A
-recursive manager receives the check selected for its exact assignment. Refused for a
-router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`repromptOnUnmet`](runtime.md#repromptonunmet-1)
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](runtime.md#onunmetcontract)
-
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
- owes and reports how many workers passed the check.
+Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+every external manager with a completion check in the tree. Refused for a router-brained
+manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`onUnmetContract`](runtime.md#onunmetcontract-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -2788,7 +2744,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](runtime.md#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -2803,6 +2759,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 
@@ -3195,6 +3154,15 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
 > `const` **PURSUIT\_VERSIONS\_FILE**: `"versions.jsonl"` = `'versions.jsonl'`
 
 The ledger file inside the lineage directory.
+
+***
+
+### REVIEW\_DIR
+
+> `const` **REVIEW\_DIR**: `"inputs/review/"` = `'inputs/review/'`
+
+Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
+ a profile at a time.
 
 ***
 

@@ -475,6 +475,76 @@ export async function captureHarnessTranscript(
 }
 
 /**
+ * A transcript this process holds in memory, one JSON line per record, as a capture under the same
+ * bounds a box's session files get: each file at most MAX_FILE_BYTES, all files together at most
+ * MAX_TOTAL_BYTES. Lines fill `<name>-000.jsonl`, `<name>-001.jsonl`, ... in order, and a line is
+ * never split. A line longer than one file, and every line past the total, is named in `skipped`
+ * with its line number, so a cut transcript never reads as the whole one.
+ */
+export function harnessTranscriptFromLines(
+  harness: string,
+  name: string,
+  lines: ReadonlyArray<string>,
+): HarnessTranscriptCapture {
+  if (lines.length === 0) return unavailable('no-transcript')
+  const files: HarnessTranscriptFile[] = []
+  const skipped: { path: string; reason: string }[] = []
+  let total = 0
+  let chunk: string[] = []
+  let chunkBytes = 0
+  const flush = (): void => {
+    if (chunk.length === 0) return
+    const content = `${chunk.join('\n')}\n`
+    files.push(
+      Object.freeze({
+        path: `${name}-${String(files.length).padStart(3, '0')}.jsonl`,
+        bytes: Buffer.byteLength(content, 'utf8'),
+        content,
+      }),
+    )
+    chunk = []
+    chunkBytes = 0
+  }
+  lines.forEach((line, index) => {
+    const bytes = Buffer.byteLength(line, 'utf8') + 1
+    const where = `${name} line ${index + 1}`
+    if (bytes > MAX_FILE_BYTES) {
+      skipped.push({ path: where, reason: 'file-exceeds-byte-bound' })
+      return
+    }
+    if (total + bytes > MAX_TOTAL_BYTES) {
+      skipped.push({ path: where, reason: 'total-byte-budget-exhausted' })
+      return
+    }
+    if (chunkBytes + bytes > MAX_FILE_BYTES) flush()
+    chunk.push(line)
+    chunkBytes += bytes
+    total += bytes
+  })
+  flush()
+  if (files.length === 0) {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'nothing-carried',
+      skipped: Object.freeze(skipped),
+    })
+  }
+  const artifact: HarnessTranscriptArtifact = Object.freeze({
+    schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
+    harness,
+    files: Object.freeze(files),
+    skipped: Object.freeze(skipped),
+  })
+  return Object.freeze({
+    status: 'captured',
+    artifact,
+    fileCount: files.length,
+    totalBytes: total,
+    skippedCount: skipped.length,
+  })
+}
+
+/**
  * Persist a capture under its own content ref and return the receipt a settlement carries.
  *
  * The scope calls this, not the executor: storage stays out of every provider and destroy site,

@@ -14,6 +14,7 @@ import {
 } from '../../src/durable/pursuit-versions'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { supervisePursuit } from '../../src/durable/supervise-pursuit'
+import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
@@ -24,6 +25,7 @@ import type {
   SpawnEvent,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testContinuation, testContinuationProfile } from '../helpers/continuation'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
@@ -199,6 +201,107 @@ describe('supervisePursuit versions', () => {
     await expect(
       run(join(root, 'impostor'), { judge: impostor, next: () => change('x'), stop }),
     ).rejects.toThrow(/not the pinned judge/)
+  })
+
+  it("forks from the best version with its check's review mounted, one review at a time", async () => {
+    // Versions 1 and 2 improve; version 3 forks from version 2 and replaces version 2's review.
+    const checks: CheckVerdict[] = [
+      {
+        pass: false,
+        items: { a: 1, b: 0, c: 0 },
+        composite: 1 / 3,
+        failures: ['FAIL b x: no', 'FAIL c y: no'],
+      },
+      {
+        pass: false,
+        items: { a: 1, b: 1, c: 0 },
+        composite: 2 / 3,
+        failures: ['FAIL c y: still no'],
+      },
+      {
+        pass: false,
+        items: { a: 1, b: 1, c: 0 },
+        composite: 2 / 3,
+        failures: ['FAIL c y: still no'],
+      },
+    ]
+    const judge: VersionJudge = {
+      digest,
+      judge: async (version) => {
+        const check = checks[version.version - 1]!
+        return { score: check.composite ?? null, judgeDigest: digest, check }
+      },
+    }
+    const submitting = testAgentProfile('versions-root', {
+      prompt: { systemPrompt: 'Submit once.' },
+      tools: runtimeToolDeclarations('submit_result'),
+    })
+    const chain = await supervisePursuit(submitting, task, {
+      pursuitId: 'pursuit:review',
+      runId: 'run:review',
+      runDir: join(root, 'review'),
+      budget,
+      perWorker,
+      driveHarness: async ({ coordinationMcpUrl }) => {
+        driven += 1
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'submit_result',
+          arguments: { result: { attempt: driven } },
+        })
+      },
+      makeWorkerAgent: () => deliveringLeaf('worker', 1),
+      deliverable: { check: () => true },
+      continuation: testContinuation({
+        profile: {
+          ...testContinuationProfile,
+          review: 'Version {version} scored {score}. Its review is at {path}; fix what it lists.',
+        },
+      }),
+      versions: {
+        judge,
+        next: 'review-of-best',
+        stop: { patience: 1, maxVersions: 5, maxUsd: 100, deadlineMs: 600_000 },
+      },
+    })
+    const record = chain.versions!
+    expect(record.versions.map((item) => item.version)).toEqual([1, 2, 3])
+    const v2 = record.versions[1]!
+    const v3 = record.versions[2]!
+    const mounted = (profile: typeof v2.profile) =>
+      (profile.resources?.files ?? []).filter((file) => file.path.startsWith('inputs/review/'))
+    expect(mounted(v2.profile).map((file) => file.path)).toEqual(['inputs/review/version-1.md'])
+    expect(mounted(v3.profile).map((file) => file.path)).toEqual(['inputs/review/version-2.md'])
+    const review = mounted(v3.profile)[0]?.resource as { content: string } | undefined
+    const page = review?.content ?? ''
+    expect(page).toContain('# Version 2')
+    expect(page).toContain('- b: passes')
+    expect(page).toContain('FAIL c y: still no')
+    expect(page).not.toContain('FAIL b x: no')
+    expect(v3.profile.prompt?.instructions).toEqual([
+      'Version 2 scored 0.6666666666666666. Its review is at inputs/review/version-2.md; fix what it lists.',
+    ])
+  }, 120_000)
+
+  it("refuses 'review-of-best' without the profile's review words, before any compute", async () => {
+    await expect(
+      supervisePursuit(rootProfile, task, {
+        pursuitId: 'pursuit:review',
+        runId: 'run:review',
+        runDir: join(root, 'no-words'),
+        budget,
+        perWorker,
+        driveHarness: async () => {
+          driven += 1
+        },
+        makeWorkerAgent: () => deliveringLeaf('worker', 1),
+        versions: {
+          judge: judgeFrom([1]),
+          next: 'review-of-best',
+          stop: { patience: 1, maxVersions: 2, maxUsd: 10, deadlineMs: 60_000 },
+        },
+      }),
+    ).rejects.toThrow(/needs continuation.profile.review/)
+    expect(driven).toBe(0)
   })
 
   function run(runDir: string, versions: PursuitVersions) {
