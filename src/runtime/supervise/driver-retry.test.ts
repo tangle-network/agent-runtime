@@ -487,6 +487,8 @@ describe('runDriverWithRetry — progress tracks the deliverable, not the burn r
       progress: () => mark({ settledCount: deliveredCount, deliveredCount }),
       budget: () => budget(),
       signal: new AbortController().signal,
+      // Progress never arms the barren stop, so a caller-set ceiling ends this crash loop.
+      policy: { maxAttempts: 8 },
       sleep: instantSleep,
     }).catch((e: unknown) => e)
 
@@ -506,6 +508,7 @@ describe('runDriverWithRetry — progress tracks the deliverable, not the burn r
       progress: () => ({ poolTokensSpent, settledCount: 0, submitted: false }),
       budget: () => budget(),
       signal: new AbortController().signal,
+      policy: { maxAttempts: 8 },
       sleep: instantSleep,
     }).catch((e: unknown) => e)
 
