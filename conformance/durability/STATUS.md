@@ -13,16 +13,34 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | --- | --- | --- | --- |
 | `runGraph` (driver + 3 delegate steps, keyed side-effect tool) | file run context (`FileSpawnJournal` + `FileResultBlobStore` + `FileCoordinationLog` via `runDir`) | 23 kill points (every driver-turn boundary, each worker's before/mid/after, the tool's before/after-effect) + reference | **PASS** — after the fix below; every case resumed to the same winner, no step lost, no committed step repeated, side effect exactly once, journal resume-contract clean |
 | `runGraph` with session-backed workers (re-attach arm, `recoverExecutor`) | file run context | 23 kill points (mid-session steps + driver boundaries + tool) + reference | **PASS** — interrupted sessions are RECOVERED and re-attached: every session step runs exactly once across processes, interrupted keys are never reminted, side effect exactly once |
+| `runGraph` (draft arm) | `SqlSpawnJournal` + `SqlResultBlobStore` over real sqlite (`node:sqlite`), `resume: true` | representative subset (early boundary, worker mid/after, side-effect window, final turn) + reference | **PASS (draft)** — killed process resumes from the database alone: same winner, committed nodes never re-executed, one key per assignment, effect exactly once; full 23-point sweep when it leaves draft |
 | `runConversation` (6 turns, 2 participants, keyed per-turn effect) | `FileConversationJournal` | 18 kill points (turn start / backend-done-before-commit / turn-committed) + reference + halt-replay | **PASS** |
 | `runConversation` | `SqlConversationJournal` over real sqlite (`node:sqlite`) | same 18 + reference | **PASS** |
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
-| `runGraph` | any SQL store | — | **N/A — capability gap**: no `SqlSpawnJournal` exists; orchestration durability is file-only. |
+| `runGraph` | any SQL store | — | **closing**: `SqlSpawnJournal`/`SqlResultBlobStore` are drafted (`feat/sql-run-context`) — unit parity + a real-SIGKILL subset green; full matrix, coordination-log and cross-machine ownership remain |
 
 Totals from the run: **94/94 green** — the inline matrix (24), the session re-attach matrix (24),
 the conversation matrices (39), the runDir regression locks (2), the known-defect cases (5). The
 inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
 landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
 which the suite's driver now drains correctly.
+
+### Baseline: the same suite against the commit before the first fix
+
+Run at `6ef05994` (= `057c7c74^`, before #1368) with the current test files applied, the suite
+measures what the durability work actually changed:
+
+- **28 of 70 runnable cases RED (40%)**: the entire graph kill matrix (23/23 — every kill point
+  failed as "silently restarted from scratch", the inert `runDir` journal), the runDir regression
+  lock, and all four 2026-08-11 finalization-window cases.
+- **42 of 70 green**, including all 39 conversation cases — the control group proving the red is
+  the graph/journal defect, not the harness. The 2026-09-16 re-entry case also passed there
+  (#1356 predated the base).
+- **24 cases un-runnable**: the session re-attach matrix needs `recoverExecutor` (#1375), which
+  that base refuses as an unknown option — the capability did not exist.
+
+Current main: **94/94 green**. That delta — 52 cases' worth of surface from red-or-absent to
+proven — is the measured result of the durability work (#1368 + #1375).
 
 ## Defect found and fixed by this suite
 

@@ -544,6 +544,36 @@ export interface JournalAudit {
 export async function auditSpawnJournal(dir: string, runId: string): Promise<JournalAudit> {
   const journal = new FileSpawnJournal(`${dir}/spawn-journal.jsonl`)
   const events = (await journal.loadTree(runId)) ?? []
+  return projectJournalAudit(events, runId)
+}
+
+/** Audit a run whose durable tree lives in a SQL spawn journal (see `sql-child.ts`). */
+export async function auditSpawnJournalAt(
+  dir: string,
+  runId: string,
+  sqlitePath: string,
+): Promise<JournalAudit> {
+  const { DatabaseSync } = await import('node:sqlite')
+  const { SqlSpawnJournal } = await import('../../../src/durable/spawn-journal-sql')
+  const db = new DatabaseSync(sqlitePath)
+  try {
+    const journal = new SqlSpawnJournal({
+      async exec(sql, params = []) {
+        const res = db.prepare(sql).run(...(params as never[]))
+        return { rowsAffected: Number(res?.changes ?? 0) }
+      },
+      async query<TRow>(sql: string, params: readonly unknown[] = []): Promise<TRow[]> {
+        return db.prepare(sql).all(...(params as never[])) as TRow[]
+      },
+    })
+    const events = (await journal.loadTree(runId)) ?? []
+    return projectJournalAudit(events, runId)
+  } finally {
+    db.close()
+  }
+}
+
+function projectJournalAudit(events: SpawnEvent[], runId: string): JournalAudit {
   const labelById = new Map<string, string>()
   for (const e of events) {
     if (e.kind === 'spawned' && e.parent !== undefined) labelById.set(e.id, e.label)
