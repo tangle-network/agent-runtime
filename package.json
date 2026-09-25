@@ -162,7 +162,7 @@
   },
   "dependencies": {
     "@tangle-network/agent-core": "catalog:",
-    "@tangle-network/agent-knowledge": "^17.1.5",
+    "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-profile-materialize": "catalog:",
     "@tangle-network/agent-trace-contract": "catalog:",
     "tar-stream": "3.2.1"
