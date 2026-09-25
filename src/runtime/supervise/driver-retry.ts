@@ -44,22 +44,21 @@
  * driver that RETURNED with the contract unmet ended the run silently — 376 of 376 winning lab runs
  * ended on this loop's own `stop: 'completed'`, with the completion gate left to label the result
  * rather than to change it. A completed drive whose contract is unmet is now a first-class moment:
- * `reprompt.maxReprompts` re-enters the driver with the unmet items, and every re-entry crosses the
- * same budget, deadline, and abort bounds. Successful continuations do not consume the failure
- * retry allowance.
+ * the manager's `continuation` policy (`./continuation.ts`) re-enters the driver with Runtime's
+ * continuation note, and every re-entry crosses the same budget, deadline, and abort bounds.
+ * Successful continuations do not consume the failure retry allowance.
  *
  * This loop decides WHETHER to re-enter; it does not know WHERE the next drive runs. Whether the
  * re-entered driver continues the same harness session, the same environment, or a replacement is
  * the drive harness's fact, and the caller composes the re-entry task from it (see
- * `./reentry.ts`). A re-prompt re-enters the same session only on a backend that proves it.
+ * `./reentry.ts`). A continuation re-enters the same session only on a backend that proves it.
  *
- * Progress bounds the re-prompts too. The same delivery reading that resets the barren failure
- * counter decides whether a re-prompted drive earned another: `reprompt.maxBarren` consecutive
- * re-entered drives that completed without a delivery end the loop with `repromptRefusedBy:
- * 'no-progress'`. Before this, a completed drive reset the barren counter and `decideReprompt`
- * read only the count cap, budget, and deadline, so a director with `repromptOnUnmet: 100` or
- * `'until-complete'` that delivered nothing was re-prompted until the budget or deadline ended it;
- * the old prompt-owned loop logged 896 of 1,011 rounds with no progress.
+ * Progress bounds the continuations, and nothing else counts them. The same delivery reading that
+ * resets the barren failure counter decides whether a continued drive earned another:
+ * `continuation.maxBarren` consecutive re-entered drives that completed without progress end the
+ * loop with `repromptRefusedBy: 'no-progress'`. Progress is a delivery or a rise in the check's
+ * best composite. There is no count cap and no caller veto: the old prompt-owned loop logged 896
+ * of 1,011 rounds with no progress, and 650 recorded inputs chose seven different re-prompt counts.
  *
  * A THIRD CLASS sits between the two: the upstream said "not now". A model provider's exhausted
  * quota, a rate limit, or an overloaded service (HTTP 429, 503, 529, or the router's own codes for
@@ -80,6 +79,11 @@ import {
   ValidationError,
 } from '../../errors'
 import { sleep } from '../util'
+import {
+  CheckUnavailableError,
+  type ContinuationContext,
+  type ContinuationEntry,
+} from './continuation'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import type { Scope } from './types'
 import {
@@ -151,18 +155,18 @@ export interface DriverAttemptRecord {
   readonly unavailableSignal?: string
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
-  /** True when this COMPLETED attempt's unmet contract sent the loop back into the live session. */
+  /** True when this COMPLETED attempt's unmet contract sent the loop back with a continuation. */
   readonly reprompted?: boolean
   /** Why an unmet contract did NOT re-enter the session. Absent when the contract was met, when
-   *  the caller configured no re-prompt, or when the re-prompt was issued. */
+   *  the manager has no continuation policy, or when the continuation was sent. */
   readonly repromptRefusedBy?: DriverRepromptRefusal
 }
 
 /** Why a completed drive with an unmet contract was not re-entered. `no-progress` means
- *  `reprompt.maxBarren` consecutive re-entered drives completed without a delivery. */
+ *  `continuation.maxBarren` consecutive re-entered drives completed without progress. `closed`
+ *  means the run was already closed: a failed `report_blocked` probe or a progress stop rule. */
 export type DriverRepromptRefusal =
-  | 'reprompts-exhausted'
-  | 'caller-stop'
+  | 'closed'
   | Extract<
       DriverAttemptStop,
       'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts' | 'no-progress'
@@ -188,21 +192,24 @@ export interface DriverProgressMark {
   /** Monotone count of settled children that PASSED the completion check. A child that ran and
    *  settled without delivering does not count here, which is the whole point. */
   readonly deliveredCount?: number
+  /** The best composite any check read has scored so far. A rise is progress: the director moved
+   *  the outside check even though it has not passed. */
+  readonly composite?: number
 }
 
 /** Why the loop is entering the driver again. Absent on the first attempt only.
  *
- *  An `unmet-contract` re-entry carries the unmet items. A `driver-failure` re-entry carries no
- *  instruction of its own: the drive that failed may never have read the last one, so the caller
- *  re-enters with the ORIGINAL task and the run's state, never with the unmet-items text alone. */
+ *  An `unmet-contract` re-entry carries Runtime's continuation note. A `driver-failure` re-entry
+ *  carries no instruction of its own: the drive that failed may never have read the last one, so
+ *  the caller re-enters with the ORIGINAL task and the run's state, never with the note alone. */
 export type DriverReentry =
   | {
       readonly reason: 'unmet-contract'
-      /** The unmet items. Whether they are the whole turn depends on where the drive runs: only a
-       *  backend that proves the same harness session may be re-entered with this text alone. */
+      /** The continuation note. Whether it is the whole turn depends on where the drive runs: only
+       *  a backend that proves the same harness session may be re-entered with this text alone. */
       readonly steer: string
-      /** 1-based: which re-prompt this is. */
-      readonly reprompt: number
+      /** 1-based: which continuation this is. */
+      readonly continuation: number
     }
   | {
       readonly reason: 'driver-failure'
@@ -212,8 +219,9 @@ export type DriverReentry =
       readonly retry: number
     }
   | {
-      /** The upstream refused the previous drive for capacity, and the loop paused before this
-       *  one. Re-entered like a failure, with the original task and the run's state. */
+      /** The upstream refused the previous drive for capacity, or the check could not run, and the
+       *  loop paused before this one. Re-entered like a failure, with the original task and the
+       *  run's state. */
       readonly reason: 'upstream-unavailable'
       /** The code or status that classified the refusal, such as `provider_quota_exhausted`. */
       readonly signal: string
@@ -221,74 +229,26 @@ export type DriverReentry =
       readonly pause: number
     }
 
-/** What the caller sees when a drive returns with its completion check unmet. */
-export interface DriverUnmetContractContext {
-  /** The attempt that just completed, 1-based. */
-  readonly attempt: number
-  /** How many re-prompts this run has already issued. */
-  readonly reprompts: number
-  readonly maxReprompts: DriverRepromptPolicy['maxReprompts']
-  /** The mark read AFTER the completed drive. */
-  readonly progress: DriverProgressMark
-  readonly budget: DriverBudgetReadout
-  /** What the run was supposed to produce, from the caller's completion check. */
-  readonly describe?: string
-  /** Consecutive re-entered drives, this one included, that completed without a delivery. */
-  readonly barrenReentries: number
-}
-
-/** The caller's answer: re-enter the session with `steer`, or end the run here. */
-export type DriverUnmetContractDecision = { readonly steer: string } | 'stop'
-
-/** Compose the re-entry instruction for a completed drive that delivered nothing, or refuse. */
-export type OnUnmetContract = (
-  context: DriverUnmetContractContext,
-) => DriverUnmetContractDecision | Promise<DriverUnmetContractDecision>
-
-/** How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where
- *  such a drive ends the run and only the completion gate's label records what happened. */
-export interface DriverRepromptPolicy {
-  /** How many times one run may re-enter its driver with the unmet items. `0` = never.
-   *  `'until-complete'` removes the count cap and requires a finite positive scope deadline.
-   *  Budget, cancellation, explicit stop, the barren bound, and failure retry limits still apply. */
-  readonly maxReprompts: number | 'until-complete'
-  /** Consecutive re-entered drives that may complete without a delivery before re-prompting stops
-   *  (`repromptRefusedBy: 'no-progress'`). Default {@link DEFAULT_MAX_BARREN_REPROMPTS}; minimum 1.
-   *  A delivery — an accepted submission, a child that passed its check, the contract turning
-   *  met — resets the count. */
-  readonly maxBarren?: number
-  /** Compose the instruction, or return `'stop'`. Omit = {@link defaultUnmetContractSteer}. */
-  readonly onUnmetContract?: OnUnmetContract
-  /** What the run owes, surfaced in the default instruction. */
-  readonly describe?: string
-}
-
 /**
- * The instruction a completed-but-undelivered drive is re-entered with when the caller supplies no
- * `onUnmetContract`. It states the verdict, names what is owed, reports the ledger, and gives the
- * three steps — the same shape `depthStrategy` re-prompts a resumed session with, said in the
- * driver's own terms.
+ * How a completed drive with its check unmet is re-entered. Runtime builds it from the manager's
+ * `ContinuationPolicy`; nothing here is a product hook, so no caller can veto a continuation or
+ * replace Runtime's note.
  */
-export function defaultUnmetContractSteer(context: DriverUnmetContractContext): string {
-  const owed = context.describe?.trim()
-  const lines = [
-    'The completion check has not passed. This run has delivered nothing yet.',
-    owed === undefined || owed.length === 0
-      ? 'The deliverable this run owes is still missing.'
-      : `The deliverable this run owes: ${owed}`,
-    `Workers settled: ${context.progress.settledCount}. ` +
-      `Workers that passed the check: ${context.progress.deliveredCount ?? 0}.`,
-    'Do the unfinished work with the tools.',
-    'Verify that the check passes.',
-    'Then submit the result.',
-    'Do not restate work you already did.',
-  ]
-  return lines.join('\n')
+export interface DriverContinuationPolicy {
+  /** Re-entered drives in a row that may complete without progress. Minimum 1. */
+  readonly maxBarren: number
+  /** Epoch ms at or after which no continuation starts. */
+  readonly deadlineMs: number
+  /** Write the continuation note for this re-entry. */
+  readonly compose: (context: ContinuationContext) => Promise<string>
+  /** True when the run is already closed (a failed `report_blocked` probe, a progress stop rule):
+   *  a continuation would re-enter a session told to stop. */
+  readonly closed: () => boolean
 }
 
 export interface DriverRetryRun {
-  /** Run one attempt. Rejects exactly as the un-retried driver would. `reentry` is present only
-   *  for a re-prompt: run the SAME session on `reentry.steer` instead of the original task. */
+  /** Run one attempt. Rejects exactly as the un-retried driver would. `reentry` is present on
+   *  every attempt after the first; see {@link DriverReentry}. */
   readonly drive: (attempt: number, reentry?: DriverReentry) => Promise<void>
   /** Read the current progress mark. Called before and after every attempt. */
   readonly progress: () => DriverProgressMark
@@ -297,8 +257,9 @@ export interface DriverRetryRun {
   /** The scope's cancellation signal. An aborted scope is terminal, never retried. */
   readonly signal: AbortSignal
   readonly policy?: DriverRetryPolicy
-  /** How a COMPLETED drive that delivered nothing is re-entered. Omit = never. */
-  readonly reprompt?: DriverRepromptPolicy
+  /** How a COMPLETED drive with its check unmet is re-entered. Omit = never, which is correct
+   *  only for a manager with no check. */
+  readonly continuation?: DriverContinuationPolicy
   readonly onAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   readonly now?: () => number
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
@@ -306,8 +267,6 @@ export interface DriverRetryRun {
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
 const DEFAULT_MAX_ATTEMPTS = 8
-/** Two re-prompted drives in a row that deliver nothing end the re-prompts. */
-export const DEFAULT_MAX_BARREN_REPROMPTS = 2
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 /**
@@ -371,6 +330,9 @@ export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
  */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined
+  // The check could not run. It is not a verdict on the director, so the loop pauses as it does
+  // for an upstream out of capacity and never counts the turn for or against the run.
+  if (error instanceof CheckUnavailableError) return 'check-unavailable'
   if (error instanceof HarnessTurnFailedError) {
     return unavailableSignalOfFailure({
       error: error.message,
@@ -496,13 +458,16 @@ function contractOf(mark: DriverProgressMark): DriverContractState {
 /**
  * Did this attempt move the run toward its DELIVERABLE?
  *
- * A delivery always counts: an accepted submission, one more child that passed the check, or the
- * contract turning met. Spend and settlements count only while no declared check is outstanding —
- * with a check unmet they are the burn-rate reading this module's header measures and rejects.
+ * A delivery always counts: an accepted submission, one more child that passed the check, the
+ * contract turning met, or a rise in the check's best composite. Spend and settlements count only
+ * while no declared check is outstanding — with a check unmet they are the burn-rate reading this
+ * module's header measures and rejects.
  */
 function madeProgress(before: DriverProgressMark, after: DriverProgressMark): boolean {
   if (after.submitted && !before.submitted) return true
   if ((after.deliveredCount ?? 0) > (before.deliveredCount ?? 0)) return true
+  if (after.composite !== undefined && after.composite > (before.composite ?? -Infinity))
+    return true
   if (contractOf(before) !== 'met' && contractOf(after) === 'met') return true
   if (contractOf(after) === 'unmet') return false
   return after.poolTokensSpent > before.poolTokensSpent || after.settledCount > before.settledCount
@@ -577,11 +542,15 @@ export interface DriverContinuationRecord extends DriverLoopRecord {
   /** Re-entries that ran in a new environment because the provider no longer held the old one. */
   readonly environmentReplacements: number
   /** How the run was closed, when something closed it: an accepted `submit_result`, the
-   *  manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
-   *  `stopRule`. Absent when the loop ended on a bound or a failure. */
+   *  manager's own `stop` (served only to a manager with no check), a `report_blocked` whose
+   *  probe failed, or the caller's progress `stopRule`. Absent when the loop ended on a bound or a
+   *  failure. */
   readonly closedBy?: 'result-accepted' | 'stop' | 'blocked' | 'stop-rule'
   /** The reason the manager gave, or the failed probe, verbatim. */
   readonly stopReason?: string
+  /** Every continuation note this manager was sent, with the check's verdict before and after it.
+   *  Empty for a manager with no check. */
+  readonly continuations: ReadonlyArray<ContinuationEntry>
 }
 
 /** Count a loop's attempt records into its {@link DriverLoopRecord}. */
@@ -629,10 +598,11 @@ async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
 /**
  * Run the driver until it completes WITH ITS CONTRACT MET, or until the budget, the deadline, an
  * abort, a terminal error, or a ceiling stops it. Transient failures are retried. A drive that
- * returns with its completion check unmet is re-entered on the same live session with the unmet
- * items, up to `reprompt.maxReprompts`. Throws `DriverAttemptsExhaustedError` (cause = the last
- * real failure) when a FAILURE ends the loop; a completed drive returns, met contract or not,
- * because deciding what an undelivered run is worth belongs to the finalizer, not to this loop.
+ * returns with its completion check unmet is re-entered with Runtime's continuation note until the
+ * continuation's deadline or `maxBarren` turns without progress. Throws
+ * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
+ * completed drive returns, met contract or not, because deciding what an undelivered run is worth
+ * belongs to the finalizer, not to this loop.
  */
 export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const now = run.now ?? Date.now
@@ -647,17 +617,19 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const initialBackoff = Math.max(0, policy.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS)
   const maxBackoff = Math.max(initialBackoff, policy.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS)
 
-  const maxReprompts = run.reprompt?.maxReprompts ?? 0
-  if (maxReprompts === 'until-complete') {
-    const deadline = run.budget().deadlineMs
-    if (!Number.isFinite(deadline) || deadline <= 0) {
+  const continuation = run.continuation
+  if (continuation !== undefined) {
+    if (!Number.isFinite(continuation.deadlineMs) || continuation.deadlineMs <= 0) {
       throw new ValidationError(
-        'runDriverWithRetry: until-complete requires a finite positive deadline',
+        'runDriverWithRetry: a continuation needs a finite positive deadline',
+      )
+    }
+    if (!Number.isInteger(continuation.maxBarren) || continuation.maxBarren < 1) {
+      throw new ValidationError(
+        'runDriverWithRetry: continuation.maxBarren must be an integer >= 1',
       )
     }
   }
-
-  const maxBarren = Math.max(1, run.reprompt?.maxBarren ?? DEFAULT_MAX_BARREN_REPROMPTS)
   const attempts: DriverAttemptRecord[] = []
   let consecutiveBarren = 0
   // Re-entered drives, in a row, that completed without a delivery. Reset by any progress, on a
@@ -669,7 +641,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   let consecutivePauses = 0
   // Every pause this loop took, for the re-entry it names.
   let pauses = 0
-  let reprompts = 0
+  let continuations = 0
   let reentry: DriverReentry | undefined
 
   const emit = async (record: DriverAttemptRecord): Promise<void> => {
@@ -680,51 +652,40 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   }
 
   /**
-   * Decide what a completed-but-undelivered drive does next. Every bound the FAILURE path applies
-   * is applied here too — that is the fix for `budgetStop` having lived only in the catch arm — and
-   * the caller's hook is consulted last, so no hook can talk the loop past a deadline.
+   * Decide what a completed drive with its check unmet does next. Every bound the FAILURE path
+   * applies is applied here too — that is the fix for `budgetStop` having lived only in the catch
+   * arm — and they are read again after the note is composed, because composing may run the
+   * question panel.
    */
-  const decideReprompt = async (
+  const decideContinuation = async (
+    policy: DriverContinuationPolicy,
     attempt: number,
     after: DriverProgressMark,
   ): Promise<{ steer: string } | { refusedBy: DriverRepromptRefusal }> => {
-    if (maxReprompts !== 'until-complete' && reprompts >= maxReprompts) {
-      return { refusedBy: 'reprompts-exhausted' }
+    const bounds = (): DriverRepromptRefusal | undefined => {
+      if (policy.closed()) return 'closed'
+      if (run.signal.aborted) return 'aborted'
+      if (now() >= policy.deadlineMs) return 'deadline'
+      const byBudget = budgetStop(run.budget(), now())
+      return byBudget === 'deadline' || byBudget === 'budget-exhausted' ? byBudget : undefined
     }
-    if (barrenReentries >= maxBarren) return { refusedBy: 'no-progress' }
-    if (run.signal.aborted) return { refusedBy: 'aborted' }
-    const byBudget = budgetStop(run.budget(), now())
-    if (byBudget === 'deadline' || byBudget === 'budget-exhausted') return { refusedBy: byBudget }
-    const context: DriverUnmetContractContext = {
-      attempt,
-      reprompts,
-      maxReprompts,
-      progress: after,
-      budget: run.budget(),
-      ...(run.reprompt?.describe === undefined ? {} : { describe: run.reprompt.describe }),
-      barrenReentries,
-    }
-    const decision =
-      (await run.reprompt?.onUnmetContract?.(context)) ??
-      ({ steer: defaultUnmetContractSteer(context) } as const)
-    if (decision === 'stop') return { refusedBy: 'caller-stop' }
-    // The hook may await external work; admission must be checked again after it returns.
-    if (run.signal.aborted) return { refusedBy: 'aborted' }
-    const afterHook = budgetStop(run.budget(), now())
-    if (afterHook === 'deadline' || afterHook === 'budget-exhausted') {
-      return { refusedBy: afterHook }
-    }
-    // Checked rather than assumed: JavaScript callers reach this hook too, and a non-string here
-    // would otherwise become a TypeError inside the loop that owns the run.
-    const steer = typeof decision.steer === 'string' ? decision.steer.trim() : ''
+    if (barrenReentries >= policy.maxBarren) return { refusedBy: 'no-progress' }
+    const before = bounds()
+    if (before !== undefined) return { refusedBy: before }
+    const steer = (
+      await policy.compose({
+        attempt,
+        continuations,
+        progress: after,
+        budget: run.budget(),
+        barrenReentries,
+        signal: run.signal,
+      })
+    ).trim()
+    const afterCompose = bounds()
+    if (afterCompose !== undefined) return { refusedBy: afterCompose }
     if (steer.length === 0) {
-      // An empty instruction would re-enter the session with nothing to act on, and the harness
-      // would end again exactly as it just did. A misconfigured hook is a caller fault, so it is
-      // named rather than absorbed into a silent stop.
-      throw new ValidationError(
-        'runDriverWithRetry: onUnmetContract returned an empty steer — return a non-empty ' +
-          "instruction or 'stop'",
-      )
+      throw new ValidationError('runDriverWithRetry: the continuation note is empty')
     }
     return { steer }
   }
@@ -868,10 +829,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const contractField = contract === 'none' ? {} : { contract }
     if (progressed) barrenReentries = 0
     else if (reentry !== undefined && contract === 'unmet') barrenReentries += 1
-    if (contract === 'unmet' && (maxReprompts === 'until-complete' || maxReprompts > 0)) {
-      const decision = await decideReprompt(attempt, after)
+    if (contract === 'unmet' && continuation !== undefined) {
+      const decision = await decideContinuation(continuation, attempt, after)
       if ('steer' in decision) {
-        reprompts += 1
+        continuations += 1
         // No backoff: the driver is not failing — it finished early.
         await emit({
           attempt,
@@ -881,7 +842,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
           reprompted: true,
           retryInMs: 0,
         })
-        reentry = { reason: 'unmet-contract', steer: decision.steer, reprompt: reprompts }
+        reentry = { reason: 'unmet-contract', steer: decision.steer, continuation: continuations }
         continue
       }
       await emit({

@@ -12,6 +12,7 @@ import {
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { Agent, Budget, ExecutorExecutionBinding } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
@@ -58,7 +59,7 @@ describe('a re-prompted root is a new execution attempt (#1085)', () => {
   it('journals the second drive under a fresh attempt id instead of refusing it as a duplicate binding', async () => {
     // The measured shape: a Runtime-owned CLI root (deferred materialization) reports its
     // execution binding on every drive. The first drive returns with the completion check unmet;
-    // `repromptOnUnmet` re-enters the harness, which reports again — a NEW session, hence a new
+    // the continuation re-enters the harness, which reports again — a NEW session, hence a new
     // binding — and before this the report carried the first drive's attempt id, the journal
     // refused it as "duplicate execution binding", and the driver retried into the same wall.
     const blobs = new InMemoryResultBlobStore()
@@ -94,7 +95,7 @@ describe('a re-prompted root is a new execution attempt (#1085)', () => {
         describe: 'an object whose answer is 42',
         check: (result) => (result as { answer?: unknown }).answer === 42,
       },
-      repromptOnUnmet: 1,
+      continuation: testContinuation(),
     })
 
     const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {
@@ -171,7 +172,7 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
         describe: 'an object whose answer is 42',
         check: (result) => (result as { answer?: unknown }).answer === 42,
       },
-      repromptOnUnmet: 1,
+      continuation: testContinuation(),
     })
 
     const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {

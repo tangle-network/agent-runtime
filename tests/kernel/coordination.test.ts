@@ -19,6 +19,7 @@ import {
   watchTrace,
 } from '../../src/runtime'
 import { runAbortable } from '../../src/runtime/supervise/abortable'
+import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -399,8 +400,8 @@ describe('coordination tools', () => {
     expect(await submit.handler({ result: { answer: 0 } })).toEqual({
       accepted: false,
       stop: false,
-      reason:
-        'the independent check did not pass on this result. Expected: an object whose answer is 42',
+      reason: 'The outside check failed. Check read 1. Expected: an object whose answer is 42',
+      checkRead: 1,
     })
     expect(await submit.handler({ result: { answer: 'throw' } })).toMatchObject({
       accepted: false,
@@ -426,65 +427,70 @@ describe('coordination tools', () => {
       retained: 'earlier-passing-result',
       stop: true,
     })
-    expect(await tool(withCheck, 'stop').handler({ reason: 'redundant-stop' })).toEqual({
-      stopped: true,
-    })
+    // One way out: a manager with a check is never served `stop`.
+    expect(withCheck.tools.map((t) => t.name)).not.toContain('stop')
+    expect(withoutCheck.tools.map((t) => t.name)).toContain('stop')
     expect(checked).toHaveLength(3)
+    expect(
+      withCheck.checkReads().map((read) => [read.read, read.source, read.verdict?.pass]),
+    ).toEqual([
+      [1, 'submit', false],
+      [2, 'submit', undefined],
+      [3, 'submit', true],
+    ])
     expect(stopReasons).toEqual(['result-accepted'])
     expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
     expect(events).toEqual([{ type: 'submission', result: { answer: 42 } }])
   })
 
-  it('returns checked failure details without coercing packets or accepting diagnostic prose', async () => {
+  it("returns the check's located failures, and only the verdict when its tests stay hidden", async () => {
     const { scope } = mockScope({ children: false })
-    const explained: unknown[] = []
-    const failures = new Map<unknown, string>()
-    const stringPacket = JSON.stringify({ status: 'complete', accepted: { correctness: true } })
-    const aliasedPacket = { status: 'complete', accepted: { correctness: true } }
-    const failedEvidence = { dimensions: { correctness: 'verified' }, evidence: ['failed-test'] }
-    const tb = createCoordinationTools({
+    const verdict = {
+      pass: false,
+      items: { parses: 1, 'prime-count': 0, 'sorted-order': 0 },
+      composite: 1 / 3,
+      threshold: 1,
+      failures: [
+        'FAIL prime-count primes.txt:1: 19 primes, expected 20',
+        'FAIL sorted-order primes.txt:7: 23 before 19',
+      ],
+    }
+    const verbatim = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      deliverable: {
-        check(result) {
-          const failure =
-            typeof result === 'string'
-              ? 'result must be an object, not a JSON string'
-              : result !== null && typeof result === 'object' && !('dimensions' in result)
-                ? 'dimensions is required; accepted is not that field'
-                : 'the evidence check failed'
-          failures.set(result, failure)
-          return false
-        },
-        async explainFailure(result) {
-          explained.push(result)
-          return failures.get(result)
-        },
-      },
+      deliverable: { check: () => verdict },
     })
-    const submit = tool(tb, 'submit_result')
-    for (const [result, reason] of [
-      [stringPacket, 'result must be an object, not a JSON string'],
-      [aliasedPacket, 'dimensions is required; accepted is not that field'],
-      [failedEvidence, 'the evidence check failed'],
-    ]) {
-      expect(await submit.handler({ result })).toEqual({
-        accepted: false,
-        stop: false,
-        reason: `the independent check did not pass on this result. ${reason}`,
-      })
+    expect(await tool(verbatim, 'submit_result').handler({ result: 'primes.txt' })).toEqual({
+      accepted: false,
+      stop: false,
+      checkRead: 1,
+      reason: [
+        'The outside check failed: 2 of 3 items fail (composite 0.3333333333333333, passes at 1). Check read 1.',
+        'FAIL prime-count primes.txt:1: 19 primes, expected 20',
+        'FAIL sorted-order primes.txt:7: 23 before 19',
+      ].join('\n'),
+    })
+    expect(verbatim.reentryState().lastRejection?.reason).toContain('FAIL prime-count')
+    expect(verbatim.checkReads()[0]?.verdict).toEqual(verdict)
+
+    const hidden = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      deliverable: { check: () => verdict, feedback: 'pass-only' },
+    })
+    const refusal = (await tool(hidden, 'submit_result').handler({ result: 'primes.txt' })) as {
+      reason: string
     }
-    expect(explained[0]).toBe(stringPacket)
-    expect(explained[1]).toEqual(aliasedPacket)
-    expect(tb.isStopped()).toBe(false)
-    expect(tb.submittedResult()).toBeUndefined()
+    expect(refusal.reason).not.toContain('FAIL')
+    expect(refusal.reason).toContain('2 of 3 items fail')
   })
 
-  it('keeps diagnostic failures separate from check failures and never explains accepted results', async () => {
+  it('says a check that could not run did not judge the result', async () => {
     const { scope } = mockScope({ children: false })
-    let explanations = 0
     const tb = createCoordinationTools({
       scope,
       blobs,
@@ -493,28 +499,28 @@ describe('coordination tools', () => {
       deliverable: {
         describe: 'checked artifact',
         check(result) {
-          if (result === 'broken-check') throw new Error('check unavailable')
+          if (result === 'box-down') throw new CheckUnavailableError('check box did not start')
+          if (result === 'broken-check') throw new Error('TypeError in the check')
           return result === 'checked-artifact'
-        },
-        explainFailure() {
-          explanations += 1
-          throw new Error('diagnostic unavailable')
         },
       },
     })
     const submit = tool(tb, 'submit_result')
-    expect(await submit.handler({ result: 'unfinished' })).toEqual({
+    expect(await submit.handler({ result: 'box-down' })).toMatchObject({
       accepted: false,
-      stop: false,
-      reason: 'the independent check did not pass on this result. Expected: checked artifact',
-      diagnosticError: 'diagnostic unavailable',
+      reason:
+        'the check could not run, so this result was not judged (check read 1): check box did not start',
     })
     expect(await submit.handler({ result: 'broken-check' })).toMatchObject({
       accepted: false,
       reason: expect.stringContaining('the independent check THREW'),
     })
     expect(await submit.handler({ result: 'checked-artifact' })).toMatchObject({ accepted: true })
-    expect(explanations).toBe(1)
+    expect(tb.checkReads().map((read) => read.unavailable)).toEqual([
+      'check box did not start',
+      'TypeError in the check',
+      undefined,
+    ])
   })
 
   it('commits one passing submission when concurrent callers race the durable append', async () => {

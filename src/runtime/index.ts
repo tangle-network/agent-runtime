@@ -165,6 +165,18 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
+// A record's declared check: the frozen evaluator program Runtime runs in a fresh box on the
+// check account, as a manager's completion check and as a version chain's judge.
+export {
+  assertDeclaredCheck,
+  checkProgramDigest,
+  type DeclaredCheck,
+  type DeclaredCheckPlacement,
+  declaredCheckDeliverable,
+  declaredCheckDigest,
+  declaredCheckJudge,
+  readDeclaredCheck,
+} from './declared-check'
 // The declarative eval-leaderboard facade: cases + prompt + score → one
 // runProfileMatrix call (expandProfileAxes × loopDispatch × the naive retry driver),
 // with a structural BenchmarkAdapter view via toBenchmarkAdapter().
@@ -711,6 +723,37 @@ export {
   gateOnDeliverable,
   mapExecutorResult,
 } from './supervise/completion-gate'
+// ONE CHECK, ONE RESEND RULE, ONE NOTE: the check's verdict, the continuation policy a manager
+// with a check must declare, and the note Runtime writes from the verdict. The profile owns every
+// instruction word; a play may append a section but never replace one.
+export {
+  type AdmittedFinding,
+  admitContinuationPolicy,
+  admitFinding,
+  type CheckRead,
+  CheckUnavailableError,
+  type CheckVerdict,
+  CONTINUATION_FACTS,
+  CONTINUATIONS_DIR,
+  type ContinuationAppend,
+  type ContinuationContext,
+  type ContinuationEntry,
+  type ContinuationNoteInput,
+  type ContinuationPanel,
+  type ContinuationPanelInput,
+  type ContinuationPanelResult,
+  type ContinuationPolicy,
+  type ContinuationProfile,
+  checkVerdictOf,
+  composeContinuationNote,
+  distillFindings,
+  expandQuestions,
+  failedItems,
+  type PanelFinding,
+  passedItems,
+  type VerdictSummary,
+  verdictFromJudgeScore,
+} from './supervise/continuation'
 export { finalizeBestDelivered } from './supervise/coordination-driver'
 // The durable coordination side-log a file-backed `RunContext` carries: questions, findings, answer
 // decisions, and authorized continuation receipts the spawn journal does not own. Receipts persist
@@ -763,16 +806,13 @@ export {
 // ends `driver-failed`, the per-attempt record that makes the failure diagnosable, and the
 // deliverable-aware progress mark that decides whether an attempt earned another one. A drive that
 // RETURNS with its completion check unmet is a first-class moment here, not just a label on the
-// result: `SuperviseOptions.repromptOnUnmet` re-enters the live session with the unmet items, and
-// `onUnmetContract` composes what it says.
+// result: `SuperviseOptions.continuation` sends the manager back with Runtime's continuation note.
 export {
   classifyDriverFailure,
-  DEFAULT_MAX_BARREN_REPROMPTS,
   type DriverAttemptRecord,
   type DriverAttemptStop,
   DriverAttemptsExhaustedError,
-  // The pool readout an unmet-contract hook is handed, so a caller can type its own decision
-  // against the same budget the loop reads.
+  // The pool readout a continuation is composed against.
   type DriverBudgetReadout,
   type DriverContinuationRecord,
   type DriverContractState,
@@ -782,16 +822,12 @@ export {
   type DriverLoopRecord,
   type DriverProgressMark,
   type DriverReentry,
-  type DriverRepromptPolicy,
   type DriverRepromptRefusal,
   type DriverRetryPolicy,
-  type DriverUnmetContractContext,
-  type DriverUnmetContractDecision,
-  defaultUnmetContractSteer,
-  type OnUnmetContract,
   summarizeDriverAttempts,
   upstreamUnavailableSignal,
 } from './supervise/driver-retry'
+
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {

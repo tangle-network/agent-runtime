@@ -40,6 +40,14 @@ import type {
 } from '../../runtime'
 import { assertValidBudget, type ReservationShortfall } from '../../runtime/supervise/budget'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
+import {
+  type CheckRead,
+  CheckUnavailableError,
+  type CheckVerdict,
+  checkVerdictOf,
+  failedItems,
+  NOTE_FAILURE_LINES,
+} from '../../runtime/supervise/continuation'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
@@ -858,9 +866,13 @@ export interface CoordinationToolsOptions {
   /**
    * The same independent completion check used for workers. When present, the driver receives a
    * `submit_result` tool and may finish work itself instead of being forced to delegate it. The
-   * first passing submission is retained; a false or throwing check fails closed.
+   * first passing submission is retained; a false or throwing check fails closed. A manager with a
+   * check is not served `stop`: it ends through `submit_result` or `report_blocked`.
    */
   readonly deliverable?: DeliverableSpec<unknown>
+  /** Serve `read_continuation`: the full continuation files the note refers to. Supplied by the
+   *  manager's continuation policy; the director's box cannot read the driver's run directory. */
+  readonly readContinuation?: (continuation: number | undefined) => unknown
   readonly analysts?: AnalystRegistry
   /** Event-first for source compatibility; the second argument is its exact bus ordering stamp. */
   readonly onEvent?: (
@@ -1284,6 +1296,15 @@ export interface CoordinationTools {
   endDriverAttempt(outcome: 'completed' | 'failed'): Promise<void>
   /** The run state a re-entered manager is told, read from this coordinator's own records. */
   reentryState(): ManagerReentryState
+  /** Every time this manager's completion check ran, oldest first: each `submit_result`, and each
+   *  turn end the manager recorded through {@link CoordinationTools.recordCheckRead}. */
+  checkReads(): ReadonlyArray<CheckRead>
+  /** Record a check read that happened outside `submit_result`, such as a turn end. */
+  recordCheckRead(read: {
+    readonly source: CheckRead['source']
+    readonly verdict?: CheckVerdict
+    readonly unavailable?: string
+  }): CheckRead
   /** The failed probe that ended the run through `report_blocked`, when one did. */
   blocked():
     | { readonly tool: string; readonly reported: string; readonly probed: string }
@@ -1314,6 +1335,7 @@ export const coordinationVerbNames = [
   'submit_result',
   'stop',
   'report_blocked',
+  'read_continuation',
   'read_journal',
   'list_analysts',
   'run_analyst',
@@ -1882,6 +1904,23 @@ export function createCoordinationToolsForManager(
   let driverAttempt: number | undefined
   let journalReadTo = 0
   let lastRejection: { readonly at: number; readonly reason: string } | undefined
+  const checkReads: CheckRead[] = []
+  const recordCheckRead = (read: {
+    readonly source: CheckRead['source']
+    readonly verdict?: CheckVerdict
+    readonly unavailable?: string
+  }): CheckRead => {
+    const entry = detachedFrozen<CheckRead>({
+      read: checkReads.length + 1,
+      attempt: driverAttempt ?? 1,
+      at: Date.now(),
+      source: read.source,
+      ...(read.verdict === undefined ? {} : { verdict: read.verdict }),
+      ...(read.unavailable === undefined ? {} : { unavailable: read.unavailable }),
+    })
+    checkReads.push(entry)
+    return entry
+  }
   // An analyst-agent run's settlement becomes its finding and never enters the settled ledger, so
   // the closure check below needs its own record that the run's settlement was taken.
   const flushedAnalystRuns = new Set<string>()
@@ -4000,39 +4039,37 @@ export function createCoordinationToolsForManager(
               // Copy once at intake so the value checked below is the exact value retained after
               // acceptance, even when this handler is called directly rather than through JSON-RPC.
               const result = structuredClone(a.result)
-              let accepted = false
-              // A THROWN check and a FAILED check are both "not delivered" — fail-closed is
-              // unchanged — but they need opposite moves from the manager, and the thrown message
-              // used to be discarded entirely, so a broken oracle read exactly like unfinished
-              // work. The refusal now names which one happened.
-              let thrown: string | undefined
+              // A check that COULD NOT RUN and a check that FAILED are both "not delivered" —
+              // fail-closed is unchanged — but they need opposite moves from the manager. A check
+              // that could not run is not a verdict, and the refusal says so.
+              let verdict: CheckVerdict | undefined
+              let fault: { readonly unavailable: boolean; readonly message: string } | undefined
               try {
-                accepted = (await deliverable.check(result)) === true
+                verdict = checkVerdictOf(await deliverable.check(result))
               } catch (error) {
-                accepted = false
-                thrown = error instanceof Error ? error.message : String(error)
-              }
-              if (!accepted) {
-                let explanation: string | undefined
-                let diagnosticError: string | undefined
-                if (thrown === undefined && deliverable.explainFailure) {
-                  try {
-                    const detail = await deliverable.explainFailure(result)
-                    if (typeof detail === 'string' && detail.trim()) explanation = detail.trim()
-                  } catch (error) {
-                    diagnosticError = error instanceof Error ? error.message : String(error)
-                  }
+                fault = {
+                  unavailable: error instanceof CheckUnavailableError,
+                  message: error instanceof Error ? error.message : String(error),
                 }
+              }
+              const read = recordCheckRead({
+                source: 'submit',
+                ...(verdict === undefined ? {} : { verdict }),
+                ...(fault === undefined ? {} : { unavailable: fault.message }),
+              })
+              if (verdict === undefined || !verdict.pass) {
                 const refusal =
-                  thrown === undefined
-                    ? `the independent check did not pass on this result${explanation ? `. ${explanation}` : deliverable.describe ? `. Expected: ${deliverable.describe}` : ''}`
-                    : `the independent check THREW, so nothing was accepted: ${thrown}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`
+                  verdict !== undefined
+                    ? refusalText(verdict, deliverable, read.read)
+                    : fault?.unavailable === true
+                      ? `the check could not run, so this result was not judged (check read ${read.read}): ${fault.message}`
+                      : `the independent check THREW, so nothing was accepted (check read ${read.read}): ${fault?.message}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`
                 lastRejection = { at: Date.now(), reason: refusal }
                 return {
                   accepted: false,
                   stop: false,
                   reason: refusal,
-                  ...(diagnosticError === undefined ? {} : { diagnosticError }),
+                  checkRead: read.read,
                 }
               }
               // Two remote callers may submit concurrently. Whichever passing check completes
@@ -4081,45 +4118,81 @@ export function createCoordinationToolsForManager(
           } satisfies McpToolDescriptor,
         ]
       : []),
-    {
-      name: 'stop',
-      description: 'Declare the run complete.',
-      inputSchema: {
-        type: 'object',
-        properties: { reason: { type: 'string', description: 'Why you are stopping.' } },
-      },
-      handler: (raw) => {
-        const blocking = blockingQuestionsForStop()
-        if (blocking.length) {
-          // Name the exit as well as the block. A question this manager escalated to nobody
-          // (`no-parent`) will never be answered from above, so "wait for an answer" is not a
-          // strategy — the manager is the last decider and must answer or defer it itself.
-          const unheard = blocking.filter((question) =>
-            escalations.some(
-              (record) => record.questionId === question.id && record.delivered === false,
-            ),
-          )
-          return Promise.resolve({
-            stopped: false,
-            error: 'unresolved-blocking-questions' as const,
-            reason:
-              `${blocking.length} blocking question${blocking.length === 1 ? '' : 's'} ${blocking.length === 1 ? 'is' : 'are'} still undecided` +
-              (unheard.length > 0
-                ? `, and ${unheard.length} of them reached no parent — nothing above this manager will answer ${unheard.length === 1 ? 'it' : 'them'}. Decide ${unheard.length === 1 ? 'it' : 'them'} with answer_question (answer, or deferReason to record that it stays open) and stop again.`
-                : '. Decide each with answer_question (answer, deferReason, or escalateTo) and stop again.'),
-            questions: blocking,
-            ...(unheard.length > 0 ? { unheardQuestionIds: unheard.map((q) => q.id) } : {}),
-          })
-        }
-        const open = openWorkRefusal('stop')
-        if (open !== undefined) return Promise.resolve({ stopped: false, ...open })
-        stopped = true
-        const r = obj(raw).reason
-        reason = typeof r === 'string' ? r : undefined
-        notifyStop()
-        return Promise.resolve({ stopped: true })
-      },
-    },
+    // A manager with a check ends only when the check passes, when `report_blocked` shows a tool
+    // really failed, or when a bound ends it. Measured before this rule (2026-09-24): 389 of 650
+    // lead directors could call `stop`, which ended the run with no check and no second chance.
+    ...(deliverable
+      ? []
+      : [
+          {
+            name: 'stop',
+            description: 'Declare the run complete.',
+            inputSchema: {
+              type: 'object',
+              properties: { reason: { type: 'string', description: 'Why you are stopping.' } },
+            },
+            handler: (raw) => {
+              const blocking = blockingQuestionsForStop()
+              if (blocking.length) {
+                // Name the exit as well as the block. A question this manager escalated to nobody
+                // (`no-parent`) will never be answered from above, so "wait for an answer" is not a
+                // strategy — the manager is the last decider and must answer or defer it itself.
+                const unheard = blocking.filter((question) =>
+                  escalations.some(
+                    (record) => record.questionId === question.id && record.delivered === false,
+                  ),
+                )
+                return Promise.resolve({
+                  stopped: false,
+                  error: 'unresolved-blocking-questions' as const,
+                  reason:
+                    `${blocking.length} blocking question${blocking.length === 1 ? '' : 's'} ${blocking.length === 1 ? 'is' : 'are'} still undecided` +
+                    (unheard.length > 0
+                      ? `, and ${unheard.length} of them reached no parent — nothing above this manager will answer ${unheard.length === 1 ? 'it' : 'them'}. Decide ${unheard.length === 1 ? 'it' : 'them'} with answer_question (answer, or deferReason to record that it stays open) and stop again.`
+                      : '. Decide each with answer_question (answer, deferReason, or escalateTo) and stop again.'),
+                  questions: blocking,
+                  ...(unheard.length > 0 ? { unheardQuestionIds: unheard.map((q) => q.id) } : {}),
+                })
+              }
+              const open = openWorkRefusal('stop')
+              if (open !== undefined) return Promise.resolve({ stopped: false, ...open })
+              stopped = true
+              const r = obj(raw).reason
+              reason = typeof r === 'string' ? r : undefined
+              notifyStop()
+              return Promise.resolve({ stopped: true })
+            },
+          } satisfies McpToolDescriptor,
+        ]),
+    ...(opts.readContinuation
+      ? [
+          {
+            name: 'read_continuation',
+            description: [
+              "Read a continuation note in full: the note, every line of the check's verdict, and",
+              "the question panel's answers. Omit continuation for the latest.",
+            ].join(' '),
+            inputSchema: {
+              type: 'object',
+              properties: {
+                continuation: {
+                  type: 'integer',
+                  minimum: 1,
+                  description: 'Which continuation, 1-based. Omit for the latest.',
+                },
+              },
+              additionalProperties: false,
+            },
+            handler: async (raw: unknown) => {
+              const value = obj(raw).continuation
+              if (value !== undefined && (!Number.isInteger(value) || (value as number) < 1)) {
+                throw new Error('read_continuation: "continuation" must be an integer >= 1')
+              }
+              return opts.readContinuation?.(value as number | undefined)
+            },
+          } satisfies McpToolDescriptor,
+        ]
+      : []),
     {
       name: 'report_blocked',
       description: [
@@ -4515,8 +4588,43 @@ export function createCoordinationToolsForManager(
       })
     },
     blocked: () => blockedEvidence,
+    checkReads: () => checkReads,
+    recordCheckRead,
     ...(peerMail ? { peerMail } : {}),
   }
+}
+
+/**
+ * The refusal a failed check reading returns to `submit_result`: the verdict as a located fact,
+ * the FAIL lines unless the check's tests must stay hidden, and how many times the manager has
+ * read the check.
+ */
+function refusalText(
+  verdict: CheckVerdict,
+  deliverable: DeliverableSpec<unknown>,
+  read: number,
+): string {
+  const total = Object.keys(verdict.items ?? {}).length
+  const failed = failedItems(verdict).length
+  const score =
+    verdict.composite === undefined
+      ? ''
+      : ` (composite ${verdict.composite}${verdict.threshold === undefined ? '' : `, passes at ${verdict.threshold}`})`
+  const head =
+    total > 0
+      ? `The outside check failed: ${failed} of ${total} items fail${score}. Check read ${read}.`
+      : `The outside check failed${score}. Check read ${read}.`
+  if (deliverable.feedback === 'pass-only') return head
+  const lines = verdict.failures ?? []
+  if (lines.length === 0) {
+    return deliverable.describe ? `${head} Expected: ${deliverable.describe}` : head
+  }
+  const shown = lines.slice(0, NOTE_FAILURE_LINES)
+  return [
+    head,
+    ...shown,
+    ...(lines.length > shown.length ? [`${lines.length - shown.length} more failure lines.`] : []),
+  ].join('\n')
 }
 
 /** The verbs `report_blocked` never calls on a manager's behalf: each one changes the run. */

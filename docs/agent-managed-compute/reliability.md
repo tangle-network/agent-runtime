@@ -2,7 +2,7 @@
 
 ## Current recovery boundary
 
-A file-backed run persists original profile and invocation inputs before provider admission.
+File-backed and fenced SQL runs persist original profile and invocation inputs before provider admission.
 The journal records intent, environment, dispatch, and accepted result in order.
 Child recovery uses the configured executor factory and validates the original request before reconnecting or replaying its idempotent admission.
 Scope restores each live child's original identity, deadline, reservation, and shared worker slot before its manager acts.
@@ -43,11 +43,17 @@ Observer records detach their inputs before queued I/O, so later hook mutations 
 Completed director invocations reset the consecutive transport-failure counter even when the pursuit remains incomplete.
 The failure-attempt, deadline, cancellation, and resource bounds still apply.
 Successful incomplete invocations do not consume `driverRetry.maxAttempts`; only failed invocations consume that allowance.
-Use `repromptOnUnmet: 'until-complete'` with a completion check and finite positive budget deadline to omit the continuation count cap.
-Numeric continuation caps retain their meaning, and zero still disables continuation.
+A manager with a completion check declares a `continuation` policy: a deadline and `maxBarren`, with no continuation count.
+The loop ends when the check passes, when `report_blocked` shows a tool really failed, at the deadline, on the budget, or after `maxBarren` turns in a row without progress.
 
 The file run lock protects one local coordinator.
 It does not fence provider mutations from a partitioned coordinator on another machine.
+The additive `createFencedSqlRunContext` holds a SQL lease for the entire `runGraph`/`supervise` call.
+Ownership takeover and publication compare-and-set the same head row; stale generations cannot publish or release a successor.
+SQL stores retain the journal, content-addressed blobs, and owner-scoped coordination records without a local run directory.
+A recorded invocation with no admission starts with its original keys because the intent is committed before any provider call.
+Existing admissions still require original request validation and retained provider idempotency.
+The SQL conformance fixtures forbid replacement-key escalation and test real SIGKILL and SIGSTOP/SIGCONT processes.
 No deployed or live multi-provider recovery proof is claimed here.
 
 An authenticated coordination listener bound to a wildcard accepts its actual local socket address and port.

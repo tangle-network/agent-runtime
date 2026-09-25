@@ -7,7 +7,6 @@ import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 import {
-  type PursuitVersionRegistry,
   type PursuitVersions,
   type PursuitVersionsRecord,
   runPursuitVersions,
@@ -58,8 +57,6 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * settled version. The call returns the best version's result with the chain's record.
    */
   readonly versions?: PursuitVersions
-  /** Supervise's name tables, plus the version judges and changes `versions` may name. */
-  readonly registry?: SuperviseOptions['registry'] & PursuitVersionRegistry
 }
 
 export interface SupervisedPursuitResult<Result> {

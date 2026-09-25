@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { harnessTranscriptArtifact } from '../../src/runtime/harness-transcript'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
+import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { supervise as superviseWithBrain } from '../helpers/runtime-with-test-brain'
@@ -122,6 +123,7 @@ async function rootRun(runId: string, options: { readable: boolean }) {
         describe: 'the submitted answer',
         check: (value) => (value as { answer?: unknown }).answer === 'done',
       },
+      continuation: testContinuation(),
       coordination: {
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },

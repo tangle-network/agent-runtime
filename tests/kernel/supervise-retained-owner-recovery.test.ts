@@ -11,6 +11,7 @@ import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-ret
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -25,9 +26,9 @@ afterEach(async () => {
 })
 
 describe('retained external supervisor recovery', () => {
-  it.each([1, 'until-complete'] as const)(
-    'recovers %s continuation after interrupted admission without a third dispatch',
-    async (repromptOnUnmet) => {
+  it.each([1, 2] as const)(
+    'recovers a continuation (maxBarren %s) after interrupted admission without a third dispatch',
+    async (maxBarren) => {
       const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-crash-'))
       directories.push(directory)
       const proxy = await coordinationProxy()
@@ -111,7 +112,7 @@ describe('retained external supervisor recovery', () => {
         driverBackend: { backend: 'provider' as const, provider },
         budget: { maxIterations: 8, maxTokens: 100, deadlineMs: 60_000 },
         driverRetry: { enabled: false },
-        repromptOnUnmet,
+        continuation: testContinuation({ maxBarren }),
         deliverable: {
           describe: 'resumed answer',
           check: (v: unknown) => (v as { answer?: string }).answer === 'resumed',
@@ -194,12 +195,11 @@ describe('retained external supervisor recovery', () => {
     { cleanup: 'release', continuations: 2 },
     { cleanup: 'keep', continuations: 2 },
     { cleanup: 'release-failed', continuations: 2 },
-    { cleanup: 'release', continuations: 'until-complete' },
+    { cleanup: 'release', continuations: 3 },
   ] as const)(
-    're-prompts one retained provider conversation with $cleanup cleanup and $continuations continuation',
+    'continues one retained provider conversation with $cleanup cleanup and maxBarren $continuations',
     async ({ cleanup, continuations }) => {
-      // Re-prompts that deliver nothing end after two in a row, whatever the cap, so the
-      // 'until-complete' variant submits on the third turn as the numeric cap does.
+      // The director submits on its third turn, inside every barren bound tested here.
       const expectedTurns = 3
       const directory = await mkdtemp(join(tmpdir(), 'retained-owner-reprompt-'))
       directories.push(directory)
@@ -294,7 +294,7 @@ describe('retained external supervisor recovery', () => {
           driverBackend: { backend: 'provider', provider },
           budget: { maxIterations: 100, maxTokens: 1000, deadlineMs: 60_000 },
           driverRetry: { enabled: false },
-          repromptOnUnmet: continuations,
+          continuation: testContinuation({ maxBarren: continuations }),
           retainedAtSettlement: cleanup === 'keep' ? 'keep' : 'release',
           // One release, as the assertions below count it.
           teardownConfirmMs: 0,
@@ -507,7 +507,7 @@ describe('retained external supervisor recovery', () => {
         driverBackend: { backend: 'provider', provider },
         budget: { maxIterations: 20, maxTokens: 1000, deadlineMs: 60_000 },
         driverRetry: { initialBackoffMs: 0, maxBackoffMs: 0 },
-        repromptOnUnmet: 1,
+        continuation: testContinuation(),
         retainedAtSettlement: 'release',
         teardownConfirmMs: 0,
         deliverable: {
@@ -672,9 +672,10 @@ async function setup(
   let originalToken: string | undefined
   let port = 0
   let injected = false
+  // A manager with a check is never granted stop; it ends through submit_result.
   const profile = testAgentProfile('owner', {
     harness: 'codex',
-    tools: runtimeToolDeclarations('stop'),
+    tools: runtimeToolDeclarations(repeat ? 'submit_result' : 'stop'),
   })
   const requestOriginalCredential = async () => {
     if (!originalToken) throw new Error('missing original private credential')
@@ -772,7 +773,7 @@ async function setup(
         },
         ...(repeat
           ? {
-              repromptOnUnmet: 1,
+              continuation: testContinuation({ maxBarren: 1 }),
               deliverable: { describe: 'A checked delivery', check: async () => false },
             }
           : {}),

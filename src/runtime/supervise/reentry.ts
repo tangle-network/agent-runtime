@@ -100,7 +100,7 @@ export function composeReentryTask(input: ReentryTaskInput): string {
  */
 function whyLine(reentry: DriverReentry): string {
   if (reentry.reason === 'unmet-contract') {
-    return `Your previous turn ended with the completion check unmet (re-prompt ${reentry.reprompt}).`
+    return `Your previous turn ended with the completion check unmet (continuation ${reentry.continuation}).`
   }
   // A pause names no provider and no code: the operator owns the upstream, and the driver's
   // budget belongs to the objective.

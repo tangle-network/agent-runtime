@@ -73,16 +73,15 @@ import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util
 import { RunCancellationReason } from './abortable'
 import { assertValidBudget, meterUsageEvent, newUsageTotals, spendFromUsageTotals } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { CONTINUATIONS_DIR, type ContinuationPolicy } from './continuation'
 import { isLoopbackHost } from './coordination-mcp'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import {
   type DriverAttemptRecord,
   type DriverContinuationRecord,
-  type DriverRepromptPolicy,
   type DriverRetryPolicy,
   HarnessTurnFailedError,
-  type OnUnmetContract,
 } from './driver-retry'
 import { errMessage } from './error-message'
 import type { BusRecord } from './event-bus'
@@ -124,7 +123,7 @@ import {
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
-import { createRootStreamSink, type RootStreamSink } from './root-stream'
+import { createRootStreamSink, ROOT_STREAM_FILE, type RootStreamSink } from './root-stream'
 import { watchRunCancellation } from './run-cancellation'
 import {
   createFileRunContext,
@@ -155,7 +154,7 @@ import {
   scopeOwnerExecutorNodeContext,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
-import type { StopRule } from './stop-rules'
+import { type PlateauOptions, plateau, type StopRule } from './stop-rules'
 import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
 import {
   assertCoordinationBinding,
@@ -1951,30 +1950,28 @@ export interface SuperviseOptions {
    *  as waiting rather than as a worker that silently took longer. */
   readonly onWorkerRetry?: (attempt: WorkerSpawnRetryAttempt) => void
   /**
-   * How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-   * re-entered on the SAME live session with the unmet items.
+   * How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+   * the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
    *
    * A harness owns its own turn loop, so it decides when it is finished — and it can decide that
    * while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
    * runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-   * could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+   * could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+   * 2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+   * director heard held no line of the check's verdict.
    *
-   * A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-   * live children, and the same budget, deadline, and abort bounds. Successful continuations do
-   * not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-   * run the coordination server already stopped is never re-prompted — that stop was a decision.
+   * A continuation is the retry path, not a second loop: same scope, same coordination server,
+   * same live children, and the same budget, deadline, and abort bounds. There is no count: the
+   * loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+   * deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+   * cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+   * profile owns its words, and `append` may add a section but never replace one.
    *
-   * Requires `deliverable`, and applies to every external manager with a completion check. A
-   * recursive manager receives the check selected for its exact assignment. Refused for a
-   * router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-   * Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-   * Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
+   * Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+   * every external manager with a completion check in the tree. Refused for a router-brained
+   * manager, which runs its turn loop in process.
    */
-  readonly repromptOnUnmet?: DriverRepromptPolicy['maxReprompts']
-  /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
-   *  Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
-   *  owes and reports how many workers passed the check. */
-  readonly onUnmetContract?: OnUnmetContract
+  readonly continuation?: ContinuationPolicy
   /**
    * How long live children may keep running after the root driver returns or fails, before the join
    * barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
@@ -2147,8 +2144,11 @@ export interface SuperviseOptions {
    * `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
    * thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
    * only (unchanged behavior).
+   *
+   * A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+   * product module builds it.
    */
-  readonly stopRule?: StopRule
+  readonly stopRule?: StopRule | { readonly plateau: PlateauOptions }
   /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
    *  reason instead of inferring an early stop from an unexhausted budget. */
   readonly onProgressStop?: (reason: string) => void
@@ -2283,8 +2283,7 @@ const superviseOptionKeys = [
   'steerDir',
   'stopRule',
   'watchWorkers',
-  'repromptOnUnmet',
-  'onUnmetContract',
+  'continuation',
   'workerRetry',
   'onWorkerRetry',
   'workerSlots',
@@ -2363,18 +2362,27 @@ function captureDeliverable(
   if (typeof deliverable.check !== 'function') {
     throw new ValidationError(`${context}: deliverable.check must be a function`)
   }
+  if (deliverable.checkState !== undefined && typeof deliverable.checkState !== 'function') {
+    throw new ValidationError(`${context}: deliverable.checkState must be a function`)
+  }
   if (
-    deliverable.explainFailure !== undefined &&
-    typeof deliverable.explainFailure !== 'function'
+    deliverable.feedback !== undefined &&
+    deliverable.feedback !== 'verbatim' &&
+    deliverable.feedback !== 'pass-only'
   ) {
-    throw new ValidationError(`${context}: deliverable.explainFailure must be a function`)
+    throw new ValidationError(`${context}: deliverable.feedback must be 'verbatim' or 'pass-only'`)
   }
   return Object.freeze({
-    ...detachedSnapshot({ describe: deliverable.describe }, `${context} configuration`),
+    ...detachedSnapshot(
+      {
+        describe: deliverable.describe,
+        ...(deliverable.feedback === undefined ? {} : { feedback: deliverable.feedback }),
+        ...(deliverable.sealed === undefined ? {} : { sealed: deliverable.sealed === true }),
+      },
+      `${context} configuration`,
+    ),
     check: deliverable.check,
-    ...(deliverable.explainFailure === undefined
-      ? {}
-      : { explainFailure: deliverable.explainFailure }),
+    ...(deliverable.checkState === undefined ? {} : { checkState: deliverable.checkState }),
   })
 }
 
@@ -2388,10 +2396,11 @@ function captureDeliverable(
  * the snapshot rather than the option, so a caller reads it as a bad value and not as a capability
  * the entry point cannot carry.
  *
- * That is what happened to `onUnmetContract`: added with the re-prompt path in 0.186.0, accepted by
- * the option-key check, forwarded by `supervisorAgent`, read by the retry loop, and never
- * destructured here. Every `supervisePursuit` run that passed the callback failed at construction
- * on 0.186.0, 0.187.1 and 0.188.0, and the only working configuration was the number alone.
+ * That is what happened to the retired `onUnmetContract`: added with the re-prompt path in 0.186.0,
+ * accepted by the option-key check, forwarded by `supervisorAgent`, read by the retry loop, and
+ * never destructured here. Every `supervisePursuit` run that passed the callback failed at
+ * construction on 0.186.0, 0.187.1 and 0.188.0, and the only working configuration was the number
+ * alone.
  *
  * The assignment below fails to COMPILE, naming the offender, when a callback-valued option is not
  * in this list, so the next one cannot be added silently. The list is not merely documentation:
@@ -2411,7 +2420,6 @@ const superviseExecutableOptionKeys = [
   'onCoordinationEvent',
   'onDriverAttempt',
   'onProgressStop',
-  'onUnmetContract',
   'onWorkerRetry',
   'recoverExecutor',
   'resolveDeliverable',
@@ -2534,7 +2542,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     stopRule,
     onProgressStop,
     onDriverAttempt,
-    onUnmetContract,
+    continuation,
     workerRetry,
     onWorkerRetry,
     finalizer,
@@ -2643,6 +2651,19 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
           ...(typeof analysts.register === 'function' ? { register: analysts.register } : {}),
         })
 
+  // The policy is decision data except its two functions, which are captured by reference.
+  const capturedContinuation =
+    continuation === undefined
+      ? undefined
+      : (() => {
+          const { runPanel, append, ...policy } = continuation
+          return Object.freeze({
+            ...detachedSnapshot(policy, 'supervise continuation'),
+            ...(runPanel === undefined ? {} : { runPanel }),
+            ...(append === undefined ? {} : { append }),
+          })
+        })()
+
   return Object.freeze({
     ...capturedData,
     ...(capturedCoordination === undefined ? {} : { coordination: capturedCoordination }),
@@ -2676,7 +2697,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(stopRule === undefined ? {} : { stopRule }),
     ...(onProgressStop === undefined ? {} : { onProgressStop }),
     ...(onDriverAttempt === undefined ? {} : { onDriverAttempt }),
-    ...(onUnmetContract === undefined ? {} : { onUnmetContract }),
+    ...(capturedContinuation === undefined ? {} : { continuation: capturedContinuation }),
     ...(capturedWorkerRetry === undefined ? {} : { workerRetry: capturedWorkerRetry }),
     ...(onWorkerRetry === undefined ? {} : { onWorkerRetry }),
     ...(finalizer === undefined ? {} : { finalizer }),
@@ -2944,6 +2965,15 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     )
   }
   return superviseWithContext(profile, task, opts)
+}
+
+/** A stop rule as a function, or the declared plateau form a record carries as data. */
+function stopRuleOf(rule: NonNullable<SuperviseOptions['stopRule']>): StopRule {
+  if (typeof rule === 'function') return rule
+  if (typeof rule === 'object' && rule !== null && 'plateau' in rule) return plateau(rule.plateau)
+  throw new ValidationError(
+    'supervise: stopRule must be a StopRule or { plateau: { window, minDelta } }',
+  )
 }
 
 /** Deterministic scripted-brain path for tests. Not exported from Runtime's main entry. */
@@ -3614,7 +3644,7 @@ function superviseInternal(
             : {}),
           ...(profileTable ? { profiles: profileTable } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
-          ...(options.stopRule ? { stopRule: options.stopRule } : {}),
+          ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
           ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
           ...(options.compaction ? { compaction: options.compaction } : {}),
@@ -3630,10 +3660,23 @@ function superviseInternal(
                 },
               }
             : {}),
-          ...(options.repromptOnUnmet !== undefined
-            ? { repromptOnUnmet: options.repromptOnUnmet }
+          // Every external manager with a check in the tree is sent back under the run's one
+          // continuation policy. Its files sit beside the root's, under its own owner id.
+          ...(childDeliverable && options.continuation && isExternalSupervisor(authorized)
+            ? {
+                continuation: options.continuation,
+                ...(options.runDir === undefined
+                  ? {}
+                  : {
+                      continuationDir: resolve(
+                        options.runDir,
+                        CONTINUATIONS_DIR,
+                        'managers',
+                        encodeURIComponent(ownerId),
+                      ),
+                    }),
+              }
             : {}),
-          ...(options.onUnmetContract ? { onUnmetContract: options.onUnmetContract } : {}),
           ...(log
             ? {
                 onEvent: (_event, record) => log.append(runId, record, ownerId),
@@ -3835,16 +3878,23 @@ function superviseInternal(
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
       ...(options.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: options.awaitTimeoutMs } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
-      ...(options.stopRule ? { stopRule: options.stopRule } : {}),
+      ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
       ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
       ...(options.compaction ? { compaction: options.compaction } : {}),
       ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
       ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
-      ...(options.repromptOnUnmet !== undefined
-        ? { repromptOnUnmet: options.repromptOnUnmet }
+      ...(deliverable && options.continuation && isExternalSupervisor(canonicalProfile)
+        ? {
+            continuation: options.continuation,
+            ...(options.runDir === undefined
+              ? {}
+              : {
+                  continuationDir: resolve(options.runDir, CONTINUATIONS_DIR),
+                  rootStreamPath: resolve(options.runDir, ROOT_STREAM_FILE),
+                }),
+          }
         : {}),
-      ...(options.onUnmetContract ? { onUnmetContract: options.onUnmetContract } : {}),
       // A durable run's layout dir doubles as the worker-cancel control surface: every
       // router-arm manager's turn loop acknowledges the `cancelWorker` requests it OWNS — the
       // root (default 'run' scope) resolves its direct children plus label/profile references,

@@ -225,6 +225,8 @@ export async function serveCoordinationMcp(
      *  still running at the fence returns a pending result, and an identical resubmission joins
      *  that check and returns its verdict. */
     deliverable?: DeliverableSpec<unknown>
+    /** Serve `read_continuation` from the manager's continuation records. */
+    readContinuation?: (continuation: number | undefined) => unknown
     /** Called once when the external manager accepts a result or declares completion. */
     onStop?: (reason: string | undefined) => void
     /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
@@ -451,6 +453,7 @@ export async function serveCoordinationMcpForManager(
       ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
       perWorker: opts.perWorker,
       ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+      ...(opts.readContinuation ? { readContinuation: opts.readContinuation } : {}),
       ...(opts.onStop ? { onStop: opts.onStop } : {}),
       awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
       ...(opts.analysts ? { analysts: opts.analysts } : {}),

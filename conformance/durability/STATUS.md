@@ -1,8 +1,8 @@
 # Durability conformance STATUS
 
 Question: **is agent-runtime durable?** — kill-and-resume conformance for `runGraph` and the
-shipped journal backends, measured 2026-09-24 on `fix/interrupted-keyed-spawns`
-(origin/main `12ffa98e`, agent-runtime 0.267.0 + the fixes in this PR).
+shipped journal backends, measured 2026-09-25 on `pro/sql-run-context/synthesis`
+(base main `66d2caa4`, agent-runtime 0.272.1).
 
 Regenerate the evidence: `pnpm run conformance:durability`
 (latest machine-readable results: [`results.json`](./results.json)).
@@ -17,15 +17,20 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | `runConversation` (6 turns, 2 participants, keyed per-turn effect) | `FileConversationJournal` | 18 kill points (turn start / backend-done-before-commit / turn-committed) + reference + halt-replay | **PASS** |
 | `runConversation` | `SqlConversationJournal` over real sqlite (`node:sqlite`) | same 18 + reference | **PASS** |
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
-| `runGraph` | any SQL store | — | **journal + blobs: CLOSED** (`SqlSpawnJournal`/`SqlResultBlobStore`, full 23-point matrix green). Still open on SQL: the coordination side-log (file-based behind `runDir`) and machine-visible cross-run ownership |
+| `runGraph` | `createFencedSqlRunContext` over real SQLite plus an independently retained provider | 26 kill boundaries, reference, SIGKILL takeover, SIGSTOP/SIGCONT fencing, and store invariants | **PASS** — SQL-only orchestration persistence, one live owner, same contender takes over, stale writes/releases rejected, original keys only, one physical create/dispatch per worker and one keyed effect |
 
-Totals from the run: **158/158 green** — the inline matrix (24), the session re-attach matrix (24),
-the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the known-defect cases (5), the inotify invariant (1), and the
-fenced-SQL salvage from #1373 (39: the fenced store + context unit suites, 19 lost-ack kill
-points across TWO hosts, lease takeover/contention, plus 6 expected-fail cases that document
-the never-dispatched recovery gap against current retained machinery). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
-landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
-which the suite's driver now drains correctly.
+Totals from the synthesis run: **159/159 green, zero expected failures**. The inline matrix (24),
+session re-attach matrix (24), incumbent SQL matrix (24), conversation matrices (39), runDir
+regression locks (2), known-defect cases (5), and inotify invariant (1) remain intact. Fenced SQL
+adds 40 cases: 32 context/real-process cases, 5 store cases, and 3 projection/coordination cases.
+
+The six never-dispatched cases fail on `2fe7f063` when made ordinary tests, then pass with the
+two retained-replay guards restored from p1. SQL fixtures reject the in-doubt escape hatch,
+assert no replacement keys, and require one original spawn and one done settlement per worker.
+The unchanged store overhead test publishes 100 records using 200 writes and zero history reads.
+These are real separate OS processes with independent empty host directories, sharing SQLite and
+a durable fake provider. They do not claim a deployed multi-machine database or live-provider test.
+Exactly-once external effects require retained keyed create/dispatch and an idempotent effect site.
 
 ### Baseline: the same suite against the commit before the first fix
 
@@ -41,7 +46,7 @@ measures what the durability work actually changed:
 - **24 cases un-runnable**: the session re-attach matrix needs `recoverExecutor` (#1375), which
   that base refuses as an unknown option — the capability did not exist.
 
-Current main: **94/94 green**. That delta — 52 cases' worth of surface from red-or-absent to
+Historical post-#1375 baseline: **94/94 green**. That delta — 52 cases' worth of surface from red-or-absent to
 proven — is the measured result of the durability work (#1368 + #1375).
 
 ## Defect found and fixed by this suite
@@ -95,7 +100,9 @@ re-attach. Both arms of the correct behavior are now implemented and pinned by t
   across the kill. Previously this channel existed only for backend-derived recursive managers; a
   caller-owned `makeLeafAgent`/`makeWorkerAgent` had no way to recover anything.
 
-## Decision read-out (harden vs. adopt Temporal/Restate/Cloudflare Workflows)
+## Historical decision read-out (before #1381 and #1391)
+
+This section records the original file-only comparison, not the current capability verdict above.
 
 What the runtime has today, and what this suite proves: **single-process-kill durability with
 exactly-once keyed effects and a clean resume contract works on the shipped backends** — for the
@@ -177,24 +184,21 @@ The superseded #1373 branch's unique work — ported onto main and proven here:
 - **`createFencedSqlRunContext`**: the cross-machine run context over it — SQL journal + blobs +
   COORDINATION SIDE-LOG (the other open item), read-only until a lease is acquired;
   `supervise`/`runGraph` accept `runContext` and hold ownership for the whole run.
-- **Evidence (39 cases)**: the fenced store suite (5), the context stores suite (3), and the
-  two-host conformance suite — 19 lost-ack kill points where the process dies between a SQLite
-  statement's commit and its acknowledgement, on either side of every publication, and resumes
-  ON ANOTHER HOST with an empty working directory (no replacement keys, exactly-once provider
-  effects), plus lease takeover (a rejected contender, then takeover after the owner's SIGKILL)
-  and publish-contention tests.
-- **Known gap, documented as expected-fail (6)**: kills in the never-dispatched window
-  (spawned+input committed, no admission, no dispatch) — current retained machinery classifies
-  the recovered never-dispatched session `pending: unobservable` where #1368-era main started it
-  fresh. Follow-up named in the suite header; every checkpoint before the grouped spawn record
-  and from provider create/dispatch onward passes.
+- **Synthesis evidence (40 cases)**: all 26 kill boundaries are ordinary passing tests, including
+  publication-before/after, provider create/dispatch-before/after, and tool effect-before/after.
+  One live contender is refused and the same process takes over after SIGKILL. A stopped owner
+  that later resumes cannot publish or release its successor. The existing 5 fenced-store and
+  3 context-store invariants remain unchanged.
+- **Never-dispatched gap CLOSED**: a journaled execution with no admission may start with its
+  original keys. Any existing admission still requires the original validated intent. No
+  replacement-key or in-doubt fallback is allowed by either SQL fixture.
 
-## Verdict (FINAL): keep and harden the own journal layer
+## Historical pre-#1391 verdict: keep and harden the own journal layer
 
 **Recommendation: keep the shipped journal layer and keep hardening it. Do not adopt
 Temporal/Restate/Cloudflare Workflows for the current product shape.**
 
-What is proven, as of this writing — **119/119 green** (`pnpm run conformance:durability`;
+What was proven before the fenced context landed — **119/119 green** (`pnpm run conformance:durability`;
 machine record: `results.json`):
 
 - **Kill-and-resume works on every shipped durable backend, file AND SQL**: the file run context
