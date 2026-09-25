@@ -46,6 +46,8 @@ try {
     if (!error.status) throw error
   }
   const report = JSON.parse(readFileSync(outputFile, 'utf8'))
+  // Still persist the report, but a failing matrix must fail the conformance command.
+  if (!report.success) process.exitCode = 1
   const cases = []
   for (const suite of report.testResults ?? []) {
     for (const assertion of suite.assertionResults ?? []) {
