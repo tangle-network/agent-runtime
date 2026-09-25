@@ -15,7 +15,7 @@ export function readReleaseNotes() {
     .sort()
     .map((name) => {
       const raw = readFileSync(resolve(notesDir, name), 'utf8')
-      const match = /^type:\s*(patch|minor|major)\s*\n---\s*\n([\s\\S]+?)\s*$/u.exec(raw)
+      const match = /^type:\s*(patch|minor|major)\s*\n---\s*\n([\s\S]+?)\s*$/u.exec(raw)
       if (!match || !allowed.has(match[1])) {
         throw new Error(`.release-notes/${name} must be "type: patch|minor|major", then "---", then release prose`)
       }
