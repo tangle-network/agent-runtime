@@ -1,19 +1,8 @@
-## 0.274.0
+## 0.273.5
 
-A declared check reads the run's state, not only its submitted result.
-A Terminal-Bench task is done when its container holds the right files, and that container lives in
-the run's box, which the check box cannot reach.
-
-- `declaredCheckDeliverable(check, placement, { state })` takes a `DeclaredCheckStateCapture`.
-  Before each in-run read, on `submit_result` and at a turn end alike, Runtime makes an empty
-  directory and the host writes the run's state into it. The check box receives those files at
-  `_input/state/`, and `CHECK_STATE` names that directory. Runtime removes the directory after the
-  read.
-- A capture that throws gives no verdict. The read is a `CheckUnavailableError`, so the loop pauses
-  instead of blaming the director.
-- `readDeclaredCheck` takes `state`, a local directory, for a host that reads the check itself, such
-  as a calibration of gold and null results.
-- A check without `state` reads exactly as before.
+Runtime admits stable Sandbox 0.53.x through its peer range.
+Sandbox 0.53 adds email lines (`lines.fromConnection` with `transport: "email"`) and reports how `instances.ensure` started a box; Runtime does not call those APIs itself.
+The packed compatibility cohort adds its 0.53.0 row once npm serves that version.
 
 ## 0.273.0
 
