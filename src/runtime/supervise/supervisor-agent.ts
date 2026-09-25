@@ -79,6 +79,7 @@ import {
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
+import { createRouterTranscript } from './router-transcript'
 import { applyRunCancellation } from './run-cancellation'
 import { beginScopeOwnerAttempt, recordScopeOwnerPause } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -813,6 +814,8 @@ function buildSupervisorAgent(
     assertRouterArmResourcePolicy(stableProfile)
     const brain = testBrain ?? routerBrainFromProfile(stableProfile, stableRouter)
     const inbox = createInbox()
+    // One conversation per agent, whichever driver `act` builds for an attempt.
+    const transcript = createRouterTranscript()
     const build = (
       priorCoordination?: PriorCoordination,
       nodeTools?: ReadonlyArray<McpToolDescriptor>,
@@ -822,6 +825,7 @@ function buildSupervisorAgent(
       driverAgent({
         name,
         brain,
+        transcript,
         ...(testBrain === undefined
           ? { expectedModel: resolveSupervisorModelId(stableProfile) }
           : {}),
@@ -876,6 +880,7 @@ function buildSupervisorAgent(
       deliver(message): boolean {
         return inbox.deliver(message)
       },
+      harnessTranscript: () => transcript.capture(),
       async act(task, scope) {
         const context = nodeContextSeed
           ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)

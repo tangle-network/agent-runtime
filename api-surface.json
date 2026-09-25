@@ -2101,7 +2101,7 @@
     "./testing": {
       "AgentProfileImprovementFixture": "value 8a79d0f5c646",
       "AgentProfileImprovementProposalFixture": "value 95f42c91bc08",
-      "DriverAgentOptions": "type b863715abb93",
+      "DriverAgentOptions": "type 52612582f058",
       "RunGraphTestOptions": "type c5b5730ba4f0",
       "SuperviseTestOptions": "type 1fd4a3f892e4",
       "SupervisorAgentTestDeps": "type f39aa3b16149",
