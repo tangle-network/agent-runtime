@@ -611,6 +611,16 @@ The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes ev
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`brain`](runtime.md#brain)
 
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](runtime.md#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runContext`](runtime.md#runcontext-2)
+
 ##### rootHandle?
 
 > `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle-2)\<`unknown`\>
@@ -631,7 +641,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-22)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-23)
 
 ##### execution?
 
@@ -1226,7 +1236,7 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-8)
 
 ##### steerDir?
 
@@ -1412,6 +1422,16 @@ Test-only one-call shape, exported only through the package's explicit `/testing
 
 #### Properties
 
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](runtime.md#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runContext`](runtime.md#runcontext-2)
+
 ##### budget
 
 > `readonly` **budget**: [`Budget`](runtime.md#budget-18)
@@ -1442,7 +1462,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-22)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-23)
 
 ##### execution?
 
@@ -2226,7 +2246,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-6)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
 
 ##### runDir?
 
@@ -2270,7 +2290,7 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-8)
 
 ##### steerDir?
 
@@ -2291,7 +2311,7 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-5)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-6)
 
 ##### probes?
 
@@ -2398,7 +2418,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-19)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-21)
 
 ##### now?
 
@@ -2498,7 +2518,7 @@ entry; production supervisor surfaces cannot replace profile-derived model execu
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-7)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-8)
 
 ##### makeWorkerAgent
 

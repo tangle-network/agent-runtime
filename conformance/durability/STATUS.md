@@ -19,9 +19,11 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
 | `runGraph` | any SQL store | — | **journal + blobs: CLOSED** (`SqlSpawnJournal`/`SqlResultBlobStore`, full 23-point matrix green). Still open on SQL: the coordination side-log (file-based behind `runDir`) and machine-visible cross-run ownership |
 
-Totals from the run: **118/118 green** — the inline matrix (24), the session re-attach matrix (24),
-the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the
-known-defect cases (5). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
+Totals from the run: **158/158 green** — the inline matrix (24), the session re-attach matrix (24),
+the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the known-defect cases (5), the inotify invariant (1), and the
+fenced-SQL salvage from #1373 (39: the fenced store + context unit suites, 19 lost-ack kill
+points across TWO hosts, lease takeover/contention, plus 6 expected-fail cases that document
+the never-dispatched recovery gap against current retained machinery). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
 landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
 which the suite's driver now drains correctly.
 
@@ -136,7 +138,11 @@ measurement answers with exact numbers:
 
 - **Before: 1 instance per run.** A durable run sampled in-process across its whole lifetime
   (0 before start, peak 1 while running, 1 until cleanup) holds exactly one inotify instance —
-  the cancellation observer's `fs.watch`. A live child sampled via /proc/<pid>/fd agrees.
+  the cancellation observer's `fs.watch`. A live child sampled via /proc/<pid>/fd agrees. The
+  ADVERSARIAL configuration — `runDir` plus a SEPARATE `steerDir`, the maximum control surface a
+  run can have — also peaks at exactly 1 (sampled every 25 ms for the run's lifetime): there is
+  exactly one `fs.watch` call site in the runtime (run-cancellation.ts), and every other durable
+  control surface (steer acknowledgers, worker-control observers) already polls.
 - **Why there is nothing to share: libuv multiplexes every `fs.watch` in a process over ONE
   inotify instance** (a process with 4 open watches measures 1 fd). The kernel's
   `max_user_instances` budget is consumed per PROCESS, and a durable run is one process. A
@@ -151,44 +157,83 @@ measurement answers with exact numbers:
   loudly), so a neighboring process's resource use can no longer kill runs that never touched
   the limit.
 
+The invariant is PINNED as a standing test (`tests/durability/inotify-invariant.test.ts`,
+included in the conformance totals): a max-control-surface run sampled every 25 ms must peak at
+<= 1 instance. If a change ever adds a second `fs.watch` call site to the durable run path, that
+test goes red — which is exactly the moment a per-runDir shared watcher becomes necessary.
+
 For local verification on a loaded shared host, `npx vitest run --maxWorkers=4` stays
 deterministic; idle CI runners are unaffected either way.
 
-## Verdict: keep and harden the own journal layer
+## Salvage from #1373: fenced SQL run context (cross-machine)
+
+The superseded #1373 branch's unique work — ported onto main and proven here:
+
+- **`openSqlRunStore`** (src/durable/sql-run-store.ts): a fenced append-only log — hash-chained
+  records, publication and takeover as ONE compare-and-set on the run's head row, generation
+  fencing, lease liveness via a persisted progress counter (no host clocks), lost-ack recovery on
+  both claim and publish, fenced release. This is the machine-visible cross-run ownership the
+  STATUS previously listed as open.
+- **`createFencedSqlRunContext`**: the cross-machine run context over it — SQL journal + blobs +
+  COORDINATION SIDE-LOG (the other open item), read-only until a lease is acquired;
+  `supervise`/`runGraph` accept `runContext` and hold ownership for the whole run.
+- **Evidence (39 cases)**: the fenced store suite (5), the context stores suite (3), and the
+  two-host conformance suite — 19 lost-ack kill points where the process dies between a SQLite
+  statement's commit and its acknowledgement, on either side of every publication, and resumes
+  ON ANOTHER HOST with an empty working directory (no replacement keys, exactly-once provider
+  effects), plus lease takeover (a rejected contender, then takeover after the owner's SIGKILL)
+  and publish-contention tests.
+- **Known gap, documented as expected-fail (6)**: kills in the never-dispatched window
+  (spawned+input committed, no admission, no dispatch) — current retained machinery classifies
+  the recovered never-dispatched session `pending: unobservable` where #1368-era main started it
+  fresh. Follow-up named in the suite header; every checkpoint before the grouped spawn record
+  and from provider create/dispatch onward passes.
+
+## Verdict (FINAL): keep and harden the own journal layer
 
 **Recommendation: keep the shipped journal layer and keep hardening it. Do not adopt
 Temporal/Restate/Cloudflare Workflows for the current product shape.**
 
-What is proven today (the evidence above, 94/94):
+What is proven, as of this writing — **119/119 green** (`pnpm run conformance:durability`;
+machine record: `results.json`):
 
-- Single-coordinator kill-and-resume works on every shipped durable backend: the file run context
-  (23/23 kill points incl. mid-step and mid-side-effect), session-backed workers through the
-  `recoverExecutor` recovery channel (23/23 — every session step exactly once across a real
-  SIGKILL), and the conversation layer on both `FileConversationJournal` and
-  `SqlConversationJournal` over real sqlite (18/18 each, plus halted-run replay).
-- The distributed-systems core the "adopt an engine" argument usually rests on is present and
-  pinned: exactly-once keyed side effects across process death, committed work never re-executed,
-  interrupted in-process work auto-retried under its own key, remote-class work recovered by
-  re-attachment, one clean root record per run across processes (the 2026-08-11 signature), and a
-  self-sufficient re-entry contract for directors (the 2026-09-16 fix, pinned).
-- Cost profile: resume is correct but the driver RE-DERIVES its plan from the resume brief (it
-  re-pays planning and reading, not work); the orchestration journal is single-host file-only; the
-  coordination layer is single-writer by design (the repo's own `docs/agent-managed-compute`
-  "Not implemented" table says so).
+- **Kill-and-resume works on every shipped durable backend, file AND SQL**: the file run context
+  (23/23 kill points incl. mid-step and mid-side-effect), the SQL run context over real sqlite
+  (`SqlSpawnJournal` + `SqlResultBlobStore`, 23/23 — the killed process resumes from the database
+  alone), session-backed workers through the `recoverExecutor` re-attach channel (23/23 — every
+  session step exactly once across a real SIGKILL), and the conversation layer on both
+  `FileConversationJournal` and `SqlConversationJournal` (18/18 each, plus halted-run replay);
+  the runDir regression locks (2) and the inotify budget invariant (1) close it out.
+- **The distributed-systems core the "adopt an engine" argument usually rests on is present and
+  pinned**: exactly-once keyed side effects across process death, committed work never
+  re-executed, interrupted in-process work auto-retried under its own key, remote-class work
+  recovered by re-attachment, one clean root record per run across processes (the 2026-08-11
+  signature, guarded), and a self-sufficient re-entry contract for directors (the 2026-09-16
+  fix, pinned as a case).
+- **The baseline this replaced**: the same suite at `6ef05994` (before the first fix) ran 28/70
+  red with 24 more cases un-runnable — the durability work moved 52 cases' worth of surface from
+  red-or-absent to proven.
+- Cost profile, honestly: resume is correct but the driver RE-DERIVES its plan from the resume
+  brief (it re-pays planning and reading, not work); coordination remains single-writer by
+  design; and the SQL arm proves process-kill durability (a deployment that must survive power
+  loss sets its driver's synchronous mode at the adapter).
 
 When to revisit — concrete triggers, not vibes:
 
-1. A product requirement for **multi-coordinator or automatic failover** (two writers on one run,
-   no operator/wrapper restart). That is exactly the fencing/leases problem engines solve.
-2. Orchestration durability that must live in **SQL or a remote store** (the conversation layer
-   already has `SqlConversationJournal`; the spawn layer would need an adapter — the seams
-   (`SpawnJournal`, `ResultBlobStore`, `recoverExecutor`) are interfaces, so an adapter is a
-   contained build, and that same interface boundary is also the migration path if an engine is
-   ever adopted underneath).
+1. **Multi-coordinator or automatic failover** (two writers on one run, no operator/wrapper
+   restart). That is exactly the fencing/leases problem engines solve, and it is not on the
+   current product path.
+2. ~~Orchestration durability in SQL~~ — **CLOSED** by the SQL run context (#1381): journal and
+   blobs run on any `SqlStatements` backend with the full matrix green. What remains open on SQL
+   is the coordination side-log (questions/findings/continuation receipts, still file-based) and
+   machine-visible cross-run ownership — neither needs an engine; both are contained builds
+   behind existing seams.
 3. **Durable timers/workflows across services** (events that must fire days later, workflows
    spanning multiple services' failures).
 
-None of these is on the current product path; until one is, an engine would add infrastructure
-and a second durability model to operate for capabilities this runtime now proves on its own
-evidence. The conformance suite is the gate that keeps that statement true: any regression on
-these axes turns the matrix red before it ships.
+None of the open triggers is on the current product path. Until one is, an engine would add
+infrastructure and a second durability model to operate for capabilities this runtime proves on
+its own evidence — and the seams (`SpawnJournal`, `ResultBlobStore`, `recoverExecutor`) are also
+the migration path if an engine is ever adopted underneath. The conformance suite is the gate
+that keeps that statement true: any regression on these axes turns the matrix red before it
+ships.

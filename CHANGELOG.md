@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.271.0
+## 0.272.0
 
 The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
 A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
@@ -9,6 +9,31 @@ The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a s
 The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
 A router-brained root runs no driver, so its result has no such field.
 `result.json` from `supervisePursuit` carries it with the rest of the result.
+
+The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine
+run ownership and a SQL coordination side-log, the two items this runtime's durability STATUS
+listed as open after 0.270.0. `openSqlRunStore` is a fenced append-only log — hash-chained
+records, publication and takeover as one compare-and-set on the run's head row, generation
+fencing, lease liveness through a persisted progress counter (never host clocks), lost-ack
+recovery on both claim and publish, and fenced release. `createFencedSqlRunContext` composes it
+with the SQL journal, blobs, and coordination log into a run context that is read-only until a
+lease is acquired; `supervise`/`runGraph` accept `runContext` and hold ownership for the whole
+run, and grouped publication (`appendEvents`) advances the fenced head once per spawn and once
+for the root's initialization records. Proven by two-host conformance: 19 lost-ack kill points
+(the process dies between a SQLite commit and its acknowledgement, on either side of every
+publication) resume on another host with an empty working directory — no replacement keys,
+exactly-once provider effects — plus lease takeover and publish-contention tests (39 cases; 6
+expected-fail cases document the never-dispatched recovery gap against current retained
+machinery). Durability conformance totals: 158/158.
+
+
+## 0.271.0
+
+`createStdioToolServer` passes each tool's annotations (`readOnlyHint`, `idempotentHint`, and the rest) through `tools/list` (#1386).
+It answers `ping` with an empty result instead of an unknown-method error.
+It answers `initialize` with the client's requested protocol version when that version is 2025-11-25, 2025-06-18, 2025-03-26, or 2024-11-05.
+`McpToolDescriptor` gains an optional `annotations` field, and `/mcp` exports `McpToolAnnotations` and `SUPPORTED_PROTOCOL_VERSIONS`; no existing caller must change.
+The v0.270.0 tag never published, because #1386 merged before its publish run started; this release carries 0.267.0 through 0.270.0 as well.
 
 Exported spans declare their kind (`openinference.span.kind`), so a reader no longer counts one
 run's tokens three times. The run span `tangle.intelligence.run` carries the run's model and token

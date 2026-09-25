@@ -31,7 +31,7 @@ export const PROTOCOL_VERSION = '2024-11-05'
 /**
  * Protocol versions this server speaks, newest first. `initialize` answers with
  * the client's requested version when it is listed here, and otherwise with
- * `PROTOCOL_VERSION` (2024-11-05), which every client that speaks that version accepts.
+ * `PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
  */
 export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
   '2025-11-25',

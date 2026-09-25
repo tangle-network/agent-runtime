@@ -1869,6 +1869,8 @@ export interface SpawnJournal {
   loadTree(root: NodeId): Promise<SpawnEvent[] | undefined>
   beginTree(root: NodeId, at: string): Promise<void>
   appendEvent(root: NodeId, ev: SpawnEvent): Promise<void>
+  /** Publish all events together or none; SQL contexts use this for initialization records. */
+  appendEvents?(root: NodeId, events: ReadonlyArray<SpawnEvent>): Promise<void>
 }
 
 /** Content-addressed result blobs (the `outRef` → artifact map) backing the replay
