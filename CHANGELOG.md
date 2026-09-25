@@ -1,7 +1,10 @@
-## 0.273.0
+## 0.273.5
 
-Runtime admits stable Sandbox 0.53.x through its peer range and packed compatibility cohort.
+Runtime admits stable Sandbox 0.53.x through its peer range.
 Sandbox 0.53 adds email lines (`lines.fromConnection` with `transport: "email"`) and reports how `instances.ensure` started a box; Runtime does not call those APIs itself.
+The packed compatibility cohort adds its 0.53.0 row once npm serves that version.
+
+## 0.273.0
 
 One check decides "done", one resend rule sends a director back, and Runtime writes the one note
 it hears (discovery `docs/38-one-loop-and-continuation.md`). Measured before this release on 670
