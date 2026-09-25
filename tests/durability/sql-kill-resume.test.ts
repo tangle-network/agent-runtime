@@ -10,7 +10,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -101,7 +101,7 @@ describe('runGraph kill-and-resume conformance (SQL run context, sqlite)', () =>
       const killed = await runPhase(dir, '1', label)
       expect(killed.signal, `phase 1 stderr: ${killed.stderr}`).toBe('SIGKILL')
 
-      const atKill = await auditSpawnJournalAt(dir, RUN_ID, `${dir}/run.sqlite`)
+      const atKill = await auditSpawnJournalAt(RUN_ID, `${dir}/run.sqlite`)
       const committedNodes = new Set(
         Object.entries(atKill.settledDoneByLabel)
           .filter(([, count]) => count > 0)
@@ -116,7 +116,7 @@ describe('runGraph kill-and-resume conformance (SQL run context, sqlite)', () =>
       expect(report.kind).toBe('winner')
       expect(report.out).toEqual(reference.out)
 
-      const final = await auditSpawnJournalAt(dir, RUN_ID, `${dir}/run.sqlite`)
+      const final = await auditSpawnJournalAt(RUN_ID, `${dir}/run.sqlite`)
       expect(final.settledDoneByLabel).toEqual({ surveyor: 1, builder: 1, verifier: 1 })
       for (const node of committedNodes) {
         expect(report.exec, `committed node ${node} re-executed after resume`).not.toContain(node)

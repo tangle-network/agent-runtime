@@ -549,7 +549,6 @@ export async function auditSpawnJournal(dir: string, runId: string): Promise<Jou
 
 /** Audit a run whose durable tree lives in a SQL spawn journal (see `sql-child.ts`). */
 export async function auditSpawnJournalAt(
-  dir: string,
   runId: string,
   sqlitePath: string,
 ): Promise<JournalAudit> {
@@ -583,7 +582,8 @@ function projectJournalAudit(events: SpawnEvent[], runId: string): JournalAudit 
   const cursors: number[] = []
   for (const e of events) {
     if (e.kind === 'spawned' && e.parent !== undefined && e.key !== undefined) {
-      const keys = (spawnedKeysByLabel[e.label] ??= [])
+      const keys = spawnedKeysByLabel[e.label] ?? []
+      spawnedKeysByLabel[e.label] = keys
       if (!keys.includes(e.key)) keys.push(e.key)
     }
     if (e.kind === 'settled' || e.kind === 'cancelled') {
