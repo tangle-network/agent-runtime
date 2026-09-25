@@ -21,6 +21,11 @@ import {
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
+/** OTel GenAI: the tool definitions offered to the model. Matches the constant agent-eval and
+ *  traces each define locally for the same external convention (there is no shared semconv
+ *  package to import it from). */
+const TOOL_DEFINITIONS_ATTR = 'gen_ai.tool.definitions'
+
 export interface OtelExportConfig {
   /** OTLP endpoint. Reads OTEL_EXPORTER_OTLP_ENDPOINT env by default. */
   endpoint?: string
@@ -550,6 +555,15 @@ export function buildRuntimeEventOtelSpans(
       if (event.latencyMs !== undefined) attrs['tangle.latency_ms'] = event.latencyMs
       if (event.finishReason !== undefined)
         attrs['gen_ai.response.finish_reasons'] = event.finishReason
+      // The OTel GenAI convention a trace-contract gate reads to tell "offered no tools" from
+      // "never recorded the offered set" (agent-eval's `tools.enforced`/capture-evidence checks).
+      // Only set when THIS producer knows its own offered set (review finding on rows 13/14); a
+      // sandboxed CLI harness's tool list belongs to its own transcript reader instead.
+      if (event.tools !== undefined && event.tools.length > 0) {
+        attrs[TOOL_DEFINITIONS_ATTR] = JSON.stringify(
+          event.tools.map((toolName) => ({ type: 'function', name: toolName })),
+        )
+      }
     } else if (event.type === 'backend_error') {
       attrs['error.type'] = event.error?.kind ?? 'backend'
       attrs['error.message'] = event.message
