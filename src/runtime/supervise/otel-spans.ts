@@ -29,8 +29,9 @@
  * mistake an unmeasured turn for a free one.
  */
 
+import { ATTR } from '@tangle-network/agent-trace-contract'
 import { contentAddress } from '../../durable/spawn-journal'
-import type { OtelExportConfig, OtelExporter, OtelSpan } from '../../otel-export'
+import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
@@ -112,6 +113,9 @@ export interface SupervisorSpanRecorder {
    * to call twice; never throws — a telemetry failure is not a run failure.
    */
   finish(outcome?: SupervisorSpanOutcome): Promise<void>
+  /** What this run's exporter has delivered and lost so far. Also surfaced once, as a
+   *  `console.warn`, on `finish()` when the closing flush dropped spans. */
+  stats(): OtelExportStats
 }
 
 /** A node span held open between its `agent.spawn` and its `agent.child`. */
@@ -155,6 +159,20 @@ export function createSupervisorSpanRecorder(
   const spanIdOf = new Map<string, string>([[opts.runId, rootSpanId]])
   let finished = false
 
+  /**
+   * The span a node's event hangs under. A parent node whose span this recorder never opened (it
+   * ran in an earlier process) leaves the child on the root span, which is a placeholder, not a
+   * recorded parent.
+   */
+  const parentSpan = (
+    parentId: string | undefined,
+  ): { spanId: string; confidence: 'explicit' | 'unknown' } => {
+    const spanId = parentId === undefined ? undefined : spanIdOf.get(parentId)
+    return spanId
+      ? { spanId, confidence: 'explicit' }
+      : { spanId: rootSpanId, confidence: 'unknown' }
+  }
+
   /** Every export is best-effort: a throwing exporter must never reach the run. */
   const emit = (span: OtelSpan): void => {
     try {
@@ -196,7 +214,7 @@ export function createSupervisorSpanRecorder(
       ...base,
       // A wait-state node holds no executor and burns nothing; `CHAIN` keeps a token/cost reader
       // from counting it as an agent that reported nothing.
-      'openinference.span.kind': isWait ? 'CHAIN' : 'AGENT',
+      [ATTR.spanKind]: isWait ? 'CHAIN' : 'AGENT',
       'agent.name': label,
       'tangle.supervise.node.id': childId,
       'tangle.supervise.node.label': label,
@@ -208,16 +226,27 @@ export function createSupervisorSpanRecorder(
     if (event.parentId) attrs['tangle.supervise.node.parent_id'] = event.parentId
     if (runtime) attrs['tangle.supervise.node.runtime'] = runtime
     if (typeof p.depth === 'number') attrs['tangle.supervise.node.depth'] = p.depth
+    // Retry safety: every try of one keyed assignment shares its operation id and carries its own
+    // attempt id, and the key is what makes a re-spawn re-attach instead of running twice.
+    const key = str(p.key)
+    const operation = str(p.assignmentId) ?? key
+    if (operation) attrs[ATTR.operationId] = operation
+    const attempt = str(p.attemptId)
+    if (attempt) attrs[ATTR.attemptId] = attempt
+    if (key) attrs[ATTR.idempotencyKey] = key
     if (typeof event.stepIndex === 'number')
       attrs['tangle.supervise.node.ordinal'] = event.stepIndex
     if (p.resumed === true) attrs['tangle.supervise.node.resumed'] = true
     assignBudget(attrs, p.budget)
 
+    const parent = parentSpan(event.parentId)
+    attrs[ATTR.parentConfidence] = parent.confidence
+
     const spanId = generateSpanId()
     spanIdOf.set(childId, spanId)
     open.set(childId, {
       spanId,
-      parentSpanId: (event.parentId && spanIdOf.get(event.parentId)) || rootSpanId,
+      parentSpanId: parent.spanId,
       name: label,
       startMs: event.timestamp,
       attrs,
@@ -269,10 +298,13 @@ export function createSupervisorSpanRecorder(
   function onTurn(event: RuntimeHookEvent): void {
     const p = record(event.payload)
     const parentId = event.parentId
-    const parentSpanId = (parentId && spanIdOf.get(parentId)) || rootSpanId
+    // A turn with no node is the root manager's own.
+    const parent = parentId ? parentSpan(parentId) : { spanId: rootSpanId, confidence: 'explicit' }
+    const parentSpanId = parent.spanId
     const attrs: Attrs = {
       ...base,
-      'openinference.span.kind': 'LLM',
+      [ATTR.parentConfidence]: parent.confidence,
+      [ATTR.spanKind]: 'LLM',
       'inference.observation_kind': 'LLM',
       'tangle.supervise.node.kind': 'inference',
     }
@@ -374,17 +406,34 @@ export function createSupervisorSpanRecorder(
             'supervisor.run',
             rootStartMs,
             endMs,
-            rootAttrs(base, opts.agentName ?? 'supervisor', outcome),
+            {
+              ...rootAttrs(base, opts.agentName ?? 'supervisor', outcome),
+              ...(opts.parentSpanId ? { [ATTR.parentConfidence]: 'explicit' } : {}),
+            },
             rootStatus(outcome),
             rootMessage(outcome),
           ),
         )
-        await exporter.flush()
-        if (ownsExporter) await exporter.shutdown()
       } catch {
-        // Telemetry is not the work.
+        // Telemetry is not the work: a failure building or emitting the closing
+        // spans above must never reach the run.
+      }
+      // Flush and shutdown run outside the span-building try so a rejected
+      // flush cannot skip shutdown, and are surfaced instead of swallowed: a
+      // 401 or a dead collector was previously silent even to someone
+      // awaiting finish(). One warning per finish() call, not per span.
+      try {
+        await exporter.flush()
+      } catch (error) {
+        const s = exporter.stats()
+        console.warn(
+          `[agent-runtime] supervisor span export dropped ${s.dropped} span(s): ${s.lastError ?? String(error)}`,
+        )
+      } finally {
+        if (ownsExporter) await exporter.shutdown()
       }
     },
+    stats: () => exporter.stats(),
   }
 }
 
@@ -393,7 +442,7 @@ export function createSupervisorSpanRecorder(
 function rootAttrs(base: Attrs, agentName: string, outcome?: SupervisorSpanOutcome): Attrs {
   const attrs: Attrs = {
     ...base,
-    'openinference.span.kind': 'AGENT',
+    [ATTR.spanKind]: 'AGENT',
     'inference.observation_kind': 'AGENT',
     'agent.name': agentName,
     'inference.agent_name': agentName,

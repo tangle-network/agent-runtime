@@ -28,8 +28,8 @@ catalogs:
       specifier: '>=0.20.1 <0.21.0'
       version: 0.20.1
     '@tangle-network/agent-trace-contract':
-      specifier: ^1.0.2
-      version: 1.0.2
+      specifier: ^1.2.0
+      version: 1.2.0
     '@tangle-network/sandbox':
       specifier: '>=0.36.4 <0.48.0'
       version: 0.47.0
@@ -64,7 +64,7 @@ importers:
         version: 0.20.1(@tangle-network/agent-interface@2.12.0)
       '@tangle-network/agent-trace-contract':
         specifier: 'catalog:'
-        version: 1.0.2
+        version: 1.2.0
       tar-stream:
         specifier: 3.2.1
         version: 3.2.1
@@ -1333,6 +1333,9 @@ packages:
 
   '@tangle-network/agent-trace-contract@1.0.2':
     resolution: {integrity: sha512-v7uMh56jkEp4vckevEU9xKsIatbs5dqzGPp69dFLSSXUVit0RP6VD6EANMXVlTCUk+6wVKBLHJx23XspVCEiIA==}
+
+  '@tangle-network/agent-trace-contract@1.2.0':
+    resolution: {integrity: sha512-B1CC4tiZcpwPPj68e1s7fQsOFe8gdDnIGsLQ+eE/HplZgym/giDlpDNmjcOyPDsBREAWwSDMLJMYAiQGpFgHcw==}
 
   '@tangle-network/sandbox@0.47.0':
     resolution: {integrity: sha512-cR2HrDuzoTTxtf5MlPdNwfygjtaYASjfj1nqmMU8VwogooM4C0Y60hH+p32Sxk1TKSoq1NPQsTjkAIIblOIiHg==}
@@ -3592,7 +3595,7 @@ snapshots:
       '@hono/node-server': 2.1.1(hono@4.13.7)
       '@tangle-network/agent-core': 0.9.7(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))
       '@tangle-network/agent-interface': 2.12.0
-      '@tangle-network/agent-trace-contract': 1.0.2
+      '@tangle-network/agent-trace-contract': 1.2.0
       hono: 4.13.7
       linear-sum-assignment: 1.0.9
       re2js: 2.8.6
@@ -3627,6 +3630,8 @@ snapshots:
       '@tangle-network/agent-interface': 2.12.0
 
   '@tangle-network/agent-trace-contract@1.0.2': {}
+
+  '@tangle-network/agent-trace-contract@1.2.0': {}
 
   '@tangle-network/sandbox@0.47.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(viem@2.54.6(typescript@6.0.3)(zod@4.5.4))':
     dependencies:
