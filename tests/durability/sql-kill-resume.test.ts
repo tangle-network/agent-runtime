@@ -1,36 +1,30 @@
 /**
- * runGraph kill-and-resume conformance — the SQL arm (DRAFT, representative subset).
+ * runGraph kill-and-resume conformance — the SQL arm.
  *
  * The durable stores are `SqlSpawnJournal` + `SqlResultBlobStore` over a REAL sqlite file: the
- * killed process's only inheritance is the database. Same contract as the file-run-context
- * matrix, over a representative kill set (early boundary, worker mid/after — the in-doubt window,
- * the side-effect window, and the final submission turn); the full 23-point sweep and the
- * capabilities.json registration land when this leaves draft.
+ * killed process's only inheritance is the database. The FULL matrix — every step boundary and
+ * mid-step instant of the reference run, derived from its own label sequence — under the same
+ * contract as the file-run-context matrix: completes with the same final output, no step lost, no
+ * committed step repeated (nodes settled in SQL before the kill never re-run), one key per
+ * assignment, the side effect exactly once, and a resume-contract-clean journal.
  */
 
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ARTIFACT_KEY,
   auditSpawnJournalAt,
   type GraphChildReport,
   type JournalAudit,
   RUN_ID,
+  referenceLabels,
   WORKER_NODES,
 } from '../helpers/durability/conformance-graph'
 
 const childScript = new URL('../helpers/durability/sql-child.ts', import.meta.url).pathname
-
-const CASES = [
-  'driver:turn:1:before',
-  'worker:surveyor:mid',
-  'worker:builder:after',
-  'tool:commit:after-effect',
-  'driver:turn:6:after',
-] as const
 
 interface PhaseExit {
   readonly code: number | null
@@ -69,9 +63,17 @@ function parseReport(stdout: string): GraphChildReport {
   return JSON.parse(line) as GraphChildReport
 }
 
-describe('runGraph kill-and-resume conformance (SQL run context, sqlite) — draft subset', () => {
+// ── Reference run at module scope (its label sequence parametrizes the cases) ───────────────
+
+const referenceDir = await mkdtemp(join(tmpdir(), 'sql-kill-resume-ref-'))
+const referenceExit = await runPhase(referenceDir, '1')
+if (referenceExit.code !== 0) throw new Error(`reference run failed: ${referenceExit.stderr}`)
+const reference: GraphChildReport = parseReport(referenceExit.stdout)
+const cases: string[] = referenceLabels(referenceDir, '1')
+await rm(referenceDir, { recursive: true, force: true })
+
+describe('runGraph kill-and-resume conformance (SQL run context, sqlite)', () => {
   let dir: string
-  let reference: GraphChildReport
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'sql-kill-resume-'))
@@ -80,17 +82,19 @@ describe('runGraph kill-and-resume conformance (SQL run context, sqlite) — dra
     await rm(dir, { recursive: true, force: true })
   })
 
-  it('the reference run completes with the expected outcome', { timeout: 120_000 }, async () => {
-    const ref = await runPhase(dir, '1')
-    expect(ref.code, `reference stderr: ${ref.stderr}`).toBe(0)
-    reference = parseReport(ref.stdout)
+  afterAll(() => {
+    console.log(`SQL kill-and-resume case matrix (${cases.length} labels): ${cases.join(', ')}`)
+  })
+
+  it('the reference run completes with the expected outcome', () => {
     expect(reference.kind).toBe('winner')
     expect(reference.out).toEqual({ artifactKey: ARTIFACT_KEY, nodes: [...WORKER_NODES] })
     expect(reference.committedEffects).toEqual([ARTIFACT_KEY])
     expect(reference.escalations).toEqual([])
+    expect([...reference.exec].sort()).toEqual([...WORKER_NODES].sort())
   })
 
-  it.each(CASES.map((label) => [label] as const))(
+  it.each(cases.map((label) => [label] as const))(
     'SIGKILL at %s → resume completes, loses nothing, repeats no committed step',
     { timeout: 120_000 },
     async (label: string) => {

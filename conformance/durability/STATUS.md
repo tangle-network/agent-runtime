@@ -13,15 +13,15 @@ Regenerate the evidence: `pnpm run conformance:durability`
 | --- | --- | --- | --- |
 | `runGraph` (driver + 3 delegate steps, keyed side-effect tool) | file run context (`FileSpawnJournal` + `FileResultBlobStore` + `FileCoordinationLog` via `runDir`) | 23 kill points (every driver-turn boundary, each worker's before/mid/after, the tool's before/after-effect) + reference | **PASS** — after the fix below; every case resumed to the same winner, no step lost, no committed step repeated, side effect exactly once, journal resume-contract clean |
 | `runGraph` with session-backed workers (re-attach arm, `recoverExecutor`) | file run context | 23 kill points (mid-session steps + driver boundaries + tool) + reference | **PASS** — interrupted sessions are RECOVERED and re-attached: every session step runs exactly once across processes, interrupted keys are never reminted, side effect exactly once |
-| `runGraph` (draft arm) | `SqlSpawnJournal` + `SqlResultBlobStore` over real sqlite (`node:sqlite`), `resume: true` | representative subset (early boundary, worker mid/after, side-effect window, final turn) + reference | **PASS (draft)** — killed process resumes from the database alone: same winner, committed nodes never re-executed, one key per assignment, effect exactly once; full 23-point sweep when it leaves draft |
+| `runGraph` | `SqlSpawnJournal` + `SqlResultBlobStore` over real sqlite (`node:sqlite`), `resume: true` | 23 kill points (every driver-turn boundary, worker before/mid/after, tool before/after-effect) + reference | **PASS** — the killed process resumes from the database alone: same winner, committed nodes never re-executed, one key per assignment, effect exactly once, journal resume-contract clean |
 | `runConversation` (6 turns, 2 participants, keyed per-turn effect) | `FileConversationJournal` | 18 kill points (turn start / backend-done-before-commit / turn-committed) + reference + halt-replay | **PASS** |
 | `runConversation` | `SqlConversationJournal` over real sqlite (`node:sqlite`) | same 18 + reference | **PASS** |
 | `runGraph` | `FileConversationJournal` / `SqlConversationJournal` | — | **N/A — capability gap**: `runGraph`'s durable layer is the `SpawnJournal` family; `ConversationJournal` is a different interface on a different subsystem. A graph run cannot take these backends. |
-| `runGraph` | any SQL store | — | **closing**: `SqlSpawnJournal`/`SqlResultBlobStore` are drafted (`feat/sql-run-context`) — unit parity + a real-SIGKILL subset green; full matrix, coordination-log and cross-machine ownership remain |
+| `runGraph` | any SQL store | — | **journal + blobs: CLOSED** (`SqlSpawnJournal`/`SqlResultBlobStore`, full 23-point matrix green). Still open on SQL: the coordination side-log (file-based behind `runDir`) and machine-visible cross-run ownership |
 
-Totals from the run: **94/94 green** — the inline matrix (24), the session re-attach matrix (24),
-the conversation matrices (39), the runDir regression locks (2), the known-defect cases (5). The
-inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
+Totals from the run: **118/118 green** — the inline matrix (24), the session re-attach matrix (24),
+the SQL matrix (24), the conversation matrices (39), the runDir regression locks (2), the
+known-defect cases (5). The inline matrix was also verified green against 0.255.0-era main before the 0.262–0.265 series
 landed; the only matrix-visible effect of that series here is the new `open-work` submission gate,
 which the suite's driver now drains correctly.
 
@@ -129,25 +129,27 @@ spawn journal.
 | `tests/durability/conversation-kill-resume.test.ts` | the 18-point matrix × both conversation backends + halted-run replay |
 | `tests/durability/known-defects.test.ts` | the two autopsy signatures: both now guarded and green (08-11 journal cleanliness; 09-16 re-entry contract) |
 
-## Inotify: measured, and what was actually fixed
+## Inotify: instances-per-run, measured before and after consideration of a shared watcher
 
-Asked whether a run should share one watcher per runDir, the measurement says a run already holds
-exactly ONE inotify instance, and cannot hold fewer:
+Asked for a per-runDir shared watcher "so a run holds one inotify instance, not many", the
+measurement answers with exact numbers:
 
-- A live durable child (the conformance graph runner, sampled mid-run via /proc/<pid>/fd) holds
-  **1** inotify instance — the cancellation observer's `fs.watch`.
-- libuv multiplexes every `fs.watch` in a process over one shared inotify instance: a process
-  with 4 open watches measures **1** inotify fd. A per-runDir shared watcher is therefore a no-op
-  (1 → 1), and was not built.
-
-What the box pressure actually is: the inotify instance budget is **per process**, and this host's
-baseline is ~110 of the 128 default user instances held by OTHER fleet processes (agent sessions,
-browsers, editors). The suites' transient children each hold ≤1 for their ~3–5 s life — a
-marginal peak of ~5 during a full run. The real defect the pressure exposed: when the budget WAS
-exhausted, `fs.watch()` threw EMFILE at observer creation and **crashed the durable run**, even
-though the observer already carries a 100 ms poll loop that needs no watcher. Fixed
-(`run-cancellation.ts`): EMFILE/ENOSPC at watch creation degrades to poll-only (instant pickup →
-≤100 ms), every other creation error still fails loudly. Regression tests cover both arms.
+- **Before: 1 instance per run.** A durable run sampled in-process across its whole lifetime
+  (0 before start, peak 1 while running, 1 until cleanup) holds exactly one inotify instance —
+  the cancellation observer's `fs.watch`. A live child sampled via /proc/<pid>/fd agrees.
+- **Why there is nothing to share: libuv multiplexes every `fs.watch` in a process over ONE
+  inotify instance** (a process with 4 open watches measures 1 fd). The kernel's
+  `max_user_instances` budget is consumed per PROCESS, and a durable run is one process. A
+  per-runDir shared watcher measures **after: 1 — no change (1 → 1)**, so it was not built.
+- The only architecture that would take a run to 0 instances — one box-wide watcher daemon
+  delivering cancellations over IPC — makes cancellation delivery depend on a daemon being
+  alive: strictly worse durability, to save ~5 transient instances. Rejected.
+- What the box pressure (~106–112 of 128 held by other fleet processes, sampled during this work)
+  actually broke, and what shipped for it (#1378, 0.269.1): when the budget IS exhausted,
+  `fs.watch()` threw EMFILE at observer creation and **crashed durable runs**. The observer now
+  degrades to its existing 100 ms poll loop on EMFILE/ENOSPC (any other error still fails
+  loudly), so a neighboring process's resource use can no longer kill runs that never touched
+  the limit.
 
 For local verification on a loaded shared host, `npx vitest run --maxWorkers=4` stays
 deterministic; idle CI runners are unaffected either way.
