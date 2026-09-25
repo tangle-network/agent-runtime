@@ -1,5 +1,8 @@
 ## 0.273.0
 
+Runtime admits stable Sandbox 0.53.x through its peer range and packed compatibility cohort.
+Sandbox 0.53 adds email lines (`lines.fromConnection` with `transport: "email"`) and reports how `instances.ensure` started a box; Runtime does not call those APIs itself.
+
 One check decides "done", one resend rule sends a director back, and Runtime writes the one note
 it hears (discovery `docs/38-one-loop-and-continuation.md`). Measured before this release on 670
 settled discovery-lab runs: the note Runtime wrote carried no line of the check's verdict, 1,565
