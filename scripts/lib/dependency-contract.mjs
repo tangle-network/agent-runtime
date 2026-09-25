@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,18 +24,70 @@ function peerFloor(name, range) {
 const sandboxPeerRange = declaredPeerRange('@tangle-network/sandbox')
 
 export { sandboxPeerRange }
-// The newest Sandbox may be packed from a pinned ADC cut before npm serves it.
-export const sandboxCompatibilityVersions = Object.freeze([
-  peerFloor('@tangle-network/sandbox', sandboxPeerRange),
-  '0.43.0',
-  '0.46.0',
-  '0.47.0',
-  '0.49.0',
-  '0.50.0',
-  '0.51.0',
-  '0.52.0',
-  '0.53.0',
-])
+
+function stableVersionTuple(version) {
+  const match = /^(\\d+)\\.(\\d+)\\.(\\d+)$/.exec(version)
+  return match ? match.slice(1).map(Number) : null
+}
+
+function compareVersions(left, right) {
+  const a = stableVersionTuple(left)
+  const b = stableVersionTuple(right)
+  if (a === null || b === null) return left.localeCompare(right)
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index]
+  }
+  return 0
+}
+
+function rangeAdmitsStable(range, version) {
+  const target = stableVersionTuple(version)
+  if (target === null) return false
+  const order = ([major, minor, patch]) => major * 1_000_000_000_000 + minor * 1_000_000 + patch
+  return range.split('||').some((rawClause) => {
+    const clause = rawClause.trim()
+    const window = /^>=(\\d+\\.\\d+\\.\\d+)\\s+<(\\d+\\.\\d+\\.\\d+)$/.exec(clause)
+    if (window) {
+      return order(target) >= order(stableVersionTuple(window[1])) && order(target) < order(stableVersionTuple(window[2]))
+    }
+    const caret = /^\\^(\\d+)\\.(\\d+)\\.(\\d+)(?:-0)?$/.exec(clause)
+    if (!caret) return false
+    const floor = caret.slice(1).map(Number)
+    if (order(target) < order(floor) || target[0] !== floor[0]) return false
+    if (floor[0] > 0) return true
+    if (target[1] !== floor[1]) return false
+    return floor[1] > 0 ? target[2] >= floor[2] : target[2] === floor[2]
+  })
+}
+
+function publishedCompatibilityVersions(name, range) {
+  const raw = execFileSync('npm', ['view', name, 'versions', '--json', '--registry=https://registry.npmjs.org'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  const published = JSON.parse(raw)
+  if (!Array.isArray(published)) throw new Error(`npm returned no version list for ${name}`)
+  const admitted = published.filter((version) => rangeAdmitsStable(range, version)).sort(compareVersions)
+  if (admitted.length === 0) throw new Error(`npm has no published ${name} version admitted by ${range}`)
+
+  // Exercise the exact floor and the newest published patch in every admitted minor.
+  // This is derived from npm on every cohort run, so a newly published admitted minor
+  // cannot wait for a hand edit in Runtime before it is tested.
+  const floor = peerFloor(name, range)
+  const selected = new Set(admitted.includes(floor) ? [floor] : [])
+  const newestByMinor = new Map()
+  for (const version of admitted) {
+    const [major, minor] = stableVersionTuple(version)
+    newestByMinor.set(`${major}.${minor}`, version)
+  }
+  for (const version of newestByMinor.values()) selected.add(version)
+  return [...selected].sort(compareVersions)
+}
+
+export const sandboxCompatibilityVersions = Object.freeze(
+  publishedCompatibilityVersions('@tangle-network/sandbox', sandboxPeerRange),
+)
 
 /**
  * The registry versions a peer window adds to its exact development pin.
