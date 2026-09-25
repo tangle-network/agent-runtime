@@ -15,7 +15,7 @@ export function readReleaseNotes() {
     .sort()
     .map((name) => {
       const raw = readFileSync(resolve(notesDir, name), 'utf8')
-      const match = /^type:\\s*(patch|minor|major)\\s*\\n---\\s*\\n([\\s\\S]+?)\\s*$/u.exec(raw)
+      const match = /^type:\s*(patch|minor|major)\s*\n---\s*\n([\s\\S]+?)\s*$/u.exec(raw)
       if (!match || !allowed.has(match[1])) {
         throw new Error(`.release-notes/${name} must be "type: patch|minor|major", then "---", then release prose`)
       }
@@ -45,10 +45,10 @@ if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   const notes = readReleaseNotes()
   const base = baseRef()
   if (!base) {
-    process.stdout.write(`release notes: ${notes.length} pending; no base ref available, skipped diff requirement\\n`)
+    process.stdout.write(`release notes: ${notes.length} pending; no base ref available, skipped diff requirement\n`)
     process.exit(0)
   }
-  const changed = git(['diff', '--name-only', `${base}...HEAD`]).trim().split('\\n').filter(Boolean)
+  const changed = git(['diff', '--name-only', `${base}...HEAD`]).trim().split('\n').filter(Boolean)
   const consumerChange = changed.some((path) =>
     path === 'package.json' ||
     path === 'pnpm-workspace.yaml' ||
@@ -67,5 +67,5 @@ if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   if (consumerChange && !releaseOnly && notes.length === 0) {
     throw new Error('consumer-visible changes need one .release-notes/*.md entry; version and CHANGELOG move only in the release PR')
   }
-  process.stdout.write(`release notes: ${notes.length} pending\\n`)
+  process.stdout.write(`release notes: ${notes.length} pending\n`)
 }
