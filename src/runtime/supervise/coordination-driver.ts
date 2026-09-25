@@ -197,10 +197,12 @@ export interface DriverAgentOptions {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<string | null | undefined>
-  /** Max driver turns before the loop force-finalizes on the best settled child. Default 16.
-   *  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
-   *  an absolute deadline, the driver's own stop, and abort (checked in-loop). A finite
-   *  anti-runaway tripwire still guards a degenerate driver that loops on a no-spawn tool. */
+  /** Max driver turns before the loop force-finalizes on the best settled child. Default `0`: no
+   *  turn-count cap. The loop is bounded by the conserved budget pool (every driver turn is metered
+   *  into it), an absolute deadline, the driver's own stop, and abort, all checked before each
+   *  turn. A manager awaits one settlement per turn, so the old default of 16 ended any manager
+   *  with more than about 14 workers and tore its unfinished workers down: measured 2026-09-25 on
+   *  a 1 + 20 + 400 tree, 124 of 420 agents settled `down` at 16 and none at 0. */
   readonly maxTurns?: number
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
    *  deterministic in tests. Defaults to `Date.now`. */
@@ -944,9 +946,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       'driverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
     )
   }
-  // maxTurns=0 lifts the turn-count cap exactly. The conserved pool, deadline, abort, and explicit
-  // stop remain the caller-visible bounds; Runtime does not substitute a hidden sentinel.
-  const maxTurns = opts.maxTurns ?? 16
+  // maxTurns=0 is no turn-count cap. The conserved pool, deadline, abort, and explicit stop remain
+  // the caller-visible bounds; Runtime does not substitute a hidden sentinel.
+  const maxTurns = opts.maxTurns ?? 0
   const now = opts.now ?? Date.now
   const inbox = opts.inbox ?? createInbox()
   const transcript = opts.transcript ?? createRouterTranscript()

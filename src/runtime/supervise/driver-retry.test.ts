@@ -322,10 +322,27 @@ describe('runDriverWithRetry', () => {
     expect(script.attempts).toHaveLength(8)
   })
 
-  it('stops at the absolute attempt ceiling even while every attempt looks productive', async () => {
-    // The pathological case the barren counter cannot see: the driver meters a little, then dies,
-    // forever. Each attempt reads as progress, so only the absolute ceiling ends it before the
-    // whole envelope is gone.
+  it('keeps rescuing a productive crash loop until the budget it spends runs out', async () => {
+    // The driver meters a little, then dies, again and again. Each attempt is progress, so no
+    // count ends it: the money it spends does. Twelve crashes pass the old default of eight.
+    const script = scriptedDrive(Array.from({ length: 20 }, () => new Error('stream closed')))
+    let poolTokensSpent = 0
+    const error = await runDriverWithRetry({
+      drive: async (attempt) => {
+        poolTokensSpent += 10
+        await script.drive(attempt)
+      },
+      progress: () => ({ poolTokensSpent, settledCount: 0, submitted: false }),
+      budget: () => budget({ tokensLeft: 120 - poolTokensSpent }),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+    }).catch((e: unknown) => e)
+
+    expect(script.attempts).toHaveLength(12)
+    expect((error as DriverAttemptsExhaustedError).stop).toBe('budget-exhausted')
+  })
+
+  it('stops at an attempt ceiling the caller sets', async () => {
     const script = scriptedDrive(Array.from({ length: 20 }, () => new Error('stream closed')))
     let poolTokensSpent = 0
     const error = await runDriverWithRetry({
@@ -336,6 +353,7 @@ describe('runDriverWithRetry', () => {
       progress: () => ({ poolTokensSpent, settledCount: 0, submitted: false }),
       budget: () => budget(),
       signal: new AbortController().signal,
+      policy: { maxAttempts: 8 },
       sleep: instantSleep,
     }).catch((e: unknown) => e)
 
