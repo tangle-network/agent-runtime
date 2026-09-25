@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { toolSpansToTraceAnalysisStore } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../errors'
 import {
@@ -21,6 +22,45 @@ import {
   verdictFromJudgeScore,
 } from './continuation'
 import type { DriverProgressMark } from './driver-retry'
+import { rootStreamToolSpans } from './run-traces'
+
+/** A one-call director trace, as the panel reads it. */
+const directorTraces = () =>
+  toolSpansToTraceAnalysisStore(
+    rootStreamToolSpans(
+      [
+        {
+          seq: 1,
+          at: '2026-09-25T00:00:00.000Z',
+          attempt: 1,
+          event: { kind: 'text_delta', text: 'Wrote primes.txt.' },
+        },
+        {
+          seq: 2,
+          at: '2026-09-25T00:00:01.000Z',
+          attempt: 1,
+          event: {
+            kind: 'tool_call',
+            toolName: 'bash',
+            toolCallId: 'c1',
+            args: { command: 'wc -l primes.txt' },
+          },
+        },
+        {
+          seq: 3,
+          at: '2026-09-25T00:00:02.000Z',
+          attempt: 1,
+          event: {
+            kind: 'tool_result',
+            toolName: 'bash',
+            toolCallId: 'c1',
+            result: '99 primes.txt',
+          },
+        },
+      ],
+      'root',
+    ),
+  )
 
 const testContinuationProfile: ContinuationProfile = {
   id: 'test-profile',
@@ -396,6 +436,8 @@ describe('one manager continuation keeper', () => {
           runPanel: async (input) => {
             asked.push([...input.questions])
             expect(input.usdCap).toBeCloseTo(asked.length === 1 ? 0.5 : 0.3)
+            // The panel reads the run's own traces: the director's root stream is trace `root`.
+            expect(await input.traces.countTraces({})).toBe(1)
             return {
               findings: [
                 finding({ claim: `Finding ${asked.length}.` }),
@@ -408,6 +450,7 @@ describe('one manager continuation keeper', () => {
         task: 'write primes.txt',
         reads: () => log,
         workers: () => [],
+        traces: async () => directorTraces(),
         dir,
         canReadMore: true,
       })
@@ -456,6 +499,42 @@ describe('one manager continuation keeper', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  it('runs no panel before the run has recorded a trace, and records why', async () => {
+    let called = 0
+    const keeper = createContinuationKeeper({
+      policy: testContinuation({
+        panel: 'on',
+        panelUsd: { perContinuation: 0.5, perRun: 1 },
+        profile: { ...testContinuationProfile, questions: ['Which spans produced {item}?'] },
+        runPanel: async () => {
+          called += 1
+          return { findings: [], usd: 0 }
+        },
+      }),
+      task: 'write primes.txt',
+      reads: () => reads([failing]),
+      workers: () => [],
+      traces: async () => undefined,
+      canReadMore: true,
+    })
+    await keeper.compose({
+      attempt: 1,
+      continuations: 0,
+      progress,
+      budget: {} as never,
+      barrenReentries: 0,
+      signal: new AbortController().signal,
+    })
+    expect(called).toBe(0)
+    expect(keeper.entries()[0]?.panel).toEqual({
+      asked: 0,
+      proposed: 0,
+      admitted: 0,
+      usd: 0,
+      unavailable: 'the run has recorded no trace yet',
+    })
   })
 
   it('keeps the FAIL lines out of the note and of read_continuation under pass-only feedback', async () => {

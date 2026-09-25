@@ -441,7 +441,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1041 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1042 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1195,6 +1195,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1041 exports.
 | `CoordinationDeliveryEvidence` | type | Durable delivery evidence retained in commit order. An attempt without a later event carrying |
 | `CoordinationEvent` | type | Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for |
 | `CoordinationOwnerId` | type | Stable identity of the supervisor that owns one coordination stream. High-level supervision |
+| `DeclaredCheckStateCapture` | type | Write the run's state into `into`, an empty directory Runtime created and removes after the read. |
 | `DefinePersona` | type | Builds a frozen `Persona`, failing loud on the executors-supplied invariant (neither a |
 | `Deliverable` | type | How a typed deliverable `Out` is materialized from a finished turn. |
 | `DeliverableResolutionInput` | type | Exact trusted context for selecting one backend-derived leaf's completion check. |
