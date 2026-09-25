@@ -10046,7 +10046,7 @@ readonly [`RuntimeStreamEvent`](#runtimestreamevent)[]
 
 ### buildLoopOtelSpans()
 
-> **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`): [`OtelSpan`](#otelspan)[]
+> **buildLoopOtelSpans**(`events`, `traceId`, `rootParentSpanId?`, `redact?`): [`OtelSpan`](#otelspan)[]
 
 Build a nested, real-duration OTLP span tree for ONE loop run from its full
 ordered `LoopTraceEvent` stream. Unlike `loopEventToOtelSpan` (one flat,
@@ -10077,6 +10077,10 @@ readonly `object`[]
 
 `string`
 
+##### redact?
+
+(`value`) => `unknown`
+
 #### Returns
 
 [`OtelSpan`](#otelspan)[]
@@ -10085,7 +10089,7 @@ readonly `object`[]
 
 ### buildLoopSpanNodes()
 
-> **buildLoopSpanNodes**(`events`): [`LoopSpanNode`](#loopspannode)[]
+> **buildLoopSpanNodes**(`events`, `redact?`): [`LoopSpanNode`](#loopspannode)[]
 
 Sink-neutral core behind [buildLoopOtelSpans](#buildloopotelspans): reconstruct the
 loop → round → branch span tree from one run's ordered `LoopTraceEvent`
@@ -10099,6 +10103,10 @@ at the last observed event's timestamp).
 ##### events
 
 readonly `object`[]
+
+##### redact?
+
+(`value`) => `unknown`
 
 #### Returns
 

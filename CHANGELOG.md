@@ -1,3 +1,10 @@
+## 0.274.0
+
+`buildLoopOtelSpans` and `buildLoopSpanNodes` take the run's redactor and apply it to every free-text loop node attribute (rationale, decision, error and output preview).
+Their exported signatures changed, so this is a minor release.
+Before it, `exportRunRecord` redacted a run's input, output and runtime events but exported loop-topology spans with raw model and customer text, including credentials.
+A caller that builds loop spans itself should pass the same redactor it uses for `tangle.input` and `tangle.output`.
+
 ## 0.273.5
 
 Runtime admits stable Sandbox 0.53.x through its peer range.
