@@ -2,6 +2,14 @@
 
 ## 0.270.0
 
+The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
+A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
+The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a spawn journal, and none has a native-session receipt.
+27 of the 57 harness subagent calls seen in those runs were made by roots.
+The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
+A router-brained root runs no driver, so its result has no such field.
+`result.json` from `supervisePursuit` carries it with the rest of the result.
+
 SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
 conformance work recorded. `SqlSpawnJournal` and `SqlResultBlobStore` (`/kernel`, @experimental)
 run the same begin/append/load contract as the file stores over the `SqlStatements` seam
@@ -19,14 +27,6 @@ named follow-ups; single-writer by convention, like the file context.
 
 
 ## 0.269.1
-
-The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
-A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
-The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a spawn journal, and none has a native-session receipt.
-27 of the 57 harness subagent calls seen in those runs were made by roots.
-The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
-A router-brained root runs no driver, so its result has no such field.
-`result.json` from `supervisePursuit` carries it with the rest of the result.
 
 A durable run whose cancellation observer cannot create its inotify watch degrades to poll-only
 instead of dying. Creating `fs.watch` can fail for reasons that say nothing about the run — the
