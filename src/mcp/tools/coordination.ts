@@ -3820,22 +3820,40 @@ export function createCoordinationToolsForManager(
           deliveries.push({ record, attempt: driverAttempt, acknowledged: false })
           return { ...projectEvent(record.event), eventSeq: record.seq }
         }
-        // A batch read: the first event (waited for as a single read waits), then every event
-        // that is already waiting, without blocking again. A settled child is taken through the
-        // non-blocking cursor only while no blocking drain holds it, so each settlement is still
-        // delivered exactly once.
+        // A batch read. Settlements that already happened are drained into the queue FIRST, while
+        // nothing has been taken off it, so a drain that throws loses no event; the drain holds the
+        // in-flight slot so no blocking drain runs beside it, and it stops at half the wait fence
+        // so a wide team's analysis cannot outlast the caller's request timeout. Then up to `max`
+        // queued events are taken. With none queued, the call waits for one as a single read does.
         if (max > 1) {
-          const first = await pullOne()
-          if (!('eventSeq' in first)) return first
-          const { freeSlots: _slots, ...head } = first
-          const events: Array<Record<string, unknown>> = [head]
-          while (events.length < max) {
-            let next = bus.pullRecord(kinds)
-            if (!next && !inFlightDrain && (await drainSettlement('nextResolved'))) {
-              next = bus.pullRecord(kinds)
+          const fenceAt = awaitTimeoutMs > 0 ? Date.now() + awaitTimeoutMs / 2 : Infinity
+          if (!inFlightDrain) {
+            inFlightDrain = (async () => {
+              let drained = false
+              while (bus.pending(kinds) < max && Date.now() < fenceAt) {
+                if (!(await drainSettlement('nextResolved'))) break
+                drained = true
+              }
+              return drained
+            })().finally(() => {
+              inFlightDrain = null
+            })
+            await inFlightDrain
+          }
+          const events: Array<Record<string, unknown>> = []
+          const takeQueued = () => {
+            for (let next = bus.pullRecord(kinds); next; next = bus.pullRecord(kinds)) {
+              events.push(deliver(next))
+              if (events.length >= max) return
             }
-            if (!next) break
-            events.push(deliver(next))
+          }
+          takeQueued()
+          if (events.length === 0) {
+            const first = await pullOne()
+            if (!('eventSeq' in first)) return first
+            const { freeSlots: _slots, ...head } = first
+            events.push(head)
+            takeQueued()
           }
           return { events, freeSlots: freeWorkerSlots() }
         }

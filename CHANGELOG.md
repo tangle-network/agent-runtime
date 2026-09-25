@@ -7,8 +7,10 @@ A router-brained manager no longer stops at 16 turns.
 A manager awaits one settlement per turn, so the old default ended any manager with more than about 14 workers and tore its unfinished workers down.
 Measured on a 1 + 20 + 400 tree (2026-09-25): 124 of 420 agents settled `down` at 16 turns, and all 420 settled `done` at `0`.
 
-The steerable sandbox worker no longer stops after 24 turns.
-`DEFAULT_SANDBOX_STEERING_MAX_TURNS` is `0`; each turn is metered against the worker's budget slice.
+Without a deadline, two safety guards bound a manager's own turns instead.
+A manager that has overdrawn its pool by the pool's size again stops, so a manager waiting on a worker that never settles cannot spend without end.
+A brain that reports no usage cannot be bounded by money, so without a dollar cap it keeps a 16-turn bound.
+An explicit `maxTurns` or a deadline replaces both.
 
 The root driver no longer gives up after 8 failed invocations that each made progress.
 `DriverRetryPolicy.maxAttempts` defaults to no ceiling.
@@ -16,7 +18,8 @@ A failure without progress still stops at `maxConsecutiveFailures` (3), and fail
 A caller that wants a count still sets `maxAttempts`.
 
 A lead reads a wide team in batches.
-`await_event({ max })` with `max` above 1 returns `{ events, freeSlots }`: the event it waited for, then every event already waiting, up to `max`.
+`await_event({ max })` with `max` above 1 returns `{ events, freeSlots }`: every event already waiting, up to `max`, or the next one it waits for when none is.
+Settlements that already happened are queued before any event is taken, so a failed analysis loses nothing, and the batch stops draining at half the wait fence.
 Measured on the same tree with a brain that thinks for 100 ms between reads: managers took 84 turns to read 400 receipts instead of 440, and the root took 5 instead of 22.
 
 `spawn_worker` tells a lead how to widen its team.

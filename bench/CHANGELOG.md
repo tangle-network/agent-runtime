@@ -2,7 +2,7 @@
 
 ## 0.13.13
 
-Require Knowledge 17.1.6, which admits Eval 0.193, through the shared dependency catalog.
+Require Knowledge 17.1.6 and Eval `>=0.191.0 <0.194.0` through the shared dependency catalog.
 Benchmark behavior is unchanged.
 
 ## 0.13.12

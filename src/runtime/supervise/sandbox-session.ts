@@ -70,10 +70,9 @@ import type {
   UsageEvent,
 } from './types'
 
-/** Default ceiling on continuation turns: `0`, no count. Turn 0 is the task and every later turn
- *  is a folded steer; each turn is metered against the worker's budget slice, which with the run
- *  deadline and cancellation bounds how often a supervisor may redirect one worker. */
-export const DEFAULT_SANDBOX_STEERING_MAX_TURNS = 0
+/** Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
+ *  this bounds how many times a supervisor may redirect ONE worker before it must respawn. */
+export const DEFAULT_SANDBOX_STEERING_MAX_TURNS = 24
 
 /** Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
  *  sandbox executor keeps its historical single-shot `runAgentRounds` composition verbatim. */
