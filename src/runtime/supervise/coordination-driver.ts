@@ -254,7 +254,8 @@ export interface DriverAgentOptions {
    *  invalid child's output stays unreachable. */
   readonly finalizer?: SupervisorFinalizer
   /** The recorder of this agent's conversation. A wrapper that builds a new driver for each `act`
-   *  passes one recorder to all of them, so the agent keeps one transcript across attempts. */
+   *  passes one recorder to all of them, so the agent keeps one transcript across attempts.
+   *  @internal Runtime's own wiring between `supervisorAgent` and its router arm. */
   transcript?: RouterTranscript
   /** Optional shared manager inbox used by a wrapper that must accept messages before async node
    * setup finishes. Ordinary callers omit it and the driver owns a fresh inbox. */
