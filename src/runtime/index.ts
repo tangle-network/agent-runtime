@@ -728,6 +728,7 @@ export {
 // instruction word; a play may append a section but never replace one.
 export {
   type AdmittedFinding,
+  admitContinuationPolicy,
   admitFinding,
   type CheckRead,
   CheckUnavailableError,

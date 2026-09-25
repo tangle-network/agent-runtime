@@ -32,6 +32,7 @@ and 389 of 650 lead directors could call `stop` and end the run with no check.
   question panel's admitted findings, the bar, the plan and the rules, then a play's appended
   section; `composeReentryTask` still writes the run's state around it. Every instruction word
   comes from the `ContinuationProfile`, which names the facts it may use.
+  `admitContinuationPolicy` lets a record's preflight refuse a malformed policy before spend.
 - **The question panel seam.** `continuation.runPanel` asks the profile's expanded questions over
   the run's traces under `panelUsd` caps. A finding reaches the note only when every citation
   resolves, it cites two distinct spans, and an independent verifier agreed; findings are added

@@ -38963,6 +38963,28 @@ readonly `string`[]
 
 ***
 
+### admitContinuationPolicy()
+
+> **admitContinuationPolicy**(`policy`, `context`): `number`
+
+Resolve and check a policy before any compute. Returns the deadline in epoch ms.
+
+#### Parameters
+
+##### policy
+
+[`ContinuationPolicy`](#continuationpolicy)
+
+##### context
+
+`string`
+
+#### Returns
+
+`number`
+
+***
+
 ### admitFinding()
 
 > **admitFinding**(`finding`): `boolean`
