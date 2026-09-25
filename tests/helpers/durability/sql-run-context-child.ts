@@ -5,10 +5,11 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
+import { contentAddress } from '../../../src/durable/content-address'
 import { runGraph } from '../../../src/runtime/supervise/graph'
 import { createFencedSqlRunContext } from '../../../src/runtime/supervise/sql-run-context'
 import { durableRetainedProvider } from '../durable-retained-provider'
-import { ConductorPlanner, conformanceGraph, RUN_ID } from './conformance-graph'
+import { ConductorPlanner, conformanceGraph, RUN_ID, WORKER_NODES } from './conformance-graph'
 import { openSideEffectSite, SIDE_EFFECT_TOOL_NAME, sideEffectToolSpec } from './side-effect'
 import { openSql, type SqlBoundary } from './sql-adapter'
 
@@ -130,7 +131,7 @@ async function phase() {
     leaseMs: 400,
     heartbeatMs: 60,
   })
-  const planner = new ConductorPlanner()
+  const planner = new ConductorPlanner({ forbidInDoubt: true })
   const site = openSideEffectSite(shared!)
   const result = await runGraph(conformanceGraph(), {
     runId: RUN_ID,
@@ -162,7 +163,18 @@ async function phase() {
   const attempts = events.flatMap((event) =>
     event.kind === 'execution-bound' && event.id === RUN_ID ? [event.binding.attemptId] : [],
   )
-  const cursors = events.filter((event) => event.kind === 'settled').map((event) => event.seq)
+  const cursors = events
+    .filter((event) => event.kind === 'settled' || event.kind === 'cancelled')
+    .map((event) => event.seq)
+  const workerIds = new Set(workers.map((event) => event.id))
+  const settledCounts = new Map<string, number>()
+  for (const event of events) {
+    if (event.kind === 'settled' && workerIds.has(event.id))
+      settledCounts.set(event.id, (settledCounts.get(event.id) ?? 0) + 1)
+  }
+  const settledPerWorker = workers.every(
+    (event) => settledCounts.get(event.id) === 1 && completed.has(event.id),
+  )
   const report = {
     kind: result.result.kind,
     out: result.result.kind === 'winner' ? result.result.out : result.result,
@@ -171,10 +183,24 @@ async function phase() {
     ).length,
     uniqueRootAttempts: attempts.length === new Set(attempts).size,
     uniqueCursorSequences: cursors.length === new Set(cursors).size,
+    settledPerWorker,
     roots: events.filter((event) => event.kind === 'spawned' && event.parent === undefined).length,
     workers: workers.length,
     completed: workers.filter((event) => completed.has(event.id)).length,
     inDoubt: workers.filter((event) => !completed.has(event.id)).length,
+    workerRecords: WORKER_NODES.map((label) => {
+      const spawns = workers.filter((event) => event.label === label)
+      return {
+        label,
+        spawns: spawns.length,
+        settlements: events.filter(
+          (event) =>
+            event.kind === 'settled' &&
+            event.status === 'done' &&
+            spawns.some((spawn) => spawn.id === event.id),
+        ).length,
+      }
+    }),
     planner: planner.report(),
     escalations: planner.report().escalations,
     effects: site.committedKeys(),
@@ -187,17 +213,37 @@ async function phase() {
 }
 
 try {
-  if (mode === 'contend') {
+  if (mode === 'lease') {
+    const context = await createFencedSqlRunContext(store.adapter, RUN_ID, {
+      leaseMs: 400,
+      heartbeatMs: 60,
+    })
+    const lease = await context.acquire()
+    const write = new Promise<void>((resolve) => process.once('message', () => resolve()))
+    process.send!({ type: 'owned' })
+    await write
     try {
-      await phase()
-      throw new Error('contender unexpectedly acquired the live run')
+      const value = { pid: process.pid }
+      await lease.context.blobs.put(contentAddress(value), value)
+      process.send!({ type: 'written' })
     } catch (error) {
-      if (!/owned|lease|busy/i.test(String(error))) throw error
-      process.send!({ type: 'denied', error: String(error) })
+      process.send!({ type: 'fenced', error: String(error) })
+    } finally {
+      await lease.release()
     }
-    await new Promise<void>((resolve) => process.once('message', () => resolve()))
+  } else {
+    if (mode === 'contend') {
+      try {
+        await phase()
+        throw new Error('contender unexpectedly acquired the live run')
+      } catch (error) {
+        if (!/owned|lease|busy/i.test(String(error))) throw error
+        process.send!({ type: 'denied', error: String(error) })
+      }
+      await new Promise<void>((resolve) => process.once('message', () => resolve()))
+    }
+    await phase()
   }
-  await phase()
   store.database.close()
   physical.close()
   process.disconnect?.()

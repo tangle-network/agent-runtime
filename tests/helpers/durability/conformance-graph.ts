@@ -230,7 +230,7 @@ export class ConductorPlanner {
   private drainedIdle = false
   turns = 0
 
-  constructor() {
+  constructor(private readonly options: { forbidInDoubt?: boolean } = {}) {
     this.nodes = WORKER_NODES.map((node) => ({ node, key: workerKey(node), status: 'pending' }))
   }
 
@@ -282,6 +282,8 @@ export class ConductorPlanner {
     const error = typeof r.error === 'string' ? r.error : undefined
     if (error !== undefined) {
       if (error.includes('in-doubt')) {
+        if (this.options.forbidInDoubt)
+          throw new Error(`conformance forbids replacing in-doubt spawn ${node} (${state.key})`)
         if (state.escalated) {
           this.fatal ??= `spawn of ${node} refused in-doubt twice (${state.key})`
           return

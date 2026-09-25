@@ -48,7 +48,7 @@ const kill = armKillSwitch({
   killedFile: `${dir}/killed.log`,
 })
 const site = openSideEffectSite(dir)
-const planner = new ConductorPlanner()
+const planner = new ConductorPlanner({ forbidInDoubt: true })
 let brainCalls = 0
 const brain = async (messages: ReadonlyArray<Record<string, unknown>>) => {
   brainCalls += 1

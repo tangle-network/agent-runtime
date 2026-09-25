@@ -1849,7 +1849,10 @@ async function providerExecutionSource(
       .find((admission) => admission.phase === 'dispatched')
     const intent = admissions.find((admission) => admission.phase === 'intent')
     const environmentAdmission = admissions.find((admission) => admission.phase === 'environment')
-    if (args.recovering) {
+    // A journaled execution input can precede the first provider admission. In that case
+    // no provider call happened: onAdmission(intent) is awaited before create/dispatch.
+    // Start with the original execution keys; once any admission exists, validate its intent.
+    if (args.recovering && admissions.length > 0) {
       if (!intent) throw new Error('retained provider execution has no original intent')
       assertRetainedRunReplayMaterial(args.provider, material, intent)
     }
@@ -1908,7 +1911,8 @@ async function providerExecutionSource(
         throw new Error(`retained provider execution is ${recovered.outcome}`)
       handle = recovered.handle
     } else {
-      if (args.recovering) throw new Error('retained provider execution has no durable admission')
+      if (args.recovering && admissions.length > 0)
+        throw new Error('retained provider execution has no durable admission')
       handle = await startRetainedRun({ provider: args.provider, ...material, onAdmission })
     }
     args.onRetained(handle)
