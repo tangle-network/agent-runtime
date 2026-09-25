@@ -1,22 +1,12 @@
-/**
- * Server-side client for the Tangle platform's cross-site SSO bridge.
- *
- * Consumer apps (gtm-agent, tax-agent, legal-agent, creative-agent, …)
- * use this to:
- *   1. Build an /authorize URL that lands the user on id.tangle.tools
- *      and brings them back with a single-use code.
- *   2. Exchange that code for an API key + the user's identity.
- *
- * The platform endpoint contract is documented in
- * `products/platform/api/src/routes/cross-site.ts`. This client only
- * speaks HTTP — no SDK weight, no transitive deps.
- */
+/** Standard OpenID Connect client for the Tangle authorization server. */
 
 export interface PlatformAuthClientOptions {
   /** Platform base URL, e.g. `https://id.tangle.tools`. */
   baseUrl: string
-  /** App id as registered in the platform's TRUSTED_APPS registry. */
-  appId: string
+  /** OIDC client id from the platform oauthClient registry. */
+  clientId: string
+  /** Registered callback URI. */
+  redirectUri: string
   /** Override the global fetch (useful for tests + edge runtimes). */
   fetchImpl?: typeof fetch
 }
@@ -24,11 +14,8 @@ export interface PlatformAuthClientOptions {
 export interface AuthorizeUrlOptions {
   /** Required CSRF token; the consumer verifies it on the callback. */
   state: string
-  /**
-   * Final redirect URI. Must be one of the URIs registered for `appId`
-   * on the platform. Omit to use the first registered URI.
-   */
-  redirectUri?: string
+  /** RFC 7636 S256 code challenge. */
+  codeChallenge: string
   /** Force the login screen even if a session is already active. */
   prompt?: 'login'
   /** Pre-fill the email field on the login screen. */
@@ -36,7 +23,11 @@ export interface AuthorizeUrlOptions {
 }
 
 export interface ExchangeCodeResult {
-  apiKey: string
+  accessToken: string
+  refreshToken?: string
+  idToken?: string
+  expiresIn?: number
+  scope?: string
   emailVerified: true
   user: {
     id: string
@@ -81,8 +72,7 @@ function parseExchangeResult(body: unknown, status: number): ExchangeCodeResult 
   }
   if (
     !isRecord(body) ||
-    !isNonemptyString(body.apiKey) ||
-    body.emailVerified !== true ||
+    !isNonemptyString(body.access_token) ||
     !isRecord(body.user)
   )
     return invalid()
@@ -103,7 +93,11 @@ function parseExchangeResult(body: unknown, status: number): ExchangeCodeResult 
     plan = { tier: body.subscription.plan }
   }
   return {
-    apiKey: body.apiKey,
+    accessToken: body.access_token,
+    ...(isNonemptyString(body.refresh_token) ? { refreshToken: body.refresh_token } : {}),
+    ...(isNonemptyString(body.id_token) ? { idToken: body.id_token } : {}),
+    ...(typeof body.expires_in === 'number' ? { expiresIn: body.expires_in } : {}),
+    ...(isNonemptyString(body.scope) ? { scope: body.scope } : {}),
     emailVerified: true,
     user: { id: user.id, email, ...(user.name !== undefined ? { name: user.name } : {}) },
     plan,
@@ -113,14 +107,17 @@ function parseExchangeResult(body: unknown, status: number): ExchangeCodeResult 
 /** HTTP client for the Tangle Platform SSO: builds authorize URLs and exchanges auth codes for API keys. */
 export class PlatformAuthClient {
   private readonly baseUrl: string
-  private readonly appId: string
+  private readonly clientId: string
+  private readonly redirectUri: string
   private readonly fetchImpl: typeof fetch
 
   constructor(options: PlatformAuthClientOptions) {
     if (!options.baseUrl) throw new Error('PlatformAuthClient: baseUrl is required')
-    if (!options.appId) throw new Error('PlatformAuthClient: appId is required')
+    if (!options.clientId) throw new Error('PlatformAuthClient: clientId is required')
+    if (!options.redirectUri) throw new Error('PlatformAuthClient: redirectUri is required')
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
-    this.appId = options.appId
+    this.clientId = options.clientId
+    this.redirectUri = options.redirectUri
     this.fetchImpl =
       options.fetchImpl ??
       ((url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => fetch(url, init))
@@ -135,10 +132,15 @@ export class PlatformAuthClient {
     if (!options.state) {
       throw new Error('PlatformAuthClient.authorizeUrl: state is required for CSRF')
     }
-    const url = new URL('/cross-site/authorize', this.baseUrl)
-    url.searchParams.set('app', this.appId)
+    if (!options.codeChallenge) throw new Error('PlatformAuthClient.authorizeUrl: codeChallenge is required for PKCE')
+    const url = new URL('/api/auth/oauth2/authorize', this.baseUrl)
+    url.searchParams.set('client_id', this.clientId)
+    url.searchParams.set('redirect_uri', this.redirectUri)
+    url.searchParams.set('response_type', 'code')
+    url.searchParams.set('scope', 'openid profile email offline_access')
     url.searchParams.set('state', options.state)
-    if (options.redirectUri) url.searchParams.set('redirect', options.redirectUri)
+    url.searchParams.set('code_challenge', options.codeChallenge)
+    url.searchParams.set('code_challenge_method', 'S256')
     if (options.prompt) url.searchParams.set('prompt', options.prompt)
     if (options.email) url.searchParams.set('email', options.email)
     return url.toString()
@@ -149,21 +151,29 @@ export class PlatformAuthClient {
    * callback by the platform) for an API key + the user's identity.
    * Codes are single-use and expire ~5 minutes after issue.
    */
-  async exchange(code: string): Promise<ExchangeCodeResult> {
+  async exchange(code: string, codeVerifier: string): Promise<ExchangeCodeResult> {
     if (!code) throw new Error('PlatformAuthClient.exchange: code is required')
-    const res = await this.fetchImpl(`${this.baseUrl}/cross-site/exchange`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, app: this.appId }),
+    if (!codeVerifier) throw new Error('PlatformAuthClient.exchange: codeVerifier is required for PKCE')
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: this.clientId,
+      redirect_uri: this.redirectUri,
+      code_verifier: codeVerifier,
     })
-    const body = await res.json().catch(() => null)
+    const res = await this.fetchImpl(`${this.baseUrl}/api/auth/oauth2/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+    const responseBody = await res.json().catch(() => null)
     if (!res.ok) {
       const message =
-        body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
-          ? body.error
+        responseBody && typeof responseBody === 'object' && 'error' in responseBody && typeof responseBody.error === 'string'
+          ? responseBody.error
           : `Platform exchange failed (${res.status})`
-      throw new PlatformAuthError(message, res.status, body)
+      throw new PlatformAuthError(message, res.status, responseBody)
     }
-    return parseExchangeResult(body, res.status)
+    return parseExchangeResult(responseBody, res.status)
   }
 }
