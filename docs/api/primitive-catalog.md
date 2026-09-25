@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.270.0` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.270.1` and `@tangle-network/agent-eval@0.187.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1479,7 +1479,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 242 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1570,6 +1570,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 242 exports.
 | `questionEscalationTargets` | const | Where a question this driver cannot answer goes next. `answer_question` accepts these and |
 | `sourcedHarnesses` | const | The harnesses this registry has a sourced list for. |
 | `SPAWN_RESOURCE_PATH_MAX_BYTES` | const | Inline resources a manager hands a child by PATH instead of by content. |
+| `SUPPORTED_PROTOCOL_VERSIONS` | const | Protocol versions this server speaks, newest first. `initialize` answers with |
 | `CodexExecutionDiagnosticError` | class | Thrown when reproducible Codex exits without one valid terminal usage event. |
 | `DelegationPersistenceError` | class | A delegation-store read or write failed (filesystem error, store |
 | `DelegationStateCorruptError` | class | The persisted delegation state exists but cannot be parsed into |
@@ -1609,6 +1610,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 242 exports.
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
 | `ManagerReentryState` | interface | What a manager's coordinator knows about its run, read when the manager is entered again. |
+| `McpToolAnnotations` | interface | MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads |
 | `McpToolDescriptor` | interface | A callable MCP tool exposed by either stdio server. |
 | `McpTransport` | interface | Stdio-shaped transport used by the shared JSON-RPC server implementation. |
 | `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |

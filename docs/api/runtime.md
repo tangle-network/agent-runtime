@@ -21819,6 +21819,16 @@ One product-owned tool. It reuses the canonical MCP descriptor fields while Runt
 
 [`McpToolDescriptor`](mcp.md#mcptooldescriptor).[`inputSchema`](mcp.md#inputschema)
 
+##### annotations?
+
+> `optional` **annotations?**: [`McpToolAnnotations`](mcp.md#mcptoolannotations)
+
+Published in `tools/list` when present.
+
+###### Inherited from
+
+[`McpToolDescriptor`](mcp.md#mcptooldescriptor).[`annotations`](mcp.md#annotations)
+
 ##### handler
 
 > `readonly` **handler**: (`raw`, `context`) => `Promise`\<`unknown`\>

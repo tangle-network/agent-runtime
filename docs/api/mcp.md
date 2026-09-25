@@ -2800,6 +2800,56 @@ What the memory bin resolved from its environment.
 
 ***
 
+### McpToolAnnotations
+
+**`Experimental`**
+
+MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads
+before calling, for example to run a read-only tool without confirmation.
+They describe the tool; they do not enforce anything.
+
+#### Properties
+
+##### title?
+
+> `optional` **title?**: `string`
+
+**`Experimental`**
+
+##### readOnlyHint?
+
+> `optional` **readOnlyHint?**: `boolean`
+
+**`Experimental`**
+
+The tool does not modify its environment.
+
+##### destructiveHint?
+
+> `optional` **destructiveHint?**: `boolean`
+
+**`Experimental`**
+
+The tool may perform destructive updates. Meaningful only when not read-only.
+
+##### idempotentHint?
+
+> `optional` **idempotentHint?**: `boolean`
+
+**`Experimental`**
+
+Repeating a call with the same arguments has no additional effect.
+
+##### openWorldHint?
+
+> `optional` **openWorldHint?**: `boolean`
+
+**`Experimental`**
+
+The tool may reach entities outside its own data, such as the web.
+
+***
+
 ### McpToolDescriptor
 
 **`Experimental`**
@@ -2825,6 +2875,14 @@ A callable MCP tool exposed by either stdio server.
 > **inputSchema**: `Record`\<`string`, `unknown`\>
 
 **`Experimental`**
+
+##### annotations?
+
+> `optional` **annotations?**: [`McpToolAnnotations`](#mcptoolannotations)
+
+**`Experimental`**
+
+Published in `tools/list` when present.
 
 ##### handler
 
@@ -6184,6 +6242,16 @@ Env var naming the JSONL retrieval log (one row per `memory_search`).
 > `const` **MEMORY\_NAME\_ENV**: `"AGENT_MEMORY_NAME"` = `'AGENT_MEMORY_NAME'`
 
 Env var overriding the served display name (default 'agent-memory').
+
+***
+
+### SUPPORTED\_PROTOCOL\_VERSIONS
+
+> `const` **SUPPORTED\_PROTOCOL\_VERSIONS**: readonly `string`[]
+
+Protocol versions this server speaks, newest first. `initialize` answers with
+the client's requested version when it is listed here, and otherwise with
+`PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
 
 ***
 

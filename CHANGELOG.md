@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.270.1
+
+`createStdioToolServer` passes each tool's annotations (`readOnlyHint`, `idempotentHint`, and the rest) through `tools/list` (#1386).
+It answers `ping` with an empty result instead of an unknown-method error.
+It answers `initialize` with the client's requested protocol version when that version is 2025-11-25, 2025-06-18, 2025-03-26, or 2024-11-05.
+The v0.270.0 tag never published, because #1386 merged before its publish run started; this release carries 0.267.0 through 0.270.0 as well.
+
 ## 0.270.0
 
 SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
