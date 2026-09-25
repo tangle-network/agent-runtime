@@ -12,6 +12,11 @@ loop; EMFILE/ENOSPC at watch creation now proceed on that loop alone (instant pi
 holds exactly one inotify instance regardless of how many directories it watches (libuv
 multiplexes), so no further sharing was possible or needed.
 
+Runtime now has one AgentProfile identity: `canonicalAgentProfileDigest`.
+`improve()` computed a candidate's `profileDigest`, `lineage.baselineProfileDigest`, and its profile equality checks with the generic `canonicalCandidateDigest`, while supervise, preparation receipts, retained interactive runs, profile training, and VerticalBench used `canonicalAgentProfileDigest`.
+Both functions give the same digest on every recorded profile: 31 distinct profiles across VerticalBench climbs, boards, and repository profiles, the 4 materialized candidates of the 2 completed climbs, and 13 recorded VerticalBench base digests. No recorded identity moves.
+They differ on values that no recorded file holds: a profile with an optional field set to `undefined` makes `canonicalCandidateDigest` throw, and a schema-invalid profile (an unknown key or a wrong type) receives a `canonicalCandidateDigest` but fails `canonicalAgentProfileDigest`.
+A schema-invalid profile now fails at identity time, and an inline retained-run profile records the same `requestedProfileDigest` as a retained interactive run.
 
 ## 0.269.0
 
@@ -100,11 +105,6 @@ After each turn, the worker exports every child session that its `task` parts na
 Each export lands beside the worker's own, under `.local/share/opencode/export`, where the transcript capture reads it.
 opencode refuses a nested subagent unless `subagent_depth` is raised above 1, so the parent's parts name every subagent session under the default.
 A dedicated Tangle box still keeps only the parent's sidecar records.
-
-Runtime now has one AgentProfile identity: `canonicalAgentProfileDigest`.
-`improve()` computed a candidate's `profileDigest`, `lineage.baselineProfileDigest`, and its profile equality checks with the generic `canonicalCandidateDigest`, while supervise, preparation receipts, retained interactive runs, and VerticalBench used `canonicalAgentProfileDigest`.
-Both functions give the same digest on every recorded profile (30 distinct profiles across VerticalBench climbs, boards, and repository profiles; the 4 materialized candidates of the 2 completed climbs; 13 recorded VerticalBench base digests), so no recorded identity moves.
-The profile digest parses the schema first, so a schema-invalid profile now fails at identity time instead of receiving a digest, and an inline retained-run profile records the same `requestedProfileDigest` as a retained interactive run.
 
 ## 0.266.0
 
