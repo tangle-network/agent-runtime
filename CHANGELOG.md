@@ -121,6 +121,15 @@ exporter already followed. `IntelligenceClient.exportStats()` exposes the same c
 client's `flush()` stays best-effort. A custom `OtelExporter` passed to `supervise()` must now
 implement `stats()`.
 
+A router-brained agent now keeps its conversation (#1377).
+Before, a router-brained manager or leaf settled as `executor-exposes-no-transcript`, and each `agent.turn` event named only its tool calls.
+A 316-agent tree on 2026-09-24 settled with 0 of 316 transcripts, and the 37 agents still running when its driver stopped left no record.
+Each router-brained manager turn now carries `conversation` in its `agent.turn` event: the messages the turn added, then the reply.
+A content longer than 256 KiB is cut there and marked with `contentCut` and its full `contentBytes`.
+So `observer.jsonl` holds every manager conversation while the run is live.
+Every router-brained manager and leaf also settles with an `available` harness transcript: `harness: 'router'`, one JSON message per line in `conversation-000.jsonl` and on, under the existing 2 MiB file and 16 MiB total bounds.
+A leaf streams nothing; its conversation arrives when it settles.
+
 ## 0.268.0
 
 A keyed spawn the process died with in flight no longer wedges. Two arms:

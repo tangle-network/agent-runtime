@@ -74,6 +74,7 @@ import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import { addResourceSpend, withBudgetResources } from './resources'
 import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
+import { createRouterTranscript, type RouterTranscript } from './router-transcript'
 import { applyRunCancellation } from './run-cancellation'
 import {
   claimWorkerSteerDelivery,
@@ -252,6 +253,10 @@ export interface DriverAgentOptions {
    *  the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
    *  invalid child's output stays unreachable. */
   readonly finalizer?: SupervisorFinalizer
+  /** The recorder of this agent's conversation. A wrapper that builds a new driver for each `act`
+   *  passes one recorder to all of them, so the agent keeps one transcript across attempts.
+   *  @internal Runtime's own wiring between `supervisorAgent` and its router arm. */
+  transcript?: RouterTranscript
   /** Optional shared manager inbox used by a wrapper that must accept messages before async node
    * setup finishes. Ordinary callers omit it and the driver owns a fresh inbox. */
   readonly inbox?: Inbox
@@ -944,12 +949,15 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   const maxTurns = opts.maxTurns ?? 16
   const now = opts.now ?? Date.now
   const inbox = opts.inbox ?? createInbox()
+  const transcript = opts.transcript ?? createRouterTranscript()
 
   return {
     name: opts.name,
     deliver(message): boolean {
       return inbox.deliver(message)
     },
+    // The conversation this agent had, read at settle so it settles like a harness leaf (#1377).
+    harnessTranscript: () => transcript.capture(),
     async act(task, scope: Scope<unknown>): Promise<unknown> {
       // The manager's own environment is the source for a by-path spawn resource when no host
       // directory serves it. Every scope registers a retained owner, so the reader is derivable
@@ -1111,6 +1119,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         messages: ReadonlyArray<Record<string, unknown>>,
         tools: ReadonlyArray<ToolSpec>,
         detail: Record<string, unknown>,
+        // A conversation turn (not a compaction) keeps its reply, and its turn event carries what
+        // the turn added, so an observer journal holds the conversation while the run is live.
+        conversationTurn?: (reply: Awaited<ReturnType<typeof opts.brain>>) => unknown,
       ) => {
         let res: Awaited<ReturnType<typeof opts.brain>>
         const call = driverCall
@@ -1209,6 +1220,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             ...(res.usageUnknown === true ? { streamUsageMissing: true } : {}),
             ...(res.costProvenance === 'catalog-estimate' ? { estimatedCostUsd: res.costUsd } : {}),
             ...detail,
+            ...(conversationTurn ? { conversation: conversationTurn(res) } : {}),
           },
         )
         if (evidenceError !== undefined) throw evidenceError
@@ -1216,10 +1228,14 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       }
       const chat: ToolLoopChat = async (messages, tools) => {
         const turn = driverTurn
-        const res = await meteredBrain(messages, tools, {
-          kind: 'driver-inference',
-          turn,
-        })
+        // A compaction may have replaced the middle since `beforeTurn`; its note is what the model sees.
+        transcript.observe(messages)
+        const res = await meteredBrain(
+          messages,
+          tools,
+          { kind: 'driver-inference', turn },
+          (reply) => transcript.reply(reply),
+        )
         driverTurn += 1
         return res
       }
@@ -1307,6 +1323,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             if (pending.length > 0) {
               messages.push({ role: 'user', content: inbox.fold(pending) })
             }
+            // Before a compaction can fold them away: the previous turn's tool results and this inbox.
+            transcript.observe(messages)
           },
           stopBefore: () => {
             // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
