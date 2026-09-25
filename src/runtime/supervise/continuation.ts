@@ -294,6 +294,9 @@ export interface ContinuationProfile {
   readonly questions?: ReadonlyArray<string>
   /** The panel's model, when the profile chooses one. */
   readonly panelModel?: string
+  /** What a new version's director reads about the best version's review, for the version
+   *  chain's `'review-of-best'`. It may name `{version}`, `{path}` and `{score}`. */
+  readonly review?: string
 }
 
 /** The facts a profile template may name. */
@@ -344,6 +347,18 @@ function admitContinuationProfile(profile: ContinuationProfile, context: string)
       if (!factNames.has(match[1] ?? '')) {
         throw new ValidationError(
           `${context}: continuation.profile.${key} names {${match[1]}}, which is not a fact Runtime supplies (${CONTINUATION_FACTS.join(', ')})`,
+        )
+      }
+    }
+  }
+  if (profile.review !== undefined) {
+    if (typeof profile.review !== 'string' || profile.review.trim() === '') {
+      throw new ValidationError(`${context}: continuation.profile.review must be non-empty`)
+    }
+    for (const match of profile.review.matchAll(placeholder)) {
+      if (!['version', 'path', 'score'].includes(match[1] ?? '')) {
+        throw new ValidationError(
+          `${context}: continuation.profile.review names {${match[1]}}; it may name {version}, {path} and {score}`,
         )
       }
     }

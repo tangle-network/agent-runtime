@@ -150,7 +150,7 @@ import {
   scopeOwnerExecutorNodeContext,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
-import type { StopRule } from './stop-rules'
+import { type PlateauOptions, plateau, type StopRule } from './stop-rules'
 import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
 import {
   assertCoordinationBinding,
@@ -2140,8 +2140,11 @@ export interface SuperviseOptions {
    * `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
    * thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
    * only (unchanged behavior).
+   *
+   * A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+   * product module builds it.
    */
-  readonly stopRule?: StopRule
+  readonly stopRule?: StopRule | { readonly plateau: PlateauOptions }
   /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
    *  reason instead of inferring an early stop from an unexhausted budget. */
   readonly onProgressStop?: (reason: string) => void
@@ -2960,6 +2963,15 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   return superviseWithContext(profile, task, opts)
 }
 
+/** A stop rule as a function, or the declared plateau form a record carries as data. */
+function stopRuleOf(rule: NonNullable<SuperviseOptions['stopRule']>): StopRule {
+  if (typeof rule === 'function') return rule
+  if (typeof rule === 'object' && rule !== null && 'plateau' in rule) return plateau(rule.plateau)
+  throw new ValidationError(
+    'supervise: stopRule must be a StopRule or { plateau: { window, minDelta } }',
+  )
+}
+
 /** Deterministic scripted-brain path for tests. Not exported from Runtime's main entry. */
 export function superviseWithTestBrain(
   profile: SupervisorProfile,
@@ -3628,7 +3640,7 @@ function superviseInternal(
             : {}),
           ...(profileTable ? { profiles: profileTable } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
-          ...(options.stopRule ? { stopRule: options.stopRule } : {}),
+          ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
           ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
           ...(options.compaction ? { compaction: options.compaction } : {}),
@@ -3862,7 +3874,7 @@ function superviseInternal(
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
       ...(options.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: options.awaitTimeoutMs } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
-      ...(options.stopRule ? { stopRule: options.stopRule } : {}),
+      ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
       ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
       ...(options.compaction ? { compaction: options.compaction } : {}),

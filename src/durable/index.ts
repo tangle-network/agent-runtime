@@ -82,7 +82,6 @@ export {
   type PreparedPursuitVersion,
   PURSUIT_VERSIONS_FILE,
   type PursuitVersionParent,
-  type PursuitVersionRegistry,
   type PursuitVersionStop,
   type PursuitVersionStopReason,
   type PursuitVersions,
