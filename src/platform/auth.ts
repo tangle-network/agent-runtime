@@ -174,6 +174,20 @@ export class PlatformAuthClient {
           : `Platform exchange failed (${res.status})`
       throw new PlatformAuthError(message, res.status, responseBody)
     }
-    return parseExchangeResult(responseBody, res.status)
+    if (!isRecord(responseBody) || !isNonemptyString(responseBody.access_token)) {
+      throw new PlatformAuthError('Platform token response is malformed', res.status, { code: 'INVALID_TOKEN_RESPONSE' })
+    }
+    const userinfoRes = await this.fetchImpl(`${this.baseUrl}/api/auth/oauth2/userinfo`, {
+      headers: { authorization: `Bearer ${responseBody.access_token}` },
+    })
+    const userinfo = await userinfoRes.json().catch(() => null)
+    if (!userinfoRes.ok || !isRecord(userinfo) || userinfo.email_verified !== true) {
+      throw new PlatformAuthError('Platform userinfo has no verified identity', userinfoRes.status, { code: 'INVALID_USERINFO_RESPONSE' })
+    }
+    return parseExchangeResult({
+      ...responseBody,
+      emailVerified: true,
+      user: { id: userinfo.sub, email: userinfo.email, name: userinfo.name },
+    }, res.status)
   }
 }
