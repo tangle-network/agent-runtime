@@ -510,12 +510,17 @@ export function buildRuntimeEventOtelSpans(
       'tangle.runtime.event': serialized(record),
     }
     let name = `tangle.runtime.${event.type}`
+    if (parentSpanId) attrs[ATTR.parentConfidence] = 'explicit'
 
     if (event.type === 'tool_call' || event.type === 'tool_result') {
       name = `agent.${event.type}`
       attrs[ATTR.spanKind] = 'TOOL'
       attrs['tool.name'] = event.toolName
-      if (event.toolCallId) attrs['tool.call_id'] = event.toolCallId
+      if (event.toolCallId) {
+        attrs['tool.call_id'] = event.toolCallId
+        // The call and its result are one operation; the id joins them.
+        attrs[ATTR.operationId] = event.toolCallId
+      }
       const mcp = mcpIdentity(event.toolName)
       if (mcp.server) attrs['mcp.server'] = mcp.server
       if (mcp.tool) attrs['mcp.tool.name'] = mcp.tool
@@ -615,7 +620,13 @@ export function buildLoopOtelSpans(
     kind: 1,
     startTimeUnixNano: msToNs(node.startMs),
     endTimeUnixNano: msToNs(node.endMs),
-    attributes: toOtelAttributes({ ...node.attrs, [ATTR.spanKind]: LOOP_SPAN_KIND[node.kind] }),
+    attributes: toOtelAttributes({
+      ...node.attrs,
+      [ATTR.spanKind]: LOOP_SPAN_KIND[node.kind],
+      ...(node.parentSpanId === undefined && rootParentSpanId
+        ? { [ATTR.parentConfidence]: 'explicit' }
+        : {}),
+    }),
     status: { code: node.error ? 2 : 1 },
   }))
 }
@@ -713,21 +724,18 @@ export function buildLoopSpanNodes(
   const iterStartTs = new Map<number, number>()
   const placementByIdx = new Map<number, Record<string, string>>()
   let currentRoundId: string | undefined
+  /** Plan round index → its span id, so an iteration joins the round it records (`groupId`). */
+  const roundIdByIndex = new Map<number, string>()
   let pendingRound:
     | { id: string; start: number; attrs: Record<string, string | number | boolean> }
     | undefined
   const flushRound = (endMs: number) => {
     if (!pendingRound) return
     out.push(
-      make(
-        pendingRound.id,
-        rootId,
-        'loop.round',
-        'round',
-        pendingRound.start,
-        endMs,
-        pendingRound.attrs,
-      ),
+      make(pendingRound.id, rootId, 'loop.round', 'round', pendingRound.start, endMs, {
+        ...pendingRound.attrs,
+        [ATTR.parentConfidence]: 'explicit',
+      }),
     )
     pendingRound = undefined
   }
@@ -755,6 +763,7 @@ export function buildLoopSpanNodes(
         }
         pendingRound = { id, start: e.timestamp, attrs }
         currentRoundId = id
+        roundIdByIndex.set(roundIdx, id)
         break
       }
       case 'loop.iteration.started': {
@@ -801,6 +810,10 @@ export function buildLoopSpanNodes(
         if (err) attrs['tangle.loop.error'] = err
         const gid = num(p.groupId)
         if (gid !== undefined) attrs['tangle.loop.iteration.group_id'] = gid
+        // The round the iteration recorded is its parent. Without one, the round open when it ended
+        // is only a guess from stream order.
+        const recordedRoundId = gid === undefined ? undefined : roundIdByIndex.get(gid)
+        attrs[ATTR.parentConfidence] = recordedRoundId ? 'explicit' : 'heuristic'
         const par = num(p.parentIndex)
         if (par !== undefined) attrs['tangle.loop.iteration.parent_index'] = par
         const dur = num(p.durationMs)
@@ -811,7 +824,7 @@ export function buildLoopSpanNodes(
         out.push(
           make(
             generateSpanId(),
-            currentRoundId ?? rootId,
+            recordedRoundId ?? currentRoundId ?? rootId,
             'loop.iteration',
             'branch',
             start,
