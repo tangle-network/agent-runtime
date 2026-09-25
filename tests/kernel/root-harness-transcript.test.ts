@@ -71,10 +71,11 @@ async function rootRun(runId: string, options: { readable: boolean }) {
     // The session store the capture lists with `find` and reads file by file.
     ...(options.readable
       ? {
-          exec: async () => ({
-            stdout: `${SESSION.content.length}\t${SESSION.path}\n`,
-            exitCode: 0,
-          }),
+          // The subagent export runs first; this root named no subagent.
+          exec: async (command: string) =>
+            command.includes('opencode export')
+              ? { stdout: 'done\n', exitCode: 0 }
+              : { stdout: `${SESSION.content.length}\t${SESSION.path}\n`, exitCode: 0 },
           read: async (path: string) => {
             if (path !== SESSION.path) throw new Error(`no such file: ${path}`)
             return SESSION.content
