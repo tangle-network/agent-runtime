@@ -166,6 +166,15 @@ async function phase() {
   const cursors = events
     .filter((event) => event.kind === 'settled' || event.kind === 'cancelled')
     .map((event) => event.seq)
+  const workerIds = new Set(workers.map((event) => event.id))
+  const settledCounts = new Map<string, number>()
+  for (const event of events) {
+    if (event.kind === 'settled' && workerIds.has(event.id))
+      settledCounts.set(event.id, (settledCounts.get(event.id) ?? 0) + 1)
+  }
+  const settledPerWorker = workers.every(
+    (event) => settledCounts.get(event.id) === 1 && completed.has(event.id),
+  )
   const report = {
     kind: result.result.kind,
     out: result.result.kind === 'winner' ? result.result.out : result.result,
@@ -174,6 +183,7 @@ async function phase() {
     ).length,
     uniqueRootAttempts: attempts.length === new Set(attempts).size,
     uniqueCursorSequences: cursors.length === new Set(cursors).size,
+    settledPerWorker,
     roots: events.filter((event) => event.kind === 'spawned' && event.parent === undefined).length,
     workers: workers.length,
     completed: workers.filter((event) => completed.has(event.id)).length,

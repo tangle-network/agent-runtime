@@ -108,6 +108,7 @@ function start(shared: string, cwd: string, mode = 'run', checkpoint = '') {
         rootMaterializations: number
         uniqueRootAttempts: boolean
         uniqueCursorSequences: boolean
+        settledPerWorker: boolean
         workerRecords: Array<{ label: string; spawns: number; settlements: number }>
       }
     },
@@ -121,6 +122,7 @@ function assertComplete(report: Awaited<ReturnType<ReturnType<typeof start>['rep
   expect(report.rootMaterializations).toBe(1)
   expect(report.uniqueRootAttempts).toBe(true)
   expect(report.uniqueCursorSequences).toBe(true)
+  expect(report.settledPerWorker).toBe(true)
   expect(report.workers).toBe(3)
   expect(report.completed).toBe(3)
   expect(report.inDoubt).toBe(0)
