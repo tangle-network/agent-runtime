@@ -138,7 +138,9 @@ export function sanitizeAgentRuntimeEvent<
     return {
       ...base,
       questions: event.questions.map((question) => sanitizeQuestion(question, options)),
-      userAnswers: options.includeUserAnswers ? included(event.userAnswers) : redactRecord(event.userAnswers),
+      userAnswers: options.includeUserAnswers
+        ? included(event.userAnswers)
+        : redactRecord(event.userAnswers),
     }
   }
   if (event.type === 'acquisition_start') {
@@ -195,7 +197,9 @@ export function sanitizeRuntimeStreamEvent(
       ...withTask,
       timestamp: event.timestamp,
       questions: event.questions.map((question) => sanitizeQuestion(question, options)),
-      userAnswers: options.includeUserAnswers ? included(event.userAnswers) : redactRecord(event.userAnswers),
+      userAnswers: options.includeUserAnswers
+        ? included(event.userAnswers)
+        : redactRecord(event.userAnswers),
     }
   }
   if (event.type === 'acquisition_start') {
@@ -325,7 +329,11 @@ function sanitizeTask(
     requiredKnowledge: task.requiredKnowledge?.map((requirement) =>
       sanitizeKnowledgeRequirement(requirement, options),
     ),
-    metadata: options.includeMetadata ? included(task.metadata) : task.metadata ? '[redacted]' : undefined,
+    metadata: options.includeMetadata
+      ? included(task.metadata)
+      : task.metadata
+        ? '[redacted]'
+        : undefined,
   }
 }
 
@@ -414,7 +422,10 @@ function sanitizeControlStep<TState, TAction, TActionResult, TEval extends Contr
       options.includeControlPayloads && step.decision.type === 'continue'
         ? included(step.decision.action)
         : undefined,
-    result: options.includeControlPayloads && actionOutcome?.ok ? included(actionOutcome.result) : undefined,
+    result:
+      options.includeControlPayloads && actionOutcome?.ok
+        ? included(actionOutcome.result)
+        : undefined,
     actionOk: actionOutcome?.ok,
     actionError: actionOutcome?.ok === false ? actionOutcome.error : undefined,
     durationMs: actionOutcome?.durationMs,

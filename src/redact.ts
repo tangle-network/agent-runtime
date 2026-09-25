@@ -29,7 +29,11 @@ export function defaultRedactor(value: unknown): unknown {
 
 /** Stable identity input for saved work that depends on built-in redaction behavior. */
 export function defaultRedactorIdentityMaterial(): unknown {
-  return { core: '@tangle-network/agent-eval/traces redact', profile: 'default', version: REDACTION_VERSION }
+  return {
+    core: '@tangle-network/agent-eval/traces redact',
+    profile: 'default',
+    version: REDACTION_VERSION,
+  }
 }
 
 /**

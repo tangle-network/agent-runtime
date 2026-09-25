@@ -324,7 +324,10 @@ function jsonPathOf(pointer: string): string {
     .split('/')
     .slice(1)
     .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
-    .reduce((path, segment) => (/^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`), '$')
+    .reduce(
+      (path, segment) => (/^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`),
+      '$',
+    )
 }
 
 function sensitiveProfileSurfacePaths(input: ImproveCandidateValidationInput): string[] {
