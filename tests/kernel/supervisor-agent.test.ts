@@ -4,8 +4,13 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import { ConfigError } from '../../src/errors'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import type { RouterTransportConfig } from '../../src/runtime/router-client'
+import { CheckUnavailableError } from '../../src/runtime/supervise/continuation'
 import type { PriorCoordination } from '../../src/runtime/supervise/coordination-log'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
+import type {
+  DriverAttemptRecord,
+  DriverContinuationRecord,
+} from '../../src/runtime/supervise/driver-retry'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
 import {
@@ -27,6 +32,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { testContinuation } from '../helpers/continuation'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -338,6 +344,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           describe: 'an object whose answer is 42',
           check: (result) => (result as { answer?: unknown }).answer === 42,
         },
+        continuation: testContinuation(),
       },
     )
 
@@ -387,6 +394,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
             return (result as { answer?: unknown }).answer === 42
           },
         },
+        continuation: testContinuation(),
         priorCoordination,
       },
     )
@@ -439,6 +447,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           describe: 'an object whose answer is 42',
           check: (result) => (result as { answer?: unknown }).answer === 42,
         },
+        continuation: testContinuation(),
       },
     )
 
@@ -1438,27 +1447,26 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     },
   )
 
-  it('EXTERNAL arm: a drive that RETURNS with the contract unmet is re-entered with the unmet items', async () => {
+  it("EXTERNAL arm: a drive that RETURNS with the check unmet is sent back with Runtime's note", async () => {
     // The measured shape (discovery-lab, 2026-09-01): the harness owns its turn loop, decides it is
     // finished, and returns having delivered nothing. 376 of 376 winning runs ended on that
-    // completion, and the completion gate could only label the result. With `repromptOnUnmet` the
-    // SAME live session is re-entered on the unmet items instead.
+    // completion. With a continuation the director is sent back with the check's verdict.
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const tasks: unknown[] = []
+    const loops: DriverContinuationRecord[] = []
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
       tasks.push(task)
-      if (tasks.length === 1) return
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
         name: 'submit_result',
-        arguments: { result: { answer: 42 } },
+        arguments: { result: { answer: tasks.length === 1 ? 41 : 42 } },
       })
     }
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'pi',
         prompt: { systemPrompt: 'solve or delegate' },
-        tools: runtimeToolDeclarations('submit_result'),
+        tools: runtimeToolDeclarations('submit_result', 'read_continuation'),
       }),
       {
         blobs,
@@ -1467,9 +1475,21 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         driveHarness,
         deliverable: {
           describe: 'an object whose answer is 42',
-          check: (result) => (result as { answer?: unknown }).answer === 42,
+          check: (result) => {
+            const answer = (result as { answer?: unknown }).answer
+            return answer === 42
+              ? true
+              : {
+                  pass: false,
+                  items: { parses: 1, answer: 0 },
+                  composite: 0.5,
+                  threshold: 1,
+                  failures: [`FAIL answer result.answer: ${String(answer)}, expected 42`],
+                }
+          },
         },
-        repromptOnUnmet: 1,
+        continuation: testContinuation(),
+        onDriverLoopSettled: (record) => void loops.push(record),
       },
     )
 
@@ -1478,11 +1498,122 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
     expect(tasks).toHaveLength(2)
     expect(tasks[0]).toBe('solve it')
-    // The re-entry carries the unmet items. This harness proves nothing about its session, so
-    // the re-entry also carries the original objective: a replacement sandbox knows nothing else.
-    expect(String(tasks[1])).toContain('an object whose answer is 42')
-    expect(String(tasks[1])).toContain('The completion check has not passed.')
-    expect(String(tasks[1])).toContain('solve it')
+    const note = String(tasks[1])
+    // The verdict as a located fact, the protected items, the plan, and — because this harness
+    // proves nothing about its session — the original objective.
+    expect(note).toContain('The outside check failed: 1 of 2 items fail. Check reads: 1.')
+    expect(note).toContain('## Failures\nFAIL answer result.answer: 41, expected 42')
+    expect(note).toContain('## Passing now; keep them passing\nparses')
+    expect(note).toContain('## Before the next submit')
+    expect(note).toContain('solve it')
+    expect(loops).toEqual([
+      expect.objectContaining({
+        reprompts: 1,
+        closedBy: 'result-accepted',
+        continuations: [
+          expect.objectContaining({
+            continuation: 1,
+            profile: 'test-profile',
+            before: { pass: false, composite: 0.5, failed: 1, total: 2 },
+            after: { pass: true },
+            noteDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+          }),
+        ],
+      }),
+    ])
+  })
+
+  it('EXTERNAL arm: a check that judges state reads the run at a turn end with no submit', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const tasks: string[] = []
+    let stateReads = 0
+    let files = 0
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness: async ({ coordinationMcpUrl, task }) => {
+          tasks.push(String(task))
+          files += 1
+          if (tasks.length === 3) {
+            await jsonRpc(coordinationMcpUrl, 'tools/call', {
+              name: 'submit_result',
+              arguments: { result: 'done' },
+            })
+          }
+        },
+        deliverable: {
+          check: () => files >= 3,
+          checkState: () => {
+            stateReads += 1
+            return {
+              pass: false,
+              items: { first: files >= 1 ? 1 : 0, second: files >= 2 ? 1 : 0, third: 0 },
+              composite: files / 3,
+              failures: ['FAIL third files: missing'],
+            }
+          },
+        },
+        continuation: testContinuation(),
+      },
+    )
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    expect(stateReads).toBe(2)
+    // The composite rose between the two notes, so the second turn was progress, and the note
+    // says what changed.
+    expect(tasks[2]).toContain('## Changed since the last note\nNow passing: second.')
+  })
+
+  it('EXTERNAL arm: a check that could not run pauses the loop instead of blaming the director', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const tasks: string[] = []
+    const attempts: DriverAttemptRecord[] = []
+    let up = false
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driverRetry: { unavailablePauseMs: 0 },
+        driveHarness: async ({ coordinationMcpUrl, task }) => {
+          tasks.push(String(task))
+          if (tasks.length === 2) up = true
+          await jsonRpc(coordinationMcpUrl, 'tools/call', {
+            name: 'submit_result',
+            arguments: { result: 'answer' },
+          })
+        },
+        deliverable: {
+          check: () => {
+            if (!up) throw new CheckUnavailableError('check box did not start')
+            return true
+          },
+        },
+        continuation: testContinuation(),
+        onDriverAttempt: (record) => void attempts.push(record),
+      },
+    )
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    expect(attempts[0]).toMatchObject({
+      classification: 'unavailable',
+      unavailableSignal: 'check-unavailable',
+    })
+    // A pause re-enters with the objective, never with a verdict the check did not give.
+    expect(tasks[1]).not.toContain('The outside check failed')
+    expect(tasks[1]).toContain('solve it')
   })
 
   it('EXTERNAL arm: a drive that died is re-entered with the objective, the late child, and the unread delivery', async () => {
@@ -1523,6 +1654,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
           describe: 'an object whose answer is 42',
           check: (result) => (result as { answer?: unknown }).answer === 42,
         },
+        continuation: testContinuation(),
         onDriverLoopSettled: (record) => loops.push(record),
       },
     )
@@ -1548,50 +1680,33 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         failureRetries: 1,
         ended: 'completed',
         closedBy: 'result-accepted',
+        continuations: [],
       }),
     ])
   })
 
-  it('EXTERNAL arm: the same drive ends the run on its first completion when no re-prompt is set', async () => {
+  it('refuses an external manager with a check and no continuation, before any compute', () => {
     const blobs = new InMemoryResultBlobStore()
-    const journal = new InMemorySpawnJournal()
-    const tasks: unknown[] = []
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
-      tasks.push(task)
-      if (tasks.length === 1) return
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'submit_result',
-        arguments: { result: { answer: 42 } },
-      })
-    }
-    const root = supervisorAgent(
-      testAgentProfile('sup', {
-        harness: 'pi',
-        prompt: { systemPrompt: 'solve or delegate' },
-      }),
-      {
+    let harnessCalls = 0
+    expect(() =>
+      supervisorAgent(testAgentProfile('sup', { harness: 'pi' }), {
         blobs,
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
         perWorker,
-        driveHarness,
-        deliverable: {
-          describe: 'an object whose answer is 42',
-          check: (result) => (result as { answer?: unknown }).answer === 42,
+        driveHarness: async () => {
+          harnessCalls += 1
         },
-      },
-    )
-
-    const result = await runSupervisor(root, blobs, journal)
-    expect(result.kind).toBe('no-winner')
-    expect(tasks).toHaveLength(1)
+        deliverable: { check: () => true },
+      }),
+    ).toThrow(/needs a continuation policy/u)
+    expect(harnessCalls).toBe(0)
   })
 
   it('EXTERNAL arm: a valid partial child leaves the parent contract unmet and re-enters its director', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const checked: unknown[] = []
-    const progress: unknown[] = []
-    let drives = 0
+    const tasks: string[] = []
     let finalizations = 0
     const partial = { component: 'database', ready: true }
     const complete = { answer: 42 }
@@ -1604,9 +1719,9 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         blobs,
         makeWorkerAgent: () => deliveringLeaf('component', partial),
         perWorker,
-        driveHarness: async ({ coordinationMcpUrl }) => {
-          drives += 1
-          if (drives === 1) {
+        driveHarness: async ({ coordinationMcpUrl, task }) => {
+          tasks.push(String(task))
+          if (tasks.length === 1) {
             await jsonRpc(coordinationMcpUrl, 'tools/call', {
               name: 'spawn_worker',
               arguments: { profile: testAgentProfile('component'), task: 'build the database' },
@@ -1631,23 +1746,26 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
           check: (out) => {
             checked.push(out)
             return JSON.stringify(out) === JSON.stringify(complete)
+              ? true
+              : {
+                  pass: false,
+                  items: { database: 1, product: 0 },
+                  failures: ['FAIL product result: only the database component'],
+                }
           },
         },
-        repromptOnUnmet: 1,
-        onUnmetContract: (context) => {
-          progress.push(context.progress)
-          return { steer: 'Integrate the database into the complete product.' }
-        },
+        continuation: testContinuation(),
       },
     )
 
     const result = await runSupervisor(root, blobs, journal)
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual(complete)
-    expect(drives).toBe(2)
+    expect(tasks).toHaveLength(2)
     expect(finalizations).toBe(1)
     expect(checked).toEqual([partial, complete])
-    expect(progress).toEqual([expect.objectContaining({ deliveredCount: 1, contract: 'unmet' })])
+    // The finalizer's check of the child candidate is the verdict the note reports.
+    expect(tasks[1]).toContain('FAIL product result: only the database component')
     expect(await journal.loadTree('sup')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1692,6 +1810,9 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
                     arguments: {},
                   })
                 },
+                // A deadline already past: the external arm ends on its first turn, as the router
+                // arm does, so both arms are compared on one drive.
+                continuation: testContinuation({ deadline: 1 }),
               }
             : {
                 brain: scriptedBrain([
@@ -1741,60 +1862,48 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     }
   })
 
-  it('EXTERNAL arm: a run the coordination server STOPPED is never re-prompted', async () => {
-    // The driver called `stop`. That was a decision, and Runtime refuses the re-prompt before the
-    // product hook is consulted, so no hook can talk the run past its own stop.
-    const blobs = new InMemoryResultBlobStore()
-    const journal = new InMemorySpawnJournal()
-    const tasks: unknown[] = []
-    let hookCalls = 0
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
-      tasks.push(task)
-      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
-    }
-    const root = supervisorAgent(
-      testAgentProfile('sup', {
-        harness: 'pi',
-        prompt: { systemPrompt: 'solve or delegate' },
-        tools: runtimeToolDeclarations('stop'),
-      }),
-      {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('unused', {}),
-        perWorker,
-        driveHarness,
-        deliverable: { check: () => false },
-        repromptOnUnmet: 3,
-        onUnmetContract: () => {
-          hookCalls += 1
-          return { steer: 'keep going' }
-        },
-      },
-    )
-
-    const result = await runSupervisor(root, blobs, journal)
-    expect(result.kind).toBe('no-winner')
-    expect(tasks).toHaveLength(1)
-    expect(hookCalls).toBe(0)
-  })
-
-  it.each([2, 'until-complete'] as const)(
-    'refuses %s with no completion check to be unmet',
-    (repromptOnUnmet) => {
+  it.each(['pi', 'cli-base'] as const)(
+    'refuses a %s profile that grants stop to a manager with a check',
+    (harness) => {
       const blobs = new InMemoryResultBlobStore()
       expect(() =>
-        supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
-          blobs,
-          makeWorkerAgent: () => deliveringLeaf('w', {}),
-          perWorker,
-          driveHarness: async () => {},
-          repromptOnUnmet,
-        }),
-      ).toThrow(/needs a `deliverable` completion check/u)
+        supervisorAgent(
+          testAgentProfile('sup', {
+            harness,
+            tools: runtimeToolDeclarations('submit_result', 'stop'),
+          }),
+          {
+            blobs,
+            makeWorkerAgent: () => deliveringLeaf('w', {}),
+            perWorker,
+            ...(harness === 'pi'
+              ? { driveHarness: async () => {}, continuation: testContinuation() }
+              : { brain: async () => ({ content: '', toolCalls: [] }) }),
+            deliverable: { check: () => false },
+          },
+        ),
+      ).toThrow(/grants agent_runtime_coordination_stop to a manager with a completion check/u)
     },
   )
 
-  it('refuses onUnmetContract without a re-prompt cap, instead of never consulting it', () => {
+  it('refuses a continuation with no completion check to be unmet', () => {
+    const blobs = new InMemoryResultBlobStore()
+    expect(() =>
+      supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        perWorker,
+        driveHarness: async () => {},
+        continuation: testContinuation(),
+      }),
+    ).toThrow(/needs a `deliverable` completion check/u)
+  })
+
+  it.each([
+    [{ deadline: 'not a time' }, /continuation.deadline must be a finite time/u],
+    [{ maxBarren: 0 }, /maxBarren must be an integer >= 1/u],
+    [{ panel: 'on' as const }, /panel 'on' needs runPanel/u],
+  ])('refuses a malformed continuation %j before any compute', (over, message) => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
       supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
@@ -1803,12 +1912,12 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         perWorker,
         driveHarness: async () => {},
         deliverable: { check: () => true },
-        onUnmetContract: () => 'stop',
+        continuation: testContinuation(over),
       }),
-    ).toThrow(/needs repromptOnUnmet >= 1/u)
+    ).toThrow(message)
   })
 
-  it('refuses a re-prompt on the ROUTER arm, which runs its turn loop in process', () => {
+  it('refuses a continuation on the ROUTER arm, which runs its turn loop in process', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
       supervisorAgent(testAgentProfile('sup', { harness: 'cli-base' }), {
@@ -1817,7 +1926,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         perWorker,
         brain: async () => ({ content: '', toolCalls: [] }),
         deliverable: { check: () => true },
-        repromptOnUnmet: 1,
+        continuation: testContinuation(),
       }),
     ).toThrow(/EXTERNAL-harness supervisor/u)
   })

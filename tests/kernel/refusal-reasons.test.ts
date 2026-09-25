@@ -457,7 +457,7 @@ describe('ask_parent at the top of the chain', () => {
     expectReason(undelivered, /observe_agent/)
   })
 
-  it('closure refuses submit_result and stop while a worker runs, and names it', async () => {
+  it('closure refuses submit_result while a worker runs, and names it', async () => {
     const tb = manager({ deliverable: { describe: 'a report', check: () => true } })
     const submitted = await tool(tb, 'submit_result').handler({ result: 'report' })
     expect(submitted).toMatchObject({
@@ -467,11 +467,16 @@ describe('ask_parent at the top of the chain', () => {
       running: [{ id: 'w0', status: 'running' }],
     })
     expectReason(submitted, /await_event/)
+    expect(tb.isStopped()).toBe(false)
+    expect(tb.submittedResult()).toBeUndefined()
+  })
+
+  it('closure refuses stop while a worker runs, and names it', async () => {
+    const tb = manager()
     const stopped = await tool(tb, 'stop').handler({ reason: 'done' })
     expect(stopped).toMatchObject({ stopped: false, error: 'open-work' })
     expectReason(stopped, /still running \(w0\)/)
     expect(tb.isStopped()).toBe(false)
-    expect(tb.submittedResult()).toBeUndefined()
   })
 
   it('a stop blocked only by answerable questions does not claim anything went unheard', async () => {

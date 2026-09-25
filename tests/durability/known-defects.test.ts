@@ -13,7 +13,7 @@
  *
  *  B. 2026-09-16 (discovery-lab `.agent/autopsies/2026-09-16-meta-harness-continuation.md`,
  *    agent-runtime#1225, fixed by the #1356 series): after a completed-but-unmet drive, the
- *    `repromptOnUnmet` re-entry used to hand the director ONLY the unmet-items steer. On a
+ *    unmet-contract re-entry used to hand the director ONLY the unmet-items steer. On a
  *    retained provider the session is re-attached so the steer continues a live conversation;
  *    on the NON-retained path every drive gets a NEW environment, so the director re-entered a
  *    fresh session holding a fragment — no original task, no run state. The autopsy's run spent
@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runGraph } from '../../src/runtime/supervise/graph'
+import { testContinuation } from '../helpers/continuation'
 import {
   ARTIFACT_KEY,
   auditSpawnJournal,
@@ -161,7 +162,8 @@ describe('known defect: 2026-09-16 re-entry lost the director state (non-retaine
     graph.nodes[0] = { id: 'conductor', profile: rootProfile }
     const res = await runGraph(graph, {
       runId: 'reentry-contract',
-      repromptOnUnmet: 1,
+      // One continuation; the second barren turn ends the loop.
+      continuation: testContinuation({ maxBarren: 1 }),
       workerSlots: 3,
       maxTurns: 8,
       perWorker: { maxIterations: 20, maxTokens: 100_000 },

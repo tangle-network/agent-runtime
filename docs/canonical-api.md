@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.272.0.**
+> **Version 0.273.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.185.0 <0.188.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0`.
@@ -134,15 +134,16 @@ When the parent declares a `deliverable`, its finalizer's candidate must pass th
 The default selects the highest-scoring child that also passes the parent's check.
 Custom finalizers assemble their candidate before the check.
 Child validity and delivery counts remain unchanged.
-An external director can then use `repromptOnUnmet` to continue from a rejected candidate within its existing resource limits.
-Set `repromptOnUnmet: 'until-complete'` and a finite positive budget deadline to continue without a turn-count cap.
+An external director with a check must declare a `continuation` policy, and Runtime then sends it back from a rejected candidate within its existing resource limits.
+The policy holds a deadline and `maxBarren`; there is no continuation count and no default.
+Runtime writes the continuation note from the check's verdict: its `FAIL` lines, the items that pass, what changed, and optionally the question panel's verified findings and the bar.
+The policy's `profile` owns every instruction word, and `append` may add a section but never replace one.
 Successful continuations do not consume `driverRetry.maxAttempts`; that limit counts failed invocations across the driver run.
-An upstream out of capacity (a quota, a rate limit, an overload) pauses the driver instead; a pause is bounded only by the deadline, the budget and cancellation.
-Numeric `repromptOnUnmet` values still cap continuations, and zero disables them.
-Two re-entered drives in a row that deliver nothing end the re-prompts, whatever the cap (`repromptRefusedBy: 'no-progress'`).
-A progress `stopRule` that fired ends them too, and the settle record's `continuation.closedBy` is `stop-rule`.
-Cancellation, explicit stop, resource limits, and terminal failures remain authoritative.
-A thrown parent check reports a validation error through the existing driver failure record.
+An upstream out of capacity (a quota, a rate limit, an overload), or a check that could not run, pauses the driver instead; a pause is bounded only by the deadline, the budget and cancellation.
+`maxBarren` re-entered drives in a row without progress end the loop (`repromptRefusedBy: 'no-progress'`); progress is a delivery or a rise in the check's best composite.
+A progress `stopRule` that fired ends it too, and the settle record's `continuation.closedBy` is `stop-rule`.
+A manager with a check is never served `stop`: it ends through `submit_result` or `report_blocked`, and a profile that grants it `stop` is refused before any compute.
+A thrown parent check reports a validation error through the existing driver failure record; a `CheckUnavailableError` pauses instead.
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
@@ -151,7 +152,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Bound how many agents of a tree, or of several trees in one process, work at once | `supervise(..., { workerSlots: n })` or one `createWorkerSlots(n)` allocator passed as `workerSlots` to each run: `/kernel` — a spawn past the bound keeps its budget slice and waits in a queue (deepest first, then oldest) instead of being refused; a manager lends its slot to its first running child, so nested waits cannot deadlock. The bound counts working agents, not live managers. | a fail-closed live-worker cap, per-depth reserved slots, a lab-side launcher that retries refused spawns, or a second counter per nested manager |
 | Keep recursive managers able to infer while children hold their slices | `supervise(..., { reservationPolicy: { ownerShare: 0.2 } })`: `/kernel` — each manager keeps that share of its own budget free of its children's reservations. Child ceilings and conservation remain unchanged. | a lab-side reservation waiver or changing immutable child budgets after registration |
 | Score a supervised sandbox worker by an executable check **against its live box** | `supervise(..., { backend: { backend: 'sandbox', sandboxClient, validator } })`: `/kernel` — the leaf forwards it to the composed `runAgentRounds`, which calls `validate(output, ctx)` with `ctx.box` still alive, and the verdict lands on the worker's settle | a post-settle hook (the box is destroyed by then), a second scoring loop beside `depthStrategy`, or pairing `validator` with `steering` (refused: a steerable session composes no loop to score) |
-| Continue an external-harness director until its completion check passes | `supervise(..., { deliverable, repromptOnUnmet: 'until-complete', budget, onUnmetContract? })`: `/kernel` — requires a finite positive budget deadline; reuses the same coordination server and live children, and the same harness session only where the backend proves it (see "A re-entered director is told the run"). Successful turns do not consume failure retries. Two barren re-prompts in a row end the loop. Numeric values cap continuations; explicit stop, cancellation, budget, deadline, and failure limits remain enforced. The settle record's `continuation` counts re-prompts and failure retries separately. | a second `supervise()` call, a caller-side continuation loop, a prompt-owned round counter or nonce, an arbitrary large count, or treating a completed turn as a completed task |
+| Continue an external-harness director until its completion check passes | `supervise(..., { deliverable, continuation: { deadline, maxBarren, profile, failures, panel, bar } })`: `/kernel` — required with a check; Runtime writes the note from the check's verdict and the profile's words, reuses the same coordination server and live children, and the same harness session only where the backend proves it (see "A re-entered director is told the run"). Successful turns do not consume failure retries. `maxBarren` barren turns in a row end the loop. The settle record's `continuation.continuations` records every note with the check's verdict before and after it. | a second `supervise()` call, a caller-side continuation loop, a note written by the product in place of Runtime's, a prompt-owned round counter or nonce, a continuation count, or treating a completed turn as a completed task |
 | Run a static root, workers, and analysts as reviewable `AgentProfile` nodes with versioned edge directives | `runGraph(graph, options)`: `/kernel` | a second graph executor, prompt-only roles, or pretending a static graph can discover new nodes while running |
 | Drive a graph's ROOT with caller-owned orchestration (a deterministic conversation driver; a persona loop that makes its own LLM calls) | `runGraph(graph, { brain })`: `/kernel` — `brain: ToolLoopChat` is caller data for a router-brained root; node pinning, directive delivery, the edge ledger, and the journal twin stay the same shipped path, and the root profile keeps prompt control (`systemPrompt`/`instructions` still apply). Model selection, provider-identity validation, and usage reporting move to the caller with the brain | routing a production run through the `/testing` entry, a bespoke driver loop beside the graph, or pairing `brain` with `driverBackend` / an external-harness root (both refused: two answers to who makes the root's calls) |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/kernel` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |

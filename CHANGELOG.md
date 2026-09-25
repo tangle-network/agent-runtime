@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.273.0
+
+One check decides "done", one resend rule sends a director back, and Runtime writes the one note
+it hears (discovery `docs/38-one-loop-and-continuation.md`). Measured before this release on 670
+settled discovery-lab runs: the note Runtime wrote carried no line of the check's verdict, 1,565
+of 1,596 re-entries followed a failed turn, 650 inputs chose seven different re-prompt counts,
+and 389 of 650 lead directors could call `stop` and end the run with no check.
+
+- **Breaking: `continuation` replaces `repromptOnUnmet` and `onUnmetContract`.** An external
+  manager with a completion check must declare `continuation: { deadline, maxBarren, profile,
+  failures, panel, bar }`; one without a check may not. There is no continuation count and no
+  default. The loop ends when the check passes, when `report_blocked` shows a tool really failed,
+  at the deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+  cancellation. Progress now includes a rise in the check's best composite.
+  `defaultUnmetContractSteer`, `DEFAULT_MAX_BARREN_REPROMPTS`, `OnUnmetContract`,
+  `DriverUnmetContractContext`, `DriverUnmetContractDecision`, `DriverRepromptPolicy`, and the
+  `reprompts-exhausted` and `caller-stop` refusals are removed; a closed run refuses as `closed`.
+- **Breaking: one way out.** A manager with a check is never served `stop`, and a profile that
+  grants it one is refused before any compute. It ends through `submit_result` or
+  `report_blocked`.
+- **Breaking: a check returns a verdict.** `DeliverableSpec.check` may return a `CheckVerdict`
+  (items, composite, threshold, `FAIL <item> <where>: <reason>` lines, review);
+  `verdictFromJudgeScore` reads an agent-eval `JudgeScore` into one. `explainFailure` is removed:
+  the verdict's lines replace it. `checkState` lets a check judge the run's state at a turn end
+  with no submitted result, `feedback: 'pass-only'` keeps the lines hidden, and `sealed` states
+  that the score comes from unseen cases. A `CheckUnavailableError` is not a verdict: the loop
+  pauses as it does for an unavailable upstream.
+- **The continuation note.** `composeContinuationNote` writes the verdict, the failures (at most
+  40, the rest through the new `read_continuation` tool), the protected items, what changed, the
+  question panel's admitted findings, the bar, the plan and the rules, then a play's appended
+  section; `composeReentryTask` still writes the run's state around it. Every instruction word
+  comes from the `ContinuationProfile`, which names the facts it may use.
+- **The question panel seam.** `continuation.runPanel` asks the profile's expanded questions over
+  the run's traces under `panelUsd` caps. A finding reaches the note only when every citation
+  resolves, it cites two distinct spans, and an independent verifier agreed; findings are added
+  and marked resolved, never rewritten.
+- **Records.** Every check read is kept by the coordinator (`checkReads()`); each continuation
+  writes `continuations/<n>/note.md`, `verdict.json` and `panel.jsonl` under the run directory;
+  and `SupervisedResult.continuation.continuations` records every note's digest, profile,
+  switches, panel dollars, and the check's verdict before and after it.
+
 ## 0.272.0
 
 The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine

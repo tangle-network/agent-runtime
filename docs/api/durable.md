@@ -1979,7 +1979,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-23)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-25)
 
 ##### execution?
 
@@ -2426,44 +2426,34 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`onWorkerRetry`](runtime.md#onworkerretry-1)
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](runtime.md#continuationpolicy)
 
-How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered on the SAME live session with the unmet items.
+How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+director heard held no line of the check's verdict.
 
-A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, and abort bounds. Successful continuations do
-not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-run the coordination server already stopped is never re-prompted — that stop was a decision.
+A continuation is the retry path, not a second loop: same scope, same coordination server,
+same live children, and the same budget, deadline, and abort bounds. There is no count: the
+loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+profile owns its words, and `append` may add a section but never replace one.
 
-Requires `deliverable`, and applies to every external manager with a completion check. A
-recursive manager receives the check selected for its exact assignment. Refused for a
-router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`repromptOnUnmet`](runtime.md#repromptonunmet-1)
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](runtime.md#onunmetcontract)
-
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
- owes and reports how many workers passed the check.
+Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+every external manager with a completion check in the tree. Refused for a router-brained
+manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`onUnmetContract`](runtime.md#onunmetcontract-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
 
 ##### childSettleGraceMs?
 

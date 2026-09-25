@@ -26,6 +26,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -255,7 +256,6 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
   it('uses a child-specific completion check when a managed child submits its own result', async () => {
     let childCheckCalls = 0
     let childRefusal: unknown
-    let childExplanations = 0
     const journal = new InMemorySpawnJournal()
     const child = testAgentProfile('specialist', {
       harness: 'opencode',
@@ -300,23 +300,25 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         // The run-wide check deliberately rejects the child's output. A profile-managed child
         // must instead receive the check selected for its exact authorized assignment.
         deliverable: {
-          check: () => false,
-          explainFailure: () => 'root obligation remains incomplete',
+          check: () => ({
+            pass: false,
+            failures: ['FAIL root-obligation run: remains incomplete'],
+          }),
         },
+        // A deadline already past: every manager gets one turn, so the counts below are exact.
+        continuation: testContinuation({ deadline: 1 }),
         resolveDeliverable: (input) =>
           input.profile.name === 'specialist'
             ? {
                 check: (value) => {
                   childCheckCalls += 1
-                  return (
-                    typeof value === 'object' &&
-                    value !== null &&
-                    (value as { answer?: unknown }).answer === 42
-                  )
-                },
-                explainFailure: () => {
-                  childExplanations += 1
-                  return 'child answer must equal 42'
+                  const answer =
+                    typeof value === 'object' && value !== null
+                      ? (value as { answer?: unknown }).answer
+                      : undefined
+                  return answer === 42
+                    ? true
+                    : { pass: false, failures: ['FAIL answer result.answer: must equal 42'] }
                 },
               }
             : undefined,
@@ -325,9 +327,8 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
     // The child receives its own refusal before its corrected submission passes.
     expect(childCheckCalls).toBe(2)
-    expect(childExplanations).toBe(1)
-    expect(JSON.stringify(childRefusal)).toContain('child answer must equal 42')
-    expect(JSON.stringify(childRefusal)).not.toContain('root obligation')
+    expect(JSON.stringify(childRefusal)).toContain('FAIL answer result.answer: must equal 42')
+    expect(JSON.stringify(childRefusal)).not.toContain('root-obligation')
     expect(await journal.loadTree('parent-contract')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
