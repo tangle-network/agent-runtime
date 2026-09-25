@@ -132,6 +132,7 @@ export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-too
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
+  McpToolAnnotations,
   McpToolDescriptor,
   McpTransport,
 } from './protocol'
@@ -154,6 +155,7 @@ export {
   createStdioToolServer,
   type StdioToolServer,
   type StdioToolServerOptions,
+  SUPPORTED_PROTOCOL_VERSIONS,
 } from './tool-server'
 export {
   ANALYST_DEFINITION_BOUNDS,
