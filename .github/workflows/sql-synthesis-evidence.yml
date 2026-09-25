@@ -1,0 +1,46 @@
+name: SQL synthesis evidence
+
+on:
+  push:
+    branches: [pro/sql-run-context/synthesis]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Strict tests against main implementation (expected red)
+        shell: bash
+        run: |
+          git show 66d2caa4224c65e637da474a2a2867d785e0e319:src/runtime/environment-provider.ts > /tmp/synthesis-main-provider.ts
+          cp src/runtime/environment-provider.ts /tmp/synthesis-candidate-provider.ts
+          trap 'cp /tmp/synthesis-candidate-provider.ts src/runtime/environment-provider.ts' EXIT
+          cp /tmp/synthesis-main-provider.ts src/runtime/environment-provider.ts
+          set +e
+          npx vitest run tests/durability/sql-run-context.test.ts
+          status=$?
+          set -e
+          echo "STRICT_MAIN_EXIT=$status"
+          test "$status" -eq 1
+      - name: SQL kill/resume and context suites
+        if: ${{ !cancelled() }}
+        run: npx vitest run tests/durability/sql-kill-resume.test.ts tests/durability/sql-run-context.test.ts tests/durability/sql-run-store.test.ts tests/durability/sql-context-stores.test.ts
+      - name: Durability conformance
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/run-durability-conformance.mjs
+          node -e 'const r = require("./conformance/durability/results.json"); console.log("SYNTHESIS_TOTALS=" + JSON.stringify(r.totals)); if (r.totals.failed !== 0) process.exitCode = 1'
