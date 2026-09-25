@@ -518,8 +518,14 @@ export function buildRuntimeEventOtelSpans(
       // result would otherwise both count as a tool span, doubling the true
       // invocation count. The result still exports losslessly (tool.output
       // below, joined to the call by tool.call_id); it is just not a second
-      // declared TOOL kind for anyone counting tool spans.
-      if (event.type === 'tool_call') attrs[ATTR.spanKind] = 'TOOL'
+      // declared TOOL kind for anyone counting tool spans. The result span
+      // still carries 'tool.name' (for lookup and MCP identity below), and the
+      // contract's inference falls back to TOOL from that same key on ANY
+      // undeclared span — so the result must declare a kind explicitly (a
+      // real UNKNOWN, not silence) or a reader with no declared-only path
+      // (agent-trace-contract's resolveSpanKind, and traces/the validator's
+      // TOOL breakdown, which both fall back to inference) double-counts it.
+      attrs[ATTR.spanKind] = event.type === 'tool_call' ? 'TOOL' : 'UNKNOWN'
       attrs['tool.name'] = event.toolName
       // tool.call_id joins the call and its result. It is NOT
       // ATTR.operationId: that key names a retry-safety operation that a
