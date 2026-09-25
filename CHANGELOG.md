@@ -1,5 +1,3 @@
-# Changelog
-
 ## 0.273.0
 
 One check decides "done", one resend rule sends a director back, and Runtime writes the one note
@@ -55,6 +53,17 @@ and 389 of 650 lead directors could call `stop` and end the run with no check.
   writes `continuations/<n>/note.md`, `verdict.json` and `panel.jsonl` under the run directory;
   and `SupervisedResult.continuation.continuations` records every note's digest, profile,
   switches, panel dollars, and the check's verdict before and after it.
+
+## 0.273.1
+
+SQL run-context synthesis preserves the incumbent stores and file path from #1381 and the
+fenced ownership/coordination context from #1391. Retained recovery now starts a journaled
+worker with no admission using its original execution keys, while any existing admission
+still requires its original validated intent. The six formerly expected-failure crash cases
+are ordinary passing tests. The SQL fixtures refuse in-doubt replacement keys and assert one
+original spawn and one done settlement per worker. A real SIGSTOP/SIGCONT test proves that
+a stale owner cannot publish or release its live successor. The conformance command now exits
+nonzero when its test report fails, while still writing the evidence.
 
 ## 0.272.0
 
