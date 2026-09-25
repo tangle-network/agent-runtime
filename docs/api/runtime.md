@@ -16061,9 +16061,10 @@ Consecutive failures that changed NOTHING (no metered spend, no settlement, no s
 
 > `readonly` `optional` **maxAttempts?**: `number`
 
-Ceiling on failed invocations across this driver run, regardless of progress. Default 8,
- minimum 1. Successful continuations do not consume this allowance or reset it.
- This bounds repeated crashes that each make enough progress to reset the barren streak.
+Ceiling on failed invocations across this driver run, regardless of progress. Default: no
+ ceiling, minimum 1. A failure that made no progress is bounded by `maxConsecutiveFailures`;
+ failures that each made progress are bounded by the budget and the deadline, like the work
+ they did. Successful continuations do not consume this allowance or reset it.
 
 ##### initialBackoffMs?
 
@@ -34713,10 +34714,11 @@ systemPrompt + model reach the harness via §1.5.
 
 ### DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS
 
-> `const` **DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS**: `24` = `24`
+> `const` **DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS**: `0` = `0`
 
-Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
- this bounds how many times a supervisor may redirect ONE worker before it must respawn.
+Default ceiling on continuation turns: `0`, no count. Turn 0 is the task and every later turn
+ is a folded steer; each turn is metered against the worker's budget slice, which with the run
+ deadline and cancellation bounds how often a supervisor may redirect one worker.
 
 ***
 
