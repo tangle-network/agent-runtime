@@ -2764,7 +2764,7 @@ export async function recordScopeOwnerMaterialization(
         )
       }
       // The attempt ran in a DIFFERENT execution instance with everything else identical, which is
-      // Runtime's own doing: the `repromptOnUnmet` re-entry asks the provider for a new environment,
+      // Runtime's own doing: a continuation re-entry asks the provider for a new environment,
       // and a retained environment can be replaced between attempts. Rejecting it stranded a root
       // that had already completed a turn (agent-runtime#1225): the refusal surfaced as a transient
       // RetainedExecutionPendingError and every remaining driver attempt hit the same wall.
@@ -2790,7 +2790,7 @@ export async function recordScopeOwnerMaterialization(
 /** @internal Kernel identity for constructing the exact deferred owner executor. */
 /**
  * @internal Each driver attempt of the scope owner is its own execution attempt. A driver retry
- * after a failed drive, and the `repromptOnUnmet` re-entry after an unmet completion check, both
+ * after a failed drive, and the continuation re-entry after an unmet completion check, both
  * run the harness again and report a new execution binding; the journal keys owner bindings by
  * attempt id, so every attempt after the first is given a fresh kernel-minted id and its
  * published flags are cleared, and the new binding lands beside the earlier ones. The first

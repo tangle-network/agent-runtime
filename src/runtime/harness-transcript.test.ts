@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { contentAddress } from '../durable/content-address'
@@ -338,4 +342,218 @@ describe('harnessTranscriptArtifact refuses a malformed blob', () => {
       ),
     ).rejects.toThrow(/no transcript artifact/u)
   })
+})
+
+describe('opencode subagent sessions in a Tangle box', () => {
+  it('names each subagent session the export could not write, and carries the ones it did', async () => {
+    const commands: string[] = []
+    const evidence = await captureHarnessTranscript(
+      {
+        exec: async (command: string) => {
+          commands.push(command)
+          if (command.includes('opencode export')) {
+            return {
+              stdout: [
+                'exported ses_one',
+                'exported ses_two',
+                'failed ses_three',
+                'unexported ses_four',
+                'done',
+              ].join('\n'),
+              exitCode: 0,
+            }
+          }
+          return {
+            stdout: [
+              '/home/agent/.opencode/sessions/retained-session-1.json',
+              '/home/agent/.local/share/opencode/export/ses_one.json',
+              '/home/agent/.local/share/opencode/export/ses_two.json',
+            ].join('\n'),
+            exitCode: 0,
+          }
+        },
+        read: async (path: string) => `{"path":"${path}"}`,
+      },
+      'opencode',
+    )
+    // The export runs before the listing, so what it wrote is listed with the rest.
+    expect(commands).toHaveLength(2)
+    expect(commands[0]).toContain('opencode export')
+    expect(commands[1]).toContain('find ')
+    expect(evidence.status).toBe('captured')
+    if (evidence.status !== 'captured') return
+    expect(evidence.fileCount).toBe(3)
+    expect(evidence.artifact.skipped).toEqual([
+      { path: '~/.local/share/opencode/export/ses_three.json', reason: 'subagent-export-failed' },
+      {
+        path: '~/.local/share/opencode/export/ses_four.json',
+        reason: 'subagent-export-over-bound',
+      },
+    ])
+    expect(evidence.skippedCount).toBe(2)
+  })
+
+  it('names an export that did not run instead of reading as a complete capture', async () => {
+    const evidence = await captureHarnessTranscript(
+      {
+        exec: async (command: string) => {
+          if (command.includes('opencode export')) throw new Error('box went away')
+          return { stdout: '/home/agent/.opencode/sessions/retained-session-1.json', exitCode: 0 }
+        },
+        read: async () => '{}',
+      },
+      'opencode',
+    )
+    expect(evidence.status).toBe('captured')
+    if (evidence.status !== 'captured') return
+    expect(evidence.artifact.skipped).toEqual([
+      { path: '~/.local/share/opencode/export', reason: 'subagent-export-did-not-run' },
+    ])
+  })
+
+  it('names an export the box stopped before it finished, and gives it room to finish', async () => {
+    let exportOptions: Record<string, unknown> | undefined
+    const evidence = await captureHarnessTranscript(
+      {
+        exec: async (command: string, options?: Record<string, unknown>) => {
+          if (command.includes('opencode export')) {
+            exportOptions = options
+            // Killed after one export: no `done` line.
+            return { stdout: 'exported ses_one\n', exitCode: 137 }
+          }
+          return { stdout: '/home/agent/.local/share/opencode/export/ses_one.json', exitCode: 0 }
+        },
+        read: async () => '{}',
+      },
+      'opencode',
+    )
+    // The Sandbox SDK's exec default is 30 s; the export may run up to its own bound.
+    expect(exportOptions?.timeoutMs).toBe(180_000)
+    expect(evidence.status).toBe('captured')
+    if (evidence.status !== 'captured') return
+    expect(evidence.artifact.skipped).toEqual([
+      { path: '~/.local/share/opencode/export', reason: 'subagent-export-incomplete' },
+    ])
+  })
+
+  it('runs no export for another harness', async () => {
+    const commands: string[] = []
+    await captureHarnessTranscript(
+      {
+        exec: async (command: string) => {
+          commands.push(command)
+          return { stdout: '', exitCode: 0 }
+        },
+        read: async () => '{}',
+      },
+      'claude-code',
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).not.toContain('opencode export')
+  })
+
+  // The script runs for real under /bin/sh, against a sidecar's layout and a stub `opencode`.
+  // The listing uses GNU find's -printf, as in a Tangle box, so this needs Linux.
+  it.skipIf(process.platform !== 'linux')(
+    'exports each subagent session a sidecar record names, from the runtime home it names',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'subagent-export-'))
+      const home = join(root, 'home')
+      const runtimeHome = join(home, '.sidecar/cli-runtime-homes/opencode/abc')
+      const bin = join(root, 'bin')
+      const calls = join(root, 'calls.log')
+      const store = join(runtimeHome, '.local/share/opencode')
+      mkdirSync(store, { recursive: true })
+      mkdirSync(join(home, '.opencode/sessions'), { recursive: true })
+      mkdirSync(join(home, '.opencode/messages/retained-session-1'), { recursive: true })
+      mkdirSync(bin)
+      writeFileSync(join(store, 'opencode.db'), 'sqlite')
+      writeFileSync(
+        join(home, '.opencode/sessions/retained-session-1.json'),
+        JSON.stringify(
+          {
+            id: 'retained-session-1',
+            providerSessionId: 'ses_parent',
+            providerSessionHome: runtimeHome,
+          },
+          null,
+          2,
+        ),
+      )
+      // As the sidecar keeps them: the task result escaped inside a JSON string, and a failure.
+      writeFileSync(
+        join(home, '.opencode/messages/retained-session-1/m1.json'),
+        JSON.stringify(
+          {
+            output: '<task id="ses_child1" state="completed">\n<task_result>done</task_result>',
+            note: 'from ses_parent',
+          },
+          null,
+          2,
+        ),
+      )
+      writeFileSync(
+        join(home, '.opencode/messages/retained-session-1/m2.json'),
+        JSON.stringify({ error: 'Subagent failed (task_id: ses_child2): Invalid API key' }),
+      )
+      // opencode answers only for the session its store holds, and says which home it read.
+      writeFileSync(
+        join(bin, 'opencode'),
+        [
+          '#!/bin/sh',
+          'echo "$2" >> "$STUB_CALLS"',
+          '[ "$1" = export ] || exit 2',
+          '[ "$2" = ses_child1 ] || { echo "Session not found: $2" >&2; exit 1; }',
+          'printf \'{"info":{"id":"%s","parentID":"ses_parent"},"home":"%s","data":"%s","messages":[{"parts":[{"type":"text","text":"subagent step"}]}]}\' "$2" "$HOME" "$XDG_DATA_HOME"',
+        ].join('\n'),
+      )
+      chmodSync(join(bin, 'opencode'), 0o755)
+      const environment = {
+        exec: async (command: string) => {
+          const run = spawnSync('/bin/sh', ['-c', command], {
+            env: {
+              ...process.env,
+              HOME: home,
+              PATH: `${bin}:${process.env.PATH}`,
+              STUB_CALLS: calls,
+            },
+            encoding: 'utf8',
+          })
+          return { stdout: run.stdout, exitCode: run.status ?? 1 }
+        },
+        read: async (path: string) => readFileSync(path, 'utf8'),
+      }
+      const exported = join(home, '.local/share/opencode/export/ses_child1.json')
+      const first = await captureHarnessTranscript(environment, 'opencode')
+      expect(readFileSync(calls, 'utf8').split('\n').filter(Boolean).sort()).toEqual([
+        'ses_child1',
+        'ses_child2',
+      ])
+      expect(first.status).toBe('captured')
+      if (first.status !== 'captured') return
+      const file = first.artifact.files.find((f) => f.path === exported)
+      expect(file?.content).toContain('subagent step')
+      // Read from the runtime home the record names, not the box's own home.
+      expect(JSON.parse(file?.content ?? '{}')).toMatchObject({
+        home: runtimeHome,
+        data: join(runtimeHome, '.local/share'),
+      })
+      expect(first.artifact.skipped).toEqual([
+        {
+          path: '~/.local/share/opencode/export/ses_child2.json',
+          reason: 'subagent-export-failed',
+        },
+      ])
+      // The parent's own session is the sidecar's record, never exported again.
+      expect(existsSync(join(home, '.local/share/opencode/export/ses_parent.json'))).toBe(false)
+
+      // The next turn's capture exports again: a later turn can continue a subagent.
+      writeFileSync(calls, '')
+      await captureHarnessTranscript(environment, 'opencode')
+      expect(readFileSync(calls, 'utf8').split('\n').filter(Boolean).sort()).toEqual([
+        'ses_child1',
+        'ses_child2',
+      ])
+    },
+  )
 })

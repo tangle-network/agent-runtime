@@ -109,6 +109,7 @@ import {
 } from './model-policy'
 import type { ExecutorProgress } from './progress'
 import { addResourceSpend } from './resources'
+import { createRouterTranscript } from './router-transcript'
 import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
 import { detachedSnapshot } from './snapshot'
 import { taskToPrompt } from './task-prompt'
@@ -429,6 +430,8 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const controller = linkAbort(ctx.signal)
 
   let artifact: ExecutorResult<unknown> | undefined
+  // What the leaf was sent and answered, so it settles with its conversation (#1377).
+  const transcript = createRouterTranscript()
   const executionId = ctx.node?.nodeId ?? `router-request-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
@@ -438,6 +441,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       runtime: 'router' as Runtime,
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
         const messages = taskToMessages(task, spec, profileExecution.systemPrompt)
+        transcript.observe(messages)
         const started = Date.now()
         const linked = linkAbort(signal, controller.signal).signal
         const extraBody = {
@@ -508,6 +512,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                 ),
         )
         if (r.model !== undefined) recordRuntimeOwnedProviderModel(executor, r.model)
+        transcript.reply({ content: r.content, toolCalls: 'toolCalls' in r ? r.toolCalls : [] })
         const spent: Spend = {
           ...addResourceSpend(r.resources),
           iterations: 1,
@@ -542,6 +547,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         artifact = { outRef: contentRef('router', { model, out }), out, spent }
         return artifact
       },
+      harnessTranscript: () => transcript.capture(),
       cancel(_request): Promise<ExecutorCancellation> {
         controller.abort('executor cancelled')
         return Promise.resolve(
@@ -701,6 +707,8 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   const inbox = createInbox()
 
   let artifact: ExecutorResult<unknown> | undefined
+  // The leaf's conversation across its turns and attempts, so it settles with it (#1377).
+  const transcript = createRouterTranscript()
   const executionId = ctx.node?.nodeId ?? `router-tools-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
@@ -709,6 +717,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
     {
       runtime: 'router' as Runtime,
       deliver: (m) => inbox.deliver(m),
+      harnessTranscript: () => transcript.capture(),
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
         const started = Date.now()
         const messages: Array<Record<string, unknown>> = seam.initialMessages
@@ -761,6 +770,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             interruptSig.addEventListener('abort', abortTurn, { once: true })
             const cleanup = () => external.removeEventListener('abort', abortTurn)
             let res: Awaited<ReturnType<typeof routerChatWithTools>>
+            transcript.observe(messages)
             try {
               recordRuntimeOwnedProviderAttemptStart(executor)
               res = await (profileExecution.stream === true
@@ -828,6 +838,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             cleanup()
             // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
+            transcript.reply({ content: res.content, toolCalls: res.toolCalls })
             const priorResources = resources
             resources = addResourceSpend(resources, res.resources).resources
             resources = addResourceSpend(

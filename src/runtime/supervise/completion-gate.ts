@@ -21,24 +21,37 @@
  * @experimental
  */
 
+import { type CheckVerdict, checkVerdictOf } from './continuation'
 import { teardownSurfaces } from './deadline'
 import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'
 
 /**
  * The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that
- * decides DELIVERED (settles `valid` ⟺ it resolves true) plus an optional `describe` of
- * what the spawn was supposed to produce. The check reads the child's output — never the
- * model judging itself.
+ * decides DELIVERED (settles `valid` ⟺ it passes) plus an optional `describe` of what the spawn
+ * was supposed to produce. The check reads the child's output — never the model judging itself.
+ *
+ * The same check decides a manager's `submit_result`, runs when a manager's turn ends without an
+ * accepted result, and supplies the verdict the continuation note reports (`./continuation.ts`).
  */
 export interface DeliverableSpec<Out = unknown> {
-  /** The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves true`. */
-  check: (out: Out) => boolean | Promise<boolean>
+  /** The deployable check that decides DELIVERED. Return a `CheckVerdict` to report the items it
+   *  read and one `FAIL <item> <where>: <reason>` line per failed item; `true` or a passing verdict
+   *  delivers. Throw `CheckUnavailableError` (or anything) when the check could not run: that is
+   *  never a verdict on the result. */
+  check: (out: Out) => boolean | CheckVerdict | Promise<boolean | CheckVerdict>
   /** What the spawn was supposed to produce — surfaced in traces/reports. */
   describe?: string
-  /** Explain a refused submission after `check` returns false. This diagnostic cannot accept
-   *  a result or replace the check. A missing explanation retains the generic refusal. */
-  explainFailure?: (out: Out) => string | undefined | Promise<string | undefined>
+  /** Judge the run's current state with no submitted result. Runtime calls it when a manager's
+   *  turn ends and no result reached the check during that turn. Omit for a check that reads only
+   *  the submitted value. */
+  checkState?: () => boolean | CheckVerdict | Promise<boolean | CheckVerdict>
+  /** `verbatim` (the default) returns the check's FAIL lines to the manager; `pass-only` tells it
+   *  only that the check failed and how many times it has read the check, for a check whose tests
+   *  must stay hidden. */
+  feedback?: 'verbatim' | 'pass-only'
+  /** True when the score comes from sealed cases the manager never sees. Stated in the note. */
+  sealed?: boolean
 }
 
 /**
@@ -56,7 +69,7 @@ export function gateOnDeliverable<Out>(
   const check = async (out: Out, baseScore?: number): Promise<DefaultVerdict> => {
     let delivered: boolean
     try {
-      delivered = (await deliverable.check(out)) === true
+      delivered = checkVerdictOf(await deliverable.check(out)).pass
     } catch {
       delivered = false // fail-closed: a throwing check is NOT a delivery
     }

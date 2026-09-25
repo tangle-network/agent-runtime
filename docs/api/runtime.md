@@ -1007,6 +1007,44 @@ readonly [`ReservationShortfall`](#reservationshortfall)[]
 
 ***
 
+### CheckUnavailableError
+
+The check could not run: its box did not start, its judge's provider refused, its program
+crashed. It is not a verdict on the result. Inside a run the loop pauses, as it does for an
+unavailable upstream, and the refusal tells the director its result was not judged.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new CheckUnavailableError**(`message`, `options?`): [`CheckUnavailableError`](#checkunavailableerror)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`CheckUnavailableError`](#checkunavailableerror)
+
+###### Overrides
+
+`Error.constructor`
+
+***
+
 ### FileCoordinationLog
 
 FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
@@ -1057,7 +1095,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ###### Implementation of
 
-[`CoordinationLog`](#coordinationlog).[`append`](#append-3)
+[`CoordinationLog`](#coordinationlog).[`append`](#append-4)
 
 ##### load()
 
@@ -1307,7 +1345,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-24)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-25)
 
 ##### parent?
 
@@ -3673,6 +3711,145 @@ Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
 ***
 
+### DeclaredCheck
+
+A check program as a record declares it.
+
+#### Properties
+
+##### program
+
+> `readonly` **program**: `object`
+
+The evaluator program's files. A directory whose canonical digest differs is refused.
+
+###### dir
+
+> `readonly` **dir**: `string`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### command
+
+> `readonly` **command**: readonly \[`string`, `string`\]
+
+Executable and arguments, run in the program's directory.
+
+##### environment
+
+> `readonly` **environment**: `string`
+
+The box environment or image that holds the program's toolchain.
+
+##### egress?
+
+> `readonly` `optional` **egress?**: readonly `string`[]
+
+Domains the program may reach. Absent or empty: egress is blocked.
+
+##### secrets?
+
+> `readonly` `optional` **secrets?**: readonly `string`[]
+
+Names of this process's environment variables the program receives. A missing one refuses.
+
+##### pass
+
+> `readonly` **pass**: `number`
+
+The pass threshold on the score's `composite`.
+
+##### feedback
+
+> `readonly` **feedback**: `"verbatim"` \| `"pass-only"`
+
+`pass-only` keeps the FAIL lines from the director, for a check whose tests stay hidden.
+
+##### sealed?
+
+> `readonly` `optional` **sealed?**: `object`
+
+Cases the director never sees. They score a run and a version, never an in-run read.
+
+###### dir
+
+> `readonly` **dir**: `string`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### describe?
+
+> `readonly` `optional` **describe?**: `string`
+
+What the run owes, for the director's tools and the note.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Bound on one read. Default 15 minutes.
+
+##### resources?
+
+> `readonly` `optional` **resources?**: `SandboxResources`
+
+***
+
+### DeclaredCheckPlacement
+
+Where a declared check's boxes are created: a client on the check account, and every account
+ the judged run holds a key to, so the check refuses a box the run could reach.
+
+#### Properties
+
+##### client
+
+> `readonly` **client**: `object`
+
+###### getIdentity()
+
+> **getIdentity**(): `Promise`\<\{ `customerId`: `string`; \}\>
+
+###### Returns
+
+`Promise`\<\{ `customerId`: `string`; \}\>
+
+###### createIsolated()
+
+> **createIsolated**(`options`, `requestOptions?`): `Promise`\<`SandboxInstance`\>
+
+###### Parameters
+
+###### options
+
+`Omit`\<`CreateSandboxOptions`, `"ownerContext"`\>
+
+###### requestOptions?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`SandboxInstance`\>
+
+##### builderAccounts
+
+> `readonly` **builderAccounts**: readonly \[`string`, `string`\]
+
+##### env?
+
+> `readonly` `optional` **env?**: `Readonly`\<`Record`\<`string`, `string` \| `undefined`\>\>
+
+The environment the secrets are read from. Default `process.env`.
+
+***
+
 ### LeaderboardScore
 
 Structured per-case verdict a `score` function may return (a bare number is
@@ -5083,6 +5260,13 @@ Executable and arguments, without host shell interpretation.
 
 Run the check in its own Sandbox box instead of Linux Bubblewrap on this host.
 
+##### env?
+
+> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Environment the command receives beside PATH, HOME and LANG: a declared check's named
+ secrets and its own settings. Nothing else of this process's environment reaches it.
+
 ***
 
 ### IsolatedCheckBox
@@ -5145,6 +5329,13 @@ Sandbox environment or image that holds the check's toolchain.
 ##### resources?
 
 > `optional` **resources?**: `SandboxResources`
+
+##### egress?
+
+> `optional` **egress?**: readonly `string`[]
+
+Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
+ box's egress is blocked. Otherwise strict: these domains only, with no implicit list.
 
 ***
 
@@ -8044,7 +8235,7 @@ The provider-derived outcome, when one was available before cleanup.
 
 > `readonly` **signal**: `AbortSignal`
 
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-1).
+A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-2).
 
 ***
 
@@ -8193,7 +8384,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-2)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-3)
 
 ##### interactiveIdempotencyKey
 
@@ -8958,7 +9149,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-4)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-5)
 
 ##### existingEnvironmentId?
 
@@ -14256,9 +14447,11 @@ Optional caller-authored deadline for one `execute` call. Omit it to run until t
 ### DeliverableSpec
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
-decides DELIVERED (settles `valid` ⟺ it resolves true) plus an optional `describe` of
-what the spawn was supposed to produce. The check reads the child's output — never the
-model judging itself.
+decides DELIVERED (settles `valid` ⟺ it passes) plus an optional `describe` of what the spawn
+was supposed to produce. The check reads the child's output — never the model judging itself.
+
+The same check decides a manager's `submit_result`, runs when a manager's turn ends without an
+accepted result, and supplies the verdict the continuation note reports (`./continuation.ts`).
 
 #### Type Parameters
 
@@ -14270,9 +14463,12 @@ model judging itself.
 
 ##### check
 
-> **check**: (`out`) => `boolean` \| `Promise`\<`boolean`\>
+> **check**: (`out`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
-The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves true`.
+The deployable check that decides DELIVERED. Return a `CheckVerdict` to report the items it
+ read and one `FAIL <item> <where>: <reason>` line per failed item; `true` or a passing verdict
+ delivers. Throw `CheckUnavailableError` (or anything) when the check could not run: that is
+ never a verdict on the result.
 
 ###### Parameters
 
@@ -14282,7 +14478,7 @@ The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves tr
 
 ###### Returns
 
-`boolean` \| `Promise`\<`boolean`\>
+`boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
 ##### describe?
 
@@ -14290,22 +14486,31 @@ The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves tr
 
 What the spawn was supposed to produce — surfaced in traces/reports.
 
-##### explainFailure?
+##### checkState?
 
-> `optional` **explainFailure?**: (`out`) => `string` \| `Promise`\<`string` \| `undefined`\> \| `undefined`
+> `optional` **checkState?**: () => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
 
-Explain a refused submission after `check` returns false. This diagnostic cannot accept
- a result or replace the check. A missing explanation retains the generic refusal.
-
-###### Parameters
-
-###### out
-
-`Out`
+Judge the run's current state with no submitted result. Runtime calls it when a manager's
+ turn ends and no result reached the check during that turn. Omit for a check that reads only
+ the submitted value.
 
 ###### Returns
 
-`string` \| `Promise`\<`string` \| `undefined`\> \| `undefined`
+`boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
+
+##### feedback?
+
+> `optional` **feedback?**: `"verbatim"` \| `"pass-only"`
+
+`verbatim` (the default) returns the check's FAIL lines to the manager; `pass-only` tells it
+ only that the check failed and how many times it has read the check, for a check whose tests
+ must stay hidden.
+
+##### sealed?
+
+> `optional` **sealed?**: `boolean`
+
+True when the score comes from sealed cases the manager never sees. Stated in the note.
 
 ***
 
@@ -14330,6 +14535,739 @@ Explain a refused submission after `check` returns false. This diagnostic cannot
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
+
+***
+
+### CheckVerdict
+
+One reading of a completion check.
+
+A check program prints an agent-eval `JudgeScore`; [verdictFromJudgeScore](#verdictfromjudgescore) reads it into
+this shape. A plain boolean check is a verdict with no items.
+
+#### Properties
+
+##### pass
+
+> `readonly` **pass**: `boolean`
+
+Whether the check accepts the result.
+
+##### items?
+
+> `readonly` `optional` **items?**: `Readonly`\<`Record`\<`string`, `number`\>\>
+
+Every item the check read, by name: 1 when it passes, lower when it does not. The
+ `JudgeScore.dimensions` of the check program.
+
+##### composite?
+
+> `readonly` `optional` **composite?**: `number`
+
+The check's score.
+
+##### threshold?
+
+> `readonly` `optional` **threshold?**: `number`
+
+The pass threshold on `composite`, when the check has one.
+
+##### failures?
+
+> `readonly` `optional` **failures?**: readonly `string`[]
+
+One `FAIL <item> <where>: <reason>` line per failed item, in the check's order.
+
+##### review?
+
+> `readonly` `optional` **review?**: `string`
+
+The check's prose review of the result, when it writes one.
+
+***
+
+### CheckRead
+
+One time the check ran inside the run, whatever started it.
+
+#### Properties
+
+##### read
+
+> `readonly` **read**: `number`
+
+1-based count of check reads in this manager, the unavailable ones included.
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The driver attempt the read belongs to.
+
+##### at
+
+> `readonly` **at**: `number`
+
+Epoch ms.
+
+##### source
+
+> `readonly` **source**: `"submit"` \| `"turn-end"`
+
+`submit`: a `submit_result` call. `turn-end`: the turn ended with no accepted result.
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](#checkverdict)
+
+Absent when the check could not run.
+
+##### unavailable?
+
+> `readonly` `optional` **unavailable?**: `string`
+
+Why the check could not run.
+
+***
+
+### ContinuationPolicy
+
+How a manager with a completion check is sent back when its turn ends unmet.
+
+Required for an external manager with a check: Runtime supplies no default, because a retry
+default in source is a research decision the record must make. There is no re-prompt count.
+The loop re-enters until the check passes, `report_blocked` ends the run, or a bound ends it:
+this deadline, the budget, `maxBarren` turns in a row without progress, or cancellation.
+Progress means the check's best composite rose, an accepted result, or a worker that delivered.
+
+#### Properties
+
+##### deadline
+
+> `readonly` **deadline**: `string` \| `number`
+
+No re-entry starts at or after this instant: epoch ms, or an ISO 8601 time.
+
+##### maxBarren
+
+> `readonly` **maxBarren**: `number`
+
+Re-entered turns in a row that may end without progress before the run ends. Minimum 1.
+ The evidence for 2: repair loses most of its effect within two or three attempts, and a
+ fresh start at the same budget scored higher (Debugging Decay Index).
+
+##### profile
+
+> `readonly` **profile**: [`ContinuationProfile`](#continuationprofile)
+
+Every instruction word of the note.
+
+##### failures
+
+> `readonly` **failures**: `"off"` \| `"verbatim"`
+
+`verbatim` sends the check's FAIL lines, the protected items, and what changed. A check with
+ `feedback: 'pass-only'` overrides this to `off`.
+
+##### panel
+
+> `readonly` **panel**: `"off"` \| `"on"`
+
+`on` runs the question panel at each continuation and puts its admitted findings in the note.
+ Requires `runPanel`.
+
+##### bar
+
+> `readonly` **bar**: `"off"` \| `"on"`
+
+`on` states the bar: every check item with its state, the best version's verdict and the
+ gap, the reference result, and the check's review.
+
+##### reference?
+
+> `readonly` `optional` **reference?**: `string`
+
+The play's registered reference result, for the bar.
+
+##### best?
+
+> `readonly` `optional` **best?**: `object`
+
+The best version's verdict on the same check, for the bar. The version loop sets it.
+
+###### label
+
+> `readonly` **label**: `string`
+
+###### verdict
+
+> `readonly` **verdict**: [`CheckVerdict`](#checkverdict)
+
+##### panelUsd?
+
+> `readonly` `optional` **panelUsd?**: `object`
+
+The panel's dollar caps. Required with `panel: 'on'`.
+
+###### perContinuation
+
+> `readonly` **perContinuation**: `number`
+
+###### perRun
+
+> `readonly` **perRun**: `number`
+
+##### runPanel?
+
+> `readonly` `optional` **runPanel?**: [`ContinuationPanel`](#continuationpanel)
+
+The question panel. Required with `panel: 'on'`.
+
+##### append?
+
+> `readonly` `optional` **append?**: [`ContinuationAppend`](#continuationappend)
+
+A play's own section, appended after Runtime's sections. It cannot remove or rewrite one.
+
+***
+
+### ContinuationProfile
+
+Every instruction word of the note. Runtime supplies the facts and their order; this data
+supplies the words, so the note can be improved (by a person, reflection, or GEPA) without a code
+change. Templates may name the facts in [CONTINUATION\_FACTS](#continuation_facts) as `{name}`.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+Recorded with every note, so each continuation names the words it carried.
+
+##### opening
+
+> `readonly` **opening**: `string`
+
+Section 1, the verdict. The first line should state the failure as a fact.
+
+##### plan
+
+> `readonly` **plan**: `string`
+
+Section 7: what to do before the next submit.
+
+##### rules
+
+> `readonly` **rules**: `string`
+
+Section 8: what the harness enforces, and the honest exit.
+
+##### headings
+
+> `readonly` **headings**: `object`
+
+Section headings; an empty heading prints the section without one.
+
+###### failures
+
+> `readonly` **failures**: `string`
+
+###### protected
+
+> `readonly` **protected**: `string`
+
+###### changed
+
+> `readonly` **changed**: `string`
+
+###### findings
+
+> `readonly` **findings**: `string`
+
+###### bar
+
+> `readonly` **bar**: `string`
+
+###### plan
+
+> `readonly` **plan**: `string`
+
+###### rules
+
+> `readonly` **rules**: `string`
+
+##### barRule?
+
+> `readonly` `optional` **barRule?**: `string`
+
+The bar's standing instruction, printed under its heading.
+
+##### questions?
+
+> `readonly` `optional` **questions?**: readonly `string`[]
+
+The panel's question templates. `{item}` expands over failed items and `{worker}` over
+ settled workers; a template with neither is asked once.
+
+##### panelModel?
+
+> `readonly` `optional` **panelModel?**: `string`
+
+The panel's model, when the profile chooses one.
+
+##### review?
+
+> `readonly` `optional` **review?**: `string`
+
+What a new version's director reads about the best version's review, for the version
+ chain's `'review-of-best'`. It may name `{version}`, `{path}` and `{score}`.
+
+***
+
+### ContinuationPanelInput
+
+What the question panel reads for one continuation.
+
+#### Properties
+
+##### continuation
+
+> `readonly` **continuation**: `number`
+
+1-based continuation number.
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](#checkverdict)
+
+The check's verdict this note reports; absent when no result reached the check.
+
+##### reads
+
+> `readonly` **reads**: readonly [`CheckRead`](#checkread)[]
+
+Every check read so far, oldest first.
+
+##### questions
+
+> `readonly` **questions**: readonly `string`[]
+
+The expanded questions, one per atomic question.
+
+##### rootStreamPath?
+
+> `readonly` `optional` **rootStreamPath?**: `string`
+
+`<runDir>/root-stream.jsonl`, the director's own trace, when the run has a directory.
+
+##### workers
+
+> `readonly` **workers**: readonly `object`[]
+
+Settled workers, with the evidence reference their trace is read from.
+
+##### bar?
+
+> `readonly` `optional` **bar?**: `object`
+
+###### label
+
+> `readonly` **label**: `string`
+
+###### verdict
+
+> `readonly` **verdict**: [`CheckVerdict`](#checkverdict)
+
+##### reference?
+
+> `readonly` `optional` **reference?**: `string`
+
+##### usdCap
+
+> `readonly` **usdCap**: `number`
+
+The dollars this panel call may spend.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+***
+
+### PanelFinding
+
+One answer the panel proposes for the note.
+
+#### Extended by
+
+- [`AdmittedFinding`](#admittedfinding)
+
+#### Properties
+
+##### question
+
+> `readonly` **question**: `string`
+
+##### claim
+
+> `readonly` **claim**: `string`
+
+The finding, stated as a claim about the run.
+
+##### citations
+
+> `readonly` **citations**: readonly `object`[]
+
+Every `trace://` citation in the answer, and whether the trace store holds it.
+
+##### verified
+
+> `readonly` **verified**: `boolean`
+
+Whether an independent verifier, shown only the cited spans, agreed with the claim.
+
+##### items?
+
+> `readonly` `optional` **items?**: readonly `string`[]
+
+The failed check items the finding explains, when it names any.
+
+***
+
+### ContinuationPanelResult
+
+#### Properties
+
+##### findings
+
+> `readonly` **findings**: readonly [`PanelFinding`](#panelfinding)[]
+
+##### usd
+
+> `readonly` **usd**: `number` \| `null`
+
+Dollars spent; `null` when the provider reported no cost. Unknown is never zero.
+
+##### receipts?
+
+> `readonly` `optional` **receipts?**: `unknown`
+
+Provider receipts, recorded verbatim in `panel.jsonl`.
+
+***
+
+### AdmittedFinding
+
+A finding that reached the note, with the continuation that admitted it.
+
+#### Extends
+
+- [`PanelFinding`](#panelfinding)
+
+#### Properties
+
+##### question
+
+> `readonly` **question**: `string`
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`question`](#question-1)
+
+##### claim
+
+> `readonly` **claim**: `string`
+
+The finding, stated as a claim about the run.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`claim`](#claim-1)
+
+##### citations
+
+> `readonly` **citations**: readonly `object`[]
+
+Every `trace://` citation in the answer, and whether the trace store holds it.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`citations`](#citations)
+
+##### verified
+
+> `readonly` **verified**: `boolean`
+
+Whether an independent verifier, shown only the cited spans, agreed with the claim.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`verified`](#verified)
+
+##### items?
+
+> `readonly` `optional` **items?**: readonly `string`[]
+
+The failed check items the finding explains, when it names any.
+
+###### Inherited from
+
+[`PanelFinding`](#panelfinding).[`items`](#items-1)
+
+##### admittedAt
+
+> `readonly` **admittedAt**: `number`
+
+##### resolvedAt?
+
+> `readonly` `optional` **resolvedAt?**: `number`
+
+Set once every item the finding named passes.
+
+***
+
+### ContinuationNoteInput
+
+The facts one note is written from.
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: [`ContinuationProfile`](#continuationprofile)
+
+##### continuation
+
+> `readonly` **continuation**: `number`
+
+1-based.
+
+##### verdict?
+
+> `readonly` `optional` **verdict?**: [`CheckVerdict`](#checkverdict)
+
+The verdict this turn ended on; absent when no result has reached the check.
+
+##### previous?
+
+> `readonly` `optional` **previous?**: [`CheckVerdict`](#checkverdict)
+
+The verdict the previous note reported, for what changed.
+
+##### reads
+
+> `readonly` **reads**: `number`
+
+Check reads so far, the unavailable ones included.
+
+##### failures
+
+> `readonly` **failures**: `"off"` \| `"verbatim"`
+
+`verbatim` only when the policy and the check both allow the FAIL lines.
+
+##### findings?
+
+> `readonly` `optional` **findings?**: readonly [`AdmittedFinding`](#admittedfinding)[]
+
+##### bar?
+
+> `readonly` `optional` **bar?**: `object`
+
+###### best?
+
+> `readonly` `optional` **best?**: `object`
+
+###### best.label
+
+> `readonly` **label**: `string`
+
+###### best.verdict
+
+> `readonly` **verdict**: [`CheckVerdict`](#checkverdict)
+
+###### reference?
+
+> `readonly` `optional` **reference?**: `string`
+
+##### appended?
+
+> `readonly` `optional` **appended?**: readonly `object`[]
+
+##### owed?
+
+> `readonly` `optional` **owed?**: `string`
+
+What the run owes, from the check's description.
+
+##### progress
+
+> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
+
+##### canReadMore
+
+> `readonly` **canReadMore**: `boolean`
+
+Whether `read_continuation` is served to this manager.
+
+##### sealed?
+
+> `readonly` `optional` **sealed?**: `boolean`
+
+Whether the check's score comes from cases the director cannot see.
+
+***
+
+### ContinuationEntry
+
+One continuation as the settle record carries it (`DriverContinuationRecord.continuations`).
+
+#### Properties
+
+##### continuation
+
+> `readonly` **continuation**: `number`
+
+1-based.
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The driver attempt whose end this note answered.
+
+##### noteDigest
+
+> `readonly` **noteDigest**: `string`
+
+sha256 of the note's text.
+
+##### profile
+
+> `readonly` **profile**: `string`
+
+##### switches
+
+> `readonly` **switches**: `object`
+
+###### failures
+
+> `readonly` **failures**: `"off"` \| `"verbatim"`
+
+###### panel
+
+> `readonly` **panel**: `"off"` \| `"on"`
+
+###### bar
+
+> `readonly` **bar**: `"off"` \| `"on"`
+
+##### before
+
+> `readonly` **before**: [`VerdictSummary`](#verdictsummary) \| `null`
+
+The verdict the note reported: `null` when no result had reached the check.
+
+##### after
+
+> `readonly` **after**: [`VerdictSummary`](#verdictsummary) \| `null`
+
+The verdict at the director's next turn end: `null` when the run ended first.
+
+##### panel?
+
+> `readonly` `optional` **panel?**: `object`
+
+The panel's part: questions asked, findings admitted, dollars (`null` = unknown).
+
+###### asked
+
+> `readonly` **asked**: `number`
+
+###### proposed
+
+> `readonly` **proposed**: `number`
+
+###### admitted
+
+> `readonly` **admitted**: `number`
+
+###### usd
+
+> `readonly` **usd**: `number` \| `null`
+
+##### appended
+
+> `readonly` **appended**: `number`
+
+Sections a play appended.
+
+***
+
+### VerdictSummary
+
+#### Properties
+
+##### pass
+
+> `readonly` **pass**: `boolean`
+
+##### composite?
+
+> `readonly` `optional` **composite?**: `number`
+
+##### failed?
+
+> `readonly` `optional` **failed?**: `number`
+
+##### total?
+
+> `readonly` `optional` **total?**: `number`
+
+***
+
+### ContinuationContext
+
+The readout a continuation is composed from.
+
+#### Properties
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The attempt that just completed, 1-based.
+
+##### continuations
+
+> `readonly` **continuations**: `number`
+
+Continuations this run has already sent.
+
+##### progress
+
+> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
+
+The mark read after the completed drive.
+
+##### budget
+
+> `readonly` **budget**: [`DriverBudgetReadout`](#driverbudgetreadout)
+
+##### barrenReentries
+
+> `readonly` **barrenReentries**: `number`
+
+Re-entered drives in a row, this one included, that ended without progress.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
 
 ***
 
@@ -15204,14 +16142,14 @@ The completion check's verdict after this attempt. Absent when the caller declar
 
 > `readonly` `optional` **reprompted?**: `boolean`
 
-True when this COMPLETED attempt's unmet contract sent the loop back into the live session.
+True when this COMPLETED attempt's unmet contract sent the loop back with a continuation.
 
 ##### repromptRefusedBy?
 
 > `readonly` `optional` **repromptRefusedBy?**: [`DriverRepromptRefusal`](#driverrepromptrefusal)
 
 Why an unmet contract did NOT re-enter the session. Absent when the contract was met, when
- the caller configured no re-prompt, or when the re-prompt was issued.
+ the manager has no continuation policy, or when the continuation was sent.
 
 ***
 
@@ -15259,89 +16197,12 @@ The completion check's verdict right now. Omit (or `'none'`) when the caller dec
 Monotone count of settled children that PASSED the completion check. A child that ran and
  settled without delivering does not count here, which is the whole point.
 
-***
+##### composite?
 
-### DriverUnmetContractContext
+> `readonly` `optional` **composite?**: `number`
 
-What the caller sees when a drive returns with its completion check unmet.
-
-#### Properties
-
-##### attempt
-
-> `readonly` **attempt**: `number`
-
-The attempt that just completed, 1-based.
-
-##### reprompts
-
-> `readonly` **reprompts**: `number`
-
-How many re-prompts this run has already issued.
-
-##### maxReprompts
-
-> `readonly` **maxReprompts**: `number` \| `"until-complete"`
-
-##### progress
-
-> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
-
-The mark read AFTER the completed drive.
-
-##### budget
-
-> `readonly` **budget**: [`DriverBudgetReadout`](#driverbudgetreadout)
-
-##### describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-What the run was supposed to produce, from the caller's completion check.
-
-##### barrenReentries
-
-> `readonly` **barrenReentries**: `number`
-
-Consecutive re-entered drives, this one included, that completed without a delivery.
-
-***
-
-### DriverRepromptPolicy
-
-How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where
- such a drive ends the run and only the completion gate's label records what happened.
-
-#### Properties
-
-##### maxReprompts
-
-> `readonly` **maxReprompts**: `number` \| `"until-complete"`
-
-How many times one run may re-enter its driver with the unmet items. `0` = never.
- `'until-complete'` removes the count cap and requires a finite positive scope deadline.
- Budget, cancellation, explicit stop, the barren bound, and failure retry limits still apply.
-
-##### maxBarren?
-
-> `readonly` `optional` **maxBarren?**: `number`
-
-Consecutive re-entered drives that may complete without a delivery before re-prompting stops
- (`repromptRefusedBy: 'no-progress'`). Default [DEFAULT\_MAX\_BARREN\_REPROMPTS](#default_max_barren_reprompts); minimum 1.
- A delivery — an accepted submission, a child that passed its check, the contract turning
- met — resets the count.
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
-
-Compose the instruction, or return `'stop'`. Omit = [defaultUnmetContractSteer](#defaultunmetcontractsteer).
-
-##### describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-What the run owes, surfaced in the default instruction.
+The best composite any check read has scored so far. A rise is progress: the director moved
+ the outside check even though it has not passed.
 
 ***
 
@@ -15442,7 +16303,7 @@ Genuine continuations: completed drives with the contract unmet that were re-ent
 
 ###### Inherited from
 
-[`DriverLoopRecord`](#driverlooprecord).[`reprompts`](#reprompts-1)
+[`DriverLoopRecord`](#driverlooprecord).[`reprompts`](#reprompts)
 
 ##### failureRetries
 
@@ -15519,14 +16380,22 @@ Re-entries that ran in a new environment because the provider no longer held the
 > `readonly` `optional` **closedBy?**: `"stop"` \| `"blocked"` \| `"result-accepted"` \| `"stop-rule"`
 
 How the run was closed, when something closed it: an accepted `submit_result`, the
- manager's own `stop`, a `report_blocked` whose probe failed, or the caller's progress
- `stopRule`. Absent when the loop ended on a bound or a failure.
+ manager's own `stop` (served only to a manager with no check), a `report_blocked` whose
+ probe failed, or the caller's progress `stopRule`. Absent when the loop ended on a bound or a
+ failure.
 
 ##### stopReason?
 
 > `readonly` `optional` **stopReason?**: `string`
 
 The reason the manager gave, or the failed probe, verbatim.
+
+##### continuations
+
+> `readonly` **continuations**: readonly [`ContinuationEntry`](#continuationentry)[]
+
+Every continuation note this manager was sent, with the check's verdict before and after it.
+ Empty for a manager with no check.
 
 ***
 
@@ -16125,7 +16994,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-23)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-25)
 
 ##### execution?
 
@@ -16430,44 +17299,34 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 [`SuperviseOptions`](#superviseoptions).[`onWorkerRetry`](#onworkerretry-1)
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
-How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered on the SAME live session with the unmet items.
+How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+director heard held no line of the check's verdict.
 
-A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, and abort bounds. Successful continuations do
-not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-run the coordination server already stopped is never re-prompted — that stop was a decision.
+A continuation is the retry path, not a second loop: same scope, same coordination server,
+same live children, and the same budget, deadline, and abort bounds. There is no count: the
+loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+profile owns its words, and `append` may add a section but never replace one.
 
-Requires `deliverable`, and applies to every external manager with a completion check. A
-recursive manager receives the check selected for its exact assignment. Refused for a
-router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`repromptOnUnmet`](#repromptonunmet-1)
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
-
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
- owes and reports how many workers passed the check.
+Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+every external manager with a completion check in the tree. Refused for a router-brained
+manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`onUnmetContract`](#onunmetcontract-3)
+[`SuperviseOptions`](#superviseoptions).[`continuation`](#continuation-4)
 
 ##### childSettleGraceMs?
 
@@ -16747,7 +17606,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -16762,6 +17621,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 
@@ -21185,36 +22047,30 @@ Per-re-entry record for every retried worker spawn — what makes a saturated ex
 
 `void`
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
-How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
-re-entered on the SAME live session with the unmet items.
+How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
+the check unmet: the deadline, `maxBarren`, and the continuation note's profile and switches.
 
 A harness owns its own turn loop, so it decides when it is finished — and it can decide that
 while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
 runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
-could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+could only LABEL an undelivered result `valid:false`, never send the driver back for it. By
+2026-09-24, 650 recorded inputs had chosen seven different re-prompt counts, and the note the
+director heard held no line of the check's verdict.
 
-A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
-live children, and the same budget, deadline, and abort bounds. Successful continuations do
-not consume `driverRetry.maxAttempts`, which counts failed invocations only. A
-run the coordination server already stopped is never re-prompted — that stop was a decision.
+A continuation is the retry path, not a second loop: same scope, same coordination server,
+same live children, and the same budget, deadline, and abort bounds. There is no count: the
+loop ends when the check passes, when `report_blocked` shows a tool really failed, at this
+deadline, on the budget, after `maxBarren` turns in a row without progress, or on
+cancellation. Runtime writes the note from the check's verdict (`./continuation.ts`); the
+profile owns its words, and `append` may add a section but never replace one.
 
-Requires `deliverable`, and applies to every external manager with a completion check. A
-recursive manager receives the check selected for its exact assignment. Refused for a
-router-brained manager, which runs its turn loop in process. Omit/`0` = never.
-Use `'until-complete'` with a finite positive budget deadline to remove the continuation cap.
-Completion, explicit stop, cancellation, resource limits, and failure limits still stop work.
-
-##### onUnmetContract?
-
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
-
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's instruction, which names what the run
- owes and reports how many workers passed the check.
+Required with `deliverable` (or `resolveDeliverable`) for an external manager, and applied to
+every external manager with a completion check in the tree. Refused for a router-brained
+manager, which runs its turn loop in process.
 
 ##### childSettleGraceMs?
 
@@ -21485,7 +22341,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -21500,6 +22356,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ##### onProgressStop?
 
@@ -21995,7 +22854,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-18)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-21)
 
 ##### task
 
@@ -22003,7 +22862,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-24)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-25)
 
 ##### signal
 
@@ -22398,25 +23257,30 @@ Called once when the external driver loop ends, returned or thrown, with what it
 
 `void`
 
-##### repromptOnUnmet?
+##### continuation?
 
-> `readonly` `optional` **repromptOnUnmet?**: `number` \| `"until-complete"`
+> `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
 
-How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
- on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
- end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
- ended on the driver's own completion, and the completion gate could only label that result,
- never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
- live children, same budget/deadline/abort bounds. Successful turns do not consume failure
- retries. Use `'until-complete'` with a finite positive scope deadline to omit the count cap.
- Requires `deliverable`; refused for a router-brained supervisor. Omit/`0` = never re-prompt.
+How an EXTERNAL manager with `deliverable` is sent back when its turn ends with the check
+ unmet: the deadline, `maxBarren`, and the note's profile and switches (`./continuation.ts`).
+ Required with `deliverable` on the external arm, refused without one, and refused for a
+ router-brained supervisor, which runs its own turn loop in process. The harness owns its own
+ turn loop, so it can end while the run has delivered nothing — 376 of 376 winning
+ discovery-lab runs (2026-09-01) ended on the driver's own completion. A continuation reuses the
+ retry path: same scope, same coordination server, same live children, same bounds.
 
-##### onUnmetContract?
+##### continuationDir?
 
-> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
+> `readonly` `optional` **continuationDir?**: `string`
 
-Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
- Requires positive `repromptOnUnmet` or `'until-complete'`. Omit = Runtime's own instruction.
+Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
+ `panel.jsonl`). Omit to keep them in memory, where `read_continuation` still serves them.
+
+##### rootStreamPath?
+
+> `readonly` `optional` **rootStreamPath?**: `string`
+
+The root manager's `root-stream.jsonl`, which the question panel reads.
 
 ##### nodeContext?
 
@@ -25711,7 +26575,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-29)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-31)
 
 ##### abort()
 
@@ -30257,6 +31121,56 @@ Buffered OpenAI-compatible completion port used only for offline execution.
 
 ***
 
+### ContinuationPanel
+
+> **ContinuationPanel** = (`input`) => `Promise`\<[`ContinuationPanelResult`](#continuationpanelresult)\>
+
+Ask the panel's questions over the run's own traces.
+
+#### Parameters
+
+##### input
+
+[`ContinuationPanelInput`](#continuationpanelinput)
+
+#### Returns
+
+`Promise`\<[`ContinuationPanelResult`](#continuationpanelresult)\>
+
+***
+
+### ContinuationAppend
+
+> **ContinuationAppend** = (`context`) => `Promise`\<\{ `heading`: `string`; `text`: `string`; \} \| `undefined`\>
+
+A play's own section for one note. Return `undefined` to add nothing this time.
+
+#### Parameters
+
+##### context
+
+###### continuation
+
+`number`
+
+###### verdict?
+
+[`CheckVerdict`](#checkverdict)
+
+###### reads
+
+`ReadonlyArray`\<[`CheckRead`](#checkread)\>
+
+###### signal
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<\{ `heading`: `string`; `text`: `string`; \} \| `undefined`\>
+
+***
+
 ### CoordinationOwnerId
 
 > **CoordinationOwnerId** = `string`
@@ -30313,28 +31227,29 @@ Why the retry loop stopped. `completed` is the only non-failure.
 
 ### DriverRepromptRefusal
 
-> **DriverRepromptRefusal** = `"reprompts-exhausted"` \| `"caller-stop"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"` \| `"no-progress"`\>
+> **DriverRepromptRefusal** = `"closed"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"` \| `"no-progress"`\>
 
 Why a completed drive with an unmet contract was not re-entered. `no-progress` means
- `reprompt.maxBarren` consecutive re-entered drives completed without a delivery.
+ `continuation.maxBarren` consecutive re-entered drives completed without progress. `closed`
+ means the run was already closed: a failed `report_blocked` probe or a progress stop rule.
 
 ***
 
 ### DriverReentry
 
-> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
+> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
 
 Why the loop is entering the driver again. Absent on the first attempt only.
 
- An `unmet-contract` re-entry carries the unmet items. A `driver-failure` re-entry carries no
- instruction of its own: the drive that failed may never have read the last one, so the caller
- re-enters with the ORIGINAL task and the run's state, never with the unmet-items text alone.
+ An `unmet-contract` re-entry carries Runtime's continuation note. A `driver-failure` re-entry
+ carries no instruction of its own: the drive that failed may never have read the last one, so
+ the caller re-enters with the ORIGINAL task and the run's state, never with the note alone.
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `reason`: `"unmet-contract"`; `steer`: `string`; `reprompt`: `number`; \}
+\{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; \}
 
 ###### reason
 
@@ -30344,14 +31259,14 @@ Why the loop is entering the driver again. Absent on the first attempt only.
 
 > `readonly` **steer**: `string`
 
-The unmet items. Whether they are the whole turn depends on where the drive runs: only a
- backend that proves the same harness session may be re-entered with this text alone.
+The continuation note. Whether it is the whole turn depends on where the drive runs: only
+ a backend that proves the same harness session may be re-entered with this text alone.
 
-###### reprompt
+###### continuation
 
-> `readonly` **reprompt**: `number`
+> `readonly` **continuation**: `number`
 
-1-based: which re-prompt this is.
+1-based: which continuation this is.
 
 ***
 
@@ -30385,8 +31300,9 @@ The failure that ended the previous drive, as recorded.
 
 > `readonly` **reason**: `"upstream-unavailable"`
 
-The upstream refused the previous drive for capacity, and the loop paused before this
- one. Re-entered like a failure, with the original task and the run's state.
+The upstream refused the previous drive for capacity, or the check could not run, and the
+ loop paused before this one. Re-entered like a failure, with the original task and the
+ run's state.
 
 ###### signal
 
@@ -30399,32 +31315,6 @@ The code or status that classified the refusal, such as `provider_quota_exhauste
 > `readonly` **pause**: `number`
 
 1-based: which pause this is.
-
-***
-
-### DriverUnmetContractDecision
-
-> **DriverUnmetContractDecision** = \{ `steer`: `string`; \} \| `"stop"`
-
-The caller's answer: re-enter the session with `steer`, or end the run here.
-
-***
-
-### OnUnmetContract
-
-> **OnUnmetContract** = (`context`) => [`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
-
-Compose the re-entry instruction for a completed drive that delivered nothing, or refuse.
-
-#### Parameters
-
-##### context
-
-[`DriverUnmetContractContext`](#driverunmetcontractcontext)
-
-#### Returns
-
-[`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
 
 ***
 
@@ -33582,6 +34472,23 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 
 ***
 
+### CONTINUATION\_FACTS
+
+> `const` **CONTINUATION\_FACTS**: readonly \[`"composite"`, `"threshold"`, `"failed"`, `"total"`, `"reads"`, `"owed"`, `"settled"`, `"delivered"`, `"continuation"`\]
+
+The facts a profile template may name.
+
+***
+
+### CONTINUATIONS\_DIR
+
+> `const` **CONTINUATIONS\_DIR**: `"continuations"` = `'continuations'`
+
+A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested
+ manager's at `<runDir>/continuations/managers/<owner>/<n>/`.
+
+***
+
 ### defaultDelegateBudget
 
 > `const` **defaultDelegateBudget**: [`Budget`](#budget-18)
@@ -33589,14 +34496,6 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
  A modest token ceiling + a small iteration ceiling — generous enough for a few-worker decompose,
  bounded enough that an unsupervised intent cannot run away. Callers override via `opts.budget`.
-
-***
-
-### DEFAULT\_MAX\_BARREN\_REPROMPTS
-
-> `const` **DEFAULT\_MAX\_BARREN\_REPROMPTS**: `2` = `2`
-
-Two re-prompted drives in a row that deliver nothing end the re-prompts.
 
 ***
 
@@ -34460,6 +35359,149 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 
 ***
 
+### assertDeclaredCheck()
+
+> **assertDeclaredCheck**(`check`, `context`): `void`
+
+Refuse a malformed declaration before any compute.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### context
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### checkProgramDigest()
+
+> **checkProgramDigest**(`dir`): `Promise`\<`` `sha256:${string}` ``\>
+
+The canonical digest of a directory's files: the digest a record names a program by.
+
+#### Parameters
+
+##### dir
+
+`string`
+
+#### Returns
+
+`Promise`\<`` `sha256:${string}` ``\>
+
+***
+
+### declaredCheckDigest()
+
+> **declaredCheckDigest**(`check`): `` `sha256:${string}` ``
+
+The digest a version judge records: the program, the sealed cases, and how they are run.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+#### Returns
+
+`` `sha256:${string}` ``
+
+***
+
+### readDeclaredCheck()
+
+> **readDeclaredCheck**(`check`, `placement`, `read`): `Promise`\<[`CheckVerdict`](#checkverdict)\>
+
+Read the check once. `result` is the submitted result, absent for a read of the run's state.
+`set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when the program
+could not run or printed no score.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+##### read
+
+###### result?
+
+`unknown`
+
+###### set
+
+`"sealed"` \| `"development"`
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`CheckVerdict`](#checkverdict)\>
+
+***
+
+### declaredCheckDeliverable()
+
+> **declaredCheckDeliverable**(`check`, `placement`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+The declared check as a manager's completion check: every in-run read uses development cases.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+#### Returns
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+***
+
+### declaredCheckJudge()
+
+> **declaredCheckJudge**(`check`, `placement`): [`VersionJudge`](durable.md#versionjudge)
+
+The declared check as a version chain's judge: it scores a settled version on its sealed cases
+when the record has them, and on its development cases otherwise. The per-item verdict rides in
+the ledger, so the next version's review names each item. A read that could not run scores
+`null`, which never counts as an improvement.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+#### Returns
+
+[`VersionJudge`](durable.md#versionjudge)
+
+***
+
 ### defineLeaderboard()
 
 > **defineLeaderboard**\<`TCase`, `TArtifact`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`, `TArtifact`\>
@@ -34815,8 +35857,9 @@ The canonical input path remains the working directory; copy writes are discarde
 Limits bound command time and captured output, not copy size or memory consumption.
 Callers must keep the input and trusted toolchains stable while preparing the check.
 
-A box check creates one fresh box with no owner secrets and blocked egress, delivers the
-tree's regular files verified by sha256, runs the command there, and deletes the box.
+A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
+the placement's named domains), delivers the tree's regular files verified by sha256, runs the
+command there with only the environment `env` names, and deletes the box.
 
 #### Parameters
 
@@ -37824,6 +38867,221 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 ***
 
+### checkVerdictOf()
+
+> **checkVerdictOf**(`outcome`): [`CheckVerdict`](#checkverdict)
+
+Read a check function's return value into a verdict. Anything but `true` or a passing verdict
+ is a failure: a check fails closed.
+
+#### Parameters
+
+##### outcome
+
+`unknown`
+
+#### Returns
+
+[`CheckVerdict`](#checkverdict)
+
+***
+
+### verdictFromJudgeScore()
+
+> **verdictFromJudgeScore**(`score`, `threshold`): [`CheckVerdict`](#checkverdict)
+
+Read an agent-eval `JudgeScore` from a check program into a verdict.
+
+Each dimension is a checked item. `notes` lines that start with `FAIL ` are the failures; the
+remaining lines are the check's review. The verdict passes when `composite >= threshold` and the
+score is not marked `failed`; a `failed` score means the judge itself did not run, which is
+[CheckUnavailableError](#checkunavailableerror), not a verdict.
+
+#### Parameters
+
+##### score
+
+###### dimensions
+
+`Readonly`\<`Record`\<`string`, `number`\>\>
+
+###### composite
+
+`number`
+
+###### notes
+
+`string`
+
+###### failed?
+
+`true`
+
+##### threshold
+
+`number`
+
+#### Returns
+
+[`CheckVerdict`](#checkverdict)
+
+***
+
+### failedItems()
+
+> **failedItems**(`verdict`): readonly `string`[]
+
+Items that fail in `verdict`: every item below 1, or the named items of its FAIL lines.
+
+#### Parameters
+
+##### verdict
+
+[`CheckVerdict`](#checkverdict)
+
+#### Returns
+
+readonly `string`[]
+
+***
+
+### passedItems()
+
+> **passedItems**(`verdict`): readonly `string`[]
+
+Items that pass in `verdict`.
+
+#### Parameters
+
+##### verdict
+
+[`CheckVerdict`](#checkverdict)
+
+#### Returns
+
+readonly `string`[]
+
+***
+
+### admitContinuationPolicy()
+
+> **admitContinuationPolicy**(`policy`, `context`): `number`
+
+Resolve and check a policy before any compute. Returns the deadline in epoch ms.
+
+#### Parameters
+
+##### policy
+
+[`ContinuationPolicy`](#continuationpolicy)
+
+##### context
+
+`string`
+
+#### Returns
+
+`number`
+
+***
+
+### admitFinding()
+
+> **admitFinding**(`finding`): `boolean`
+
+Findings reach the note only when every citation resolves, at least two distinct spans are
+ cited, and the independent verifier agreed. The best method in Who&When found the failing step
+ 14.2% of the time, so an unverified finding is noise with a citation.
+
+#### Parameters
+
+##### finding
+
+[`PanelFinding`](#panelfinding)
+
+#### Returns
+
+`boolean`
+
+***
+
+### distillFindings()
+
+> **distillFindings**(`prior`, `proposed`, `failing`, `continuation`): readonly [`AdmittedFinding`](#admittedfinding)[]
+
+Rank the admitted findings by how many failed items they explain, drop repeats, and keep them
+within the note's cap. Earlier findings stay as they were written (ACE: itemized additions keep
+detail that repeated rewrites lose); a finding whose items all pass now is marked resolved.
+
+#### Parameters
+
+##### prior
+
+readonly [`AdmittedFinding`](#admittedfinding)[]
+
+##### proposed
+
+readonly [`PanelFinding`](#panelfinding)[]
+
+##### failing
+
+`ReadonlySet`\<`string`\>
+
+##### continuation
+
+`number`
+
+#### Returns
+
+readonly [`AdmittedFinding`](#admittedfinding)[]
+
+***
+
+### expandQuestions()
+
+> **expandQuestions**(`templates`, `failing`, `workers`): readonly `string`[]
+
+Expand the profile's question templates over the failed items and the settled workers.
+
+#### Parameters
+
+##### templates
+
+readonly `string`[]
+
+##### failing
+
+readonly `string`[]
+
+##### workers
+
+readonly `object`[]
+
+#### Returns
+
+readonly `string`[]
+
+***
+
+### composeContinuationNote()
+
+> **composeContinuationNote**(`input`): `string`
+
+Write one continuation note, sections 1 to 8 of docs/38. Section 9, the run's state, is
+`composeReentryTask`, which wraps this text. Pure: the same input writes the same note.
+
+#### Parameters
+
+##### input
+
+[`ContinuationNoteInput`](#continuationnoteinput)
+
+#### Returns
+
+`string`
+
+***
+
 ### finalizeBestDelivered()
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
@@ -38027,27 +39285,6 @@ readonly `object`[]
 #### Returns
 
 () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
-
-***
-
-### defaultUnmetContractSteer()
-
-> **defaultUnmetContractSteer**(`context`): `string`
-
-The instruction a completed-but-undelivered drive is re-entered with when the caller supplies no
-`onUnmetContract`. It states the verdict, names what is owed, reports the ledger, and gives the
-three steps — the same shape `depthStrategy` re-prompts a resumed session with, said in the
-driver's own terms.
-
-#### Parameters
-
-##### context
-
-[`DriverUnmetContractContext`](#driverunmetcontractcontext)
-
-#### Returns
-
-`string`
 
 ***
 
@@ -40788,7 +42025,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-32), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-34), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

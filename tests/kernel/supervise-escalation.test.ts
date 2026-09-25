@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { QuestionRecord } from '../../src/mcp/tools/coordination'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
+import { testContinuation } from '../helpers/continuation'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -122,6 +123,7 @@ describe('supervise delivers parent questions, not just callback configuration',
           journal: new InMemorySpawnJournal(),
           runId: 'question-tree',
           deliverable: { check: () => true },
+          continuation: testContinuation({ deadline: 1 }),
           escalateQuestion: (value) => {
             received.push(value)
             return accepts

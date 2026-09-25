@@ -41,6 +41,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
@@ -627,7 +628,7 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
 
   it('a fired rule is not argued with: the harness is not re-prompted, and the record says why', async () => {
     // Before, a stop rule aborted the stop signal, the harness returned with its check unmet, and
-    // `repromptOnUnmet` sent it straight back into a harness already told to stop.
+    // the re-prompt sent it straight back into a harness already told to stop.
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     let drives = 0
@@ -661,7 +662,7 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
         driveHarness,
         stopRule: plateau({ window: 3, minDelta: 0.01 }),
         deliverable: { describe: 'a result no worker reaches', check: () => false },
-        repromptOnUnmet: 5,
+        continuation: testContinuation(),
         onDriverLoopSettled: (record) => loops.push(record),
       },
     )
@@ -679,7 +680,7 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
         attempts: 1,
         reprompts: 0,
         closedBy: 'stop-rule',
-        repromptRefusedBy: 'caller-stop',
+        repromptRefusedBy: 'closed',
         stopReason: expect.stringContaining('plateau'),
       }),
     ])
