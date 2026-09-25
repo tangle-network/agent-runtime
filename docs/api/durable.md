@@ -1155,16 +1155,18 @@ parent, the parent's seal, the change and the lineage root on the version's root
 
 ##### judge
 
-> `readonly` **judge**: `string` \| [`VersionJudge`](#versionjudge)
+> `readonly` **judge**: [`VersionJudge`](#versionjudge)
 
-Scores each settled version from outside its tree. A string names `registry.versionJudges`.
+Scores each settled version from outside its tree: the run's declared check
+ (`declaredCheckJudge`), or any judge with a digest.
 
 ##### next
 
-> `readonly` **next**: `string` \| [`NextPursuitVersion`](#nextpursuitversion)
+> `readonly` **next**: [`NextPursuitVersion`](#nextpursuitversion) \| `"review-of-best"`
 
-The change the next version applies to the best version's profile. A string names
- `registry.nextVersions`.
+The change the next version applies to the best version's profile. `'review-of-best'` mounts
+ the best version's verdict under `inputs/review/`, replaces any earlier review, and gives the
+ next version's continuation note the best version's per-item verdict as its bar.
 
 ##### stop
 
@@ -1307,6 +1309,13 @@ Must equal `VersionJudge.digest`.
 > `readonly` `optional` **detail?**: `unknown`
 
 What the judge measured, retained verbatim in the ledger. JSON values only.
+
+##### check?
+
+> `readonly` `optional` **check?**: [`CheckVerdict`](runtime.md#checkverdict)
+
+The check's per-item verdict, when the judge is a check: what `'review-of-best'` mounts and
+ what the next version's bar compares against.
 
 ***
 
@@ -1627,50 +1636,6 @@ Sum of the versions' `usd`; a floor when any version's dollars are unknown.
 
 ***
 
-### PursuitVersionRegistry
-
-The registry tables `versions.judge` and `versions.next` resolve a name against.
-
-#### Properties
-
-##### versionJudges?
-
-> `readonly` `optional` **versionJudges?**: `object`
-
-###### resolve()
-
-> **resolve**(`name`): [`VersionJudge`](#versionjudge) \| `undefined`
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### Returns
-
-[`VersionJudge`](#versionjudge) \| `undefined`
-
-##### nextVersions?
-
-> `readonly` `optional` **nextVersions?**: `object`
-
-###### resolve()
-
-> **resolve**(`name`): [`NextPursuitVersion`](#nextpursuitversion) \| `undefined`
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### Returns
-
-[`NextPursuitVersion`](#nextpursuitversion) \| `undefined`
-
-***
-
 ### PursuitFork
 
 Start a run as a version of a settled run: the parent's recorded root inputs plus one change.
@@ -1929,16 +1894,6 @@ its change, its verdict and its dollars, and the stop. A call on a chain that st
 that record back; a call on a chain that did not resumes it without re-running or re-judging a
 settled version. The call returns the best version's result with the chain's record.
 
-##### registry?
-
-> `readonly` `optional` **registry?**: [`SuperviseRegistry`](runtime.md#superviseregistry) & [`PursuitVersionRegistry`](#pursuitversionregistry)
-
-Supervise's name tables, plus the version judges and changes `versions` may name.
-
-###### Overrides
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
-
 ##### runContext?
 
 > `readonly` `optional` **runContext?**: [`InMemoryRunContext`](runtime.md#inmemoryruncontext)
@@ -2036,6 +1991,17 @@ to use the run-wide `deliverable`; a managed child receives its selected check f
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDeliverable`](runtime.md#resolvedeliverable-1)
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`SuperviseRegistry`](runtime.md#superviseregistry)
+
+Name→value tables for the four code-valued options, so a recorded run configuration can name
+ them instead of carrying closures. See [SuperviseRegistry](runtime.md#superviseregistry).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
 
 ##### coordination?
 
@@ -2778,7 +2744,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](runtime.md#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -2793,6 +2759,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 
@@ -3185,6 +3154,15 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
 > `const` **PURSUIT\_VERSIONS\_FILE**: `"versions.jsonl"` = `'versions.jsonl'`
 
 The ledger file inside the lineage directory.
+
+***
+
+### REVIEW\_DIR
+
+> `const` **REVIEW\_DIR**: `"inputs/review/"` = `'inputs/review/'`
+
+Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
+ a profile at a time.
 
 ***
 

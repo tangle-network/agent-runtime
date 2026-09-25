@@ -249,6 +249,7 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
 | `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
 | `PURSUIT_VERSIONS_FILE` | const | The ledger file inside the lineage directory. |
+| `REVIEW_DIR` | const | Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
@@ -273,7 +274,6 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
-| `PursuitVersionRegistry` | interface | The registry tables `versions.judge` and `versions.next` resolve a name against. |
 | `PursuitVersions` | interface | Continue a pursuit across versions: after each version settles, an outside judge scores it, and |
 | `PursuitVersionsRecord` | interface | The chain's record, returned beside the best version's result and kept in `versions.jsonl`. |
 | `PursuitVersionStop` | interface | The chain's stop rule. The chain never starts a version once any cap is reached. |
@@ -441,7 +441,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1032 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1040 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -457,6 +457,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1032 exports.
 | `areaUnderCurve` | function | Mean of a best-so-far curve — the anytime AUC when the curve is normalized to [0,1]. Higher = |
 | `asAuthoredProfile` | function | Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the |
 | `assertCoordinationBinding` | function | Validate a manager's coordination authentication and request limits before execution. |
+| `assertDeclaredCheck` | function | Refuse a malformed declaration before any compute. |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
 | `assertProfileModelsAllowed` | function | Check every canonical model-bearing field in a complete profile, including the models a |
 | `assertSandboxServedModel` | function | Fail the execution when the platform reports serving a model other than the exact one asked for. |
@@ -477,6 +478,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1032 exports.
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `chatTransportExecutor` | function | Build one exact profile-driven chat executor through `createExecutor`. |
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
+| `checkProgramDigest` | function | The canonical digest of a directory's files: the digest a record names a program by. |
 | `checkVerdictOf` | function | Read a check function's return value into a verdict. Anything but `true` or a passing verdict |
 | `claimRetainedInteractiveControl` | function | Acquire provider-issued write authority without reading authority from status. |
 | `claimsAuthority` | function | True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because |
@@ -531,6 +533,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 1032 exports.
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
 | `createWorkerSlots` | function | Create a worker-slot allocator. `max` omitted, `0`, or negative leaves concurrency bounded by the |
 | `createWorktreeCliExecutor` | function | Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a |
+| `declaredCheckDeliverable` | function | The declared check as a manager's completion check: every in-run read uses development cases. |
+| `declaredCheckDigest` | function | The digest a version judge records: the program, the sealed cases, and how they are run. |
+| `declaredCheckJudge` | function | The declared check as a version chain's judge: it scores a settled version on its sealed cases |
 | `decodeHarnessUsage` | function | Decode a sandbox event with one harness's adapter, or `undefined` when the event carries no |
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
 | `defaultExtractCandidate` | function | The candidate a shot produced, read from its conversation: the LAST `submit_answer` |
@@ -620,6 +625,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1032 exports.
 | `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
 | `readCodexRolloutSession` | function | Read one rollout's rows into a session record. |
+| `readDeclaredCheck` | function | Read the check once. `result` is the submitted result, absent for a read of the run's state. |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
@@ -884,6 +890,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1032 exports.
 | `CreateSandboxOptions` | interface | Configuration for creating a new sandbox. |
 | `CreateScopeAnalystOptions` | interface | The analyst run an `Agent<unknown, AnalystFinding[]>` performs over the children settled so far. |
 | `CriuCapableClient` | interface | Narrowed view of the optional CRIU probe. The loop-side `SandboxClient` |
+| `DeclaredCheck` | interface | A check program as a record declares it. |
+| `DeclaredCheckPlacement` | interface | Where a declared check's boxes are created: a client on the check account, and every account |
 | `DefaultVerdict` | interface | Minimal verdict shape — `valid` + `score` are required; `scores` + |
 | `DefinedAnalystRecord` | interface | What the coordination layer records when a definition is admitted: the exact accepted bytes, the |
 | `DefinePersonaInput` | interface | The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder default |

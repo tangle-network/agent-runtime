@@ -165,6 +165,18 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
+// A record's declared check: the frozen evaluator program Runtime runs in a fresh box on the
+// check account, as a manager's completion check and as a version chain's judge.
+export {
+  assertDeclaredCheck,
+  checkProgramDigest,
+  type DeclaredCheck,
+  type DeclaredCheckPlacement,
+  declaredCheckDeliverable,
+  declaredCheckDigest,
+  declaredCheckJudge,
+  readDeclaredCheck,
+} from './declared-check'
 // The declarative eval-leaderboard facade: cases + prompt + score → one
 // runProfileMatrix call (expandProfileAxes × loopDispatch × the naive retry driver),
 // with a structural BenchmarkAdapter view via toBenchmarkAdapter().

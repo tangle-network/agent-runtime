@@ -36,6 +36,20 @@ and 389 of 650 lead directors could call `stop` and end the run with no check.
   the run's traces under `panelUsd` caps. A finding reaches the note only when every citation
   resolves, it cites two distinct spans, and an independent verifier agreed; findings are added
   and marked resolved, never rewritten.
+- **Declared checks.** `declaredCheckDeliverable(check, placement)` and
+  `declaredCheckJudge(check, placement)` run a record's frozen evaluator program, named by the
+  canonical digest of its files, in a fresh box on the check account. The program prints one
+  `JudgeScore`; the in-run reads use its development cases, and the version judge adds its sealed
+  cases, which no in-run read mounts. `runIsolatedCheck`'s box gains `egress` (strict, named
+  domains only) and the check gains `env` (named secrets); both stay blocked and empty by default.
+- **Breaking: one version loop.** `versions.judge` takes a `VersionJudge` (the declared check's, or
+  any judge with a digest); the `registry.versionJudges` and `registry.nextVersions` name lookups
+  and `PursuitVersionRegistry` are removed. `versions.next: 'review-of-best'` forks from the best
+  version with its check's per-item verdict mounted at `inputs/review/version-<n>.md`, replaces
+  the earlier review, uses `continuation.profile.review` for its words, and gives the next
+  version's continuation note the best version's verdict as its bar. `VersionVerdict.check`
+  carries that verdict.
+- **Declared stop rule.** `stopRule` also accepts `{ plateau: { window, minDelta } }` as data.
 - **Records.** Every check read is kept by the coordinator (`checkReads()`); each continuation
   writes `continuations/<n>/note.md`, `verdict.json` and `panel.jsonl` under the run directory;
   and `SupervisedResult.continuation.continuations` records every note's digest, profile,

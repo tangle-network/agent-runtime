@@ -1253,7 +1253,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](runtime.md#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -1268,6 +1268,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 
@@ -2308,7 +2311,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](runtime.md#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -2323,6 +2326,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 

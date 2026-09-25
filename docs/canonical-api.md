@@ -357,11 +357,13 @@ Mount the best version's product as profile resources, and the judge's review be
 Runtime verifies each fork against the parent's records first, then passes the profile to execute with its change applied, the task, the budget and the root's `execution` attribution.
 The port returns once the version's directory holds its `result.json` and `observer.jsonl`.
 It is called again for the same version after a restart, so it must attach to a version it already started.
-In a recorded run input, `judge` and `next` name entries in `registry.versionJudges` and `registry.nextVersions`; `assertPursuitVersions` checks the option before any compute.
+The judge is a `VersionJudge`: for a record with a declared check, `declaredCheckJudge(check, placement)`, which scores each version on the check's sealed cases when it has them.
+`next: 'review-of-best'` mounts the best version's per-item verdict at `inputs/review/version-<n>.md`, replaces the earlier review, reads its words from `continuation.profile.review`, and gives the next version's continuation note that verdict as its bar.
+`assertPursuitVersions` checks the option before any compute.
 
 ### A re-entered director is told the run from the coordinator
 
-A re-prompt or a failure retry enters the external director again.
+A continuation or a failure retry enters the external director again.
 What the director keeps depends on where the next drive runs, and the drive harness states it before the turn starts:
 
 | Backend | Next drive | What the director receives |

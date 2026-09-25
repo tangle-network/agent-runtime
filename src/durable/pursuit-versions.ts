@@ -808,12 +808,13 @@ function canonicalStop(stop: PursuitVersionStop): PursuitVersionStop {
   }
 }
 
-/** The review mount of `'review-of-best'`. One review lives in a profile at a time. */
-export const REVIEW_MOUNT = 'inputs/review/verdict.md'
+/** Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in
+ *  a profile at a time. */
+export const REVIEW_DIR = 'inputs/review/'
 
 /**
- * `'review-of-best'`: fork from the best version with its check's verdict mounted at
- * {@link REVIEW_MOUNT} and the profile's review words as one instruction. The previous review's
+ * `'review-of-best'`: fork from the best version with its check's verdict mounted under
+ * {@link REVIEW_DIR} and the profile's review words as one instruction. The previous review's
  * mount and instruction are removed, so a profile carries one review. This is what the Lab's
  * `continue-best` changes did in Lab code, now written once from the check's own verdict.
  */
@@ -821,14 +822,17 @@ function reviewOfBest(runId: string, words: string): NextPursuitVersion {
   return ({ best, versions }) => {
     const n = versions.length + 1
     const verdict = best.verdict.check
+    const path = `${REVIEW_DIR}version-${best.version}.md`
     const instruction = words
       .replaceAll('{version}', String(best.version))
-      .replaceAll('{path}', REVIEW_MOUNT)
+      .replaceAll('{path}', path)
       .replaceAll('{score}', best.verdict.score === null ? 'none' : String(best.verdict.score))
       .trim()
     const page = reviewPage(best.version, best.verdict.score, verdict)
-    const earlier = best.change?.set?.prompt?.instructions ?? []
-    const mounted = (best.profile.resources?.files ?? []).some((file) => file.path === REVIEW_MOUNT)
+    const earlierInstructions = best.change?.set?.prompt?.instructions ?? []
+    const earlierMounts = (best.profile.resources?.files ?? [])
+      .map((file) => file.path)
+      .filter((mounted) => mounted.startsWith(REVIEW_DIR) && mounted !== path)
     return {
       kind: 'agent-profile-diff',
       id: `${runId}-v${n}-review-of-v${best.version}`,
@@ -840,19 +844,16 @@ function reviewOfBest(runId: string, words: string): NextPursuitVersion {
       set: {
         prompt: { instructions: [instruction] },
         resources: {
-          files: [
-            {
-              path: REVIEW_MOUNT,
-              resource: { kind: 'inline', name: REVIEW_MOUNT, content: page },
-            },
-          ],
+          files: [{ path, resource: { kind: 'inline', name: path, content: page } }],
         },
       },
-      ...(earlier.length > 0 || mounted
+      ...(earlierInstructions.length > 0 || earlierMounts.length > 0
         ? {
             remove: {
-              ...(earlier.length > 0 ? { prompt: { instructions: [...earlier] } } : {}),
-              ...(mounted ? { resources: { files: [REVIEW_MOUNT] } } : {}),
+              ...(earlierInstructions.length > 0
+                ? { prompt: { instructions: [...earlierInstructions] } }
+                : {}),
+              ...(earlierMounts.length > 0 ? { resources: { files: earlierMounts } } : {}),
             },
           }
         : {}),
@@ -861,9 +862,18 @@ function reviewOfBest(runId: string, words: string): NextPursuitVersion {
 }
 
 /** The review page: facts only, in the check's own lines. */
-function reviewPage(version: number, score: number | null, verdict: CheckVerdict | undefined): string {
+function reviewPage(
+  version: number,
+  score: number | null,
+  verdict: CheckVerdict | undefined,
+): string {
   if (verdict === undefined) {
-    return [`# Version ${version}`, '', `Score: ${score ?? 'none'}. The judge reported no per-item verdict.`, ''].join('\n')
+    return [
+      `# Version ${version}`,
+      '',
+      `Score: ${score ?? 'none'}. The judge reported no per-item verdict.`,
+      '',
+    ].join('\n')
   }
   const failing = failedItems(verdict)
   return [

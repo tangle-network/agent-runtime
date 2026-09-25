@@ -87,6 +87,7 @@ export {
   type PursuitVersions,
   type PursuitVersionsRecord,
   pursuitVersionRun,
+  REVIEW_DIR,
   type RunPursuitVersion,
   type SettledPursuitVersion,
   type VersionJudge,

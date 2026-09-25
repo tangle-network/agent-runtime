@@ -3711,6 +3711,145 @@ Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
 ***
 
+### DeclaredCheck
+
+A check program as a record declares it.
+
+#### Properties
+
+##### program
+
+> `readonly` **program**: `object`
+
+The evaluator program's files. A directory whose canonical digest differs is refused.
+
+###### dir
+
+> `readonly` **dir**: `string`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### command
+
+> `readonly` **command**: readonly \[`string`, `string`\]
+
+Executable and arguments, run in the program's directory.
+
+##### environment
+
+> `readonly` **environment**: `string`
+
+The box environment or image that holds the program's toolchain.
+
+##### egress?
+
+> `readonly` `optional` **egress?**: readonly `string`[]
+
+Domains the program may reach. Absent or empty: egress is blocked.
+
+##### secrets?
+
+> `readonly` `optional` **secrets?**: readonly `string`[]
+
+Names of this process's environment variables the program receives. A missing one refuses.
+
+##### pass
+
+> `readonly` **pass**: `number`
+
+The pass threshold on the score's `composite`.
+
+##### feedback
+
+> `readonly` **feedback**: `"verbatim"` \| `"pass-only"`
+
+`pass-only` keeps the FAIL lines from the director, for a check whose tests stay hidden.
+
+##### sealed?
+
+> `readonly` `optional` **sealed?**: `object`
+
+Cases the director never sees. They score a run and a version, never an in-run read.
+
+###### dir
+
+> `readonly` **dir**: `string`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### describe?
+
+> `readonly` `optional` **describe?**: `string`
+
+What the run owes, for the director's tools and the note.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Bound on one read. Default 15 minutes.
+
+##### resources?
+
+> `readonly` `optional` **resources?**: `SandboxResources`
+
+***
+
+### DeclaredCheckPlacement
+
+Where a declared check's boxes are created: a client on the check account, and every account
+ the judged run holds a key to, so the check refuses a box the run could reach.
+
+#### Properties
+
+##### client
+
+> `readonly` **client**: `object`
+
+###### getIdentity()
+
+> **getIdentity**(): `Promise`\<\{ `customerId`: `string`; \}\>
+
+###### Returns
+
+`Promise`\<\{ `customerId`: `string`; \}\>
+
+###### createIsolated()
+
+> **createIsolated**(`options`, `requestOptions?`): `Promise`\<`SandboxInstance`\>
+
+###### Parameters
+
+###### options
+
+`Omit`\<`CreateSandboxOptions`, `"ownerContext"`\>
+
+###### requestOptions?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`SandboxInstance`\>
+
+##### builderAccounts
+
+> `readonly` **builderAccounts**: readonly \[`string`, `string`\]
+
+##### env?
+
+> `readonly` `optional` **env?**: `Readonly`\<`Record`\<`string`, `string` \| `undefined`\>\>
+
+The environment the secrets are read from. Default `process.env`.
+
+***
+
 ### LeaderboardScore
 
 Structured per-case verdict a `score` function may return (a bare number is
@@ -5121,6 +5260,13 @@ Executable and arguments, without host shell interpretation.
 
 Run the check in its own Sandbox box instead of Linux Bubblewrap on this host.
 
+##### env?
+
+> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Environment the command receives beside PATH, HOME and LANG: a declared check's named
+ secrets and its own settings. Nothing else of this process's environment reaches it.
+
 ***
 
 ### IsolatedCheckBox
@@ -5183,6 +5329,13 @@ Sandbox environment or image that holds the check's toolchain.
 ##### resources?
 
 > `optional` **resources?**: `SandboxResources`
+
+##### egress?
+
+> `optional` **egress?**: readonly `string`[]
+
+Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
+ box's egress is blocked. Otherwise strict: these domains only, with no implicit list.
 
 ***
 
@@ -8082,7 +8235,7 @@ The provider-derived outcome, when one was available before cleanup.
 
 > `readonly` **signal**: `AbortSignal`
 
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-1).
+A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-2).
 
 ***
 
@@ -8231,7 +8384,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-2)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-3)
 
 ##### interactiveIdempotencyKey
 
@@ -8996,7 +9149,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-4)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-5)
 
 ##### existingEnvironmentId?
 
@@ -14663,6 +14816,13 @@ The panel's question templates. `{item}` expands over failed items and `{worker}
 
 The panel's model, when the profile chooses one.
 
+##### review?
+
+> `readonly` `optional` **review?**: `string`
+
+What a new version's director reads about the best version's review, for the version
+ chain's `'review-of-best'`. It may name `{version}`, `{path}` and `{score}`.
+
 ***
 
 ### ContinuationPanelInput
@@ -17446,7 +17606,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -17461,6 +17621,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ###### Inherited from
 
@@ -22178,7 +22341,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1) \| \{ `plateau`: [`PlateauOptions`](#plateauoptions); \}
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -22193,6 +22356,9 @@ Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
 thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
 only (unchanged behavior).
+
+A record may declare the plateau rule as data, `{ plateau: { window, minDelta } }`, so no
+product module builds it.
 
 ##### onProgressStop?
 
@@ -35193,6 +35359,149 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 
 ***
 
+### assertDeclaredCheck()
+
+> **assertDeclaredCheck**(`check`, `context`): `void`
+
+Refuse a malformed declaration before any compute.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### context
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### checkProgramDigest()
+
+> **checkProgramDigest**(`dir`): `Promise`\<`` `sha256:${string}` ``\>
+
+The canonical digest of a directory's files: the digest a record names a program by.
+
+#### Parameters
+
+##### dir
+
+`string`
+
+#### Returns
+
+`Promise`\<`` `sha256:${string}` ``\>
+
+***
+
+### declaredCheckDigest()
+
+> **declaredCheckDigest**(`check`): `` `sha256:${string}` ``
+
+The digest a version judge records: the program, the sealed cases, and how they are run.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+#### Returns
+
+`` `sha256:${string}` ``
+
+***
+
+### readDeclaredCheck()
+
+> **readDeclaredCheck**(`check`, `placement`, `read`): `Promise`\<[`CheckVerdict`](#checkverdict)\>
+
+Read the check once. `result` is the submitted result, absent for a read of the run's state.
+`set: 'sealed'` adds the sealed cases. Throws [CheckUnavailableError](#checkunavailableerror) when the program
+could not run or printed no score.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+##### read
+
+###### result?
+
+`unknown`
+
+###### set
+
+`"sealed"` \| `"development"`
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`CheckVerdict`](#checkverdict)\>
+
+***
+
+### declaredCheckDeliverable()
+
+> **declaredCheckDeliverable**(`check`, `placement`): [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+The declared check as a manager's completion check: every in-run read uses development cases.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+#### Returns
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+***
+
+### declaredCheckJudge()
+
+> **declaredCheckJudge**(`check`, `placement`): [`VersionJudge`](durable.md#versionjudge)
+
+The declared check as a version chain's judge: it scores a settled version on its sealed cases
+when the record has them, and on its development cases otherwise. The per-item verdict rides in
+the ledger, so the next version's review names each item. A read that could not run scores
+`null`, which never counts as an improvement.
+
+#### Parameters
+
+##### check
+
+[`DeclaredCheck`](#declaredcheck)
+
+##### placement
+
+[`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+#### Returns
+
+[`VersionJudge`](durable.md#versionjudge)
+
+***
+
 ### defineLeaderboard()
 
 > **defineLeaderboard**\<`TCase`, `TArtifact`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`, `TArtifact`\>
@@ -35548,8 +35857,9 @@ The canonical input path remains the working directory; copy writes are discarde
 Limits bound command time and captured output, not copy size or memory consumption.
 Callers must keep the input and trusted toolchains stable while preparing the check.
 
-A box check creates one fresh box with no owner secrets and blocked egress, delivers the
-tree's regular files verified by sha256, runs the command there, and deletes the box.
+A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
+the placement's named domains), delivers the tree's regular files verified by sha256, runs the
+command there with only the environment `env` names, and deletes the box.
 
 #### Parameters
 

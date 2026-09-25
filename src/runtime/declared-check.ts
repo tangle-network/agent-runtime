@@ -22,9 +22,9 @@
  * the director.
  */
 
-import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   canonicalCandidateDigest,
   type Sha256Digest,
@@ -34,9 +34,17 @@ import type { SandboxResources } from '@tangle-network/sandbox'
 import { captureMaterializedWorkspace } from '../candidate-execution/artifacts'
 import type { VersionJudge } from '../durable/pursuit-versions'
 import { ValidationError } from '../errors'
-import { type IsolatedCheckBox, type IsolatedCheckResult, runIsolatedCheck } from './isolated-checker'
+import {
+  type IsolatedCheckBox,
+  type IsolatedCheckResult,
+  runIsolatedCheck,
+} from './isolated-checker'
 import type { DeliverableSpec } from './supervise/completion-gate'
-import { CheckUnavailableError, type CheckVerdict, verdictFromJudgeScore } from './supervise/continuation'
+import {
+  CheckUnavailableError,
+  type CheckVerdict,
+  verdictFromJudgeScore,
+} from './supervise/continuation'
 
 /** A check program as a record declares it. */
 export interface DeclaredCheck {
@@ -104,7 +112,8 @@ export function assertDeclaredCheck(check: DeclaredCheck, context: string): void
     fail('sealed.digest must be a sha256 digest')
   }
   for (const name of check.secrets ?? []) {
-    if (!/^[A-Z_][A-Z0-9_]*$/u.test(name)) fail(`secret name ${JSON.stringify(name)} is not an env name`)
+    if (!/^[A-Z_][A-Z0-9_]*$/u.test(name))
+      fail(`secret name ${JSON.stringify(name)} is not an env name`)
   }
 }
 
@@ -171,7 +180,12 @@ export async function readDeclaredCheck(
       env.CHECK_RESULT = `${INPUT_DIR}/result.json`
     }
     if (read.set === 'sealed' && check.sealed !== undefined) {
-      await copyVerified(check.sealed.dir, check.sealed.digest, join(tree, SEALED_DIR), 'sealed cases')
+      await copyVerified(
+        check.sealed.dir,
+        check.sealed.digest,
+        join(tree, SEALED_DIR),
+        'sealed cases',
+      )
     }
     const outcome = await runIsolatedCheck({
       workspaceRoot: workspace,
@@ -230,7 +244,11 @@ export function declaredCheckJudge(
           set: check.sealed === undefined ? 'development' : 'sealed',
           signal,
         })
-        return { score: verdict.composite ?? (verdict.pass ? 1 : 0), judgeDigest: digest, check: verdict }
+        return {
+          score: verdict.composite ?? (verdict.pass ? 1 : 0),
+          judgeDigest: digest,
+          check: verdict,
+        }
       } catch (error) {
         if (!(error instanceof CheckUnavailableError)) throw error
         return { score: null, judgeDigest: digest, detail: { unavailable: error.message } }
@@ -253,7 +271,12 @@ function verdictOf(outcome: IsolatedCheckResult, pass: number): CheckVerdict {
   } catch {
     throw new CheckUnavailableError('the check program printed no JudgeScore on its last line')
   }
-  const raw = score as { dimensions?: unknown; composite?: unknown; notes?: unknown; failed?: unknown }
+  const raw = score as {
+    dimensions?: unknown
+    composite?: unknown
+    notes?: unknown
+    failed?: unknown
+  }
   if (
     typeof raw !== 'object' ||
     raw === null ||
@@ -275,17 +298,24 @@ function verdictOf(outcome: IsolatedCheckResult, pass: number): CheckVerdict {
   )
 }
 
+/** Copy exactly the bytes whose digest was checked: the files are read once, verified, and those
+ *  bytes are written, so a file changed after the check cannot reach the box. */
 async function copyVerified(
   from: string,
   digest: Sha256Digest,
   to: string,
   label: string,
 ): Promise<void> {
-  const actual = await checkProgramDigest(from)
+  const captured = await captureMaterializedWorkspace(from)
+  const actual = canonicalCandidateDigest(captured.manifest)
   if (actual !== digest) {
     throw new ValidationError(
       `readDeclaredCheck: the ${label} at ${from} is ${actual}; the record names ${digest}`,
     )
   }
-  await cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true })
+  for (const file of captured.files) {
+    const path = join(to, file.path)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, file.bytes, { mode: file.mode })
+  }
 }
