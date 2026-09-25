@@ -361,6 +361,24 @@ export class ConductorPlanner {
     toolCalls?: Array<{ id: string; name: string; arguments: string }>
   } {
     this.turns += 1
+    // Retained-provider resumes attach live workers before the first brain turn. Read the
+    // ordinary driver-visible resume brief and await their ORIGINAL ids instead of asking
+    // spawn_worker to duplicate a live key. Completion still requires a real settled event.
+    if (this.turns === 1) {
+      for (const message of messages) {
+        const section = String(message.content ?? '').match(
+          /Recovered keys are attached[^\n]*\n((?:- [^\n]+(?:\n|$))+)/,
+        )?.[1]
+        for (const line of section?.split('\n') ?? []) {
+          const match = /^- (.+) → (\S+) \(/.exec(line)
+          const node = this.nodes.find((entry) => entry.key === match?.[1])
+          if (node && match) {
+            node.status = 'spawned'
+            node.workerId = match[2]
+          }
+        }
+      }
+    }
     this.fold(messages)
     if (this.fatal !== undefined) return { content: `planner-fatal: ${this.fatal}` }
     const pending = this.nodes.filter((n) => n.status === 'pending')
@@ -544,6 +562,35 @@ export interface JournalAudit {
 export async function auditSpawnJournal(dir: string, runId: string): Promise<JournalAudit> {
   const journal = new FileSpawnJournal(`${dir}/spawn-journal.jsonl`)
   const events = (await journal.loadTree(runId)) ?? []
+  return projectJournalAudit(events, runId)
+}
+
+/** Audit a run whose durable tree lives in a SQL spawn journal (see `sql-child.ts`). */
+export async function auditSpawnJournalAt(
+  runId: string,
+  sqlitePath: string,
+): Promise<JournalAudit> {
+  const { DatabaseSync } = await import('node:sqlite')
+  const { SqlSpawnJournal } = await import('../../../src/durable/spawn-journal-sql')
+  const db = new DatabaseSync(sqlitePath)
+  try {
+    const journal = new SqlSpawnJournal({
+      async exec(sql, params = []) {
+        const res = db.prepare(sql).run(...(params as never[]))
+        return { rowsAffected: Number(res?.changes ?? 0) }
+      },
+      async query<TRow>(sql: string, params: readonly unknown[] = []): Promise<TRow[]> {
+        return db.prepare(sql).all(...(params as never[])) as TRow[]
+      },
+    })
+    const events = (await journal.loadTree(runId)) ?? []
+    return projectJournalAudit(events, runId)
+  } finally {
+    db.close()
+  }
+}
+
+function projectJournalAudit(events: SpawnEvent[], runId: string): JournalAudit {
   const labelById = new Map<string, string>()
   for (const e of events) {
     if (e.kind === 'spawned' && e.parent !== undefined) labelById.set(e.id, e.label)
@@ -553,7 +600,8 @@ export async function auditSpawnJournal(dir: string, runId: string): Promise<Jou
   const cursors: number[] = []
   for (const e of events) {
     if (e.kind === 'spawned' && e.parent !== undefined && e.key !== undefined) {
-      const keys = (spawnedKeysByLabel[e.label] ??= [])
+      const keys = spawnedKeysByLabel[e.label] ?? []
+      spawnedKeysByLabel[e.label] = keys
       if (!keys.includes(e.key)) keys.push(e.key)
     }
     if (e.kind === 'settled' || e.kind === 'cancelled') {

@@ -1,6 +1,100 @@
 # Changelog
 
+## 0.272.0
+
+The result now carries the root manager's harness session as `rootHarnessTranscript`, persisted like a child's receipt.
+A nested manager's session rides its settle record (0.264.0), but the root has no settle record, so its session reached no record at all.
+The Discovery fleet records of 2026-09-23 and 2026-09-24 hold 312 roots with a spawn journal, and none has a native-session receipt.
+27 of the 57 harness subagent calls seen in those runs were made by roots.
+The receipt is the same `HarnessTranscriptEvidence` a child settles with: `available` with its blob ref, or the reason the capture names.
+A router-brained root runs no driver, so its result has no such field.
+`result.json` from `supervisePursuit` carries it with the rest of the result.
+
+The fenced SQL run context from the superseded #1373 branch is salvaged onto main: cross-machine
+run ownership and a SQL coordination side-log, the two items this runtime's durability STATUS
+listed as open after 0.270.0. `openSqlRunStore` is a fenced append-only log — hash-chained
+records, publication and takeover as one compare-and-set on the run's head row, generation
+fencing, lease liveness through a persisted progress counter (never host clocks), lost-ack
+recovery on both claim and publish, and fenced release. `createFencedSqlRunContext` composes it
+with the SQL journal, blobs, and coordination log into a run context that is read-only until a
+lease is acquired; `supervise`/`runGraph` accept `runContext` and hold ownership for the whole
+run, and grouped publication (`appendEvents`) advances the fenced head once per spawn and once
+for the root's initialization records. Proven by two-host conformance: 19 lost-ack kill points
+(the process dies between a SQLite commit and its acknowledgement, on either side of every
+publication) resume on another host with an empty working directory — no replacement keys,
+exactly-once provider effects — plus lease takeover and publish-contention tests (39 cases; 6
+expected-fail cases document the never-dispatched recovery gap against current retained
+machinery). Durability conformance totals: 158/158.
+
+
+## 0.271.0
+
+`createStdioToolServer` passes each tool's annotations (`readOnlyHint`, `idempotentHint`, and the rest) through `tools/list` (#1386).
+It answers `ping` with an empty result instead of an unknown-method error.
+It answers `initialize` with the client's requested protocol version when that version is 2025-11-25, 2025-06-18, 2025-03-26, or 2024-11-05.
+`McpToolDescriptor` gains an optional `annotations` field, and `/mcp` exports `McpToolAnnotations` and `SUPPORTED_PROTOCOL_VERSIONS`; no existing caller must change.
+The v0.270.0 tag never published, because #1386 merged before its publish run started; this release carries 0.267.0 through 0.270.0 as well.
+
+Exported spans declare their kind (`openinference.span.kind`), so a reader no longer counts one
+run's tokens three times. The run span `tangle.intelligence.run` carries the run's model and token
+total and is now `AGENT`; loop and round spans are `CHAIN`; iteration spans, which carry the
+iteration's token total, are `AGENT`; `gen_ai.client.inference` is `LLM`; tool call and result
+spans are `TOOL`. Measured on a real run (the real `runAgentRounds` kernel, two workers, one real
+router chat completion each, 46 provider-reported input tokens, exported through `withIntelligence`
+to a loopback collector): agent-eval 0.187.0 read 138 input tokens before (3.00x) and 46 after
+(1.00x). The contract classifier needs agent-trace-contract 1.1.0 to read the declaration on a
+flattened OTLP row.
+
+## 0.270.0
+
+SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
+conformance work recorded. `SqlSpawnJournal` and `SqlResultBlobStore` (`/kernel`, @experimental)
+run the same begin/append/load contract as the file stores over the `SqlStatements` seam
+`SqlConversationJournal` already takes — D1, postgres, sqlite, libSQL — with the same corruption
+guards (begin precedes events by schema, the shared `SpawnEventIndex` refuses duplicate cursor
+seqs and duplicate materialization receipts on append AND replay, insertion order is replay
+order) and the same content-address law for blobs. `createSqlRunContext(db)` bundles them with
+`resume: true`, and `supervise`/`runGraph` now accept an explicit `resume` option so
+caller-supplied durable stores resume-first without a `runDir` (the file context keeps owning the
+flag when both are set). Proven against a REAL sqlite file with real SIGKILLs: the conformance
+suite's new SQL arm resumes a killed graph run from the database alone — same winner, committed
+nodes never re-executed, one key per assignment, side effect exactly once. Draft status: the full
+23-point sweep, a SQL coordination side-log, and machine-visible cross-run ownership are the
+named follow-ups; single-writer by convention, like the file context.
+
+
+## 0.269.1
+
+A durable run whose cancellation observer cannot create its inotify watch degrades to poll-only
+instead of dying. Creating `fs.watch` can fail for reasons that say nothing about the run — the
+host's inotify instance budget is exhausted (measured on a shared agent box holding ~110 of the
+128 default user instances; a neighboring process's usage was killing durable runs at startup
+with EMFILE), or the kernel caps watches (ENOSPC). The observer already carried a 100 ms poll
+loop; EMFILE/ENOSPC at watch creation now proceed on that loop alone (instant pickup becomes
+≤100 ms), while any other creation error still fails loudly. Measured while here: a durable run
+holds exactly one inotify instance regardless of how many directories it watches (libuv
+multiplexes), so no further sharing was possible or needed.
+
+Runtime now has one AgentProfile identity: `canonicalAgentProfileDigest`.
+`improve()` computed a candidate's `profileDigest`, `lineage.baselineProfileDigest`, and its profile equality checks with the generic `canonicalCandidateDigest`, while supervise, preparation receipts, retained interactive runs, profile training, and VerticalBench used `canonicalAgentProfileDigest`.
+Both functions give the same digest on every recorded profile: 31 distinct profiles across VerticalBench climbs, boards, and repository profiles, the 4 materialized candidates of the 2 completed climbs, and 13 recorded VerticalBench base digests. No recorded identity moves.
+They differ on values that no recorded file holds: a profile with an optional field set to `undefined` makes `canonicalCandidateDigest` throw, and a schema-invalid profile (an unknown key or a wrong type) receives a `canonicalCandidateDigest` but fails `canonicalAgentProfileDigest`.
+A schema-invalid profile now fails at identity time, and an inline retained-run profile records the same `requestedProfileDigest` as a retained interactive run.
+
 ## 0.269.0
+
+A final settlement now closes every retained child's slot, including one whose release it could not confirm.
+Under `retainedAtSettlement: 'release'`, a child whose provider delete was refused, whose teardown probe failed, or whose create timed out before naming an environment kept its slot open forever, so every reader counted it as never settled (#1301).
+The Discovery fleet's records of 2026-09-23 and 2026-09-24 hold 338 such agents out of 1,620.
+After the retry window, each such slot now closes with the settlement the driver received, under the seq it saw, marked `retainedExecution: 'release-unconfirmed'`.
+Its `teardown-unconfirmed` record still names what a sweeper must delete.
+`FleetYield.releaseUnconfirmed` counts these records beside `releasedUnrecovered`, and the spend gap is the committed floor, `unreported`, not the `never-settled` ceiling.
+A run that declares `release` and is resumed anyway no longer recovers such a child: the declaration says no resume comes.
+
+A retained release now reads the child's harness session before it destroys the box.
+The failure path reads it when the child drops, and often the box is out of reach then: 105 of the 150 dispatched children whose slot never closed on the Discovery fleet of 2026-09-23/24 carry `enumeration-failed`.
+When the release can reach the box, the record that closes the slot carries the session it read, so a transport that came back before settlement no longer costs the transcript.
+Only a capture replaces the earlier receipt, and the `reconciled` floor keeps the one the driver saw.
 
 `createOtelExporter` now accounts for every span, and a failed export is no longer silent. Before,
 it POSTed each batch without reading the response and swallowed every error in an empty `catch`: a
@@ -26,14 +120,6 @@ Every router-brained manager and leaf also settles with an `available` harness t
 A leaf streams nothing; its conversation arrives when it settles.
 
 ## 0.268.0
-
-A final settlement now closes every retained child's slot, including one whose release it could not confirm.
-Under `retainedAtSettlement: 'release'`, a child whose provider delete was refused, whose teardown probe failed, or whose create timed out before naming an environment kept its slot open forever, so every reader counted it as never settled (#1301).
-The Discovery fleet's records of 2026-09-23 and 2026-09-24 hold 338 such agents out of 1,620.
-After the retry window, each such slot now closes with the settlement the driver received, under the seq it saw, marked `retainedExecution: 'release-unconfirmed'`.
-Its `teardown-unconfirmed` record still names what a sweeper must delete.
-`FleetYield.releaseUnconfirmed` counts these records beside `releasedUnrecovered`, and the spend gap is the committed floor, `unreported`, not the `never-settled` ceiling.
-A run that declares `release` and is resumed anyway no longer recovers such a child: the declaration says no resume comes.
 
 A keyed spawn the process died with in flight no longer wedges. Two arms:
 

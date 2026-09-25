@@ -30,14 +30,13 @@ import {
   type Sha256Digest,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import { closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
+import { appendSpawnEvents, closesCursorSlot, contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import {
-  type HarnessTranscriptCapture,
   type HarnessTranscriptEvidence,
-  harnessTranscriptUnavailable,
   persistHarnessTranscript,
+  readHarnessTranscript,
 } from '../harness-transcript'
 import type {
   RetainedInteractiveAdmission,
@@ -619,6 +618,9 @@ interface LiveChild {
   readonly readHeldEnvironments?: () => ReadonlyArray<HeldEnvironment>
   /** The scope this child's recursive executor owns, once it has mounted one. */
   readonly readNestedScope?: () => Scope<unknown> | undefined
+  /** Persist the executor's harness transcript as it stands now. A retained release may read a
+   *  session the failure path could not, and the record that closes the slot carries it. */
+  readonly readTranscriptAtRelease?: () => Promise<HarnessTranscriptEvidence>
   /** The bounded account of the team this child led, read from its own scope at settlement. */
   subtree?: SubtreeSummary
   /** How many teardown requests this child's executor was sent. */
@@ -1408,6 +1410,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(nestedTeardownScopes.has(executor)
           ? { readNestedScope: nestedTeardownScopes.get(executor)! }
           : {}),
+        ...(executor.harnessTranscript
+          ? {
+              readTranscriptAtRelease: () =>
+                persistHarnessTranscript(readHarnessTranscript(executor), args.blobs),
+            }
+          : {}),
         teardownAttempts: 0,
         abortChild: (reason?: unknown): void => controller.abort(reason),
       }
@@ -1444,27 +1452,30 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         : args.blobs
             .put(profileRef, spec.profile)
             .then(() => (taskRef === undefined ? undefined : args.blobs.put(taskRef, task)))
-            .then(() =>
-              args.journal.appendEvent(args.root, {
-                kind: 'spawned',
-                id,
-                parent: args.parentId,
-                label: opts.label,
-                ...(opts.key !== undefined ? { key: opts.key } : {}),
-                ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-                ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
-                budget: opts.budget,
-                runtime: executor.runtime,
-                ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-                ...(identity ? { identity } : {}),
-                profileRef,
-                seq: ordinal,
-                at: new Date(now()).toISOString(),
-              }),
-            )
             .then(async () => {
+              // The spawn record and its execution input publish as ONE grouped record where the
+              // store supports it, so a SQL context's fenced head advances once per spawn — a crash
+              // between the two can never leave a spawned node whose task bytes are unreferenced.
+              const events: SpawnEvent[] = [
+                {
+                  kind: 'spawned',
+                  id,
+                  parent: args.parentId,
+                  label: opts.label,
+                  ...(opts.key !== undefined ? { key: opts.key } : {}),
+                  ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+                  ...(opts.successorOf === undefined ? {} : { successorOf: opts.successorOf }),
+                  budget: opts.budget,
+                  runtime: executor.runtime,
+                  ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+                  ...(identity ? { identity } : {}),
+                  profileRef,
+                  seq: ordinal,
+                  at: new Date(now()).toISOString(),
+                },
+              ]
               if (taskRef !== undefined) {
-                await args.journal.appendEvent(args.root, {
+                events.push({
                   kind: 'execution-input',
                   id,
                   taskRef,
@@ -1472,6 +1483,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   at: new Date(now()).toISOString(),
                 })
               }
+              await appendSpawnEvents(args.journal, args.root, events)
             })
             .then(async () => {
               // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
@@ -2538,11 +2550,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
     child.budgetViolation = child.retainedViolation
     const settledAt = child.settledAt
+    // The record restates the driver's settlement, with one exception: a session the release read
+    // after the failure path could not. Only an available receipt replaces the earlier one.
+    let settlement = child.resolved
+    if (settlement.harnessTranscript?.status !== 'available' && child.readTranscriptAtRelease) {
+      const atRelease = await child.readTranscriptAtRelease()
+      if (atRelease.status === 'available')
+        settlement = { ...settlement, harnessTranscript: atRelease }
+    }
     await args.journal.appendEvent(
       args.root,
       terminalDownEvent(
         child,
-        child.resolved,
+        settlement,
         child.settledSeq,
         new Date(settledAt).toISOString(),
         state,
@@ -2563,7 +2583,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         timestamp: closedAt,
         stepIndex: child.settledSeq,
         parentId: args.parentId,
-        payload: releasedChildPayload(child, child.resolved, settledAt, closedAt, state),
+        payload: releasedChildPayload(child, settlement, settledAt, closedAt, state),
       },
       { signal: args.signal },
     )
@@ -4315,40 +4335,6 @@ function downRecord(
     ...(metered ? { metered } : {}),
     ...(outRef === undefined ? {} : { outRef }),
   }
-}
-
-/**
- * Read one executor's harness-transcript receipt without letting a broken port escape.
- *
- * The three answers this has to keep apart, because #1214 and #1244 are both about an artifact
- * that reads as coverage without being coverage:
- *   - `available`                              the transcript survived;
- *   - a reason the CAPTURE produced            a box existed and could not be read;
- *   - `executor-exposes-no-transcript`     this runtime has no transcript to offer at all;
- *   - `execution-never-started`                no environment was ever created (the executor's
- *                                              own seed, set before `create`);
- *   - `capture-did-not-run`                    the port answered nothing, so the capture was
- *                                              skipped rather than attempted and failed.
- *
- * Mirrors `readInteractiveSession` above: an absence is always a named reason, never `undefined`.
- */
-function readHarnessTranscript(executor: {
-  harnessTranscript?: () => unknown
-}): HarnessTranscriptCapture {
-  if (!executor.harnessTranscript) {
-    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
-  }
-  let reported: unknown
-  try {
-    reported = executor.harnessTranscript()
-  } catch {
-    return harnessTranscriptUnavailable('executor-exposes-no-transcript')
-  }
-  if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
-  const capture = reported as HarnessTranscriptCapture
-  if (capture.status === 'captured' && capture.artifact) return capture
-  if (capture.status === 'unavailable' && capture.reason) return capture
-  return harnessTranscriptUnavailable('executor-exposes-no-transcript')
 }
 
 /** The one place an absent interactive process is spelled, so every refusal reads the same. */

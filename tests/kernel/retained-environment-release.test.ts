@@ -44,6 +44,7 @@ import {
   replaySpawnTree,
 } from '../../src/durable/spawn-journal'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
+import { harnessTranscriptArtifact } from '../../src/runtime/harness-transcript'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import { sumSpendFromEvents } from '../../src/runtime/supervise/recover-executors'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
@@ -82,6 +83,9 @@ function retainedProvider(directory: string) {
     observe: undefined as ((signal: AbortSignal | undefined) => Promise<void>) | undefined,
     destroyFailure: undefined as Error | undefined,
     destroys: 0,
+    /** A harness session file inside the box, readable only while `reachable`; absent = the box
+     *  exposes no read, as the durable test provider itself does not. */
+    session: undefined as { path: string; content: string; reachable: boolean } | undefined,
   }
   const provider = (): AgentEnvironmentProvider => {
     const base = durableRetainedProvider(stateFile)
@@ -114,6 +118,21 @@ function retainedProvider(directory: string) {
         if (state.destroyFailure) throw state.destroyFailure
         await environment.destroy!()
       },
+      ...(state.session === undefined
+        ? {}
+        : {
+            exec: async () => {
+              if (!state.session?.reachable) throw new Error('box unreachable')
+              return {
+                stdout: `${state.session.content.length}\t${state.session.path}\n`,
+                exitCode: 0,
+              }
+            },
+            read: async () => {
+              if (!state.session?.reachable) throw new Error('box unreachable')
+              return state.session.content
+            },
+          }),
     })
     return {
       ...base,
@@ -978,6 +997,55 @@ describe('retained environments at root settlement', () => {
       releasedUnrecovered: 0,
       releaseUnconfirmed: 1,
     })
+  })
+
+  it('reads at release a session the failure path could not reach, and records it', async () => {
+    // Measured on the Discovery fleet of 2026-09-23/24: 105 of the 150 dispatched children whose
+    // slot never closed carry `enumeration-failed`, a session read while the box was out of reach.
+    // The release is the last moment the box exists, so it reads the session once more.
+    const fleet = retainedProvider(directory)
+    fleet.state.session = {
+      path: '/home/agent/.local/share/opencode/storage/session/ses_child.json',
+      content: '{"id":"ses_child","parts":["re-scored the arms from raw generations"]}',
+      reachable: false,
+    }
+    const context = createInMemoryRunContext()
+    let live: Settled<unknown> | null = null
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          // The transport comes back before the run settles.
+          fleet.state.session!.reachable = true
+          return 'finished'
+        },
+      },
+      'task',
+      { ...context, runId: 'late-read', budget: { maxIterations: 2, maxTokens: 20 } },
+    )
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(live).toMatchObject({
+      kind: 'down',
+      retainedExecution: 'pending',
+      harnessTranscript: { status: 'unavailable', reason: 'enumeration-failed' },
+    })
+    expect(fleet.environments()).toEqual([])
+    const events = (await context.journal.loadTree('late-read')) ?? []
+    const [closed] = terminalRecords(events, 'late-read:s0')
+    expect(closed).toMatchObject({
+      retainedExecution: 'released',
+      harnessTranscript: { status: 'available', harness: 'opencode', fileCount: 1 },
+    })
+    const artifact = await harnessTranscriptArtifact(closed!.harnessTranscript!, context.blobs)
+    expect(artifact?.files).toMatchObject([
+      { path: fleet.state.session!.path, content: fleet.state.session!.content },
+    ])
+    // The floor still stands in for the settlement a resume would read: only the closing record
+    // carries the later session.
+    expect(
+      events.find((event) => event.kind === 'reconciled' && event.id === 'late-read:s0'),
+    ).toMatchObject({ harnessTranscript: { status: 'unavailable', reason: 'enumeration-failed' } })
   })
 
   it('releases a refused environment again until the provider destroys it', async () => {

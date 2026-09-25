@@ -37,6 +37,18 @@ export {
   type SpawnForestNode,
   type SpawnForestTree,
 } from '../durable/spawn-journal'
+// The SQL-backed durable stores — the same begin/append/load contract over the SqlStatements
+// seam SqlConversationJournal takes. @experimental (draft): single-writer by convention.
+export {
+  SqlResultBlobStore,
+  SqlSpawnJournal,
+  type SqlStatements,
+} from '../durable/spawn-journal-sql'
+export {
+  openSqlRunStore,
+  type SqlRunLease,
+  type SqlRunStoreOptions,
+} from '../durable/sql-run-store'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
@@ -956,7 +968,10 @@ export {
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
   type RunContext,
+  type RunContextLease,
+  withRunContext,
 } from './supervise/run-context'
+export { createSqlRunContext, type SqlRunContext } from './supervise/run-context-sql'
 // The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
 // published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
 // readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
@@ -1036,6 +1051,14 @@ export {
   SUBTREE_RESULT_LIMIT,
   settledToIteration,
 } from './supervise/scope'
+// The fenced, cross-machine variant: one compare-and-set head, generation fencing, lease
+// heartbeats, lost-ack recovery, and a SQL coordination side-log. @experimental.
+export {
+  createFencedSqlRunContext,
+  type FencedSqlRunContext,
+  type SqlRunContextOptions,
+  SqlRunOwnershipError,
+} from './supervise/sql-run-context'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.

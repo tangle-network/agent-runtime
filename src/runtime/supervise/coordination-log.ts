@@ -143,77 +143,92 @@ export class FileCoordinationLog implements CoordinationLog {
   }
 
   async load(runId: string, ownerId?: CoordinationOwnerId): Promise<PriorCoordination> {
-    const byId = new Map<string, QuestionRecord>()
-    const findings: AnalystFindingEvent[] = []
-    const escalations: QuestionEscalationRecord[] = []
-    const analystDefinitions: DefinedAnalystRecord[] = []
-    const continuations: ContinuationInstruction[] = []
-    const deliveryEvidence: CoordinationDeliveryEvidence[] = []
-    const mail: PeerMailEvent[] = []
-    const records: BusRecord<CoordinationEvent>[] = []
-    let legacySeq = 0
-    for await (const stored of readCommittedJsonLines<
-      CoordinationLogRecord | LegacyCoordinationLogRecord
-    >(this.path, { allowMissing: true })) {
-      if (stored.runId !== runId) continue
-      // Omitting ownerId preserves the historical all-run read for direct consumers. Runtime always
-      // supplies one, so root and nested supervisors never receive one another's evidence.
-      if (ownerId !== undefined && stored.ownerId !== ownerId) continue
-      const record: BusRecord<CoordinationEvent> =
-        'seq' in stored
-          ? {
-              seq: stored.seq,
-              at: stored.at,
-              priority: stored.priority,
-              event: stored.event,
-            }
-          : {
-              seq: legacySeq++,
-              at: Date.parse(stored.at),
-              priority: 0,
-              event: stored.event,
-            }
-      records.push(record)
-      const ev = record.event
-      if (ev.type === 'delivery-attempt' || ev.type === 'steer' || ev.type === 'answer') {
-        deliveryEvidence.push(ev)
-      }
-      if (ev.type === 'question') {
-        byId.set(ev.question.id, ev.question)
-      } else if (ev.type === 'finding') {
-        findings.push(ev.finding)
-      } else if (ev.type === 'answer') {
-        // Only accepted delivery resolves a blocking question. Authorization and an attempted
-        // refusal remain evidence, but cannot turn "worker never received the answer" into answered
-        // state on replay. `by` is not on the wire; prior-run is the honest attribution.
-        const prior = byId.get(ev.questionId)
-        if (prior && ev.down.delivered) {
-          byId.set(ev.questionId, {
-            ...prior,
-            status: 'answered',
-            decision: { kind: 'answer', answer: ev.down.instruction, by: 'prior-run' },
-          })
-        }
-      } else if (ev.type === 'instruction') {
-        continuations.push(ev.instruction)
-      } else if (ev.type === 'mail') {
-        mail.push(ev.mail)
-      } else if (ev.type === 'escalation') {
-        escalations.push(ev.escalation)
-      } else if (ev.type === 'analyst-defined') {
-        analystDefinitions.push(ev.analyst)
-      }
+    return foldCoordinationRecords(
+      readCommittedJsonLines<CoordinationLogRecord | LegacyCoordinationLogRecord>(this.path, {
+        allowMissing: true,
+      }),
+      runId,
+      ownerId,
+    )
+  }
+}
+
+/** @internal Shared replay semantics for file and SQL coordination evidence. */
+export async function foldCoordinationRecords(
+  source:
+    | Iterable<CoordinationLogRecord | LegacyCoordinationLogRecord>
+    | AsyncIterable<CoordinationLogRecord | LegacyCoordinationLogRecord>,
+  runId: string,
+  ownerId?: CoordinationOwnerId,
+): Promise<PriorCoordination> {
+  const byId = new Map<string, QuestionRecord>()
+  const findings: AnalystFindingEvent[] = []
+  const escalations: QuestionEscalationRecord[] = []
+  const analystDefinitions: DefinedAnalystRecord[] = []
+  const continuations: ContinuationInstruction[] = []
+  const deliveryEvidence: CoordinationDeliveryEvidence[] = []
+  const mail: PeerMailEvent[] = []
+  const records: BusRecord<CoordinationEvent>[] = []
+  let legacySeq = 0
+  for await (const stored of source) {
+    if (stored.runId !== runId) continue
+    // Omitting ownerId preserves the historical all-run read for direct consumers. Runtime always
+    // supplies one, so root and nested supervisors never receive one another's evidence.
+    if (ownerId !== undefined && stored.ownerId !== ownerId) continue
+    const record: BusRecord<CoordinationEvent> =
+      'seq' in stored
+        ? {
+            seq: stored.seq,
+            at: stored.at,
+            priority: stored.priority,
+            event: stored.event,
+          }
+        : {
+            seq: legacySeq++,
+            at: Date.parse(stored.at),
+            priority: 0,
+            event: stored.event,
+          }
+    records.push(record)
+    const ev = record.event
+    if (ev.type === 'delivery-attempt' || ev.type === 'steer' || ev.type === 'answer') {
+      deliveryEvidence.push(ev)
     }
-    return {
-      ...(ownerId !== undefined ? { ownerId } : {}),
-      questions: [...byId.values()],
-      findings,
-      escalations,
-      analystDefinitions,
-      continuations,
-      deliveryEvidence,
-      mail,
-      records,
+    if (ev.type === 'question') {
+      byId.set(ev.question.id, ev.question)
+    } else if (ev.type === 'finding') {
+      findings.push(ev.finding)
+    } else if (ev.type === 'answer') {
+      // Only accepted delivery resolves a blocking question. Authorization and an attempted
+      // refusal remain evidence, but cannot turn "worker never received the answer" into answered
+      // state on replay. `by` is not on the wire; prior-run is the honest attribution.
+      const prior = byId.get(ev.questionId)
+      if (prior && ev.down.delivered) {
+        byId.set(ev.questionId, {
+          ...prior,
+          status: 'answered',
+          decision: { kind: 'answer', answer: ev.down.instruction, by: 'prior-run' },
+        })
+      }
+    } else if (ev.type === 'instruction') {
+      continuations.push(ev.instruction)
+    } else if (ev.type === 'mail') {
+      mail.push(ev.mail)
+    } else if (ev.type === 'escalation') {
+      escalations.push(ev.escalation)
+    } else if (ev.type === 'analyst-defined') {
+      analystDefinitions.push(ev.analyst)
     }
+  }
+  return {
+    ...(ownerId !== undefined ? { ownerId } : {}),
+    questions: [...byId.values()],
+    findings,
+    escalations,
+    analystDefinitions,
+    continuations,
+    deliveryEvidence,
+    mail,
+    records,
   }
 }

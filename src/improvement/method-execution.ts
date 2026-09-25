@@ -17,6 +17,7 @@ import type { MutableSurface, Scenario } from '@tangle-network/agent-eval/contra
 import {
   type AgentProfile,
   applyAgentProfileDiff,
+  canonicalAgentProfileDigest,
   diffAgentProfiles,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -231,10 +232,10 @@ function profileCandidatePopulation(
       }
     }
 
-    const profileDigest = canonicalCandidateDigest(candidateProfile)
+    const profileDigest = canonicalAgentProfileDigest(candidateProfile)
     const diffs = diffAgentProfiles(baselineProfile, candidateProfile)
     const reproduced = diffs.reduce(applyAgentProfileDiff, baselineProfile)
-    if (canonicalCandidateDigest(reproduced) !== profileDigest) {
+    if (canonicalAgentProfileDigest(reproduced) !== profileDigest) {
       throw new ConfigError(
         `improve(): Interface profile diffs do not reproduce optimizer candidate ${entry.candidateDigest}`,
       )
@@ -315,7 +316,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   const preparedSurface = prepareProfileSurface(profile, surface, skills, profileComponents)
   const baselineSurface = preparedSurface.surface
   const baselineValue = immutableCandidateValue(preparedSurface.value)
-  const baselineProfileDigest = canonicalCandidateDigest(profile)
+  const baselineProfileDigest = canonicalAgentProfileDigest(profile)
   const identity = buildMethodEvaluationIdentity({
     executionRef,
     baselineProfileDigest,

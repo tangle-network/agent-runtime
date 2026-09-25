@@ -15,6 +15,190 @@ concurrency, abort, cost aggregation, and trace emission.
 
 ## Classes
 
+### SqlSpawnJournal
+
+SQL-backed `SpawnJournal`. One row per event; insertion order is replay order.
+
+#### Implements
+
+- [`SpawnJournal`](#spawnjournal)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlSpawnJournal**(`db`, `table?`): [`SqlSpawnJournal`](#sqlspawnjournal)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_spawn_journal'`
+
+###### Returns
+
+[`SqlSpawnJournal`](#sqlspawnjournal)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+Create the journal's tables if absent. Idempotent.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### loadTree()
+
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
+
+##### beginTree()
+
+> **beginTree**(`root`, `at`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
+
+##### appendEvent()
+
+> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### ev
+
+[`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+
+***
+
+### SqlResultBlobStore
+
+SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
+
+#### Implements
+
+- [`ResultBlobStore`](#resultblobstore)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlResultBlobStore**(`db`, `table?`): [`SqlResultBlobStore`](#sqlresultblobstore)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_result_blobs'`
+
+###### Returns
+
+[`SqlResultBlobStore`](#sqlresultblobstore)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### put()
+
+> **put**(`outRef`, `artifact`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### artifact
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+
+##### get()
+
+> **get**(`outRef`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+
+***
+
 ### InMemoryResultBlobStore
 
 **`Stable`**
@@ -59,7 +243,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -77,7 +261,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -131,7 +315,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -149,7 +333,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -195,7 +379,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -217,7 +401,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -239,7 +423,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
 
 ***
 
@@ -291,7 +475,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -313,7 +497,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -335,7 +519,37 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+
+***
+
+### SqlRunOwnershipError
+
+Refuses a competing or stale SQL run owner before it can publish new work.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlRunOwnershipError**(`message`): [`SqlRunOwnershipError`](#sqlrunownershiperror)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### Returns
+
+[`SqlRunOwnershipError`](#sqlrunownershiperror)
+
+###### Overrides
+
+`Error.constructor`
 
 ***
 
@@ -503,7 +717,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -580,7 +794,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -970,6 +1184,60 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 > `readonly` **result**: [`SupervisedResult`](#supervisedresult)\<`unknown`\>
 
 ## Interfaces
+
+### SqlStatements
+
+The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts.
+
+#### Methods
+
+##### exec()
+
+> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+Execute a write statement (INSERT/UPDATE/DELETE/DDL).
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+##### query()
+
+> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
+
+Execute a read statement (SELECT). Returns rows as plain objects.
+
+###### Type Parameters
+
+###### TRow
+
+`TRow` = `Record`\<`string`, `unknown`\>
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<`TRow`[]\>
+
+***
 
 ### SpawnForestTree
 
@@ -15827,6 +16095,16 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 [`AuthorizedDownMessage`](#authorizeddownmessage)
 
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`runContext`](#runcontext-2)
+
 ##### rootHandle?
 
 > `readonly` `optional` **rootHandle?**: [`RootHandle`](#roothandle-2)\<`unknown`\>
@@ -15847,7 +16125,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-22)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-23)
 
 ##### execution?
 
@@ -16430,6 +16708,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`runDir`](#rundir-2)
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-8)
 
 ##### steerDir?
 
@@ -18312,9 +18603,37 @@ What the completion check requires, when the caller described it.
 
 ***
 
+### SqlRunContext
+
+#### Properties
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+##### resume
+
+> `readonly` **resume**: `true`
+
+Always `true` — a SQL context is durable by construction, so runs resume-first.
+
+***
+
 ### InMemoryRunContextOptions
 
 Options for a supervised run context.
+
+#### Extended by
+
+- [`SqlRunContextOptions`](#sqlruncontextoptions)
 
 #### Properties
 
@@ -18335,6 +18654,36 @@ The bundle of stores a supervised run needs, shaped to spread into `SupervisorOp
 The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 
 #### Properties
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+SQL contexts bind all stores and ownership to this durable run identity.
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+##### durability?
+
+> `readonly` `optional` **durability?**: `"sql"`
+
+##### acquire?
+
+> `readonly` `optional` **acquire?**: (`signal?`) => `Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+Present only on an unacquired context. An acquired context cannot reacquire itself.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RunContextLease`](#runcontextlease)\>
 
 ##### journal
 
@@ -18365,6 +18714,32 @@ findings, answer decisions, and authorized continuation receipts that the spawn 
 not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
 Continuation receipts are evidence and are never auto-delivered to a replacement worker.
 In-memory contexts have none: nothing outlives the process.
+
+***
+
+### RunContextLease
+
+An immutable capability for one run ownership generation.
+
+#### Properties
+
+##### context
+
+> `readonly` **context**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+#### Methods
+
+##### release()
+
+> **release**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ***
 
@@ -19862,6 +20237,165 @@ Prior committed spend summed off the journal (settled child work + metered infer
 
 ***
 
+### SqlRunContextOptions
+
+Options for a supervised run context.
+
+#### Extends
+
+- [`InMemoryRunContextOptions`](#inmemoryruncontextoptions)
+
+#### Properties
+
+##### tablePrefix?
+
+> `readonly` `optional` **tablePrefix?**: `string`
+
+###### Inherited from
+
+`SqlRunStoreOptions.tablePrefix`
+
+##### leaseMs?
+
+> `readonly` `optional` **leaseMs?**: `number`
+
+###### Inherited from
+
+`SqlRunStoreOptions.leaseMs`
+
+##### heartbeatMs?
+
+> `readonly` `optional` **heartbeatMs?**: `number`
+
+###### Inherited from
+
+`SqlRunStoreOptions.heartbeatMs`
+
+##### withDriver?
+
+> `readonly` `optional` **withDriver?**: `boolean`
+
+Wrap the executor registry with `withDriverExecutor` so a child constructed by `driverChild`
+resolves to the recursive driver-executor (agents driving agents
+over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
+leaf workers. Default `false`.
+
+###### Inherited from
+
+[`InMemoryRunContextOptions`](#inmemoryruncontextoptions).[`withDriver`](#withdriver)
+
+***
+
+### FencedSqlRunContext
+
+A `RunContext` bound to one fenced SQL ownership generation; read-only until acquired.
+
+#### Extends
+
+- [`RunContext`](#runcontext-1)
+
+#### Properties
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+###### Inherited from
+
+`RunContext.namespace`
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+###### Inherited from
+
+`RunContext.journal`
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+###### Inherited from
+
+`RunContext.blobs`
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+###### Inherited from
+
+`RunContext.executors`
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
+context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
+leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
+
+###### Inherited from
+
+`RunContext.resume`
+
+##### coordinationLog?
+
+> `readonly` `optional` **coordinationLog?**: [`CoordinationLog`](#coordinationlog)
+
+Present only on a DURABLE context: the coordination side-log stores questions, analyst
+findings, answer decisions, and authorized continuation receipts that the spawn journal does
+not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
+Continuation receipts are evidence and are never auto-delivered to a replacement worker.
+In-memory contexts have none: nothing outlives the process.
+
+###### Inherited from
+
+`RunContext.coordinationLog`
+
+##### durability
+
+> `readonly` **durability**: `"sql"`
+
+###### Overrides
+
+`RunContext.durability`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+SQL contexts bind all stores and ownership to this durable run identity.
+
+###### Overrides
+
+`RunContext.runId`
+
+#### Methods
+
+##### acquire()
+
+> **acquire**(`signal?`): `Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+Present only on an unacquired context. An acquired context cannot reacquire itself.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RunContextLease`](#runcontextlease)\>
+
+###### Overrides
+
+`RunContext.acquire`
+
+***
+
 ### ProgressSample
 
 One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own
@@ -20264,6 +20798,12 @@ readonly `string`[]
 - [`SuperviseTestOptions`](testing.md#supervisetestoptions)
 
 #### Properties
+
+##### runContext?
+
+> `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
+
+Whole-run persistence and ownership. SQL contexts are acquired before replay and compute.
 
 ##### budget
 
@@ -20912,6 +21452,15 @@ exact prior execution is recovered, so restart cannot duplicate work or slide th
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`
@@ -21382,7 +21931,7 @@ in code (see [CoordinationVerbs](#coordinationverbs)).
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-20)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-22)
 
 ##### runNamespace
 
@@ -21534,6 +22083,16 @@ One product-owned tool. It reuses the canonical MCP descriptor fields while Runt
 ###### Inherited from
 
 [`McpToolDescriptor`](mcp.md#mcptooldescriptor).[`inputSchema`](mcp.md#inputschema)
+
+##### annotations?
+
+> `optional` **annotations?**: [`McpToolAnnotations`](mcp.md#mcptoolannotations)
+
+Published in `tools/list` when present.
+
+###### Inherited from
+
+[`McpToolDescriptor`](mcp.md#mcptooldescriptor).[`annotations`](mcp.md#annotations)
 
 ##### handler
 
@@ -24468,6 +25027,26 @@ recovery; `appendEvent` runs only AFTER the event is observed-committed (never s
 
 `Promise`\<`void`\>
 
+##### appendEvents()?
+
+> `optional` **appendEvents**(`root`, `events`): `Promise`\<`void`\>
+
+Publish all events together or none; SQL contexts use this for initialization records.
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### events
+
+readonly [`SpawnEvent`](#spawnevent)[]
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ***
 
 ### ResultBlobStore
@@ -25132,7 +25711,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-28)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-29)
 
 ##### abort()
 
@@ -32246,7 +32825,7 @@ settles on the ordinary path and the recorded-result path writes no marker.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -32260,7 +32839,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -32305,6 +32884,14 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](durable.md#rootstreamreceipt)
 
 The root manager's retained provider stream, when the run directory holds one.
+
+###### rootHarnessTranscript?
+
+> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+The root manager's native harness session, persisted like a child's receipt. A child's
+ receipt rides its settle record and the root has none, so the result carries it. Absent
+ for a router-brained root, which runs no driver.
 
 ###### continuation?
 
@@ -32369,7 +32956,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 ###### kind
 
@@ -32414,6 +33001,14 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](durable.md#rootstreamreceipt)
 
 The root manager's retained provider stream, when the run directory holds one.
+
+###### rootHarnessTranscript?
+
+> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+The root manager's native harness session, persisted like a child's receipt. A child's
+ receipt rides its settle record and the root has none, so the result carries it. Absent
+ for a router-brained root, which runs no driver.
 
 ###### continuation?
 
@@ -38096,6 +38691,56 @@ Compose the task for one re-entered drive.
 
 ***
 
+### createSqlRunContext()
+
+> **createSqlRunContext**(`db`): [`SqlRunContext`](#sqlruncontext)
+
+Build a durable run context over one SQL statement seam. Tables are created on first use.
+
+#### Parameters
+
+##### db
+
+[`SqlStatements`](#sqlstatements)
+
+#### Returns
+
+[`SqlRunContext`](#sqlruncontext)
+
+***
+
+### withRunContext()
+
+> **withRunContext**\<`T`\>(`context`, `signal`, `run`): `Promise`\<`T`\>
+
+Hold a run context's ownership (when it has any) across the whole run, releasing after.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### context
+
+[`InMemoryRunContext`](#inmemoryruncontext)
+
+##### signal
+
+`AbortSignal` \| `undefined`
+
+##### run
+
+(`context`, `signal`) => `Promise`\<`T`\>
+
+#### Returns
+
+`Promise`\<`T`\>
+
+***
+
 ### createInMemoryRunContext()
 
 > **createInMemoryRunContext**(`opts?`): [`InMemoryRunContext`](#inmemoryruncontext)
@@ -38952,6 +39597,40 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 ***
 
+### createFencedSqlRunContext()
+
+> **createFencedSqlRunContext**(`db`, `runId`, `options?`): `Promise`\<[`FencedSqlRunContext`](#fencedsqlruncontext)\>
+
+**`Experimental`**
+
+A cross-machine run context on the existing autocommit SqlAdapter. Reuse the same database,
+tablePrefix and runId on every host; no runDir or shared filesystem is required.
+
+Each ownership generation gets fresh store capabilities. The public context can inspect SQL
+at any time, but cannot write without acquire(). runGraph/supervise acquire and release it.
+Retained provider execution supplies external admission/result idempotency; SQL does not turn
+an arbitrary unkeyed network effect into an exactly-once operation.
+
+#### Parameters
+
+##### db
+
+[`SqlAdapter`](index.md#sqladapter)
+
+##### runId
+
+`string`
+
+##### options?
+
+[`SqlRunContextOptions`](#sqlruncontextoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`FencedSqlRunContext`](#fencedsqlruncontext)\>
+
+***
+
 ### createProgressTracker()
 
 > **createProgressTracker**(`opts?`): [`ProgressTracker`](#progresstracker)
@@ -39146,7 +39825,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 **`Stable`**
 
@@ -39168,7 +39847,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
 
 ***
 
@@ -40109,7 +40788,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-31), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-32), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

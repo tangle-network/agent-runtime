@@ -1,7 +1,9 @@
 /**
  * `createStdioToolServer` — the generic newline-delimited JSON-RPC 2.0 MCP
  * server core: `initialize` / `notifications/initialized` / `tools/list` /
- * `tools/call` over a stdio-shaped transport, protocol 2024-11-05.
+ * `ping` / `tools/call` over a stdio-shaped transport. It answers the
+ * client's protocol version when listed in `SUPPORTED_PROTOCOL_VERSIONS`,
+ * else 2024-11-05, and publishes tool annotations when a tool declares them.
  *
  * Extracted from `createMcpServer` (server.ts) so every in-repo MCP server —
  * the delegation server, the memory server — serves the ONE wire protocol the
@@ -16,9 +18,27 @@ import { createInterface, type Interface as ReadlineInterface } from 'node:readl
 import { ValidationError } from '../errors'
 import type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
-export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
+export type {
+  JsonRpcMessage,
+  JsonRpcResponse,
+  McpToolAnnotations,
+  McpToolDescriptor,
+  McpTransport,
+} from './protocol'
 
 export const PROTOCOL_VERSION = '2024-11-05'
+
+/**
+ * Protocol versions this server speaks, newest first. `initialize` answers with
+ * the client's requested version when it is listed here, and otherwise with
+ * `PROTOCOL_VERSION` (2024-11-05), which every client that speaks 2024-11-05 accepts.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
+  '2025-11-25',
+  '2025-06-18',
+  '2025-03-26',
+  PROTOCOL_VERSION,
+]
 
 /** @experimental */
 export interface StdioToolServerOptions {
@@ -60,8 +80,13 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
       return rpcError(message.id ?? null, -32099, 'server stopped')
     }
     if (message.method === 'initialize') {
+      const requested = (message.params as { protocolVersion?: unknown } | undefined)
+        ?.protocolVersion
       return rpcResult(message.id ?? null, {
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion:
+          typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+            ? requested
+            : PROTOCOL_VERSION,
         capabilities: { tools: {} },
         serverInfo: { name: options.serverName, version: options.serverVersion },
       })
@@ -71,12 +96,16 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
       // no response.
       return null
     }
+    if (message.method === 'ping') {
+      return rpcResult(message.id ?? null, {})
+    }
     if (message.method === 'tools/list') {
       return rpcResult(message.id ?? null, {
         tools: [...tools.values()].map((tool) => ({
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
         })),
       })
     }

@@ -62,7 +62,11 @@ import {
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
-import type { HarnessTranscriptCapture } from '../harness-transcript'
+import {
+  type HarnessTranscriptCapture,
+  persistHarnessTranscript,
+  readHarnessTranscript,
+} from '../harness-transcript'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
@@ -122,7 +126,12 @@ import {
 } from './retained-scope-owner'
 import { createRootStreamSink, type RootStreamSink } from './root-stream'
 import { watchRunCancellation } from './run-cancellation'
-import { createFileRunContext, createInMemoryRunContext } from './run-context'
+import {
+  createFileRunContext,
+  createInMemoryRunContext,
+  type RunContext,
+  withRunContext,
+} from './run-context'
 import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
 import {
   type BridgeSeam,
@@ -1754,6 +1763,8 @@ async function verifyProfilePromotions(
 }
 
 export interface SuperviseOptions {
+  /** Whole-run persistence and ownership. SQL contexts are acquired before replay and compute. */
+  readonly runContext?: RunContext
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
   /** Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
@@ -2107,6 +2118,11 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+   * `blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+   * context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+   * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
+  readonly resume?: boolean
   /** Durable steer directory when it differs from the run-control directory. */
   readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
@@ -2258,6 +2274,8 @@ const superviseOptionKeys = [
   'rootHandle',
   'router',
   'runDir',
+  'resume',
+  'runContext',
   'runId',
   'signal',
   'stallAfterMs',
@@ -2496,9 +2514,11 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     makeWorkerAgent,
     makeLeafAgent,
     recoverExecutor,
+    resume,
     resolveSpawnProfile,
     blobs,
     journal,
+    runContext,
     probes,
     registry,
     hooks,
@@ -2640,6 +2660,8 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
+    ...(resume === undefined ? {} : { resume }),
+    ...(runContext === undefined ? {} : { runContext }),
     // A number is decision data; a shared allocator is a live collaborator other runs also hold.
     ...(workerSlots === undefined ? {} : { workerSlots }),
     ...(probes === undefined ? {} : { probes }),
@@ -2921,7 +2943,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       'supervise: direct brain injection is test-only; production execution derives the model call from AgentProfile',
     )
   }
-  return superviseInternal(profile, task, opts)
+  return superviseWithContext(profile, task, opts)
 }
 
 /** Deterministic scripted-brain path for tests. Not exported from Runtime's main entry. */
@@ -2931,7 +2953,7 @@ export function superviseWithTestBrain(
   opts: SuperviseTestOptions,
 ) {
   const { brain, ...runtimeOptions } = opts
-  return superviseInternal(profile, task, runtimeOptions, brain)
+  return superviseWithContext(profile, task, runtimeOptions, brain)
 }
 
 /**
@@ -2977,6 +2999,30 @@ export function superviseRootProfile(
   return freezeDetachedProfile(compose ? compose(parsedProfile.data) : parsedProfile.data)
 }
 
+function superviseWithContext(
+  profile: SupervisorProfile,
+  task: unknown,
+  opts: SuperviseOptions,
+  brain?: ToolLoopChat,
+): ReturnType<typeof superviseInternal> {
+  if (opts.runContext?.acquire === undefined) return superviseInternal(profile, task, opts, brain)
+  const options = captureSuperviseOptions(opts)
+  const capturedProfile = freezeDetached(profile)
+  const capturedTask = freezeDetached(task)
+  return withRunContext(opts.runContext, options.signal, (runContext, signal) =>
+    superviseInternal(
+      capturedProfile,
+      capturedTask,
+      {
+        ...options,
+        runContext,
+        ...(signal === undefined ? {} : { signal }),
+      },
+      brain,
+    ),
+  )
+}
+
 function superviseInternal(
   profile: SupervisorProfile,
   task: unknown,
@@ -2984,6 +3030,27 @@ function superviseInternal(
   testBrain?: ToolLoopChat,
 ) {
   const options = captureSuperviseOptions(opts)
+  if (options.runContext?.durability === 'sql') {
+    if (
+      options.runDir !== undefined ||
+      (options.journal !== undefined && options.journal !== options.runContext.journal) ||
+      (options.blobs !== undefined && options.blobs !== options.runContext.blobs) ||
+      (options.runId !== undefined && options.runId !== options.runContext.runId)
+    ) {
+      throw new ValidationError(
+        'supervise: SQL runContext cannot be mixed with another run identity or persistence path',
+      )
+    }
+    if (
+      options.backend?.backend !== 'provider' ||
+      options.makeWorkerAgent ||
+      options.makeLeafAgent
+    ) {
+      throw new ValidationError(
+        'supervise: SQL runContext requires backend-derived retained provider workers',
+      )
+    }
+  }
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
@@ -3106,9 +3173,10 @@ function superviseInternal(
   // `withDriver: true` is the wiring invariant: a child constructed by `driverChild` must resolve
   // to the nested-scope executor; `runDir` only changes where the journal and blobs live.
   const ctx =
-    options.runDir !== undefined
+    options.runContext ??
+    (options.runDir !== undefined
       ? createFileRunContext(options.runDir, { withDriver: true })
-      : createInMemoryRunContext({ withDriver: true })
+      : createInMemoryRunContext({ withDriver: true }))
   const blobs = options.blobs ?? ctx.blobs
   assertRecursiveReservationPolicy(options.reservationPolicy)
   const ownerShare = options.reservationPolicy?.ownerShare ?? 0
@@ -3122,8 +3190,8 @@ function superviseInternal(
   // tell the knob was inert. Refuse at construction, where the caller can still fix it.
   assertPerWorkerWithinPool(perWorker, options.budget)
   const journal = options.journal ?? ctx.journal
-  const runId = options.runId ?? 'supervise'
-  const runNamespace = supervisionRunNamespace(options.runDir, runId)
+  const runId = options.runId ?? ctx.runId ?? 'supervise'
+  const runNamespace = ctx.namespace ?? supervisionRunNamespace(options.runDir, runId)
   const log = ctx.coordinationLog
   const rootOwnerId = rootCoordinationOwner(rootExecution.identity)
   const rootProviderModels: Array<string | undefined> = []
@@ -3671,6 +3739,34 @@ function superviseInternal(
   // The root driver loop reports what it did once it ends; the settle record carries it.
   let rootContinuation: DriverContinuationRecord | undefined
   const start = async () => {
+    if (ctx.durability === 'sql') {
+      if (
+        options.backend?.backend !== 'provider' ||
+        options.backend.steering ||
+        options.driveHarness ||
+        options.resolveDriveHarness ||
+        options.driverBackend
+      ) {
+        throw new ValidationError(
+          'supervise: SQL runContext requires a local coordinator and non-steering retained provider workers',
+        )
+      }
+      const provider = resolveAgentEnvironmentProvider(
+        options.backend.provider,
+        options.backend.registry,
+      )
+      const capabilities = await provider.capabilities()
+      if (
+        !capabilities.retainedControl ||
+        !capabilities.streaming.turnIdempotency ||
+        !capabilities.streaming.replay ||
+        !provider.get
+      ) {
+        throw new ValidationError(
+          'supervise: SQL runContext requires retainedControl, replay, turn idempotency, and provider.get',
+        )
+      }
+    }
     await verifyProfilePromotions(profileTable)
     // The durable coordination side-log (file contexts only) loads prior questions, findings, and
     // authorized instruction receipts, then appends this process's evidence as it publishes. The
@@ -3823,7 +3919,9 @@ function superviseInternal(
       ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
       ...(probes ? { probes } : {}),
-      ...(ctx.resume === true ? { resume: true } : {}),
+      ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
+        ? { resume: true }
+        : {}),
       ...(options.now ? { now: options.now } : {}),
       signal: options.signal
         ? AbortSignal.any([options.signal, durableCancellation.signal])
@@ -3853,6 +3951,14 @@ function superviseInternal(
         }
       }
       recordRunCancellationOutcome(options.runDir, result, now)
+      // A nested manager's session rides its settle record (#1359). The root has no settle
+      // record, so its session had no receipt anywhere: 312 of 312 Discovery roots of
+      // 2026-09-23/24 settled without one, and 27 of the 57 harness subagent calls seen in those
+      // runs were the roots' own (#1264). The result carries it, persisted the same way.
+      const rootHarnessTranscript =
+        rootDriveHarness === undefined
+          ? undefined
+          : await persistHarnessTranscript(readHarnessTranscript(rootDriveHarness), blobs)
       const rootProviderModel =
         ctx.resume === true
           ? rootProviderModelEvidence([])
@@ -3867,6 +3973,7 @@ function superviseInternal(
         ...result,
         rootProviderModel,
         ...(rootStream === undefined ? {} : { rootStream }),
+        ...(rootHarnessTranscript === undefined ? {} : { rootHarnessTranscript }),
         ...(rootContinuation === undefined ? {} : { continuation: rootContinuation }),
       }
     }
