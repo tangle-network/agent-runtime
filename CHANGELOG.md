@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.266.1
+
+Runtime admits stable Sandbox 0.53.x through its peer range and packed compatibility cohort.
+Sandbox 0.53 adds email lines and reports how `instances.ensure` produced its box; Runtime does not call those APIs itself.
+This is a patch on the 0.266 line, so the agent-app kit and the Sandbox CLI, which pin 0.266, can install Sandbox 0.53.
+
 ## 0.266.0
 
 Runtime admits stable Sandbox 0.52.x through its peer range and packed compatibility cohort.
