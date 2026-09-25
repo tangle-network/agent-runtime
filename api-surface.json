@@ -1329,7 +1329,7 @@
       "SuperviseRegistryTable": "type 04cdd7be92de",
       "SuperviseSurfaceOptions": "type cc4cc114e5f1",
       "SuperviseSurfaceResult": "type 2c378dbc3193",
-      "SupervisedResult": "type fae592d3ab52",
+      "SupervisedResult": "type 3cd4667fea5c",
       "Supervisor": "type 7d9aff9cd744",
       "SupervisorAgentDeps": "type a6e4750abe76",
       "SupervisorCleanupReceipt": "type d862eb60266d",
@@ -1701,7 +1701,7 @@
       "structuralRollout": "value fc852ab503f9",
       "sumSandboxUsage": "value 368f5c1a5123",
       "summarizeDriverAttempts": "value b9c1ac15b02c",
-      "supervise": "value 05d44702c132",
+      "supervise": "value daad52ec7e15",
       "superviseDispatch": "value 8f93690a9eb5",
       "superviseSurface": "value 730f753cfb58",
       "supervisorAgent": "value 880407b0dab3",
@@ -2067,7 +2067,7 @@
       "loadAgentImprovementProposalFixture": "value 2f33e49d4be9",
       "loadAgentProfileImprovementFixture": "value 3bf4543ae6f7",
       "runGraphWithTestBrain": "value 5d9fea087acc",
-      "superviseWithTestBrain": "value 9006cd162dad",
+      "superviseWithTestBrain": "value 0dd3071a10f6",
       "supervisorAgentWithTestBrain": "value 5c814f8dd593"
     },
     "./tool-loop": {
