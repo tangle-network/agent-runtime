@@ -612,9 +612,10 @@ export function buildLoopOtelSpans(
   events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
   traceId: string,
   rootParentSpanId?: string,
+  redact?: (value: unknown) => unknown,
 ): OtelSpan[] {
   const tid = padTraceId(traceId)
-  return buildLoopSpanNodes(events).map((node) => ({
+  return buildLoopSpanNodes(events, redact).map((node) => ({
     traceId: tid,
     spanId: node.spanId,
     parentSpanId: node.parentSpanId
@@ -658,6 +659,7 @@ const LOOP_SPAN_KIND: Record<LoopSpanNode['kind'], SpanKind> = {
  */
 export function buildLoopSpanNodes(
   events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
+  redact?: (value: unknown) => unknown,
 ): LoopSpanNode[] {
   if (events.length === 0) return []
   const out: LoopSpanNode[] = []
@@ -665,6 +667,16 @@ export function buildLoopSpanNodes(
     typeof v === 'number' && Number.isFinite(v) ? v : undefined
   const str = (v: unknown): string | undefined =>
     typeof v === 'string' && v.length > 0 ? v : undefined
+  // Free-text node fields (rationale, decision, error, output preview) are model- or
+  // customer-authored and may carry secrets — every one goes through the same redactor
+  // as `tangle.input`/`tangle.output` before it becomes a span attribute.
+  const strRedacted = (v: unknown): string | undefined => {
+    const s = str(v)
+    if (s === undefined) return undefined
+    if (!redact) return s
+    const safe = redact(s)
+    return typeof safe === 'string' ? safe : JSON.stringify(safe)
+  }
   const rec = (v: unknown): Record<string, unknown> =>
     v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
 
@@ -760,7 +772,7 @@ export function buildLoopSpanNodes(
           'tangle.loop.move.round': roundIdx,
           'tangle.loop.move.width': num(p.plannedCount) ?? 0,
         }
-        const r = str(p.rationale)
+        const r = strRedacted(p.rationale)
         if (r) attrs['tangle.loop.move.rationale'] = r
         const parent = num(p.parentIndex)
         if (parent !== undefined) attrs['tangle.loop.move.parent_index'] = parent
@@ -795,7 +807,7 @@ export function buildLoopSpanNodes(
       case 'loop.iteration.ended': {
         const idx = num(p.iterationIndex) ?? 0
         const start = iterStartTs.get(idx) ?? e.timestamp
-        const err = str(p.error)
+        const err = strRedacted(p.error)
         const attrs: Record<string, string | number | boolean> = {
           [GEN_AI.operation]: 'invoke_agent',
           'tangle.loop.iteration.index': idx,
@@ -824,7 +836,7 @@ export function buildLoopSpanNodes(
         if (par !== undefined) attrs['tangle.loop.iteration.parent_index'] = par
         const dur = num(p.durationMs)
         if (dur !== undefined) attrs['tangle.loop.iteration.duration_ms'] = dur
-        const preview = str(p.outputPreview)
+        const preview = strRedacted(p.outputPreview)
         if (preview) attrs['tangle.loop.iteration.output_preview'] = preview
         Object.assign(attrs, placementByIdx.get(idx) ?? {})
         out.push(
@@ -843,7 +855,7 @@ export function buildLoopSpanNodes(
       }
       case 'loop.decision': {
         if (pendingRound) {
-          const dec = str(p.decision)
+          const dec = strRedacted(p.decision)
           if (dec) pendingRound.attrs['tangle.loop.decision'] = dec
           flushRound(e.timestamp)
         }
