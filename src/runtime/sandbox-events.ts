@@ -697,12 +697,14 @@ function buildLlmCall(
     (costProvenance === undefined ||
       costProvenance === 'provider-receipt' ||
       costProvenance === 'billing-receipt')
+  const tools = readOfferedTools(data.tools)
   if (
     tokensIn === undefined &&
     tokensOut === undefined &&
     costUsd === undefined &&
     catalogEstimate === undefined &&
     promptCache === undefined &&
+    tools === undefined &&
     explicitTokensKnown !== false &&
     explicitCostKnown !== false
   ) {
@@ -720,7 +722,17 @@ function buildLlmCall(
   if (!usdKnown) event.usdKnown = false
   if (catalogEstimate !== undefined) event.estimatedCostUsd = catalogEstimate
   if (promptCache !== undefined) event.promptCache = promptCache
+  if (tools !== undefined) event.tools = tools
   return event
+}
+
+/** `data.tools`, when it is a non-empty array of non-empty tool-name strings. Anything else
+ *  (absent, empty, wrong element type) is treated as "the producer did not report its offered
+ *  set" — never a placeholder empty list, which would read as "offered zero tools" downstream. */
+function readOfferedTools(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined
+  const names = value.filter((v): v is string => typeof v === 'string' && v.length > 0)
+  return names.length === value.length ? names : undefined
 }
 
 /**
