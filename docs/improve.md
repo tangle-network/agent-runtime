@@ -189,6 +189,7 @@ Use `resume: 'required'` to fail when no matching run exists.
 `result.provenance` reports the upstream package, run ID, resume status, evaluation count, and artifact directory.
 `result.candidatePopulation` verifies and joins callback observations with an optimizer's official candidate graph.
 It returns every unique candidate as a complete profile with ordered Interface diffs, or as an explicit materialization refusal.
+Each materialized candidate's `profileDigest`, and `lineage.baselineProfileDigest`, is `canonicalAgentProfileDigest` of that profile: the same identity supervise, preparation receipts, and VerticalBench record.
 GEPA candidates keep exact parent indices and selection scores; callback-only proposals report lineage as unavailable.
 Methods without either artifact return `status: 'unavailable'` instead of treating the winner as the full population.
 
