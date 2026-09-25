@@ -2107,6 +2107,11 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
+  /** Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+   * `blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+   * context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+   * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
+  readonly resume?: boolean
   /** Durable steer directory when it differs from the run-control directory. */
   readonly steerDir?: string
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
@@ -2258,6 +2263,7 @@ const superviseOptionKeys = [
   'rootHandle',
   'router',
   'runDir',
+  'resume',
   'runId',
   'signal',
   'stallAfterMs',
@@ -2496,6 +2502,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     makeWorkerAgent,
     makeLeafAgent,
     recoverExecutor,
+    resume,
     resolveSpawnProfile,
     blobs,
     journal,
@@ -2640,6 +2647,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
+    ...(resume === undefined ? {} : { resume }),
     // A number is decision data; a shared allocator is a live collaborator other runs also hold.
     ...(workerSlots === undefined ? {} : { workerSlots }),
     ...(probes === undefined ? {} : { probes }),
@@ -3823,7 +3831,9 @@ function superviseInternal(
       ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
       ...(probes ? { probes } : {}),
-      ...(ctx.resume === true ? { resume: true } : {}),
+      ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
+        ? { resume: true }
+        : {}),
       ...(options.now ? { now: options.now } : {}),
       signal: options.signal
         ? AbortSignal.any([options.signal, durableCancellation.signal])

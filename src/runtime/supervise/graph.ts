@@ -305,6 +305,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'stallAfterMs',
   'awaitTimeoutMs',
   'runDir',
+  'resume',
   'steerDir',
   'probes',
   'stopRule',

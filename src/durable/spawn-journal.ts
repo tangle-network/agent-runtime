@@ -194,7 +194,11 @@ export class FileResultBlobStore implements ResultBlobStore {
   }
 }
 
-function encodeResultBlob(outRef: string, artifact: unknown): { snapshot: unknown; text: string } {
+/** @internal shared with the SQL-backed store. */
+export function encodeResultBlob(
+  outRef: string,
+  artifact: unknown,
+): { snapshot: unknown; text: string } {
   const detached = detachedSnapshot(artifact, 'result blob')
   assertContentAddress(outRef, detached)
   const text = JSON.stringify(detached)
@@ -205,7 +209,8 @@ function encodeResultBlob(outRef: string, artifact: unknown): { snapshot: unknow
   return { snapshot, text }
 }
 
-function assertContentAddress(outRef: string, artifact: unknown): void {
+/** @internal shared with the SQL-backed store. */
+export function assertContentAddress(outRef: string, artifact: unknown): void {
   const expected = contentAddress(artifact)
   if (outRef !== expected) {
     throw new Error(
@@ -809,7 +814,8 @@ interface JournalNodeIndex {
 }
 
 /** One validation implementation for memory, durable append, and cold replay. */
-class SpawnEventIndex {
+/** @internal shared with the SQL-backed store. */
+export class SpawnEventIndex {
   private readonly nodes = new Map<NodeId, JournalNodeIndex>()
   private readonly cursors = new Set<number>()
 

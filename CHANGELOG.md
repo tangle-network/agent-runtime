@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.270.0
+
+SQL-backed durable stores for supervised runs close the file-only gap this runtime's durability
+conformance work recorded. `SqlSpawnJournal` and `SqlResultBlobStore` (`/kernel`, @experimental)
+run the same begin/append/load contract as the file stores over the `SqlStatements` seam
+`SqlConversationJournal` already takes — D1, postgres, sqlite, libSQL — with the same corruption
+guards (begin precedes events by schema, the shared `SpawnEventIndex` refuses duplicate cursor
+seqs and duplicate materialization receipts on append AND replay, insertion order is replay
+order) and the same content-address law for blobs. `createSqlRunContext(db)` bundles them with
+`resume: true`, and `supervise`/`runGraph` now accept an explicit `resume` option so
+caller-supplied durable stores resume-first without a `runDir` (the file context keeps owning the
+flag when both are set). Proven against a REAL sqlite file with real SIGKILLs: the conformance
+suite's new SQL arm resumes a killed graph run from the database alone — same winner, committed
+nodes never re-executed, one key per assignment, side effect exactly once. Draft status: the full
+23-point sweep, a SQL coordination side-log, and machine-visible cross-run ownership are the
+named follow-ups; single-writer by convention, like the file context.
+
+
 ## 0.269.1
 
 A durable run whose cancellation observer cannot create its inotify watch degrades to poll-only

@@ -23,6 +23,7 @@ const testFiles = [
   'tests/durability/graph-rundir-journal.test.ts',
   'tests/durability/graph-kill-resume.test.ts',
   'tests/durability/session-reattach.test.ts',
+  'tests/durability/sql-kill-resume.test.ts',
   'tests/durability/conversation-kill-resume.test.ts',
   'tests/durability/known-defects.test.ts',
 ]

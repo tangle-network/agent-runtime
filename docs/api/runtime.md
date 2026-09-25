@@ -15,6 +15,190 @@ concurrency, abort, cost aggregation, and trace emission.
 
 ## Classes
 
+### SqlSpawnJournal
+
+SQL-backed `SpawnJournal`. One row per event; insertion order is replay order.
+
+#### Implements
+
+- [`SpawnJournal`](#spawnjournal)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlSpawnJournal**(`db`, `table?`): [`SqlSpawnJournal`](#sqlspawnjournal)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_spawn_journal'`
+
+###### Returns
+
+[`SqlSpawnJournal`](#sqlspawnjournal)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+Create the journal's tables if absent. Idempotent.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### loadTree()
+
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
+
+##### beginTree()
+
+> **beginTree**(`root`, `at`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
+
+##### appendEvent()
+
+> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### ev
+
+[`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+
+***
+
+### SqlResultBlobStore
+
+SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
+
+#### Implements
+
+- [`ResultBlobStore`](#resultblobstore)
+
+#### Constructors
+
+##### Constructor
+
+> **new SqlResultBlobStore**(`db`, `table?`): [`SqlResultBlobStore`](#sqlresultblobstore)
+
+###### Parameters
+
+###### db
+
+[`SqlStatements`](#sqlstatements)
+
+###### table?
+
+`string` = `'runtime_result_blobs'`
+
+###### Returns
+
+[`SqlResultBlobStore`](#sqlresultblobstore)
+
+#### Methods
+
+##### migrate()
+
+> **migrate**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### put()
+
+> **put**(`outRef`, `artifact`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### artifact
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+
+##### get()
+
+> **get**(`outRef`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+
+***
+
 ### InMemoryResultBlobStore
 
 **`Stable`**
@@ -59,7 +243,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -77,7 +261,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -131,7 +315,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
 
 ##### get()
 
@@ -149,7 +333,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
 
 ***
 
@@ -195,7 +379,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -217,7 +401,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -239,7 +423,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
 
 ***
 
@@ -291,7 +475,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
 
 ##### beginTree()
 
@@ -313,7 +497,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
 
 ##### appendEvent()
 
@@ -335,7 +519,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
 
 ***
 
@@ -503,7 +687,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -580,7 +764,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-3)
 
 ***
 
@@ -970,6 +1154,60 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 > `readonly` **result**: [`SupervisedResult`](#supervisedresult)\<`unknown`\>
 
 ## Interfaces
+
+### SqlStatements
+
+The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts.
+
+#### Methods
+
+##### exec()
+
+> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+Execute a write statement (INSERT/UPDATE/DELETE/DDL).
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<\{ `rowsAffected`: `number`; \}\>
+
+##### query()
+
+> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
+
+Execute a read statement (SELECT). Returns rows as plain objects.
+
+###### Type Parameters
+
+###### TRow
+
+`TRow` = `Record`\<`string`, `unknown`\>
+
+###### Parameters
+
+###### sql
+
+`string`
+
+###### params?
+
+readonly `unknown`[]
+
+###### Returns
+
+`Promise`\<`TRow`[]\>
+
+***
 
 ### SpawnForestTree
 
@@ -16431,6 +16669,19 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 [`SuperviseOptions`](#superviseoptions).[`runDir`](#rundir-2)
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-7)
+
 ##### steerDir?
 
 > `readonly` `optional` **steerDir?**: `string`
@@ -18309,6 +18560,30 @@ What the completion check requires, when the caller described it.
 > `readonly` **attempt**: `number`
 
 1-based driver attempt this task starts.
+
+***
+
+### SqlRunContext
+
+#### Properties
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+##### executors
+
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
+
+##### resume
+
+> `readonly` **resume**: `true`
+
+Always `true` — a SQL context is durable by construction, so runs resume-first.
 
 ***
 
@@ -20911,6 +21186,15 @@ exact prior execution is recovered, so restart cannot duplicate work or slide th
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
+`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
+reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
 ##### steerDir?
 
@@ -38093,6 +38377,24 @@ Compose the task for one re-entered drive.
 #### Returns
 
 `string`
+
+***
+
+### createSqlRunContext()
+
+> **createSqlRunContext**(`db`): [`SqlRunContext`](#sqlruncontext)
+
+Build a durable run context over one SQL statement seam. Tables are created on first use.
+
+#### Parameters
+
+##### db
+
+[`SqlStatements`](#sqlstatements)
+
+#### Returns
+
+[`SqlRunContext`](#sqlruncontext)
 
 ***
 
