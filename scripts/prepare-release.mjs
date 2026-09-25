@@ -24,7 +24,7 @@ if (notes.length === 0) throw new Error('no pending .release-notes/*.md entries'
 
 const rank = { patch: 0, minor: 1, major: 2 }
 const level = notes.reduce((best, note) => rank[note.type] > rank[best] ? note.type : best, 'patch')
-const parsed = /^(\\d+)\\.(\\d+)\\.(\\d+)$/.exec(current)
+const parsed = /^(\d+)\.(\d+)\.(\d+)$/.exec(current)
 if (!parsed) throw new Error(`cannot bump non-stable version ${current}`)
 let [major, minor, patch] = parsed.slice(1).map(Number)
 if (level === 'major') { major += 1; minor = 0; patch = 0 }
@@ -33,7 +33,7 @@ else patch += 1
 const version = `${major}.${minor}.${patch}`
 
 const updated = raw.replace(
-  /^(\\s*"version":\\s*)"[^"]+"/m,
+  /^(\s*"version":\s*)"[^"]+"/m,
   (_match, prefix) => `${prefix}"${version}"`,
 )
 if (updated === raw) throw new Error('could not locate the version field in package.json')
@@ -42,14 +42,14 @@ console.log(`package.json: ${current} -> ${version} (${level})`)
 
 const changelogPath = resolve(repoRoot, 'CHANGELOG.md')
 const changelog = readFileSync(changelogPath, 'utf8')
-const body = notes.map((note) => note.text).join('\\n\\n')
-writeFileSync(changelogPath, `## ${version}\\n\\n${body}\\n\\n${changelog}`)
+const body = notes.map((note) => note.text).join('\n\n')
+writeFileSync(changelogPath, `## ${version}\n\n${body}\n\n${changelog}`)
 console.log(`CHANGELOG.md: consumed ${notes.length} release note(s)`)
 
 const canonicalPath = resolve(repoRoot, 'docs/canonical-api.md')
 const canonicalRaw = readFileSync(canonicalPath, 'utf8')
 const canonicalUpdated = canonicalRaw.replace(
-  /^> \\*\\*Version \\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?\\.\\*\\*$/m,
+  /^> \*\*Version \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.\*\*$/m,
   `> **Version ${version}.**`,
 )
 if (canonicalUpdated === canonicalRaw) {
@@ -60,7 +60,7 @@ writeFileSync(canonicalPath, canonicalUpdated)
 for (const note of notes) rmSync(resolve(repoRoot, '.release-notes', note.name))
 
 const run = (script) => {
-  console.log(`\\n$ pnpm run ${script}`)
+  console.log(`\n$ pnpm run ${script}`)
   execFileSync('pnpm', ['run', script], { cwd: repoRoot, stdio: 'inherit' })
 }
 
@@ -75,5 +75,5 @@ console.log(
     '  git add -A && git commit -m "chore(release): prepare <version>"',
     '  open the release PR, merge it, then tag the merged main tip:',
     `  git tag v${version} <merged-main-sha> && git push origin v${version}`,
-  ].join('\\n'),
+  ].join('\n'),
 )
