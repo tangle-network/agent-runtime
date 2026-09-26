@@ -1227,6 +1227,7 @@ function buildSupervisorAgent(
         }
         const loopRecords: DriverAttemptRecord[] = []
         let environmentReplacements = 0
+        let workspaceRestores = 0
         const describe = deps.deliverable?.describe
         const settleLoop = () => {
           const stopReason = controls.stopReason() ?? progressStopReason
@@ -1242,6 +1243,7 @@ function buildSupervisorAgent(
           deps.onDriverLoopSettled?.({
             ...summarizeDriverAttempts(loopRecords),
             environmentReplacements,
+            workspaceRestores,
             ...(closedBy === undefined ? {} : { closedBy }),
             ...(stopReason === undefined ? {} : { stopReason }),
             continuations: keeper?.entries() ?? [],
@@ -1288,6 +1290,7 @@ function buildSupervisorAgent(
                           compose,
                           onContinuity: (continuity: ReentryContinuity) => {
                             if (continuity.environment === 'replaced') environmentReplacements += 1
+                            if (continuity.workspace === 'restored') workspaceRestores += 1
                           },
                         },
                       }),

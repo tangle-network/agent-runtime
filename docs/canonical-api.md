@@ -10,7 +10,7 @@ Run pnpm docs:freshness after editing this file. -->
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0`.
 > The second clause admits prereleases of base `0.49.0` and stable `0.49.x`; it does not admit prereleases of `0.49.1`.
 > The last five clauses admit stable Sandbox `0.50.x`, `0.51.x`, `0.52.x`, `0.53.x` and `0.54.x`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.11.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.13.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -370,7 +370,7 @@ What the director keeps depends on where the next drive runs, and the drive harn
 |---|---|---|
 | Bridge | Same harness session, reattached by execution id | The unmet items, plus the state that changed |
 | Provider with retained control, environment still held | Same environment and harness session | The unmet items, plus the state that changed |
-| Provider with retained control, environment gone | New invocation in a new environment | The full re-entry task |
+| Provider with retained control, environment gone | New invocation in a new environment, created from the lost environment's latest workspace checkpoint when one exists | The full re-entry task, stating the checkpoint's time |
 | Provider without retained control | New environment every drive | The full re-entry task |
 | Any other `driveHarness` | Unproven | The full re-entry task |
 
@@ -384,7 +384,26 @@ The run state names the journal rows and the `sinceRow` the director last read t
 It says whether the environment and its files carried over.
 It never quotes the failure text, because a director told infrastructure details spends its turns on the infrastructure.
 The failure text stays in the attempt records.
-A files-only restore into a replacement environment needs provider support that the environment interface does not carry yet, so the task states that the files are gone.
+
+A replacement environment keeps the director's files when the provider can restore a checkpoint.
+While a manager on a retained provider environment coordinates, Runtime checkpoints its workspace:
+the first coordination call at least 60 s after the last checkpoint starts one in the background, through the environment's `workspaceBranching.checkpoint`.
+Before each checkpoint Runtime writes the marker file `.agent-runtime-checkpoint` into the workspace.
+Runtime journals `workspace-checkpoint-requested` before invoking the provider.
+Each checkpoint is journaled as a `workspace-checkpoint` receipt, and Runtime keeps the newest two per environment.
+Checkpoint receipts must match the exact request before Runtime journals or restores them.
+Missing results are reconciled through exact checkpoint lookup during release.
+An unresolved request preserves its source for later lookup and appears in the settle result.
+Cleanup uses the source-scoped provider handle, even when that source is lost.
+Exact cleanup acknowledgements are journaled as `workspace-checkpoint-cleanup` receipts.
+Unconfirmed cleanup names the remaining snapshot in the settle result and remains pending across resume.
+When the provider loses the environment, the next invocation is created with `workspace.checkpoint` set to the latest receipt, and the re-entry task states the checkpoint's time.
+Runtime then reads the marker back from the new environment and journals a `workspace-restored` receipt with `verified: true` only when the marker matches.
+Files written after the last checkpoint are lost, and the task says so.
+A provider restores checkpoints only when its capability document states `create.workspaceCheckpoint: true`; `@tangle-network/agent-provider-tangle` restores a Sandbox snapshot, including one whose source box is deleted.
+Without that capability no checkpoint is taken, and the task states that the files are gone.
+A provider without retained control creates a new environment for every drive and takes no checkpoint.
+The settle record's `continuation.workspaceRestores` counts the re-entries that started from a checkpoint.
 
 `await_event` returns each event with an `eventSeq`.
 Delivery is not processing: an acknowledgement record says an event was processed.
@@ -403,7 +422,7 @@ When it fails again, the run stops with reason `blocked: <tool> ...` and the set
 `submit_result`, `stop` and `report_blocked` are never probed.
 Grant it as `agent_runtime_coordination_report_blocked`.
 
-The settle record carries `continuation` for an external root: attempts, genuine re-prompts, failure retries, environment replacements, the barren streak at the end, why the loop ended, and how the director closed the run.
+The settle record carries `continuation` for an external root: attempts, genuine re-prompts, failure retries, environment replacements, workspace restores, the barren streak at the end, why the loop ended, and how the director closed the run.
 
 ### Codex store accounting
 

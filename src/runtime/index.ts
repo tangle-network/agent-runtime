@@ -1253,6 +1253,7 @@ export type {
   WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
   WorkerTraceUnavailableReason,
+  WorkspaceCheckpointMarker,
 } from './supervise/types'
 // Untracked-artifact fidelity for cloned worker workspaces: `git clone` carries history only, and
 // real workspaces hold compiled build outputs as untracked files a worker's verify gate needs.

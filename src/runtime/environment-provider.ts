@@ -143,6 +143,7 @@ import {
   unavailablePauseMs,
   unavailableSignalOfFailure,
 } from './supervise/upstream-unavailable'
+import { verifyWorkspaceMarker } from './supervise/workspace-checkpoint'
 import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
 import type { LoopSandboxPlacement, SandboxClient, Validator } from './types'
 import { addSpend, addTokenUsage, cloneTokenUsage, sleep, zeroTokenUsage } from './util'
@@ -1824,9 +1825,15 @@ async function providerExecutionSource(
   const priorSession = retention.priorSession
   const environmentKey = priorSession?.idempotencyKey ?? `runtime:${args.executionId}`
   const turnId = `${args.executionId}:turn:0`
+  // A new environment that replaces one the provider lost starts from its latest checkpoint, so
+  // the re-entered manager keeps its files. An environment that is continued needs none.
+  const restore = priorSession === undefined ? retention.restoreWorkspace : undefined
   const material = {
     environment: {
       ...args.options.defaults,
+      ...(restore === undefined
+        ? {}
+        : { workspace: { ...args.options.defaults?.workspace, checkpoint: restore.checkpoint } }),
       profile: args.createProfile,
       idempotencyKey: environmentKey,
       signal,
@@ -1919,6 +1926,16 @@ async function providerExecutionSource(
     args.onPending(true)
     const environment = await args.provider.get?.(handle.controlRef.environmentId)
     if (!environment) throw new Error('retained provider environment is unavailable')
+    if (restore !== undefined && !args.recovering) {
+      // The provider restores a checkpoint or fails the create; the marker Runtime wrote before
+      // the checkpoint is the evidence it did, journaled before the turn's result is judged.
+      const found = await verifyWorkspaceMarker(environment, restore.marker, signal)
+      await retention.onWorkspaceRestored?.({
+        environmentId: environment.id,
+        checkpoint: restore.checkpoint,
+        ...found,
+      })
+    }
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
       let observationFailure: { error: unknown } | undefined

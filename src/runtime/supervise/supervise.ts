@@ -121,6 +121,7 @@ import {
   reconcileScopeRetainedOwnerEnvironment,
   scopeRetainedOwnerContext,
   scopeRetainedOwnerPriorSpend,
+  scopeRetainedOwnerRestorePoint,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
 import { createRootStreamSink, ROOT_STREAM_FILE, type RootStreamSink } from './root-stream'
@@ -1573,11 +1574,15 @@ async function reentryContinuity(
     }
   }
   if (environment.state === 'lost') {
+    // The replacement starts from the lost environment's latest checkpoint when there is one.
+    const restorePoint = await scopeRetainedOwnerRestorePoint(scope)
     return {
       session: 'new',
       environment: 'replaced',
       previousEnvironmentId: environment.environmentId,
-      workspace: 'lost',
+      ...(restorePoint === undefined
+        ? { workspace: 'lost' as const }
+        : { workspace: 'restored' as const, checkpointAt: restorePoint.takenAt }),
     }
   }
   return UNPROVEN_CONTINUITY

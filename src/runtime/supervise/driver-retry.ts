@@ -542,6 +542,9 @@ export interface DriverLoopRecord {
 export interface DriverContinuationRecord extends DriverLoopRecord {
   /** Re-entries that ran in a new environment because the provider no longer held the old one. */
   readonly environmentReplacements: number
+  /** Of those, the ones whose new environment was created from the lost one's latest checkpoint.
+   *  The journal's `workspace-restored` receipts say whether each restore was verified. */
+  readonly workspaceRestores: number
   /** How the run was closed, when something closed it: an accepted `submit_result`, the
    *  manager's own `stop` (served only to a manager with no check), a `report_blocked` whose
    *  probe failed, or the caller's progress `stopRule`. Absent when the loop ended on a bound or a

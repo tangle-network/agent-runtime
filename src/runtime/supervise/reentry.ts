@@ -29,8 +29,10 @@ export interface ReentryContinuity {
   readonly environment: 'same' | 'replaced' | 'unknown'
   readonly environmentId?: string
   readonly previousEnvironmentId?: string
-  /** What the next environment holds of the previous one's files. */
-  readonly workspace: 'kept' | 'lost' | 'unknown'
+  /** What the next environment holds of the previous one's files. `restored`: the files as of
+   *  the checkpoint taken at `checkpointAt`; anything written after it is gone. */
+  readonly workspace: 'kept' | 'restored' | 'lost' | 'unknown'
+  readonly checkpointAt?: string
 }
 
 /** Continuity when nothing is proven: compose the full state. */
@@ -85,6 +87,14 @@ export function composeReentryTask(input: ReentryTaskInput): string {
     '## What to do now',
     '',
     'Continue the run from this state.',
+    // Measured 2026-09-24 (autopsy-a-restore-after-20260924c): the restored workspace held the
+    // first turn's objective.md, and the re-entered director, told only that its files were
+    // restored, re-ran the task's first step and overwrote the file without reading it.
+    ...(continuity.workspace === 'kept' || continuity.workspace === 'restored'
+      ? [
+          'Read the files you already wrote before you repeat any step of the task. A step whose file is there is done, and its content stands.',
+        ]
+      : []),
     'Receive the waiting events with await_event, and read the output of every settled worker before you spawn anything new.',
     'Do not spawn a replacement for a worker that is running or has settled.',
     'Your coordination tools are served by the same coordinator as before, and the state above comes from it.',
@@ -118,7 +128,9 @@ function environmentLine(continuity: ReentryContinuity): string {
       `Your previous environment${continuity.previousEnvironmentId === undefined ? '' : ` (${continuity.previousEnvironmentId})`} is gone, and you run in a new one. ` +
       (continuity.workspace === 'kept'
         ? 'Its files were carried over.'
-        : 'Files you wrote there are not here. The coordinator and the knowledge store kept everything below.')
+        : continuity.workspace === 'restored'
+          ? `Its files were restored from a checkpoint taken at ${continuity.checkpointAt ?? 'your last coordination call'}; anything you wrote after that is not here. The coordinator and the knowledge store kept everything below.`
+          : 'Files you wrote there are not here. The coordinator and the knowledge store kept everything below.')
     )
   }
   return 'You may be in a new environment. Check for files before you rely on them; the coordinator kept everything below.'

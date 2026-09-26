@@ -1,4 +1,11 @@
-import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import type {
+  WorkspaceCheckpointRequest,
+  WorkspaceCheckpointResult,
+} from '@tangle-network/agent-interface'
+import type {
+  AgentEnvironment,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import {
@@ -11,9 +18,11 @@ import {
   bindScopeRetainedOwnerProvider,
   bindScopeRetainedOwnerWorkspaceRetention,
   consumeScopeRetainedOwnerResult,
+  noteScopeRetainedOwnerCoordination,
   prepareScopeRetainedOwnerTask,
   registerScopeRetainedOwner,
   releaseScopeRetainedOwnerEnvironment,
+  scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerContext,
   scopeRetainedOwnerResourceReader,
   scopeRetainedOwnerResult,
@@ -22,6 +31,149 @@ import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
+
+function checkpointFixture(
+  options: {
+    foreign?:
+      | 'runId'
+      | 'environmentId'
+      | 'sessionId'
+      | 'executionId'
+      | 'provider'
+      | 'key'
+      | 'digest'
+    cleanup?: 'deleted' | 'already_absent' | 'unknown' | 'foreign'
+  } = {},
+) {
+  const events: SpawnEvent[] = []
+  const source = {
+    runId: 'owner-test',
+    provider: 'owner-provider',
+    environmentId: 'source-environment',
+    sessionId: 'source-session',
+    executionId: 'source-execution',
+    requestDigest: `sha256:${'a'.repeat(64)}` as const,
+  }
+  let lost = false
+  let deletes = 0
+  const environment: AgentEnvironment = {
+    id: source.environmentId,
+    provider: source.provider,
+    status: async () => 'running',
+    async *stream() {},
+    write: async () => {},
+    destroy: async () => {
+      lost = true
+    },
+    workspaceBranching: {
+      checkpoint: async (
+        request: WorkspaceCheckpointRequest,
+      ): Promise<WorkspaceCheckpointResult> => {
+        const foreign = options.foreign
+        const key = foreign === 'key' ? 'foreign-key' : request.idempotencyKey
+        const digest =
+          foreign === 'digest' ? (`sha256:${'b'.repeat(64)}` as const) : request.requestDigest
+        return {
+          status: 'created',
+          idempotencyKey: key,
+          requestDigest: digest,
+          checkpoint: {
+            checkpointId: 'owned-checkpoint',
+            provider: source.provider,
+            source:
+              foreign && foreign !== 'key' && foreign !== 'digest'
+                ? { ...source, [foreign]: `foreign-${foreign}` }
+                : source,
+            idempotencyKey: key,
+            requestDigest: digest,
+            createdAt: new Date(0).toISOString(),
+          },
+        }
+      },
+      deleteCheckpoint: async (request) => {
+        deletes++
+        return options.cleanup === 'foreign'
+          ? { ...request, targetId: 'another-checkpoint', status: 'deleted' }
+          : { ...request, status: options.cleanup ?? 'deleted' }
+      },
+      lookupCheckpoint: async () => {
+        throw new Error('not used')
+      },
+      fork: async () => {
+        throw new Error('not used')
+      },
+      lookupFork: async () => {
+        throw new Error('not used')
+      },
+      destroyFork: async () => {
+        throw new Error('not used')
+      },
+    },
+  }
+  const provider: AgentEnvironmentProvider = {
+    name: source.provider,
+    capabilities: async () => ({ create: { workspaceCheckpoint: true } }),
+    create: async () => {
+      throw new Error('not used')
+    },
+    get: async () => (lost ? null : environment),
+  }
+  const register = (scope: Scope<unknown>) => {
+    registerScopeRetainedOwner(scope, {
+      rootId: 'owner-test',
+      nodeId: 'owner-test',
+      blobs: new InMemoryResultBlobStore(),
+      priorEvents: [...events],
+      now: () => 0,
+      journal: {
+        loadTree: async () => [...events],
+        beginTree: async () => {},
+        appendEvent: async (_root, event) => {
+          events.push(event)
+        },
+      },
+    })
+    bindScopeRetainedOwnerProvider(scope, provider)
+  }
+  return {
+    events,
+    register,
+    deletes: () => deletes,
+    async checkpoint(scope: Scope<unknown>) {
+      register(scope)
+      const retention = scopeRetainedOwnerContext(scope)!
+      await retention.onAdmission({
+        phase: 'environment',
+        provider: provider.name,
+        environmentId: source.environmentId,
+        idempotencyKey: 'input-key',
+        turnId: 'source-turn',
+        sessionId: source.sessionId,
+        executionId: source.executionId,
+      })
+      await retention.onAdmission({
+        phase: 'dispatched',
+        controlRef: source,
+        idempotencyKey: 'input-key',
+        turnId: 'source-turn',
+      })
+      noteScopeRetainedOwnerCoordination(scope)
+      await scopeRetainedOwnerCheckpointing(scope)
+    },
+    lose() {
+      lost = true
+      events.push({
+        kind: 'environment-teardown',
+        id: 'owner-test',
+        provider: provider.name,
+        environmentId: source.environmentId,
+        destroyed: true,
+        seq: 100,
+        at: new Date(0).toISOString(),
+      })
+    },
+  }
+}
 
 async function inScope(body: (scope: Scope<unknown>) => Promise<void>) {
   let failure: unknown
@@ -49,6 +201,80 @@ async function inScope(body: (scope: Scope<unknown>) => Promise<void>) {
 }
 
 describe('retained scope owner input and result', () => {
+  it.each([
+    'runId',
+    'environmentId',
+    'sessionId',
+    'executionId',
+    'provider',
+    'key',
+    'digest',
+  ] as const)(
+    'refuses a checkpoint with foreign %s before journaling or restore selection',
+    async (foreign) => {
+      const fixture = checkpointFixture({ foreign })
+      await inScope(async (scope) => {
+        await fixture.checkpoint(scope)
+        expect(fixture.events.filter((event) => event.kind === 'workspace-checkpoint')).toEqual([])
+        fixture.lose()
+        await prepareScopeRetainedOwnerTask(scope, 'replacement task')
+        expect(scopeRetainedOwnerContext(scope)!.restoreWorkspace).toBeUndefined()
+      })
+    },
+  )
+
+  it('cleans a lost source through its original handle and persists confirmation across resume', async () => {
+    const fixture = checkpointFixture()
+    await inScope(async (scope) => {
+      await fixture.checkpoint(scope)
+      fixture.lose()
+      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toEqual([])
+    })
+    expect(fixture.deletes()).toBe(1)
+    expect(fixture.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        environmentId: 'source-environment',
+        checkpointId: 'owned-checkpoint',
+        confirmed: true,
+      }),
+    )
+    await inScope(async (scope) => {
+      fixture.register(scope)
+      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toEqual([])
+    })
+    expect(fixture.deletes()).toBe(1)
+  })
+
+  it.each(['unknown', 'foreign'] as const)(
+    'reports %s checkpoint cleanup instead of a clean teardown',
+    async (cleanup) => {
+      const fixture = checkpointFixture({ cleanup })
+      await inScope(async (scope) => {
+        await fixture.checkpoint(scope)
+        expect(await releaseScopeRetainedOwnerEnvironment(scope)).toContainEqual(
+          expect.objectContaining({
+            label: 'scope owner workspace checkpoint',
+            detail: expect.stringContaining('owned-checkpoint'),
+          }),
+        )
+      })
+      expect(fixture.events).toContainEqual(
+        expect.objectContaining({
+          kind: 'workspace-checkpoint-cleanup',
+          checkpointId: 'owned-checkpoint',
+          confirmed: false,
+        }),
+      )
+      await inScope(async (scope) => {
+        fixture.register(scope)
+        expect(await releaseScopeRetainedOwnerEnvironment(scope)).toContainEqual(
+          expect.objectContaining({ label: 'scope owner workspace checkpoint' }),
+        )
+      })
+    },
+  )
+
   it.each([
     { id: 'another-owner', provider: 'owner-provider' },
     { id: 'owner-test', provider: 'another-provider' },

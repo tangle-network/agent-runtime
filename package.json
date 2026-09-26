@@ -136,6 +136,7 @@
     "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "0.193.2",
     "@tangle-network/agent-interface": "catalog:",
+    "@tangle-network/agent-provider-tangle": "1.7.0",
     "@tangle-network/sandbox": "catalog:",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
@@ -159,7 +160,7 @@
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.191.0 <0.194.0",
-    "@tangle-network/agent-interface": "^2.11.0",
+    "@tangle-network/agent-interface": "^2.13.0",
     "@tangle-network/sandbox": ">=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0"
   },
   "dependencies": {
