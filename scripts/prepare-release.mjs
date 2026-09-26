@@ -1,83 +1,35 @@
 #!/usr/bin/env node
-/**
- * Bump the package version and regenerate every artifact that embeds it.
- *
- * Three checked-in artifacts carry the runtime version, and every one is
- * verified in CI, so a hand-written bump commit fails and the release does not
- * publish:
- *   - src/testing/fixtures/*.json (tests/testing-fixture.test.ts)
- *   - docs/api/primitive-catalog.md                        (pnpm run docs:check)
- *   - docs/canonical-api.md                                (pnpm run docs:freshness)
- *
- * The first two are generated; the third is hand-written prose, so it is
- * rewritten here directly.
- *
- * Usage: pnpm run release:prepare <version>
- */
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const packagePath = resolve(repoRoot, 'package.json')
-
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const version = process.argv[2]
-if (!version) {
-  throw new Error('usage: pnpm run release:prepare <version>')
-}
-if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
-  throw new Error(`not a release version: ${version}`)
-}
+if (!version || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error('usage: pnpm release:prepare <x.y.z>')
 
-const raw = readFileSync(packagePath, 'utf8')
+const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim()
+const pkgPath = resolve(root, 'package.json')
+const raw = readFileSync(pkgPath, 'utf8')
 const current = JSON.parse(raw).version
-if (current === version) {
-  throw new Error(`package.json is already ${version}`)
-}
+if (current === version) throw new Error(`package.json is already ${version}`)
+writeFileSync(pkgPath, raw.replace(/^(\s*"version":\s*)"[^"]+"/m, (_m, p) => `${p}"${version}"`))
 
-// Rewrite the single top-level "version" field textually so formatting,
-// key order, and trailing newline survive untouched.
-const updated = raw.replace(
-  /^(\s*"version":\s*)"[^"]+"/m,
-  (_match, prefix) => `${prefix}"${version}"`,
-)
-if (updated === raw) throw new Error('could not locate the version field in package.json')
-writeFileSync(packagePath, updated)
-console.log(`package.json: ${current} -> ${version}`)
+const tag = git('describe', '--tags', '--abbrev=0', '--match', 'v*')
+const subjects = git('log', '--no-merges', '--format=%s', `${tag}..HEAD`).split('\n').filter(Boolean)
+if (subjects.length === 0) throw new Error(`no commits since ${tag}`)
+const changelogPath = resolve(root, 'CHANGELOG.md')
+const changelog = readFileSync(changelogPath, 'utf8')
+writeFileSync(changelogPath, `## ${version}\n\n${subjects.map((s) => `- ${s}`).join('\n')}\n\n${changelog}`)
 
-// Hand-written prose the freshness gate pins to package.json.
-const canonicalPath = resolve(repoRoot, 'docs/canonical-api.md')
-const canonicalRaw = readFileSync(canonicalPath, 'utf8')
-const canonicalUpdated = canonicalRaw.replace(
-  /^> \*\*Version \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.\*\*$/m,
-  `> **Version ${version}.**`,
-)
-if (canonicalUpdated === canonicalRaw) {
-  throw new Error(`could not locate the version banner in ${canonicalPath}`)
-}
-writeFileSync(canonicalPath, canonicalUpdated)
-console.log(`docs/canonical-api.md: version banner -> ${version}`)
+const canonicalPath = resolve(root, 'docs/canonical-api.md')
+const canonical = readFileSync(canonicalPath, 'utf8')
+const nextCanonical = canonical.replace(/^> \*\*Version \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.\*\*$/m, `> **Version ${version}.**`)
+if (nextCanonical === canonical) throw new Error('canonical API version banner not found')
+writeFileSync(canonicalPath, nextCanonical)
 
-const run = (script) => {
-  console.log(`\n$ pnpm run ${script}`)
-  execFileSync('pnpm', ['run', script], { cwd: repoRoot, stdio: 'inherit' })
-}
-
+const run = (script) => execFileSync('pnpm', ['run', script], { cwd: root, stdio: 'inherit' })
 run('generate:testing-fixture')
 run('docs:api')
-
-console.log(
-  [
-    '',
-    `Prepared ${version}. Next:`,
-    '  git add -A && git commit -m "chore(release): <version>"',
-    '  open a PR, merge it, then tag the tip of main:',
-    '  git fetch --tags origin && gh run list --workflow=publish.yml --limit 1   # nothing in progress, no newer tag',
-    `  git tag v${version} <merged-main-sha> && git push origin v${version}`,
-    '',
-    'Publish rejects a tag that is not the tip of main (or of release/<major>.<minor>.x), and',
-    'refuses a tag main has since moved past. Releases run one at a time; say on the PR that',
-    'you are cutting before you tag, because more than one session publishes this package.',
-  ].join('\n'),
-)
+run('api:surface')
+console.log(`Prepared ${version} from commits since ${tag}`)
