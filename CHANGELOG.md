@@ -1,3 +1,68 @@
+## 0.277.0
+
+A supervisor tree (what discovery-lab calls a fleet) grows to hundreds of agents with only money, time and safety bounds on it.
+
+A router-brained manager no longer stops at 16 turns.
+`DriverAgentOptions.maxTurns` defaults to `0`, no turn count; the conserved pool meters every driver turn, and the deadline and cancellation still apply.
+A manager awaits one settlement per turn, so the old default ended any manager with more than about 14 workers and tore its unfinished workers down.
+Measured on a 1 + 20 + 400 tree (2026-09-25): 124 of 420 agents settled `down` at 16 turns, and all 420 settled `done` at `0`.
+
+Without a deadline, two safety guards bound a manager's own turns instead.
+A manager that has overdrawn its pool by the pool's size again stops, so a manager waiting on a worker that never settles cannot spend without end.
+A brain that reports no usage cannot be bounded by money, so without a dollar cap it keeps a 16-turn bound.
+An explicit `maxTurns` or a deadline replaces both.
+
+The root driver no longer gives up after 8 failed invocations that each made progress.
+`DriverRetryPolicy.maxAttempts` defaults to no ceiling.
+A failure without progress still stops at `maxConsecutiveFailures` (3), and failures that make progress are bounded by the budget and the deadline.
+A caller that wants a count still sets `maxAttempts`.
+
+A lead reads a wide team in batches.
+`await_event({ max })` with `max` above 1 returns `{ events, freeSlots }`: every event already waiting, up to `max`, or the next one it waits for when none is.
+Settlements that already happened are queued before any event is taken, so a failed analysis loses nothing, and the batch stops draining at half the wait fence.
+Measured on the same tree with a brain that thinks for 100 ms between reads: managers took 84 turns to read 400 receipts instead of 440, and the root took 5 instead of 22.
+
+`spawn_worker` tells a lead how to widen its team.
+Every worker reserves its whole budget when it starts, so the pool divided by the per-worker budget is how many run at once; a smaller `budget` runs more.
+
+The workspace catalog admits Eval `>=0.191.0 <0.194.0`, matching the peer floor 0.276.1 set; agent-bench 0.13.13 carries it.
+
+## 0.276.1
+Runtime admits stable Sandbox 0.54.x through its peer range.
+Sandbox 0.54 is what agent-dev-container's develop ships next; the sandbox CLI pins Runtime and fails its strict-install publish smoke until this range admits it. Runtime calls no new 0.54 API itself.
+The packed compatibility cohort gains its 0.54.0 row; npm serves that version since 2026-09-25.
+The Eval peer floor moves to 0.191.0: 0.275.1 raised the development pin to 0.193.2 but left the floor at 0.188.0, three minors back, which the dependency contract refuses, so CI, the packed cohort and the 0.276.0 publish all stopped at `reaches back more than two minors`.
+The release cohort catches up with the pins it verifies: Eval 0.193.2 (a8073753) and Knowledge 17.1.6 (92378359); 0.275.1 and 0.276.0 moved the pins without moving the cohort, so the packed check failed on `requires agent-knowledge@^17.1.6, packed 17.1.5`.
+
+## 0.276.0
+
+The in-process tool loop (`localSandboxClient`/`runBrainLoop`) now records its own offered tool set
+as the OTel GenAI `gen_ai.tool.definitions` attribute on the `llm_call` span it exports.
+
+Review finding on trace-contract rows 13/14 (agent-eval's `tools.enforced` gate): agent-runtime
+emitted no offered-tool evidence at all, so the gate could not tell "offered nothing" from "never
+recorded the offered set" and failed closed on every agent-runtime-produced trace — the check
+worked only for a Claude Code `-p --output-format stream-json` capture, whose own `init` record
+traces' adapter already reads. `RuntimeStreamEvent`'s `llm_call` variant gains an optional
+`tools?: readonly string[]`; `localSandboxClient` fills it from the same `mcp.tools` it already
+passes to `runBrainLoop`; `sandbox-events.ts` carries it through `mapSandboxEvent`; `otel-export.ts`
+emits it. A sandboxed CLI harness (whose tool list is the harness's own) is unaffected — it still
+carries no offered-set evidence from this producer, same as before.
+
+Proof (real run, no unit tests): a real local stdio MCP server + a real `runBrainLoop` tool loop
+(only the HTTP model call is stubbed, since this environment holds no live router key) through
+`localSandboxClient`, then the real `mapSandboxEvent` → `buildRuntimeEventOtelSpans` → agent-eval's
+real `checkTraceContracts`. The exported span's `gen_ai.tool.definitions` reads
+`[{"type":"function","name":"proof__echo"}]`; agent-eval's `toolsOffered` rule goes from `fail`
+("no span records the tools offered to the model ... so what the harness enforced is unknown") on
+the same span-builder fed an event with no `tools`, to `pass` on the real one.
+
+## 0.275.1
+
+Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
+Runtime's own imports from `agent-eval` (MCP tool annotations, redaction core) are unchanged across that range; a scan of every `@tangle-network/agent-eval` import against 0.193.2 finds nothing missing.
+`agent-knowledge` needs the matching bump (its own peer range capped at `<0.191.0` too) to actually install alongside; see its 17.1.6 release.
+
 ## 0.275.0
 
 A declared check reads the run's state and may run containers, and the question panel reads the

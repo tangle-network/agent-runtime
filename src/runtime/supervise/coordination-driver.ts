@@ -197,10 +197,13 @@ export interface DriverAgentOptions {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<string | null | undefined>
-  /** Max driver turns before the loop force-finalizes on the best settled child. Default 16.
-   *  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
-   *  an absolute deadline, the driver's own stop, and abort (checked in-loop). A finite
-   *  anti-runaway tripwire still guards a degenerate driver that loops on a no-spawn tool. */
+  /** Max driver turns before the loop force-finalizes on the best settled child. Default: no
+   *  turn-count cap. The loop is bounded by the conserved budget pool (every driver turn is metered
+   *  into it), an absolute deadline, the driver's own stop, and abort, all checked before each
+   *  turn. Without a deadline, a manager stops once it has overdrawn its pool by the pool's size
+   *  again, and a brain that reports no usage keeps a 16-turn bound unless a dollar cap applies. A manager awaits one settlement per turn, so the old default of 16 ended any manager
+   *  with more than about 14 workers and tore its unfinished workers down: measured 2026-09-25 on
+   *  a 1 + 20 + 400 tree, 124 of 420 agents settled `down` at 16 and none at 0. */
   readonly maxTurns?: number
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
    *  deterministic in tests. Defaults to `Date.now`. */
@@ -366,6 +369,32 @@ function poolStarved(
       (!preserveOwnerTurns && value.remaining < (perWorker.resources?.[name]?.limit ?? 0)),
   )
   return tokenStarved || iterationStarved || usdStarved || resourceStarved
+}
+
+/** The number of driver turns a manager whose spend Runtime cannot measure may take when no
+ *  deadline or dollar cap bounds it. */
+const UNMETERED_DRIVER_TURNS = 16
+
+/**
+ * Safety guards for a manager's own turns when no deadline bounds them.
+ *
+ * `poolStarved` lets a manager keep taking turns while its workers run, because those workers hold
+ * the pool its turns would otherwise be refused from. With no turn cap and no deadline, a manager
+ * waiting on a worker that never settles would take a metered turn per `await_event` fence forever.
+ * Money bounds that: a manager that has overdrawn its pool by as much again as the whole pool stops.
+ * A brain that reports no usage cannot be bounded by money, so without a deadline or dollar cap it
+ * keeps the historical 16-turn bound. A caller's explicit `maxTurns` or a deadline replaces both.
+ */
+function ownTurnsUnbounded(
+  scope: Scope<unknown>,
+  poolTokens: number,
+  turns: number,
+  maxTurns: number | undefined,
+): boolean {
+  const b = scope.budget
+  if (maxTurns !== undefined || b.deadlineMs > 0) return false
+  if (poolTokens > 0 && b.tokensLeft < -poolTokens) return true
+  return !b.tokensKnown && !b.usdCapped && turns > UNMETERED_DRIVER_TURNS
 }
 
 /** The absolute wall-clock deadline (when the root set one) has passed. */
@@ -944,9 +973,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       'driverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
     )
   }
-  // maxTurns=0 lifts the turn-count cap exactly. The conserved pool, deadline, abort, and explicit
-  // stop remain the caller-visible bounds; Runtime does not substitute a hidden sentinel.
-  const maxTurns = opts.maxTurns ?? 16
+  // maxTurns=0 is no turn-count cap. The conserved pool, deadline, abort, and explicit stop remain
+  // the caller-visible bounds; Runtime does not substitute a hidden sentinel.
+  const maxTurns = opts.maxTurns ?? 0
   const now = opts.now ?? Date.now
   const inbox = opts.inbox ?? createInbox()
   const transcript = opts.transcript ?? createRouterTranscript()
@@ -1099,6 +1128,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
 
       // Built only when a rule is configured, so a run without one allocates and evaluates nothing.
       const tracker = opts.stopRule ? createProgressTracker({ now }) : undefined
+      // The pool this manager started with, for the overdraw guard in `ownTurnsUnbounded`.
+      const poolTokens = scope.budget.tokensLeft + scope.budget.reservedTokens
+      let driverTurns = 0
       let progressStopReason: string | undefined
 
       // Meter the driver's OWN inference on EVERY turn into the conserved pool — the largest single
@@ -1317,6 +1349,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         // burning turns. Checked before each inference turn.
         hooks: {
           beforeTurn: async (_turn, messages) => {
+            driverTurns += 1
             await steerAcknowledger?.pass('turn')
             acknowledger?.pass('turn')
             const pending = inbox.drain()
@@ -1333,7 +1366,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               coord.isStopped() ||
               scope.signal.aborted ||
               poolStarved(scope, opts.perWorker, opts.preserveOwnerTurns) ||
-              deadlinePassed(scope, now)
+              deadlinePassed(scope, now) ||
+              ownTurnsUnbounded(scope, poolTokens, driverTurns, opts.maxTurns)
             ) {
               return true
             }

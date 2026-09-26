@@ -150,6 +150,10 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
               type: 'llm_call',
               data: {
                 model,
+                // The full offered set was right here in `mcp.tools` — record it so a
+                // `tools.enforced` contract gate on this trace can tell "offered nothing" from
+                // "the offered set was never recorded" (review finding on rows 13/14).
+                tools: mcp.tools.map((t) => t.function.name),
                 ...(r.tokensKnown === false
                   ? { tokensKnown: false }
                   : { tokensIn: r.usage.input, tokensOut: r.usage.output }),
