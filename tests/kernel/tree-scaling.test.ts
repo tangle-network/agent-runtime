@@ -215,6 +215,211 @@ describe('one tree scales to depth and width', () => {
   }, 60_000)
 })
 
+/**
+ * A scripted brain for a wide fleet: every manager spawns `fanout` children in one turn, then reads
+ * their settlements `batch` at a time with `await_event({ max })`, and counts each receipt once by
+ * its workerId. Leaves answer after a short wait so the tree really runs them concurrently.
+ */
+function fleetBrain(
+  fanout: number,
+  depth: number,
+  batch: number,
+  turns: Map<number, number>,
+  leaves: { live: number; peak: number },
+) {
+  return async (body: Record<string, unknown>) => {
+    const messages = body.messages as ReadonlyArray<ChatMessage>
+    const tools = ((body.tools as ReadonlyArray<{ function: { name: string } }>) ?? []).map(
+      (tool) => tool.function.name,
+    )
+    const task = messages.map((message) => String(message.content ?? '')).join('\n')
+    const level = Number(/level=(\d+)/u.exec(task)?.[1] ?? 0)
+    turns.set(level, (turns.get(level) ?? 0) + 1)
+    const reply = (message: Record<string, unknown>) => ({
+      model: 'offline-model',
+      choices: [{ message, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0 },
+    })
+    if (!tools.includes('spawn_worker')) {
+      leaves.live += 1
+      leaves.peak = Math.max(leaves.peak, leaves.live)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      leaves.live -= 1
+      return reply({ content: `leaf answer at level ${level}` })
+    }
+    const names = new Map<string, string>()
+    for (const message of messages) {
+      for (const call of message.tool_calls ?? []) names.set(call.id, call.function.name)
+    }
+    const settled = new Set<string>()
+    for (const message of messages) {
+      if (message.role !== 'tool' || names.get(message.tool_call_id ?? '') !== 'await_event')
+        continue
+      for (const match of String(message.content).matchAll(/"settled":"([^"]+)"/gu)) {
+        settled.add(match[1] as string)
+      }
+    }
+    if (![...names.values()].includes('spawn_worker')) {
+      const leafLevel = level + 1 === depth
+      return reply({
+        content: null,
+        tool_calls: Array.from({ length: fanout }, (_, index) => ({
+          id: `spawn-${level}-${index}`,
+          type: 'function',
+          function: {
+            name: 'spawn_worker',
+            arguments: JSON.stringify({
+              profile: {
+                name: leafLevel ? 'leaf' : 'manager',
+                harness: 'cli-base',
+                model,
+                ...(leafLevel ? { tools: { agent_runtime_coordination_spawn_worker: false } } : {}),
+              } satisfies AgentProfile,
+              task: `level=${level + 1} part=${index}`,
+              // The lead picks its team's width by the slice it gives each worker.
+              budget: leafLevel
+                ? { maxIterations: 1_000, maxTokens: 1_000_000 }
+                : { maxIterations: 40_000, maxTokens: 40_000_000 },
+            }),
+          },
+        })),
+      })
+    }
+    if (settled.size < fanout) {
+      // A real brain thinks for a while between reads, and more workers settle meanwhile.
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return reply({
+        content: null,
+        tool_calls: [
+          {
+            id: `await-${level}-${names.size}`,
+            type: 'function',
+            function: { name: 'await_event', arguments: JSON.stringify({ max: batch }) },
+          },
+        ],
+      })
+    }
+    return reply({ content: `manager at level ${level} read ${settled.size} results` })
+  }
+}
+
+describe('a fleet of hundreds of agents runs on the defaults', () => {
+  it('settles all 420 agents of a 1 + 20 + 400 tree with no turn, slot, or retry count cap', async () => {
+    const turns = new Map<number, number>()
+    const leaves = { live: 0, peak: 0 }
+    const router = {
+      routerBaseUrl: 'http://offline.invalid/v1',
+      routerKey: 'offline',
+      complete: fleetBrain(20, 2, 50, turns, leaves),
+    }
+    const journal = new InMemorySpawnJournal()
+    const result = await supervise(
+      {
+        name: 'root',
+        harness: 'cli-base',
+        model,
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      },
+      'level=0',
+      {
+        // Money is the only bound set here: no maxTurns, no workerSlots, no perWorker.
+        budget: { maxIterations: 1_000_000, maxTokens: 1_000_000_000 },
+        router,
+        backend: { backend: 'router', ...router },
+        deliverable: { check: () => true, describe: 'any answer' },
+        awaitTimeoutMs: 60_000,
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        runId: 'fleet-defaults',
+      },
+    )
+    expect(result.kind).toBe('winner')
+    const trees = (journal as unknown as { trees: Map<string, { events: SpawnEvent[] }> }).trees
+    const events = [...trees.values()].flatMap((tree) => tree.events)
+    const spawned = new Set(spawnedEvents(journal).map((event) => event.id))
+    expect(spawned.size).toBe(420)
+    const settled = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
+        event.kind === 'settled' && spawned.has(event.id),
+    )
+    expect(settled.filter((event) => event.status === 'down')).toEqual([])
+    expect(settled.filter((event) => event.status === 'done')).toHaveLength(420)
+    // No slot or turn bound held the leaves back: most of the 400 ran at the same time.
+    expect(leaves.peak).toBeGreaterThanOrEqual(200)
+    // Each manager read its 20 receipts in batches: well under one turn per receipt.
+    expect(turns.get(1)).toBeLessThan(20 * 20)
+  }, 120_000)
+})
+
+describe('a manager with no deadline is still bounded by money', () => {
+  it('stops polling a worker that never settles once it has overdrawn its pool', async () => {
+    let turns = 0
+    const complete = async (body: Record<string, unknown>) => {
+      const tools = ((body.tools as ReadonlyArray<{ function: { name: string } }>) ?? []).map(
+        (tool) => tool.function.name,
+      )
+      const reply = (message: Record<string, unknown>) => ({
+        model: 'offline-model',
+        choices: [{ message, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 400, completion_tokens: 100, cost: 0 },
+      })
+      if (!tools.includes('spawn_worker')) {
+        // The worker never answers.
+        await new Promise(() => undefined)
+      }
+      turns += 1
+      const name = turns === 1 ? 'spawn_worker' : 'await_event'
+      const args =
+        turns === 1
+          ? {
+              profile: {
+                name: 'hung',
+                harness: 'cli-base',
+                model,
+                tools: { agent_runtime_coordination_spawn_worker: false },
+              },
+              task: 'never finish',
+              budget: { maxIterations: 10, maxTokens: 5_000 },
+            }
+          : {}
+      return reply({
+        content: null,
+        tool_calls: [
+          {
+            id: `call-${turns}`,
+            type: 'function',
+            function: { name, arguments: JSON.stringify(args) },
+          },
+        ],
+      })
+    }
+    const router = { routerBaseUrl: 'http://offline.invalid/v1', routerKey: 'offline', complete }
+    await supervise(
+      {
+        name: 'root',
+        harness: 'cli-base',
+        model,
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      },
+      'wait on one worker',
+      {
+        // No deadline and no turn cap: only the 10,000-token pool bounds the manager's own turns.
+        budget: { maxIterations: 1_000, maxTokens: 10_000 },
+        router,
+        backend: { backend: 'router', ...router },
+        deliverable: { check: () => true, describe: 'any answer' },
+        awaitTimeoutMs: 5,
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        runId: 'overdraw-guard',
+      },
+    )
+    // Each turn meters 500 tokens: 5,000 free after the worker's slice, then 10,000 more overdrawn.
+    expect(turns).toBeGreaterThan(20)
+    expect(turns).toBeLessThan(40)
+  }, 60_000)
+})
+
 describe('a lead takes back what a stalled worker holds', () => {
   it('cancels a running worker and a queued one, and both slices return to its pool', async () => {
     const stalledSpec = (name: string): Agent<unknown, unknown> & { executorSpec: AgentSpec } => {

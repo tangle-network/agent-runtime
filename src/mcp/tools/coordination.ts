@@ -2404,9 +2404,10 @@ export function createCoordinationToolsForManager(
   // then fire the analyst-on-settle hook — auto-run each configured lens over the worker's trace and
   // publish its result as a `finding`. Returns false when the cursor is idle (no live workers). The
   // cursor is a once-per-child source, so a settlement is produced at most once.
-  const drainSettlement = async (): Promise<boolean> => {
+  // `next` blocks on a live worker; `nextResolved` takes only a child that already settled.
+  const drainSettlement = async (source: 'next' | 'nextResolved' = 'next'): Promise<boolean> => {
     if (!pendingSettlement) {
-      const settled = await opts.scope.next()
+      const settled = await (source === 'next' ? opts.scope.next() : opts.scope.nextResolved())
       if (!settled) return false
       const worker = projectSettled(settled)
       const run = analystRuns.get(settled.handle.id)
@@ -3222,8 +3223,10 @@ export function createCoordinationToolsForManager(
       description:
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
-        'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
-        'merges over the per-worker default; the conserved pool is still the hard fence. When ' +
+        'Pass an optional `budget` (per-field) to give a sub-task more or less than the default — ' +
+        'it merges over the per-worker default; the conserved pool is still the hard fence. Each ' +
+        'worker reserves its whole budget when it starts, so the pool divided by the per-worker ' +
+        'budget is how many run at once: to run a wide team at once, give each worker less. When ' +
         'every worker slot is busy, or the pool cannot cover the budget until your running workers ' +
         'return what they hold, the worker is admitted with `status: "queued"` and starts on its ' +
         'own when a slot and its budget free — it is never refused for concurrency, so spawn all ' +
@@ -3767,7 +3770,10 @@ export function createCoordinationToolsForManager(
         'uncapped). A settled worker frees its slot, so `freeSlots > 0` means capacity is sitting ' +
         'idle — spawn into it before waiting again. Each event carries `eventSeq`; pass the ones ' +
         'you have processed in `acknowledge` on a later call. An event delivered to a turn that ' +
-        'ends in failure is named again when you are re-entered, until it is acknowledged.',
+        'ends in failure is named again when you are re-entered, until it is acknowledged. ' +
+        'Pass `max` above 1 to read a whole team at once: the reply is `{ events: [...] }` with ' +
+        'the first event it waited for plus every other event already waiting, up to `max`, so ' +
+        'a lead of hundreds of workers reads their receipts in a few turns instead of one each.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -3781,10 +3787,20 @@ export function createCoordinationToolsForManager(
             items: { type: 'integer', minimum: 0 },
             description: 'The eventSeq of each earlier event you have now processed.',
           },
+          max: {
+            type: 'integer',
+            minimum: 1,
+            description:
+              'Most events to return in one reply. Omit or 1 for one event; above 1 returns `{ events }`.',
+          },
         },
       },
       handler: async (raw) => {
         const args = raw === undefined ? {} : obj(raw)
+        const max = args.max === undefined ? 1 : args.max
+        if (typeof max !== 'number' || !Number.isSafeInteger(max) || max < 1) {
+          throw new Error('coordination tools: "max" must be a positive integer')
+        }
         const k = args.kinds
         const kinds = Array.isArray(k) ? k.filter(isAwaitableEventKind) : undefined
         if (Array.isArray(args.acknowledge)) {
@@ -3804,23 +3820,63 @@ export function createCoordinationToolsForManager(
           deliveries.push({ record, attempt: driverAttempt, acknowledged: false })
           return { ...projectEvent(record.event), eventSeq: record.seq }
         }
-        // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
-        let ev = bus.pullRecord(kinds)
-        // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
-        // capacity frees up, so the answer travels with the event that freed it.
-        if (ev) return { ...deliver(ev), freeSlots: freeWorkerSlots() }
-        // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
-        // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
-        // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
-        // no working "wait for the worker" primitive. Race the single in-flight drain against the
-        // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
-        // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
-        const raced = await raceDrainWithTimeout(ensureDrain())
-        if (raced === undefined)
-          return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
-        ev = bus.pullRecord(kinds)
-        if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
-        return { ...deliver(ev), freeSlots: freeWorkerSlots() }
+        // A batch read. Settlements that already happened are drained into the queue FIRST, while
+        // nothing has been taken off it, so a drain that throws loses no event; the drain holds the
+        // in-flight slot so no blocking drain runs beside it, and it stops at half the wait fence
+        // so a wide team's analysis cannot outlast the caller's request timeout. Then up to `max`
+        // queued events are taken. With none queued, the call waits for one as a single read does.
+        if (max > 1) {
+          const fenceAt = awaitTimeoutMs > 0 ? Date.now() + awaitTimeoutMs / 2 : Infinity
+          if (!inFlightDrain) {
+            inFlightDrain = (async () => {
+              let drained = false
+              while (bus.pending(kinds) < max && Date.now() < fenceAt) {
+                if (!(await drainSettlement('nextResolved'))) break
+                drained = true
+              }
+              return drained
+            })().finally(() => {
+              inFlightDrain = null
+            })
+            await inFlightDrain
+          }
+          const events: Array<Record<string, unknown>> = []
+          const takeQueued = () => {
+            for (let next = bus.pullRecord(kinds); next; next = bus.pullRecord(kinds)) {
+              events.push(deliver(next))
+              if (events.length >= max) return
+            }
+          }
+          takeQueued()
+          if (events.length === 0) {
+            const first = await pullOne()
+            if (!('eventSeq' in first)) return first
+            const { freeSlots: _slots, ...head } = first
+            events.push(head)
+            takeQueued()
+          }
+          return { events, freeSlots: freeWorkerSlots() }
+        }
+        return pullOne()
+        async function pullOne(): Promise<Record<string, unknown>> {
+          // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
+          let ev = bus.pullRecord(kinds)
+          // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
+          // capacity frees up, so the answer travels with the event that freed it.
+          if (ev) return { ...deliver(ev), freeSlots: freeWorkerSlots() }
+          // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
+          // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
+          // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
+          // no working "wait for the worker" primitive. Race the single in-flight drain against the
+          // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
+          // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
+          const raced = await raceDrainWithTimeout(ensureDrain())
+          if (raced === undefined)
+            return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
+          ev = bus.pullRecord(kinds)
+          if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
+          return { ...deliver(ev), freeSlots: freeWorkerSlots() }
+        }
       },
     },
     {

@@ -1,3 +1,32 @@
+## 0.277.0
+
+A supervisor tree (what discovery-lab calls a fleet) grows to hundreds of agents with only money, time and safety bounds on it.
+
+A router-brained manager no longer stops at 16 turns.
+`DriverAgentOptions.maxTurns` defaults to `0`, no turn count; the conserved pool meters every driver turn, and the deadline and cancellation still apply.
+A manager awaits one settlement per turn, so the old default ended any manager with more than about 14 workers and tore its unfinished workers down.
+Measured on a 1 + 20 + 400 tree (2026-09-25): 124 of 420 agents settled `down` at 16 turns, and all 420 settled `done` at `0`.
+
+Without a deadline, two safety guards bound a manager's own turns instead.
+A manager that has overdrawn its pool by the pool's size again stops, so a manager waiting on a worker that never settles cannot spend without end.
+A brain that reports no usage cannot be bounded by money, so without a dollar cap it keeps a 16-turn bound.
+An explicit `maxTurns` or a deadline replaces both.
+
+The root driver no longer gives up after 8 failed invocations that each made progress.
+`DriverRetryPolicy.maxAttempts` defaults to no ceiling.
+A failure without progress still stops at `maxConsecutiveFailures` (3), and failures that make progress are bounded by the budget and the deadline.
+A caller that wants a count still sets `maxAttempts`.
+
+A lead reads a wide team in batches.
+`await_event({ max })` with `max` above 1 returns `{ events, freeSlots }`: every event already waiting, up to `max`, or the next one it waits for when none is.
+Settlements that already happened are queued before any event is taken, so a failed analysis loses nothing, and the batch stops draining at half the wait fence.
+Measured on the same tree with a brain that thinks for 100 ms between reads: managers took 84 turns to read 400 receipts instead of 440, and the root took 5 instead of 22.
+
+`spawn_worker` tells a lead how to widen its team.
+Every worker reserves its whole budget when it starts, so the pool divided by the per-worker budget is how many run at once; a smaller `budget` runs more.
+
+The workspace catalog admits Eval `>=0.191.0 <0.194.0`, matching the peer floor 0.276.1 set; agent-bench 0.13.13 carries it.
+
 ## 0.276.1
 Runtime admits stable Sandbox 0.54.x through its peer range.
 Sandbox 0.54 is what agent-dev-container's develop ships next; the sandbox CLI pins Runtime and fails its strict-install publish smoke until this range admits it. Runtime calls no new 0.54 API itself.
