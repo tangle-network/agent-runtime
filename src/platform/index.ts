@@ -5,7 +5,8 @@
  * and connection storage.
  *
  * See:
- *   - {@link PlatformAuthClient} for "Login with Tangle"
+ *   - {@link PlatformAuthClient} for legacy cross-site "Login with Tangle" (returns an API key)
+ *   - {@link PlatformOidcClient} for standard OIDC authorization code + PKCE
  *   - {@link PlatformHubClient} for the `/v1/hub/*` surface
  */
 
@@ -16,7 +17,6 @@ export {
   type PlatformAuthClientOptions,
   PlatformAuthError,
 } from './auth.js'
-
 export {
   type CatalogResult,
   type ConnectionHealth,
@@ -34,3 +34,12 @@ export {
   type StartAuthInput,
   type StartAuthResult,
 } from './integrations.js'
+export {
+  createPkcePair,
+  type OidcAuthorizeUrlOptions,
+  type OidcExchangeResult,
+  type OidcTokens,
+  type OidcUser,
+  PlatformOidcClient,
+  type PlatformOidcClientOptions,
+} from './oidc.js'
