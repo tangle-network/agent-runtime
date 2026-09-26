@@ -165,6 +165,9 @@ jobs:
       - name: Verify package source and metadata
         run: pnpm run verify:package:static
 
+      - name: Verify release API surface record
+        run: pnpm run check:api-surface-record
+
       - name: Check out exact Interface release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
