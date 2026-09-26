@@ -1,3 +1,14 @@
+## 0.278.0
+
+`@tangle-network/agent-runtime/platform` adds `PlatformOidcClient`, a standard OpenID Connect client for the Tangle authorization server at `/api/auth/oauth2/*`.
+It builds the authorize URL with S256 PKCE, exchanges the code, reads the verified identity from userinfo, redeems refresh tokens, and revokes tokens.
+A confidential client passes `clientSecret`, which is sent with HTTP Basic; a public client omits it.
+`createPkcePair()` makes the verifier and challenge with Web Crypto.
+
+`PlatformAuthClient` is unchanged.
+It still returns the `sk-tan` API key that consumers use as their Hub bearer; OIDC identity tokens do not replace that key.
+A consumer moves to `PlatformOidcClient` after its client id and redirect URI are registered in the platform `oauthClient` registry.
+
 ## 0.277.0
 
 A supervisor tree (what discovery-lab calls a fleet) grows to hundreds of agents with only money, time and safety bounds on it.

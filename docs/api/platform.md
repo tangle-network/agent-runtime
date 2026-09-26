@@ -334,6 +334,118 @@ POST /v1/hub/exec — execute a hub action and return its result.
 
 `Promise`\<`unknown`\>
 
+***
+
+### PlatformOidcClient
+
+Standard OIDC authorization-code + PKCE client for "Sign in with Tangle".
+
+#### Constructors
+
+##### Constructor
+
+> **new PlatformOidcClient**(`options`): [`PlatformOidcClient`](#platformoidcclient)
+
+###### Parameters
+
+###### options
+
+[`PlatformOidcClientOptions`](#platformoidcclientoptions)
+
+###### Returns
+
+[`PlatformOidcClient`](#platformoidcclient)
+
+#### Methods
+
+##### authorizeUrl()
+
+> **authorizeUrl**(`options`): `string`
+
+Build the `/api/auth/oauth2/authorize` URL for a browser redirect.
+
+###### Parameters
+
+###### options
+
+[`OidcAuthorizeUrlOptions`](#oidcauthorizeurloptions)
+
+###### Returns
+
+`string`
+
+##### exchange()
+
+> **exchange**(`code`, `codeVerifier`): `Promise`\<[`OidcExchangeResult`](#oidcexchangeresult)\>
+
+Exchange the callback code, then resolve the verified identity from userinfo.
+
+###### Parameters
+
+###### code
+
+`string`
+
+###### codeVerifier
+
+`string`
+
+###### Returns
+
+`Promise`\<[`OidcExchangeResult`](#oidcexchangeresult)\>
+
+##### refresh()
+
+> **refresh**(`refreshToken`): `Promise`\<[`OidcTokens`](#oidctokens)\>
+
+Redeem a refresh token. Store the returned refresh token; the provider rotates it.
+
+###### Parameters
+
+###### refreshToken
+
+`string`
+
+###### Returns
+
+`Promise`\<[`OidcTokens`](#oidctokens)\>
+
+##### userinfo()
+
+> **userinfo**(`accessToken`): `Promise`\<[`OidcUser`](#oidcuser)\>
+
+Read the verified identity behind an access token.
+
+###### Parameters
+
+###### accessToken
+
+`string`
+
+###### Returns
+
+`Promise`\<[`OidcUser`](#oidcuser)\>
+
+##### revoke()
+
+> **revoke**(`token`, `tokenTypeHint?`): `Promise`\<`void`\>
+
+Revoke an access or refresh token (RFC 7009). Disconnect revokes the refresh token.
+
+###### Parameters
+
+###### token
+
+`string`
+
+###### tokenTypeHint?
+
+`"access_token"` \| `"refresh_token"`
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ## Interfaces
 
 ### PlatformAuthClientOptions
@@ -394,7 +506,8 @@ hub. Apps consume these to avoid rolling their own OAuth, session,
 and connection storage.
 
 See:
-  - [PlatformAuthClient](#platformauthclient) for "Login with Tangle"
+  - [PlatformAuthClient](#platformauthclient) for legacy cross-site "Login with Tangle" (returns an API key)
+  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE
   - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 
 #### Properties
@@ -434,7 +547,8 @@ hub. Apps consume these to avoid rolling their own OAuth, session,
 and connection storage.
 
 See:
-  - [PlatformAuthClient](#platformauthclient) for "Login with Tangle"
+  - [PlatformAuthClient](#platformauthclient) for legacy cross-site "Login with Tangle" (returns an API key)
+  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE
   - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 
 #### Properties
@@ -862,3 +976,173 @@ The hub action path to execute.
 ###### unhealthyProviderCount
 
 > **unhealthyProviderCount**: `number`
+
+***
+
+### PlatformOidcClientOptions
+
+#### Properties
+
+##### baseUrl
+
+> **baseUrl**: `string`
+
+Platform base URL, e.g. `https://id.tangle.tools`.
+
+##### clientId
+
+> **clientId**: `string`
+
+Client id from the platform `oauthClient` registry.
+
+##### clientSecret?
+
+> `optional` **clientSecret?**: `string`
+
+Client secret for a confidential client. Sent with HTTP Basic, the
+provider's default `client_secret_basic` method. Omit for a public client
+registered with `token_endpoint_auth_method: none`.
+
+##### redirectUri
+
+> **redirectUri**: `string`
+
+Registered callback URI.
+
+##### scope?
+
+> `optional` **scope?**: `string`
+
+Requested scopes. Defaults to `openid profile email offline_access`.
+
+##### fetchImpl?
+
+> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
+
+Override the global fetch (useful for tests + edge runtimes).
+
+###### Parameters
+
+###### input
+
+`string` \| `URL` \| `Request`
+
+###### init?
+
+`RequestInit`
+
+###### Returns
+
+`Promise`\<`Response`\>
+
+***
+
+### OidcAuthorizeUrlOptions
+
+#### Properties
+
+##### state
+
+> **state**: `string`
+
+Required CSRF token; the consumer verifies it on the callback.
+
+##### codeChallenge
+
+> **codeChallenge**: `string`
+
+RFC 7636 S256 code challenge. See [createPkcePair](#createpkcepair).
+
+##### nonce?
+
+> `optional` **nonce?**: `string`
+
+OIDC nonce; the consumer checks it against the ID token.
+
+##### prompt?
+
+> `optional` **prompt?**: `"none"` \| `"login"` \| `"consent"`
+
+##### loginHint?
+
+> `optional` **loginHint?**: `string`
+
+Pre-fill the email field on the login screen.
+
+***
+
+### OidcTokens
+
+#### Properties
+
+##### accessToken
+
+> **accessToken**: `string`
+
+##### tokenType
+
+> **tokenType**: `string`
+
+##### expiresIn?
+
+> `optional` **expiresIn?**: `number`
+
+##### refreshToken?
+
+> `optional` **refreshToken?**: `string`
+
+##### idToken?
+
+> `optional` **idToken?**: `string`
+
+##### scope?
+
+> `optional` **scope?**: `string`
+
+***
+
+### OidcUser
+
+#### Properties
+
+##### id
+
+> **id**: `string`
+
+##### email
+
+> **email**: `string`
+
+##### emailVerified
+
+> **emailVerified**: `true`
+
+##### name?
+
+> `optional` **name?**: `string`
+
+***
+
+### OidcExchangeResult
+
+#### Properties
+
+##### tokens
+
+> **tokens**: [`OidcTokens`](#oidctokens)
+
+##### user
+
+> **user**: [`OidcUser`](#oidcuser)
+
+## Functions
+
+### createPkcePair()
+
+> **createPkcePair**(): `Promise`\<\{ `verifier`: `string`; `challenge`: `string`; \}\>
+
+Create an RFC 7636 verifier and its S256 challenge with Web Crypto.
+
+#### Returns
+
+`Promise`\<\{ `verifier`: `string`; `challenge`: `string`; \}\>

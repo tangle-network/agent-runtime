@@ -197,7 +197,7 @@
       "RuntimeRunStatus": "type 29807f9ef422",
       "RuntimeSession": "type 6a000eb59978",
       "RuntimeSessionStore": "type 7bc14634c6d2",
-      "RuntimeStreamEvent": "type d926f05756fe",
+      "RuntimeStreamEvent": "type cc5dc525e2d7",
       "RuntimeStreamEventCollector": "type 011c1ad4eff1",
       "RuntimeStreamEventSink": "type b0c84fc28f63",
       "RuntimeStreamEventSummary": "type e4ff6bf87ed8",
@@ -2043,6 +2043,10 @@
       "HealthCheck": "type 40e4af10cb29",
       "MintTokenInput": "type d34b34e3da1a",
       "MintTokenResult": "type 79cc56378a7e",
+      "OidcAuthorizeUrlOptions": "type d9be177fe26e",
+      "OidcExchangeResult": "type 1fbfbaa11f82",
+      "OidcTokens": "type 77ffae52e8db",
+      "OidcUser": "type 8e8f450332aa",
       "PlatformAuthClient": "value bde6753309ba",
       "PlatformAuthClientOptions": "type d61692bf7fc7",
       "PlatformAuthError": "value 942008fabb84",
@@ -2052,8 +2056,11 @@
       "PlatformHubClientOptions": "type a2942131440e",
       "PlatformHubError": "value f95f98209e76",
       "PlatformHubStatus": "type ee71302694f2",
+      "PlatformOidcClient": "value 75a27451aa5c",
+      "PlatformOidcClientOptions": "type f0c55d2a8f10",
       "StartAuthInput": "type ad1a137f0847",
-      "StartAuthResult": "type e586058273ae"
+      "StartAuthResult": "type e586058273ae",
+      "createPkcePair": "value 0a37d71c9c63"
     },
     "./profiles": {
       "AppendFindingsResult": "type e4bdd07f4278",
