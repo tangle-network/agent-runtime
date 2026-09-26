@@ -351,6 +351,75 @@ describe('a fleet of hundreds of agents runs on the defaults', () => {
   }, 120_000)
 })
 
+describe('a manager with no deadline is still bounded by money', () => {
+  it('stops polling a worker that never settles once it has overdrawn its pool', async () => {
+    let turns = 0
+    const complete = async (body: Record<string, unknown>) => {
+      const tools = ((body.tools as ReadonlyArray<{ function: { name: string } }>) ?? []).map(
+        (tool) => tool.function.name,
+      )
+      const reply = (message: Record<string, unknown>) => ({
+        model: 'offline-model',
+        choices: [{ message, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 400, completion_tokens: 100, cost: 0 },
+      })
+      if (!tools.includes('spawn_worker')) {
+        // The worker never answers.
+        await new Promise(() => undefined)
+      }
+      turns += 1
+      const name = turns === 1 ? 'spawn_worker' : 'await_event'
+      const args =
+        turns === 1
+          ? {
+              profile: {
+                name: 'hung',
+                harness: 'cli-base',
+                model,
+                tools: { agent_runtime_coordination_spawn_worker: false },
+              },
+              task: 'never finish',
+              budget: { maxIterations: 10, maxTokens: 5_000 },
+            }
+          : {}
+      return reply({
+        content: null,
+        tool_calls: [
+          {
+            id: `call-${turns}`,
+            type: 'function',
+            function: { name, arguments: JSON.stringify(args) },
+          },
+        ],
+      })
+    }
+    const router = { routerBaseUrl: 'http://offline.invalid/v1', routerKey: 'offline', complete }
+    await supervise(
+      {
+        name: 'root',
+        harness: 'cli-base',
+        model,
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      },
+      'wait on one worker',
+      {
+        // No deadline and no turn cap: only the 10,000-token pool bounds the manager's own turns.
+        budget: { maxIterations: 1_000, maxTokens: 10_000 },
+        router,
+        backend: { backend: 'router', ...router },
+        deliverable: { check: () => true, describe: 'any answer' },
+        awaitTimeoutMs: 5,
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        runId: 'overdraw-guard',
+      },
+    )
+    // Each turn meters 500 tokens: 5,000 free after the worker's slice, then 10,000 more overdrawn.
+    expect(turns).toBeGreaterThan(20)
+    expect(turns).toBeLessThan(40)
+  }, 60_000)
+})
+
 describe('a lead takes back what a stalled worker holds', () => {
   it('cancels a running worker and a queued one, and both slices return to its pool', async () => {
     const stalledSpec = (name: string): Agent<unknown, unknown> & { executorSpec: AgentSpec } => {
