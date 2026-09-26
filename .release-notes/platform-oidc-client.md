@@ -1,0 +1,3 @@
+type: minor
+---
+`@tangle-network/agent-runtime/platform` adds `PlatformOidcClient`, a standard OpenID Connect client for the Tangle authorization server at `/api/auth/oauth2/*`: S256 PKCE authorize URL, code exchange, verified identity from userinfo, refresh, and revoke. A confidential client passes `clientSecret` (sent with HTTP Basic); a public client omits it. `createPkcePair()` makes the verifier and challenge with Web Crypto. `PlatformAuthClient` is unchanged and still returns the `sk-tan` API key; a consumer moves to `PlatformOidcClient` after its client id and redirect URI are registered in the platform `oauthClient` registry.
