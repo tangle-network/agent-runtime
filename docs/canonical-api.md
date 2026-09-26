@@ -390,6 +390,10 @@ While a manager on a retained provider environment coordinates, Runtime checkpoi
 the first coordination call at least 60 s after the last checkpoint starts one in the background, through the environment's `workspaceBranching.checkpoint`.
 Before each checkpoint Runtime writes the marker file `.agent-runtime-checkpoint` into the workspace.
 Each checkpoint is journaled as a `workspace-checkpoint` receipt, and Runtime keeps the newest two per environment.
+Checkpoint receipts must match the exact request before Runtime journals or restores them.
+Cleanup uses the source-scoped provider handle, even when that source is lost.
+Exact cleanup acknowledgements are journaled as `workspace-checkpoint-cleanup` receipts.
+Unconfirmed cleanup names the remaining snapshot in the settle result and remains pending across resume.
 When the provider loses the environment, the next invocation is created with `workspace.checkpoint` set to the latest receipt, and the re-entry task states the checkpoint's time.
 Runtime then reads the marker back from the new environment and journals a `workspace-restored` receipt with `verified: true` only when the marker matches.
 Files written after the last checkpoint are lost, and the task says so.

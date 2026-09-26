@@ -1,12 +1,12 @@
 import {
+  type AgentWorkspaceBranching,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   workspaceCheckpointRequestDigest,
+  workspaceCheckpointResultMatchesRequest,
+  workspaceCleanupAcknowledgementMatches,
   workspaceCleanupRequestDigest,
 } from '@tangle-network/agent-interface'
-import type {
-  AgentEnvironment,
-  AgentEnvironmentProvider,
-} from '@tangle-network/agent-interface/environment-provider'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { environmentReader, type SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
@@ -65,6 +65,7 @@ interface OwnerState {
   restore?: RetainedWorkspaceRestore
   /** The checkpoint in progress, so two never run at once. */
   checkpointing?: Promise<void>
+  checkpointHandles?: Map<string, AgentWorkspaceBranching>
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
@@ -388,21 +389,21 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
   }
   const marked = await writeWorkspaceMarker(environment, marker, signal)
   const material = { source, name }
+  const request = {
+    ...material,
+    idempotencyKey: `${args.nodeId}:workspace-checkpoint:${seq}`,
+    requestDigest: workspaceCheckpointRequestDigest(material),
+  }
   const result = await runAbortable(
-    () =>
-      branching.checkpoint(
-        {
-          ...material,
-          idempotencyKey: `${args.nodeId}:workspace-checkpoint:${seq}`,
-          requestDigest: workspaceCheckpointRequestDigest(material),
-        },
-        { signal },
-      ),
+    () => branching.checkpoint(request, { signal }),
     signal,
     'retained owner checkpoint timed out',
   )
   if (result.status !== 'created' && result.status !== 'replayed') return
+  if (!workspaceCheckpointResultMatchesRequest(request, result)) return
   scope.signal.throwIfAborted()
+  state.checkpointHandles ??= new Map()
+  state.checkpointHandles.set(environment.id, branching)
   await args.journal.appendEvent(args.rootId, {
     kind: 'workspace-checkpoint',
     id: args.nodeId,
@@ -413,48 +414,78 @@ async function checkpointOwnerWorkspace(scope: Scope<unknown>, state: OwnerState
     seq,
     at,
   })
-  const owned = ((await args.journal.loadTree(args.rootId)) ?? []).filter(
-    (event): event is CheckpointEvent =>
-      event.kind === 'workspace-checkpoint' &&
-      event.id === args.nodeId &&
-      event.environmentId === environment.id,
+  const owned = pendingCheckpoints((await args.journal.loadTree(args.rootId)) ?? [], state).filter(
+    (event): event is CheckpointEvent => event.environmentId === environment.id,
   )
-  await deleteCheckpoints(environment, owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT), signal)
+  await deleteCheckpoints(state, branching, owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT), signal)
 }
 
-/** Delete checkpoints of one live source environment. Best effort: a checkpoint the provider
- *  keeps is storage, never a wrong restore, because a restore reads only the latest one. */
+function pendingCheckpoints(events: readonly SpawnEvent[], state: OwnerState): CheckpointEvent[] {
+  const confirmed = new Set(
+    events.flatMap((event) =>
+      event.kind === 'workspace-checkpoint-cleanup' &&
+      event.id === state.args.nodeId &&
+      event.provider === state.provider?.name &&
+      event.confirmed
+        ? [JSON.stringify([event.environmentId, event.checkpointId])]
+        : [],
+    ),
+  )
+  return events.filter(
+    (event): event is CheckpointEvent =>
+      event.kind === 'workspace-checkpoint' &&
+      event.id === state.args.nodeId &&
+      event.provider === state.provider?.name &&
+      !confirmed.has(JSON.stringify([event.environmentId, event.checkpoint.checkpointId])),
+  )
+}
+
+/** Only the source-scoped handle can attest deletion, including after its source is lost. */
 async function deleteCheckpoints(
-  environment: AgentEnvironment,
+  state: OwnerState,
+  branching: AgentWorkspaceBranching | undefined,
   checkpoints: readonly CheckpointEvent[],
   signal: AbortSignal,
-): Promise<void> {
-  const branching = environment.workspaceBranching
-  if (branching === undefined) return
+): Promise<CheckpointEvent[]> {
+  const unconfirmed: CheckpointEvent[] = []
   for (const event of checkpoints) {
     const material = {
       kind: 'checkpoint' as const,
       targetId: event.checkpoint.checkpointId,
       provider: event.checkpoint.provider,
     }
+    const request = {
+      ...material,
+      operationId: `${event.checkpoint.idempotencyKey}:delete`,
+      requestDigest: workspaceCleanupRequestDigest(material),
+    }
+    let confirmed = false
     try {
-      await runAbortable(
-        () =>
-          branching.deleteCheckpoint(
-            {
-              ...material,
-              operationId: `${event.checkpoint.idempotencyKey}:delete`,
-              requestDigest: workspaceCleanupRequestDigest(material),
-            },
-            { signal },
-          ),
+      if (branching === undefined) throw new Error('source-scoped checkpoint handle unavailable')
+      const acknowledgement = await runAbortable(
+        () => branching.deleteCheckpoint(request, { signal }),
         signal,
         'retained owner checkpoint cleanup timed out',
       )
+      confirmed =
+        workspaceCleanupAcknowledgementMatches(request, acknowledgement) &&
+        (acknowledgement.status === 'deleted' || acknowledgement.status === 'already_absent')
     } catch {
-      // Kept by the provider; see above.
+      // The journal and settle result retain the unresolved resource below.
     }
+    if (!confirmed) unconfirmed.push(event)
+    await state.args.journal.appendEvent(state.args.rootId, {
+      kind: 'workspace-checkpoint-cleanup',
+      id: state.args.nodeId,
+      provider: event.provider,
+      environmentId: event.environmentId,
+      checkpointId: event.checkpoint.checkpointId,
+      confirmed,
+      seq: state.nextSequence(),
+      at: new Date(state.args.now()).toISOString(),
+    })
   }
+  return unconfirmed
 }
 
 /**
@@ -555,6 +586,45 @@ export async function releaseScopeRetainedOwnerEnvironment(
   const preserved: string[] = []
   let lastDetail: string | undefined
   let retriable = false
+  const checkpointFailures: CheckpointEvent[] = []
+  const pending = pendingCheckpoints(events, state).filter(
+    (event) => !retentionFailures.has(event.environmentId),
+  )
+  for (const sourceEnvironmentId of new Set(pending.map((event) => event.environmentId))) {
+    const signal = AbortSignal.timeout(30_000)
+    let branching = state.checkpointHandles?.get(sourceEnvironmentId)
+    try {
+      if (branching === undefined) {
+        branching = await runAbortable(
+          async () => {
+            if (provider.workspaceBranching) {
+              return (
+                (await provider.workspaceBranching.forEnvironment(sourceEnvironmentId, {
+                  signal,
+                })) ?? undefined
+              )
+            }
+            const source = await provider.get?.(sourceEnvironmentId)
+            return source?.id === sourceEnvironmentId && source.provider === provider.name
+              ? source.workspaceBranching
+              : undefined
+          },
+          signal,
+          'retained owner checkpoint handle lookup timed out',
+        )
+      }
+    } catch {
+      // Missing authority leaves named checkpoint cleanup unconfirmed.
+    }
+    checkpointFailures.push(
+      ...(await deleteCheckpoints(
+        state,
+        branching,
+        pending.filter((event) => event.environmentId === sourceEnvironmentId),
+        signal,
+      )),
+    )
+  }
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
@@ -585,16 +655,6 @@ export async function releaseScopeRetainedOwnerEnvironment(
               permanent = true
               throw new Error('provider cannot destroy the retained environment')
             }
-            await deleteCheckpoints(
-              environment,
-              events.filter(
-                (event): event is CheckpointEvent =>
-                  event.kind === 'workspace-checkpoint' &&
-                  event.id === args.nodeId &&
-                  event.environmentId === environmentId,
-              ),
-              AbortSignal.timeout(30_000),
-            )
             await environment.destroy()
           },
           AbortSignal.timeout(30_000),
@@ -620,6 +680,13 @@ export async function releaseScopeRetainedOwnerEnvironment(
     })
   }
   state.releaseRetriable = retriable
+  const checkpointTeardowns: UnconfirmedTeardown[] = checkpointFailures.map((event) => ({
+    id: args.nodeId,
+    label: 'scope owner workspace checkpoint',
+    runtime: provider.name,
+    status: 'done',
+    detail: `checkpoint cleanup unconfirmed: ${event.checkpoint.checkpointId} from ${event.environmentId}`,
+  }))
   return unconfirmed.length > 0 || preserved.length > 0
     ? [
         {
@@ -646,8 +713,9 @@ export async function releaseScopeRetainedOwnerEnvironment(
               }),
           ...(lastDetail === undefined ? {} : { detail: lastDetail }),
         },
+        ...checkpointTeardowns,
       ]
-    : []
+    : checkpointTeardowns
 }
 
 interface OwnerAttempt {

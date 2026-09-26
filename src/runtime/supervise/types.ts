@@ -1406,7 +1406,7 @@ export interface TreeView {
  *  timestamp for human inspection only (NOT a replay input). */
 
 /** The file Runtime writes into a retained owner's workspace immediately before a checkpoint, and
- *  reads back from a restored environment before any turn runs there. */
+ *  reads back from a restored environment to report whether the marker matches. */
 export interface WorkspaceCheckpointMarker {
   /** Workspace-relative path. */
   readonly path: string
@@ -1801,7 +1801,7 @@ export type SpawnEvent =
        *  When the provider later loses the owner's environment, the next invocation is created from
        *  the latest of these, so a re-entered director keeps the files it wrote. `marker` is the
        *  file Runtime wrote into the workspace immediately before the checkpoint; a restored
-       *  environment is accepted only when it holds that file with that content. Informational:
+       *  environment reports whether it holds that file with that content. Informational:
        *  replay, `materializeTreeView`, and cost readers skip it, and its `seq` is per node,
        *  outside the cursor-uniqueness namespace. */
       kind: 'workspace-checkpoint'
@@ -1811,6 +1811,18 @@ export type SpawnEvent =
       environmentId: string
       checkpoint: WorkspaceCheckpointRef
       marker?: WorkspaceCheckpointMarker
+      seq: number
+      at: string
+    }
+  | {
+      /** Exact checkpoint cleanup outcome; unconfirmed resources remain pending across resume.
+       * Informational, like `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-cleanup'
+      id: NodeId
+      provider: string
+      environmentId: string
+      checkpointId: string
+      confirmed: boolean
       seq: number
       at: string
     }
