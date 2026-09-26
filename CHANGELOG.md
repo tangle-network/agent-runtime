@@ -23,9 +23,15 @@ the same span-builder fed an event with no `tools`, to `pass` on the real one.
 
 ## 0.275.1
 
-Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
+Widen the `@tangle-network/agent-eval` peer range to admit 0.191–0.193.x.
 Runtime's own imports from `agent-eval` (MCP tool annotations, redaction core) are unchanged across that range; a scan of every `@tangle-network/agent-eval` import against 0.193.2 finds nothing missing.
 `agent-knowledge` needs the matching bump (its own peer range capped at `<0.191.0` too) to actually install alongside; see its 17.1.6 release.
+
+Correction (this release never published — `scripts/lib/dependency-contract.mjs` caps a peer floor
+at two minors behind the exact `devDependencies` pin, and CI never went green on the `>=0.188.0`
+floor this entry first described): the range is `>=0.191.0 <0.194.0`, not `>=0.188.0 <0.194.0`. A
+consumer already below 0.191.0 gets no widening from this release; it must bump `agent-eval` to at
+least 0.191.0 first.
 
 ## 0.275.0
 
