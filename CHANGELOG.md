@@ -1,3 +1,10 @@
+## 0.276.1
+Runtime admits stable Sandbox 0.54.x through its peer range.
+Sandbox 0.54 is what agent-dev-container's develop ships next; the sandbox CLI pins Runtime and fails its strict-install publish smoke until this range admits it. Runtime calls no new 0.54 API itself.
+The packed compatibility cohort gains its 0.54.0 row; npm serves that version since 2026-09-25.
+The Eval peer floor moves to 0.191.0: 0.275.1 raised the development pin to 0.193.2 but left the floor at 0.188.0, three minors back, which the dependency contract refuses, so CI, the packed cohort and the 0.276.0 publish all stopped at `reaches back more than two minors`.
+The release cohort catches up with the pins it verifies: Eval 0.193.2 (a8073753) and Knowledge 17.1.6 (92378359); 0.275.1 and 0.276.0 moved the pins without moving the cohort, so the packed check failed on `requires agent-knowledge@^17.1.6, packed 17.1.5`.
+
 ## 0.276.0
 
 The in-process tool loop (`localSandboxClient`/`runBrainLoop`) now records its own offered tool set
