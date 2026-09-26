@@ -112,6 +112,7 @@
     "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
     "check:upstream-evidence-workflow": "node scripts/check-upstream-evidence-workflow.mjs",
     "check:version-bump": "node scripts/check-version-bump.mjs",
+    "check:feature-release-files": "node scripts/check-feature-release-files.mjs",
     "check:api-surface": "node scripts/check-api-surface.mjs",
     "api:surface": "node scripts/check-api-surface.mjs --write",
     "release:prepare": "node scripts/prepare-release.mjs",
