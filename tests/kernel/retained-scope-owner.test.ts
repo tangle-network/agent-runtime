@@ -252,12 +252,12 @@ describe('retained scope owner input and result', () => {
       const fixture = checkpointFixture({ cleanup })
       await inScope(async (scope) => {
         await fixture.checkpoint(scope)
-        expect(await releaseScopeRetainedOwnerEnvironment(scope)).toMatchObject([
-          {
+        expect(await releaseScopeRetainedOwnerEnvironment(scope)).toContainEqual(
+          expect.objectContaining({
             label: 'scope owner workspace checkpoint',
             detail: expect.stringContaining('owned-checkpoint'),
-          },
-        ])
+          }),
+        )
       })
       expect(fixture.events).toContainEqual(
         expect.objectContaining({
@@ -268,9 +268,9 @@ describe('retained scope owner input and result', () => {
       )
       await inScope(async (scope) => {
         fixture.register(scope)
-        expect(await releaseScopeRetainedOwnerEnvironment(scope)).toMatchObject([
-          { label: 'scope owner workspace checkpoint' },
-        ])
+        expect(await releaseScopeRetainedOwnerEnvironment(scope)).toContainEqual(
+          expect.objectContaining({ label: 'scope owner workspace checkpoint' }),
+        )
       })
     },
   )

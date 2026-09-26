@@ -1025,6 +1025,7 @@ const outsideCursorNamespaceKinds = [
   'teardown-pending',
   'teardown-confirmed',
   'environment-teardown',
+  'workspace-checkpoint-requested',
   'workspace-checkpoint',
   'workspace-checkpoint-cleanup',
   'workspace-restored',
@@ -1133,6 +1134,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
     if (ev.kind === 'teardown-pending' || ev.kind === 'teardown-confirmed') continue // cleanup retry
     if (ev.kind === 'environment-teardown') continue // release receipt, not a settlement
+    if (ev.kind === 'workspace-checkpoint-requested') continue // workspace intent, not a settlement
     if (ev.kind === 'workspace-checkpoint') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-checkpoint-cleanup') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-restored') continue // workspace receipt, not a settlement

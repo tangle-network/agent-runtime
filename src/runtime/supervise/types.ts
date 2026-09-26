@@ -33,6 +33,7 @@ import type {
   InteractionRequest,
   Sha256Digest,
   WorkspaceCheckpointRef,
+  WorkspaceCheckpointRequest,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
@@ -1793,6 +1794,19 @@ export type SpawnEvent =
       environmentId: string
       destroyed: boolean
       detail?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** Durable intent written before the provider creates a checkpoint. A missing result
+       * is reconciled through exact operation lookup before its source can be released.
+       * Informational, like `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-requested'
+      id: NodeId
+      provider: string
+      environmentId: string
+      request: WorkspaceCheckpointRequest
+      marker?: WorkspaceCheckpointMarker
       seq: number
       at: string
     }
