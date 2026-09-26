@@ -16,10 +16,16 @@
  * pauses instead of blaming the director.
  *
  * The box receives the program's files at its working directory, the submitted result at
- * `_input/result.json` when there is one, and the sealed cases at `_sealed/` only when the read
- * scores a run or a version. `CHECK_SET` is `development` or `sealed`; `CHECK_RESULT` names the
- * result file when present. Sealed cases never reach an in-run read, so their lines never reach
- * the director.
+ * `_input/result.json` when there is one, the run's state at `_input/state/` when the host
+ * captures it, and the sealed cases at `_sealed/` only when the read scores a run or a version.
+ * `CHECK_SET` is `development` or `sealed`; `CHECK_RESULT` names the result file and
+ * `CHECK_STATE` the state directory when present. Sealed cases never reach an in-run read, so
+ * their lines never reach the director.
+ *
+ * The state is what a check reads when the work is not in the submitted value. A Terminal-Bench
+ * task is done when its container holds the right files, and the box that holds that container is
+ * the run's, which the check box cannot reach. So the host copies the declared paths out before
+ * each read ({@link DeclaredCheckStateCapture}), and the check reads those bytes.
  */
 
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
@@ -68,7 +74,14 @@ export interface DeclaredCheck {
   readonly describe?: string
   /** Bound on one read. Default 15 minutes. */
   readonly timeoutMs?: number
+  /** The check box's size. With `containers`, `diskGB` sizes the disk that holds the images. */
   readonly resources?: SandboxResources
+  /**
+   * The program runs containers, as a benchmark's own verifier does. The check box then runs a
+   * rootless container daemon, whose socket is `/run/user/<uid>/docker.sock` once it starts, and its
+   * home is on a disk rather than in memory. Absent: neither, and the box starts faster.
+   */
+  readonly containers?: boolean
 }
 
 /** Where a declared check's boxes are created: a client on the check account, and every account
@@ -80,7 +93,16 @@ export interface DeclaredCheckPlacement {
   readonly env?: Readonly<Record<string, string | undefined>>
 }
 
+/**
+ * Write the run's state into `into`, an empty directory Runtime created and removes after the read.
+ * The host decides what the state is and reads it from the run's live environment, for example
+ * the declared output files of a task's container. A capture that throws gives no verdict: the read
+ * is {@link CheckUnavailableError}, never a failure blamed on the run.
+ */
+export type DeclaredCheckStateCapture = (into: string) => Promise<void>
+
 const INPUT_DIR = '_input'
+const STATE_DIR = 'state'
 const SEALED_DIR = '_sealed'
 const DEFAULT_TIMEOUT_MS = 15 * 60_000
 
@@ -115,6 +137,9 @@ export function assertDeclaredCheck(check: DeclaredCheck, context: string): void
     if (!/^[A-Z_][A-Z0-9_]*$/u.test(name))
       fail(`secret name ${JSON.stringify(name)} is not an env name`)
   }
+  if (check.containers !== undefined && typeof check.containers !== 'boolean') {
+    fail('containers must be a boolean')
+  }
 }
 
 /** The canonical digest of a directory's files: the digest a record names a program by. */
@@ -132,6 +157,8 @@ export function declaredCheckDigest(check: DeclaredCheck): Sha256Digest {
         command: check.command,
         environment: check.environment,
         pass: check.pass,
+        // Only when set, so a digest recorded before the field existed still matches.
+        ...(check.containers === true ? { containers: true } : {}),
       }),
     ),
   )
@@ -139,14 +166,16 @@ export function declaredCheckDigest(check: DeclaredCheck): Sha256Digest {
 
 /**
  * Read the check once. `result` is the submitted result, absent for a read of the run's state.
- * `set: 'sealed'` adds the sealed cases. Throws {@link CheckUnavailableError} when the program
- * could not run or printed no score.
+ * `state` is a local directory of the run's state; the box receives a copy of its files at
+ * `_input/state/`. `set: 'sealed'` adds the sealed cases. Throws {@link CheckUnavailableError} when
+ * the program could not run or printed no score.
  */
 export async function readDeclaredCheck(
   check: DeclaredCheck,
   placement: DeclaredCheckPlacement,
   read: {
     readonly result?: unknown
+    readonly state?: string
     readonly set: 'development' | 'sealed'
     readonly signal?: AbortSignal
   },
@@ -175,9 +204,17 @@ export async function readDeclaredCheck(
     }
     const env: Record<string, string> = { ...secrets, CHECK_SET: read.set }
     if (read.result !== undefined) {
-      await mkdir(join(tree, INPUT_DIR))
+      await mkdir(join(tree, INPUT_DIR), { recursive: true })
       await writeFile(join(tree, INPUT_DIR, 'result.json'), `${JSON.stringify(read.result)}\n`)
       env.CHECK_RESULT = `${INPUT_DIR}/result.json`
+    }
+    if (read.state !== undefined) {
+      await mkdir(join(tree, INPUT_DIR, STATE_DIR), { recursive: true })
+      await writeFiles(
+        (await captureMaterializedWorkspace(read.state)).files,
+        join(tree, INPUT_DIR, STATE_DIR),
+      )
+      env.CHECK_STATE = `${INPUT_DIR}/${STATE_DIR}`
     }
     if (read.set === 'sealed' && check.sealed !== undefined) {
       await copyVerified(
@@ -200,6 +237,7 @@ export async function readDeclaredCheck(
         environment: check.environment,
         ...(check.egress === undefined ? {} : { egress: check.egress }),
         ...(check.resources === undefined ? {} : { resources: check.resources }),
+        ...(check.containers === true ? { containers: true } : {}),
       },
     })
     return verdictOf(outcome, check.pass)
@@ -208,15 +246,42 @@ export async function readDeclaredCheck(
   }
 }
 
-/** The declared check as a manager's completion check: every in-run read uses development cases. */
+/**
+ * The declared check as a manager's completion check: every in-run read uses development cases.
+ * With `state`, each read first captures the run's state and the check reads it beside the
+ * submitted result, on `submit_result` and at a turn end alike.
+ */
 export function declaredCheckDeliverable(
   check: DeclaredCheck,
   placement: DeclaredCheckPlacement,
+  options: { readonly state?: DeclaredCheckStateCapture } = {},
 ): DeliverableSpec<unknown> {
   assertDeclaredCheck(check, 'declaredCheckDeliverable')
+  const { state } = options
+  if (state !== undefined && typeof state !== 'function') {
+    throw new ValidationError('declaredCheckDeliverable: state must be a capture function')
+  }
+  const read = async (result?: unknown): Promise<CheckVerdict> => {
+    if (state === undefined)
+      return readDeclaredCheck(check, placement, { result, set: 'development' })
+    const into = await mkdtemp(join(tmpdir(), 'declared-check-state-'))
+    try {
+      try {
+        await state(into)
+      } catch (error) {
+        throw new CheckUnavailableError(
+          `the run's state could not be captured: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        )
+      }
+      return await readDeclaredCheck(check, placement, { result, state: into, set: 'development' })
+    } finally {
+      await rm(into, { recursive: true, force: true })
+    }
+  }
   return {
-    check: (result) => readDeclaredCheck(check, placement, { result, set: 'development' }),
-    checkState: () => readDeclaredCheck(check, placement, { set: 'development' }),
+    check: (result) => read(result),
+    checkState: () => read(),
     feedback: check.feedback,
     ...(check.sealed === undefined ? {} : { sealed: true }),
     ...(check.describe === undefined ? {} : { describe: check.describe }),
@@ -313,7 +378,18 @@ async function copyVerified(
       `readDeclaredCheck: the ${label} at ${from} is ${actual}; the record names ${digest}`,
     )
   }
-  for (const file of captured.files) {
+  await writeFiles(captured.files, to)
+}
+
+async function writeFiles(
+  files: ReadonlyArray<{
+    readonly path: string
+    readonly mode: number
+    readonly bytes: Uint8Array
+  }>,
+  to: string,
+): Promise<void> {
+  for (const file of files) {
     const path = join(to, file.path)
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, file.bytes, { mode: file.mode })

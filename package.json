@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.274.0",
+  "version": "0.277.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -112,7 +112,9 @@
     "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
     "check:upstream-evidence-workflow": "node scripts/check-upstream-evidence-workflow.mjs",
     "check:version-bump": "node scripts/check-version-bump.mjs",
+    "check:release-notes": "node scripts/release-notes.mjs",
     "check:api-surface": "node scripts/check-api-surface.mjs",
+    "check:api-surface-record": "node scripts/check-api-surface.mjs --record",
     "api:surface": "node scripts/check-api-surface.mjs --write",
     "release:prepare": "node scripts/prepare-release.mjs",
     "verify:static-imports": "node scripts/verify-static-imports.mjs",
@@ -132,7 +134,7 @@
     "@arethetypeswrong/cli": "catalog:",
     "@biomejs/biome": "^2.5.11",
     "@modelcontextprotocol/sdk": "catalog:",
-    "@tangle-network/agent-eval": "0.190.1",
+    "@tangle-network/agent-eval": "0.193.2",
     "@tangle-network/agent-interface": "catalog:",
     "@tangle-network/agent-provider-tangle": "1.7.0",
     "@tangle-network/sandbox": "catalog:",
@@ -157,13 +159,13 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.188.0 <0.191.0",
+    "@tangle-network/agent-eval": ">=0.191.0 <0.194.0",
     "@tangle-network/agent-interface": "^2.13.0",
-    "@tangle-network/sandbox": ">=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0"
+    "@tangle-network/sandbox": ">=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0"
   },
   "dependencies": {
     "@tangle-network/agent-core": "catalog:",
-    "@tangle-network/agent-knowledge": "^17.1.5",
+    "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-profile-materialize": "catalog:",
     "@tangle-network/agent-trace-contract": "catalog:",
     "tar-stream": "3.2.1"

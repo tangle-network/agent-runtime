@@ -15,6 +15,7 @@
  * Both arms spawn children through the SAME `makeWorkerAgent` seam and apply the SAME independent
  * deliverable check to direct submissions. Raw driver prose is never eligible.
  */
+import { dirname } from 'node:path'
 import {
   type AgentProfile,
   type AgentProfileResources,
@@ -79,8 +80,10 @@ import {
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
+import { readRootStream } from './root-stream'
 import { createRouterTranscript } from './router-transcript'
 import { applyRunCancellation } from './run-cancellation'
+import { runTraceAnalysisStore } from './run-traces'
 import { beginScopeOwnerAttempt, recordScopeOwnerPause } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -511,7 +514,7 @@ export interface SupervisorAgentDeps {
   /** Where this manager's continuation files go (`<dir>/<n>/note.md`, `verdict.json`,
    *  `panel.jsonl`). Omit to keep them in memory, where `read_continuation` still serves them. */
   readonly continuationDir?: string
-  /** The root manager's `root-stream.jsonl`, which the question panel reads. */
+  /** The root manager's `root-stream.jsonl`; the question panel reads it as the director's trace. */
   readonly rootStreamPath?: string
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
   readonly nodeContext?: SupervisorNodeContextSeed
@@ -1123,7 +1126,21 @@ function buildSupervisorAgent(
                 .map((worker) => ({ id: worker.id, label: labels.get(worker.id) ?? worker.id }))
             },
             ...(deps.continuationDir === undefined ? {} : { dir: deps.continuationDir }),
-            ...(deps.rootStreamPath === undefined ? {} : { rootStreamPath: deps.rootStreamPath }),
+            traces: () => {
+              const rootStreamPath = deps.rootStreamPath
+              return runTraceAnalysisStore({
+                ...(rootStreamPath === undefined
+                  ? {}
+                  : {
+                      root: {
+                        id: scope.view.root,
+                        read: () => readRootStream(dirname(rootStreamPath)),
+                      },
+                    }),
+                workers: mcp.settled(),
+                blobs: deps.blobs,
+              })
+            },
             canReadMore: runtimeToolNames.includes('read_continuation'),
           })
         }

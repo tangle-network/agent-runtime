@@ -35,6 +35,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { TraceAnalysisStore } from '@tangle-network/agent-eval'
 import { ValidationError } from '../../errors'
 import type { DriverBudgetReadout, DriverProgressMark } from './driver-retry'
 
@@ -388,9 +389,13 @@ export interface ContinuationPanelInput {
   readonly reads: ReadonlyArray<CheckRead>
   /** The expanded questions, one per atomic question. */
   readonly questions: ReadonlyArray<string>
-  /** `<runDir>/root-stream.jsonl`, the director's own trace, when the run has a directory. */
-  readonly rootStreamPath?: string
-  /** Settled workers, with the evidence reference their trace is read from. */
+  /**
+   * The run's own traces, one per agent and named by its node id: the manager's root stream, when
+   * it is the root, and each settled worker's tool trace (`./run-traces.ts`). The panel runs only
+   * when the run has recorded a span.
+   */
+  readonly traces: TraceAnalysisStore
+  /** Settled workers; each one's trace in `traces` is named by its `id`. */
   readonly workers: ReadonlyArray<{ readonly id: string; readonly label: string }>
   readonly bar?: ContinuationPolicy['best']
   readonly reference?: string
@@ -697,6 +702,8 @@ export interface ContinuationEntry {
     readonly proposed: number
     readonly admitted: number
     readonly usd: number | null
+    /** Why the panel asked nothing this time, when it could not run. */
+    readonly unavailable?: string
   }
   /** Sections a play appended. */
   readonly appended: number
@@ -809,7 +816,8 @@ export interface ContinuationKeeperInput {
   readonly workers: () => ReadonlyArray<{ readonly id: string; readonly label: string }>
   /** Where each continuation's files go (`<dir>/<n>/`). Omit to keep them in memory only. */
   readonly dir?: string
-  readonly rootStreamPath?: string
+  /** The run's own traces for the panel, read at each continuation; `undefined` when none yet. */
+  readonly traces?: () => Promise<TraceAnalysisStore | undefined>
   /** Whether `read_continuation` is served to this manager. */
   readonly canReadMore: boolean
 }
@@ -875,14 +883,27 @@ export function createContinuationKeeper(input: ContinuationKeeperInput): Contin
         const usdCap = Math.min(policy.panelUsd.perContinuation, left)
         // An unknown cost closes the panel for the rest of the run: its cap can no longer be
         // proven, and an unmeasured spend is never read as zero.
-        if (questions.length > 0 && usdCap > 0 && panelUsdKnown) {
+        const asking = questions.length > 0 && usdCap > 0 && panelUsdKnown
+        let traces: TraceAnalysisStore | undefined
+        let unavailable: string | undefined
+        if (asking) {
+          try {
+            traces = await input.traces?.()
+            if (traces === undefined) unavailable = 'the run has recorded no trace yet'
+          } catch (error) {
+            // A trace that cannot be read is the evidence's failure, not the director's: the note
+            // goes out without findings, and the record says why.
+            unavailable = `the run's traces could not be read: ${error instanceof Error ? error.message : String(error)}`
+          }
+        }
+        if (asking && traces !== undefined) {
           const result = await policy.runPanel({
             continuation,
             task: input.task,
             ...(verdict === undefined ? {} : { verdict }),
             reads: input.reads(),
             questions,
-            ...(input.rootStreamPath === undefined ? {} : { rootStreamPath: input.rootStreamPath }),
+            traces,
             workers,
             ...(policy.best === undefined ? {} : { bar: policy.best }),
             ...(policy.reference === undefined ? {} : { reference: policy.reference }),
@@ -909,7 +930,13 @@ export function createContinuationKeeper(input: ContinuationKeeperInput): Contin
               : [{ kind: 'receipts', receipts: result.receipts }]),
           ]
         } else {
-          panelRecord = { asked: 0, proposed: 0, admitted: 0, usd: 0 }
+          panelRecord = {
+            asked: 0,
+            proposed: 0,
+            admitted: 0,
+            usd: 0,
+            ...(unavailable === undefined ? {} : { unavailable }),
+          }
         }
       }
       const appended = policy.append

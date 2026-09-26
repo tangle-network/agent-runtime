@@ -111,9 +111,10 @@ export interface DriverRetryPolicy extends UnavailablePausePolicy {
   /** Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
    *  before the run gives up. Default 3. A failure that made progress resets the count. */
   readonly maxConsecutiveFailures?: number
-  /** Ceiling on failed invocations across this driver run, regardless of progress. Default 8,
-   *  minimum 1. Successful continuations do not consume this allowance or reset it.
-   *  This bounds repeated crashes that each make enough progress to reset the barren streak. */
+  /** Ceiling on failed invocations across this driver run, regardless of progress. Default: no
+   *  ceiling, minimum 1. A failure that made no progress is bounded by `maxConsecutiveFailures`;
+   *  failures that each made progress are bounded by the budget and the deadline, like the work
+   *  they did. Successful continuations do not consume this allowance or reset it. */
   readonly maxAttempts?: number
   /** Backoff before the first retry, doubling per consecutive failure. Default 2000ms. */
   readonly initialBackoffMs?: number
@@ -266,7 +267,7 @@ export interface DriverRetryRun {
 }
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
-const DEFAULT_MAX_ATTEMPTS = 8
+const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 /**

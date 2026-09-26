@@ -60,6 +60,13 @@ export interface IsolatedCheckBox {
   /** Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
    *  box's egress is blocked. Otherwise strict: these domains only, with no implicit list. */
   egress?: readonly string[]
+  /**
+   * The check runs containers. Sandbox starts a box's rootless container daemon only with its
+   * managed agent runtime, so this box is created with `agent: true`; it still receives no owner
+   * secret, which its create receipt must confirm. It is not `ephemeral`, so its home is a disk
+   * sized by `resources.diskGB` instead of a small in-memory home that image layers overflow.
+   */
+  containers?: boolean
 }
 
 /** The box a check ran in and the exact bytes it received. */
@@ -272,9 +279,9 @@ async function runInBox(
     box = await placement.client.createIsolated(
       {
         environment: placement.environment,
-        agent: false,
+        agent: placement.containers === true,
         bare: false,
-        ephemeral: true,
+        ephemeral: placement.containers !== true,
         egressPolicy: egressFor(placement),
         ...(placement.resources ? { resources: placement.resources } : {}),
         maxLifetimeSeconds: Math.ceil(timeoutMs / 1_000) + BOX_SETUP_SECONDS,
