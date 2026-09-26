@@ -1,6 +1,6 @@
 ## 0.277.0
 
-A fleet grows to hundreds of agents with only money, time and safety bounds on it.
+A supervisor tree (what discovery-lab calls a fleet) grows to hundreds of agents with only money, time and safety bounds on it.
 
 A router-brained manager no longer stops at 16 turns.
 `DriverAgentOptions.maxTurns` defaults to `0`, no turn count; the conserved pool meters every driver turn, and the deadline and cancellation still apply.
@@ -25,9 +25,15 @@ Measured on the same tree with a brain that thinks for 100 ms between reads: man
 `spawn_worker` tells a lead how to widen its team.
 Every worker reserves its whole budget when it starts, so the pool divided by the per-worker budget is how many run at once; a smaller `budget` runs more.
 
-The `@tangle-network/agent-eval` peer range is `>=0.191.0 <0.194.0`, and the release cohort pins Eval 0.193.2.
-The release cohort pins Knowledge 17.1.6, the first Knowledge that admits Eval 0.193.
-0.275.1 declared a floor of 0.188.0, which the peer-window gate refuses as more than two minors behind the 0.193.2 development version, while the cohort still pinned 0.190.1.
+The workspace catalog admits Eval `>=0.191.0 <0.194.0`, matching the peer floor 0.276.1 set; agent-bench 0.13.13 carries it.
+
+## 0.276.1
+Runtime admits stable Sandbox 0.54.x through its peer range.
+Sandbox 0.54 is what agent-dev-container's develop ships next; the sandbox CLI pins Runtime and fails its strict-install publish smoke until this range admits it. Runtime calls no new 0.54 API itself.
+The packed compatibility cohort gains its 0.54.0 row; npm serves that version since 2026-09-25.
+The Eval peer floor moves to 0.191.0: 0.275.1 raised the development pin to 0.193.2 but left the floor at 0.188.0, three minors back, which the dependency contract refuses, so CI, the packed cohort and the 0.276.0 publish all stopped at `reaches back more than two minors`.
+The release cohort catches up with the pins it verifies: Eval 0.193.2 (a8073753) and Knowledge 17.1.6 (92378359); 0.275.1 and 0.276.0 moved the pins without moving the cohort, so the packed check failed on `requires agent-knowledge@^17.1.6, packed 17.1.5`.
+
 ## 0.276.0
 
 The in-process tool loop (`localSandboxClient`/`runBrainLoop`) now records its own offered tool set
