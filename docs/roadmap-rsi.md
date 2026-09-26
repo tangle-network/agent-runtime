@@ -101,6 +101,91 @@ The earlier artifacts do not establish which rows a POWER-16 candidate author or
 Direct treatment leakage is unproved.
 The source census is reproducible from [the saved POWER-16 shards](https://github.com/tangle-network/agent-lab/tree/1418eddf558058faeefb8a1706707b11aefc909f/runs/2026-06-13) and the preceding run archive in the same private repository.
 
+### RSI v3 evidence corrections
+
+The September 24 RSI v3 audit is a proposed research program, not a live result.
+Its export is bundle `9ad8d350`, conversation `6ab47d87-5e38-83e9-b354-00fb3347af33`, ledger item `it-7a70578d15`.
+The retained `FULL_REPORT.md` has SHA-256 `abd320e9ef528b94a3c5b4e855d97f094d6ab8495fbaa60e3affb7186081ac58`.
+The experiment and integration chapters match the original export byte for byte.
+
+Three corrections accompany the Gate A record; they concern different populations.
+
+- The supplied merged-PR fraction is 910/969 = **93.91%**, not 97.9%.
+  The supplied category counts sum to 1,048; overlap and the claimed 1,045 distinct runs remain unresolved.
+  These arithmetic checks do not validate the underlying census or measure agent quality.
+- The separate cold grader ordered 9/24 pairs correctly: **37.5%, Wilson 95% CI [21.2%, 57.3%]**.
+  The interval includes chance, so reliable inversion is unsupported.
+  Reversing this grader requires a new calibration bank and independent confirmation.
+- Gate A remains **+4.7 pp, n=48, CI [-1.9, +11.4], inconclusive**, on reused source tasks.
+  Neither the PR fraction nor the cold-grader sample changes that result.
+
+ADC [#7737](https://github.com/tangle-network/agent-dev-container/pull/7737) merged into `develop`; ancestry alone does not establish deployment.
+ADC [#7785](https://github.com/tangle-network/agent-dev-container/pull/7785) merged on September 24; it is no longer an open draft.
+Its merge does not prove served candidate generation, activation, or live improvement.
+At the September 26 source check, Runtime main and public npm both report 0.277.0.
+The audit's older package cohort must be refreshed before execution.
+
+### Selected experiments and decision order
+
+The following decisions apply to v3's fifteen experiment proposals.
+They retain the existing [live-loop contract](./live-agent-improvement-loop.md) and [FAIL scorecard](./recursive-improvement-readiness.md).
+Preparation uses existing evidence and costs zero model dollars during quota triage.
+Paid runs remain held by the current quota instruction; the audit supplies no spending authority.
+The clocks below concern preparation, not delivery of credentials or an enrolled cohort.
+
+| Audit experiment | Decision and concrete next check | Owner / preparation clock |
+| --- | --- | --- |
+| E01: evidence reconstruction | ADAPT. Preserve the 48-task reuse census; recover missing transfer arms before another search. Two of three transfer records are reconstructible. Report each source, missing arm, count metric, interval, and cost without promoting summaries to certification. | Eval / September 26 |
+| E02: capture, cost, restore | ADAPT within existing owners. Router #549 fixes failed-dispatch cost handling in source. Join 30 distinct fault scenarios separately from 300 ordinary episodes; require restoration hashes, all descendants, and no double bills or false zero costs. Historical charges still need independent settled receipts. | Eval joins; Platform billing and trace owner / September 27 |
+| E03: grader validity | ADAPT. Keep the failed 40-root GTR screen sealed. The trace checker needs at least 60 new independent claim groups, two blind raters, at least 90% agreement, and separate 60-bad/60-good controls with distinct error bounds. For a broader product-quality ruler, use 200 fresh known-pair examples and require a Wilson lower bound above 0.60. | Eval; product reviewer for product labels / September 26 registration |
+| E04: replay noise | ADAPT. First replay retained observations without model calls. Then, when quota permits, compare the same profile on 50 independent development groups with two paired repetitions, 200 execution calls. Separate execution, grader, and environment variation. Qualify the actual compound gate on at least 10,000 seeded null simulations. | Eval / September 26 registration |
+| E05: fixable failures | ADAPT. Obtain 40 representative failures with checked task outcomes. Compare no change against source context, repaired read-only tool output, concise instruction, and equal-cost retry. Tool transport success and nonzero shell exit are insufficient task labels. Confirm one selected intervention on new groups. | Eval and consumer owner / September 27 source check |
+| E06: authored same-path change | ADAPT. Qualify six real cases on the served entrypoint, use 40 development cases, then an 80-new-group exploratory paired screen. The focus confirmation requires at least 200 buyer-labelled graded replies, with the final count set by native power and clustering. Use one immutable manifest per study and one final decision. | ADC ops-board #1428; work:adc serves; Eval assesses / September 26 contract |
+| E07: retained learning | ADAPT. Preserve Gate B's at-least-100-fresh-pair headline screen and add the existing reset-learning-state arm beside retained and frozen arms. Verify the learned artifact is loaded after restart. Register a larger confirmation if its power requires it; report all learning, evaluator, and serving costs. | Eval and Runtime research owner / September 27 registration |
+| E10: optimizer transfer | DEFER execution until the grader and receipt joins qualify. Compare no change, example selection, direct authored edit, and automatic proposals on 80 development groups with equal all-in budgets. Nominate before fresh final groups. Use three search seeds for screening; method claims need outer-run uncertainty. | Eval / September 28 registration |
+| E12: served transfer | ADAPT after scoped receipts. Freeze the candidate, randomize independent conversation families, keep shadow actions inert, and join independent outcome to settled cost. Execute the full-state rollback drill before canary. The live headline requires a 95% lift interval excluding zero. | Eval; product activation owner / September 27 manifest |
+| E08: compiled cards | DEFER. No enrolled buyer cohort or equal-information comparison is established; this cannot substitute for the live-agent target. | Existing Supervisor-lab and buyer owner |
+| E09: selection and stopping | DEFER this lane's execution during quota triage. The existing benchmark owner must separate selector and stopping treatments with fresh final checks. | Runtime benchmark owner |
+| E11: recursive topology | DEFER to Discovery's existing E1 owner. Preserve its registered resource law and attempted-pair count; do not launch a competing campaign here. | Discovery research owner |
+| E13: public benchmarks | DEFER execution during quota triage. Retain the existing two-benchmark lane; selected task screens cannot certify live efficacy. | Existing Runtime benchmark owner |
+| E14: supervised training | DEFER. Checked, permitted, independent training groups and the required label inventory are absent. | Data and Eval owners |
+| E15: improve the improver | DEFER execution until retained-learning and optimizer-transfer results provide outer-run variance. A selected better candidate alone cannot support this claim. | Research owner |
+
+If a tool or missing source dominates E05, fix that mechanism before spending on prompt search.
+If direct editing beats search under equal resources, retain the edit and test a different search mechanism.
+Record clean negative and insufficient-evidence decisions with the original attempted denominator.
+Do not retry only the timed-out row of the failed fixed 40-root screen.
+
+### Manifest, paging, and power requirements
+
+The inspected ADC comparison schema still accepts 6–20 cases and a $0.12–$100 budget.
+It accepts exact or structured grading with a 16 KiB case limit.
+An 80-case screen or 200-case confirmation needs the existing ADC owner's paged study implementation.
+Do not chain independently decided 20-case jobs.
+
+Before admission, bind one content digest to ordered cases, independent groups, source revisions, arms, and candidate materialization.
+Also bind the registered evaluator, executor cohort, resource bounds, exclusion policy, stopping rule, and final decision procedure.
+Separate permissioned inputs from hidden answers and reviewer labels.
+Execution pages share the manifest, reservation, and experiment identity.
+Use stable execution keys for experiment, arm, case, repetition, and executor materialization.
+Reconcile unknown execution after timeout; changing a transport request ID does not authorize rebuying the case.
+Count failed, missing, interrupted, and late cases under the registered policy.
+Assess the full admitted frame once after reconciliation; a missing page cannot shrink the denominator.
+
+The paired-binary planning approximation reproduces 157 pairs for a +10 pp effect, q=0.20, alpha=0.05, and 80% power.
+At alpha=0.025 it gives 191; a +5 pp effect gives 628 and 761 respectively.
+These counts precede clustering and compound-gate conditions; they are not qualified sample sizes.
+An unpaired live trial requires its own power calculation.
+Pooled F1 requires source-cluster count resampling, not this binary formula.
+Use the existing Eval power implementation with the exact joint decision, null law, and plausible alternatives before sealing confirmation.
+Choose the final count with one seed, then require an independent simulation's 95% lower power bound to reach the registered target.
+Do not repeat seeds until a favorable crossing appears.
+Predeclare multiplicity control before admitting another release nomination.
+
+The proposed fifteen protocols are selected or deferred above, not certified by the audit.
+Its $2,000 program envelope and staff-hour plan remain unverified planning proposals.
+No sealed live cohort, settled historical-charge audit, or live PASS follows from this registration.
+
 ## Phase 3 — Grow the ISA (program synthesis)
 
 **Status: superseded by `defineStrategy`.**
