@@ -40,13 +40,9 @@ jobs:
       - name: Check upstream evidence workflow
         run: pnpm run check:upstream-evidence-workflow
 
-      # GITHUB_BASE_REF is the base BRANCH. The webhook's frozen
-      # pull_request.base.sha is deliberately not used: the checked-out merge ref
-      # is recomputed against the current base tip, so the frozen sha can name a
-      # commit that is no longer the merge parent, and a release merged in the
-      # meantime would pay for this pull request's unpaid change.
-      - name: Check consumer-visible changes carry a version bump
-        run: pnpm run check:version-bump
+      - name: Keep release prep out of feature PRs
+        if: github.event_name == 'pull_request'
+        run: pnpm run check:feature-release-files
 
       - name: Lint (biome)
         run: pnpm run lint
