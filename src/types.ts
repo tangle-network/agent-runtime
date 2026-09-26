@@ -372,6 +372,14 @@ export type RuntimeStreamEvent =
       task?: AgentTaskSpec
       session?: RuntimeSession
       model: string
+      /** The tool names offered to the model this turn, when the caller knows its own offered
+       *  set (e.g. the in-process tool loop's `ToolSpec[]`). Exported as the OTel GenAI
+       *  `gen_ai.tool.definitions` attribute — a contract gate reads this to tell "the model was
+       *  offered no tools" from "the offered set was never recorded", the same distinction
+       *  Claude Code's own `init` record gives a stream-json capture. Absent when the producer
+       *  does not know its own offered set (e.g. a sandboxed CLI harness, whose tool list is the
+       *  harness's own and belongs to its own transcript reader instead). */
+      tools?: readonly string[]
       tokensIn?: number
       tokensOut?: number
       /** False when the numeric token subtotal is incomplete or absent. */
