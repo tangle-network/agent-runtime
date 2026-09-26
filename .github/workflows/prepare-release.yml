@@ -1,0 +1,56 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Semver bump to prepare
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile && pnpm peers check
+      - name: Prepare version, changelog, and generated release artifacts
+        id: release
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          current=$(node -p "require('./package.json').version")
+          version=$(CURRENT="$current" TYPE="$RELEASE_TYPE" node -e "const [a,b,c]=process.env.CURRENT.split('.').map(Number); const t=process.env.TYPE; console.log(t==='major'? (a+1)+'.0.0' : t==='minor'? a+'.'+(b+1)+'.0' : a+'.'+b+'.'+(c+1))")
+          pnpm run release:prepare "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          branch="release/v$VERSION"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "chore(release): $VERSION"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "chore(release): $VERSION" --body "Release-time preparation. Generated version, changelog, canonical API metadata, fixtures, docs, and API surface from merged main."
