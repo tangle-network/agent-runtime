@@ -16,6 +16,7 @@ const dynamicNonModelFetchOwners = new Set([
   'src/otel-export.ts',
   'src/platform/auth.ts',
   'src/platform/integrations.ts',
+  'src/platform/oidc.ts',
   'src/runtime/mcp-environment.ts',
   'src/runtime/supervise/coordination-preflight.ts',
   'bench/src/research-shot.ts',
