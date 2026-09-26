@@ -1,3 +1,8 @@
+## 0.275.2
+Runtime admits stable Sandbox 0.54.x through its peer range.
+Sandbox 0.54 is what agent-dev-container's develop ships next; the sandbox CLI pins Runtime and fails its strict-install publish smoke until this range admits it. Runtime calls no new 0.54 API itself.
+The packed compatibility cohort gains its 0.54.0 row; npm serves that version since 2026-09-25.
+
 ## 0.275.1
 
 Widen the `@tangle-network/agent-eval` peer range to `>=0.188.0 <0.194.0`, admitting 0.191–0.193.x.
