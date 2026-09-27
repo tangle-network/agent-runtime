@@ -14,7 +14,7 @@
 > **Live status and every measured number live in `.evolve/current.json` and the
 > memory ledger — this doc is timeless mechanism.** The coherence stress-test + the
 > Gate-A definition: [architecture-interpretations.md](./architecture-interpretations.md);
-> the dependency-ordered build plan: [roadmap-rsi.md](./roadmap-rsi.md); the evidence
+> the dependency-ordered build plan: [agent-managed-compute/roadmap.md](./agent-managed-compute/roadmap.md); the evidence
 > map + portfolio: [docs/research/optimization-space.md](./research/optimization-space.md).
 > Doc map: [docs/README.md](./README.md).
 

@@ -36,7 +36,6 @@ Read them to understand or extend the internals, not to use the API.
 | [architecture.md](./architecture.md) | The internal design document: the recursive agent tree, the two improvement timescales, and the success criteria the team holds itself to. Wins on any conflict between docs. |
 | [architecture-interpretations.md](./architecture-interpretations.md) | A self-critique: the same design read through five independent lenses, including an adversarial one. |
 | [learning-flywheel.md](./learning-flywheel.md) | The research thesis on cross-run learning — why the outer improvement loop, not any single run, is the product. |
-| [roadmap-rsi.md](./roadmap-rsi.md) | The phased build plan for the self-improvement surface, with exit gates and open decisions. |
 | [eval-substrate.md](./eval-substrate.md) | The measurement principles: neutral scoring, honest graders, and what the team refuses to claim without held-out evidence. |
 | [agent-managed-compute/](./agent-managed-compute/) | The distributed-execution plan for agents that allocate and steer compute. |
 | [design/](./design/) · [research/](./research/) · [archive/](./archive/) | Accepted design notes, forward-looking research threads, and retired plans kept for history. |

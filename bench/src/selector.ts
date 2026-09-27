@@ -1,5 +1,5 @@
 /**
- * Deployable, non-oracle selector (docs/roadmap-rsi.md Phase 1).
+ * Deployable, non-oracle selector.
  *
  * best-of-N only pays if you can pick the good attempt WITHOUT the judge. Today
  * the loop's winner is judge-selected (verdict.score) — an oracle upper bound, not
