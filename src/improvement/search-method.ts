@@ -20,11 +20,12 @@
 
 import type { ProposalFinding } from '@tangle-network/agent-eval'
 import {
+  aide,
+  asha,
   type CampaignStorage,
   campaignCellSearchResult,
   createRunCostLedger,
   fsCampaignStorage,
-  incumbent,
   isProposedCandidate,
   type MutableSurface,
   openSearchLedger,
@@ -52,7 +53,6 @@ import {
   searchProposalExecution,
   searchProposerView,
   searchReceiptAccounting,
-  uniform,
 } from '@tangle-network/agent-eval/campaign'
 import {
   defineEvaluationClaim,
@@ -86,14 +86,17 @@ export interface SearchMethodOptions {
   /** Proposals the search may make. */
   maxExpansions: number
   /** Which node each proposal extends, and which node the search keeps.
-   * Default `incumbent()`: the hill climb. */
+   * Default `aide()`: drafts from the baseline, debugs a node whose cells
+   * fail as defects, and otherwise improves a parent drawn by Thompson
+   * sampling over each node's posterior, forking from the best node when a
+   * lineage stalls. `beam({ width })` expands the top nodes in turn;
+   * `incumbent()` is the hill climb, which needs `uniform()`. */
   policy?: SearchPolicy
-  /** Where cells go. Default `uniform()`: every node runs every train and
-   * selection task, which the `incumbent()` hill climb needs to see each
-   * result on the leader's units. `asha()` (successive halving over one
-   * seeded permutation of the selection units) spends fewer cells and pairs
-   * with policies that rank screened nodes. Its `reps` are every split's
-   * repeats, the claim's included. */
+  /** Where cells go. Default `asha()`: successive halving over one seeded
+   * permutation of the selection units. Each node is screened on 6 selection
+   * units and 2 train units, and the top third of each rung advances to twice
+   * the units. `uniform()` runs every node on every train and selection task.
+   * The allocator's `reps` are every split's repeats, the claim's included. */
   allocation?: SearchAllocator
   /** Children one proposal asks for. Default 1. */
   childrenPerProposal?: number
@@ -146,8 +149,8 @@ export function searchMethod(options: SearchMethodOptions): ImproveSearchMethod 
   return Object.freeze({
     kind: 'search' as const,
     name,
-    policy: options.policy ?? incumbent(),
-    allocation: options.allocation ?? uniform(),
+    policy: options.policy ?? aide(),
+    allocation: options.allocation ?? asha(),
     proposer,
     maxExpansions: count('maxExpansions', options.maxExpansions, Number.NaN, 0),
     childrenPerProposal: count('childrenPerProposal', options.childrenPerProposal, 1, 1),

@@ -158,7 +158,7 @@ There is no local fallback.
 Install its optional Python process first:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.197.0"
+python -m pip install "agent-eval-rpc==0.198.0"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -172,7 +172,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.197.0"
+python -m pip install "agent-eval-rpc==0.198.0"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
@@ -220,8 +220,13 @@ const result = await improve(baseProfile, {
 })
 ```
 
-The defaults are the `incumbent()` hill climb and the `uniform()` allocator, which runs every node on every train and selection task.
-Pass `allocation: asha()` to screen each node on 6 selection units and advance only the top third; the hill climb then keeps the root until a child finishes the top rung, so pair `asha()` with a policy that ranks screened nodes.
+The defaults are Eval's `aide()` policy and `asha()` allocator.
+`aide()` drafts 5 alternatives from the baseline, then debugs a node whose cells fail as defects or improves a parent drawn by Thompson sampling over each node's posterior.
+A lineage whose improvements stop raising its best posterior mean forks from the best node.
+`asha()` screens each node on 6 selection units and 2 train units, and advances the top third of each rung to twice the units.
+Pass `policy: beam({ width })` to expand the top nodes in turn.
+Pass `policy: incumbent()` with `allocation: uniform()` for the hill climb, which runs every node on every train and selection task.
+The hill climb needs `uniform()`: under `asha()` it keeps the root until a child finishes the top rung.
 The proposer receives the parents, the train view and a train summary; it never sees selection or test scores.
 Read `ctx.train` before the proposer's first `await`: the view retires when the ledger moves on.
 Runtime refuses a candidate that does not materialize, declares training on a test task, fails your validator, or carries a credential or private value.
