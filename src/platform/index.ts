@@ -23,7 +23,6 @@ export {
   type ConnectionHealthResult,
   type ExecInput,
   type HealthCheck,
-  type HealthCheckResult,
   type MintTokenInput,
   type MintTokenResult,
   type PlatformCatalogProvider,
