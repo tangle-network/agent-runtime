@@ -143,6 +143,7 @@ try {
   assert.equal(inputLimit.stdout, undefined)
   const entryLimit = await run('echo should-not-run', { maxInputEntries: 2 })
   assert.equal(entryLimit.reason, 'input-limit', JSON.stringify(entryLimit))
+  assert.equal((await run('true', { maxInputEntries: 3 })).succeeded, true)
   await rm(`${tree}/large-input`)
   // A small input can expand in the check. The Docker placement bounds this proof's resources.
   await writeFile(`${tree}/compressed`, gzipSync(Buffer.alloc(32 * 1024 * 1024)))

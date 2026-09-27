@@ -284,8 +284,8 @@ async function copyBoundedTree(
   let bytes = 0
   let entries = 0
   const buffer = Buffer.allocUnsafe(1024 * 1024)
-  const visit = async (from: string, to: string): Promise<void> => {
-    if (++entries > (maxEntries ?? Number.MAX_SAFE_INTEGER))
+  const visit = async (from: string, to: string, isRoot = false): Promise<void> => {
+    if (!isRoot && ++entries > (maxEntries ?? Number.MAX_SAFE_INTEGER))
       throw new InputLimitError('Input tree exceeds maxInputEntries')
     const info = await lstat(from)
     if (info.isSymbolicLink()) {
@@ -333,17 +333,18 @@ async function copyBoundedTree(
       throw new Error(`Input tree contains an unsupported entry: ${from}`)
     }
   }
-  await visit(source, destination)
+  await visit(source, destination, true)
 }
 
 async function checkInputEntries(root: string, maxEntries: number): Promise<void> {
   let count = 0
-  const visit = async (path: string): Promise<void> => {
-    if (++count > maxEntries) throw new InputLimitError('Input tree exceeds maxInputEntries')
+  const visit = async (path: string, isRoot = false): Promise<void> => {
+    if (!isRoot && ++count > maxEntries)
+      throw new InputLimitError('Input tree exceeds maxInputEntries')
     if (!(await lstat(path)).isDirectory()) return
     for await (const entry of await opendir(path)) await visit(join(path, entry.name))
   }
-  await visit(root)
+  await visit(root, true)
 }
 
 async function protectedTree(
