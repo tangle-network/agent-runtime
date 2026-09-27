@@ -1,20 +1,22 @@
 /**
- * SWE-bench self-improvement — the PROPER, no-cheating run: a frontier worker over the SWE-bench
- * `Environment`, with `runStrategyEvolution` enforcing the train→freeze→holdout split (the substrate
- * draws a disjoint holdout slice and gates once — adaptive reuse is impossible). CONTAMINATION CAVEAT
- * applies (public fixes may be memorized) — reported, never claimed clean.
+ * SWE-bench self-improvement: a frontier worker over the SWE-bench `Environment`, with
+ * `runStrategyEvolution` searching strategies on disjoint train, selection and test slices. The
+ * author reads train results only, strategies are ranked on the private selection slice, and the
+ * claim runs once on the sealed test slice. CONTAMINATION CAVEAT applies (public fixes may be
+ * memorized) — reported, never claimed clean.
  *
  *   CALIBRATE first (cost gate):  TANGLE_API_KEY=… CALIBRATE=1 N=3 tsx bench/src/swe-self-improve.mts
- *   Full run:                     TANGLE_API_KEY=… TRAIN_N=6 HOLDOUT_N=8 GENERATIONS=2 tsx bench/src/swe-self-improve.mts
+ *   Full run:                     TANGLE_API_KEY=… TRAIN_N=4 SELECTION_N=12 TEST_N=12 tsx bench/src/swe-self-improve.mts
+ *
+ * The run directory is kept (`OUT_DIR`, default `.swe-run`): its ledger is the checkpoint, so the
+ * same command continues an interrupted search.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import {
   refine,
   runAgentic,
   runStrategyEvolution,
-  sample,
   strategyAuthorSystemPrompt,
 } from '@tangle-network/agent-runtime/kernel'
 import { createSweBenchEnvironment } from './swe-bench-env'
@@ -72,46 +74,52 @@ async function main(): Promise<void> {
     return
   }
 
-  const report = await (async () => {
-    const outDir = mkdtempSync(join(process.cwd(), '.swe-run-'))
-    try {
-      return await runStrategyEvolution({
-        environment,
-        tasks,
-        trainN: Number(process.env.TRAIN_N ?? 6),
-        holdoutN: Number(process.env.HOLDOUT_N ?? 8),
-        worker: { routerBaseUrl, routerKey, workerProfile },
-        author: {
-          profile: authorProfile(authorModel, 'swe-strategy-author'),
-          executor: { backend: 'router', routerBaseUrl, routerKey },
-          fallbackProfile: authorProfile(
-            process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
-            'swe-strategy-author-fallback',
-          ),
-        },
-        baselines: [sample, refine],
-        budget: Number(process.env.BUDGET ?? 2),
-        generations: Number(process.env.GENERATIONS ?? 2),
-        populationSize: Number(process.env.POP ?? 2),
-        outDir,
-      })
-    } finally {
-      rmSync(outDir, { recursive: true, force: true })
-    }
-  })()
+  const trainN = Number(process.env.TRAIN_N ?? 4)
+  const selectionN = Number(process.env.SELECTION_N ?? 12)
+  const testN = Number(process.env.TEST_N ?? 12)
+  const all = await tasks(0, trainN + selectionN + testN)
+  const report = await runStrategyEvolution({
+    environment,
+    train: all.slice(0, trainN),
+    selection: all.slice(trainN, trainN + selectionN),
+    test: all.slice(trainN + selectionN),
+    claim: {
+      use: 'comparison',
+      population: { id: 'swe-bench-verified', description: 'SWE-bench Verified instances' },
+      samplingFrame: 'consecutive SWE-bench Verified instances from the loaded pool',
+      independentUnit: 'id',
+      generalization: 'new-units',
+      minimumEffect: Number(process.env.MIN_EFFECT ?? 0.15),
+    },
+    executionRef: canonicalCandidateDigest({
+      environment: 'bench/src/swe-bench-env.ts',
+      harness: 'swebench-docker',
+      innerTurns,
+    }),
+    worker: { routerBaseUrl, routerKey, workerProfile },
+    author: {
+      profile: authorProfile(authorModel, 'swe-strategy-author'),
+      executor: { backend: 'router', routerBaseUrl, routerKey },
+      fallbackProfile: authorProfile(
+        process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+        'swe-strategy-author-fallback',
+      ),
+    },
+    root: refine,
+    budget: Number(process.env.BUDGET ?? 2),
+    maxExpansions: Number(process.env.EXPANSIONS ?? 4),
+    outDir: join(process.cwd(), process.env.OUT_DIR ?? '.swe-run'),
+  })
 
-  const v = report.verdict
-  console.log('\n═══ SWE-bench SELF-IMPROVEMENT — certified on a FROZEN holdout (CONTAMINATION-flagged) ═══')
-  console.log(`worker=${workerModel}  author=${authorModel}`)
-  console.log(`gen0 champion:   ${report.gen0Champion.name}`)
-  console.log(`final champion:  ${report.finalChampion.name}`)
-  console.log(`PROMOTED:        ${v.promoted}  (${v.reason})`)
-  console.log(`held-out lift:   mean ${v.lift.mean.toFixed(3)}  95% CI [${v.lift.low.toFixed(3)}, ${v.lift.high.toFixed(3)}]  n=${v.n}`)
-  console.log(
-    v.promoted
-      ? '\n>>> The search taught the agent a strategy that resolves MORE real bugs it never trained on, beyond luck. (Report the contamination caveat: public fixes may be memorized.)'
-      : '\n>>> No promotion: the evolved strategy did not beat gen0 on the fresh holdout beyond noise (honest null).',
-  )
+  const shipped = report.claim.finalists.find((f) => f.nodeId === report.claim.selected)?.test
+  console.log('\n═══ SWE-bench SELF-IMPROVEMENT — claimed on a SEALED test slice (CONTAMINATION-flagged) ═══')
+  console.log(`worker=${workerModel}  author=${authorModel}  ledger=${report.ledger}`)
+  console.log(`strategies:  ${report.strategies.map((s) => `${s.name} (${s.status})`).join(', ')}`)
+  console.log(`selected:    ${report.selected.name}`)
+  console.log(`DECISION:    ${report.decision}  (${report.reason})`)
+  if (shipped) {
+    console.log(`test lift:   ${shipped.delta.toFixed(3)}  [${shipped.interval[0].toFixed(3)}, ${shipped.interval[1].toFixed(3)}]  n=${shipped.pairs}`)
+  }
 }
 
 main().catch((e) => {

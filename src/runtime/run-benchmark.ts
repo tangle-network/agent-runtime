@@ -146,7 +146,11 @@ async function pool<T, R>(
   return out
 }
 
-async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
+/** @internal Check each unique worker and analyst model once before any task runs, as
+ *  `BenchmarkConfig.modelPreflight` describes. `runStrategyEvolution` checks the same way. */
+export async function preflightModels(
+  cfg: Pick<BenchmarkConfig, 'worker' | 'modelPreflight' | 'modelPreflightTimeoutMs'>,
+): Promise<void> {
   if (cfg.modelPreflight === false) return
   if (cfg.worker.complete && !cfg.modelPreflight) return
 

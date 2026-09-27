@@ -20,3 +20,4 @@ test_repo/
 .swe-run-*/
 .gen2-runs/
 .gen3-runs/
+.evolution-*/

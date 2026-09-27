@@ -13,9 +13,11 @@
  * TS-capable loader (tsx) since models often emit type annotations.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { sha256Bytes } from '../candidate-execution/digest'
 import { strategyAuthorMethod } from '../improvement/optimizer-prompt'
 import { assertAuthoredCode } from './authored-code'
 import { profileChatClient } from './profile-chat-client'
@@ -137,54 +139,97 @@ export interface AuthoredStrategy {
   code: string
 }
 
-/** One authoring attempt: chat with the given model, extract the fenced module. Throws
- *  when the reply carries no code block. */
-async function requestAuthoredCode(
-  opts: AuthorStrategyOptions,
-  profile: AgentProfile,
-): Promise<string> {
-  const chat = profileChatClient({
-    profile,
-    executor: opts.executor,
-    context: 'strategy author',
-  })
-  const res = await chat.chat(
-    {
-      messages: [
-        {
-          role: 'user',
-          content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}) — the per-task losses are your gradient:\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget.\n${strategyAuthorMethod}\n\nOutput only the module code block.`,
-        },
-      ],
-    },
-    { ...(opts.signal ? { signal: opts.signal } : {}) },
-  )
-  const match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
-  if (!match?.[1]) {
-    throw new Error(
-      `authorStrategy: no code block in the author's reply: ${res.content.slice(0, 300)}`,
-    )
-  }
-  return match[1]
+/** One authoring turn: the author's reply and what the call reported spending. */
+export interface StrategyAuthorTurn {
+  content: string
+  /** The model the provider reported answering. */
+  model: string
+  inputTokens: number
+  outputTokens: number
+  /** False when the call reported no token usage. */
+  tokensKnown: boolean
+  /** Provider-billed dollars; null when the call reported none. */
+  costUsd: number | null
 }
 
-/** Author + load a strategy from losses. Throws when the author emits no loadable module;
- *  with `fallbackModel` set, the named fallback gets one attempt first. */
-export async function authorStrategy(opts: AuthorStrategyOptions): Promise<AuthoredStrategy> {
-  let code: string
+/** What an author wrote: the fenced module, or null when no reply carried one, and every
+ *  authoring turn that ran (the primary, then the fallback when the primary failed). */
+export interface StrategySource {
+  code: string | null
+  turns: StrategyAuthorTurn[]
+}
+
+/** Ask the author for a strategy module. A failed call throws; a reply without a fenced
+ *  module is `code: null`. With `fallbackProfile`, the fallback gets one attempt when the
+ *  primary call fails or its reply carries no module. */
+export async function requestStrategySource(opts: AuthorStrategyOptions): Promise<StrategySource> {
+  const turns: StrategyAuthorTurn[] = []
+  const attempt = async (profile: AgentProfile): Promise<string | null> => {
+    const res = await profileChatClient({
+      profile,
+      executor: opts.executor,
+      context: 'strategy author',
+    }).chat(
+      {
+        messages: [
+          {
+            role: 'user',
+            content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}) — the per-task losses are your gradient:\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget.\n${strategyAuthorMethod}\n\nOutput only the module code block.`,
+          },
+        ],
+      },
+      { ...(opts.signal ? { signal: opts.signal } : {}) },
+    )
+    turns.push({
+      content: res.content,
+      model: res.model,
+      inputTokens: res.usage.promptTokens,
+      outputTokens: res.usage.completionTokens,
+      tokensKnown: res.usage.captured !== false,
+      costUsd: res.costUsd,
+    })
+    return res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)?.[1] ?? null
+  }
   try {
-    code = await requestAuthoredCode(opts, opts.profile)
+    const code = await attempt(opts.profile)
+    if (code !== null || !opts.fallbackProfile) return { code, turns }
   } catch (primaryError) {
     if (!opts.fallbackProfile) throw primaryError
-    code = await requestAuthoredCode(opts, opts.fallbackProfile)
   }
+  return { code: await attempt(opts.fallbackProfile), turns }
+}
+
+/** Lint an authored module, write it under `outDir` at a name its content fixes, and import
+ *  its default Strategy. The same source always loads from the same file. Throws when the
+ *  module breaks the contract or exports no Strategy. */
+export async function loadAuthoredStrategy(
+  code: string,
+  outDir: string,
+): Promise<{ strategy: Strategy; file: string }> {
   assertStrategyContract(code)
-  mkdirSync(opts.outDir, { recursive: true })
-  const file = join(opts.outDir, `authored-${Date.now()}.mts`)
-  writeFileSync(file, code)
-  const mod = (await import(`file://${file}`)) as { default?: Strategy }
+  const digest = sha256Bytes(Buffer.from(code, 'utf8')).slice('sha256:'.length)
+  const file = join(outDir, `strategy-${digest}.mts`)
+  if (!existsSync(file)) {
+    mkdirSync(outDir, { recursive: true })
+    const partial = `${file}.${process.pid}.tmp`
+    writeFileSync(partial, code)
+    renameSync(partial, file)
+  }
+  const mod = (await import(pathToFileURL(file).href)) as { default?: Strategy }
   if (!mod.default || typeof mod.default.driver !== 'function' || !mod.default.name) {
     throw new Error(`authorStrategy: ${file} does not export a default Strategy`)
   }
-  return { strategy: mod.default, file, code }
+  return { strategy: mod.default, file }
+}
+
+/** Author + load a strategy from losses. Throws when the author emits no loadable module;
+ *  with `fallbackProfile` set, the fallback gets one attempt first. */
+export async function authorStrategy(opts: AuthorStrategyOptions): Promise<AuthoredStrategy> {
+  const { code, turns } = await requestStrategySource(opts)
+  if (code === null) {
+    throw new Error(
+      `authorStrategy: no code block in the author's reply: ${(turns.at(-1)?.content ?? '').slice(0, 300)}`,
+    )
+  }
+  return { ...(await loadAuthoredStrategy(code, opts.outDir)), code }
 }

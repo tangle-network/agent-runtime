@@ -425,11 +425,6 @@ export type {
 // Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
 // a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
-export {
-  type PromotionGateOptions,
-  type PromotionVerdict,
-  promotionGate,
-} from './promotion-gate'
 // The product-facing backend selector: one call picks sandbox/bridge/router transport.
 export {
   type ResolveSandboxClientOptions,
@@ -612,20 +607,15 @@ export {
   strategyAuthorSystemPrompt,
 } from './strategy-author'
 export {
-  type ChampionPick,
-  type ChampionPolicy,
-  discriminatingMeans,
-  type EvolutionArchiveNode,
   type EvolutionAuthor,
-  type EvolutionBandInfo,
-  type EvolutionCandidate,
-  type EvolutionGeneration,
   type EvolutionReport,
-  pickChampion,
-  type ReproductionCheck,
+  type EvolutionStrategy,
   runStrategyEvolution,
   type StrategyEvolutionConfig,
-  selectChampion,
+  type StrategyTournament,
+  strategyTournament,
+  type TournamentCell,
+  type TournamentRow,
 } from './strategy-evolution'
 export {
   type AgentTurnBackend,

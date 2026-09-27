@@ -534,8 +534,9 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
   }
 }
 
-/** Runtime's ship rule over the kernel's statistical claim (design §6.5 step 5). */
-function runtimeShipDecision(input: {
+/** Runtime's ship rule over the kernel's statistical claim (design §6.5 step 5), shared by
+ * `searchMethod` and `runStrategyEvolution`. */
+export function runtimeShipDecision(input: {
   claim: SearchClaim
   verified: boolean
   accountingComplete: boolean
