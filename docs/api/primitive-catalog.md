@@ -1384,7 +1384,7 @@ Import from `@tangle-network/agent-runtime/profiles` — 42 exports.
 
 ### Platform glue
 
-Import from `@tangle-network/agent-runtime/platform` — 27 exports.
+Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1393,15 +1393,15 @@ Import from `@tangle-network/agent-runtime/platform` — 27 exports.
 | `PlatformAuthError` | class | Thrown when a `PlatformAuthClient` request returns a non-success status. |
 | `PlatformHubClient` | class | HTTP client for the Tangle Platform Hub API: provider catalog, connection flow, and status. |
 | `PlatformHubError` | class | Thrown when a `PlatformHubClient` request returns a non-success status. |
-| `PlatformOidcClient` | class | Standard OIDC authorization-code + PKCE client for "Sign in with Tangle". |
+| `PlatformOidcClient` | class | OIDC code + PKCE, refresh/revoke and discovery-bound RFC 8628 device grants. |
 | `HealthCheck` | interface | Last-known health for a connection, derived from the connection row. |
+| `OidcDeviceAuthorization` | interface | Keep deviceCode secret. Only userCode and the verification URLs are displayed. |
 | `PlatformAuthClientOptions` | interface | Server-side client for the Tangle platform's cross-site SSO bridge. |
 | `PlatformCatalogProvider` | interface | A connectable provider in the catalog (`/v1/hub/providers`). |
 | `PlatformConnection` | interface | A live integration connection, as returned by `/v1/hub/connections`. |
 | `PlatformHubClientOptions` | interface | Server-side client for the Tangle platform's integration hub |
-| `PlatformOidcClientOptions` | interface | Server-side OpenID Connect client for the Tangle authorization server |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `OidcAuthorizeUrlOptions`, `OidcExchangeResult`, `OidcTokens`, `OidcUser`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `OidcAuthorizeUrlOptions`, `OidcExchangeResult`, `OidcTokens`, `OidcUser`, `PlatformHubStatus`, `PlatformOidcClientOptions`, `StartAuthInput`, `StartAuthResult`.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
