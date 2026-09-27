@@ -2149,8 +2149,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     detail?: Record<string, unknown>,
     providerModel?: ProviderModelExecutionEvidence,
     accountingOnly = false,
+    runtimeOwned = false,
   ): Promise<void> {
-    if (args.signal.aborted) {
+    if (args.signal.aborted && !runtimeOwned) {
       throw new ValidationError('scope.meter: cannot record new driver work after scope abort')
     }
     const partial = providerModel !== undefined || accountingOnly
@@ -2259,7 +2260,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   runtimeOwnedProviderMeters.set(
     scope as Scope<unknown>,
     async (spend, providerModel, detail, accountingOnly) =>
-      meterInternal(spend, detail, providerModel, accountingOnly),
+      // A provider attempt already started before abort can finish without a usage receipt.
+      // Its unknown-cost marker still belongs in the durable journal after the scope aborts.
+      meterInternal(spend, detail, providerModel, accountingOnly, true),
   )
   let pauseSeq = 0
   pauseRecorders.set(scope as Scope<unknown>, async (pause) => {
