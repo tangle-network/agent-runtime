@@ -6,23 +6,22 @@ description: Author and drive recursive AgentProfiles with explicit capabilities
 # Supervise
 
 Use this when Runtime coordination tools are attached.
-Author agents that can perform the required work, then direct them from checked evidence.
+Follow the [Lab profile-authoring contract](https://github.com/tangle-network/discovery-lab/blob/82e9fed5feb5314fa89aa564433d3a77228ed61d/skills/profile-authoring/SKILL.md) when authoring or changing a profile.
+This skill covers Runtime execution and coordination.
 
-## Author complete agents
+## Bind Runtime authority
 
-Put research choices, methods, revision rules, and stopping criteria in each profile's prompt.
 Runtime owns shared budgets, recursion limits, concurrency, cancellation, journals, and recovery.
 The caller configures root execution through [SuperviseOptions](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts).
-Per-assignment budgets, continuity, and keys belong to the [coordination tools](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts), not invented profile fields.
+Set assignment budgets, continuity, and keys through the [coordination tools](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts).
 
 An agent receives recursive authority by declaring `agent_runtime_coordination_spawn_worker: true` in its tools.
 Declare each other Runtime tool it needs explicitly.
 Metadata describes work; it does not grant authority.
-Every profile that can spawn workers carries the complete `profile-authoring/SKILL.md` resource, using an immutable snapshot and `resources.failOnError: true`.
-The authored profile must explain its own ability to delegate; Runtime does not invent that policy.
+Every profile that can spawn workers carries the complete Lab `profile-authoring/SKILL.md` bytes as an immutable resource.
+Set `resources.failOnError: true` so a missing contract refuses execution.
 
-When creating or changing a descendant profile, read [profile authoring](references/profile-authoring.md) for the exact contract and resource placement.
-The task names the concrete artifact and completion check; the profile names the method and granted capabilities.
+Read [Runtime profile placement](references/profile-authoring.md) for schema, materialization, and resource details.
 
 ## Direct the work
 
@@ -40,8 +39,7 @@ The task names the concrete artifact and completion check; the profile names the
 Use `continuity: 'resume'` to continue the most recent settled worker with that profile name.
 A resumed assignment is a new execution and cannot carry a run-once key.
 Completed keys resolve to committed results; an uncertain prior dispatch must be reconciled before replacement.
-Stop at checked success, an authorized resource limit, cancellation, or a demonstrated dead end.
-A quiet worker alone is not a reason to invent a deadline.
+Apply the Lab contract's stopping rule and null handling to the recorded Runtime state.
 
 ## Accept delivery
 
