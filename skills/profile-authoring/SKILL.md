@@ -181,7 +181,7 @@ Arms: with and without the referee.
 Audience: the task's author, and a maintainer who decides whether to merge.
 Proxy: the visible tests.
 Gap: a change that passes the tests and that a maintainer rejects, such as a special-cased input, an edited test or a skipped check.
-Measured: in an 8-lane Terminal-Bench batch, Runtime marked 6 lanes as winners and the task's verifier passed 1.
+Measured: in an 8-lane Terminal-Bench batch, Runtime marked 6 lanes as winners and the task's verifier passed 1 of them.
 Measured elsewhere: 0 of 15 reviewed agent pull requests were mergeable as-is, including 4 that passed the tests.
 Profile: agents run the visible tests.
 The held-back verifier and hidden tests run on the patch in a fresh container.
@@ -194,8 +194,9 @@ A report that the task cannot pass without breaking its specification is a credi
 Audience: the customer who pays, and the decision the product supports.
 Acceptance: the customer's own evaluation criteria, quoted, and a walkthrough of the running product doing the customer's task.
 Proxy: an LLM fulfilment rater and a compliance checklist.
-Gap, measured on one product wave: the rater accepted 19 of 31 failed lanes and scored 0.45 where always-reject scored 0.73.
-In the same wave, 19 of 44 reviewers never received the product, and a grader gave B where the owner gave F.
+Gap, measured across product lanes: the rater accepted 19 of 31 failed lanes and scored 0.45 where always-reject scored 0.73.
+In one wave, 19 of 44 reviewers never received the product.
+A grader gave B where the owner gave F.
 Profile: reviewers mount the product by path and must run it.
 A referee from another family walks the customer's task on the running product.
 The rater stays a ruler, not a gate, until it beats always-reject.
