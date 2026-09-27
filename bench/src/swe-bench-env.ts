@@ -277,8 +277,9 @@ async function resolveInstanceImage(ws: Ws, expected?: SweImageIdentity): Promis
 }
 
 /** Build the SWE-bench Environment + a DISJOINT-slice task supplier over the Verified split. The
- *  supplier keys tasks by dataset offset so `runStrategyEvolution`'s train [0,trainN) and holdout
- *  [trainN+off,…) never overlap. Verified is loaded once; instances carry their repo/base_commit. */
+ *  supplier keys tasks by dataset offset, so consecutive slices (train, selection and test for
+ *  `runStrategyEvolution`) never overlap. Verified is loaded once; instances carry their
+ *  repo/base_commit. */
 export async function createSweBenchEnvironment(
   poolN = 80,
   opts: {

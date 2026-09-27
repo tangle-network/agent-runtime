@@ -161,7 +161,7 @@ A separate final-test partition is required because source labels alone cannot p
 | --- | --- | --- |
 | Agent-driven work | `Scope`, `Supervisor`, and `createCoordinationTools` | A supplied profile owns working decisions and recursive authority |
 | Profile and code improvement | Runtime `improve()` and Eval complete methods or native proposer search | The caller supplies domain execution and objectives |
-| Executable strategy search | `defineStrategy`, `authorStrategy`, and `runStrategyEvolution` | Programs and their archive remain explicit; this is not a complete domain learner by itself |
+| Executable strategy search | `defineStrategy`, `authorStrategy`, and `runStrategyEvolution` on Eval's search kernel | Every authored program is a ledger node with its lineage and one sealed claim; this is not a complete domain learner by itself |
 | Observation and retention | `observe`, `Corpus`, and Knowledge state and retrieval | The caller must connect retained evidence to later decisions and measured outcomes |
 | Evaluation engineering | Eval judges, scenario search, calibration, and known-failure checks | Executing a utility does not establish the quality of the resulting evaluation or learning process |
 | Exact measurement and adoption | Runtime candidate experiments, proposals, and activation | Search output must remain bound to the exact version measured and adopted |

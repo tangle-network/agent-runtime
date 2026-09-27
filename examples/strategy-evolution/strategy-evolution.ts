@@ -144,11 +144,18 @@ function author(): { profile: AgentProfile; executor: ExecutorConfig } {
   const bridgeUrl = process.env.BRIDGE_URL
   const bridgeBearer = process.env.BRIDGE_BEARER
   if (bridgeUrl && bridgeBearer) {
+    // A cli-bridge model id is `<harness>/<provider>/<model>`, or `<harness>/<model>` when the
+    // harness is its own provider, for example `claude-code/sonnet`.
+    const [harness, ...rest] = (process.env.AUTHOR_MODEL ?? 'claude-code/sonnet').split('/')
+    const provider = rest.length > 1 ? rest.shift()! : harness!
     return {
       profile: {
         name: 'strategy-author',
-        model: { default: process.env.AUTHOR_MODEL ?? 'claude-code/sonnet' },
-        prompt: { systemPrompt: strategyAuthorSystemPrompt },
+        harness: harness as AgentProfile['harness'],
+        model: { provider, default: rest.join('/') },
+        // Additive instructions keep the harness's own system prompt, which some harnesses
+        // cannot replace.
+        prompt: { instructions: [strategyAuthorSystemPrompt] },
       },
       executor: { backend: 'bridge', bridgeUrl, bridgeBearer },
     }

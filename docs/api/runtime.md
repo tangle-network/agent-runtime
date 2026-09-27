@@ -623,6 +623,10 @@ Analysis can fail after paid work; its measured subtotal must remain recoverable
 
 `boolean`
 
+###### costUsd?
+
+`number`
+
 ###### options?
 
 `ErrorOptions`
@@ -652,6 +656,10 @@ Analysis can fail after paid work; its measured subtotal must remain recoverable
 ###### known
 
 > **known**: `boolean`
+
+###### costUsd?
+
+> `optional` **costUsd?**: `number`
 
 ***
 
@@ -1369,7 +1377,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-18)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-19)
 
 ##### runtime
 
@@ -1457,7 +1465,7 @@ Epoch ms of the spawn journal record; absent when legacy evidence lacks a parsea
 
 ##### spent
 
-> `readonly` **spent**: [`Spend`](#spend)
+> `readonly` **spent**: [`Spend`](#spend-1)
 
 Conserved spend so far for this node.
 
@@ -5154,6 +5162,10 @@ Measured analyst tokens; a failed or unmetered analysis leaves the subtotal inco
 
 > **known**: `boolean`
 
+###### costUsd?
+
+> `optional` **costUsd?**: `number`
+
 ***
 
 ### InProcessPromptCtx
@@ -5992,7 +6004,8 @@ Operator-facing markdown: what the observer noticed + what to change.
 
 > **usage**: `object`
 
-Measured model usage for this analysis turn.
+Measured model usage for this analysis turn. `known` covers the tokens; `costUsd` is the
+ provider-billed dollars, absent when the call billed none.
 
 ###### input
 
@@ -6005,6 +6018,10 @@ Measured model usage for this analysis turn.
 ###### known
 
 > **known**: `boolean`
+
+###### costUsd?
+
+> `optional` **costUsd?**: `number`
 
 ***
 
@@ -7411,7 +7428,7 @@ A lineage the gate may widen toward — the settled child that looked promising 
 
 ###### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ###### providerModel?
 
@@ -7805,13 +7822,13 @@ Terminal status the journal recorded for this node. `'waiting'` is a wait-state 
 
 ##### ownSpend
 
-> `readonly` **ownSpend**: [`Spend`](#spend)
+> `readonly` **ownSpend**: [`Spend`](#spend-1)
 
 This node's OWN conserved spend (from its `settled` event).
 
 ##### rolledUpSpend
 
-> `readonly` **rolledUpSpend**: [`Spend`](#spend)
+> `readonly` **rolledUpSpend**: [`Spend`](#spend-1)
 
 This node's spend PLUS every descendant's — the rolled-up subtree cost. The cost a parent
  "really" consumed inclusive of its children's fanout (the equal-k-on-cost basis).
@@ -7853,7 +7870,7 @@ Every node, in cursor/spawn order — the realized tree (`parent`/`children` are
 
 ##### total
 
-> `readonly` **total**: [`Spend`](#spend)
+> `readonly` **total**: [`Spend`](#spend-1)
 
 The root's rolled-up spend — the whole run's conserved total (tokens + usd + iterations + ms).
 
@@ -7961,176 +7978,6 @@ impl lives in `trajectory.ts`. Pure over the reports — no I/O.
 
 Max fractional spread (spread/median) per channel for arms to count as equal-k. Default in
  the impl (e.g. 0.05). A tighter tolerance = a stricter equal-compute claim.
-
-***
-
-### PromotionGateOptions
-
-#### Properties
-
-##### report
-
-> **report**: [`BenchmarkReport`](#benchmarkreport)
-
-The HOLDOUT report — must carry per-task cells for both strategy names.
-
-##### incumbent
-
-> **incumbent**: `string`
-
-The incumbent champion's strategy name.
-
-##### candidate
-
-> **candidate**: `string`
-
-The challenger's strategy name.
-
-##### mode?
-
-> `optional` **mode?**: `"superiority"` \| `"non-inferiority"`
-
-'superiority' (default): the candidate must score significantly BETTER.
- 'non-inferiority': the candidate must prove its score is not worse than the
- incumbent by more than `scoreTolerance` AND its cost savings are significant —
- the gate for "same quality, cheaper" claims.
-
-##### scoreTolerance?
-
-> `optional` **scoreTolerance?**: `number`
-
-non-inferiority: the score CI lower bound must clear −scoreTolerance. Default 0.05.
-
-##### deltaThreshold?
-
-> `optional` **deltaThreshold?**: `number`
-
-The CI lower bound on the paired lift must EXCEED this (score scale). Default 0.
-
-##### minPairedTasks?
-
-> `optional` **minPairedTasks?**: `number`
-
-Minimum paired tasks before significance can be claimed. Default 6 — below that
- the bootstrap CI is too wide to separate a real lift from the per-task noise.
-
-##### statistic?
-
-> `optional` **statistic?**: `"mean"` \| `"median"`
-
-Bootstrap statistic over the paired deltas. Default 'mean'.
-
-##### seed?
-
-> `optional` **seed?**: `number`
-
-Fixed by the substrate by default — the same report always yields the same verdict.
-
-##### resamples?
-
-> `optional` **resamples?**: `number`
-
-***
-
-### PromotionVerdict
-
-#### Properties
-
-##### promoted
-
-> **promoted**: `boolean`
-
-##### reason
-
-> **reason**: `"identical-champion"` \| `"few-tasks"` \| `"no-margin"` \| `"significant"` \| `"non-inferior-and-cheaper"` \| `"non-inferiority-unproven"` \| `"not-cheaper"` \| `"cost-unknown"`
-
-##### mode
-
-> **mode**: `"superiority"` \| `"non-inferiority"`
-
-##### n
-
-> **n**: `number`
-
-Paired tasks that carried both strategies' cells.
-
-##### lift
-
-> **lift**: `object`
-
-Paired (candidate − incumbent) lift across the holdout tasks. `low` and `high`
- are the bounds that carried the decision; `mean` and `median` are diagnostics.
-
-###### mean
-
-> **mean**: `number`
-
-###### median
-
-> **median**: `number`
-
-###### low
-
-> **low**: `number`
-
-###### high
-
-> **high**: `number`
-
-##### costSavings?
-
-> `optional` **costSavings?**: `object`
-
-non-inferiority mode: paired (incumbent − candidate) cost savings per task (usd).
- Positive means the candidate is cheaper; `low` and `high` carried the decision.
-
-###### mean
-
-> **mean**: `number`
-
-###### median
-
-> **median**: `number`
-
-###### low
-
-> **low**: `number`
-
-###### high
-
-> **high**: `number`
-
-##### costUnknownTasks?
-
-> `optional` **costUnknownTasks?**: `string`[]
-
-non-inferiority mode: the tasks whose dollars were not measured on at least one arm.
- Present only with `reason: 'cost-unknown'`; naming them is what makes the refusal
- actionable instead of a bare no.
-
-##### latency?
-
-> `optional` **latency?**: `object`
-
-Paired (candidate − incumbent) wall-clock per task (ms) — negative = the candidate
- is FASTER. Informational in every mode (never gates); the latency answer to "what
- does this win actually cost the user?".
-
-###### mean
-
-> **mean**: `number`
-
-###### median
-
-> **median**: `number`
-
-###### low
-
-> **low**: `number`
-
-###### high
-
-> **high**: `number`
 
 ***
 
@@ -11458,7 +11305,7 @@ Execution substrate. All behavior comes from the profile.
 
 > `optional` **fallbackProfile?**: `AgentProfile`
 
-Optional exact fallback identity.
+Exact fallback identity, tried once when the primary call fails or writes no module.
 
 ***
 
@@ -11470,54 +11317,127 @@ Optional exact fallback identity.
 
 > **environment**: [`AgenticSurface`](#agenticsurface)
 
-##### tasks
+##### train
 
-> **tasks**: (`offset`, `n`) => `Promise`\<[`AgenticTask`](#agentictask)[]\>
+> **train**: [`AgenticTask`](#agentictask)[]
 
-Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
- offset range. Train draws [0, trainN); the holdout draws [trainN + holdoutOffset,
- …) — tasks the search never touched.
+Tasks the author learns from: it reads every strategy's results on them.
 
-###### Parameters
+##### selection
 
-###### offset
+> **selection**: [`AgenticTask`](#agentictask)[]
 
-`number`
+Private tasks the policy and allocator rank strategies on. The author never sees them.
 
-###### n
+##### test
 
-`number`
+> **test**: [`AgenticTask`](#agentictask)[]
 
-###### Returns
+Sealed tasks: the claim runs the root and at most 3 finalists on them, together, once.
 
-`Promise`\<[`AgenticTask`](#agentictask)[]\>
+##### claim
 
-##### trainN
+> **claim**: `object`
 
-> **trainN**: `number`
+What the numbers may claim. `independentUnit` is a path into each task, for example
+`id`, or `meta.repo` when tasks from one repository are not independent. The power
+check needs `minimumEffect`.
 
-##### holdoutN
+##### executionRef
 
-> **holdoutN**: `number`
+> **executionRef**: `` `sha256:${string}` ``
 
-##### holdoutOffset?
-
-> `optional` **holdoutOffset?**: `number`
-
-Extra offset past the train slice for the holdout draw (rotate across runs).
+Digest of what the ledger cannot see: the environment's code and state, the root's
+code, transports and callbacks. Change it whenever one of them changes.
 
 ##### worker
 
 > **worker**: [`AgenticOptions`](#agenticoptions)
 
+##### author
+
+> **author**: [`EvolutionAuthor`](#evolutionauthor)
+
+##### root?
+
+> `optional` **root?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>
+
+The strategy to beat and the tree's root. Default `refine`.
+
+##### budget?
+
+> `optional` **budget?**: `number`
+
+Rollouts (sample) or shots (refine) per strategy per task. Default 3.
+
+##### maxExpansions?
+
+> `optional` **maxExpansions?**: `number`
+
+Strategies the author writes. Default 4.
+
+##### policy?
+
+> `optional` **policy?**: `SearchPolicy`
+
+Which strategy each authoring extends. Default `beam({ width: 2 })`.
+
+##### allocation?
+
+> `optional` **allocation?**: `SearchAllocator`
+
+Where cells go. Default `asha()`. `uniform()` runs every strategy on every train and
+selection task. The allocator's `reps` are every split's repeats, the claim's included.
+
+##### concurrency?
+
+> `optional` **concurrency?**: `number`
+
+Cells that run at once. Default 3.
+
+##### maxUsd?
+
+> `optional` **maxUsd?**: `number`
+
+Dollar cap on committed spend plus open holds. Default none.
+
+##### cellUsd?
+
+> `optional` **cellUsd?**: `number`
+
+Prior dollar hold for one cell, until 20 cells settle. Default 0.
+
+##### deadline?
+
+> `optional` **deadline?**: `string`
+
+ISO time after which the search stops authoring and claims.
+
+##### maxAttempts?
+
+> `optional` **maxAttempts?**: `number`
+
+Attempts per cell when the environment faults. Default 3.
+
+##### seed?
+
+> `optional` **seed?**: `number`
+
+Seeds the allocator's task permutation. Default 42.
+
+##### outDir
+
+> **outDir**: `string`
+
+The search's directory is `<outDir>/<searchId>`: its ledger, blobs and authored
+modules. Authored modules import `@tangle-network/agent-runtime/kernel`, so `outDir`
+must sit inside a project that resolves it, under a TypeScript-capable loader.
+
 ##### modelPreflight?
 
 > `optional` **modelPreflight?**: `false` \| ((`model`, `worker`, `signal`) => `Promise`\<`void`\>)
 
-Model availability check before the first benchmark phase.
-
-A successful check is reused for the remaining phases in this evolution run.
-See `BenchmarkConfig.modelPreflight`.
+Model availability check before the search runs. See `BenchmarkConfig.modelPreflight`.
 
 ##### modelPreflightTimeoutMs?
 
@@ -11525,210 +11445,21 @@ See `BenchmarkConfig.modelPreflight`.
 
 Maximum time for each model availability check. Default 30 seconds.
 
-##### author
-
-> **author**: [`EvolutionAuthor`](#evolutionauthor)
-
-##### budget?
-
-> `optional` **budget?**: `number`
-
-Rollouts (sample) / shots (refine) per strategy per task. Default 3.
-
-##### concurrency?
-
-> `optional` **concurrency?**: `number`
-
-##### generations?
-
-> `optional` **generations?**: `number`
-
-Author→tournament rounds after gen0. Default 2.
-
-##### populationSize?
-
-> `optional` **populationSize?**: `number`
-
-Authored candidates per generation. Default 2.
-
-##### baselines?
-
-> `optional` **baselines?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>[]
-
-The gen0 field. Default [sample, refine, sampleThenRefine].
-
-##### objective?
-
-> `optional` **objective?**: `"cost"` \| `"score"`
-
-What "better" means for PROMOTION. 'score' (default): the candidate must beat the
- incumbent's score (superiority gate). 'cost': the candidate must prove score
- NON-INFERIORITY (not worse by more than `scoreTolerance`) plus significant cost
- savings — the "same quality, cheaper" objective. The author is told the objective
- and sees per-task spend either way.
-
-##### scoreTolerance?
-
-> `optional` **scoreTolerance?**: `number`
-
-Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0.05.
-
-##### champion?
-
-> `optional` **champion?**: [`ChampionPolicy`](#championpolicy)
-
-Search-side champion selection. Default 'costAware'.
-
-##### championEpsilon?
-
-> `optional` **championEpsilon?**: `number`
-
-Score band treated as a tie under 'costAware'. Default 0.01.
-
-##### outDir
-
-> **outDir**: `string`
-
-Where authored modules are written.
-
-##### minPairedTasks?
-
-> `optional` **minPairedTasks?**: `number`
-
-Promotion-gate evidence floor (paired holdout tasks).
-
-##### band?
-
-> `optional` **band?**: `object`
-
-BAND-AWARE scoring — concentrate the measurement where lift is possible.
- Holdout: draw `holdoutPoolN` candidate tasks and run `baselines[0]` once at the run
- budget as an INDEPENDENT reference screen; keep tasks scoring ≤ `maxRefScore`
- (headroom exists) and take the first `holdoutN`. Band membership is decided before
- either finalist touches a task and both finalists then face the SAME tasks — the
- estimand becomes "paired lift on headroom tasks", pre-registered by this config.
- Train: champion selection ignores zero-spread tasks (every field strategy scored
- identically — zero selection information, pure noise dilution).
-
-###### holdoutPoolN
-
-> **holdoutPoolN**: `number`
-
-###### maxRefScore?
-
-> `optional` **maxRefScore?**: `number`
-
-Keep holdout tasks where the reference scores ≤ this. Default 0.99 — drop only
- tasks the reference already solves fully (no headroom, a candidate can only tie).
-
-##### lossesDetail?
-
-> `optional` **lossesDetail?**: `"exact"` \| `"binary"`
-
-What the author learns from a tournament. 'exact' (default) = scores + progressions
- per task; 'binary' = pass/fail only — the leakage-bounded channel (one bit per cell
- per generation reaches the author from the evaluation data).
-
-##### reproducerCheck?
-
-> `optional` **reproducerCheck?**: `object`
-
-Reproducer certification (arXiv:2606.11045): when the final champion is AUTHORED,
- compress it to a short natural-language summary, have a fresh author re-implement
- from the summary alone (no losses, no code), and score the reproduction on the same
- holdout. A reproduction gap is an overfitting signal (their detector: 100%
- sensitivity / 91% specificity in the ML-agent setting) — recorded on the report,
- never gate-blocking in v1.
-
-###### summaryMaxWords?
-
-> `optional` **summaryMaxWords?**: `number`
-
-Word budget for the strategy summary. Default 64.
-
-###### tolerance?
-
-> `optional` **tolerance?**: `number`
-
-Reproduction counts as faithful when reproducedScore ≥ championScore − tolerance.
- Default 0.05.
-
-##### checkpoint?
-
-> `optional` **checkpoint?**: `object`
-
-Endurance: write the run state after every completed phase; with `resume`, a
- restart skips completed phases (authored modules re-imported from their files).
- Worst case after a mid-run death is re-paying ONE phase, never the run.
-
-###### path
-
-> **path**: `string`
-
-###### resume?
-
-> `optional` **resume?**: `boolean`
-
-###### executionRef
-
-> **executionRef**: `` `sha256:${string}` ``
-
-Digest of execution dependencies: environment, baseline code, transports, callbacks,
-and external state such as a corpus. Update it when any dependency changes.
-Runtime hashes profiles, settings, JSON task payloads, and authored bytes separately;
-it cannot infer callback behavior or external state.
-
-##### onPhase?
-
-> `optional` **onPhase?**: (`phase`) => `Promise`\<`void`\>
-
-Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reproduce).
- The seam for environment recycling — no artifacts span phases, so a runner may
- recreate a wedge-prone environment container here.
-
-###### Parameters
-
-###### phase
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### onTask?
-
-> `optional` **onTask?**: (`phase`, `row`, `done`, `total`) => `void`
-
-###### Parameters
-
-###### phase
-
-`string`
-
-###### row
-
-[`BenchmarkTaskRow`](#benchmarktaskrow)
-
-###### done
-
-`number`
-
-###### total
-
-`number`
-
-###### Returns
-
-`void`
-
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Aborting pauses the search once running cells settle; call again to continue.
+
 ***
 
-### ChampionPick
+### EvolutionStrategy
+
+One strategy the search registered, as the ledger records it.
 
 #### Properties
 
@@ -11736,191 +11467,122 @@ Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reprodu
 
 > **name**: `string`
 
-##### score
+Unique within the report: the strategy's name, suffixed `~<ordinal>` on a collision.
 
-> **score**: `number`
+##### nodeId
 
-##### usd
+> **nodeId**: `string`
 
-> **usd**: `number`
+##### parent
 
-***
+> **parent**: `string` \| `null`
 
-### EvolutionCandidate
-
-#### Properties
-
-##### name
-
-> **name**: `string`
-
-##### file?
-
-> `optional` **file?**: `string`
-
-##### sourceSha256?
-
-> `optional` **sourceSha256?**: `` `sha256:${string}` ``
-
-Digest of the exact authored module evaluated in this generation.
-
-##### gzipBits?
-
-> `optional` **gzipBits?**: `number`
-
-##### codeChars?
-
-> `optional` **codeChars?**: `number`
-
-##### error?
-
-> `optional` **error?**: `string`
-
-Present when this author attempt failed (recorded, never silent).
-
-***
-
-### EvolutionGeneration
-
-#### Properties
-
-##### generation
-
-> **generation**: `number`
-
-##### candidates
-
-> **candidates**: [`EvolutionCandidate`](#evolutioncandidate)[]
-
-##### report
-
-> **report**: [`BenchmarkReport`](#benchmarkreport)
-
-##### champion
-
-> **champion**: [`ChampionPick`](#championpick)
-
-***
-
-### EvolutionArchiveNode
-
-#### Properties
-
-##### name
-
-> **name**: `string`
+The name of the strategy it was authored from; null for the root.
 
 ##### source
 
-> **source**: `"baseline"` \| `"authored"`
+> **source**: `"root"` \| `"authored"`
 
-##### generation
+##### status
 
-> **generation**: `number`
+> **status**: `"rejected"` \| `"advanced"` \| `"pruned"` \| `"invalid"` \| `"finalist"` \| `"selected"` \| `null`
 
-##### parent?
+The node's latest decision; null while undecided.
 
-> `optional` **parent?**: `string`
+##### code
 
-The champion whose tournament losses this candidate was authored from.
+> **code**: `string` \| `null`
 
-##### gzipBits?
+The authored module's source; null for the root.
 
-> `optional` **gzipBits?**: `number`
+##### gzipBits
 
-##### file?
+> **gzipBits**: `number` \| `null`
 
-> `optional` **file?**: `string`
+Description length of the authored source in gzip bits; null for the root.
+
+##### refusal
+
+> **refusal**: `string` \| `null`
+
+Why admission refused the module; null when admitted.
+
+##### selection
+
+> **selection**: `NodeEstimate` \| `null`
+
+Paired contrast against the root on the selection split; null for the root.
+
+***
+
+### TournamentCell
+
+One strategy on one task at one repeat: the settled cell's final attempt.
+
+#### Properties
 
 ##### score
 
-> **score**: `number`
+> **score**: `number` \| `null`
 
-Latest measured tournament result — 0 until the node's first tournament settles
- (an authored node is created before its generation's benchmark runs).
+Null when the cell ended unscored (an environment fault with no attempt left).
+
+##### outcome
+
+> **outcome**: `"failed"` \| `"passed"` \| `"errored"`
 
 ##### usd
 
 > **usd**: `number`
 
-***
+Known dollars plus proven floors of unknown ones.
 
-### ReproductionCheck
+##### usdKnown
 
-#### Properties
-
-##### summary
-
-> **summary**: `string`
-
-The compressed strategy description the reproducer implemented from.
-
-##### reproducedName
-
-> **reproducedName**: `string`
-
-##### file?
-
-> `optional` **file?**: `string`
-
-##### championHoldoutScore
-
-> **championHoldoutScore**: `number`
-
-##### reproducedHoldoutScore
-
-> **reproducedHoldoutScore**: `number`
-
-##### gap
-
-> **gap**: `number`
-
-champion − reproduced (positive = the reproduction fell short).
-
-##### reproducible
-
-> **reproducible**: `boolean`
-
-reproducedScore ≥ championScore − tolerance. A failed reproduction is an
- overfitting signal: the champion's win did not fit through the summary.
-
-##### error?
-
-> `optional` **error?**: `string`
-
-Infra failure during reproduction (distinct from a semantic reproduction failure).
+> **usdKnown**: `boolean`
 
 ***
 
-### EvolutionBandInfo
+### TournamentRow
 
 #### Properties
 
-##### screened
-
-> **screened**: `number`
-
-Tasks screened by the reference on the holdout pool.
-
-##### inBand
-
-> **inBand**: `number`
-
-Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN.
-
-##### refScores
-
-> **refScores**: `object`[]
-
-Reference scores per screened task (the screening record).
-
-###### taskId
+##### taskId
 
 > **taskId**: `string`
 
-###### score
+##### unitId
 
-> **score**: `number`
+> **unitId**: `string`
+
+##### rep
+
+> **rep**: `number`
+
+##### cells
+
+> **cells**: `Record`\<`string`, [`TournamentCell`](#tournamentcell)\>
+
+***
+
+### StrategyTournament
+
+Every settled cell of one split, by task and strategy. Strategies measured on different
+tasks have unpaired means; compare them with the paired `selection` estimates.
+
+#### Properties
+
+##### split
+
+> **split**: `SearchSplit`
+
+##### rows
+
+> **rows**: [`TournamentRow`](#tournamentrow)[]
+
+##### perStrategy
+
+> **perStrategy**: `Record`\<`string`, \{ `cells`: `number`; `scored`: `number`; `score`: `number` \| `null`; `usd`: `number`; `usdKnown`: `boolean`; \}\>
 
 ***
 
@@ -11928,71 +11590,77 @@ Reference scores per screened task (the screening record).
 
 #### Properties
 
-##### gen0
+##### searchId
 
-> **gen0**: [`BenchmarkReport`](#benchmarkreport)
+> **searchId**: `string`
 
-##### gen0Champion
+##### ledger
 
-> **gen0Champion**: [`ChampionPick`](#championpick)
+> **ledger**: `string`
 
-##### generations
+The search ledger: the only record and checkpoint.
 
-> **generations**: [`EvolutionGeneration`](#evolutiongeneration)[]
+##### closeReason
 
-##### archive
+> **closeReason**: `SearchCloseReason`
 
-> **archive**: [`EvolutionArchiveNode`](#evolutionarchivenode)[]
+##### strategies
 
-##### finalChampion
+> **strategies**: [`EvolutionStrategy`](#evolutionstrategy)[]
 
-> **finalChampion**: [`ChampionPick`](#championpick)
+Root first, in registration order.
 
-##### holdout
+##### selected
 
-> **holdout**: [`BenchmarkReport`](#benchmarkreport)
+> **selected**: [`EvolutionStrategy`](#evolutionstrategy)
 
-##### verdict
+The strategy the search keeps: the claim's selection, else the root.
 
-> **verdict**: [`PromotionVerdict`](#promotionverdict)
+##### claim
 
-##### band?
+> **claim**: `SearchClaim`
 
-> `optional` **band?**: [`EvolutionBandInfo`](#evolutionbandinfo)
+##### claimVerification
 
-Present when band screening ran — the verdict's estimand is then "paired lift on
- headroom tasks" (band membership fixed by the reference screen, pre-registered).
+> **claimVerification**: `SearchClaimVerification`
 
-##### reproduction?
+##### decision
 
-> `optional` **reproduction?**: [`ReproductionCheck`](#reproductioncheck)
+> **decision**: `"ship"` \| `"hold"`
 
-Present when reproducerCheck ran (final champion was authored).
+`ship` only when the claim shipped, re-derives from the ledger, every cost is known, and
+the shipped finalist's test lower bound is above zero.
 
-##### trajectory
+##### reason
 
-> **trajectory**: `object`[]
+> **reason**: `string`
 
-SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
- re-measurement, so cross-generation deltas mix true drift with run-to-run variance
- (entries are unpaired across generations). The only evidence-grade comparison in
- this report is `verdict` — both finalists measured fresh, paired, on the holdout.
+##### tournament
 
-###### generation
+> **tournament**: `Record`\<`SearchSplit`, [`StrategyTournament`](#strategytournament)\>
 
-> **generation**: `number`
+##### spend
 
-###### champion
+> **spend**: `object`
 
-> **champion**: `string`
+Known dollars, proven floors of unknown ones, and how many cells and operations (an
+authoring an interrupted process lost, for example) have an unknown cost.
 
-###### score
+###### knownUsd
 
-> **score**: `number`
+> **knownUsd**: `number`
 
-###### usd
+###### floorUsd
 
-> **usd**: `number`
+> **floorUsd**: `number`
+
+###### unknownCostCells
+
+> **unknownCostCells**: `number`
+
+###### unknownCostOperations
+
+> **unknownCostOperations**: `number`
 
 ***
 
@@ -13240,7 +12908,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 ###### Inherited from
 
-[`StrategyResult`](#strategyresult-1).[`score`](#score-10)
+[`StrategyResult`](#strategyresult-1).[`score`](#score-9)
 
 ##### resolved
 
@@ -14054,7 +13722,7 @@ while the public readout remains explicitly unknown.
 
 ##### committed?
 
-> `readonly` `optional` **committed?**: [`Spend`](#spend)
+> `readonly` `optional` **committed?**: [`Spend`](#spend-1)
 
 ##### uncertainReservations?
 
@@ -14141,7 +13809,7 @@ a dollar cap, or unknown or overflowing usage of an enforced resource.
 
 ###### spent
 
-[`Spend`](#spend)
+[`Spend`](#spend-1)
 
 ###### Returns
 
@@ -14149,7 +13817,7 @@ a dollar cap, or unknown or overflowing usage of an enforced resource.
 
 ##### spendFrom()
 
-> **spendFrom**(`events`): `Promise`\<[`Spend`](#spend)\>
+> **spendFrom**(`events`): `Promise`\<[`Spend`](#spend-1)\>
 
 Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
  `addTokenUsage`, usd on its own channel, iterations from `'iteration'` events.
@@ -14163,7 +13831,7 @@ Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
 
 ###### Returns
 
-`Promise`\<[`Spend`](#spend)\>
+`Promise`\<[`Spend`](#spend-1)\>
 
 ##### readout()
 
@@ -14192,7 +13860,7 @@ only makes the live `readout()` reflect driver inference for the in-loop guard.
 
 ###### spend
 
-[`Spend`](#spend)
+[`Spend`](#spend-1)
 
 ###### options?
 
@@ -15008,7 +14676,7 @@ The finding, stated as a claim about the run.
 
 ###### Inherited from
 
-[`PanelFinding`](#panelfinding).[`claim`](#claim-1)
+[`PanelFinding`](#panelfinding).[`claim`](#claim-3)
 
 ##### citations
 
@@ -17029,7 +16697,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-25)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-26)
 
 ##### execution?
 
@@ -20818,11 +20486,11 @@ Ask the box to stop the running execution on this exact session and report what 
 
 ##### artifact()
 
-> **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); \} \| `undefined`
+> **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); \} \| `undefined`
 
 ###### Returns
 
-\{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); \} \| `undefined`
+\{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); \} \| `undefined`
 
 ##### teardown()
 
@@ -21142,11 +20810,11 @@ Prior committed spend summed off the journal (settled child work + metered infer
 
 ###### priorSpend.childWork
 
-> `readonly` **childWork**: [`Spend`](#spend)
+> `readonly` **childWork**: [`Spend`](#spend-1)
 
 ###### priorSpend.driverInference
 
-> `readonly` **driverInference**: [`Spend`](#spend)
+> `readonly` **driverInference**: [`Spend`](#spend-1)
 
 ***
 
@@ -22861,7 +22529,7 @@ Concrete Scope node that owns this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`nodeId`](#nodeid-4)
+[`SupervisorNodeContext`](#supervisornodecontext).[`nodeId`](#nodeid-5)
 
 ##### ownerId
 
@@ -24209,7 +23877,7 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 
 ###### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ###### teardown?
 
@@ -24232,7 +23900,7 @@ Valid after `execute` resolves or throws; ordinary leaf executors omit it.
 
 ##### metered()?
 
-> `optional` **metered**(): [`Spend`](#spend) \| `undefined`
+> `optional` **metered**(): [`Spend`](#spend-1) \| `undefined`
 
 A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
 events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
@@ -24243,7 +23911,7 @@ executors omit it (returns `undefined`).
 
 ###### Returns
 
-[`Spend`](#spend) \| `undefined`
+[`Spend`](#spend-1) \| `undefined`
 
 ##### harnessTranscript()?
 
@@ -24336,11 +24004,11 @@ reconciled against its parent reservation.
 
 ##### reported
 
-> `readonly` **reported**: [`Spend`](#spend)
+> `readonly` **reported**: [`Spend`](#spend-1)
 
 ##### reservation
 
-> `readonly` **reservation**: [`Spend`](#spend)
+> `readonly` **reservation**: [`Spend`](#spend-1)
 
 ***
 
@@ -24384,7 +24052,7 @@ Explicit execution outcome; application output and scoring verdicts do not deter
 
 ##### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ##### teardown?
 
@@ -25544,7 +25212,7 @@ metered event is cost-critical, so it lands before the join-barrier roll-up).
 
 ###### spend
 
-[`Spend`](#spend)
+[`Spend`](#spend-1)
 
 ###### detail?
 
@@ -25662,11 +25330,11 @@ journal replay reads: every `settled` child's reconciled spend (`childWork`) plu
 
 ###### childWork
 
-> `readonly` **childWork**: [`Spend`](#spend)
+> `readonly` **childWork**: [`Spend`](#spend-1)
 
 ###### driverInference
 
-> `readonly` **driverInference**: [`Spend`](#spend)
+> `readonly` **driverInference**: [`Spend`](#spend-1)
 
 ***
 
@@ -25790,7 +25458,7 @@ Epoch ms of the spawn journal record; absent when legacy evidence lacks a parsea
 
 ##### spent
 
-> `readonly` **spent**: [`Spend`](#spend)
+> `readonly` **spent**: [`Spend`](#spend-1)
 
 Conserved spend so far for this node.
 
@@ -26645,7 +26313,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-31)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-32)
 
 ##### abort()
 
@@ -30830,7 +30498,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ##### root
 
-[`NodeId`](#nodeid-7)
+[`NodeId`](#nodeid-8)
 
 ##### options?
 
@@ -31080,12 +30748,6 @@ Prompt options forwarded to every sandbox prompt turn in this run. The
 runtime owns `sessionId` and `signal` so callers cannot accidentally break
 resume or cancellation semantics while still setting backend-level prompt
 controls such as `timeoutMs`.
-
-***
-
-### ChampionPolicy
-
-> **ChampionPolicy** = `"score"` \| `"costAware"`
 
 ***
 
@@ -31443,13 +31105,13 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ### GraphEdge
 
-> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-7); `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-7)\>; `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-8); `to`: [`NodeId`](#nodeid-8); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-8)\>; `to`: [`NodeId`](#nodeid-8); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-7); `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \}
+\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-8); `to`: [`NodeId`](#nodeid-8); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \}
 
 Work flows down. The delegation directive is DATA → versionable, sweepable, optimizable.
  Each spawn of `to` by `from` — and each mid-run steer from `from` to a live `to` worker —
@@ -31461,11 +31123,11 @@ Work flows down. The delegation directive is DATA → versionable, sweepable, op
 
 ###### from
 
-> `readonly` **from**: [`NodeId`](#nodeid-7)
+> `readonly` **from**: [`NodeId`](#nodeid-8)
 
 ###### to
 
-> `readonly` **to**: [`NodeId`](#nodeid-7)
+> `readonly` **to**: [`NodeId`](#nodeid-8)
 
 ###### directive
 
@@ -31495,7 +31157,7 @@ Default continuity for this edge's SPAWN traversals. `'resume'` makes every spaw
 
 ##### Type Literal
 
-\{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-7)\>; `to`: [`NodeId`](#nodeid-7); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+\{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-8)\>; `to`: [`NodeId`](#nodeid-8); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
 
 Findings flow anywhere: an analyst over N nodes' settled traces, delivered to ONE node.
  With a LENS analyst the directive wraps the findings for the recipient; with a NODE analyst
@@ -31518,11 +31180,11 @@ The analyst REFERENCE, in one of two forms: a lens id resolved against
 
 ###### over
 
-> `readonly` **over**: `ReadonlyArray`\<[`NodeId`](#nodeid-7)\>
+> `readonly` **over**: `ReadonlyArray`\<[`NodeId`](#nodeid-8)\>
 
 ###### to
 
-> `readonly` **to**: [`NodeId`](#nodeid-7)
+> `readonly` **to**: [`NodeId`](#nodeid-8)
 
 ###### directive
 
@@ -32272,7 +31934,7 @@ child nobody joins.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-7); `reason`: `string`; \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-8); `reason`: `string`; \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
@@ -32291,7 +31953,7 @@ recovery before a replacement can run.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `reason`: `string`; `outRef?`: `string`; `infra?`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: [`RetainedExecutionState`](#retainedexecutionstate); `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -32307,7 +31969,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `subtree?`: [`SubtreeSummary`](#subtreesummary); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -32331,7 +31993,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ###### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ###### providerModel?
 
@@ -32481,13 +32143,13 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-8); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-8); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-8); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-8); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-8); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-8); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-8); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-8); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-8); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-8); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-8); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-8); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-8); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-8); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-7); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-7); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-8); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-8); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32495,11 +32157,11 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### parent?
 
-> `optional` **parent?**: [`NodeId`](#nodeid-7)
+> `optional` **parent?**: [`NodeId`](#nodeid-8)
 
 ###### label
 
@@ -32520,7 +32182,7 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 
 ###### successorOf?
 
-> `optional` **successorOf?**: [`NodeId`](#nodeid-7)
+> `optional` **successorOf?**: [`NodeId`](#nodeid-8)
 
 The settled sibling node this spawn replaces (`SpawnOpts.successorOf`).
 
@@ -32545,7 +32207,7 @@ records that set none.
 
 ###### ownedTreeRoot?
 
-> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-7)
+> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-8)
 
 Exact nested journal tree this node owns. Runtime writes this only after privately
 attesting the executor as a recursive scope owner. Its absence means no tree is followed,
@@ -32578,7 +32240,7 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
 
 ##### Type Literal
 
-\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-7); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-8); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32588,7 +32250,7 @@ Exact task bytes durable before admitting a retained invocation.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### taskRef
 
@@ -32606,7 +32268,7 @@ Exact task bytes durable before admitting a retained invocation.
 
 ##### Type Literal
 
-\{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-7); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-8); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32616,7 +32278,7 @@ Credential-free retained-provider admission, committed before the next external 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### admission
 
@@ -32634,7 +32296,7 @@ Credential-free retained-provider admission, committed before the next external 
 
 ##### Type Literal
 
-\{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-7); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32654,7 +32316,7 @@ Recoverable output committed before releasing its provider environment.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### outRef
 
@@ -32662,7 +32324,7 @@ Recoverable output committed before releasing its provider environment.
 
 ###### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ###### verdict?
 
@@ -32680,7 +32342,7 @@ Recoverable output committed before releasing its provider environment.
 
 ##### Type Literal
 
-\{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-7); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-8); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32691,7 +32353,7 @@ only by digest; descriptor fields are safe structural labels, never credential-b
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### binding
 
@@ -32709,7 +32371,7 @@ only by digest; descriptor fields are safe structural labels, never credential-b
 
 ##### Type Literal
 
-\{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-7); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-8); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32719,7 +32381,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### receipt
 
@@ -32737,7 +32399,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-7); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-8); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32745,7 +32407,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### status
 
@@ -32763,7 +32425,7 @@ Content-addressed result pointer; rehydrates `out` from `ResultBlobStore`.
 
 ###### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ###### providerModel?
 
@@ -32846,7 +32508,7 @@ The bounded account of the team this child led, when it led one.
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-7); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-8); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32854,7 +32516,7 @@ The bounded account of the team this child led, when it led one.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### reason
 
@@ -32870,7 +32532,7 @@ The bounded account of the team this child led, when it led one.
 
 ###### spent?
 
-> `optional` **spent?**: [`Spend`](#spend)
+> `optional` **spent?**: [`Spend`](#spend-1)
 
 ###### providerModel?
 
@@ -32924,7 +32586,7 @@ The bounded account of the team this child led, when it led one.
 
 ##### Type Literal
 
-\{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32936,7 +32598,7 @@ GRAPH ENGINE fold input: the exact inputs one node instance was given, pinned by
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 The engine instance label (`<node>#<visit>`), which the matching `spawned` also carries.
 
@@ -32964,7 +32626,7 @@ The engine instance label (`<node>#<visit>`), which the matching `spawned` also 
 
 ##### Type Literal
 
-\{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-7); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-8); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -32977,7 +32639,7 @@ GRAPH ENGINE fold input: what the scheduler DECIDED about one edge on one source
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### edge
 
@@ -33019,7 +32681,7 @@ A consumption the traversal cap refused: the edge stays satisfied, the target ma
 
 ##### Type Literal
 
-\{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-7); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33030,7 +32692,7 @@ GRAPH ENGINE fold input: one join release — which gating edges produced it and
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### node
 
@@ -33066,7 +32728,7 @@ The instance this release entered (`<node>#<visit>`).
 
 ##### Type Literal
 
-\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-7); `parent?`: [`NodeId`](#nodeid-7); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33079,11 +32741,11 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### parent?
 
-> `optional` **parent?**: [`NodeId`](#nodeid-7)
+> `optional` **parent?**: [`NodeId`](#nodeid-8)
 
 ###### label
 
@@ -33109,7 +32771,7 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ##### Type Literal
 
-\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-7); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-8); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33122,7 +32784,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### by
 
@@ -33148,7 +32810,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ##### Type Literal
 
-\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33164,11 +32826,11 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### spend
 
-> **spend**: [`Spend`](#spend)
+> **spend**: [`Spend`](#spend-1)
 
 ###### accountingOnly?
 
@@ -33194,7 +32856,7 @@ Runtime-owned provider attempt evidence for this driver's own inference turn.
 
 ##### Type Literal
 
-\{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-7); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33207,11 +32869,11 @@ without charging the same spend twice.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### spend
 
-> **spend**: [`Spend`](#spend)
+> **spend**: [`Spend`](#spend-1)
 
 ###### seq
 
@@ -33225,7 +32887,7 @@ without charging the same spend twice.
 
 ##### Type Literal
 
-\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-7); `spent`: [`Spend`](#spend); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-8); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33249,11 +32911,11 @@ A retained child's reservation was reconciled at the child-work floor its execut
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### spent
 
-> **spent**: [`Spend`](#spend)
+> **spent**: [`Spend`](#spend-1)
 
 ###### harnessTranscript?
 
@@ -33332,7 +32994,7 @@ Present iff the child had a `RunCancellationReason` when it settled; decides `se
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33347,7 +33009,7 @@ A settled child whose executor teardown stayed unconfirmed after the settlement 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### label
 
@@ -33399,7 +33061,7 @@ Why the last attempt did not confirm destruction.
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-7); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33416,7 +33078,7 @@ A settled node whose teardown was unconfirmed when the join barrier opened its
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### label
 
@@ -33466,7 +33128,7 @@ Why the last attempt before the window did not confirm destruction.
 
 ##### Type Literal
 
-\{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-7); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-8); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33477,7 +33139,7 @@ A `teardown-pending` node whose teardown a retry inside the settlement window co
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### seq
 
@@ -33491,7 +33153,7 @@ A `teardown-pending` node whose teardown a retry inside the settlement window co
 
 ##### Type Literal
 
-\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33516,7 +33178,7 @@ One provider environment a settled retained-pending child held, released at root
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### provider
 
@@ -33546,7 +33208,7 @@ One provider environment a settled retained-pending child held, released at root
 
 ##### Type Literal
 
-\{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33558,7 +33220,7 @@ Informational, like `workspace-checkpoint`.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### provider
 
@@ -33588,7 +33250,7 @@ Informational, like `workspace-checkpoint`.
 
 ##### Type Literal
 
-\{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33604,7 +33266,7 @@ A durable checkpoint of a retained owner's workspace, taken while its manager co
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### provider
 
@@ -33636,7 +33298,7 @@ The environment the checkpoint was taken from.
 
 ##### Type Literal
 
-\{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33647,7 +33309,7 @@ Informational, like `workspace-checkpoint`.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### provider
 
@@ -33677,7 +33339,7 @@ Informational, like `workspace-checkpoint`.
 
 ##### Type Literal
 
-\{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-7); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33690,7 +33352,7 @@ A new environment of a retained owner was created from a `workspace-checkpoint`,
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### provider
 
@@ -33732,7 +33394,7 @@ The environment the checkpoint was taken from.
 
 ##### Type Literal
 
-\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-7); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33746,7 +33408,7 @@ One GRAPH-EDGE traversal (`runGraph`): what the runtime actually DELIVERED acros
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 The destination node when known (a spawned worker's id), else `graph:<node>`.
 
@@ -33823,7 +33485,7 @@ Why a non-`delivered` outcome happened, when the runtime knows.
 
 ##### Type Literal
 
-\{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-7); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-8); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33838,7 +33500,7 @@ A spawned worker ran WITHOUT the run's trace context because its backend has no 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### expectedTraceId
 
@@ -33868,7 +33530,7 @@ The worker-execution backend that has no propagation channel.
 
 ##### Type Literal
 
-\{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-7); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-8); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -33882,7 +33544,7 @@ A manager's driver turn was refused by an unavailable upstream (an exhausted quo
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-7)
+> **id**: [`NodeId`](#nodeid-8)
 
 ###### attempt
 
@@ -33989,7 +33651,7 @@ settles on the ordinary path and the recorded-result path writes no marker.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & \{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -34003,7 +33665,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \}
 
 ###### kind
 
@@ -34027,7 +33689,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ###### spentTotal
 
-> **spentTotal**: [`Spend`](#spend)
+> **spentTotal**: [`Spend`](#spend-1)
 
 The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journal sums;
  `ms` is the wall clock from supervise start (the ORIGINAL root instant on a resumed run)
@@ -34106,11 +33768,11 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ###### spentBreakdown.driverInference
 
-> **driverInference**: [`Spend`](#spend)
+> **driverInference**: [`Spend`](#spend-1)
 
 ###### spentBreakdown.childWork
 
-> **childWork**: [`Spend`](#spend)
+> **childWork**: [`Spend`](#spend-1)
 
 ***
 
@@ -34120,7 +33782,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
 
 ###### kind
 
@@ -34147,7 +33809,7 @@ result; this arm is that configuration/authoring fault, named.
 
 ###### spentTotal
 
-> **spentTotal**: [`Spend`](#spend)
+> **spentTotal**: [`Spend`](#spend-1)
 
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
@@ -34460,7 +34122,7 @@ Provider-neutral conversation record accepted by a tool-loop brain.
 
 ### ToolLoopChat
 
-> **ToolLoopChat** = (`messages`, `tools`, `context?`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `resources?`: [`Spend`](#spend)\[`"resources"`\]; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
+> **ToolLoopChat** = (`messages`, `tools`, `context?`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `resources?`: [`Spend`](#spend-1)\[`"resources"`\]; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
 
 One inference turn over the running conversation + the tool specs → the model's text, any
  tool calls, and token usage. The seam every brain satisfies.
@@ -34481,7 +34143,7 @@ One inference turn over the running conversation + the tool specs → the model'
 
 #### Returns
 
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `resources?`: [`Spend`](#spend)\[`"resources"`\]; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
+`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `resources?`: [`Spend`](#spend-1)\[`"resources"`\]; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
 
 ***
 
@@ -37199,24 +36861,6 @@ AgentProfile, execution route, retries, usage, and finite execution evidence.
 
 ***
 
-### promotionGate()
-
-> **promotionGate**(`opts`): [`PromotionVerdict`](#promotionverdict)
-
-Statistical promotion decision over a holdout benchmark using the outcome-appropriate interval selected by `heldoutSignificance`.
-
-#### Parameters
-
-##### opts
-
-[`PromotionGateOptions`](#promotiongateoptions)
-
-#### Returns
-
-[`PromotionVerdict`](#promotionverdict)
-
-***
-
 ### resolveSandboxClient()
 
 > **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-6)
@@ -38183,7 +37827,7 @@ Static CONTRACT lint over an authored strategy module — the module-boundary
 > **authorStrategy**(`opts`): `Promise`\<[`AuthoredStrategy`](#authoredstrategy)\>
 
 Author + load a strategy from losses. Throws when the author emits no loadable module;
- with `fallbackModel` set, the named fallback gets one attempt first.
+ with `fallbackProfile` set, the fallback gets one attempt first.
 
 #### Parameters
 
@@ -38197,98 +37841,11 @@ Author + load a strategy from losses. Throws when the author emits no loadable m
 
 ***
 
-### discriminatingMeans()
-
-> **discriminatingMeans**(`report`, `fieldOrder`): `Record`\<`string`, \{ `score`: `number`; `usd`: `number`; \}\> \| `null`
-
-Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field
- strategies did not all score identically. Zero-spread tasks (everyone 1.0, everyone
- 0.0, everyone tied) carry no selection information; averaging over them dilutes real
- differences toward zero. Search-side denoising only — the gate never uses this.
-
-#### Parameters
-
-##### report
-
-[`BenchmarkReport`](#benchmarkreport)
-
-##### fieldOrder
-
-`string`[]
-
-#### Returns
-
-`Record`\<`string`, \{ `score`: `number`; `usd`: `number`; \}\> \| `null`
-
-***
-
-### pickChampion()
-
-> **pickChampion**(`means`, `fieldOrder`, `policy`, `epsilon`): [`ChampionPick`](#championpick)
-
-The champion pick over a means table. 'score' takes the best mean score (ties →
- field order). 'costAware' treats scores within `epsilon` of the best as tied and
- takes the cheapest — the (score, $) Pareto rule collapsed to one pick.
-
-#### Parameters
-
-##### means
-
-`Record`\<`string`, \{ `score`: `number`; `usd`: `number`; \}\>
-
-##### fieldOrder
-
-`string`[]
-
-##### policy
-
-[`ChampionPolicy`](#championpolicy)
-
-##### epsilon
-
-`number`
-
-#### Returns
-
-[`ChampionPick`](#championpick)
-
-***
-
-### selectChampion()
-
-> **selectChampion**(`report`, `fieldOrder`, `policy`, `epsilon`): [`ChampionPick`](#championpick)
-
-Search-side champion selection over a tournament report.
-
-#### Parameters
-
-##### report
-
-[`BenchmarkReport`](#benchmarkreport)
-
-##### fieldOrder
-
-`string`[]
-
-##### policy
-
-[`ChampionPolicy`](#championpolicy)
-
-##### epsilon
-
-`number`
-
-#### Returns
-
-[`ChampionPick`](#championpick)
-
-***
-
 ### runStrategyEvolution()
 
 > **runStrategyEvolution**(`cfg`): `Promise`\<[`EvolutionReport`](#evolutionreport)\>
 
-Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice.
+Evolve a strategy on the search kernel and claim once on the sealed test split.
 
 #### Parameters
 
@@ -38299,6 +37856,33 @@ Multi-generation strategy search: author candidates from tournament losses, play
 #### Returns
 
 `Promise`\<[`EvolutionReport`](#evolutionreport)\>
+
+***
+
+### strategyTournament()
+
+> **strategyTournament**(`state`, `split`, `names`): [`StrategyTournament`](#strategytournament)
+
+The tournament on one split, projected from the ledger: each settled cell's final attempt,
+by task and repeat, keyed by strategy name. `names` maps node ids to report names.
+
+#### Parameters
+
+##### state
+
+`SearchStateView`
+
+##### split
+
+`SearchSplit`
+
+##### names
+
+`ReadonlyMap`\<`string`, `string`\>
+
+#### Returns
+
+[`StrategyTournament`](#strategytournament)
 
 ***
 
@@ -38941,7 +38525,7 @@ Turn a [ProfileRichness](#profilerichness) verdict into a bus-routable `AnalystF
 
 ### spendFromUsageEvents()
 
-> **spendFromUsageEvents**(`events`): [`Spend`](#spend)
+> **spendFromUsageEvents**(`events`): [`Spend`](#spend-1)
 
 Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
  channels; iterations come from `'iteration'` events. Pure; `ms` stays zero (the
@@ -38955,7 +38539,7 @@ Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
 
 #### Returns
 
-[`Spend`](#spend)
+[`Spend`](#spend-1)
 
 ***
 
@@ -41349,7 +40933,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \}\>
 
 **`Stable`**
 
@@ -41371,7 +40955,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}\>
+`Promise`\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"aborted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"budget-exhausted"`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](durable.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \}\>
 
 ***
 
@@ -42312,7 +41896,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-34), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-35), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

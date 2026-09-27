@@ -3712,7 +3712,7 @@ Backend bindings for each attempt, in durable oldest-first order.
 
 ##### spent?
 
-> `readonly` `optional` **spent?**: [`Spend`](runtime.md#spend)
+> `readonly` `optional` **spent?**: [`Spend`](runtime.md#spend-1)
 
 Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown.
 
@@ -6107,7 +6107,7 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ### DelegateResult
 
-> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `error?`: [`DelegateError`](#delegateerror); `spentTotal`: [`Spend`](runtime.md#spend); \}
+> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](runtime.md#spend-1); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `error?`: [`DelegateError`](#delegateerror); `spentTotal`: [`Spend`](runtime.md#spend-1); \}
 
 The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  the no-winner reason) PLUS the conserved spend of the whole delegation.
