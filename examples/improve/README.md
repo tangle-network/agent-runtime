@@ -40,12 +40,12 @@ The kernel grows a tree of prompt candidates, measures each on the train and sel
 Run it again with the same `runDir` and it continues the search from its ledger; a finished search returns without running anything.
 
 ```text
-nodes 8, edges 9, cells 196, claim ship
-decision: ship (finalist node_36b2… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
-test lift 0.227 [0.207, 0.247]
+nodes 8, edges 9, cells 224, claim ship
+decision: ship (finalist node_3052… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
+test lift 0.237 [0.217, 0.255]
 ```
 
-The planted rules add 0.22 to every task, and the claim's interval covers it.
+The three positive rules add 0.22 to every task, and the claim's interval covers it.
 
 ## What the call owns
 
