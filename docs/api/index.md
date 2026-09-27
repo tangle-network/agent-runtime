@@ -3778,10 +3778,12 @@ Default `incumbent()`: the hill climb.
 
 > `optional` **allocation?**: `SearchAllocator`
 
-Where cells go. Default `asha()`: successive halving over one seeded
-permutation of the selection units, so every contrast pairs on shared
-units; `uniform()` runs every node on every task. Its `reps` are every
-split's repeats, the claim's included.
+Where cells go. Default `uniform()`: every node runs every train and
+selection task, which the `incumbent()` hill climb needs to see each
+result on the leader's units. `asha()` (successive halving over one
+seeded permutation of the selection units) spends fewer cells and pairs
+with policies that rank screened nodes. Its `reps` are every split's
+repeats, the claim's included.
 
 ##### childrenPerProposal?
 
