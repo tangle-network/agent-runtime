@@ -223,7 +223,11 @@ async function main(): Promise<void> {
     )
   }
   console.log(`decision: ${report.decision} (${report.reason}); kept ${report.selected.name}`)
-  console.log(`spend: $${report.spend.knownUsd.toFixed(4)} known`)
+  const { spend } = report
+  const unknown = spend.unknownCostCells + spend.unknownCostOperations
+  console.log(
+    `spend: $${spend.knownUsd.toFixed(4)} known${unknown > 0 ? `, ${unknown} unknown (floor $${spend.floorUsd.toFixed(4)})` : ''}`,
+  )
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

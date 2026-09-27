@@ -210,7 +210,14 @@ export interface EvolutionReport {
   decision: 'ship' | 'hold'
   reason: string
   tournament: Record<SearchSplit, StrategyTournament>
-  spend: { knownUsd: number; floorUsd: number; unknownCostCells: number }
+  /** Known dollars, proven floors of unknown ones, and how many cells and operations (an
+   * authoring an interrupted process lost, for example) have an unknown cost. */
+  spend: {
+    knownUsd: number
+    floorUsd: number
+    unknownCostCells: number
+    unknownCostOperations: number
+  }
 }
 
 /** A search node: the caller's root, or an authored module and why admission refused it. */
@@ -655,6 +662,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       knownUsd: spend.knownUsd,
       floorUsd: spend.floorUsd,
       unknownCostCells: spend.unknownCostCells,
+      unknownCostOperations: spend.unknownCostOperations,
     },
   }
 }
