@@ -8030,7 +8030,7 @@ environment, not the profile, ended the run; the kernel then runs a fresh attemp
 
 ##### workerSlots?
 
-> `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-6)
+> `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-7)
 
 Bounds working cells across every search that shares this allocator.
 

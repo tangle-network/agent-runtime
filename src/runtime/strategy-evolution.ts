@@ -22,7 +22,9 @@ import { gzipSync } from 'node:zlib'
 import {
   asha,
   beam,
+  createRunCostLedger,
   estimateNode,
+  fsCampaignStorage,
   type NodeEstimate,
   openSearchLedger,
   renderSearchSummary,
@@ -35,7 +37,6 @@ import {
   type SearchClaimVerification,
   type SearchCloseReason,
   type SearchExecutionIdentity,
-  type SearchExecutor,
   type SearchNodeStatus,
   type SearchPolicy,
   type SearchProposerPort,
@@ -65,6 +66,11 @@ import {
   sha256Bytes,
 } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
+import {
+  dedicatedLane,
+  reconcileInterruptedSearchCalls,
+  searchExecutor,
+} from '../improvement/search-executor'
 import { runtimeShipDecision } from '../improvement/search-method'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { type BenchmarkConfig, type Environment, preflightModels } from './run-benchmark'
@@ -83,6 +89,7 @@ import {
 } from './strategy-author'
 import { concreteModelId } from './supervise/model-policy'
 import type { ExecutorConfig } from './supervise/runtime'
+import type { WorkerSlots } from './supervise/worker-slots'
 
 export interface EvolutionAuthor {
   /** Exact author identity. */
@@ -142,6 +149,8 @@ export interface StrategyEvolutionConfig {
   /** Maximum time for each model availability check. Default 30 seconds. */
   modelPreflightTimeoutMs?: BenchmarkConfig['modelPreflightTimeoutMs']
   hooks?: RuntimeHooks
+  /** Bound working cells across every search that shares this allocator. */
+  workerSlots?: WorkerSlots
   /** Aborting pauses the search once running cells settle; call again to continue. */
   signal?: AbortSignal
 }
@@ -233,7 +242,7 @@ const STRATEGY_EVOLUTION_DEFINITION = {
   edge: 'a text diff from the parent module source to the child; unknown from the root, which has no source here',
   admission:
     'a module is refused when the reply carries none, it breaks the author contract, or it does not load a default Strategy',
-  cell: 'one runAgentic run on one task; an environment fault during it is errored and retried, a thrown strategy is failed at score 0, anything else passed at its harness-verified score',
+  cell: 'one runAgentic run on one task, metered as one paid call on the search cost ledger through the Runtime search executor; an environment fault during it is errored and retried, a thrown strategy is failed at score 0, anything else passed at its harness-verified score',
   proposer:
     'the author reads the strategy contract, the task tools, the train summary, the train results of every strategy and the parent source',
   ship: 'the claim shipped, re-derives from the ledger, cost accounting is complete, and the shipped finalist test lower bound exceeds 0',
@@ -454,13 +463,22 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     return strategy
   }
 
-  const lane = 'in-process'
-  const executor: SearchExecutor<StrategyNode> = {
-    lanes: () => [{ name: lane, capacity: concurrency, costCap: 'estimate', cellUsd }],
-    place: () => lane,
-    // A cell leaves no record outside the ledger, so an interrupted one runs again.
-    adopt: async () => null,
-    async run(work): Promise<SearchCellResult> {
+  // Cells run in this process on one dedicated lane of Runtime's search executor, which
+  // records each finished attempt under its run id (a restarted search adopts it instead of
+  // running it again), meters it through the search's cost ledger, and traces it.
+  const storage = fsCampaignStorage()
+  const costLedger = createRunCostLedger({ storage, runDir: searchDir })
+  const lanes = [dedicatedLane({ name: 'in-process', capacity: concurrency, cellUsd })]
+  await reconcileInterruptedSearchCalls(costLedger, searchId, lanes)
+  const executor = searchExecutor<StrategyNode>({
+    lanes,
+    profileOf: () => workerProfile,
+    costLedger,
+    identity: execution,
+    storage,
+    dir: searchDir,
+    ...(cfg.workerSlots ? { workerSlots: cfg.workerSlots } : {}),
+    async runAttempt({ work, lane, costLedger: cellLedger }): Promise<SearchCellResult> {
       if (work.artifact.kind === 'authored' && work.artifact.refusal !== null) {
         throw new Error(`evolution: refused node ${work.nodeId} was given a cell`)
       }
@@ -469,50 +487,68 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       if (!task) throw new Error(`evolution: cell ${work.cellId} names unknown task ${work.taskId}`)
       const faults: string[] = []
       const environment = faultRecording(cfg.environment, faults)
-      const settled = { identity: execution, placement: { lane: work.lane, boxId: null } }
-      const traceRef = { unknown: 'runAgentic keeps its spawn journal in memory' }
-      try {
-        const run = await runAgentic({
-          ...cfg.worker,
-          surface: environment,
-          task,
-          strategy,
-          budget,
-          ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
-        })
-        const accounting = runAccounting(run)
-        if (faults.length > 0) {
-          return { ...settled, ...environmentFault(faults), accounting, wallMs: run.ms, traceRef }
-        }
-        return {
-          ...settled,
-          outcome: {
-            status: 'passed',
-            score: run.score,
-            metrics: { resolved: run.resolved ? 1 : 0, shots: run.shots },
-          },
-          accounting,
-          wallMs: run.ms,
-          traceRef,
-        }
-      } catch (error) {
-        const accounting = unknownAccounting('the run threw before it reported its spend')
-        if (faults.length > 0)
-          return { ...settled, ...environmentFault(faults), accounting, traceRef }
+      // The whole run is one paid call on the attempt's ledger, so its measured spend is the
+      // attempt's accounting, and a run a killed process left pending settles as unknown.
+      const paid = await cellLedger.runPaidCall({
+        channel: 'agent',
+        phase: `search.${work.stage}`,
+        actor: `strategy:${strategy.name}`,
+        model: workerModel,
+        signal: work.signal,
+        execute: () =>
+          runAgentic({
+            ...cfg.worker,
+            surface: environment,
+            task,
+            strategy,
+            budget,
+            ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
+          }),
+        receipt: (run) => ({
+          model: workerModel,
+          inputTokens: run.tokens.input,
+          outputTokens: run.tokens.output,
+          ...(run.usdKnown ? { actualCostUsd: run.usd } : { costUnknown: true }),
+          ...(run.tokensKnown ? {} : { usageUnknown: true }),
+        }),
+        receiptFromError: () => ({
+          model: workerModel,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUnknown: true,
+          usageUnknown: true,
+        }),
+      })
+      const settled = {
+        identity: execution,
+        placement: { lane: lane.name, boxId: null },
+        // The executor replaces this with the receipts the ledger holds for the attempt.
+        accounting: unknownAccounting('replaced by the attempt receipts'),
+        ...(paid.succeeded ? { wallMs: paid.value.ms } : {}),
+      }
+      if (faults.length > 0) return { ...settled, ...environmentFault(faults) }
+      if (!paid.succeeded) {
         return {
           ...settled,
           outcome: {
             status: 'failed',
             score: 0,
             metrics: {},
-            failure: { code: 'strategy-threw', message: shareText(error) },
+            failure: { code: 'strategy-threw', message: shareText(paid.error) },
           },
-          accounting,
-          traceRef,
         }
       }
+      const run = paid.value
+      return {
+        ...settled,
+        outcome: {
+          status: 'passed',
+          score: run.score,
+          metrics: { resolved: run.resolved ? 1 : 0, shots: run.shots },
+        },
+      }
     },
-  }
+  })
 
   let toolCatalog: Promise<string> | undefined
   const catalog = (): Promise<string> => {
@@ -762,31 +798,6 @@ function environmentFault(faults: string[]): Pick<SearchCellResult, 'outcome'> {
       metrics: {},
       error: { code: 'environment-fault', message: faults[0]!, retryable: true },
     },
-  }
-}
-
-function runAccounting(run: {
-  usd: number
-  usdKnown: boolean
-  tokens: { input: number; output: number }
-  tokensKnown: boolean
-}): SearchAttemptAccounting {
-  return {
-    tokens: run.tokensKnown
-      ? {
-          status: 'known',
-          inputTokens: run.tokens.input,
-          outputTokens: run.tokens.output,
-          cachedTokens: 0,
-        }
-      : { status: 'unknown', reason: 'a call in the run reported no token usage' },
-    cost: run.usdKnown
-      ? { status: 'known', usd: run.usd, source: run.usd === 0 ? 'free' : 'provider' }
-      : {
-          status: 'unknown',
-          knownLowerBoundUsd: run.usd,
-          reason: 'a call in the run reported no billed cost',
-        },
   }
 }
 

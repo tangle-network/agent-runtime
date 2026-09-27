@@ -6549,7 +6549,7 @@ Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retry
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-7)
 
 Forwarded to `SupervisorOpts.workerSlots`: the tree-wide bound on simultaneously working
  agents; spawns past it queue. Omit to bound concurrency by the budget alone.
@@ -11448,6 +11448,12 @@ Maximum time for each model availability check. Default 30 seconds.
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
+
+##### workerSlots?
+
+> `optional` **workerSlots?**: [`WorkerSlots`](#workerslots-7)
+
+Bound working cells across every search that shares this allocator.
 
 ##### signal?
 
@@ -17188,7 +17194,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-7)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -17198,7 +17204,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`workerSlots`](#workerslots-4)
+[`SuperviseOptions`](#superviseoptions).[`workerSlots`](#workerslots-5)
 
 ##### watchWorkers?
 
@@ -20675,7 +20681,7 @@ Runtime recursion-depth ceiling — a spawn past it fails closed `depth-exceeded
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: [`WorkerSlots`](#workerslots-6)
+> `readonly` `optional` **workerSlots?**: [`WorkerSlots`](#workerslots-7)
 
 The allocator that bounds concurrently working agents across this scope, every nested scope,
  and every other tree that shares it. Absent means no bound: only the budget limits concurrency.
@@ -21929,7 +21935,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-7)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -25834,7 +25840,7 @@ Recursion ceiling (root = 0). The conserved pool bounds depth; this only stops a
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](#workerslots-7)
 
 The bound on concurrently working agents across the whole tree, as a number or as an
  allocator from `createWorkerSlots` that several runs share. A spawn past it waits in a queue
@@ -41748,7 +41754,7 @@ without reimplementing the two proofs.
 
 ### createWorkerSlots()
 
-> **createWorkerSlots**(`max?`): [`WorkerSlots`](#workerslots-6)
+> **createWorkerSlots**(`max?`): [`WorkerSlots`](#workerslots-7)
 
 Create a worker-slot allocator. `max` omitted, `0`, or negative leaves concurrency bounded by the
 budget alone, and every spawn starts at once. Pass the returned allocator as `workerSlots` to each
@@ -41762,7 +41768,7 @@ run that should share one bound.
 
 #### Returns
 
-[`WorkerSlots`](#workerslots-6)
+[`WorkerSlots`](#workerslots-7)
 
 ***
 

@@ -1135,7 +1135,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-7)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -1145,7 +1145,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-5)
 
 ##### watchWorkers?
 
@@ -2131,7 +2131,7 @@ Opt-in owner share: every manager, the root included, keeps this fraction of its
 
 ##### workerSlots?
 
-> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-6)
+> `readonly` `optional` **workerSlots?**: `number` \| [`WorkerSlots`](runtime.md#workerslots-7)
 
 Bound on concurrently WORKING agents across the whole recursive tree: a number, or one
  `createWorkerSlots` allocator that several runs in this process share. A spawn past it keeps
@@ -2141,7 +2141,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`workerSlots`](runtime.md#workerslots-5)
 
 ##### analysts?
 
