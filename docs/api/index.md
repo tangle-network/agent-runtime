@@ -958,6 +958,44 @@ Missing optional Python dependencies for an official optimizer.
 
 ***
 
+### SearchEnvironmentFault
+
+The environment, not the candidate, ended the attempt: a box that died, a platform that
+refused the run, a quota. The attempt settles `errored` and retryable, and the kernel runs a
+fresh attempt up to its `maxAttempts`. Throw anything else for the agent's own failure.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SearchEnvironmentFault**(`message`, `options?`): [`SearchEnvironmentFault`](#searchenvironmentfault)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`SearchEnvironmentFault`](#searchenvironmentfault)
+
+###### Overrides
+
+`Error.constructor`
+
+***
+
 ### InMemoryRuntimeSessionStore
 
 **`Stable`**
@@ -2435,24 +2473,18 @@ Proposals the search may make.
 
 Children one proposal asks for.
 
-##### concurrency
+##### lanes
 
-> `readonly` **concurrency**: `number`
+> `readonly` **lanes**: readonly [`SearchLane`](#searchlane)[]
 
-Cells that run at once, in process.
-
-##### cellUsd
-
-> `readonly` **cellUsd**: `number`
-
-Prior cost of one cell, held as its estimate reservation until 20 cells settle.
+Where cells run, with each lane's capacity and cost rule.
 
 ##### claimReserveUsd
 
 > `readonly` **claimReserveUsd**: `number` \| `null`
 
 Dollars held from the start for the claim's test cells; at least the
-root and 3 finalists on every test task at `cellUsd` a cell.
+root and 3 finalists on every test task at the largest lane `cellUsd`.
 
 ##### deadline
 
@@ -3750,6 +3782,223 @@ Receipt attribution phase supplied alongside `costLedger`.
 
 ***
 
+### SearchLane
+
+An execution lane: slots that share one cost rule, and the profiles they cannot run.
+
+#### Extends
+
+- `SearchLane`
+
+#### Extended by
+
+- [`SharedBoxSearchLane`](#sharedboxsearchlane)
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+###### Overrides
+
+`KernelSearchLane.name`
+
+##### kind
+
+> `readonly` **kind**: [`SearchLaneKind`](#searchlanekind)
+
+##### capacity
+
+> `readonly` **capacity**: `number`
+
+Cells the lane runs at once.
+
+###### Overrides
+
+`KernelSearchLane.capacity`
+
+##### costCap
+
+> `readonly` **costCap**: `"hard"` \| `"estimate"`
+
+`hard`: the lane enforces `cellUsd` as each cell's maximum. `estimate`:
+it cannot, and the kernel holds an estimate, recording any overshoot.
+
+###### Overrides
+
+`KernelSearchLane.costCap`
+
+##### cellUsd
+
+> `readonly` **cellUsd**: `number`
+
+The enforced per-cell maximum of a hard lane; the prior estimate of an
+estimate lane until it has settled enough cells to estimate its own.
+
+###### Overrides
+
+`KernelSearchLane.cellUsd`
+
+#### Methods
+
+##### refusal()
+
+> **refusal**(`profile`): `string` \| `undefined`
+
+Why this lane cannot run `profile`, or undefined when it can.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`string` \| `undefined`
+
+***
+
+### SharedBoxSearchLane
+
+A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles.
+
+#### Extends
+
+- [`SearchLane`](#searchlane)
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+###### Inherited from
+
+[`SearchLane`](#searchlane).[`name`](#name-2)
+
+##### capacity
+
+> `readonly` **capacity**: `number`
+
+Cells the lane runs at once.
+
+###### Inherited from
+
+[`SearchLane`](#searchlane).[`capacity`](#capacity)
+
+##### costCap
+
+> `readonly` **costCap**: `"hard"` \| `"estimate"`
+
+`hard`: the lane enforces `cellUsd` as each cell's maximum. `estimate`:
+it cannot, and the kernel holds an estimate, recording any overshoot.
+
+###### Inherited from
+
+[`SearchLane`](#searchlane).[`costCap`](#costcap)
+
+##### cellUsd
+
+> `readonly` **cellUsd**: `number`
+
+The enforced per-cell maximum of a hard lane; the prior estimate of an
+estimate lane until it has settled enough cells to estimate its own.
+
+###### Inherited from
+
+[`SearchLane`](#searchlane).[`cellUsd`](#cellusd)
+
+##### kind
+
+> `readonly` **kind**: `"shared-box"`
+
+###### Overrides
+
+[`SearchLane`](#searchlane).[`kind`](#kind-2)
+
+##### placement
+
+> `readonly` **placement**: [`SharedBoxPlacement`](runtime.md#sharedboxplacement)
+
+#### Methods
+
+##### refusal()
+
+> **refusal**(`profile`): `string` \| `undefined`
+
+Why this lane cannot run `profile`, or undefined when it can.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`string` \| `undefined`
+
+###### Inherited from
+
+[`SearchLane`](#searchlane).[`refusal`](#refusal)
+
+***
+
+### SearchCellContext
+
+What the agent of one attempt knows about where and as what it runs.
+
+#### Properties
+
+##### searchId
+
+> `readonly` **searchId**: `string`
+
+##### cellId
+
+> `readonly` **cellId**: `string`
+
+##### nodeId
+
+> `readonly` **nodeId**: `string`
+
+##### taskId
+
+> `readonly` **taskId**: `string`
+
+##### split
+
+> `readonly` **split**: `SearchSplit`
+
+##### stage
+
+> `readonly` **stage**: `SearchCellStage`
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+`cellId:attempt`. It is the same after a restart, so key remote work by it: a request sent
+ again with the same run id must return the first execution's result, not start a second.
+
+##### lane
+
+> `readonly` **lane**: [`SearchLane`](#searchlane)
+
+##### trace
+
+> `readonly` **trace**: \{ `traceId`: `string`; `spanId`: `string`; \} \| `null`
+
+The attempt's trace. Parent your own spans on `spanId`. Null when tracing is off.
+
+***
+
 ### SearchMethodOptions
 
 #### Properties
@@ -3788,31 +4037,28 @@ units and 2 train units, and the top third of each rung advances to twice
 the units. `uniform()` runs every node on every train and selection task.
 The allocator's `reps` are every split's repeats, the claim's included.
 
+##### lanes
+
+> **lanes**: readonly [`SearchLane`](#searchlane)[]
+
+Where cells run: `sharedBoxLane`, `dedicatedLane`, `subscriptionLane`
+or `routerLane`. Each cell goes to a lane that accepts the node's profile,
+in proportion to capacity; a hard lane caps each cell's paid calls at its
+`cellUsd`, and an estimate lane holds `cellUsd` until 20 of its cells
+settle. The search runs at most the lanes' total capacity at once.
+
 ##### childrenPerProposal?
 
 > `optional` **childrenPerProposal?**: `number`
 
 Children one proposal asks for. Default 1.
 
-##### concurrency?
-
-> `optional` **concurrency?**: `number`
-
-Cells that run at once. Default 2.
-
-##### cellUsd?
-
-> `optional` **cellUsd?**: `number`
-
-Prior cost of one cell in dollars, held for each cell until 20 cells
-settle and the lane's own costs set the hold. Default 0.
-
 ##### claimReserveUsd?
 
 > `optional` **claimReserveUsd?**: `number`
 
 Dollars held for the claim from the start. Default: the root and 3
-finalists on every test task at `cellUsd` a cell.
+finalists on every test task at the largest lane `cellUsd` a cell.
 
 ##### deadline?
 
@@ -7683,7 +7929,7 @@ What the search improves, recorded as the ledger's subject, for example
 
 ### ImproveSearchOptions
 
-> **ImproveSearchOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"method"` \| `"claim"` \| `"confidence"` \| `"evidence"` \| `"finalEvidence"` \| `"resamples"` \| `"reps"` \| `"maxConcurrency"` \| `"optimizationRunOptions"`\> & `object`
+> **ImproveSearchOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"method"` \| `"claim"` \| `"confidence"` \| `"evidence"` \| `"finalEvidence"` \| `"resamples"` \| `"reps"` \| `"maxConcurrency"` \| `"optimizationRunOptions"` \| `"agent"`\> & `object`
 
 Improve a profile with `searchMethod`. The search runs on all three splits:
 it expands and ranks on train and selection, then claims once on the sealed
@@ -7704,6 +7950,33 @@ The claim the sealed test split decides. `independentUnit` names each
 scenario's unit and `minimumEffect` is the improvement the power check
 must resolve; both are required.
 
+##### agent
+
+> **agent**: [`ImproveSearchAgent`](#improvesearchagent)\<`TScenario`, `TArtifact`\>
+
+Runs the exact node profile on one scenario. `ctx.search` names the attempt: its lane,
+its run id (key remote work by it) and its trace. Throw `SearchEnvironmentFault` when the
+environment, not the profile, ended the run; the kernel then runs a fresh attempt.
+
+##### workerSlots?
+
+> `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-6)
+
+Bounds working cells across every search that shares this allocator.
+
+##### budgetPool?
+
+> `optional` **budgetPool?**: [`BudgetPool`](runtime.md#budgetpool)
+
+Fleet dollars shared across searches: a cell on a hard lane holds its lane's `cellUsd`
+here before it starts, and waits while open cells could return enough.
+
+##### trace?
+
+> `optional` **trace?**: [`SearchTraceOptions`](#searchtraceoptions)
+
+Where cell spans go. Default: `<search dir>/spans.otlp.jsonl` on filesystem storage.
+
 #### Type Parameters
 
 ##### TScenario
@@ -7713,6 +7986,56 @@ must resolve; both are required.
 ##### TArtifact
 
 `TArtifact`
+
+***
+
+### SearchDispatchContext
+
+> **SearchDispatchContext** = `DispatchContext` & `object`
+
+A campaign dispatch context with the search attempt it runs.
+
+#### Type Declaration
+
+##### search
+
+> `readonly` **search**: [`SearchCellContext`](#searchcellcontext)
+
+***
+
+### ImproveSearchAgent
+
+> **ImproveSearchAgent**\<`TScenario`, `TArtifact`\> = (`profile`, `scenario`, `ctx`) => `Promise`\<`TArtifact`\>
+
+The agent of a native search: the exact node profile on one scenario.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Parameters
+
+##### profile
+
+[`ReadonlyAgentProfile`](#readonlyagentprofile)
+
+##### scenario
+
+`TScenario`
+
+##### ctx
+
+[`SearchDispatchContext`](#searchdispatchcontext)
+
+#### Returns
+
+`Promise`\<`TArtifact`\>
 
 ***
 
@@ -7916,6 +8239,23 @@ Override the harness-level validator for this run.
 > **ReadonlyAgentProfile** = [`DeepReadonly`](#deepreadonly)\<`AgentProfile`\>
 
 Complete immutable profile value used during measured execution.
+
+***
+
+### SearchLaneKind
+
+> **SearchLaneKind** = `"shared-box"` \| `"dedicated"` \| `"subscription"` \| `"router"`
+
+What a lane's slots are.
+
+***
+
+### SearchTraceOptions
+
+> **SearchTraceOptions** = `"off"` \| \{ `otlp`: [`OtelExportConfig`](#otelexportconfig); \}
+
+Where a search's cell spans go. Default: one OpenInference file per search when storage is
+ the filesystem. `otlp` gives each attempt its own exporter, so its counts are exact.
 
 ***
 
@@ -9473,6 +9813,140 @@ Persist a detached policy under the profile extension without mutating the input
 #### Returns
 
 `AgentProfile`
+
+***
+
+### sharedBoxLane()
+
+> **sharedBoxLane**(`options`): [`SharedBoxSearchLane`](#sharedboxsearchlane)
+
+Cells as workers packed into shared Sandbox boxes, `workersPerBox` to a box.
+
+Capacity is `boxes × workersPerBox`. The workers of one box share its router key, which caps
+no single worker, so the lane holds an estimate (`cellUsd` is the prior until 20 cells settle).
+A profile the placement refuses (a repository writer, a replaced system prompt, MCP servers,
+hooks, subagents, tool grants) needs another lane. The agent reaches the box through
+`lane.placement.providerFor({ nodeId: ctx.search.runId })`, which names the attempt to the
+router on every call.
+
+#### Parameters
+
+##### options
+
+[`SharedBoxPlacementOptions`](runtime.md#sharedboxplacementoptions) & `object`
+
+#### Returns
+
+[`SharedBoxSearchLane`](#sharedboxsearchlane)
+
+***
+
+### dedicatedLane()
+
+> **dedicatedLane**(`options`): [`SearchLane`](#searchlane)
+
+Cells that each run in their own environment, `capacity` at once. The lane cannot bound a
+cell's dollars, so it holds an estimate: `cellUsd` until 20 cells settle, then 1.5 × the p99
+of its settled cells.
+
+#### Parameters
+
+##### options
+
+###### name?
+
+`string`
+
+###### capacity
+
+`number`
+
+###### cellUsd
+
+`number`
+
+#### Returns
+
+[`SearchLane`](#searchlane)
+
+***
+
+### subscriptionLane()
+
+> **subscriptionLane**(`options`): [`SearchLane`](#searchlane)
+
+Cells on subscription seats, one cell a seat. A seat charges no dollar per call, so its own
+work costs $0 and reports no tokens. `cellUsd` bounds the cell's priced calls, such as its
+judges; every one of them must declare a maximum, and the lane refuses a call past it.
+
+#### Parameters
+
+##### options
+
+###### name?
+
+`string`
+
+###### seats
+
+`number`
+
+###### cellUsd?
+
+`number`
+
+#### Returns
+
+[`SearchLane`](#searchlane)
+
+***
+
+### routerLane()
+
+> **routerLane**(`options`): [`SearchLane`](#searchlane)
+
+Cells whose model calls are priced router calls, `capacity` at once. Every paid call of a
+cell must declare its maximum charge, and the lane refuses a call that would take the cell
+past `cellUsd`, so `cellUsd` is each cell's hard maximum.
+
+#### Parameters
+
+##### options
+
+###### name?
+
+`string`
+
+###### capacity
+
+`number`
+
+###### cellUsd
+
+`number`
+
+#### Returns
+
+[`SearchLane`](#searchlane)
+
+***
+
+### isSearchEnvironmentFault()
+
+> **isSearchEnvironmentFault**(`error`): `boolean`
+
+Whether an attempt's error is the environment's: a `SearchEnvironmentFault`, or a platform,
+ gateway or network failure that a repeated request can change.
+
+#### Parameters
+
+##### error
+
+`unknown`
+
+#### Returns
+
+`boolean`
 
 ***
 

@@ -39,17 +39,19 @@ import {
   type SearchAllocator,
   type SearchArtifactCodec,
   type SearchArtifactRef,
+  type SearchCellResult,
   type SearchClaim,
   type SearchExecutionIdentity,
-  type SearchExecutor,
   type SearchPolicy,
   type SearchProposerPort,
   SearchRecorder,
   type SearchSourceRef,
   type SearchTask,
+  type SearchTaskOutcome,
   type SearchUnknown,
   type SurfaceProposer,
   searchClaimReserveUsd,
+  searchNodeId,
   searchProposalExecution,
   searchProposerView,
   searchReceiptAccounting,
@@ -78,6 +80,12 @@ import type {
   ImproveSearchResult,
 } from './improve-types'
 import { type PreparedProfileImprovement, prepareProfileImprovement } from './profile-improvement'
+import {
+  assertSearchLanes,
+  isSearchEnvironmentFault,
+  type SearchLane,
+  searchExecutor,
+} from './search-executor'
 
 export interface SearchMethodOptions {
   /** Writes each child surface from the parents the policy chose. It reads the
@@ -98,15 +106,16 @@ export interface SearchMethodOptions {
    * the units. `uniform()` runs every node on every train and selection task.
    * The allocator's `reps` are every split's repeats, the claim's included. */
   allocation?: SearchAllocator
+  /** Where cells run: `sharedBoxLane`, `dedicatedLane`, `subscriptionLane`
+   * or `routerLane`. Each cell goes to a lane that accepts the node's profile,
+   * in proportion to capacity; a hard lane caps each cell's paid calls at its
+   * `cellUsd`, and an estimate lane holds `cellUsd` until 20 of its cells
+   * settle. The search runs at most the lanes' total capacity at once. */
+  lanes: readonly SearchLane[]
   /** Children one proposal asks for. Default 1. */
   childrenPerProposal?: number
-  /** Cells that run at once. Default 2. */
-  concurrency?: number
-  /** Prior cost of one cell in dollars, held for each cell until 20 cells
-   * settle and the lane's own costs set the hold. Default 0. */
-  cellUsd?: number
   /** Dollars held for the claim from the start. Default: the root and 3
-   * finalists on every test task at `cellUsd` a cell. */
+   * finalists on every test task at the largest lane `cellUsd` a cell. */
   claimReserveUsd?: number
   /** ISO time after which the search stops expanding and claims. */
   deadline?: string
@@ -146,6 +155,7 @@ export function searchMethod(options: SearchMethodOptions): ImproveSearchMethod 
   if (!name.trim() || name.trim() !== name) {
     throw new ConfigError('searchMethod(): name must be a trimmed non-empty string')
   }
+  assertSearchLanes(options.lanes, 'searchMethod()')
   return Object.freeze({
     kind: 'search' as const,
     name,
@@ -154,8 +164,7 @@ export function searchMethod(options: SearchMethodOptions): ImproveSearchMethod 
     proposer,
     maxExpansions: count('maxExpansions', options.maxExpansions, Number.NaN, 0),
     childrenPerProposal: count('childrenPerProposal', options.childrenPerProposal, 1, 1),
-    concurrency: count('concurrency', options.concurrency, 2, 1),
-    cellUsd: dollars('cellUsd', options.cellUsd) ?? 0,
+    lanes: Object.freeze([...options.lanes]),
     claimReserveUsd: dollars('claimReserveUsd', options.claimReserveUsd),
     deadline: options.deadline === undefined ? null : new Date(options.deadline).toISOString(),
     maxAttempts: count('maxAttempts', options.maxAttempts, 3, 1),
@@ -177,8 +186,10 @@ const SEARCH_METHOD_DEFINITION = {
   node: 'an exact AgentProfile materialized from the baseline and one surface, content-addressed by canonicalAgentProfileDigest; a surface that does not materialize is a node addressed by its surface and refused',
   edge: 'the Interface diffs from the parent profile to the child, stored when they reproduce the child digest',
   admission:
-    'a candidate is refused when it does not materialize, declares training on a test task, fails the caller validator, or carries a credential or private value',
-  cell: 'a one-cell runCampaign of the materialized profile in a directory addressed by its digest; a cached cell is read back, not run again',
+    'a candidate is refused when it does not materialize, declares training on a test task, fails the caller validator, carries a credential or private value, or no lane can run its profile',
+  cell: 'a one-cell runCampaign of the materialized profile in a directory addressed by its digest, on a lane that accepts the profile; a cached cell is read back, not run again; a finished attempt is recorded by run id before it settles and adopted after a restart',
+  lanes:
+    'a hard lane refuses a paid call that declares no priced maximum or would take the cell past its cellUsd; an environment fault settles errored and retryable; a subscription seat reports no tokens and charges no dollars',
   proposer:
     'a SurfaceProposer reads the parents, the train view and the train summary; paid calls it makes are its operation accounting',
   ship: 'the claim shipped, re-derives from the ledger, cost accounting is complete, and the shipped finalist test lower bound exceeds minimumLift',
@@ -221,6 +232,9 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     costLedger: inputCostLedger,
     seed = 42,
     signal,
+    workerSlots,
+    budgetPool,
+    trace,
     ...campaignOptions
   } = opts
   if (!isImproveSearchMethod(method)) {
@@ -239,13 +253,14 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
       throw new ConfigError(`improve(): a search needs at least one of ${name}`)
     }
   }
-  const { allocation, policy } = method
+  const { allocation, policy, lanes } = method
   const reps = allocation.reps
+  const concurrency = lanes.reduce((total, lane) => total + lane.capacity, 0)
   const prepared = prepareProfileImprovement(profile, {
     ...opts,
     seed,
     reps,
-    optimizationRunOptions: { reps, maxConcurrency: method.concurrency },
+    optimizationRunOptions: { reps, maxConcurrency: concurrency },
   })
   const { evaluationRef } = prepared.identity
   const storage: CampaignStorage = campaignOptions.storage ?? fsCampaignStorage()
@@ -290,7 +305,11 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
   }
   const reservedClaimUsd = Math.max(
     method.claimReserveUsd ?? 0,
-    searchClaimReserveUsd({ testTasks: splits.test.length, reps, cellUsd: method.cellUsd }),
+    searchClaimReserveUsd({
+      testTasks: splits.test.length,
+      reps,
+      cellUsd: Math.max(...lanes.map((lane) => lane.cellUsd)),
+    }),
   )
   const recorder = await SearchRecorder.open(
     {
@@ -320,7 +339,7 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
         maxCells: null,
         maxNodes: 1 + method.maxExpansions * method.childrenPerProposal,
         deadline: method.deadline,
-        maxConcurrency: method.concurrency,
+        maxConcurrency: concurrency,
         reservedClaimUsd: costCeiling === undefined ? 0 : reservedClaimUsd,
       },
       containment: null,
@@ -337,7 +356,35 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
       return { surface, profile: null, refusal: refusalText(error) }
     }
   }
-  const codec = profileCodec(prepared)
+  // Placement reads each node's profile to skip the lanes that refuse it, so every node the
+  // ledger holds, and every node this process registers, is known before its cells are placed.
+  const profiles = new Map<string, AgentProfile | null>()
+  const profiled = profileCodec(prepared)
+  const codec: SearchArtifactCodec<ProfileNode> = {
+    node(recorder, node) {
+      const registered = profiled.node(recorder, node)
+      profiles.set(searchNodeId(searchId, registered.artifactDigest), node.profile)
+      return registered
+    },
+    diff: profiled.diff,
+    load(recorder, node) {
+      const loaded = profiled.load(recorder, node)
+      profiles.set(node.nodeId, loaded.profile)
+      return loaded
+    },
+  }
+  for (const node of (await recorder.state()).nodes()) codec.load(recorder, node)
+  const laneRefusal = (nodeProfile: AgentProfile): string | null => {
+    const refusals = lanes.map((lane) => `${lane.name}: ${lane.refusal(nodeProfile)}`)
+    return lanes.some((lane) => lane.refusal(nodeProfile) === undefined)
+      ? null
+      : `no lane can run the profile (${refusals.join('; ')})`
+  }
+  const root = nodeOf(prepared.baselineSurface)
+  if (root.profile) {
+    const refused = laneRefusal(root.profile)
+    if (refused) throw new ConfigError(`improve(): the baseline profile cannot run: ${refused}`)
+  }
   const scenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
   const scenarioIds = new Set<string>()
   for (const scenario of scenarios) {
@@ -346,24 +393,35 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     }
     scenarioIds.add(scenario.id)
   }
-  const lane = 'in-process'
-  const executor: SearchExecutor<ProfileNode> = {
-    lanes: () => [
-      { name: lane, capacity: method.concurrency, costCap: 'estimate', cellUsd: method.cellUsd },
-    ],
-    place: () => lane,
-    // A finished cell is in its campaign's cell cache, so `run` reads it back
-    // instead of dispatching it again.
-    adopt: async () => null,
-    async run(work) {
+  const executor = searchExecutor<ProfileNode>({
+    lanes,
+    profileOf(nodeId) {
+      const known = profiles.get(nodeId)
+      if (known === undefined) throw new Error(`improve(): node ${nodeId} was placed unregistered`)
+      return known
+    },
+    costLedger,
+    identity: execution,
+    storage,
+    dir: searchDir,
+    ...(workerSlots ? { workerSlots } : {}),
+    ...(budgetPool ? { budgetPool } : {}),
+    ...(trace ? { trace } : {}),
+    async runAttempt({ work, lane, context, costLedger: cellLedger, span }) {
       const nodeProfile = work.artifact.profile
       if (!nodeProfile) throw new Error(`improve(): refused node ${work.nodeId} was given a cell`)
       const profileDigest = canonicalAgentProfileDigest(nodeProfile)
+      let fault: unknown
       const campaign = await runCampaign<TScenario, TArtifact>({
         ...(campaignOptions as Omit<
           RunCampaignOptions<TScenario, TArtifact>,
           'scenarios' | 'dispatch'
         >),
+        // A seat's work leaves no receipt, which the campaign would otherwise report as a stub.
+        ...(lane.kind === 'subscription' &&
+        (campaignOptions as { expectUsage?: unknown }).expectUsage === undefined
+          ? { expectUsage: 'off' as const }
+          : {}),
         scenarios,
         judges: prepared.judges,
         seed,
@@ -371,19 +429,31 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
         storage,
         runDir: `${searchDir}/nodes/${profileDigest.slice('sha256:'.length)}`,
         dispatchRef: `improve:${evaluationRef}:${profileDigest}`,
-        dispatch: (scenario, ctx) => agent(nodeProfile, scenario, ctx),
+        async dispatch(scenario, ctx) {
+          try {
+            return await agent(nodeProfile, scenario, { ...ctx, search: context })
+          } catch (error) {
+            if (isSearchEnvironmentFault(error)) fault = error
+            throw error
+          }
+        },
         cellFilter: ({ scenario, rep }) => scenario.id === work.taskId && rep === work.rep,
         resumable: true,
         maxConcurrency: 1,
-        costLedger,
+        costLedger: cellLedger,
         costPhase: `search.${work.stage}`,
+        buildTraceWriter: () => ({ span, flush: async () => {} }),
         signal: work.signal,
       })
       const cell = campaign.cells[0]
       if (!cell) throw new Error(`improve(): cell ${work.cellId} produced no campaign cell`)
-      return campaignCellSearchResult(cell, { execution, lane: work.lane })
+      return laneCellResult(
+        campaignCellSearchResult(cell, { execution, lane: lane.name }),
+        lane,
+        cell.errorStage === 'dispatch' ? fault : undefined,
+      )
     },
-  }
+  })
 
   const { proposer } = method
   const proposerSource: SearchSourceRef = {
@@ -461,15 +531,16 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
       return refusalText(error)
     }
     const paths = privateValuePaths([node.surface])
-    return paths.length === 0
-      ? null
-      : `the surface carries a credential or private value at ${paths.slice(0, 8).join(', ')}`
+    if (paths.length > 0) {
+      return `the surface carries a credential or private value at ${paths.slice(0, 8).join(', ')}`
+    }
+    return laneRefusal(node.profile)
   }
 
   const startedAt = Date.now()
   const result = await runSearch({
     recorder,
-    root: nodeOf(prepared.baselineSurface),
+    root,
     codec,
     policy,
     allocation,
@@ -647,11 +718,46 @@ function searchMethodDescriptor(method: ImproveSearchMethod): unknown {
     proposer: method.proposer.kind,
     maxExpansions: method.maxExpansions,
     childrenPerProposal: method.childrenPerProposal,
-    concurrency: method.concurrency,
-    cellUsd: method.cellUsd,
+    lanes: method.lanes.map(({ name, kind, capacity, costCap, cellUsd }) => ({
+      name,
+      kind,
+      capacity,
+      costCap,
+      cellUsd,
+    })),
     claimReserveUsd: method.claimReserveUsd,
     deadline: method.deadline,
     maxAttempts: method.maxAttempts,
+  }
+}
+
+/**
+ * The lane's facts over the campaign's measurement. An environment fault the agent raised is
+ * retryable: the campaign reports every error as final because it applies its own retry
+ * policy, and the kernel owns retries here. A subscription seat reports no tokens and charges
+ * no dollar, so its tokens are unknown and a cell with no priced call cost nothing.
+ */
+function laneCellResult(
+  result: SearchCellResult,
+  lane: SearchLane,
+  fault: unknown,
+): SearchCellResult {
+  const outcome: SearchTaskOutcome =
+    fault !== undefined && result.outcome.status === 'errored'
+      ? {
+          ...result.outcome,
+          error: { code: 'environment-fault', message: refusalText(fault), retryable: true },
+        }
+      : result.outcome
+  if (lane.kind !== 'subscription') return { ...result, outcome }
+  const { cost } = result.accounting
+  return {
+    ...result,
+    outcome,
+    accounting: {
+      tokens: { status: 'unknown', reason: 'a subscription seat reports no token usage' },
+      cost: cost.status === 'known' && cost.usd === 0 ? { ...cost, source: 'free' } : cost,
+    },
   }
 }
 

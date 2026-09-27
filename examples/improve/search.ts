@@ -24,6 +24,7 @@ import {
   type ImproveSearchResult,
   improve,
   type ReadonlyAgentProfile,
+  routerLane,
   searchMethod,
 } from '@tangle-network/agent-runtime'
 
@@ -144,8 +145,9 @@ export async function runSearchExample(runDir: string): Promise<ImproveSearchRes
     method: searchMethod({
       proposer: ruleProposer,
       maxExpansions: 8,
-      concurrency: 4,
-      cellUsd: 0.0001,
+      // Each cell makes one priced call with an enforced $0.0001 maximum, so the
+      // lane can hold each cell to it.
+      lanes: [routerLane({ capacity: 4, cellUsd: 0.0001 })],
     }),
     claim,
     trainScenarios,
