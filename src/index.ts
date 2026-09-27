@@ -151,6 +151,7 @@ export {
   SearchEnvironmentFault,
   type SearchLane,
   type SearchLaneKind,
+  type SearchLaneOptions,
   type SearchMethodOptions,
   type SearchTraceOptions,
   type SharedBoxSearchLane,

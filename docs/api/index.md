@@ -3858,6 +3858,54 @@ Why this lane cannot run `profile`, or undefined when it can.
 
 `string` \| `undefined`
 
+##### recoverReceipt()?
+
+> `optional` **recoverReceipt**(`call`): `Promise`\<`CostReceiptInput` \| `null`\>
+
+The receipt of a paid call that a process which ended made on this lane, asked of the
+ provider by `call.callId`; null when the provider cannot say. Without it, such a call
+ settles with an unknown cost.
+
+###### Parameters
+
+###### call
+
+`PendingCostCallView`
+
+###### Returns
+
+`Promise`\<`CostReceiptInput` \| `null`\>
+
+***
+
+### SearchLaneOptions
+
+Options every lane builder takes.
+
+#### Properties
+
+##### name?
+
+> `optional` **name?**: `string`
+
+##### recoverReceipt?
+
+> `optional` **recoverReceipt?**: (`call`) => `Promise`\<`CostReceiptInput` \| `null`\>
+
+The receipt of a paid call that a process which ended made on this lane, asked of the
+ provider by `call.callId`; null when the provider cannot say. Without it, such a call
+ settles with an unknown cost.
+
+###### Parameters
+
+###### call
+
+`PendingCostCallView`
+
+###### Returns
+
+`Promise`\<`CostReceiptInput` \| `null`\>
+
 ***
 
 ### SharedBoxSearchLane
@@ -3943,6 +3991,28 @@ Why this lane cannot run `profile`, or undefined when it can.
 ###### Inherited from
 
 [`SearchLane`](#searchlane).[`refusal`](#refusal)
+
+##### recoverReceipt()?
+
+> `optional` **recoverReceipt**(`call`): `Promise`\<`CostReceiptInput` \| `null`\>
+
+The receipt of a paid call that a process which ended made on this lane, asked of the
+ provider by `call.callId`; null when the provider cannot say. Without it, such a call
+ settles with an unknown cost.
+
+###### Parameters
+
+###### call
+
+`PendingCostCallView`
+
+###### Returns
+
+`Promise`\<`CostReceiptInput` \| `null`\>
+
+###### Inherited from
+
+[`SearchLane`](#searchlane).[`recoverReceipt`](#recoverreceipt)
 
 ***
 
@@ -9833,7 +9903,7 @@ router on every call.
 
 ##### options
 
-[`SharedBoxPlacementOptions`](runtime.md#sharedboxplacementoptions) & `object`
+[`SharedBoxPlacementOptions`](runtime.md#sharedboxplacementoptions) & [`SearchLaneOptions`](#searchlaneoptions) & `object`
 
 #### Returns
 
@@ -9853,17 +9923,7 @@ of its settled cells.
 
 ##### options
 
-###### name?
-
-`string`
-
-###### capacity
-
-`number`
-
-###### cellUsd
-
-`number`
+[`SearchLaneOptions`](#searchlaneoptions) & `object`
 
 #### Returns
 
@@ -9883,17 +9943,7 @@ judges; every one of them must declare a maximum, and the lane refuses a call pa
 
 ##### options
 
-###### name?
-
-`string`
-
-###### seats
-
-`number`
-
-###### cellUsd?
-
-`number`
+[`SearchLaneOptions`](#searchlaneoptions) & `object`
 
 #### Returns
 
@@ -9913,17 +9963,7 @@ past `cellUsd`, so `cellUsd` is each cell's hard maximum.
 
 ##### options
 
-###### name?
-
-`string`
-
-###### capacity
-
-`number`
-
-###### cellUsd
-
-`number`
+[`SearchLaneOptions`](#searchlaneoptions) & `object`
 
 #### Returns
 

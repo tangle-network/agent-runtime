@@ -273,6 +273,13 @@ A transient platform failure (a 502, 503 or 504, a dropped connection) counts as
 Runtime records every finished attempt under its run id before the kernel settles it.
 A search restarted after a crash adopts a finished attempt instead of running it again.
 
+Every paid call a search makes is tagged with the search and with the attempt or proposal that made it.
+An attempt's cost is every call tagged with its run id, including calls a killed process made for the same attempt.
+A process killed during a paid call leaves that call pending, and the cost ledger refuses new paid work while one is unresolved.
+A reopened search therefore settles its interrupted calls before it runs anything.
+A lane built with `recoverReceipt(call)` asks its provider what `call.callId` was billed; forward the call id your paid call's `execute` receives as the provider's idempotency key.
+Without `recoverReceipt`, or when the provider cannot answer, the call settles failed with an unknown cost, and the search reports its accounting incomplete.
+
 Several searches in one process can share two fleet bounds, both from `@tangle-network/agent-runtime/kernel`:
 
 - `workerSlots: createWorkerSlots(n)` bounds working cells across every search that passes it; a cell waits for a slot, and the wait is its `queueMs`.

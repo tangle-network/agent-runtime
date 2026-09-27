@@ -43,6 +43,7 @@ export {
   SearchEnvironmentFault,
   type SearchLane,
   type SearchLaneKind,
+  type SearchLaneOptions,
   type SearchTraceOptions,
   type SharedBoxSearchLane,
   sharedBoxLane,

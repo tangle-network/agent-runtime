@@ -47,7 +47,6 @@ import {
   SearchRecorder,
   type SearchSourceRef,
   type SearchTask,
-  type SearchTaskOutcome,
   type SearchUnknown,
   type SurfaceProposer,
   searchClaimReserveUsd,
@@ -83,8 +82,11 @@ import { type PreparedProfileImprovement, prepareProfileImprovement } from './pr
 import {
   assertSearchLanes,
   isSearchEnvironmentFault,
+  reconcileInterruptedSearchCalls,
   type SearchLane,
+  searchCallTags,
   searchExecutor,
+  taggedLedger,
 } from './search-executor'
 
 export interface SearchMethodOptions {
@@ -374,6 +376,7 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     },
   }
   for (const node of (await recorder.state()).nodes()) codec.load(recorder, node)
+  await reconcileInterruptedSearchCalls(costLedger, searchId, lanes)
   const laneRefusal = (nodeProfile: AgentProfile): string | null => {
     const refusals = lanes.map((lane) => `${lane.name}: ${lane.refusal(nodeProfile)}`)
     return lanes.some((lane) => lane.refusal(nodeProfile) === undefined)
@@ -447,9 +450,8 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
       })
       const cell = campaign.cells[0]
       if (!cell) throw new Error(`improve(): cell ${work.cellId} produced no campaign cell`)
-      return laneCellResult(
+      return faultResult(
         campaignCellSearchResult(cell, { execution, lane: lane.name }),
-        lane,
         cell.errorStage === 'dispatch' ? fault : undefined,
       )
     },
@@ -472,7 +474,8 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     execution: { kind: 'deterministic', source: proposerSource },
     childrenPerProposal: method.childrenPerProposal,
     async propose(request) {
-      const before = new Set(costLedger.list({ phase: proposalPhase }).map((r) => r.callId))
+      // The proposal's calls carry its operation, so its accounting is exactly them.
+      const tags = searchCallTags(searchId, { operation: request.operationId })
       // Read the ledger once, synchronously, before any await: the kernel
       // retires a state view when it appends.
       const state = await recorder.state()
@@ -491,7 +494,7 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
         populationSize: method.childrenPerProposal,
         generation: request.expansion,
         signal: request.signal,
-        costLedger,
+        costLedger: taggedLedger(costLedger, tags),
         costPhase: proposalPhase,
       })
       const decision = proposer.decide?.({ history: [] })
@@ -499,9 +502,7 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
       if (!Array.isArray(proposed)) {
         throw new ConfigError('improve(): the search proposer must return an array')
       }
-      const fresh = costLedger
-        .list({ phase: proposalPhase })
-        .filter((receipt) => !before.has(receipt.callId))
+      const fresh = costLedger.list({ phase: proposalPhase, tags })
       return {
         children: proposed.slice(0, method.childrenPerProposal).map((child) =>
           isProposedCandidate(child)
@@ -732,31 +733,16 @@ function searchMethodDescriptor(method: ImproveSearchMethod): unknown {
 }
 
 /**
- * The lane's facts over the campaign's measurement. An environment fault the agent raised is
- * retryable: the campaign reports every error as final because it applies its own retry
- * policy, and the kernel owns retries here. A subscription seat reports no tokens and charges
- * no dollar, so its tokens are unknown and a cell with no priced call cost nothing.
+ * An environment fault the agent raised settles retryable. The campaign reports every error as
+ * final because it applies its own retry policy; here the kernel owns retries.
  */
-function laneCellResult(
-  result: SearchCellResult,
-  lane: SearchLane,
-  fault: unknown,
-): SearchCellResult {
-  const outcome: SearchTaskOutcome =
-    fault !== undefined && result.outcome.status === 'errored'
-      ? {
-          ...result.outcome,
-          error: { code: 'environment-fault', message: refusalText(fault), retryable: true },
-        }
-      : result.outcome
-  if (lane.kind !== 'subscription') return { ...result, outcome }
-  const { cost } = result.accounting
+function faultResult(result: SearchCellResult, fault: unknown): SearchCellResult {
+  if (fault === undefined || result.outcome.status !== 'errored') return result
   return {
     ...result,
-    outcome,
-    accounting: {
-      tokens: { status: 'unknown', reason: 'a subscription seat reports no token usage' },
-      cost: cost.status === 'known' && cost.usd === 0 ? { ...cost, source: 'free' } : cost,
+    outcome: {
+      ...result.outcome,
+      error: { code: 'environment-fault', message: refusalText(fault), retryable: true },
     },
   }
 }

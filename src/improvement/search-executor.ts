@@ -19,6 +19,10 @@
  *   kernel that restarts adopts the attempt instead of running it again. The run id is stable
  *   across restarts; an agent that runs remote work keys it by `ctx.search.runId`, so a lost
  *   response is fetched again rather than executed again.
+ * - Accounting. Every paid call is tagged with its search and attempt, and an attempt's cost is
+ *   every call tagged with its run id, including calls a process that ended made for it. A
+ *   reopened search settles those interrupted calls first: from the provider through the lane's
+ *   `recoverReceipt`, else with an unknown cost, never as free.
  * - Environment faults. A `SearchEnvironmentFault`, or a platform failure a repeated request
  *   can change, settles `errored` and retryable, and the kernel runs a fresh attempt.
  * - Traces. Each attempt is one trace whose root span carries `agent.branch.id` = the node id.
@@ -31,22 +35,26 @@ import {
   CostAccountingIncompleteError,
   CostCeilingReachedError,
   type CostLedgerHandle,
+  type CostReceiptInput,
   costForTokenPricing,
   costForUsage,
   type MaximumCharge,
   type PaidCallResult,
+  type PendingCostCallView,
   type RunPaidCallInput,
 } from '@tangle-network/agent-eval'
-import type {
-  CampaignStorage,
-  SearchLane as KernelSearchLane,
-  SearchCellResult,
-  SearchCellStage,
-  SearchCellWork,
-  SearchExecutionIdentity,
-  SearchExecutor,
-  SearchSplit,
-  SearchTraceRef,
+import {
+  type CampaignStorage,
+  type SearchLane as KernelSearchLane,
+  type SearchAttemptAccounting,
+  type SearchCellResult,
+  type SearchCellStage,
+  type SearchCellWork,
+  type SearchExecutionIdentity,
+  type SearchExecutor,
+  type SearchSplit,
+  type SearchTraceRef,
+  searchReceiptAccounting,
 } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ATTR, branchSpan } from '@tangle-network/agent-trace-contract'
@@ -85,6 +93,20 @@ export interface SearchLane extends KernelSearchLane {
   readonly cellUsd: number
   /** Why this lane cannot run `profile`, or undefined when it can. */
   refusal(profile: AgentProfile): string | undefined
+  /** The receipt of a paid call that a process which ended made on this lane, asked of the
+   *  provider by `call.callId`; null when the provider cannot say. Without it, such a call
+   *  settles with an unknown cost. */
+  recoverReceipt?(call: PendingCostCallView): Promise<CostReceiptInput | null>
+}
+
+/** Options every lane builder takes. */
+export interface SearchLaneOptions {
+  name?: string
+  recoverReceipt?: SearchLane['recoverReceipt']
+}
+
+function laneReceipts(options: SearchLaneOptions): Pick<SearchLane, 'recoverReceipt'> {
+  return options.recoverReceipt ? { recoverReceipt: options.recoverReceipt } : {}
 }
 
 /** A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. */
@@ -128,9 +150,9 @@ function dollars(value: number, name: string): number {
  * router on every call.
  */
 export function sharedBoxLane(
-  options: SharedBoxPlacementOptions & { name?: string; boxes: number; cellUsd: number },
+  options: SharedBoxPlacementOptions & SearchLaneOptions & { boxes: number; cellUsd: number },
 ): SharedBoxSearchLane {
-  const { name, boxes, cellUsd, ...placementOptions } = options
+  const { name, boxes, cellUsd, recoverReceipt, ...placementOptions } = options
   const placement = sharedBoxPlacement(placementOptions)
   const workersPerBox = placementOptions.workersPerBox ?? DEFAULT_SHARED_BOX_WORKERS
   return Object.freeze({
@@ -140,6 +162,7 @@ export function sharedBoxLane(
     costCap: 'estimate' as const,
     cellUsd: dollars(cellUsd, 'sharedBoxLane(): cellUsd'),
     refusal: (profile: AgentProfile) => placement.refusal(profile),
+    ...laneReceipts({ recoverReceipt }),
     placement,
   })
 }
@@ -149,11 +172,9 @@ export function sharedBoxLane(
  * cell's dollars, so it holds an estimate: `cellUsd` until 20 cells settle, then 1.5 × the p99
  * of its settled cells.
  */
-export function dedicatedLane(options: {
-  name?: string
-  capacity: number
-  cellUsd: number
-}): SearchLane {
+export function dedicatedLane(
+  options: SearchLaneOptions & { capacity: number; cellUsd: number },
+): SearchLane {
   return Object.freeze({
     name: laneName(options.name, 'dedicated'),
     kind: 'dedicated' as const,
@@ -161,6 +182,7 @@ export function dedicatedLane(options: {
     costCap: 'estimate' as const,
     cellUsd: dollars(options.cellUsd, 'dedicatedLane(): cellUsd'),
     refusal: acceptEveryProfile,
+    ...laneReceipts(options),
   })
 }
 
@@ -169,11 +191,9 @@ export function dedicatedLane(options: {
  * work costs $0 and reports no tokens. `cellUsd` bounds the cell's priced calls, such as its
  * judges; every one of them must declare a maximum, and the lane refuses a call past it.
  */
-export function subscriptionLane(options: {
-  name?: string
-  seats: number
-  cellUsd?: number
-}): SearchLane {
+export function subscriptionLane(
+  options: SearchLaneOptions & { seats: number; cellUsd?: number },
+): SearchLane {
   return Object.freeze({
     name: laneName(options.name, 'subscription'),
     kind: 'subscription' as const,
@@ -181,6 +201,7 @@ export function subscriptionLane(options: {
     costCap: 'hard' as const,
     cellUsd: dollars(options.cellUsd ?? 0, 'subscriptionLane(): cellUsd'),
     refusal: acceptEveryProfile,
+    ...laneReceipts(options),
   })
 }
 
@@ -189,11 +210,9 @@ export function subscriptionLane(options: {
  * cell must declare its maximum charge, and the lane refuses a call that would take the cell
  * past `cellUsd`, so `cellUsd` is each cell's hard maximum.
  */
-export function routerLane(options: {
-  name?: string
-  capacity: number
-  cellUsd: number
-}): SearchLane {
+export function routerLane(
+  options: SearchLaneOptions & { capacity: number; cellUsd: number },
+): SearchLane {
   return Object.freeze({
     name: laneName(options.name, 'router'),
     kind: 'router' as const,
@@ -201,6 +220,7 @@ export function routerLane(options: {
     costCap: 'hard' as const,
     cellUsd: dollars(options.cellUsd, 'routerLane(): cellUsd'),
     refusal: acceptEveryProfile,
+    ...laneReceipts(options),
   })
 }
 
@@ -265,8 +285,9 @@ export interface SearchAttempt<TArtifact> {
   readonly work: SearchCellWork<TArtifact>
   readonly lane: SearchLane
   readonly context: SearchCellContext
-  /** The cost ledger the attempt's paid calls go through. On a hard lane it refuses a call that
-   *  would take the attempt past the lane's `cellUsd`, or that declares no priced maximum. */
+  /** The cost ledger the attempt's paid calls go through. It tags each call with the attempt,
+   *  and on a hard lane it refuses a call that would take the attempt past the lane's `cellUsd`,
+   *  or that declares no priced maximum. */
   readonly costLedger: CostLedgerHandle
   /** Open a span under the attempt's root span; `end` exports it. */
   span(name: string, attributes?: Record<string, unknown>): SearchAttemptSpan
@@ -282,7 +303,8 @@ export interface SearchExecutorOptions<TArtifact> {
   /** The profile a node runs, read by placement to skip a lane that refuses it. */
   profileOf(nodeId: string): AgentProfile | null
   /** Run one attempt. Report an environment fault as an `errored` retryable outcome; throw only
-   *  for a failure that must stop the search. */
+   *  for a failure that must stop the search. The executor replaces the result's accounting
+   *  with the receipts tagged with the attempt's run id. */
   runAttempt(attempt: SearchAttempt<TArtifact>): Promise<SearchCellResult>
   /** The search's cost ledger. */
   costLedger: CostLedgerHandle
@@ -373,18 +395,17 @@ export function searchExecutor<TArtifact>(
           lane,
           trace: trace.ids,
         })
+        const tags = searchCallTags(work.searchId, { run: work.runId, lane: lane.name })
         const measured = await options.runAttempt({
           work,
           lane,
           context,
-          costLedger:
-            lane.costCap === 'hard'
-              ? cellCappedLedger(options.costLedger, lane)
-              : options.costLedger,
+          costLedger: attemptLedger(options.costLedger, lane, tags),
           span: trace.span,
         })
         result = {
           ...measured,
+          accounting: attemptAccounting(options.costLedger, lane, tags),
           queueMs,
           placement: { lane: lane.name, boxId: measured.placement?.boxId ?? null },
           traceRef: await trace.finish(measured),
@@ -538,13 +559,57 @@ function chargeMaximumUsd(maximum: MaximumCharge | undefined): number | null {
   return priced.costUnknown ? null : priced.costUsd
 }
 
+const TAG_SEARCH = 'searchId'
+const TAG_RUN = 'searchRunId'
+const TAG_LANE = 'searchLane'
+const TAG_OPERATION = 'searchOperation'
+
+/** The cost-ledger tags of one search's calls: a cell attempt's, or a proposal operation's. */
+export function searchCallTags(
+  searchId: string,
+  of: { run: string; lane: string } | { operation: string },
+): Record<string, string> {
+  return 'run' in of
+    ? { [TAG_SEARCH]: searchId, [TAG_RUN]: of.run, [TAG_LANE]: of.lane }
+    : { [TAG_SEARCH]: searchId, [TAG_OPERATION]: of.operation }
+}
+
+/** The search ledger with `tags` added to every paid call. */
+export function taggedLedger(
+  ledger: CostLedgerHandle,
+  tags: Record<string, string>,
+): CostLedgerHandle {
+  return ledgerView(ledger, (input) =>
+    ledger.runPaidCall({ ...input, tags: { ...input.tags, ...tags } }),
+  )
+}
+
+function ledgerView(
+  ledger: CostLedgerHandle,
+  runPaidCall: CostLedgerHandle['runPaidCall'],
+): CostLedgerHandle {
+  return new Proxy(ledger, {
+    get(target, property) {
+      if (property === 'runPaidCall') return runPaidCall
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
 /**
- * The search ledger seen by one hard-lane attempt: every paid call holds its declared maximum
- * against the lane's `cellUsd` until its receipt replaces the hold with the charge, and a call
- * that would pass the cap, or declares no priced maximum, is refused. A charge the provider
- * left unknown keeps its maximum held. Everything else is the search ledger itself.
+ * The search ledger seen by one attempt: every paid call carries the attempt's tags. On a hard
+ * lane every call also holds its declared maximum against the lane's `cellUsd` until its
+ * receipt replaces the hold with the charge, and a call that would pass the cap, or declares no
+ * priced maximum, is refused. A charge the provider left unknown keeps its maximum held.
  */
-function cellCappedLedger(ledger: CostLedgerHandle, lane: SearchLane): CostLedgerHandle {
+function attemptLedger(
+  ledger: CostLedgerHandle,
+  lane: SearchLane,
+  tags: Record<string, string>,
+): CostLedgerHandle {
+  const tagged = taggedLedger(ledger, tags)
+  if (lane.costCap !== 'hard') return tagged
   let heldUsd = 0
   const runPaidCall = async <T>(input: RunPaidCallInput<T>): Promise<PaidCallResult<T>> => {
     const maximumUsd = chargeMaximumUsd(input.maximumCharge)
@@ -569,18 +634,86 @@ function cellCappedLedger(ledger: CostLedgerHandle, lane: SearchLane): CostLedge
       }
     }
     heldUsd += maximumUsd
-    const result = await ledger.runPaidCall(input)
+    const result = await tagged.runPaidCall(input)
     const { receipt } = result
     if (receipt && !receipt.costUnknown) heldUsd += receipt.costUsd - maximumUsd
     return result
   }
-  return new Proxy(ledger, {
-    get(target, property) {
-      if (property === 'runPaidCall') return runPaidCall
-      const value = Reflect.get(target, property, target)
-      return typeof value === 'function' ? value.bind(target) : value
-    },
-  })
+  return ledgerView(tagged, runPaidCall)
+}
+
+/**
+ * An attempt's cost is every call tagged with its run id, a call a process that ended made for
+ * it included; a call still pending makes the cost unknown with the settled calls as its floor.
+ * A subscription seat reports no tokens, and its own work charges no dollar.
+ */
+function attemptAccounting(
+  ledger: CostLedgerHandle,
+  lane: SearchLane,
+  tags: Record<string, string>,
+): SearchAttemptAccounting {
+  const receipts = ledger.list({ tags })
+  const accounting = searchReceiptAccounting(receipts)
+  const pending = ledger.listPending?.({ tags }) ?? []
+  const floorUsd =
+    accounting.cost.status === 'known' ? accounting.cost.usd : accounting.cost.knownLowerBoundUsd
+  const cost: SearchAttemptAccounting['cost'] =
+    pending.length > 0
+      ? {
+          status: 'unknown',
+          knownLowerBoundUsd: floorUsd,
+          reason: `${pending.length} paid call(s) of the attempt had no receipt when it ended`,
+        }
+      : accounting.cost.status === 'known' &&
+          accounting.cost.usd > 0 &&
+          receipts.some((receipt) => receipt.actualCostUsd === undefined)
+        ? { ...accounting.cost, source: 'pricing-table' }
+        : accounting.cost
+  return {
+    tokens:
+      lane.kind === 'subscription'
+        ? { status: 'unknown', reason: 'a subscription seat reports no token usage' }
+        : accounting.tokens,
+    cost,
+  }
+}
+
+/**
+ * Settle every paid call of `searchId` that a process which ended left pending, before the
+ * reopened search makes a new one: a capped ledger refuses new paid work while one is
+ * unresolved. A cell's call is asked of its lane's provider through `recoverReceipt`; any other
+ * call, or one the provider cannot answer, settles failed with an unknown cost.
+ */
+export async function reconcileInterruptedSearchCalls(
+  ledger: CostLedgerHandle,
+  searchId: string,
+  lanes: readonly SearchLane[],
+): Promise<{ recovered: number; unknown: number }> {
+  const interrupted = (ledger.listPending?.({ tags: { [TAG_SEARCH]: searchId } }) ?? []).filter(
+    (call) => call.state === 'interrupted',
+  )
+  let recovered = 0
+  for (const call of interrupted) {
+    const lane = lanes.find((candidate) => candidate.name === call.tags?.[TAG_LANE])
+    const receipt = (await lane?.recoverReceipt?.(call)) ?? null
+    if (receipt) {
+      ledger.reconcile(call.callId, receipt)
+      recovered += 1
+    } else {
+      ledger.reconcile(
+        call.callId,
+        {
+          model: call.model,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUnknown: true,
+          usageUnknown: true,
+        },
+        { error: 'the process that made this call ended before its receipt' },
+      )
+    }
+  }
+  return { recovered, unknown: interrupted.length - recovered }
 }
 
 /** Finished attempts by run id: the record a restarted kernel adopts. */

@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 301 exports.
+Import from `@tangle-network/agent-runtime` — 302 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -153,6 +153,7 @@ Import from `@tangle-network/agent-runtime` — 301 exports.
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
 | `SearchCellContext` | interface | What the agent of one attempt knows about where and as what it runs. |
 | `SearchLane` | interface | An execution lane: slots that share one cost rule, and the profiles they cannot run. |
+| `SearchLaneOptions` | interface | Options every lane builder takes. |
 | `SharedBoxSearchLane` | interface | A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. |
