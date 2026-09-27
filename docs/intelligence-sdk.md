@@ -203,7 +203,7 @@ The SDK is a thin layer over shipped primitives:
 | SDK concept | Existing primitive |
 |---|---|
 | trace export | `createOtelExporter`, `buildLoopOtelSpans`, `flatOtelSpan` |
-| eval provenance export | `exportEvalRuns` |
+| search provenance export | the search ledger `improve()` returns (`searchHistory`), shipped by `@tangle-network/agent-eval`'s `startSearchShipper` or `agent-eval search ship` |
 | production chat envelope | `handleChatTurn` |
 | manifest and mutable surfaces | `defineAgent` |
 | trace-to-finding loop | `runAnalystLoop` |

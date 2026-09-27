@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.277.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.191.0 <0.194.0`.
+> `agent-eval` must satisfy `>=0.197.0 <0.198.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0`.
 > The second clause admits prereleases of base `0.49.0` and stable `0.49.x`; it does not admit prereleases of `0.49.1`.
 > The last five clauses admit stable Sandbox `0.50.x`, `0.51.x`, `0.52.x`, `0.53.x` and `0.54.x`.
@@ -37,9 +37,8 @@ The system is four steps, each with a named entry point:
    `executionRef` identifies the callback, component mapping, model, tools, and closure settings.
    Agent Eval scores the selected profile on the untouched final test.
    Runtime returns `ship` only when the paired interval clears the required lift and all spend is accounted for.
-   `candidatePopulation` joins verified callback observations with the optimizer's official graph.
-   It returns every unique candidate as an exact profile plus Interface diffs, or as an explicit refusal.
-   Official GEPA graph nodes retain parent indices and selection scores.
+   `searchHistory` is the method's search ledger, verified from its bytes: every scored candidate as a node, every evaluation as a cell, and GEPA's parents as edges.
+   `improve(profile, { method: searchMethod({ proposer, maxExpansions }), claim, ... })` runs Runtime's native search on Eval's search kernel instead: a policy, an allocator, and a proposer, with parent-to-child Interface diffs on every edge and one claim on the sealed test split.
    Use `surface: 'agent-profile'` to search the complete profile.
    Use `profileComponents` to select one field or a group, with exact read/apply validation.
    Set `profileComponents.encoding: 'json'` when Omni includes engines that accept only text.
@@ -202,6 +201,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Run a worker as a **conversation on a bare `/v1/chat/completions` endpoint** (no sandbox), with session continuity for `continuity: 'resume'` graphs | `chatTransportExecutor(options)` + `chatWorkerSeam({ url, sessions?, deliverable? })` + `createChatSessionStore()`: `/kernel` | a leaf-seam fake of a chat worker, a multishot transcript loop outside the kernel (no ledger, no conserved pool), or a resume that re-primes a fresh session |
 | Optimize text or named components with upstream GEPA | `officialGepa({ recipe, ... })`, passed as `improve(...).method` from root `.` | a local GEPA approximation, prompt mutation loop, or silent fallback when Python is unavailable |
 | Optimize one text surface with Microsoft SkillOpt | `officialSkillOpt({ trainer, optimizer, ... })`, passed as `improve(...).method` from root `.` | Runtime-owned SkillOpt search or a silent local fallback |
+| Search one profile coordinate natively, with lineage and one sealed claim | `searchMethod({ proposer, maxExpansions, policy?, allocation? })`, passed as `improve(...).method` with `claim` from root `.`; every node is an exact profile, every edge its parent-to-child Interface diffs, and the ledger is the only checkpoint | a second node or lineage type in Runtime, a promotion on a selection score, or a hand-written generation loop |
 | Improve one profile coordinate | `improve(profile, { surface, executionRef, method, trainScenarios, selectionScenarios, testScenarios, judges, agent, costCeiling })` from root `.`; `executionRef` binds saved work to executable behavior, `agent` receives the exact complete candidate profile, and the total-cost option limits the whole run | an implicit per-surface optimizer, a method that sees final-test cases, an unmeasured profile mutation, or separate optimizer and final-test spend limits |
 | Train model weights and return a receipted candidate | `improve(profile, { mode: 'training', ... })` or `createProfileImprovementHarness(...).train(...)` from root `.`; use `createCommandProfileTrainer` for a pinned local command, or provide a managed trainer and verified serving port | a second optimizer, Runtime-owned GPU deployment, rewritten Eval transcripts, or treating a trained checkpoint as a promotion verdict |
 | Inspect observed optimizer package, model, usage, cost, and resumed-run evidence before proposing a change | `createOptimizationActivationReceipt(result)` from `/intelligence` | reconstructing optimizer evidence from logs or trusting caller-authored metadata |

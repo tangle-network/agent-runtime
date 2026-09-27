@@ -1,8 +1,16 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  externalSurface,
+  readGepaCandidatePopulationArtifact,
+  replaySearchLedgerText,
+  surfaceContentHash,
+} from '@tangle-network/agent-eval/campaign'
 import {
   improve,
   officialGepa,
@@ -83,6 +91,8 @@ async function runWheelVerification() {
       'GEPA optimizer model was not observed',
     )
     assert(firstGepa.decision === 'ship', 'GEPA candidate was not promoted')
+    const firstGepaLedger = assertSearchLedger(firstGepa, 'fresh GEPA')
+    assert(firstGepaLedger.populationNodes > 0, 'fresh GEPA ledger holds no population node')
     assert(
       JSON.parse(String(firstGepa.candidate.value)).k === 2,
       'GEPA did not produce the expected candidate',
@@ -128,6 +138,7 @@ async function runWheelVerification() {
       resume: 'required',
     })
     assert(resumedGepa.provenance?.resumed === true, 'second GEPA run did not restore state')
+    const resumedGepaLedger = assertSearchLedger(resumedGepa, 'resumed GEPA')
     assert(
       resumedGepa.provenance?.optimizerModel === 'local-model',
       'resumed GEPA run omitted the optimizer model',
@@ -209,6 +220,11 @@ async function runWheelVerification() {
       'SkillOpt revision was not observed',
     )
     assert(skillOpt.decision === 'ship', 'SkillOpt candidate was not promoted')
+    const skillOptLedger = assertSearchLedger(skillOpt, 'SkillOpt')
+    assert(
+      skillOptLedger.edges.correlated === 0 && skillOptLedger.edges.unknown > 0,
+      'SkillOpt reports no parents, so its ledger edges must be unknown',
+    )
     assert(
       String(skillOpt.candidate.value).includes('ALWAYS_RETURN_READY'),
       'SkillOpt did not produce the expected candidate',
@@ -228,6 +244,7 @@ async function runWheelVerification() {
             resumed: resumedGepaOptimizationCostUsd,
           },
           source: firstGepa.provenance.source.version,
+          searchLedger: { fresh: firstGepaLedger, resumed: resumedGepaLedger },
           concurrent: {
             completed: completedConcurrent.length,
             rejectedByUpstreamLock: rejectedConcurrent.length,
@@ -236,6 +253,7 @@ async function runWheelVerification() {
         skillopt: {
           evaluations: skillOpt.provenance.evaluationCount,
           revision: skillOpt.provenance.source.revision,
+          searchLedger: skillOptLedger,
         },
       })}\n`,
     )
@@ -337,6 +355,7 @@ async function runOmniVerification() {
       model.requests.length > 0 && model.requests.length <= 3,
       `Omni model requests must be between 1 and 3, found ${model.requests.length}`,
     )
+    const omniLedger = assertSearchLedger(result, 'Omni GEPA')
 
     process.stdout.write(
       `${JSON.stringify({
@@ -349,6 +368,7 @@ async function runOmniVerification() {
           modelRequests: model.requests.length,
           revision: result.provenance.source.revision,
           source: result.provenance.source.version,
+          searchLedger: omniLedger,
         },
       })}\n`,
     )
@@ -557,6 +577,73 @@ function optimizerModel(baseUrl, maxOutputTokensPerRequest) {
         outputUsdPerMillion: 2,
       },
     },
+  }
+}
+
+/**
+ * The optimizer's search ledger, replayed from its bytes: closed, every cell
+ * settled, and the returned winner as its selected node. With GEPA's
+ * candidate population, every population candidate is a node and every
+ * parent GEPA reports is a `correlated` edge into it.
+ */
+function assertSearchLedger(result, label) {
+  const receipt = result.searchHistory
+  assert(receipt?.complete === true, `${label} returned no closed search ledger`)
+  const path = fileURLToPath(receipt.ledger.uri)
+  const bytes = readFileSync(path)
+  assert(
+    `sha256:${createHash('sha256').update(bytes).digest('hex')}` === receipt.ledger.sha256,
+    `${label} ledger bytes differ from its receipt`,
+  )
+  const state = replaySearchLedgerText(bytes.toString('utf8'), receipt.summary.searchId, path)
+  const { audit } = state
+  assert(
+    audit.status === 'closed' && audit.cells.open === 0 && audit.cells.settled > 0,
+    `${label} ledger is not closed with settled cells`,
+  )
+  assert(
+    audit.nodes === receipt.summary.nodes && audit.cells.allocated === receipt.summary.cells,
+    `${label} receipt disagrees with its replayed ledger`,
+  )
+  const winner = state.nodeIdForDigest(surfaceContentHash(result.candidate.value))
+  assert(
+    winner !== undefined && winner === audit.selectedNodeId,
+    `${label} ledger did not select the returned candidate`,
+  )
+  let populationNodes = 0
+  let populationEdges = 0
+  const summary = result.raw.best.provenance?.gepaCandidatePopulation
+  if (summary) {
+    const population = readGepaCandidatePopulationArtifact({ summary })
+    const nodeOf = (candidate) =>
+      state.nodeIdForDigest(surfaceContentHash(externalSurface(candidate.candidate)))
+    const byIndex = new Map(population.candidates.map((candidate) => [candidate.index, candidate]))
+    for (const candidate of population.candidates) {
+      const nodeId = nodeOf(candidate)
+      assert(nodeId, `${label} population candidate ${candidate.index} is not a ledger node`)
+      populationNodes += 1
+      for (const index of new Set(candidate.parentIndices.filter((i) => i !== null))) {
+        const parentId = nodeOf(byIndex.get(index))
+        if (parentId === nodeId) continue
+        const edge = state
+          .edges()
+          .find(
+            (e) => e.childNodeId === nodeId && e.parents.some((parent) => parent.nodeId === parentId),
+          )
+        assert(
+          edge?.attribution === 'correlated',
+          `${label} GEPA parent ${index} of candidate ${candidate.index} is not a correlated edge`,
+        )
+        populationEdges += 1
+      }
+    }
+  }
+  return {
+    nodes: audit.nodes,
+    edges: audit.edges,
+    cells: audit.cells.settled,
+    populationNodes,
+    populationEdges,
   }
 }
 

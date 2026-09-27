@@ -4,13 +4,14 @@ import {
   gepaOptimizationMethod,
   type JudgeScore,
   type OptimizationMethod,
+  type SearchRunIdentity,
   type SkillOptOptimizationMethodConfig,
   skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
-import { redact } from '@tangle-network/agent-eval/traces'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import { defaultRedactorIdentityMaterial, type Redactor, resolveRedactor } from '../redact'
+import { privateValuePaths } from './candidate-validation'
 import type {
   ImproveCandidateValidationInput,
   ImproveMethodContext,
@@ -55,14 +56,20 @@ export interface OfficialSensitiveCandidateInput extends ImproveCandidateValidat
 export type OfficialGepaOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
-> = Omit<GepaOptimizationMethodConfig<TScenario, TArtifact>, 'background' | 'evaluationId'> &
+> = Omit<
+  GepaOptimizationMethodConfig<TScenario, TArtifact>,
+  'background' | 'evaluationId' | 'searchLedger'
+> &
   OfficialOptimizerContextOptions
 
 /** Official SkillOpt configuration plus bounded Runtime findings context. */
 export type OfficialSkillOptOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
-> = Omit<SkillOptOptimizationMethodConfig<TScenario, TArtifact>, 'background' | 'evaluationId'> &
+> = Omit<
+  SkillOptOptimizationMethodConfig<TScenario, TArtifact>,
+  'background' | 'evaluationId' | 'searchLedger'
+> &
   OfficialOptimizerContextOptions
 
 /** Missing optional Python dependencies for an official optimizer. */
@@ -125,7 +132,12 @@ export function officialSkillOpt<
 
 type PreparedOptimizerContext<TScenario extends { id: string; kind: string }, TArtifact> = Pick<
   GepaOptimizationMethodConfig<TScenario, TArtifact>,
-  'objective' | 'evaluationId' | 'background' | 'describeScenario' | 'describeArtifact'
+  | 'objective'
+  | 'evaluationId'
+  | 'background'
+  | 'describeScenario'
+  | 'describeArtifact'
+  | 'searchLedger'
 >
 
 /** Keep evidence redaction, identity, dependency errors, and candidate controls identical for both wrappers. */
@@ -178,6 +190,9 @@ function officialOptimizer<
         ...config,
         objective,
         evaluationId: externalEvaluationRef,
+        searchLedger: {
+          identity: optimizerSearchIdentity(optimizer, context, externalEvaluationRef, config),
+        },
         background: methodBackground({
           context,
           background,
@@ -215,6 +230,56 @@ function officialOptimizer<
       validateCandidate: (input) =>
         assertSafeOptimizerCandidate(label, input, authorizeSensitiveCandidate),
     })
+  }
+}
+
+/**
+ * The identities the optimizer's search ledger records. Its search source is
+ * a digest of the optimizer's declared settings under this evaluation; the
+ * upstream revision it ran is in the method's provenance. Its proposer is the
+ * optimizer model Eval's proxy meters, or GEPA's own reflection model.
+ */
+function optimizerSearchIdentity(
+  optimizer: 'gepa' | 'skillopt',
+  context: ImproveMethodContext,
+  evaluationId: string,
+  config: object,
+): SearchRunIdentity {
+  const search = {
+    uri: `agent-runtime:official-${optimizer}`,
+    revision: canonicalCandidateDigest({
+      optimizer,
+      evaluationId,
+      // Functions (model calls, descriptors) are identified by evaluationId.
+      settings: JSON.parse(JSON.stringify(config)) as unknown,
+    }),
+  }
+  const model = (config as { optimizer?: { model: string; callRef: string } }).optimizer
+  return {
+    ...context.searchIdentity,
+    search,
+    proposer: model
+      ? {
+          kind: 'model',
+          model: {
+            provider: 'unspecified',
+            alias: model.model,
+            unknown: 'Eval meters each optimizer call; the ledger records the configured model',
+          },
+          source: {
+            uri: `optimizer-call:${model.callRef}`,
+            revision: canonicalCandidateDigest({ callRef: model.callRef, model: model.model }),
+          },
+        }
+      : {
+          kind: 'model',
+          model: {
+            provider: 'unspecified',
+            alias: 'unspecified',
+            unknown: 'GEPA calls the reflection model its recipe configures',
+          },
+          source: search,
+        },
   }
 }
 
@@ -278,14 +343,7 @@ function assertSafeOptimizerCandidate(
   input: ImproveCandidateValidationInput,
   authorizeSensitiveCandidate: ((input: OfficialSensitiveCandidateInput) => boolean) | undefined,
 ): void {
-  // The redaction core names each value it would change, so the refusal can say where.
-  const privatePaths = [
-    ...new Set(
-      [input.value, input.candidateSurface].flatMap((value) =>
-        redact(value).report.findings.map((finding) => jsonPathOf(finding.path)),
-      ),
-    ),
-  ]
+  const privatePaths = privateValuePaths([input.value, input.candidateSurface])
   if (privatePaths.length > 0) {
     throw new ConfigError(
       `${label}: the selected profile surface contains a common credential or private value at ` +
@@ -316,18 +374,6 @@ function assertSafeOptimizerCandidate(
         'or authorize the exact profile with authorizeSensitiveCandidate.',
     )
   }
-}
-
-/** `/remote/url` or `/tools/0/env` as `$.remote.url` or `$.tools[0].env`. */
-function jsonPathOf(pointer: string): string {
-  return pointer
-    .split('/')
-    .slice(1)
-    .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
-    .reduce(
-      (path, segment) => (/^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`),
-      '$',
-    )
 }
 
 function sensitiveProfileSurfacePaths(input: ImproveCandidateValidationInput): string[] {

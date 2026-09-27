@@ -1,3 +1,4 @@
+import { redact } from '@tangle-network/agent-eval/traces'
 import { type Sha256Digest, sha256DigestSchema } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
 import type { ImproveCandidateValidationInput, ImproveCandidateValidator } from './improve-types'
@@ -52,4 +53,31 @@ export function assertProfileTrainingIsHeldOut(
       throw new ConfigError('known training exposure overlaps held-out evaluation')
     }
   }
+}
+
+/**
+ * JSON paths of credential and private values in candidate content, found by
+ * the redaction core, which names each value it would change. A candidate that
+ * leaves Runtime (an external optimizer, a search ledger) is refused on any.
+ */
+export function privateValuePaths(values: readonly unknown[]): string[] {
+  return [
+    ...new Set(
+      values.flatMap((value) =>
+        redact(value).report.findings.map((finding) => jsonPathOf(finding.path)),
+      ),
+    ),
+  ]
+}
+
+/** `/remote/url` or `/tools/0/env` as `$.remote.url` or `$.tools[0].env`. */
+function jsonPathOf(pointer: string): string {
+  return pointer
+    .split('/')
+    .slice(1)
+    .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
+    .reduce(
+      (path, segment) => (/^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`),
+      '$',
+    )
 }

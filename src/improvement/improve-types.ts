@@ -4,6 +4,14 @@ import type {
   CompareOptimizationMethodsOptions,
   OptimizationMethod,
   OptimizationMethodComparison,
+  SearchAllocator,
+  SearchClaim,
+  SearchClaimVerification,
+  SearchHistoryReceipt,
+  SearchModelIdentity,
+  SearchPolicy,
+  SearchSourceRef,
+  SurfaceProposer,
   WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import type {
@@ -13,10 +21,10 @@ import type {
   SelfImproveOptions,
   SelfImproveProposerResult,
 } from '@tangle-network/agent-eval/contract'
+import type { EvaluationClaim } from '@tangle-network/agent-eval/experiment'
 import type {
   AgentImprovementSurface,
   AgentProfile,
-  AgentProfileDiff,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type { AgenticGeneratorExecutorForWorktree, Verifier } from './agentic-generator'
@@ -48,6 +56,21 @@ export interface ImproveMethodContext {
   readonly baselineValue: unknown
   /** Findings produced before this search, if any. */
   readonly findings: ReadonlyArray<ProposalFinding>
+  /** Identities the method's search ledger records. */
+  readonly searchIdentity: ImproveSearchIdentity
+}
+
+/** What a search ledger records about an improvement and cannot infer: what is
+ * improved, the agent harness around the profile, the judges and the model. */
+export interface ImproveSearchIdentity {
+  /** What the search improves, for example `vb/coder`. */
+  readonly subject: string
+  /** `executionRef`: the agent callback, materializer, models, tools and closures. */
+  readonly agent: SearchSourceRef
+  /** Digest of every judge's name, dimensions, declared version and code. */
+  readonly judge: SearchSourceRef
+  /** The profile's model hint; each cell records the model it resolved. */
+  readonly model: SearchModelIdentity
 }
 
 /** Build a complete method after trace findings are available. */
@@ -94,6 +117,8 @@ export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   | 'methods'
   | 'optimizationConcurrency'
   | 'optimizationRunOptions'
+  | 'searchHistoryPolicy'
+  | 'searchHistoryVerification'
 > & {
   /** Exact profile coordinate optimized by `method`. Default `'prompt'`. */
   surface?: ImproveProfileSurface
@@ -121,6 +146,60 @@ export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   optimizationRunOptions?: ImproveOptimizationRunOptions<TScenario, TArtifact>
   /** Additional lift floor on Eval's deciding interval. Eval must also permit promotion. Default `0`. */
   minimumLift?: number
+  /** What the search improves, recorded as the ledger's subject, for example
+   * `vb/coder`. Default: the profile's name, else `agent-profile`. */
+  subject?: string
+}
+
+/** Runtime's native search: a policy, an allocator and a proposer on Eval's
+ * search kernel, with no Python bridge. Build it with `searchMethod`. */
+export interface ImproveSearchMethod {
+  readonly kind: 'search'
+  /** Recorded as the ledger's process name and the result's method. */
+  readonly name: string
+  readonly policy: SearchPolicy
+  readonly allocation: SearchAllocator
+  readonly proposer: SurfaceProposer<ProposalFinding>
+  /** Proposals the search may make. */
+  readonly maxExpansions: number
+  /** Children one proposal asks for. */
+  readonly childrenPerProposal: number
+  /** Cells that run at once, in process. */
+  readonly concurrency: number
+  /** Prior cost of one cell, held as its estimate reservation until 20 cells settle. */
+  readonly cellUsd: number
+  /** Dollars held from the start for the claim's test cells; at least the
+   * root and 3 finalists on every test task at `cellUsd` a cell. */
+  readonly claimReserveUsd: number | null
+  /** ISO time after which the search stops expanding and claims. */
+  readonly deadline: string | null
+  /** Attempts per cell for retryable environment errors. */
+  readonly maxAttempts: number
+}
+
+/**
+ * Improve a profile with `searchMethod`. The search runs on all three splits:
+ * it expands and ranks on train and selection, then claims once on the sealed
+ * test split, and the claim decides. Runtime ships a statistical `ship` only
+ * with complete cost accounting and a test lower bound above `minimumLift`.
+ */
+export type ImproveSearchOptions<TScenario extends Scenario, TArtifact> = Omit<
+  ImproveMethodOptions<TScenario, TArtifact>,
+  | 'method'
+  | 'claim'
+  | 'confidence'
+  | 'evidence'
+  | 'finalEvidence'
+  | 'resamples'
+  | 'reps'
+  | 'maxConcurrency'
+  | 'optimizationRunOptions'
+> & {
+  method: ImproveSearchMethod
+  /** The claim the sealed test split decides. `independentUnit` names each
+   * scenario's unit and `minimumEffect` is the improvement the power check
+   * must resolve; both are required. */
+  claim: EvaluationClaim
 }
 
 /** Runtime-owned code search in isolated git worktrees. */
@@ -163,6 +242,7 @@ export type ImproveCodeRunOptions<TScenario extends Scenario, TArtifact> = Omit<
 /** The canonical improvement API: complete methods for profiles, worktrees for code. */
 export type ImproveOptions<TScenario extends Scenario, TArtifact> =
   | ImproveMethodOptions<TScenario, TArtifact>
+  | ImproveSearchOptions<TScenario, TArtifact>
   | ImproveCodeRunOptions<TScenario, TArtifact>
 
 export interface ImproveSkillsOptions {
@@ -233,118 +313,6 @@ export interface ImprovementProfileCandidate {
   /** Exact complete profile instance measured on the final cases. */
   profile: ReadonlyAgentProfile
 }
-
-/** Digest-addressed Eval artifact. */
-export interface ImprovementProfilePopulationArtifactSource {
-  path: string
-  sha256: Sha256Digest
-}
-
-/** Exact callback observation that introduced one optimizer candidate. */
-export interface ImprovementProfilePopulationObservationSource {
-  /** One-based JSONL line sequence in the verified observation artifact. */
-  proposalSequence: number
-  artifact: ImprovementProfilePopulationArtifactSource
-}
-
-/** One exact node from GEPA's accepted candidate graph. */
-export interface ImprovementProfilePopulationLineageNode {
-  index: number
-  parentIndices: readonly (number | null)[]
-  aggregateScore: number | null
-  selectionScores: readonly {
-    scenarioId: string
-    score: number
-  }[]
-  discoveryEvaluationCount: number
-}
-
-export type ImprovementProfilePopulationLineage =
-  | {
-      status: 'available'
-      artifact: ImprovementProfilePopulationArtifactSource
-      nodes: readonly ImprovementProfilePopulationLineageNode[]
-    }
-  | {
-      status: 'unavailable'
-      reason: 'optimizer-did-not-report-candidate-lineage'
-    }
-
-/** Every verified source associated with one unique optimizer candidate. */
-export interface ImprovementProfilePopulationCandidateSource {
-  /** Eval identity of the external text or component candidate. */
-  candidateDigest: Sha256Digest
-  /** Present when the candidate crossed the evaluation callback. */
-  observation?: ImprovementProfilePopulationObservationSource
-  /** Exact GEPA parents and scores, or an explicit statement that none were reported. */
-  lineage: ImprovementProfilePopulationLineage
-}
-
-/** A verified optimizer candidate that Runtime can express as an exact profile. */
-export interface ImprovementMaterializedProfilePopulationCandidate {
-  status: 'materialized'
-  source: ImprovementProfilePopulationCandidateSource
-  /** Exact optimizer surface decoded by Eval. */
-  value: MutableSurface
-  /** Interface identity of `value`. */
-  surfaceDigest: Sha256Digest
-  /** Exact complete profile produced by Runtime's configured materializer. */
-  profile: ReadonlyAgentProfile
-  /** `canonicalAgentProfileDigest(profile)`: the one AgentProfile identity Runtime records. */
-  profileDigest: Sha256Digest
-  /** Ordered Interface diffs that reproduce `profile` from the baseline. */
-  diffs: readonly AgentProfileDiff[]
-  /** Interface identity of each entry in `diffs`. */
-  diffDigests: readonly Sha256Digest[]
-}
-
-/** A verified optimizer candidate that Runtime refused to materialize. */
-export interface ImprovementRefusedProfilePopulationCandidate {
-  status: 'refused'
-  source: ImprovementProfilePopulationCandidateSource
-  /** Exact optimizer surface decoded by Eval. */
-  value: MutableSurface
-  /** Interface identity of `value`. */
-  surfaceDigest: Sha256Digest
-  error: {
-    name: string
-    message: string
-  }
-}
-
-export type ImprovementProfilePopulationCandidate =
-  | ImprovementMaterializedProfilePopulationCandidate
-  | ImprovementRefusedProfilePopulationCandidate
-
-/** Complete verified population reported by one optimizer run. */
-export interface ImprovementProfileCandidatePopulationAvailable {
-  status: 'available'
-  source: {
-    observations?: ImprovementProfilePopulationArtifactSource
-    gepaCandidateGraph?: ImprovementProfilePopulationArtifactSource & {
-      bestIndex: number
-    }
-  }
-  /** Distinct candidate surfaces across all verified source artifacts. */
-  uniqueCandidates: number
-  /** Distinct candidate surfaces submitted through the evaluation callback. */
-  observedCandidates: number
-  /** Exact GEPA graph nodes. Multiple nodes can have the same candidate surface. */
-  gepaCandidateNodes: number
-  materializedCandidates: number
-  refusedCandidates: number
-  candidates: readonly ImprovementProfilePopulationCandidate[]
-}
-
-/** Explicit absence for methods that do not report candidate population evidence. */
-export interface ImprovementProfileCandidatePopulationUnavailable {
-  status: 'unavailable'
-  reason: 'method-did-not-report-candidate-population'
-}
-
-export type ImprovementProfileCandidatePopulation =
-  | ImprovementProfileCandidatePopulationAvailable
-  | ImprovementProfileCandidatePopulationUnavailable
 
 export interface ImprovementCodeCandidate {
   surface: 'code'
@@ -427,9 +395,33 @@ export interface ImproveMethodResult extends ImproveResultBase<ImprovementProfil
   decision: 'ship' | 'hold'
   lift: number
   liftInterval: { low: number; high: number }
-  /** Every distinct verified candidate, including explicit materialization refusals. */
-  candidatePopulation: ImprovementProfileCandidatePopulation
+  /** The optimizer's search ledger, closed and verified from its bytes: every
+   * candidate it measured as a node, its parents as edges where the optimizer
+   * reports them, and every evaluation as a cell. `officialGepa` and
+   * `officialSkillOpt` always record one; `null` means the method recorded
+   * none, so its lineage is unknown. */
+  searchHistory: SearchHistoryReceipt | null
   raw: OptimizationMethodComparison
+}
+
+export interface ImproveSearchResult extends ImproveResultBase<ImprovementProfileCandidate> {
+  mode: 'search'
+  method: string
+  lineage: ImproveMethodLineage
+  /** `ship` only when the claim shipped, its verification re-derived it, the
+   * cost accounting is complete, and the test lower bound exceeds `minimumLift`. */
+  decision: 'ship' | 'hold'
+  /** Why: the claim's reason, or the Runtime rule that held a statistical ship. */
+  reason: string
+  /** The claim made once on the sealed test split. */
+  claim: SearchClaim
+  /** The claim re-derived from the closed ledger alone. */
+  claimVerification: SearchClaimVerification
+  /** The kept candidate's test delta against the baseline, when the claim tested it. */
+  lift?: number
+  liftInterval?: { low: number; high: number }
+  /** The search ledger, closed and verified from its bytes. */
+  searchHistory: SearchHistoryReceipt
 }
 
 export interface ImproveCodeResult<TScenario extends Scenario, TArtifact>
@@ -440,4 +432,5 @@ export interface ImproveCodeResult<TScenario extends Scenario, TArtifact>
 
 export type ImproveResult<TScenario extends Scenario, TArtifact> =
   | ImproveMethodResult
+  | ImproveSearchResult
   | ImproveCodeResult<TScenario, TArtifact>
