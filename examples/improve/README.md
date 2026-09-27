@@ -41,9 +41,12 @@ Run it again with the same `runDir` and it continues the search from its ledger;
 
 ```text
 nodes 8, edges 9, cells 190, claim ship
-decision: ship (finalist node_fcd4… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
-test lift 0.142 [0.128, 0.157]
+decision: ship (finalist node_0983… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
+test lift 0.142 [0.127, 0.158]
 ```
+
+Its cells run on one `routerLane({ capacity: 4, cellUsd: 0.0001 })`: each cell makes one priced call with an enforced $0.0001 maximum, so the lane holds each cell to it.
+Each attempt is recorded under its run id in `<search dir>/attempts/`, and its spans go to `<search dir>/spans.otlp.jsonl`.
 
 The search runs `searchMethod`'s defaults, Eval's `aide()` policy and `asha()` allocator.
 `aide()` spends 5 of the 8 proposals on one-rule drafts from the baseline, so this run keeps 2 of the 3 positive rules (0.12 and 0.02).

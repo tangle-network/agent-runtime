@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 288 exports.
+Import from `@tangle-network/agent-runtime` — 302 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -45,6 +45,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
+| `dedicatedLane` | function | Cells that each run in their own environment, `capacity` at once. The lane cannot bound a |
 | `defaultBuildPrompt` | function | Turn proposal findings into a concrete coder task — |
 | `defineConversation` | function | Validate and define a conversation before execution. |
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
@@ -54,6 +55,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `improve` | function | Train and serve a checkpoint without implying that it improved held-out quality. |
 | `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
+| `isSearchEnvironmentFault` | function | Whether an attempt's error is the environment's: a `SearchEnvironmentFault`, or a platform, |
 | `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
 | `loopEventToOtelSpan` | function | Convert a LoopTraceEvent into an OtelSpan for export. |
 | `mcpBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new MCP server. |
@@ -75,6 +77,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `researchLoopRunner` | function | `research` mode — research-in-a-loop with valid-only KB growth. |
 | `resolveChatModel` | function | Resolve a chat model by precedence: the first candidate carrying a |
 | `resolveRouterBaseUrl` | function | Resolve the router base URL from env, normalised — no trailing `/v1` or `/`. |
+| `routerLane` | function | Cells whose model calls are priced router calls, `capacity` at once. Every paid call of a |
 | `runAgentTask` | function | Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the runtime lifecycle event vocabulary, session-store pluggable. |
 | `runAgentTaskStream` | function | Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (model API, sandbox, or custom iterable) and yields lifecycle events as they happen. |
 | `runConversation` | function | Run a conversation to completion and return its terminal result. |
@@ -91,8 +94,10 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
 | `searchMethod` | function | Build Runtime's native search for `improve(profile, { method })`. |
 | `serializeRolloutPolicy` | function | Stable serialization with fixed field order. |
+| `sharedBoxLane` | function | Cells as workers packed into shared Sandbox boxes, `workersPerBox` to a box. |
 | `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
 | `structuralRolloutPolicyFromProfile` | function | Read the persisted policy off the profile. `undefined` when the profile does |
+| `subscriptionLane` | function | Cells on subscription seats, one cell a seat. A seat charges no dollar per call, so its own |
 | `toolBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new tool. |
 | `toOtelAttributes` | function | Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
@@ -120,6 +125,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `RetainedRunAdmissionError` | class | The caller could not persist one detached-run recovery record. |
 | `RetainedRunDispatchBindingError` | class | A retained dispatch answered with coordinates that do not bind to the |
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
+| `SearchEnvironmentFault` | class | The environment, not the candidate, ended the attempt: a box that died, a platform that |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
@@ -145,6 +151,10 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
+| `SearchCellContext` | interface | What the agent of one attempt knows about where and as what it runs. |
+| `SearchLane` | interface | An execution lane: slots that share one cost rule, and the profiles they cannot run. |
+| `SearchLaneOptions` | interface | Options every lane builder takes. |
+| `SharedBoxSearchLane` | interface | A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
@@ -156,6 +166,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `ImproveMethodOptions` | type | Complete-method configuration for every non-code profile surface. |
 | `ImproveOptions` | type | The canonical improvement API: complete methods for profiles, worktrees for code. |
 | `ImproveProfileAgent` | type | Runs one exact materialized profile on one scenario. |
+| `ImproveSearchAgent` | type | The agent of a native search: the exact node profile on one scenario. |
 | `ImproveSearchOptions` | type | Improve a profile with `searchMethod`. The search runs on all three splits: |
 | `ImproveSurface` | type | The executable agent lever `improve` optimizes — every surface a proposal can name |
 | `OfficialGepaOptions` | type | Official GEPA configuration plus bounded Runtime findings context. |
@@ -168,6 +179,9 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
 | `RuntimeCanonicalStreamEvent` | type | Agent Interface events that do not belong to Runtime's task vocabulary. |
 | `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |
+| `SearchDispatchContext` | type | A campaign dispatch context with the search attempt it runs. |
+| `SearchLaneKind` | type | What a lane's slots are. |
+| `SearchTraceOptions` | type | Where a search's cell spans go. Default: one OpenInference file per search when storage is |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 

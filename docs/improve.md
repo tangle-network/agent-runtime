@@ -201,14 +201,18 @@ Ship the ledger to Intelligence with Eval's `startSearchShipper` or `agent-eval 
 A policy chooses which node each proposal extends, an allocator chooses where cells run, and your proposer writes each child surface.
 Each node is an exact AgentProfile, addressed by `canonicalAgentProfileDigest`.
 Each edge stores the Interface diffs from the parent profile to the child; Runtime stores the diffs only when they reproduce the child.
-Each cell is a one-cell `runCampaign` of the node's profile on one task.
+Each cell is a one-cell `runCampaign` of the node's profile on one task, on one lane.
 
 ```ts
-import { improve, searchMethod } from '@tangle-network/agent-runtime'
+import { dedicatedLane, improve, searchMethod } from '@tangle-network/agent-runtime'
 
 const result = await improve(baseProfile, {
   executionRef,
-  method: searchMethod({ proposer, maxExpansions: 20, cellUsd: 0.05 }),
+  method: searchMethod({
+    proposer,
+    maxExpansions: 20,
+    lanes: [dedicatedLane({ capacity: 8, cellUsd: 0.05 })],
+  }),
   claim, // an EvaluationClaim: independentUnit names each scenario's unit field; minimumEffect is required
   trainScenarios,
   selectionScenarios,
@@ -241,6 +245,52 @@ Otherwise `result.reason` says which rule held it.
 
 The ledger is the only checkpoint.
 Call `improve()` again with the same inputs to continue an interrupted search; a closed search returns without running anything.
+
+### Lanes
+
+A lane is where cells run and under which cost rule.
+The search runs at most the lanes' total capacity at once, and each cell goes to a lane that accepts the node's profile, in proportion to capacity.
+A candidate that no lane accepts is refused before it runs.
+
+| Lane | Capacity | Cost rule |
+|---|---|---|
+| `sharedBoxLane({ client, boxes, cellUsd })` | `boxes × workersPerBox` (8 by default) | Estimate. The box's workers share one router key, which caps no single worker. The placement refuses a profile it cannot carry, such as MCP servers, hooks, subagents or a replaced system prompt. |
+| `dedicatedLane({ capacity, cellUsd })` | `capacity` | Estimate: `cellUsd` until 20 cells settle, then 1.5 × the p99 of the lane's settled cells. Overshoot is recorded. |
+| `subscriptionLane({ seats, cellUsd? })` | `seats` | Hard. The seat charges no dollar and reports no tokens, so the cell's tokens are unknown. `cellUsd` bounds its priced calls, such as judges. |
+| `routerLane({ capacity, cellUsd })` | `capacity` | Hard. `cellUsd` is each cell's maximum. |
+
+On a hard lane every paid call of a cell, the agent's and the judges', must declare a priced `maximumCharge`.
+Runtime refuses a call that declares none, or that would take the cell past `cellUsd`, so the kernel's hard reservation is a bound.
+A shared-box agent reaches its box through `lane.placement.providerFor({ nodeId: ctx.search.runId })`, which names the attempt to the router on every call.
+
+The agent receives `ctx.search`: the attempt's lane, run id, node, task and trace.
+`ctx.search.runId` is `cellId:attempt`, and it is the same after a restart.
+Key remote work by it, so a request sent again returns the first execution's result instead of running a second.
+Throw `SearchEnvironmentFault` when the environment, not the profile, ended the run.
+The attempt then settles `errored` and retryable, and the kernel runs a fresh attempt, up to `maxAttempts`.
+A transient platform failure (a 502, 503 or 504, a dropped connection) counts as an environment fault too.
+
+Runtime records every finished attempt under its run id before the kernel settles it.
+A search restarted after a crash adopts a finished attempt instead of running it again.
+
+Every paid call a search makes is tagged with the search and with the attempt or proposal that made it.
+An attempt's cost is every call tagged with its run id, including calls a killed process made for the same attempt.
+A process killed during a paid call leaves that call pending, and the cost ledger refuses new paid work while one is unresolved.
+A reopened search therefore settles its interrupted calls before it runs anything.
+A lane built with `recoverReceipt(call)` asks its provider what `call.callId` was billed; forward the call id your paid call's `execute` receives as the provider's idempotency key.
+Without `recoverReceipt`, or when the provider cannot answer, the call settles failed with an unknown cost, and the search reports its accounting incomplete.
+
+Several searches in one process can share two fleet bounds, both from `@tangle-network/agent-runtime/kernel`:
+
+- `workerSlots: createWorkerSlots(n)` bounds working cells across every search that passes it; a cell waits for a slot, and the wait is its `queueMs`.
+- `budgetPool: createBudgetPool({ maxUsd, maxTokens, maxIterations }, Date.now())` holds fleet dollars: a cell on a hard lane reserves its lane's `cellUsd` before it starts, waits while running cells could return enough, and settles with its measured spend.
+  Estimate lanes take no ticket, because they cannot bound a cell.
+  A refused reservation stops the search.
+
+Each attempt is one trace.
+Its root span, `search.cell`, carries `agent.branch.id` = the node id, and the campaign's spans are its children.
+Spans go to `<search dir>/spans.otlp.jsonl` by default; pass `trace: { otlp }` for a collector, or `trace: 'off'`.
+The cell's `traceRef` records the trace id and the spans the exporter wrote and dropped for that attempt.
 
 ## Surfaces
 
