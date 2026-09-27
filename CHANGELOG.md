@@ -1,3 +1,7 @@
+## 0.282.2
+
+Revert the 0.282.1 widen of the `@tangle-network/agent-eval` peer range to `<0.201.0`. Eval 0.200.0 is itself compatible (Runtime imports no changed subpath), but `@tangle-network/agent-knowledge`@17.1.10, a direct Runtime dependency, declares `agent-eval` `>=0.182.0 <0.200.0` and refuses 0.200.0: `pnpm install` failed strict peer resolution with the real 0.200.0 dev pin. Admitting Eval 0.200.x needs a Knowledge peer bump first; that release is outside this package's scope. The range stays `>=0.199.0 <0.200.0` until Knowledge ships it.
+
 ## 0.282.1
 
 Runtime admits stable `@tangle-network/agent-eval` 0.200.x through its peer range. Eval 0.200.0 adds `/rl` claim-integrity signals and 0.199.1 fixed search-lenses charging and the release pin; neither touches the `/analyst`, `/campaign`, `/contract`, `/experiment`, `/pipelines` or `/traces` subpaths Runtime imports, and Eval removes no API between 0.199.0 and 0.200.0.
