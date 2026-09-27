@@ -21,7 +21,7 @@ These are internal working documents: design theses, research narrative, and roa
 | 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks — the visual mental model (`act`/`Scope`/recursion, the up-flow, the three improvement timescales) folded in. The single source of truth; wins on conflict. |
 | 1a | [agent-managed-compute/](./agent-managed-compute/) | **distributed execution plan** | Current-state audit, converged design, failure behavior, dependency-ordered roadmap, and measurable completion criteria for agents that allocate and steer compute. |
 | 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses + the decision gate. Answers "does it cohere?" — and where it doesn't. |
-| 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build plan | The dependency-ordered sequence from scaffold to a measured surface. Phases, exit gates, open decisions. |
+| 3 | [agent-managed-compute/roadmap.md](./agent-managed-compute/roadmap.md) | build plan | The canonical, dependency-ordered implementation roadmap: phases, exit gates, open decisions. |
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The cross-run learning thesis: why the outer improvement loop, not any single run, is the product. |
 | 5 | [eval-substrate.md](./eval-substrate.md) | measurement principles | Neutral scoring, honest graders, and the claims discipline the team holds itself to. |
 | 6 | [../bench/HARNESS.md](../bench/HARNESS.md) | empirical harness map | Commands, the data flow, the wired/needs-creds matrix, the canonical-suite runbook. |

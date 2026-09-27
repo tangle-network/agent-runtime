@@ -13,7 +13,7 @@ See [Eval's evaluation-integrity guide](https://github.com/tangle-network/agent-
 These controls do not grant product activation authority.
 The profile is never changed.
 
-The runnable offline path is [`examples/improve`](../examples/improve).
+The runnable offline paths are [`examples/improve/improve.ts`](../examples/improve/improve.ts) for a complete method and [`examples/improve/search.ts`](../examples/improve/search.ts) for the native search.
 This page is the reference for the production path.
 
 ## Compose analysis and search
@@ -53,8 +53,7 @@ Keep that callback and its dependencies bound to the execution identity.
 
 Composed method evidence remains in `result.raw.best.composition.stages`, including each child's provenance, usage, history, and selected surface.
 Read the aggregate cost from `result.cost`; summing it with child costs would count the same work twice.
-Projected child surfaces are not necessarily complete profiles, so the flat `candidatePopulation` can remain unavailable.
-Request `searchHistoryPolicy: 'require-complete'` and `searchHistoryVerification: 'ledger'` when acceptance requires verified history for every stage.
+A method that records a search ledger must close it; Runtime replays the ledger bytes and returns the receipt as `result.searchHistory`.
 
 ## The call
 
@@ -159,7 +158,7 @@ There is no local fallback.
 Install its optional Python process first:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.178.0"
+python -m pip install "agent-eval-rpc==0.197.0"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -173,7 +172,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.178.0"
+python -m pip install "agent-eval-rpc==0.197.0"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
@@ -187,11 +186,56 @@ Set `trustResumeState: true` only when that run directory is private to the curr
 Use `resume: 'required'` to fail when no matching run exists.
 
 `result.provenance` reports the upstream package, run ID, resume status, evaluation count, and artifact directory.
-`result.candidatePopulation` verifies and joins callback observations with an optimizer's official candidate graph.
-It returns every unique candidate as a complete profile with ordered Interface diffs, or as an explicit materialization refusal.
-Each materialized candidate's `profileDigest`, and `lineage.baselineProfileDigest`, is `canonicalAgentProfileDigest` of that profile: the same identity supervise, preparation receipts, and VerticalBench record.
-GEPA candidates keep exact parent indices and selection scores; callback-only proposals report lineage as unavailable.
-Methods without either artifact return `status: 'unavailable'` instead of treating the winner as the full population.
+`result.searchHistory` is the optimizer's search ledger, closed and verified from its bytes.
+`officialGepa` and `officialSkillOpt` always record one at `<runDir>/search-ledger.jsonl`.
+Every candidate the evaluation callback scored is a node, and every evaluation is an `external` cell.
+GEPA's reported parents become `correlated` edges; SkillOpt reports no parents, so its edges are `unknown`.
+The optimizer's own choice is the `selected` node.
+A custom method that records no ledger returns `searchHistory: null`, which means its lineage is unknown.
+`lineage.baselineProfileDigest` is `canonicalAgentProfileDigest` of the baseline: the same identity supervise, preparation receipts, and VerticalBench record.
+Ship the ledger to Intelligence with Eval's `startSearchShipper` or `agent-eval search ship`.
+
+## Native search
+
+`searchMethod(...)` runs Runtime's own profile search on Eval's search kernel, with no Python process.
+A policy chooses which node each proposal extends, an allocator chooses where cells run, and your proposer writes each child surface.
+Each node is an exact AgentProfile, addressed by `canonicalAgentProfileDigest`.
+Each edge stores the Interface diffs from the parent profile to the child; Runtime stores the diffs only when they reproduce the child.
+Each cell is a one-cell `runCampaign` of the node's profile on one task.
+
+```ts
+import { improve, searchMethod } from '@tangle-network/agent-runtime'
+
+const result = await improve(baseProfile, {
+  executionRef,
+  method: searchMethod({ proposer, maxExpansions: 20, cellUsd: 0.05 }),
+  claim, // an EvaluationClaim: independentUnit names each scenario's unit field; minimumEffect is required
+  trainScenarios,
+  selectionScenarios,
+  testScenarios,
+  judges,
+  agent,
+  costCeiling: 40,
+  runDir,
+})
+```
+
+The defaults are the `incumbent()` hill climb and the `uniform()` allocator, which runs every node on every train and selection task.
+Pass `allocation: asha()` to screen each node on 6 selection units and advance only the top third; the hill climb then keeps the root until a child finishes the top rung, so pair `asha()` with a policy that ranks screened nodes.
+The proposer receives the parents, the train view and a train summary; it never sees selection or test scores.
+Read `ctx.train` before the proposer's first `await`: the view retires when the ledger moves on.
+Runtime refuses a candidate that does not materialize, declares training on a test task, fails your validator, or carries a credential or private value.
+A refused candidate stays in the ledger as an invalid node.
+
+The claim is made once, on the sealed test split, by the kernel.
+It runs the power check, tests at most 3 finalists against the root at Bonferroni confidence, and records the result as `result.claim`.
+`result.decision` is `ship` only when the claim shipped, the claim re-derives from the ledger, cost accounting is complete, and the shipped finalist's test lower bound exceeds `minimumLift`.
+Otherwise `result.reason` says which rule held it.
+`result.candidate` is the claim's selection, or the baseline when nothing shipped.
+`result.searchHistory` is the closed ledger.
+
+The ledger is the only checkpoint.
+Call `improve()` again with the same inputs to continue an interrupted search; a closed search returns without running anything.
 
 ## Surfaces
 

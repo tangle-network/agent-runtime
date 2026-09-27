@@ -27,6 +27,26 @@ candidate prompt: PROMOTED
 live prompt unchanged: BASELINE
 ```
 
+## Native search
+
+```bash
+pnpm build
+pnpm tsx examples/improve/search.ts [runDir]
+```
+
+`search.ts` runs `improve()` with `searchMethod(...)` instead of a complete method.
+A deterministic proposer adds one prompt rule per proposal, and each rule has a fixed effect on the score.
+The kernel grows a tree of prompt candidates, measures each on the train and selection splits, and claims once on the 24 sealed test tasks.
+Run it again with the same `runDir` and it continues the search from its ledger; a finished search returns without running anything.
+
+```text
+nodes 8, edges 9, cells 224, claim ship
+decision: ship (finalist node_3052… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
+test lift 0.237 [0.217, 0.255]
+```
+
+The three positive rules add 0.22 to every task, and the claim's interval covers it.
+
 ## What the call owns
 
 1. Extract the exact profile coordinate named by `surface`.

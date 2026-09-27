@@ -2321,6 +2321,45 @@ Structured value represented by `baselineSurface`, before serialization.
 
 Findings produced before this search, if any.
 
+##### searchIdentity
+
+> `readonly` **searchIdentity**: [`ImproveSearchIdentity`](#improvesearchidentity)
+
+Identities the method's search ledger records.
+
+***
+
+### ImproveSearchIdentity
+
+What a search ledger records about an improvement and cannot infer: what is
+improved, the agent harness around the profile, the judges and the model.
+
+#### Properties
+
+##### subject
+
+> `readonly` **subject**: `string`
+
+What the search improves, for example `vb/coder`.
+
+##### agent
+
+> `readonly` **agent**: `SearchSourceRef`
+
+`executionRef`: the agent callback, materializer, models, tools and closures.
+
+##### judge
+
+> `readonly` **judge**: `SearchSourceRef`
+
+Digest of every judge's name, dimensions, declared version and code.
+
+##### model
+
+> `readonly` **model**: `SearchModelIdentity`
+
+The profile's model hint; each cell records the model it resolved.
+
 ***
 
 ### ImproveCandidateValidationInput
@@ -2352,6 +2391,80 @@ Exact materialized profile presented for validation before any candidate run.
 ##### isBaseline
 
 > **isBaseline**: `boolean`
+
+***
+
+### ImproveSearchMethod
+
+Runtime's native search: a policy, an allocator and a proposer on Eval's
+search kernel, with no Python bridge. Build it with `searchMethod`.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"search"`
+
+##### name
+
+> `readonly` **name**: `string`
+
+Recorded as the ledger's process name and the result's method.
+
+##### policy
+
+> `readonly` **policy**: `SearchPolicy`
+
+##### allocation
+
+> `readonly` **allocation**: `SearchAllocator`
+
+##### proposer
+
+> `readonly` **proposer**: `SurfaceProposer`\<`ProposalFinding`\>
+
+##### maxExpansions
+
+> `readonly` **maxExpansions**: `number`
+
+Proposals the search may make.
+
+##### childrenPerProposal
+
+> `readonly` **childrenPerProposal**: `number`
+
+Children one proposal asks for.
+
+##### concurrency
+
+> `readonly` **concurrency**: `number`
+
+Cells that run at once, in process.
+
+##### cellUsd
+
+> `readonly` **cellUsd**: `number`
+
+Prior cost of one cell, held as its estimate reservation until 20 cells settle.
+
+##### claimReserveUsd
+
+> `readonly` **claimReserveUsd**: `number` \| `null`
+
+Dollars held from the start for the claim's test cells; at least the
+root and 3 finalists on every test task at `cellUsd` a cell.
+
+##### deadline
+
+> `readonly` **deadline**: `string` \| `null`
+
+ISO time after which the search stops expanding and claims.
+
+##### maxAttempts
+
+> `readonly` **maxAttempts**: `number`
+
+Attempts per cell for retryable environment errors.
 
 ***
 
@@ -2558,262 +2671,6 @@ Exact winning value returned by agent-eval.
 > **profile**: `object`
 
 Exact complete profile instance measured on the final cases.
-
-***
-
-### ImprovementProfilePopulationArtifactSource
-
-Digest-addressed Eval artifact.
-
-#### Properties
-
-##### path
-
-> **path**: `string`
-
-##### sha256
-
-> **sha256**: `` `sha256:${string}` ``
-
-***
-
-### ImprovementProfilePopulationObservationSource
-
-Exact callback observation that introduced one optimizer candidate.
-
-#### Properties
-
-##### proposalSequence
-
-> **proposalSequence**: `number`
-
-One-based JSONL line sequence in the verified observation artifact.
-
-##### artifact
-
-> **artifact**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource)
-
-***
-
-### ImprovementProfilePopulationLineageNode
-
-One exact node from GEPA's accepted candidate graph.
-
-#### Properties
-
-##### index
-
-> **index**: `number`
-
-##### parentIndices
-
-> **parentIndices**: readonly (`number` \| `null`)[]
-
-##### aggregateScore
-
-> **aggregateScore**: `number` \| `null`
-
-##### selectionScores
-
-> **selectionScores**: readonly `object`[]
-
-##### discoveryEvaluationCount
-
-> **discoveryEvaluationCount**: `number`
-
-***
-
-### ImprovementProfilePopulationCandidateSource
-
-Every verified source associated with one unique optimizer candidate.
-
-#### Properties
-
-##### candidateDigest
-
-> **candidateDigest**: `` `sha256:${string}` ``
-
-Eval identity of the external text or component candidate.
-
-##### observation?
-
-> `optional` **observation?**: [`ImprovementProfilePopulationObservationSource`](#improvementprofilepopulationobservationsource)
-
-Present when the candidate crossed the evaluation callback.
-
-##### lineage
-
-> **lineage**: [`ImprovementProfilePopulationLineage`](#improvementprofilepopulationlineage)
-
-Exact GEPA parents and scores, or an explicit statement that none were reported.
-
-***
-
-### ImprovementMaterializedProfilePopulationCandidate
-
-A verified optimizer candidate that Runtime can express as an exact profile.
-
-#### Properties
-
-##### status
-
-> **status**: `"materialized"`
-
-##### source
-
-> **source**: [`ImprovementProfilePopulationCandidateSource`](#improvementprofilepopulationcandidatesource)
-
-##### value
-
-> **value**: `MutableSurface`
-
-Exact optimizer surface decoded by Eval.
-
-##### surfaceDigest
-
-> **surfaceDigest**: `` `sha256:${string}` ``
-
-Interface identity of `value`.
-
-##### profile
-
-> **profile**: `object`
-
-Exact complete profile produced by Runtime's configured materializer.
-
-##### profileDigest
-
-> **profileDigest**: `` `sha256:${string}` ``
-
-`canonicalAgentProfileDigest(profile)`: the one AgentProfile identity Runtime records.
-
-##### diffs
-
-> **diffs**: readonly `AgentProfileDiff`[]
-
-Ordered Interface diffs that reproduce `profile` from the baseline.
-
-##### diffDigests
-
-> **diffDigests**: readonly `` `sha256:${string}` ``[]
-
-Interface identity of each entry in `diffs`.
-
-***
-
-### ImprovementRefusedProfilePopulationCandidate
-
-A verified optimizer candidate that Runtime refused to materialize.
-
-#### Properties
-
-##### status
-
-> **status**: `"refused"`
-
-##### source
-
-> **source**: [`ImprovementProfilePopulationCandidateSource`](#improvementprofilepopulationcandidatesource)
-
-##### value
-
-> **value**: `MutableSurface`
-
-Exact optimizer surface decoded by Eval.
-
-##### surfaceDigest
-
-> **surfaceDigest**: `` `sha256:${string}` ``
-
-Interface identity of `value`.
-
-##### error
-
-> **error**: `object`
-
-###### name
-
-> **name**: `string`
-
-###### message
-
-> **message**: `string`
-
-***
-
-### ImprovementProfileCandidatePopulationAvailable
-
-Complete verified population reported by one optimizer run.
-
-#### Properties
-
-##### status
-
-> **status**: `"available"`
-
-##### source
-
-> **source**: `object`
-
-###### observations?
-
-> `optional` **observations?**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource)
-
-###### gepaCandidateGraph?
-
-> `optional` **gepaCandidateGraph?**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource) & `object`
-
-###### Type Declaration
-
-###### bestIndex
-
-> **bestIndex**: `number`
-
-##### uniqueCandidates
-
-> **uniqueCandidates**: `number`
-
-Distinct candidate surfaces across all verified source artifacts.
-
-##### observedCandidates
-
-> **observedCandidates**: `number`
-
-Distinct candidate surfaces submitted through the evaluation callback.
-
-##### gepaCandidateNodes
-
-> **gepaCandidateNodes**: `number`
-
-Exact GEPA graph nodes. Multiple nodes can have the same candidate surface.
-
-##### materializedCandidates
-
-> **materializedCandidates**: `number`
-
-##### refusedCandidates
-
-> **refusedCandidates**: `number`
-
-##### candidates
-
-> **candidates**: readonly [`ImprovementProfilePopulationCandidate`](#improvementprofilepopulationcandidate)[]
-
-***
-
-### ImprovementProfileCandidatePopulationUnavailable
-
-Explicit absence for methods that do not report candidate population evidence.
-
-#### Properties
-
-##### status
-
-> **status**: `"unavailable"`
-
-##### reason
-
-> **reason**: `"method-did-not-report-candidate-population"`
 
 ***
 
@@ -3129,15 +2986,167 @@ Paired final-test confidence interval for method-based profile runs.
 
 `ImproveResultBase.liftInterval`
 
-##### candidatePopulation
+##### searchHistory
 
-> **candidatePopulation**: [`ImprovementProfileCandidatePopulation`](#improvementprofilecandidatepopulation)
+> **searchHistory**: `SearchHistoryReceipt` \| `null`
 
-Every distinct verified candidate, including explicit materialization refusals.
+The optimizer's search ledger, closed and verified from its bytes: every
+candidate it measured as a node, its parents as edges where the optimizer
+reports them, and every evaluation as a cell. `officialGepa` and
+`officialSkillOpt` always record one; `null` means the method recorded
+none, so its lineage is unknown.
 
 ##### raw
 
 > **raw**: `OptimizationMethodComparison`
+
+#### Methods
+
+##### dispose()
+
+> **dispose**(): `Promise`\<`void`\>
+
+Release resources owned by this result. Idempotent; currently disposes
+the returned code worktree and is a no-op for profile-only surfaces.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Inherited from
+
+`ImproveResultBase.dispose`
+
+***
+
+### ImproveSearchResult
+
+#### Extends
+
+- `ImproveResultBase`\<[`ImprovementProfileCandidate`](#improvementprofilecandidate)\>
+
+#### Properties
+
+##### candidate
+
+> **candidate**: [`ImprovementProfileCandidate`](#improvementprofilecandidate)
+
+Frozen candidate only. Live state is changed through an approved activation.
+
+###### Inherited from
+
+`ImproveResultBase.candidate`
+
+##### cost
+
+> **cost**: [`ImproveCost`](#improvecost)
+
+Full search and final-test spend.
+
+###### Inherited from
+
+`ImproveResultBase.cost`
+
+##### durationMs
+
+> **durationMs**: `number`
+
+Full wall-clock duration.
+
+###### Inherited from
+
+`ImproveResultBase.durationMs`
+
+##### generationsExplored?
+
+> `optional` **generationsExplored?**: `number`
+
+Number of generations explored by Runtime's code path.
+
+###### Inherited from
+
+`ImproveResultBase.generationsExplored`
+
+##### mode
+
+> **mode**: `"search"`
+
+##### method
+
+> **method**: `string`
+
+##### lineage
+
+> **lineage**: [`ImproveMethodLineage`](#improvemethodlineage)
+
+Optimizer ancestry used when sealing a candidate experiment.
+
+###### Overrides
+
+`ImproveResultBase.lineage`
+
+##### decision
+
+> **decision**: `"ship"` \| `"hold"`
+
+`ship` only when the claim shipped, its verification re-derived it, the
+cost accounting is complete, and the test lower bound exceeds `minimumLift`.
+
+###### Overrides
+
+`ImproveResultBase.decision`
+
+##### reason
+
+> **reason**: `string`
+
+Why: the claim's reason, or the Runtime rule that held a statistical ship.
+
+##### claim
+
+> **claim**: `SearchClaim`
+
+The claim made once on the sealed test split.
+
+##### claimVerification
+
+> **claimVerification**: `SearchClaimVerification`
+
+The claim re-derived from the closed ledger alone.
+
+##### lift?
+
+> `optional` **lift?**: `number`
+
+The kept candidate's test delta against the baseline, when the claim tested it.
+
+###### Overrides
+
+`ImproveResultBase.lift`
+
+##### liftInterval?
+
+> `optional` **liftInterval?**: `object`
+
+Paired final-test confidence interval for method-based profile runs.
+
+###### low
+
+> **low**: `number`
+
+###### high
+
+> **high**: `number`
+
+###### Overrides
+
+`ImproveResultBase.liftInterval`
+
+##### searchHistory
+
+> **searchHistory**: `SearchHistoryReceipt`
+
+The search ledger, closed and verified from its bytes.
 
 #### Methods
 
@@ -3738,6 +3747,87 @@ Receipt attribution phase supplied alongside `costLedger`.
 ###### Returns
 
 [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
+
+***
+
+### SearchMethodOptions
+
+#### Properties
+
+##### proposer
+
+> **proposer**: `SurfaceProposer`\<`ProposalFinding`\>
+
+Writes each child surface from the parents the policy chose. It reads the
+train split only (`ProposeContext.train` and `summary`); `history` is empty.
+
+##### maxExpansions
+
+> **maxExpansions**: `number`
+
+Proposals the search may make.
+
+##### policy?
+
+> `optional` **policy?**: `SearchPolicy`
+
+Which node each proposal extends, and which node the search keeps.
+Default `incumbent()`: the hill climb.
+
+##### allocation?
+
+> `optional` **allocation?**: `SearchAllocator`
+
+Where cells go. Default `uniform()`: every node runs every train and
+selection task, which the `incumbent()` hill climb needs to see each
+result on the leader's units. `asha()` (successive halving over one
+seeded permutation of the selection units) spends fewer cells and pairs
+with policies that rank screened nodes. Its `reps` are every split's
+repeats, the claim's included.
+
+##### childrenPerProposal?
+
+> `optional` **childrenPerProposal?**: `number`
+
+Children one proposal asks for. Default 1.
+
+##### concurrency?
+
+> `optional` **concurrency?**: `number`
+
+Cells that run at once. Default 2.
+
+##### cellUsd?
+
+> `optional` **cellUsd?**: `number`
+
+Prior cost of one cell in dollars, held for each cell until 20 cells
+settle and the lane's own costs set the hold. Default 0.
+
+##### claimReserveUsd?
+
+> `optional` **claimReserveUsd?**: `number`
+
+Dollars held for the claim from the start. Default: the root and 3
+finalists on every test task at `cellUsd` a cell.
+
+##### deadline?
+
+> `optional` **deadline?**: `string`
+
+ISO time after which the search stops expanding and claims.
+
+##### maxAttempts?
+
+> `optional` **maxAttempts?**: `number`
+
+Attempts per cell for retryable environment errors. Default 3.
+
+##### name?
+
+> `optional` **name?**: `string`
+
+Recorded as the ledger's process name. Default `search`.
 
 ***
 
@@ -5212,160 +5302,6 @@ Topology level: loop root, plan round, or iteration branch.
 > **error**: `boolean`
 
 True when the iteration carried an error — maps to OTEL status code 2.
-
-***
-
-### EvalRunGeneration
-
-#### Properties
-
-##### index
-
-> **index**: `number`
-
-0-based ordinal of this generation within the run (required by ingest).
-
-##### surfaceHash
-
-> **surfaceHash**: `string`
-
-Identity of the proposed surface change (content-addressed hash).
-
-##### surface?
-
-> `optional` **surface?**: `unknown`
-
-Arbitrary provenance for this generation (rationale, evidence, source).
-
-##### cells?
-
-> `optional` **cells?**: `unknown`[]
-
-Per-scenario results; empty until the generation is measured.
-
-##### compositeMean
-
-> **compositeMean**: `number`
-
-Mean composite score (0 when unmeasured — pair with labels.measured).
-
-##### costUsd
-
-> **costUsd**: `number`
-
-##### durationMs
-
-> **durationMs**: `number`
-
-***
-
-### EvalRunEvent
-
-#### Properties
-
-##### runId
-
-> **runId**: `string`
-
-##### runDir
-
-> **runDir**: `string`
-
-##### timestamp
-
-> **timestamp**: `string`
-
-ISO timestamp.
-
-##### status
-
-> **status**: `"started"` \| `"baseline-complete"` \| `"generation-complete"` \| `"gate-decided"` \| `"finished"` \| `"errored"`
-
-##### labels?
-
-> `optional` **labels?**: `Record`\<`string`, `string`\>
-
-##### baseline?
-
-> `optional` **baseline?**: [`EvalRunGeneration`](#evalrungeneration)
-
-##### generations?
-
-> `optional` **generations?**: [`EvalRunGeneration`](#evalrungeneration)[]
-
-##### gateDecision?
-
-> `optional` **gateDecision?**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
-
-##### holdoutLift?
-
-> `optional` **holdoutLift?**: `number`
-
-##### totalCostUsd
-
-> **totalCostUsd**: `number`
-
-##### totalDurationMs
-
-> **totalDurationMs**: `number`
-
-##### errorMessage?
-
-> `optional` **errorMessage?**: `string`
-
-***
-
-### EvalRunsExportConfig
-
-#### Properties
-
-##### apiKey?
-
-> `optional` **apiKey?**: `string`
-
-Bearer key — tenant is resolved server-side from it. Reads TANGLE_API_KEY.
-
-##### base?
-
-> `optional` **base?**: `string`
-
-Intelligence base. Reads TANGLE_INTELLIGENCE_URL env, else prod.
-
-##### idempotencyKey?
-
-> `optional` **idempotencyKey?**: `string`
-
-Idempotency-Key header (e.g. the runId) — safe retries + upsert.
-
-***
-
-### EvalRunsExportResult
-
-#### Properties
-
-##### ok
-
-> **ok**: `boolean`
-
-##### status
-
-> **status**: `number`
-
-##### accepted
-
-> **accepted**: `number`
-
-##### rejected
-
-> **rejected**: `object`[]
-
-###### index
-
-> **index**: `number`
-
-###### reason
-
-> **reason**: `string`
 
 ***
 
@@ -7655,7 +7591,7 @@ Accept by returning void synchronously; reject by throwing. Async callbacks are 
 
 ### ImproveMethodOptions
 
-> **ImproveMethodOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`CompareOptimizationMethodsOptions`\<`TScenario`, `TArtifact`\>, `"baselineSurface"` \| `"dispatchRef"` \| `"dispatchWithSurface"` \| `"methods"` \| `"optimizationConcurrency"` \| `"optimizationRunOptions"`\> & `object`
+> **ImproveMethodOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`CompareOptimizationMethodsOptions`\<`TScenario`, `TArtifact`\>, `"baselineSurface"` \| `"dispatchRef"` \| `"dispatchWithSurface"` \| `"methods"` \| `"optimizationConcurrency"` \| `"optimizationRunOptions"` \| `"searchHistoryPolicy"` \| `"searchHistoryVerification"`\> & `object`
 
 Complete-method configuration for every non-code profile surface.
 
@@ -7722,6 +7658,48 @@ Shared settings for method train and selection calls.
 > `optional` **minimumLift?**: `number`
 
 Additional lift floor on Eval's deciding interval. Eval must also permit promotion. Default `0`.
+
+##### subject?
+
+> `optional` **subject?**: `string`
+
+What the search improves, recorded as the ledger's subject, for example
+`vb/coder`. Default: the profile's name, else `agent-profile`.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+***
+
+### ImproveSearchOptions
+
+> **ImproveSearchOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"method"` \| `"claim"` \| `"confidence"` \| `"evidence"` \| `"finalEvidence"` \| `"resamples"` \| `"reps"` \| `"maxConcurrency"` \| `"optimizationRunOptions"`\> & `object`
+
+Improve a profile with `searchMethod`. The search runs on all three splits:
+it expands and ranks on train and selection, then claims once on the sealed
+test split, and the claim decides. Runtime ships a statistical `ship` only
+with complete cost accounting and a test lower bound above `minimumLift`.
+
+#### Type Declaration
+
+##### method
+
+> **method**: [`ImproveSearchMethod`](#improvesearchmethod)
+
+##### claim
+
+> **claim**: `EvaluationClaim`
+
+The claim the sealed test split decides. `independentUnit` names each
+scenario's unit and `minimumEffect` is the improvement the power check
+must resolve; both are required.
 
 #### Type Parameters
 
@@ -7808,7 +7786,7 @@ the exam runs; this callback controls how its evidence decides promotion.
 
 ### ImproveOptions
 
-> **ImproveOptions**\<`TScenario`, `TArtifact`\> = [`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\> \| [`ImproveCodeRunOptions`](#improvecoderunoptions)\<`TScenario`, `TArtifact`\>
+> **ImproveOptions**\<`TScenario`, `TArtifact`\> = [`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\> \| [`ImproveSearchOptions`](#improvesearchoptions)\<`TScenario`, `TArtifact`\> \| [`ImproveCodeRunOptions`](#improvecoderunoptions)\<`TScenario`, `TArtifact`\>
 
 The canonical improvement API: complete methods for profiles, worktrees for code.
 
@@ -7830,24 +7808,6 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 
 ***
 
-### ImprovementProfilePopulationLineage
-
-> **ImprovementProfilePopulationLineage** = \{ `status`: `"available"`; `artifact`: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource); `nodes`: readonly [`ImprovementProfilePopulationLineageNode`](#improvementprofilepopulationlineagenode)[]; \} \| \{ `status`: `"unavailable"`; `reason`: `"optimizer-did-not-report-candidate-lineage"`; \}
-
-***
-
-### ImprovementProfilePopulationCandidate
-
-> **ImprovementProfilePopulationCandidate** = [`ImprovementMaterializedProfilePopulationCandidate`](#improvementmaterializedprofilepopulationcandidate) \| [`ImprovementRefusedProfilePopulationCandidate`](#improvementrefusedprofilepopulationcandidate)
-
-***
-
-### ImprovementProfileCandidatePopulation
-
-> **ImprovementProfileCandidatePopulation** = [`ImprovementProfileCandidatePopulationAvailable`](#improvementprofilecandidatepopulationavailable) \| [`ImprovementProfileCandidatePopulationUnavailable`](#improvementprofilecandidatepopulationunavailable)
-
-***
-
 ### ImprovementCandidate
 
 > **ImprovementCandidate** = [`ImprovementProfileCandidate`](#improvementprofilecandidate) \| [`ImprovementCodeCandidate`](#improvementcodecandidate)
@@ -7856,7 +7816,7 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 
 ### ImproveResult
 
-> **ImproveResult**\<`TScenario`, `TArtifact`\> = [`ImproveMethodResult`](#improvemethodresult) \| [`ImproveCodeResult`](#improvecoderesult)\<`TScenario`, `TArtifact`\>
+> **ImproveResult**\<`TScenario`, `TArtifact`\> = [`ImproveMethodResult`](#improvemethodresult) \| [`ImproveSearchResult`](#improvesearchresult) \| [`ImproveCodeResult`](#improvecoderesult)\<`TScenario`, `TArtifact`\>
 
 #### Type Parameters
 
@@ -7872,7 +7832,7 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 
 ### OfficialGepaOptions
 
-> **OfficialGepaOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`GepaOptimizationMethodConfig`\<`TScenario`, `TArtifact`\>, `"background"` \| `"evaluationId"`\> & [`OfficialOptimizerContextOptions`](#officialoptimizercontextoptions)
+> **OfficialGepaOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`GepaOptimizationMethodConfig`\<`TScenario`, `TArtifact`\>, `"background"` \| `"evaluationId"` \| `"searchLedger"`\> & [`OfficialOptimizerContextOptions`](#officialoptimizercontextoptions)
 
 Official GEPA configuration plus bounded Runtime findings context.
 
@@ -7890,7 +7850,7 @@ Official GEPA configuration plus bounded Runtime findings context.
 
 ### OfficialSkillOptOptions
 
-> **OfficialSkillOptOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`SkillOptOptimizationMethodConfig`\<`TScenario`, `TArtifact`\>, `"background"` \| `"evaluationId"`\> & [`OfficialOptimizerContextOptions`](#officialoptimizercontextoptions)
+> **OfficialSkillOptOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`SkillOptOptimizationMethodConfig`\<`TScenario`, `TArtifact`\>, `"background"` \| `"evaluationId"` \| `"searchLedger"`\> & [`OfficialOptimizerContextOptions`](#officialoptimizercontextoptions)
 
 Official SkillOpt configuration plus bounded Runtime findings context.
 
@@ -8737,14 +8697,6 @@ All valid delegated-loop mode names — used for validation and CLI surfaces.
 
 Default Tangle Router base URL used when no env override is set.
 
-***
-
-### INTELLIGENCE\_WIRE\_VERSION
-
-> `const` **INTELLIGENCE\_WIRE\_VERSION**: `"2026-05-26.v1"` = `'2026-05-26.v1'`
-
-Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body).
-
 ## Functions
 
 ### createIterableBackend()
@@ -9146,6 +9098,36 @@ Train and serve a checkpoint without implying that it improved held-out quality.
 
 #### Call Signature
 
+> **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveSearchResult`](#improvesearchresult)\>
+
+Search one exact profile surface with Runtime's native search
+(`method: searchMethod(...)`): the kernel expands, allocates and claims on
+the sealed test split, and the claim decides.
+
+##### Type Parameters
+
+###### TScenario
+
+`TScenario` *extends* `Scenario`
+
+###### TArtifact
+
+`TArtifact`
+
+##### Parameters
+
+###### profile
+
+###### opts
+
+[`ImproveSearchOptions`](#improvesearchoptions)\<`TScenario`, `TArtifact`\>
+
+##### Returns
+
+`Promise`\<[`ImproveSearchResult`](#improvesearchresult)\>
+
+#### Call Signature
+
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
 
 Optimize one exact profile surface with a complete method.
@@ -9171,6 +9153,34 @@ Optimize one exact profile surface with a complete method.
 ##### Returns
 
 `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
+
+#### Call Signature
+
+> **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveMethodResult`](#improvemethodresult) \| [`ImproveSearchResult`](#improvesearchresult)\>
+
+Optimize one exact profile surface with a complete method or a search.
+
+##### Type Parameters
+
+###### TScenario
+
+`TScenario` *extends* `Scenario`
+
+###### TArtifact
+
+`TArtifact`
+
+##### Parameters
+
+###### profile
+
+###### opts
+
+[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\> \| [`ImproveSearchOptions`](#improvesearchoptions)\<`TScenario`, `TArtifact`\>
+
+##### Returns
+
+`Promise`\<[`ImproveMethodResult`](#improvemethodresult) \| [`ImproveSearchResult`](#improvesearchresult)\>
 
 #### Call Signature
 
@@ -9460,6 +9470,24 @@ Persist a detached policy under the profile extension without mutating the input
 #### Returns
 
 `AgentProfile`
+
+***
+
+### searchMethod()
+
+> **searchMethod**(`options`): [`ImproveSearchMethod`](#improvesearchmethod)
+
+Build Runtime's native search for `improve(profile, { method })`.
+
+#### Parameters
+
+##### options
+
+[`SearchMethodOptions`](#searchmethodoptions)
+
+#### Returns
+
+[`ImproveSearchMethod`](#improvesearchmethod)
 
 ***
 
@@ -10205,32 +10233,6 @@ Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must kno
 #### Returns
 
 `string`
-
-***
-
-### exportEvalRuns()
-
-> **exportEvalRuns**(`events`, `config?`): `Promise`\<[`EvalRunsExportResult`](#evalrunsexportresult)\>
-
-Ship self-improvement eval-run events to Tangle Intelligence. Unlike the
-best-effort span exporter, this RESOLVES with the ingest verdict (accepted /
-rejected per event) so a consumer's loop can assert its provenance landed.
-Success requires a complete, valid acknowledgement accepting every event.
-Throws on a missing key, network failure, or unreadable/inconsistent acknowledgement.
-
-#### Parameters
-
-##### events
-
-[`EvalRunEvent`](#evalrunevent)[]
-
-##### config?
-
-[`EvalRunsExportConfig`](#evalrunsexportconfig)
-
-#### Returns
-
-`Promise`\<[`EvalRunsExportResult`](#evalrunsexportresult)\>
 
 ***
 

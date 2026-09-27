@@ -1,3 +1,34 @@
+## 0.279.0
+
+npm never served 0.278.0 or 0.278.1: their release runs stopped before publish. 0.279.0 is the first published version with the changes listed under 0.278.0 and 0.278.1 below, and it moves from 0.277.0 with both.
+
+Runtime admits stable `@tangle-network/sandbox` 0.55.x through its peer range. Sandbox 0.55.0 (agent fleets with per-agent profiles and Platform-enforced budgets, tangle-network/agent-dev-container#8242) adds API and removes none, and Runtime calls no new 0.55 API; consumers such as discovery-lab install it beside Runtime. The packed compatibility cohort derives its Sandbox rows from npm, so it exercises 0.55.0 once npm serves it.
+
+**Breaking.** `improve()` gains Runtime's native search and returns search ledgers instead of candidate populations. Requires `@tangle-network/agent-eval` 0.197.x.
+
+- `searchMethod({ proposer, maxExpansions, policy?, allocation?, ... })`, passed as `improve(profile, { method, claim, ... })`, runs a profile search on Eval's search kernel with no Python process. Every node is an exact AgentProfile addressed by `canonicalAgentProfileDigest`; every edge stores the Interface diffs from its parent profile to the child, kept only when they reproduce the child. The defaults are the `incumbent()` hill climb and the `uniform()` allocator; `allocation: asha()` screens with successive halving. The kernel claims once on the sealed test split, and `result.decision` is `ship` only when that claim shipped, re-derives from the ledger, has complete cost accounting, and its test lower bound exceeds `minimumLift`. The ledger is the only checkpoint: the same call continues an interrupted search.
+- `officialGepa` and `officialSkillOpt` always record the optimizer's search into a ledger at `<runDir>/search-ledger.jsonl`. `ImproveMethodResult.searchHistory` is that ledger's receipt, verified from its bytes, or `null` for a custom method that records none.
+- Removed: `ImproveMethodResult.candidatePopulation` and the `ImprovementProfileCandidatePopulation*`, `ImprovementProfilePopulation*`, `ImprovementMaterializedProfilePopulationCandidate` and `ImprovementRefusedProfilePopulationCandidate` types; `exportEvalRuns`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult` and `INTELLIGENCE_WIRE_VERSION`.
+- Migration: read lineage from `result.searchHistory` (replay the ledger with Eval's `replaySearchLedgerText`, or print it with `agent-eval search show <ledger>`) instead of `result.candidatePopulation`. Ship searches to Intelligence with Eval's `startSearchShipper` or `agent-eval search ship` instead of `exportEvalRuns`.
+
+## 0.278.1
+
+Fixed the `@tangle-network/agent-eval` peer floor #1419/#1421 left at `0.191.0`. The dependency contract requires the floor to sit within two minors of the pinned development version (0.197.0), and 0.278.0's release CI caught the violation before publish (`verify` failed: "peer >=0.191.0 <0.198.0 reaches back more than two minors from 0.197.0"). Nothing shipped: npm still serves 0.277.0. The floor is now `0.195.0`, so the range is `>=0.195.0 <0.198.0`.
+
+## 0.278.0
+
+Widened the `@tangle-network/agent-eval` peer range to `>=0.191.0 <0.198.0` and bumped the `agent-knowledge` catalog pin to 17.1.8 (#1419). A fresh install against agent-eval 0.194.0 through 0.197.0 previously failed strict peer resolution; the census of this package's own imports from agent-eval found nothing outside that range's stable surface.
+
+`@tangle-network/agent-runtime/platform` adds `PlatformOidcClient`, a standard OpenID Connect client for the Tangle authorization server at `/api/auth/oauth2/*`: S256 PKCE authorize URL, code exchange, verified identity from userinfo, refresh, and revoke. A confidential client passes `clientSecret` (sent with HTTP Basic); a public client omits it. `createPkcePair()` makes the verifier and challenge with Web Crypto. `PlatformAuthClient` is unchanged and still returns the `sk-tan` API key; a consumer moves to `PlatformOidcClient` after its client id and redirect URI are registered in the platform `oauthClient` registry.
+
+Release preparation now happens once at release time. Feature changes carry small release-note files instead of editing the package version, changelog, canonical API version banner, generated API surface, or versioned fixtures.
+
+Retained directors checkpoint their workspace during coordination and restore the latest checkpoint when their provider replaces a lost environment.
+Restore receipts verify the checkpoint marker, and re-entry instructions tell directors to read restored files before repeating work.
+Checkpoint receipts must match the exact execution request, and unresolved snapshot cleanup remains visible across resume.
+Runtime records checkpoint intent before remote creation and preserves the source until an unresolved operation can be reconciled.
+This requires agent-interface 2.13.0 and a provider with workspace checkpoint restore support.
+
 ## 0.277.0
 
 A supervisor tree (what discovery-lab calls a fleet) grows to hundreds of agents with only money, time and safety bounds on it.
