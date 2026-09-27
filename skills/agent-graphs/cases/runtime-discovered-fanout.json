@@ -1,0 +1,8 @@
+{
+  "id": "runtime-discovered-fanout",
+  "brief": "Find every failing test in the repo and fix each one in parallel.",
+  "expect": {
+    "correctAnswerIsDynamicWorkflow": true,
+    "reason": "topology discovered mid-run"
+  }
+}

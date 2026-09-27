@@ -1,0 +1,118 @@
+{
+  "name": "@tangle-network/agent-runtime",
+  "version": "0.278.1",
+  "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
+  "homepage": "https://github.com/tangle-network/agent-runtime#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangle-network/agent-runtime.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tangle-network/agent-runtime/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "default": "./dist/agent.js"
+    },
+    "./durable": {
+      "types": "./dist/durable.d.ts",
+      "import": "./dist/durable.js",
+      "default": "./dist/durable.js"
+    },
+    "./tool-loop": {
+      "types": "./dist/tool-loop.d.ts",
+      "import": "./dist/tool-loop.js",
+      "default": "./dist/tool-loop.js"
+    },
+    "./intelligence": {
+      "types": "./dist/intelligence.d.ts",
+      "import": "./dist/intelligence.js",
+      "default": "./dist/intelligence.js"
+    },
+    "./kernel": {
+      "types": "./dist/kernel.d.ts",
+      "import": "./dist/kernel.js",
+      "default": "./dist/kernel.js"
+    },
+    "./analyst-loop": {
+      "types": "./dist/analyst-loop.d.ts",
+      "import": "./dist/analyst-loop.js",
+      "default": "./dist/analyst-loop.js"
+    },
+    "./profiles": {
+      "types": "./dist/profiles.d.ts",
+      "import": "./dist/profiles.js",
+      "default": "./dist/profiles.js"
+    },
+    "./platform": {
+      "types": "./dist/platform.d.ts",
+      "import": "./dist/platform.js",
+      "default": "./dist/platform.js"
+    },
+    "./candidate-execution": {
+      "types": "./dist/candidate-execution/index.d.ts",
+      "import": "./dist/candidate-execution/index.js",
+      "default": "./dist/candidate-execution/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js",
+      "default": "./dist/mcp/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui/index.d.ts",
+      "import": "./dist/tui/index.js",
+      "default": "./dist/tui/index.js"
+    }
+  },
+  "bin": {
+    "agent-runtime-mcp": "./dist/mcp/bin.js",
+    "agent-runtime-memory-mcp": "./dist/mcp/memory-bin.js",
+    "agent-runtime-loop": "./dist/loop-runner-bin.js",
+    "agent-runtime-top": "./dist/tui/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "skills"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@tangle-network/agent-eval": ">=0.197.0 <0.198.0",
+    "@tangle-network/agent-interface": "^2.13.0",
+    "@tangle-network/sandbox": ">=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0 || ^0.55.0"
+  },
+  "dependencies": {
+    "@tangle-network/agent-core": ">=0.9.6 <0.10.0",
+    "@tangle-network/agent-knowledge": "^17.1.8",
+    "@tangle-network/agent-profile-materialize": ">=0.20.1 <0.21.0",
+    "@tangle-network/agent-trace-contract": "^1.2.0",
+    "tar-stream": "3.2.1"
+  },
+  "tangleBuild": {
+    "sourceRepository": "tangle-network/agent-runtime",
+    "sourceCommit": "68532c2c76e6dea3c3d66c5977a9c269fef5b3f5",
+    "workflowRun": "36297073605"
+  }
+}
