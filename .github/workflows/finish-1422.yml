@@ -1,0 +1,49 @@
+name: Isolated PR 1422 verification
+on:
+  push:
+    branches: [audit/finish-1422-20260927]
+permissions:
+  contents: read
+concurrency:
+  group: finish-1422
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 188182e336a2950dc54a29ff9ab693933b3e3cd5
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Record build blockers
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/pr1422
+          pnpm build 2>&1 | tee /tmp/pr1422/build.log
+      - name: Retain source and offline dependencies
+        if: always()
+        run: |
+          mkdir -p /tmp/pr1422
+          git bundle create /tmp/pr1422/repository.bundle HEAD refs/remotes/origin/main --tags
+          git rev-parse HEAD > /tmp/pr1422/head.sha
+          git rev-parse origin/main > /tmp/pr1422/main.sha
+          git archive HEAD | gzip > /tmp/pr1422/source.tar.gz
+          if [ -d node_modules ]; then tar -czf /tmp/pr1422/dependencies.tar.gz node_modules bench/node_modules; fi
+          npm pack pnpm@11.17.0 --pack-destination /tmp/pr1422
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr1422-source
+          path: /tmp/pr1422/
+          retention-days: 3
