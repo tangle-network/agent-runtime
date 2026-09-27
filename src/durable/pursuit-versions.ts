@@ -52,11 +52,12 @@ import { authoredProfileDigest } from '../runtime/supervise/materialization'
 import { superviseRootProfile } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import type { SpawnEvent, Spend, SupervisedResult } from '../runtime/supervise/types'
+import { contentAddress } from './content-address'
 import { isNoEntError } from './jsonl-file'
 import { FileObserverJournal } from './observer-journal'
 import { projectPursuit } from './observer-projection'
 import type { PursuitFork } from './run-fork'
-import { readSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
+import { parseSettleRecord, readSettleRecord, SETTLE_RECORD_FILE } from './settle-record'
 import { FileSpawnJournal } from './spawn-journal'
 import type { SupervisedPursuitResult, SupervisePursuitOptions } from './supervise-pursuit'
 
@@ -77,16 +78,17 @@ export interface PursuitVersions {
   readonly stop: PursuitVersionStop
 }
 
-/** The chain's stop rule. The chain never starts a version once a cap is reached. */
+/** The chain's stop rule. The chain starts no version its caps do not admit. */
 export interface PursuitVersionStop {
   /** Stop after this many proposed versions in a row that did not take the lead. */
   readonly patience: number
   /** At most this many versions, the first included. A change the chain refuses counts as one. */
   readonly maxVersions: number
   /**
-   * The chain's dollars: settled versions' spend plus a hold for the next one. A version's
-   * unknown spend counts as its proven floor. A version's own `budget.maxUsd` is the hold, and
-   * bounds that version in flight; without it the hold is 0.
+   * The chain's dollars: a version starts only while settled spend plus a hold for it stays
+   * within this. A version's unknown spend counts as its proven floor. The hold is the version's
+   * own `budget.maxUsd`, which bounds it in flight; without one it is 0 until 20 versions
+   * settled, then 1.5 times the p99 of their spend.
    */
   readonly maxUsd: number
   /** The chain's wall clock, from its first version's start. A running version is aborted at it. */
@@ -108,7 +110,7 @@ export interface VersionJudge {
 
 export interface VersionVerdict {
   /** Higher is better. `null` when the judge could not score the version: the cell is recorded
-   *  unscored and retried, and an unscored version never takes the lead. */
+   *  unscored, and an unscored version never takes the lead. */
   readonly score: number | null
   /** Must equal `VersionJudge.digest`. */
   readonly judgeDigest: Sha256Digest
@@ -243,7 +245,7 @@ const VERSION_CHAIN_DEFINITION = {
   edge: 'one change from the kept version, stored as its Interface profile diff',
   cell: 'one supervisePursuit run of the version on the pursuit task, forked from its parent sealed result.json, then scored by the outside judge; a settled version directory is read back after its root identity and fork seal are checked',
   outcome:
-    'a scored winner passes; a scored no-winner fails with its reason; an unscored version is a retryable error; a run that throws fails the call and leaves its cell open',
+    'a scored winner passes; a scored no-winner fails with its reason; an unscored version is a final error; a run that throws fails the call and leaves its cell open',
   deadline: 'the chain deadline aborts a running version; its judge still runs',
   directories: 'version n runs at <runDir>.v<n> with run id <runId>.v<n>; version 1 at <runDir>',
 } as const
@@ -254,6 +256,9 @@ const TASK_ID = 'pursuit'
 const LANE = 'in-process'
 /** The longest delay Node's setTimeout honors. */
 const MAX_TIMER_MS = 2_147_483_647
+/** 9999-12-31T23:59:59.999Z: the latest instant the ledger's four-digit-year timestamps hold, so
+ *  a deadline such as `Number.MAX_SAFE_INTEGER` means no deadline rather than an invalid date. */
+const LATEST_DEADLINE_MS = 253_402_300_799_999
 
 type RunOne = (
   profile: SupervisorProfile,
@@ -281,11 +286,9 @@ interface VersionRecord {
   readonly parentNodeId: string | null
   /** The change from the parent, from the node's first edge. */
   readonly change?: AgentProfileDiff
-  /** The latest settled attempt's seal and verdict. */
+  /** The settled attempt's seal and verdict. */
   readonly seal?: SearchArtifactRef
   readonly verdict?: VersionVerdict
-  /** Every seal an attempt recorded: a version's spend is recorded once, by the first. */
-  readonly seals: ReadonlySet<string>
 }
 
 /** Run a version chain. `supervisePursuit` calls this when `versions` is set. */
@@ -333,11 +336,11 @@ export async function runPursuitVersions(
   }
 
   // The first version's executed profile; later versions derive theirs from their parent's.
-  const firstProfile = (
+  const firstProfile = jsonProfile(
     firstFork === undefined
       ? profile
-      : applyExactAgentProfileDiff(profile, firstFork.change, 'supervisePursuit versions')
-  ) as AgentProfile
+      : applyExactAgentProfileDiff(profile, firstFork.change, 'supervisePursuit versions'),
+  )
   const taskRevision = digestOf(task, 'task')
   const identity = (nodeProfile: AgentProfile): SearchExecutionIdentity => ({
     model: {
@@ -358,7 +361,12 @@ export async function runPursuitVersions(
   // that had already settled. A resumed chain keeps the deadline its ledger recorded.
   const deadline =
     opened?.budget.deadline ??
-    new Date(now() - settledElapsed(await readSettleRecord(runDir)) + stop.deadlineMs).toISOString()
+    new Date(
+      Math.min(
+        now() - settledElapsed(await readSettleRecord(runDir)) + stop.deadlineMs,
+        LATEST_DEADLINE_MS,
+      ),
+    ).toISOString()
   const policy = incumbent({
     patience: stop.patience,
     ...(stop.minImprovement === undefined ? {} : { minImprovement: stop.minImprovement }),
@@ -428,6 +436,9 @@ export async function runPursuitVersions(
   }
   arm()
 
+  // Each sealed result.json is read and hashed once per call.
+  const sealed = new Map<Sha256Digest, SupervisedResult<unknown>>()
+
   const codec: SearchArtifactCodec<VersionNode> = {
     node(store, node) {
       if (node.profile !== null) {
@@ -474,8 +485,12 @@ export async function runPursuitVersions(
   }
 
   const executor: SearchExecutor<VersionNode> = {
+    // A version's budget.maxUsd bounds it in flight, so it is the hard hold. Without one the
+    // hold is the kernel's estimate: 0 until 20 versions settled, then 1.5 times their p99.
     lanes: () => [
-      { name: LANE, capacity: 1, costCap: 'estimate', cellUsd: base.budget.maxUsd ?? 0 },
+      base.budget.maxUsd === undefined
+        ? { name: LANE, capacity: 1, costCap: 'estimate', cellUsd: 0 }
+        : { name: LANE, capacity: 1, costCap: 'hard', cellUsd: base.budget.maxUsd },
     ],
     place: () => LANE,
     // A version that settled is read back from its directory by `run`, so nothing is adopted.
@@ -493,14 +508,17 @@ export async function runPursuitVersions(
       // A version whose run throws fails the call and leaves its cell open: Runtime's driver
       // retry already ran, and calling again resumes the version in its own directory.
       if ((await readSettleRecord(record.runDir)) === undefined) {
-        await runVersion(record, parent, AbortSignal.any([work.signal, expired.signal]))
+        const signal = AbortSignal.any([work.signal, expired.signal])
+        if (signal.aborted) {
+          throw new RuntimeRunStateError(
+            `supervisePursuit versions: version ${record.version} was not started: ${errorMessage(signal.reason)}`,
+          )
+        }
+        await runVersion(record, parent, signal)
       }
       const { settled, byteLength } = await readVersion(record, parent)
-      // A retried cell reads the same sealed run back and only judges it again; the run's spend
-      // was recorded by the attempt that first recorded its seal.
-      const charged = !record.seals.has(settled.settleDigest)
       const verdict = await judgeVersion(settled, work.signal)
-      return cellResult(settled, byteLength, verdict, work.lane, charged)
+      return cellResult(settled, byteLength, verdict, work.lane)
     },
   }
 
@@ -531,13 +549,15 @@ export async function runPursuitVersions(
           `supervisePursuit versions: the kept version ${parent.nodeId} has no judged run to fork from`,
         )
       }
-      const change = await next(
+      const returned = await next(
         { best, last: judged.at(-1)!, versions: Object.freeze(judged) },
         request.signal,
       )
-      if (typeof change?.id !== 'string' || change.id.trim().length === 0) {
+      if (typeof returned?.id !== 'string' || returned.id.trim().length === 0) {
         throw new ValidationError('supervisePursuit versions: next must return a change with an id')
       }
+      // The ledger stores the change as JSON, so it is taken as JSON: an undefined entry is absent.
+      const change = JSON.parse(JSON.stringify(returned)) as AgentProfileDiff
       const parentDigest = canonicalAgentProfileDigest(parent.artifact.profile)
       let child: VersionNode
       try {
@@ -558,7 +578,7 @@ export async function runPursuitVersions(
         children: [
           {
             artifact: child,
-            label: change.title ?? change.id,
+            label: change.title ?? returned.id,
             rationale: (change.source?.notes ?? []).join('\n'),
           },
         ],
@@ -687,6 +707,7 @@ export async function runPursuitVersions(
     const expected = authoredProfileDigest(
       superviseRootProfile(record.profile!, base.profileGuidance),
     )
+    const ranTask = root?.identity?.taskDigest
     const correlation = root?.identity?.correlation
     const fork =
       parent !== undefined
@@ -696,6 +717,10 @@ export async function runPursuitVersions(
           : { settleDigest: firstFork.settleDigest, changeId: firstFork.change.id }
     const mismatch = [
       ran !== expected ? `its root ran profile ${ran}, not ${expected}` : undefined,
+      ranTask !== taskRevision ? `its root ran task ${ranTask}, not ${taskRevision}` : undefined,
+      contentAddress(root?.budget) !== contentAddress(base.budget)
+        ? 'its root ran under another budget'
+        : undefined,
       fork !== undefined && correlation?.forkParentSettleDigest !== fork.settleDigest
         ? `its root forked from seal ${correlation?.forkParentSettleDigest}, not ${fork.settleDigest}`
         : undefined,
@@ -708,7 +733,8 @@ export async function runPursuitVersions(
         `supervisePursuit versions: version ${record.version} at ${record.runDir} is not this chain's run: ${mismatch.join('; ')}`,
       )
     }
-    const settled = versionOf(record, parent, bytes, result)
+    const settled = versionOf(record, parent, sha256Bytes(bytes), result)
+    sealed.set(settled.settleDigest, result)
     return { settled, byteLength: bytes.byteLength }
   }
 
@@ -739,7 +765,6 @@ export async function runPursuitVersions(
     byteLength: number,
     verdict: VersionVerdict,
     lane: string,
-    charged: boolean,
   ): SearchCellResult {
     const spent = settled.result.spentTotal
     const settlePath = resolve(settled.runDir, SETTLE_RECORD_FILE)
@@ -751,7 +776,7 @@ export async function runPursuitVersions(
             error: {
               code: 'unscored',
               message: `the judge could not score version ${settled.version}`,
-              retryable: true,
+              retryable: false,
             },
           }
         : settled.result.kind === 'winner'
@@ -767,13 +792,13 @@ export async function runPursuitVersions(
             }
     return {
       outcome,
-      accounting: charged ? versionAccounting(spent) : FREE,
+      accounting: versionAccounting(spent),
       identity: identity(settled.profile),
       boxMinutes:
-        charged && isFiniteNumber(spent.boxMinutes) && spent.boxMinutesKnown !== false
+        isFiniteNumber(spent.boxMinutes) && spent.boxMinutesKnown !== false
           ? spent.boxMinutes
           : null,
-      wallMs: charged && isFiniteNumber(spent.ms) ? Math.max(0, Math.round(spent.ms)) : null,
+      wallMs: isFiniteNumber(spent.ms) ? Math.max(0, Math.round(spent.ms)) : null,
       placement: { lane, boxId: null },
       traceRef: {
         unknown: `version ${settled.version} is run ${settled.runId}; the chain records no trace id`,
@@ -799,7 +824,7 @@ export async function runPursuitVersions(
   function versionOf(
     record: VersionRecord,
     parent: VersionRecord | undefined,
-    bytes: Uint8Array,
+    settleDigest: Sha256Digest,
     result: SupervisedResult<unknown>,
   ): SettledPursuitVersion {
     return Object.freeze({
@@ -807,7 +832,7 @@ export async function runPursuitVersions(
       nodeId: record.nodeId,
       runId: record.runId,
       runDir: record.runDir,
-      settleDigest: sha256Bytes(bytes),
+      settleDigest,
       result,
       profile: record.profile!,
       ...(parent?.seal === undefined
@@ -831,15 +856,21 @@ export async function runPursuitVersions(
     const judged: JudgedPursuitVersion[] = []
     for (const record of chain.values()) {
       if (record.seal === undefined || record.verdict === undefined) continue
-      const { bytes, result } = await readSealed(record.runDir, record.version)
-      if (sha256Bytes(bytes) !== record.seal.sha256) {
-        throw new RuntimeRunStateError(
-          `supervisePursuit versions: version ${record.version}'s result.json changed after it was judged`,
-        )
+      const seal = record.seal.sha256 as Sha256Digest
+      let result = sealed.get(seal)
+      if (result === undefined) {
+        const read = await readSealed(record.runDir, record.version)
+        if (sha256Bytes(read.bytes) !== seal) {
+          throw new RuntimeRunStateError(
+            `supervisePursuit versions: version ${record.version}'s result.json changed after it was judged`,
+          )
+        }
+        result = read.result
+        sealed.set(seal, result)
       }
       const parent = record.parentNodeId === null ? undefined : chain.get(record.parentNodeId)
       judged.push(
-        Object.freeze({ ...versionOf(record, parent, bytes, result), verdict: record.verdict }),
+        Object.freeze({ ...versionOf(record, parent, seal, result), verdict: record.verdict }),
       )
     }
     return judged
@@ -859,24 +890,19 @@ export async function runPursuitVersions(
       cellId: state.cells({ nodeId: node.nodeId })[0]?.cellId,
       diff: node.edgeIds[0] === undefined ? undefined : state.edge(node.edgeIds[0])?.diffs[0],
     }))
-    const attempts = new Map<string, { latest: SearchCellSettledEvent; seals: Set<string> }>()
+    const settledCells = new Map<string, SearchCellSettledEvent>()
     const text = await readFile(ledgerPath, 'utf8')
     for (const [index, line] of text.split('\n').entries()) {
       if (line.length === 0) continue
       const entry = parseSearchLedgerLine(line, searchId, { path: ledgerPath, line: index + 1 })
       if (entry.sequence > head) break
-      const { event } = entry
-      if (event.kind !== 'cell-settled') continue
-      const seals = attempts.get(event.cellId)?.seals ?? new Set<string>()
-      const seal = event.artifacts.find((artifact) => artifact.role === 'settle-record')
-      if (seal !== undefined) seals.add(seal.sha256)
-      attempts.set(event.cellId, { latest: event, seals })
+      if (entry.event.kind === 'cell-settled') settledCells.set(entry.event.cellId, entry.event)
     }
     const chain = new Map<string, VersionRecord>()
     for (const { node, cellId, diff } of nodes) {
-      const settled = cellId === undefined ? undefined : attempts.get(cellId)
+      const settled = cellId === undefined ? undefined : settledCells.get(cellId)
       const artifact = (role: string) =>
-        settled?.latest.artifacts.find((candidate) => candidate.role === role)
+        settled?.artifacts.find((candidate) => candidate.role === role)
       const seal = artifact('settle-record')
       const verdict = artifact('verdict')
       chain.set(node.nodeId, {
@@ -892,29 +918,35 @@ export async function runPursuitVersions(
         ...(verdict === undefined
           ? {}
           : { verdict: (recorder.readBlob(verdict) as { verdict: VersionVerdict }).verdict }),
-        seals: settled?.seals ?? new Set(),
       })
     }
     return chain
   }
 }
 
-/** The bytes of a version's sealed `result.json` and the record they hold. */
+/** The bytes of a version's sealed `result.json` and the record they hold, parsed from the same
+ *  bytes that are hashed. */
 async function readSealed(
   runDir: string,
   version: number,
 ): Promise<{ bytes: Uint8Array; result: SupervisedResult<unknown> }> {
+  const path = resolve(runDir, SETTLE_RECORD_FILE)
   let bytes: Uint8Array
   try {
-    bytes = await readFile(resolve(runDir, SETTLE_RECORD_FILE))
+    bytes = await readFile(path)
   } catch (error) {
     if (!isNoEntError(error)) throw error
     throw new RuntimeRunStateError(
       `supervisePursuit versions: version ${version} has no settle record in ${runDir}`,
     )
   }
-  const result = (await readSettleRecord(runDir)) as SupervisedResult<unknown>
-  return { bytes, result }
+  return { bytes, result: parseSettleRecord(Buffer.from(bytes).toString('utf8'), path) }
+}
+
+/** A profile as the JSON the ledger stores: validated, with undefined entries absent. */
+function jsonProfile(profile: unknown): AgentProfile {
+  canonicalAgentProfileDigest(profile as AgentProfile)
+  return JSON.parse(JSON.stringify(agentProfileSchema.parse(profile))) as AgentProfile
 }
 
 function loadNode(
@@ -959,8 +991,10 @@ function versionAccounting(spent: Spend | undefined): SearchAttemptAccounting {
   const tokensKnown =
     spent !== undefined &&
     spent.tokensKnown !== false &&
+    spent.tokens?.tokensKnown !== false &&
     Number.isSafeInteger(spent.tokens?.input) &&
-    Number.isSafeInteger(spent.tokens?.output)
+    Number.isSafeInteger(spent.tokens?.output) &&
+    Number.isSafeInteger(spent.tokens?.cacheRead)
   const usdKnown = spent !== undefined && spent.usdKnown !== false && isFiniteNumber(spent.usd)
   return {
     tokens: tokensKnown
@@ -968,9 +1002,12 @@ function versionAccounting(spent: Spend | undefined): SearchAttemptAccounting {
           status: 'known',
           inputTokens: spent.tokens.input,
           outputTokens: spent.tokens.output,
-          cachedTokens: spent.tokens.cacheRead ?? 0,
+          cachedTokens: spent.tokens.cacheRead!,
         }
-      : { status: 'unknown', reason: "the version's settled spend names unreported tokens" },
+      : {
+          status: 'unknown',
+          reason: `the version's settled spend reports no complete token count with its cache split (input ${spent?.tokens?.input ?? 'none'}, output ${spent?.tokens?.output ?? 'none'})`,
+        },
     cost: usdKnown
       ? { status: 'known', usd: spent.usd, source: 'provider' }
       : {
@@ -1021,7 +1058,10 @@ function reviewOfBest(runId: string, words: string): NextPursuitVersion {
       .replaceAll('{score}', best.verdict.score === null ? 'none' : String(best.verdict.score))
       .trim()
     const page = reviewPage(best.version, best.verdict.score, verdict)
-    const earlierInstructions = best.change?.set?.prompt?.instructions ?? []
+    // Instructions are set and removed by value: an earlier review instruction equal to this one
+    // stays as it is, and every other earlier one is removed.
+    const earlier = best.change?.set?.prompt?.instructions ?? []
+    const earlierInstructions = earlier.filter((text) => text !== instruction)
     const earlierMounts = (best.profile.resources?.files ?? [])
       .map((file) => file.path)
       .filter((mounted) => mounted.startsWith(REVIEW_DIR) && mounted !== path)
@@ -1034,7 +1074,7 @@ function reviewOfBest(runId: string, words: string): NextPursuitVersion {
         notes: [`review-of-best: version ${best.version}`, `judge ${best.verdict.judgeDigest}`],
       },
       set: {
-        prompt: { instructions: [instruction] },
+        ...(earlier.includes(instruction) ? {} : { prompt: { instructions: [instruction] } }),
         resources: {
           files: [{ path, resource: { kind: 'inline', name: path, content: page } }],
         },
