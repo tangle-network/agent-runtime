@@ -1,0 +1,38 @@
+name: Finish OIDC candidate
+on:
+  push:
+    branches: [audit/finish-1422-20260926]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 188182e336a2950dc54a29ff9ab693933b3e3cd5
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: Retain source and verification dependencies
+        run: |
+          mkdir -p /tmp/oidc-source
+          git bundle create /tmp/oidc-source/repository.bundle HEAD refs/remotes/origin/main
+          tar --exclude='./.git' --exclude='node_modules' -czf /tmp/oidc-source/source.tar.gz .
+          tar -czf /tmp/oidc-source/dependencies.tar.gz node_modules bench/node_modules
+          npm pack pnpm@11.17.0 --pack-destination /tmp/oidc-source
+          npm view @tangle-network/agent-runtime version --json > /tmp/oidc-source/published-runtime.json
+          npm view @tangle-network/agent-eval versions --json > /tmp/oidc-source/published-eval.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: oidc-source
+          path: /tmp/oidc-source/
+          retention-days: 3
