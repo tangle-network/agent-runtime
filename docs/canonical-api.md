@@ -335,15 +335,16 @@ Inside one run, the director works in rounds until its deliverable check passes 
 2. Runtime calls `versions.judge` with the settled version: its node id, run id, directory, sealed `result.json` digest, result and executed profile.
    The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox: `runIsolatedCheck({ box })` runs a digest-checked command in a fresh box owned by an account the judged run holds no key to.
    Its verdict carries a `score` (higher is better, or `null` when it cannot score) and the judge's `digest`; a verdict under another digest is refused.
-   A `null` score records the version unscored, and the kernel asks the judge again, up to 3 attempts.
+   A `null` score records the version unscored.
 3. The kernel's hill climb, `incumbent({ patience, minImprovement })`, keeps a version: a scored version takes the lead when its score beats the kept version's by more than `minImprovement` (default 0), and an unscored first version yields to the first scored one.
 4. Unless a cap is reached, `versions.next` returns one `AgentProfileDiff` with an id, and the next version forks from the kept version.
    It runs at `<runDir>.v<n>` with run id `<runId>.v<n>` and the same pursuit id, task and budget, so its root records the parent, the seal, the change and the lineage root.
    A change that does not apply is recorded as a refused node and never runs; a change that reproduces an earlier version's profile is a second edge into that version and does not run again.
 
 The chain stops after `patience` proposals in a row that did not take the lead (`patience`), at `maxVersions` nodes (`max-nodes`; a refused change counts as one), when the next version cannot be admitted under `maxUsd` (`budget`), or at `deadlineMs` from the first version's start (`deadline`).
-The dollar rule is the kernel's: settled spend, with an unknown spend counted at its proven floor, plus a hold for the next version stays within `maxUsd`.
-The hold is the version's own `budget.maxUsd`, or 0 without one; a `budget.maxUsd` above `stop.maxUsd` is refused.
+The dollar rule is the kernel's: a version starts only while settled spend, with an unknown spend counted at its proven floor, plus a hold for it stays within `maxUsd`.
+The hold is the version's own `budget.maxUsd`, a hard hold because that budget bounds the version in flight; a `budget.maxUsd` above `stop.maxUsd` is refused.
+Without one, the hold is the kernel's estimate: 0 until 20 versions settled, then 1.5 times the p99 of their spend.
 The deadline also aborts a running version; that version settles, and its judge still scores it.
 A deadline or a driver failure often leaves a child without a terminal record, so the chain forks with `fork.acceptUncertain`: a version never replays its parent's children, and its root records the parent's uncertain nodes as `forkParentUncertainNodes`.
 
@@ -351,10 +352,11 @@ The search ledger at `<runDir>.search/ledger.jsonl` records every version as a n
 It is the chain's only record and its only checkpoint.
 A call on a closed chain reads it back without running anything.
 A call on an open chain continues it: a judged version is never re-run or re-judged, and a version that started runs again in its own directory, which resumes it.
-Before a settled version directory is read back, Runtime checks that its root ran that node's profile and, for a fork, recorded the parent's seal and the change; a directory that holds another run is refused.
+Before a settled version directory is read back, Runtime checks that its root ran that node's profile on the chain's task and budget and, for a fork, recorded the parent's seal and the change; a directory that holds another run is refused.
 A version whose `result.json` changed after it was judged is refused.
 A version whose run throws fails the call and leaves its cell open, and calling again resumes it.
-Aborting the call's `signal` pauses the chain: the running version is aborted and settles, the call rejects, and a later call continues the chain.
+Aborting the call's `signal` pauses the chain: the running version is aborted, settles as cancelled and is judged as it stands, the call rejects, and a later call continues the chain from the kept version.
+A `next` whose change reproduces an earlier version's profile, such as `'review-of-best'` from a kept version that did not change, runs nothing new; such proposals count toward `patience`.
 The judge digest, the task, the first profile and the stop rule are part of the ledger's header, and a call with another is refused.
 A directory that still holds a retired `<runDir>.versions/versions.jsonl` chain is refused; finish it on the release that wrote it.
 The call returns the kept version's result, projection and settle path, with the chain as `versions`: its ledger path, close reason, kept version, judged versions, spend and a receipt over the ledger bytes.

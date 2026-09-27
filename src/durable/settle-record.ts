@@ -160,6 +160,11 @@ export async function readSettleRecord(
     if (isNoEntError(error)) return undefined
     throw error
   }
+  return parseSettleRecord(text, path)
+}
+
+/** Parse settle-record bytes already read, so a caller hashes and parses the same bytes. */
+export function parseSettleRecord(text: string, path: string): SupervisedResult<unknown> {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
