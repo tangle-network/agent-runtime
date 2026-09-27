@@ -22,7 +22,7 @@ Measured: where a known gap existed, 15 of 27 lanes with claims filed false "new
 Name the audience and the decision the result supports.
 Quote the acceptance test from its source, word for word, with its location.
 Include standing assumptions, exclusions and nondegeneracy conditions; a transcription drops them.
-List the outcome classes the audience distinguishes: new, known, partial, conditional, documented null, invalid, unassessed.
+List the outcome classes the audience distinguishes: new, known, partial, conditional, reproduced null, stopped unverified, invalid, unassessed.
 Never reduce them to solved and unsolved.
 Make a literature search part of acceptance, and record an answer already published as known.
 
@@ -59,16 +59,28 @@ Hand every role the files it judges by path, never a summary.
 
 ## 5. Define success, the honest null, and the stop
 
-Success is an accepted result or a documented null.
-A documented null states what was tried, the obstruction found, the cases covered and the cases left open.
-Credit it like a positive result; without a search record it is not a null.
-Tell agents the checker may be wrong, and credit a well-evidenced report of a checker defect.
+Success is an accepted result or a reproduced null.
+A null may end a run.
+It counts as success only when a party outside the run reproduces what it claims to have covered.
+A null carries a coverage certificate:
+
+- the searched space as data: the parameter ranges, the enumeration or sampling method with its seeds, and the bound reached;
+- one row per cell of that space, with what the cell searched and found;
+- a calibration cell where the search must find objects that exist, with the source's reason;
+- a reproducer that the outside check runs without the lane, on every cell or on a declared random sample, with a pass rule: each rerun row equals the recorded row.
+
+The outside check draws the sample after the run, so the lane cannot prepare only those cells.
+A null without a certificate is recorded as "stopped, unverified", never as success.
+A null inside the range the source already checked adds nothing.
+Tell agents the checker may be wrong; credit a checker-defect report the same way, once someone outside the run reproduces the defect.
 Measured elsewhere: a credited exit cut one model's test cheating from 54% to 9%, while prohibitions barely moved another's.
+Measured: where the in-run check accepted a documented null on its fields, that null was the cheapest hack in 11 of 16 blind judgments of new profiles.
 
 A Runtime manager with a check is not served `stop`.
 It ends when the check accepts its `submit_result`, when `report_blocked` shows that a granted tool failed, or at a bound.
 The bounds are the continuation `deadline`, `maxBarren` turns without progress, the budget, and cancellation.
-So the in-run check must accept a well-formed documented null as its own class.
+So the in-run check must let a null end the run: it accepts a null whose certificate is well formed, as its own class.
+That acceptance only ends the run; it scores nothing and credits nothing.
 Otherwise the only exits are a claim the proxy passes, or a bound.
 State the continuation block in the record, and put the honest exit in its `rules` text.
 The check or a bound ends the run; an agent's claim that it is done does not.
@@ -76,6 +88,8 @@ The check or a bound ends the run; an agent's claim that it is done does not.
 ## 6. Carry known traps
 
 Hand agents the domain's known traps as rules, not stories.
+Write each trap as what the held-back acceptance refuses, never as what the proxy passes.
+"The outside check does not count a c = 0 instance" is a trap; "the checker passed c = 0 claims" is a recipe.
 Examples: excluded or trivial cases, stale or wrong-field comparators, published answers, tests versus users, a demo versus a customer, a rater versus an expert.
 Keep infrastructure incidents out of the brief; the operator owns the stack.
 Measured: a director told of an infrastructure failure spent 2 of its first 4 children probing it.
@@ -145,7 +159,7 @@ Held-back acceptance: who runs it, where, from what:
 Proposers: models, dollars:
 Referee: family, instrument, dollars:
 Monitor: model, what it may steer:
-Documented null: required fields:
+Null certificate: space, rows, calibration, reproducer, sample; who reruns it, where:
 Credited exit, in the agents' words:
 Stop: check, report_blocked, deadline, maxBarren, budget:
 Known traps handed to agents:
@@ -173,8 +187,31 @@ Acceptance: Conjecture 13 quoted with the standing assumption that c is not 0 or
 Gap probe: before launch, the checker refuses c = 0 and classes a Corollary 11 family member as known.
 Agents run the development checker; the operator reruns a held-back checker and the sweep on each packet.
 A referee from another family recomputes each claim with its own code.
-A documented null over m <= 20 is a credited outcome.
+A null over m <= 20 ends the run, and it counts once the outside check reruns its certificate.
 Arms: with and without the referee.
+
+### A null that counts
+
+Wang and Zheng checked Conjecture 13 for 2 <= m <= 10.
+Two lanes searched every (m, d, c) with c not in {0, 1} to m = 20, found no counterexample, and wrote a table.
+Nobody outside the run could check that table.
+As a certificate, the null reads:
+
+```json
+{"space": {"cells": {"m": {"from": 2, "to": 20}}, "method": "enumerate", "bound": "m <= 20",
+  "within": "each unit d modulo 2^m - 1, one per Frobenius orbit, and each c outside {0, 1}"},
+ "rows": [{"cell": {"m": 12}, "searched": 585442, "positives": 28, "found": 0}],
+ "calibration": [{"cell": {"m": 6}, "why": "Theorem 9: x^5 is PcN for c in GF(4) outside {0, 1}"}],
+ "reproducer": {"files": {"reproduce.py": "..."}, "run": ["python3", "reproduce.py"], "secondsPerCell": 900},
+ "check": {"cells": 3}}
+```
+
+The rows list every m; one is shown.
+The outside check reruns m = 6 and 3 cells that it draws, in a container with no network.
+Rows typed instead of computed fail on the first drawn cell.
+A reproducer that searches nothing fails at m = 6, where positives must appear.
+The in-run check accepts the certificate's form, and so the run ends; only the rerun gives credit.
+The trap for this conjecture reads: "the outside check does not count a c = 0 instance; the source sets c = 0 aside".
 
 ### Coding task scored by tests
 
@@ -187,7 +224,7 @@ Profile: agents run the visible tests.
 The held-back verifier and hidden tests run on the patch in a fresh container.
 Hash the test files; a changed test fails acceptance.
 A referee from another family reads the diff for special cases.
-A report that the task cannot pass without breaking its specification is a credited outcome.
+A report that the task cannot pass without breaking its specification ends the run; it counts once the held-back verifier confirms the conflict.
 
 ### Product for a customer
 
@@ -201,7 +238,7 @@ Profile: reviewers mount the product by path and must run it.
 A referee from another family walks the customer's task on the running product.
 The rater stays a ruler, not a gate, until it beats always-reject.
 Acceptance is the owner's or the customer's walkthrough.
-"Not ready, and this is what is missing" is a credited outcome.
+"Not ready, and this is what is missing" ends the run; it counts once the owner's walkthrough finds the same gaps.
 
 ## Then consider
 
