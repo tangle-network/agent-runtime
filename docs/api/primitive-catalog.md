@@ -282,7 +282,7 @@ Import from `@tangle-network/agent-runtime/durable` — 69 exports.
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
 | `PursuitVersionChain` | interface | The chain as its search ledger records it, returned beside the kept version's result. |
 | `PursuitVersions` | interface | Continue a pursuit across versions: after each version settles, an outside judge scores it, and |
-| `PursuitVersionStop` | interface | The chain's stop rule. The chain never starts a version once a cap is reached. |
+| `PursuitVersionStop` | interface | The chain's stop rule. The chain starts no version its caps do not admit. |
 | `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |

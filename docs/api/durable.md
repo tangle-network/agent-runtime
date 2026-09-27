@@ -1177,7 +1177,7 @@ When the chain stops. Every cap is required: a chain without one is refused.
 
 ### PursuitVersionStop
 
-The chain's stop rule. The chain never starts a version once a cap is reached.
+The chain's stop rule. The chain starts no version its caps do not admit.
 
 #### Properties
 
@@ -1197,9 +1197,10 @@ At most this many versions, the first included. A change the chain refuses count
 
 > `readonly` **maxUsd**: `number`
 
-The chain's dollars: settled versions' spend plus a hold for the next one. A version's
-unknown spend counts as its proven floor. A version's own `budget.maxUsd` is the hold, and
-bounds that version in flight; without it the hold is 0.
+The chain's dollars: a version starts only while settled spend plus a hold for it stays
+within this. A version's unknown spend counts as its proven floor. The hold is the version's
+own `budget.maxUsd`, which bounds it in flight; without one it is 0 until 20 versions
+settled, then 1.5 times the p99 of their spend.
 
 ##### deadlineMs
 
@@ -1262,7 +1263,7 @@ The sha256 of the judge's code and configuration. Every verdict must carry it, a
 > `readonly` **score**: `number` \| `null`
 
 Higher is better. `null` when the judge could not score the version: the cell is recorded
- unscored and retried, and an unscored version never takes the lead.
+ unscored, and an unscored version never takes the lead.
 
 ##### judgeDigest
 
