@@ -10,7 +10,9 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$proof_context/tests/runtime"
 # The checker imports sibling modules and packages, so the container receives one bundled file.
-(cd "$repo_root" && pnpm exec rolldown src/runtime/isolated-checker.ts --format esm --platform node \
+# Resolve the Rolldown bundled with the maintained tsdown build tool.
+rolldown_cli=$(cd "$repo_root" && node -e 'const p=require("node:path");console.log(p.join(p.dirname(require.resolve("rolldown",{paths:[require.resolve("tsdown")]})),"..","bin/cli.mjs"))')
+(cd "$repo_root" && node "$rolldown_cli" src/runtime/isolated-checker.ts --format esm --platform node \
   --file "$proof_context/tests/runtime/isolated-checker.mjs" >/dev/null)
 cp "$repo_root/tests/runtime/isolated-checker.linux.mjs" "$proof_context/tests/runtime/"
 cat > "$proof_context/Dockerfile" <<'DOCKERFILE'
@@ -20,8 +22,9 @@ COPY . /app
 ENTRYPOINT ["node", "/app/tests/runtime/isolated-checker.linux.mjs"]
 DOCKERFILE
 docker build --quiet --tag "$proof_image" "$proof_context"
-docker run --rm --memory=256m --pids-limit=64 --privileged --env HOST_SECRET=hidden "$proof_image"
-docker run --rm --memory=256m --pids-limit=64 --privileged "$proof_image" --cleanup-failure
+docker run --rm --memory=256m --pids-limit=64 --cpus=1 --privileged --env HOST_SECRET=hidden "$proof_image"
+docker run --rm --memory=256m --pids-limit=64 --cpus=1 --privileged "$proof_image" --cleanup-failure
+docker run --rm --memory=192m --pids-limit=64 --cpus=1 --privileged "$proof_image" --memory-exhaustion
 # Explicitly deny the namespace syscall even on engines allowing unprivileged namespaces.
 printf '%s\n' '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["unshare"],"action":"SCMP_ACT_ERRNO"}]}' > "$proof_context/deny-unshare.json"
-docker run --rm --memory=256m --pids-limit=64 --security-opt "seccomp=$proof_context/deny-unshare.json" "$proof_image" --refusal
+docker run --rm --memory=256m --pids-limit=64 --cpus=1 --security-opt "seccomp=$proof_context/deny-unshare.json" "$proof_image" --refusal

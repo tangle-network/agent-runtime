@@ -5272,6 +5272,18 @@ Executable and arguments, without host shell interpretation.
 
 > `optional` **maxOutputBytes?**: `number`
 
+##### maxInputBytes?
+
+> `optional` **maxInputBytes?**: `number`
+
+Maximum regular-file bytes copied or captured from the input tree when set.
+
+##### maxInputEntries?
+
+> `optional` **maxInputEntries?**: `number`
+
+Maximum entries in the input tree when set.
+
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
@@ -5352,6 +5364,8 @@ Sandbox environment or image that holds the check's toolchain.
 
 > `optional` **resources?**: `SandboxResources`
 
+Set `memoryMB` to require the API to report a finite granted limit before upload.
+
 ##### egress?
 
 > `optional` **egress?**: readonly `string`[]
@@ -5385,6 +5399,12 @@ The box a check ran in and the exact bytes it received.
 > **account**: `string`
 
 `customerId` of the check's key.
+
+##### memoryMB?
+
+> `optional` **memoryMB?**: `number`
+
+API-reported granted memory limit in MiB, when explicitly requested.
 
 ##### input
 
@@ -29894,7 +29914,7 @@ async iterable for streaming. The callback may also write files into
 
 ### IsolatedCheckResult
 
-> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
+> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
 
 #### Union Members
 
@@ -29906,7 +29926,7 @@ async iterable for streaming. The callback may also write files into
 
 ##### Type Literal
 
-\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
+\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
 
 ###### succeeded
 
@@ -29914,7 +29934,7 @@ async iterable for streaming. The callback may also write files into
 
 ###### reason
 
-> **reason**: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"cleanup-failed"`
+> **reason**: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`
 
 ###### diagnostic
 
@@ -35809,7 +35829,8 @@ Never falls back to host execution.
 Bubblewrap requires /usr/bin/bwrap and permission to create Linux namespaces.
 Only trusted system toolchains, private proc/dev/tmp, and the writable copy are mounted.
 The canonical input path remains the working directory; copy writes are discarded.
-Limits bound command time and captured output, not copy size or memory consumption.
+Time and output are bounded; input copy bytes and entries are bounded when requested.
+The command's memory and generated files require a resource-limited placement.
 Callers must keep the input and trusted toolchains stable while preparing the check.
 
 A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to

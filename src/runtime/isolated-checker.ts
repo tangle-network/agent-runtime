@@ -1,6 +1,18 @@
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { cp, mkdtemp, realpath, stat } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  opendir,
+  readlink,
+  realpath,
+  stat,
+  symlink,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -14,7 +26,10 @@ import type {
   SandboxInstance,
   SandboxResources,
 } from '@tangle-network/sandbox'
-import { captureMaterializedWorkspace } from '../candidate-execution/artifacts'
+import {
+  captureMaterializedWorkspace,
+  WorkspaceScanLimitError,
+} from '../candidate-execution/artifacts'
 import { armDeadlineTimer } from './supervise/deadline'
 
 export interface IsolatedCheckOptions {
@@ -25,6 +40,10 @@ export interface IsolatedCheckOptions {
   command: readonly [string, ...string[]]
   timeoutMs?: number
   maxOutputBytes?: number
+  /** Maximum regular-file bytes copied or captured from the input tree when set. */
+  maxInputBytes?: number
+  /** Maximum entries in the input tree when set. */
+  maxInputEntries?: number
   signal?: AbortSignal
   /** Run the check in its own Sandbox box instead of Linux Bubblewrap on this host. */
   box?: IsolatedCheckBox
@@ -56,6 +75,7 @@ export interface IsolatedCheckBox {
   builderAccounts: readonly [string, ...string[]]
   /** Sandbox environment or image that holds the check's toolchain. */
   environment: string
+  /** Set `memoryMB` to require the API to report a finite granted limit before upload. */
   resources?: SandboxResources
   /** Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
    *  box's egress is blocked. Otherwise strict: these domains only, with no implicit list. */
@@ -74,6 +94,8 @@ export interface IsolatedCheckBoxEvidence {
   sandboxId: string
   /** `customerId` of the check's key. */
   account: string
+  /** API-reported granted memory limit in MiB, when explicitly requested. */
+  memoryMB?: number
   /** Every file the box received; each sha256 is also the digest the box computed on receipt. */
   input: AgentCandidateWorkspaceManifestMaterial
   /** Canonical digest of `input`. */
@@ -84,7 +106,14 @@ export type IsolatedCheckResult =
   | { succeeded: true; value: { stdout: string; stderr: string }; box?: IsolatedCheckBoxEvidence }
   | {
       succeeded: false
-      reason: 'refused' | 'failed' | 'timeout' | 'cancelled' | 'output-limit' | 'cleanup-failed'
+      reason:
+        | 'refused'
+        | 'failed'
+        | 'timeout'
+        | 'cancelled'
+        | 'output-limit'
+        | 'input-limit'
+        | 'cleanup-failed'
       diagnostic: string
       /** Bounded command evidence, when a process was launched. */
       stdout?: string
@@ -109,7 +138,8 @@ const contains = (parent: string, child: string) => {
  * Bubblewrap requires /usr/bin/bwrap and permission to create Linux namespaces.
  * Only trusted system toolchains, private proc/dev/tmp, and the writable copy are mounted.
  * The canonical input path remains the working directory; copy writes are discarded.
- * Limits bound command time and captured output, not copy size or memory consumption.
+ * Time and output are bounded; input copy bytes and entries are bounded when requested.
+ * The command's memory and generated files require a resource-limited placement.
  * Callers must keep the input and trusted toolchains stable while preparing the check.
  *
  * A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
@@ -124,7 +154,7 @@ export async function runIsolatedCheck(
   let result: IsolatedCheckResult
   try {
     if (process.platform !== 'linux') throw new Error('Linux Bubblewrap namespaces are required')
-    const { timeoutMs, maxOutputBytes } = checkLimits(options)
+    const { timeoutMs, maxOutputBytes, maxInputBytes, maxInputEntries } = checkLimits(options)
     if (options.signal?.aborted)
       return { succeeded: false, reason: 'cancelled', diagnostic: 'Check cancelled' }
     const { workspace, tree } = await protectedTree(options)
@@ -156,8 +186,7 @@ export async function runIsolatedCheck(
     scratch = await mkdtemp(join(tmpdir(), 'runtime-check-'))
     if (contains(tree, scratch)) throw new Error('Temporary storage must be outside the input tree')
     const copy = join(scratch, 'tree')
-    // Preserve link text. Following links here would copy host data into the jail.
-    await cp(tree, copy, { recursive: true, dereference: false, verbatimSymlinks: true })
+    await copyBoundedTree(tree, copy, maxInputBytes, maxInputEntries)
     const args = [
       '--unshare-all',
       '--die-with-parent',
@@ -192,7 +221,11 @@ export async function runIsolatedCheck(
     ]
     result = await execute(args, timeoutMs, maxOutputBytes, options.signal)
   } catch (error) {
-    result = { succeeded: false, reason: 'refused', diagnostic: String(error) }
+    result = {
+      succeeded: false,
+      reason: error instanceof InputLimitError ? 'input-limit' : 'refused',
+      diagnostic: String(error),
+    }
   }
   if (scratch) {
     try {
@@ -217,19 +250,100 @@ export async function runIsolatedCheck(
 function checkLimits(options: IsolatedCheckOptions): {
   timeoutMs: number
   maxOutputBytes: number
+  maxInputBytes?: number
+  maxInputEntries?: number
 } {
   const timeoutMs = options.timeoutMs ?? 30_000
   const maxOutputBytes = options.maxOutputBytes ?? 1_048_576
+  const maxInputBytes = options.maxInputBytes
+  const maxInputEntries = options.maxInputEntries
   if (
     !Number.isSafeInteger(timeoutMs) ||
     timeoutMs < 1 ||
     timeoutMs > 2_147_483_647 ||
     !Number.isSafeInteger(maxOutputBytes) ||
-    maxOutputBytes < 1
+    maxOutputBytes < 1 ||
+    (maxInputBytes !== undefined && (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1)) ||
+    (maxInputEntries !== undefined &&
+      (!Number.isSafeInteger(maxInputEntries) || maxInputEntries < 1))
   )
     throw new Error('Invalid execution limits')
   if (!options.command.length || !options.command[0]) throw new Error('A command is required')
-  return { timeoutMs, maxOutputBytes }
+  return { timeoutMs, maxOutputBytes, maxInputBytes, maxInputEntries }
+}
+
+class InputLimitError extends Error {}
+
+/** Copy in bounded chunks, preserving symlink text without reading its target. */
+async function copyBoundedTree(
+  source: string,
+  destination: string,
+  maxBytes: number | undefined,
+  maxEntries: number | undefined,
+): Promise<void> {
+  let bytes = 0
+  let entries = 0
+  const buffer = Buffer.allocUnsafe(1024 * 1024)
+  const visit = async (from: string, to: string): Promise<void> => {
+    if (++entries > (maxEntries ?? Number.MAX_SAFE_INTEGER))
+      throw new InputLimitError('Input tree exceeds maxInputEntries')
+    const info = await lstat(from)
+    if (info.isSymbolicLink()) {
+      await symlink(await readlink(from), to)
+    } else if (info.isDirectory()) {
+      await mkdir(to, { mode: 0o700 })
+      for await (const entry of await opendir(from))
+        await visit(join(from, entry.name), join(to, entry.name))
+      await chmod(to, info.mode & 0o777)
+    } else if (info.isFile()) {
+      if (maxBytes !== undefined && info.size > maxBytes - bytes)
+        throw new InputLimitError('Input tree exceeds maxInputBytes')
+      const input = await open(from, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+      try {
+        const output = await open(to, 'wx', info.mode & 0o777)
+        try {
+          while (true) {
+            const { bytesRead } = await input.read(
+              buffer,
+              0,
+              maxBytes === undefined
+                ? buffer.length
+                : Math.min(buffer.length, maxBytes - bytes + 1),
+              null,
+            )
+            if (bytesRead === 0) break
+            bytes += bytesRead
+            if (maxBytes !== undefined && bytes > maxBytes)
+              throw new InputLimitError('Input tree exceeds maxInputBytes')
+            let written = 0
+            while (written < bytesRead) {
+              const result = await output.write(buffer, written, bytesRead - written)
+              if (result.bytesWritten === 0) throw new Error('Input copy made no write progress')
+              written += result.bytesWritten
+            }
+          }
+        } finally {
+          await output.close()
+        }
+        await chmod(to, info.mode & 0o777)
+      } finally {
+        await input.close()
+      }
+    } else {
+      throw new Error(`Input tree contains an unsupported entry: ${from}`)
+    }
+  }
+  await visit(source, destination)
+}
+
+async function checkInputEntries(root: string, maxEntries: number): Promise<void> {
+  let count = 0
+  const visit = async (path: string): Promise<void> => {
+    if (++count > maxEntries) throw new InputLimitError('Input tree exceeds maxInputEntries')
+    if (!(await lstat(path)).isDirectory()) return
+    for await (const entry of await opendir(path)) await visit(join(path, entry.name))
+  }
+  await visit(root)
 }
 
 async function protectedTree(
@@ -261,14 +375,30 @@ async function runInBox(
   let evidence: IsolatedCheckBoxEvidence | undefined
   let result: IsolatedCheckResult
   try {
-    const { timeoutMs, maxOutputBytes } = checkLimits(options)
+    const { timeoutMs, maxOutputBytes, maxInputBytes, maxInputEntries } = checkLimits(options)
     if (options.signal?.aborted)
       return { succeeded: false, reason: 'cancelled', diagnostic: 'Check cancelled' }
     const { tree } = await protectedTree(options)
+    if (maxInputEntries !== undefined) await checkInputEntries(tree, maxInputEntries)
     // Read each file once: the digest recorded is the digest of the bytes sent.
-    const captured = await captureMaterializedWorkspace(tree)
+    const captured = await captureMaterializedWorkspace(tree, {
+      limits: {
+        maxFiles: maxInputEntries ?? Number.MAX_SAFE_INTEGER,
+        maxFileBytes: maxInputBytes ?? Number.MAX_SAFE_INTEGER,
+        maxTotalFileBytes: maxInputBytes ?? Number.MAX_SAFE_INTEGER,
+      },
+    })
     if (placement.builderAccounts.length === 0 || placement.builderAccounts.some((id) => !id))
       throw new Error('builderAccounts must name the account of every key the judged run holds')
+    const memoryMB = placement.resources?.memoryMB
+    if (
+      memoryMB !== undefined &&
+      (!Number.isSafeInteger(memoryMB) ||
+        memoryMB < 1 ||
+        placement.resources?.advisory === true ||
+        placement.resources?.advisoryFields?.includes('memoryMB'))
+    )
+      throw new Error('Check box requires an explicit finite resources.memoryMB limit')
     const account = (await placement.client.getIdentity()).customerId
     if (!account) throw new Error('Sandbox returned no account for the check key')
     if (placement.builderAccounts.includes(account))
@@ -298,6 +428,15 @@ async function runInBox(
       receipt.injectedSecrets.length !== 0
     )
       throw new Error('Sandbox did not confirm a fresh box with no owner secrets')
+    const grantedMemoryMB = box.resources?.memoryMB
+    if (
+      memoryMB !== undefined &&
+      (typeof grantedMemoryMB !== 'number' ||
+        !Number.isSafeInteger(grantedMemoryMB) ||
+        grantedMemoryMB < 1 ||
+        grantedMemoryMB > memoryMB)
+    )
+      throw new Error('Sandbox did not confirm the requested finite memory cgroup limit')
     const egress = (await box.egress.get()).policy
     const wanted = egressFor(placement)
     if (
@@ -335,6 +474,7 @@ async function runInBox(
     evidence = {
       sandboxId: box.id,
       account,
+      ...(memoryMB === undefined ? {} : { memoryMB: grantedMemoryMB }),
       input: captured.manifest,
       inputDigest: canonicalCandidateDigest(captured.manifest),
     }
@@ -349,7 +489,11 @@ async function runInBox(
   } catch (error) {
     result = {
       succeeded: false,
-      reason: options.signal?.aborted ? 'cancelled' : 'refused',
+      reason: options.signal?.aborted
+        ? 'cancelled'
+        : error instanceof InputLimitError || error instanceof WorkspaceScanLimitError
+          ? 'input-limit'
+          : 'refused',
       diagnostic: String(error),
     }
   }
