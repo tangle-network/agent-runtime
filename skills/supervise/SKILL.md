@@ -18,10 +18,10 @@ Per-assignment budgets, continuity, and keys belong to the [coordination tools](
 An agent receives recursive authority by declaring `agent_runtime_coordination_spawn_worker: true` in its tools.
 Declare each other Runtime tool it needs explicitly.
 Metadata describes work; it does not grant authority.
-Every profile that can spawn workers carries the complete `profile-authoring/SKILL.md` resource, using an immutable snapshot and `resources.failOnError: true`.
+Every profile that can spawn workers carries the complete `profile-authoring/SKILL.md` skill shipped beside this one, as an immutable inline snapshot with `resources.failOnError: true`.
 The authored profile must explain its own ability to delegate; Runtime does not invent that policy.
 
-When creating or changing a descendant profile, read [profile authoring](references/profile-authoring.md) for the exact contract and resource placement.
+Before creating or changing any profile, follow [profile authoring](../profile-authoring/SKILL.md): the audience and its acceptance test, the probed proxy gap, the referee, the honest null, and the profile contract.
 The task names the concrete artifact and completion check; the profile names the method and granted capabilities.
 
 ## Direct the work

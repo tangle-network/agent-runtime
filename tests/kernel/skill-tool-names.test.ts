@@ -89,3 +89,35 @@ describe('supervise skill recursive authority', () => {
     expect(supervise).not.toMatch(/metadata\.role|role\s*:\s*['"]driver['"]|"role"\s*:\s*"driver"/)
   })
 })
+
+describe('profile-authoring skill', () => {
+  const bytes = readFileSync(join(skillsRoot, 'profile-authoring', 'SKILL.md'))
+  const skill = bytes.toString('utf8')
+
+  // Consumers mount this file inline into every profile that can spawn. Below 16,384 bytes it
+  // also fits the per-string bound that older provider releases applied to inline resources.
+  it('fits inline in a spawned profile', () => {
+    expect(bytes.byteLength).toBeLessThan(16_384)
+  })
+
+  it('carries the recursion contract that supervise points to', () => {
+    expect(skill).toContain('agent_runtime_coordination_spawn_worker: true')
+    expect(skill).toContain('resources.failOnError: true')
+    expect(readFileSync(join(skillsRoot, 'supervise', 'SKILL.md'), 'utf8')).toContain(
+      '(../profile-authoring/SKILL.md)',
+    )
+  })
+
+  it('names the audience, the probed proxy gap, the referee, the honest null and a control', () => {
+    for (const heading of [
+      '## 1. Name the audience and its acceptance test',
+      "## 2. Probe the proxy's gap before launch",
+      '## 3. Keep acceptance out of the reward loop',
+      '## 4. Choose roles and a model for each',
+      '## 5. Define success, the honest null, and the stop',
+      '## 8. Register arms, a control and outcomes',
+    ]) {
+      expect(skill).toContain(heading)
+    }
+  })
+})
