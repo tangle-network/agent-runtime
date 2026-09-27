@@ -6,7 +6,7 @@
  *
  * See:
  *   - {@link PlatformAuthClient} for legacy cross-site "Login with Tangle" (returns an API key)
- *   - {@link PlatformOidcClient} for standard OIDC authorization code + PKCE
+ *   - {@link PlatformOidcClient} for standard OIDC authorization code + PKCE and device grants
  *   - {@link PlatformHubClient} for the `/v1/hub/*` surface
  */
 
@@ -23,6 +23,7 @@ export {
   type ConnectionHealthResult,
   type ExecInput,
   type HealthCheck,
+  type HealthCheckResult,
   type MintTokenInput,
   type MintTokenResult,
   type PlatformCatalogProvider,
@@ -37,6 +38,7 @@ export {
 export {
   createPkcePair,
   type OidcAuthorizeUrlOptions,
+  type OidcDeviceAuthorization,
   type OidcExchangeResult,
   type OidcTokens,
   type OidcUser,
