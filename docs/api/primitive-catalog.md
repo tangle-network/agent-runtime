@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.280.0` and `@tangle-network/agent-eval@0.198.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.281.0` and `@tangle-network/agent-eval@0.199.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 288 exports.
+Import from `@tangle-network/agent-runtime` — 302 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -45,6 +45,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
+| `dedicatedLane` | function | Cells that each run in their own environment, `capacity` at once. The lane cannot bound a |
 | `defaultBuildPrompt` | function | Turn proposal findings into a concrete coder task — |
 | `defineConversation` | function | Validate and define a conversation before execution. |
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
@@ -54,6 +55,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `improve` | function | Train and serve a checkpoint without implying that it improved held-out quality. |
 | `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
+| `isSearchEnvironmentFault` | function | Whether an attempt's error is the environment's: a `SearchEnvironmentFault`, or a platform, |
 | `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
 | `loopEventToOtelSpan` | function | Convert a LoopTraceEvent into an OtelSpan for export. |
 | `mcpBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new MCP server. |
@@ -75,6 +77,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `researchLoopRunner` | function | `research` mode — research-in-a-loop with valid-only KB growth. |
 | `resolveChatModel` | function | Resolve a chat model by precedence: the first candidate carrying a |
 | `resolveRouterBaseUrl` | function | Resolve the router base URL from env, normalised — no trailing `/v1` or `/`. |
+| `routerLane` | function | Cells whose model calls are priced router calls, `capacity` at once. Every paid call of a |
 | `runAgentTask` | function | Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the runtime lifecycle event vocabulary, session-store pluggable. |
 | `runAgentTaskStream` | function | Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (model API, sandbox, or custom iterable) and yields lifecycle events as they happen. |
 | `runConversation` | function | Run a conversation to completion and return its terminal result. |
@@ -91,8 +94,10 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
 | `searchMethod` | function | Build Runtime's native search for `improve(profile, { method })`. |
 | `serializeRolloutPolicy` | function | Stable serialization with fixed field order. |
+| `sharedBoxLane` | function | Cells as workers packed into shared Sandbox boxes, `workersPerBox` to a box. |
 | `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
 | `structuralRolloutPolicyFromProfile` | function | Read the persisted policy off the profile. `undefined` when the profile does |
+| `subscriptionLane` | function | Cells on subscription seats, one cell a seat. A seat charges no dollar per call, so its own |
 | `toolBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new tool. |
 | `toOtelAttributes` | function | Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
@@ -120,6 +125,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `RetainedRunAdmissionError` | class | The caller could not persist one detached-run recovery record. |
 | `RetainedRunDispatchBindingError` | class | A retained dispatch answered with coordinates that do not bind to the |
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
+| `SearchEnvironmentFault` | class | The environment, not the candidate, ended the attempt: a box that died, a platform that |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
@@ -145,6 +151,10 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
+| `SearchCellContext` | interface | What the agent of one attempt knows about where and as what it runs. |
+| `SearchLane` | interface | An execution lane: slots that share one cost rule, and the profiles they cannot run. |
+| `SearchLaneOptions` | interface | Options every lane builder takes. |
+| `SharedBoxSearchLane` | interface | A lane of workers packed into shared Sandbox boxes. Close `placement` when the run settles. |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
@@ -156,6 +166,7 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `ImproveMethodOptions` | type | Complete-method configuration for every non-code profile surface. |
 | `ImproveOptions` | type | The canonical improvement API: complete methods for profiles, worktrees for code. |
 | `ImproveProfileAgent` | type | Runs one exact materialized profile on one scenario. |
+| `ImproveSearchAgent` | type | The agent of a native search: the exact node profile on one scenario. |
 | `ImproveSearchOptions` | type | Improve a profile with `searchMethod`. The search runs on all three splits: |
 | `ImproveSurface` | type | The executable agent lever `improve` optimizes — every surface a proposal can name |
 | `OfficialGepaOptions` | type | Official GEPA configuration plus bounded Runtime findings context. |
@@ -168,6 +179,9 @@ Import from `@tangle-network/agent-runtime` — 288 exports.
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
 | `RuntimeCanonicalStreamEvent` | type | Agent Interface events that do not belong to Runtime's task vocabulary. |
 | `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |
+| `SearchDispatchContext` | type | A campaign dispatch context with the search attempt it runs. |
+| `SearchLaneKind` | type | What a lane's slots are. |
+| `SearchTraceOptions` | type | Where a search's cell spans go. Default: one OpenInference file per search when storage is |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 
@@ -218,7 +232,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 74 exports.
+Import from `@tangle-network/agent-runtime/durable` — 69 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -230,7 +244,7 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
-| `pursuitVersionRun` | function | The `<runDir>.v<n>` directory and `<runId>.v<n>` id of version `n`, beside the first. |
+| `pursuitVersionsLedgerPath` | function | The chain's directory beside the first version's: the ledger and its content blobs. |
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
 | `readRootStream` | function | Every committed line of the root stream, in order, or `undefined` when there is no file. A |
 | `readRootStreamReceipt` | function | The receipt for the root stream a run directory holds, recomputed from the file's bytes, or |
@@ -242,7 +256,6 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
 | `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
-| `PURSUIT_VERSIONS_FILE` | const | The ledger file inside the lineage directory. |
 | `REVIEW_DIR` | const | Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
@@ -260,7 +273,6 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `DurableFailureRecord` | interface | What `failure.json` records about the most recent throw. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
-| `PreparedPursuitVersion` | interface | One version, ready to execute. |
 | `PursuitFork` | interface | Start a run as a version of a settled run: the parent's recorded root inputs plus one change. |
 | `PursuitNodeCost` | interface | One node's dollar cost with the provenance that decides whether it may be compared or summed. |
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
@@ -268,9 +280,9 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
+| `PursuitVersionChain` | interface | The chain as its search ledger records it, returned beside the kept version's result. |
 | `PursuitVersions` | interface | Continue a pursuit across versions: after each version settles, an outside judge scores it, and |
-| `PursuitVersionsRecord` | interface | The chain's record, returned beside the best version's result and kept in `versions.jsonl`. |
-| `PursuitVersionStop` | interface | The chain's stop rule. The chain never starts a version once any cap is reached. |
+| `PursuitVersionStop` | interface | The chain's stop rule. The chain starts no version its caps do not admit. |
 | `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
@@ -284,7 +296,7 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
 | `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `PursuitVersionParent`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`, `PursuitVersionStopReason`, `RunPursuitVersion`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`.
 
 ### Bounded tool calls for browser and edge runtimes
 
@@ -1370,7 +1382,7 @@ Import from `@tangle-network/agent-runtime/profiles` — 42 exports.
 
 ### Platform glue
 
-Import from `@tangle-network/agent-runtime/platform` — 27 exports.
+Import from `@tangle-network/agent-runtime/platform` — 28 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1379,15 +1391,15 @@ Import from `@tangle-network/agent-runtime/platform` — 27 exports.
 | `PlatformAuthError` | class | Thrown when a `PlatformAuthClient` request returns a non-success status. |
 | `PlatformHubClient` | class | HTTP client for the Tangle Platform Hub API: provider catalog, connection flow, and status. |
 | `PlatformHubError` | class | Thrown when a `PlatformHubClient` request returns a non-success status. |
-| `PlatformOidcClient` | class | Standard OIDC authorization-code + PKCE client for "Sign in with Tangle". |
+| `PlatformOidcClient` | class | OIDC code + PKCE, refresh/revoke and discovery-bound RFC 8628 device grants. |
 | `HealthCheck` | interface | Last-known health for a connection, derived from the connection row. |
+| `OidcDeviceAuthorization` | interface | Keep deviceCode secret. Only userCode and the verification URLs are displayed. |
 | `PlatformAuthClientOptions` | interface | Server-side client for the Tangle platform's cross-site SSO bridge. |
 | `PlatformCatalogProvider` | interface | A connectable provider in the catalog (`/v1/hub/providers`). |
 | `PlatformConnection` | interface | A live integration connection, as returned by `/v1/hub/connections`. |
 | `PlatformHubClientOptions` | interface | Server-side client for the Tangle platform's integration hub |
-| `PlatformOidcClientOptions` | interface | Server-side OpenID Connect client for the Tangle authorization server |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `OidcAuthorizeUrlOptions`, `OidcExchangeResult`, `OidcTokens`, `OidcUser`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `OidcAuthorizeUrlOptions`, `OidcExchangeResult`, `OidcTokens`, `OidcUser`, `PlatformHubStatus`, `PlatformOidcClientOptions`, `StartAuthInput`, `StartAuthResult`.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 

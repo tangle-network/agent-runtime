@@ -338,7 +338,7 @@ POST /v1/hub/exec — execute a hub action and return its result.
 
 ### PlatformOidcClient
 
-Standard OIDC authorization-code + PKCE client for "Sign in with Tangle".
+OIDC code + PKCE, refresh/revoke and discovery-bound RFC 8628 device grants.
 
 #### Constructors
 
@@ -362,8 +362,6 @@ Standard OIDC authorization-code + PKCE client for "Sign in with Tangle".
 
 > **authorizeUrl**(`options`): `string`
 
-Build the `/api/auth/oauth2/authorize` URL for a browser redirect.
-
 ###### Parameters
 
 ###### options
@@ -377,8 +375,6 @@ Build the `/api/auth/oauth2/authorize` URL for a browser redirect.
 ##### exchange()
 
 > **exchange**(`code`, `codeVerifier`): `Promise`\<[`OidcExchangeResult`](#oidcexchangeresult)\>
-
-Exchange the callback code, then resolve the verified identity from userinfo.
 
 ###### Parameters
 
@@ -398,7 +394,7 @@ Exchange the callback code, then resolve the verified identity from userinfo.
 
 > **refresh**(`refreshToken`): `Promise`\<[`OidcTokens`](#oidctokens)\>
 
-Redeem a refresh token. Store the returned refresh token; the provider rotates it.
+Save the replacement refresh token. Never retry an old token as a new grant.
 
 ###### Parameters
 
@@ -414,8 +410,6 @@ Redeem a refresh token. Store the returned refresh token; the provider rotates i
 
 > **userinfo**(`accessToken`): `Promise`\<[`OidcUser`](#oidcuser)\>
 
-Read the verified identity behind an access token.
-
 ###### Parameters
 
 ###### accessToken
@@ -430,7 +424,7 @@ Read the verified identity behind an access token.
 
 > **revoke**(`token`, `tokenTypeHint?`): `Promise`\<`void`\>
 
-Revoke an access or refresh token (RFC 7009). Disconnect revokes the refresh token.
+RFC 7009. A local logout alone is not a provider disconnect.
 
 ###### Parameters
 
@@ -445,6 +439,48 @@ Revoke an access or refresh token (RFC 7009). Disconnect revokes the refresh tok
 ###### Returns
 
 `Promise`\<`void`\>
+
+##### deviceAuthorize()
+
+> **deviceAuthorize**(`options?`): `Promise`\<[`OidcDeviceAuthorization`](#oidcdeviceauthorization)\>
+
+Start a device grant only when this issuer advertises the OAuth-integrated
+device endpoint. No fallback to /cross-site/device or a standalone session
+device endpoint: those issue different credentials.
+
+###### Parameters
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`OidcDeviceAuthorization`](#oidcdeviceauthorization)\>
+
+##### pollDeviceAuthorization()
+
+> **pollDeviceAuthorization**(`grant`, `options?`): `Promise`\<[`OidcTokens`](#oidctokens)\>
+
+RFC 8628 pending/slow_down handling, expiry, cancellation and timeout backoff.
+
+###### Parameters
+
+###### grant
+
+[`OidcDeviceAuthorization`](#oidcdeviceauthorization)
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`OidcTokens`](#oidctokens)\>
 
 ## Interfaces
 
@@ -507,7 +543,7 @@ and connection storage.
 
 See:
   - [PlatformAuthClient](#platformauthclient) for legacy cross-site "Login with Tangle" (returns an API key)
-  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE
+  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE and device grants
   - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 
 #### Properties
@@ -548,7 +584,7 @@ and connection storage.
 
 See:
   - [PlatformAuthClient](#platformauthclient) for legacy cross-site "Login with Tangle" (returns an API key)
-  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE
+  - [PlatformOidcClient](#platformoidcclient) for standard OIDC authorization code + PKCE and device grants
   - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
 
 #### Properties
@@ -987,39 +1023,35 @@ The hub action path to execute.
 
 > **baseUrl**: `string`
 
-Platform base URL, e.g. `https://id.tangle.tools`.
-
 ##### clientId
 
 > **clientId**: `string`
-
-Client id from the platform `oauthClient` registry.
 
 ##### clientSecret?
 
 > `optional` **clientSecret?**: `string`
 
-Client secret for a confidential client. Sent with HTTP Basic, the
-provider's default `client_secret_basic` method. Omit for a public client
-registered with `token_endpoint_auth_method: none`.
+Omit only for clients registered with token_endpoint_auth_method=none.
 
-##### redirectUri
+##### redirectUri?
 
-> **redirectUri**: `string`
+> `optional` **redirectUri?**: `string`
 
-Registered callback URI.
+Required for authorization code; not required for the device grant.
 
 ##### scope?
 
 > `optional` **scope?**: `string`
 
-Requested scopes. Defaults to `openid profile email offline_access`.
+##### resources?
+
+> `optional` **resources?**: readonly `string`[]
+
+RFC 8707 resource identifiers registered at the authorization server.
 
 ##### fetchImpl?
 
 > `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
-
-Override the global fetch (useful for tests + edge runtimes).
 
 ###### Parameters
 
@@ -1045,19 +1077,15 @@ Override the global fetch (useful for tests + edge runtimes).
 
 > **state**: `string`
 
-Required CSRF token; the consumer verifies it on the callback.
-
 ##### codeChallenge
 
 > **codeChallenge**: `string`
-
-RFC 7636 S256 code challenge. See [createPkcePair](#createpkcepair).
 
 ##### nonce?
 
 > `optional` **nonce?**: `string`
 
-OIDC nonce; the consumer checks it against the ID token.
+Only supply a nonce when the consumer also validates the ID token.
 
 ##### prompt?
 
@@ -1066,8 +1094,6 @@ OIDC nonce; the consumer checks it against the ID token.
 ##### loginHint?
 
 > `optional` **loginHint?**: `string`
-
-Pre-fill the email field on the login screen.
 
 ***
 
@@ -1134,6 +1160,44 @@ Pre-fill the email field on the login screen.
 ##### user
 
 > **user**: [`OidcUser`](#oidcuser)
+
+***
+
+### OidcDeviceAuthorization
+
+Keep deviceCode secret. Only userCode and the verification URLs are displayed.
+
+#### Properties
+
+##### deviceCode
+
+> **deviceCode**: `string`
+
+##### userCode
+
+> **userCode**: `string`
+
+##### verificationUri
+
+> **verificationUri**: `string`
+
+##### verificationUriComplete?
+
+> `optional` **verificationUriComplete?**: `string`
+
+##### expiresIn
+
+> **expiresIn**: `number`
+
+##### expiresAt
+
+> **expiresAt**: `number`
+
+Absolute deadline preserves expiry when a polling process resumes.
+
+##### interval
+
+> **interval**: `number`
 
 ## Functions
 

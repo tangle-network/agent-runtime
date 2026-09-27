@@ -15,6 +15,7 @@ import type {
   WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import type {
+  DispatchContext,
   MutableSurface,
   Scenario,
   SelfImproveBudget,
@@ -27,9 +28,12 @@ import type {
   AgentProfile,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
+import type { BudgetPool } from '../runtime/supervise/budget'
+import type { WorkerSlots } from '../runtime/supervise/worker-slots'
 import type { AgenticGeneratorExecutorForWorktree, Verifier } from './agentic-generator'
 import type { CandidateGenerator } from './improvement-driver'
 import type { ReadonlyAgentProfile } from './profile-types'
+import type { SearchCellContext, SearchLane, SearchTraceOptions } from './search-executor'
 
 /** The executable agent lever `improve` optimizes — every surface a proposal can name
  * (`AgentImprovementSurface`) except `knowledge`, which the corpus lane owns and `improve`
@@ -164,12 +168,10 @@ export interface ImproveSearchMethod {
   readonly maxExpansions: number
   /** Children one proposal asks for. */
   readonly childrenPerProposal: number
-  /** Cells that run at once, in process. */
-  readonly concurrency: number
-  /** Prior cost of one cell, held as its estimate reservation until 20 cells settle. */
-  readonly cellUsd: number
+  /** Where cells run, with each lane's capacity and cost rule. */
+  readonly lanes: readonly SearchLane[]
   /** Dollars held from the start for the claim's test cells; at least the
-   * root and 3 finalists on every test task at `cellUsd` a cell. */
+   * root and 3 finalists on every test task at the largest lane `cellUsd`. */
   readonly claimReserveUsd: number | null
   /** ISO time after which the search stops expanding and claims. */
   readonly deadline: string | null
@@ -194,13 +196,35 @@ export type ImproveSearchOptions<TScenario extends Scenario, TArtifact> = Omit<
   | 'reps'
   | 'maxConcurrency'
   | 'optimizationRunOptions'
+  | 'agent'
 > & {
   method: ImproveSearchMethod
   /** The claim the sealed test split decides. `independentUnit` names each
    * scenario's unit and `minimumEffect` is the improvement the power check
    * must resolve; both are required. */
   claim: EvaluationClaim
+  /** Runs the exact node profile on one scenario. `ctx.search` names the attempt: its lane,
+   * its run id (key remote work by it) and its trace. Throw `SearchEnvironmentFault` when the
+   * environment, not the profile, ended the run; the kernel then runs a fresh attempt. */
+  agent: ImproveSearchAgent<TScenario, TArtifact>
+  /** Bounds working cells across every search that shares this allocator. */
+  workerSlots?: WorkerSlots
+  /** Fleet dollars shared across searches: a cell on a hard lane holds its lane's `cellUsd`
+   * here before it starts, and waits while open cells could return enough. */
+  budgetPool?: BudgetPool
+  /** Where cell spans go. Default: `<search dir>/spans.otlp.jsonl` on filesystem storage. */
+  trace?: SearchTraceOptions
 }
+
+/** A campaign dispatch context with the search attempt it runs. */
+export type SearchDispatchContext = DispatchContext & { readonly search: SearchCellContext }
+
+/** The agent of a native search: the exact node profile on one scenario. */
+export type ImproveSearchAgent<TScenario extends Scenario, TArtifact> = (
+  profile: ReadonlyAgentProfile,
+  scenario: TScenario,
+  ctx: SearchDispatchContext,
+) => Promise<TArtifact>
 
 /** Runtime-owned code search in isolated git worktrees. */
 export type ImproveCodeRunOptions<TScenario extends Scenario, TArtifact> = Omit<

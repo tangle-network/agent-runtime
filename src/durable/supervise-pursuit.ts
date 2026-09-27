@@ -7,8 +7,8 @@ import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 import {
+  type PursuitVersionChain,
   type PursuitVersions,
-  type PursuitVersionsRecord,
   runPursuitVersions,
 } from './pursuit-versions'
 import { type PursuitFork, prepareRunFork } from './run-fork'
@@ -47,14 +47,16 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    */
   readonly fork?: PursuitFork
   /**
-   * Continue this pursuit across versions. The first version runs at `runDir` as usual, or is
-   * read back when that directory already settled. After each version settles, `versions.judge`
-   * scores it from outside its tree; unless `versions.stop` ends the chain, the next version forks
-   * from the best version so far with the change `versions.next` returns, at `<runDir>.v<n>` with
-   * run id `<runId>.v<n>`. `<runDir>.versions/versions.jsonl` records every version, its parent,
-   * its change, its verdict and its dollars, and the stop. A call on a chain that stopped reads
-   * that record back; a call on a chain that did not resumes it without re-running or re-judging a
-   * settled version. The call returns the best version's result with the chain's record.
+   * Continue this pursuit across versions, on Eval's search kernel. The first version runs at
+   * `runDir` as usual, or is read back when that directory already settled. After each version
+   * settles, `versions.judge` scores it from outside its tree; unless `versions.stop` ends the
+   * chain, the next version forks from the version the chain keeps with the change
+   * `versions.next` returns, at `<runDir>.v<n>` with run id `<runId>.v<n>`. The search ledger at
+   * `<runDir>.search/ledger.jsonl` records every version as a node, every change as an edge, and
+   * every run and verdict as a cell; it is the chain's only record and checkpoint. A call on a
+   * closed chain reads it back; a call on an open chain continues it without re-running or
+   * re-judging a settled version. Aborting `signal` pauses the chain: the call rejects and a later
+   * call continues it. The call returns the kept version's result with the chain.
    */
   readonly versions?: PursuitVersions
 }
@@ -65,8 +67,8 @@ export interface SupervisedPursuitResult<Result> {
   readonly observerPath: string
   /** `runDir/result.json`: `result` as canonical JSON, written once at settle. */
   readonly settlePath: string
-  /** The version chain's record, when the call set `versions`. */
-  readonly versions?: PursuitVersionsRecord
+  /** The version chain, when the call set `versions`. */
+  readonly versions?: PursuitVersionChain
 }
 
 /** A failed Runtime execution whose complete third-person projection was retained. */
