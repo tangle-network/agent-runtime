@@ -33,7 +33,6 @@ import {
   type SearchProposerPort,
   SearchRecorder,
   type SearchSourceRef,
-  type SearchStateView,
   type SearchTaskOutcome,
   uniform,
 } from '@tangle-network/agent-eval/campaign'
@@ -52,7 +51,7 @@ import { type CheckVerdict, failedItems } from '../runtime/supervise/continuatio
 import { authoredProfileDigest } from '../runtime/supervise/materialization'
 import { superviseRootProfile } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import type { Spend, SpawnEvent, SupervisedResult } from '../runtime/supervise/types'
+import type { SpawnEvent, Spend, SupervisedResult } from '../runtime/supervise/types'
 import { isNoEntError } from './jsonl-file'
 import { FileObserverJournal } from './observer-journal'
 import { projectPursuit } from './observer-projection'
@@ -271,30 +270,20 @@ interface VersionNode {
   readonly refusal: string | null
 }
 
-/** Where a node's version runs, and what it forks from. */
-interface VersionSpec {
+/** One node of the chain, as the ledger records it. */
+interface VersionRecord {
   readonly nodeId: string
   readonly version: number
   readonly runId: string
   readonly runDir: string
-  readonly profile: AgentProfile
-  readonly parent?: {
-    readonly nodeId: string
-    readonly version: number
-    readonly runId: string
-    readonly runDir: string
-    readonly profile: AgentProfile
-    readonly settleDigest: Sha256Digest
-    readonly verdict?: VersionVerdict
-  }
+  /** Null for a change that did not apply. */
+  readonly profile: AgentProfile | null
+  readonly parentNodeId: string | null
+  /** The change from the parent, from the node's first edge. */
   readonly change?: AgentProfileDiff
-}
-
-/** What the ledger holds about one version's settled cell. */
-interface SettledCellFacts {
   /** The latest settled attempt's seal and verdict. */
-  readonly settle?: SearchArtifactRef
-  readonly verdict?: SearchArtifactRef
+  readonly seal?: SearchArtifactRef
+  readonly verdict?: VersionVerdict
   /** Every seal an attempt recorded: a version's spend is recorded once, by the first. */
   readonly seals: ReadonlySet<string>
 }
@@ -305,9 +294,7 @@ export async function runPursuitVersions(
   task: unknown,
   opts: SupervisePursuitOptions & { readonly versions: PursuitVersions },
   runOne: RunOne,
-): Promise<
-  SupervisedPursuitResult<SupervisedResult<unknown>> & { versions: PursuitVersionChain }
-> {
+): Promise<SupervisedPursuitResult<SupervisedResult<unknown>> & { versions: PursuitVersionChain }> {
   const { versions, fork: firstFork, signal: callerSignal, ...base } = opts
   assertPursuitVersions(versions)
   for (const key of ['journal', 'blobs', 'rootHandle', 'steerDir'] as const) {
@@ -358,7 +345,10 @@ export async function runPursuitVersions(
       alias: 'supervisePursuit',
       unknown: "a version runs every model its tree chose; the version's settle record names them",
     },
-    agent: { uri: `agent-profile:${pursuitId}`, revision: canonicalAgentProfileDigest(nodeProfile) },
+    agent: {
+      uri: `agent-profile:${pursuitId}`,
+      revision: canonicalAgentProfileDigest(nodeProfile),
+    },
     benchmark: { uri: `pursuit:${pursuitId}`, revision: taskRevision },
   })
 
@@ -441,7 +431,10 @@ export async function runPursuitVersions(
   const codec: SearchArtifactCodec<VersionNode> = {
     node(store, node) {
       if (node.profile !== null) {
-        const artifact = store.blob('agent-profile', { kind: 'agent-profile', profile: node.profile })
+        const artifact = store.blob('agent-profile', {
+          kind: 'agent-profile',
+          profile: node.profile,
+        })
         return {
           artifactDigest: canonicalAgentProfileDigest(node.profile),
           artifact,
@@ -488,10 +481,18 @@ export async function runPursuitVersions(
     // A version that settled is read back from its directory by `run`, so nothing is adopted.
     adopt: async () => null,
     async run(work) {
-      const spec = await versionSpec(work.nodeId)
-      if ((await readSettleRecord(spec.runDir)) === undefined) {
+      const chain = await versionsOf()
+      const record = chain.get(work.nodeId)
+      if (record?.profile == null) {
+        throw new RuntimeRunStateError(`version node ${work.nodeId} has no profile to run`)
+      }
+      const parent = record.parentNodeId === null ? undefined : chain.get(record.parentNodeId)
+      if (parent !== undefined && (parent.seal === undefined || parent.profile === null)) {
+        throw new RuntimeRunStateError(`version ${record.version}'s parent has no sealed result`)
+      }
+      if ((await readSettleRecord(record.runDir)) === undefined) {
         try {
-          await runVersion(spec, AbortSignal.any([work.signal, expired.signal]))
+          await runVersion(record, parent, AbortSignal.any([work.signal, expired.signal]))
         } catch (error) {
           // A run that failed left its failure record; running the cell again resumes it.
           if (!(error instanceof Error && error.name === 'SupervisePursuitError')) throw error
@@ -509,18 +510,18 @@ export async function runPursuitVersions(
                 reason: 'the version failed before it settled; its failure record holds no spend',
               },
             },
-            identity: identity(spec.profile),
+            identity: identity(record.profile),
             placement: { lane: work.lane, boxId: null },
-            traceRef: { unknown: `version ${spec.version} is run ${spec.runId}; it did not settle` },
+            traceRef: {
+              unknown: `version ${record.version} is run ${record.runId}; it did not settle`,
+            },
           }
         }
       }
-      const { settled, byteLength } = await readVersion(spec)
+      const { settled, byteLength } = await readVersion(record, parent)
       // A retried cell reads the same sealed run back and only judges it again; the run's spend
       // was recorded by the attempt that first recorded its seal.
-      const charged = !(await settledCells(await recorder.state()))
-        .get(spec.nodeId)
-        ?.seals.has(settled.settleDigest)
+      const charged = !record.seals.has(settled.settleDigest)
       const verdict = await judgeVersion(settled, work.signal)
       return cellResult(settled, byteLength, verdict, work.lane, charged)
     },
@@ -546,7 +547,7 @@ export async function runPursuitVersions(
     childrenPerProposal: 1,
     async propose(request) {
       const parent = request.parents[0]!
-      const judged = await judgedVersions(await recorder.state())
+      const judged = await judgedVersions(await versionsOf())
       const best = judged.find((version) => version.nodeId === parent.nodeId)
       if (best === undefined || parent.artifact.profile === null) {
         return {
@@ -560,9 +561,7 @@ export async function runPursuitVersions(
         request.signal,
       )
       if (typeof change?.id !== 'string' || change.id.trim().length === 0) {
-        throw new ValidationError(
-          'supervisePursuit versions: next must return a change with an id',
-        )
+        throw new ValidationError('supervisePursuit versions: next must return a change with an id')
       }
       const parentDigest = canonicalAgentProfileDigest(parent.artifact.profile)
       let child: VersionNode
@@ -616,7 +615,7 @@ export async function runPursuitVersions(
       ...(callerSignal === undefined ? {} : { signal: callerSignal }),
       now,
     })
-    const judged = await judgedVersions(closed.state)
+    const judged = await judgedVersions(await versionsOf())
     const best = judged.find((version) => version.nodeId === closed.leader)
     if (best === undefined) {
       throw new RuntimeRunStateError(
@@ -643,60 +642,17 @@ export async function runPursuitVersions(
     if (timer !== undefined) clearTimeout(timer)
   }
 
-  /** Where a node's version runs, and the parent it forks from, read from the ledger. */
-  async function versionSpec(nodeId: string): Promise<VersionSpec> {
-    // Read everything from one state view before any await: an append retires the view.
-    const state = await recorder.state()
-    const node = state.node(nodeId)
-    if (node === undefined) throw new RuntimeRunStateError(`version node ${nodeId} is not recorded`)
-    const own = loadNode(recorder, node)
-    if (own.profile === null) {
-      throw new RuntimeRunStateError(`version node ${nodeId} is a refused change and has no run`)
-    }
-    const names = versionRun(runDir, runId, node.ordinal + 1)
-    if (node.primaryParentId === null) {
-      return { nodeId, version: node.ordinal + 1, ...names, profile: own.profile }
-    }
-    const parentNode = state.node(node.primaryParentId)!
-    const parentProfile = loadNode(recorder, parentNode).profile
-    const edge = state.edge(node.edgeIds[0]!)!
-    const diff = edge.diffs[0]
-    if (parentProfile === null || diff === undefined || 'unknown' in diff) {
-      throw new RuntimeRunStateError(`version node ${nodeId} records no change from its parent`)
-    }
-    const change = (recorder.readBlob(diff) as { diffs: AgentProfileDiff[] }).diffs[0]!
-    const facts = (await settledCells(state)).get(parentNode.nodeId)
-    if (facts?.settle === undefined) {
-      throw new RuntimeRunStateError(
-        `version node ${nodeId}'s parent ${parentNode.nodeId} has no sealed result`,
-      )
-    }
-    return {
-      nodeId,
-      version: node.ordinal + 1,
-      ...names,
-      profile: own.profile,
-      parent: {
-        nodeId: parentNode.nodeId,
-        version: parentNode.ordinal + 1,
-        ...versionRun(runDir, runId, parentNode.ordinal + 1),
-        profile: parentProfile,
-        settleDigest: facts.settle.sha256 as Sha256Digest,
-        ...(facts.verdict === undefined
-          ? {}
-          : { verdict: (recorder.readBlob(facts.verdict) as { verdict: VersionVerdict }).verdict }),
-      },
-      change,
-    }
-  }
-
   /** Run one version: the first as the call's own run, a later one as a fork of its parent. */
-  async function runVersion(spec: VersionSpec, signal: AbortSignal): Promise<void> {
-    if (spec.parent === undefined || spec.change === undefined) {
+  async function runVersion(
+    record: VersionRecord,
+    parent: VersionRecord | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (parent === undefined || record.change === undefined) {
       await runOne(profile, task, {
         ...base,
-        runId: spec.runId,
-        runDir: spec.runDir,
+        runId: record.runId,
+        runDir: record.runDir,
         ...(firstFork === undefined ? {} : { fork: firstFork }),
         signal,
       })
@@ -706,25 +662,25 @@ export async function runPursuitVersions(
     // settled with a child still in doubt (a deadline or a driver failure leaves them) is forked,
     // and the version's root records those nodes.
     const fork: PursuitFork = {
-      runDir: spec.parent.runDir,
-      settleDigest: spec.parent.settleDigest,
-      change: spec.change,
+      runDir: parent.runDir,
+      settleDigest: parent.seal!.sha256 as Sha256Digest,
+      change: record.change,
       acceptUncertain: true,
     }
     // The version's continuation note states the bar against the version it forks from.
-    const check = spec.parent.verdict?.check
-    await runOne(spec.parent.profile, task, {
+    const check = parent.verdict?.check
+    await runOne(parent.profile!, task, {
       ...base,
       ...(base.continuation !== undefined && check !== undefined
         ? {
             continuation: {
               ...base.continuation,
-              best: { label: `v${spec.parent.version}`, verdict: check },
+              best: { label: `v${parent.version}`, verdict: check },
             },
           }
         : {}),
-      runId: spec.runId,
-      runDir: spec.runDir,
+      runId: record.runId,
+      runDir: record.runDir,
       fork,
       signal,
     })
@@ -736,62 +692,48 @@ export async function runPursuitVersions(
    * run is refused, never adopted.
    */
   async function readVersion(
-    spec: VersionSpec,
+    record: VersionRecord,
+    parent: VersionRecord | undefined,
   ): Promise<{ settled: SettledPursuitVersion; byteLength: number }> {
-    const { bytes, result } = await readSealed(spec.runDir, spec.version)
-    if (result.tree.root !== spec.runId) {
+    const { bytes, result } = await readSealed(record.runDir, record.version)
+    if (result.tree.root !== record.runId) {
       throw new RuntimeRunStateError(
-        `supervisePursuit versions: ${spec.runDir} holds run '${result.tree.root}', not version ${spec.version}'s '${spec.runId}'`,
+        `supervisePursuit versions: ${record.runDir} holds run '${result.tree.root}', not version ${record.version}'s '${record.runId}'`,
       )
     }
-    const events = (await new FileSpawnJournal(resolve(spec.runDir, 'spawn-journal.jsonl')).loadTree(
-      spec.runId,
-    )) as readonly SpawnEvent[] | undefined
+    const events = await new FileSpawnJournal(
+      resolve(record.runDir, 'spawn-journal.jsonl'),
+    ).loadTree(record.runId)
     const root = events?.find(
       (event): event is Extract<SpawnEvent, { kind: 'spawned' }> =>
         event.kind === 'spawned' && event.parent === undefined,
     )
-    const expected = authoredProfileDigest(superviseRootProfile(spec.profile, base.profileGuidance))
+    const ran = root?.identity?.profileDigest
+    const expected = authoredProfileDigest(
+      superviseRootProfile(record.profile!, base.profileGuidance),
+    )
     const correlation = root?.identity?.correlation
-    const seal =
-      spec.parent === undefined
-        ? firstFork === undefined
+    const fork =
+      parent !== undefined
+        ? { settleDigest: parent.seal?.sha256, changeId: record.change?.id }
+        : firstFork === undefined
           ? undefined
           : { settleDigest: firstFork.settleDigest, changeId: firstFork.change.id }
-        : { settleDigest: spec.parent.settleDigest, changeId: spec.change?.id }
     const mismatch = [
-      root?.identity?.profileDigest !== expected ? `its root ran profile ${String(root?.identity?.profileDigest)}, not ${String(expected)}` : undefined,
-      seal !== undefined && correlation?.forkParentSettleDigest !== seal.settleDigest
-        ? `its root forked from seal ${String(correlation?.forkParentSettleDigest)}, not ${seal.settleDigest}`
+      ran !== expected ? `its root ran profile ${ran}, not ${expected}` : undefined,
+      fork !== undefined && correlation?.forkParentSettleDigest !== fork.settleDigest
+        ? `its root forked from seal ${correlation?.forkParentSettleDigest}, not ${fork.settleDigest}`
         : undefined,
-      seal !== undefined && correlation?.forkProfileDiffId !== seal.changeId
-        ? `its root applied change ${String(correlation?.forkProfileDiffId)}, not ${String(seal.changeId)}`
+      fork !== undefined && correlation?.forkProfileDiffId !== fork.changeId
+        ? `its root applied change ${correlation?.forkProfileDiffId}, not ${fork.changeId}`
         : undefined,
     ].filter((item): item is string => item !== undefined)
     if (mismatch.length > 0) {
       throw new RuntimeRunStateError(
-        `supervisePursuit versions: version ${spec.version} at ${spec.runDir} is not this chain's run: ${mismatch.join('; ')}`,
+        `supervisePursuit versions: version ${record.version} at ${record.runDir} is not this chain's run: ${mismatch.join('; ')}`,
       )
     }
-    const settled: SettledPursuitVersion = Object.freeze({
-      version: spec.version,
-      nodeId: spec.nodeId,
-      runId: spec.runId,
-      runDir: spec.runDir,
-      settleDigest: sha256Bytes(bytes),
-      result,
-      profile: spec.profile,
-      ...(spec.parent === undefined
-        ? {}
-        : {
-            parent: {
-              version: spec.parent.version,
-              runId: spec.parent.runId,
-              settleDigest: spec.parent.settleDigest,
-            },
-          }),
-      ...(spec.change === undefined ? {} : { change: spec.change }),
-    })
+    const settled = versionOf(record, parent, bytes, result)
     return { settled, byteLength: bytes.byteLength }
   }
 
@@ -878,88 +820,107 @@ export async function runPursuitVersions(
     }
   }
 
+  /** A version as the judge and `next` read it. */
+  function versionOf(
+    record: VersionRecord,
+    parent: VersionRecord | undefined,
+    bytes: Uint8Array,
+    result: SupervisedResult<unknown>,
+  ): SettledPursuitVersion {
+    return Object.freeze({
+      version: record.version,
+      nodeId: record.nodeId,
+      runId: record.runId,
+      runDir: record.runDir,
+      settleDigest: sha256Bytes(bytes),
+      result,
+      profile: record.profile!,
+      ...(parent?.seal === undefined
+        ? {}
+        : {
+            parent: {
+              version: parent.version,
+              runId: parent.runId,
+              settleDigest: parent.seal.sha256 as Sha256Digest,
+            },
+          }),
+      ...(record.change === undefined ? {} : { change: record.change }),
+    })
+  }
+
   /** Every version whose latest settled cell carries a verdict, first first, each read back from
    *  its sealed `result.json`. */
-  async function judgedVersions(state: SearchStateView): Promise<JudgedPursuitVersion[]> {
-    const nodes = state.nodes()
-    const facts = await settledCells(state)
+  async function judgedVersions(
+    chain: ReadonlyMap<string, VersionRecord>,
+  ): Promise<JudgedPursuitVersion[]> {
     const judged: JudgedPursuitVersion[] = []
-    for (const node of nodes) {
-      const cell = facts.get(node.nodeId)
-      if (cell?.settle === undefined || cell.verdict === undefined) continue
-      const own = loadNode(recorder, node)
-      const version = node.ordinal + 1
-      const names = versionRun(runDir, runId, version)
-      const { bytes, result } = await readSealed(names.runDir, version)
-      if (sha256Bytes(bytes) !== cell.settle.sha256) {
+    for (const record of chain.values()) {
+      if (record.seal === undefined || record.verdict === undefined) continue
+      const { bytes, result } = await readSealed(record.runDir, record.version)
+      if (sha256Bytes(bytes) !== record.seal.sha256) {
         throw new RuntimeRunStateError(
-          `supervisePursuit versions: version ${version}'s result.json changed after it was judged`,
+          `supervisePursuit versions: version ${record.version}'s result.json changed after it was judged`,
         )
       }
-      const parentNode =
-        node.primaryParentId === null ? undefined : state.node(node.primaryParentId)
-      const parentSeal = parentNode === undefined ? undefined : facts.get(parentNode.nodeId)?.settle
-      const edge = node.edgeIds[0] === undefined ? undefined : state.edge(node.edgeIds[0])
-      const diff = edge?.diffs[0]
+      const parent = record.parentNodeId === null ? undefined : chain.get(record.parentNodeId)
       judged.push(
-        Object.freeze({
-          version,
-          nodeId: node.nodeId,
-          ...names,
-          settleDigest: cell.settle.sha256 as Sha256Digest,
-          result,
-          profile: own.profile!,
-          ...(parentNode === undefined || parentSeal === undefined
-            ? {}
-            : {
-                parent: {
-                  version: parentNode.ordinal + 1,
-                  runId: versionRun(runDir, runId, parentNode.ordinal + 1).runId,
-                  settleDigest: parentSeal.sha256 as Sha256Digest,
-                },
-              }),
-          ...(diff === undefined || 'unknown' in diff
-            ? {}
-            : { change: (recorder.readBlob(diff) as { diffs: AgentProfileDiff[] }).diffs[0]! }),
-          verdict: (recorder.readBlob(cell.verdict) as { verdict: VersionVerdict }).verdict,
-        }),
+        Object.freeze({ ...versionOf(record, parent, bytes, result), verdict: record.verdict }),
       )
     }
     return judged
   }
 
   /**
-   * The settle-record and verdict references of each node's latest settled attempt. The state
-   * holds cells, not their events' artifacts, so they are read from the ledger lines the state
-   * already verified, through Eval's own line parser.
+   * Every node of the chain, in registration order, from the ledger. The state holds cells, not
+   * their events' artifacts, so each cell's seal and verdict are read from the ledger lines the
+   * state verified, through Eval's own line parser.
    */
-  async function settledCells(state: SearchStateView): Promise<Map<string, SettledCellFacts>> {
-    const text = await readFile(ledgerPath, 'utf8')
-    const lines = text.split('\n')
+  async function versionsOf(): Promise<Map<string, VersionRecord>> {
+    // Take what the state holds before any await: an append retires the view.
+    const state = await recorder.state()
     const head = state.head?.sequence ?? -1
-    const byCell = new Map<string, { latest: SearchCellSettledEvent; seals: Set<string> }>()
-    for (const [index, line] of lines.entries()) {
+    const nodes = state.nodes().map((node) => ({
+      node,
+      cellId: state.cells({ nodeId: node.nodeId })[0]?.cellId,
+      diff: node.edgeIds[0] === undefined ? undefined : state.edge(node.edgeIds[0])?.diffs[0],
+    }))
+    const attempts = new Map<string, { latest: SearchCellSettledEvent; seals: Set<string> }>()
+    const text = await readFile(ledgerPath, 'utf8')
+    for (const [index, line] of text.split('\n').entries()) {
       if (line.length === 0) continue
       const entry = parseSearchLedgerLine(line, searchId, { path: ledgerPath, line: index + 1 })
       if (entry.sequence > head) break
       const { event } = entry
       if (event.kind !== 'cell-settled') continue
-      const seals = byCell.get(event.cellId)?.seals ?? new Set<string>()
+      const seals = attempts.get(event.cellId)?.seals ?? new Set<string>()
       const seal = event.artifacts.find((artifact) => artifact.role === 'settle-record')
       if (seal !== undefined) seals.add(seal.sha256)
-      byCell.set(event.cellId, { latest: event, seals })
+      attempts.set(event.cellId, { latest: event, seals })
     }
-    const byNode = new Map<string, SettledCellFacts>()
-    for (const [cellId, { latest, seals }] of byCell) {
-      const cell = state.cell(cellId)
-      if (cell === undefined) continue
-      byNode.set(cell.nodeId, {
-        settle: latest.artifacts.find((artifact) => artifact.role === 'settle-record'),
-        verdict: latest.artifacts.find((artifact) => artifact.role === 'verdict'),
-        seals,
+    const chain = new Map<string, VersionRecord>()
+    for (const { node, cellId, diff } of nodes) {
+      const settled = cellId === undefined ? undefined : attempts.get(cellId)
+      const artifact = (role: string) =>
+        settled?.latest.artifacts.find((candidate) => candidate.role === role)
+      const seal = artifact('settle-record')
+      const verdict = artifact('verdict')
+      chain.set(node.nodeId, {
+        nodeId: node.nodeId,
+        version: node.ordinal + 1,
+        ...versionRun(runDir, runId, node.ordinal + 1),
+        profile: loadNode(recorder, node).profile,
+        parentNodeId: node.primaryParentId,
+        ...(diff === undefined || 'unknown' in diff
+          ? {}
+          : { change: (recorder.readBlob(diff) as { diffs: AgentProfileDiff[] }).diffs[0]! }),
+        ...(seal === undefined ? {} : { seal }),
+        ...(verdict === undefined
+          ? {}
+          : { verdict: (recorder.readBlob(verdict) as { verdict: VersionVerdict }).verdict }),
+        seals: settled?.seals ?? new Set(),
       })
     }
-    return byNode
+    return chain
   }
 }
 
