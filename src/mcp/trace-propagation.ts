@@ -24,6 +24,7 @@
 import { isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
 import type { OtelExporter } from '../otel-export'
 import { buildLoopOtelSpans, createOtelExporter, padSpanId, padTraceId } from '../otel-export'
+import { resolveRedactor } from '../redact'
 import type { LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
 
 export interface TraceContext {
@@ -84,6 +85,10 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
   context: TraceContext
 } {
   const exporter = createOtelExporter()
+  // Same default scrubber `exportRunRecord` threads into its own loop-topology
+  // export (src/intelligence/index.ts) — this sink emits the identical free-text
+  // node attributes (rationale/decision/error/output_preview) and must not skip it.
+  const redactor = resolveRedactor(undefined)
 
   // Buffer events per loop run, then emit the full nested span tree on
   // `loop.ended` so the topology hierarchy (loop → round → branch) reaches the
@@ -101,7 +106,7 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
       if (event.kind === 'loop.ended') {
         const events = buffers.get(event.runId) ?? [event]
         buffers.delete(event.runId)
-        for (const span of buildLoopOtelSpans(events, ctx.traceId, ctx.parentSpanId)) {
+        for (const span of buildLoopOtelSpans(events, ctx.traceId, ctx.parentSpanId, redactor)) {
           // The child-side severed-hop marker: a fallback-minted root stamps every span it emits,
           // so a trace with no inbound link SAYS so instead of appearing as a stranger tree. The
           // human run id stays in `loop.run_id` / `tangle.run.id` where it was already searchable.
