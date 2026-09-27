@@ -19,6 +19,7 @@ const dynamicNonModelFetchOwners = new Set([
   'src/platform/oidc.ts',
   'src/runtime/mcp-environment.ts',
   'src/runtime/supervise/coordination-preflight.ts',
+  'scripts/prove-platform-oidc.mjs',
   'bench/src/research-shot.ts',
   'bench/src/search-tool.ts',
   'bench/src/benchmarks/aec-bench.ts',
