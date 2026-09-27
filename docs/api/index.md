@@ -3772,18 +3772,21 @@ Proposals the search may make.
 > `optional` **policy?**: `SearchPolicy`
 
 Which node each proposal extends, and which node the search keeps.
-Default `incumbent()`: the hill climb.
+Default `aide()`: drafts from the baseline, debugs a node whose cells
+fail as defects, and otherwise improves a parent drawn by Thompson
+sampling over each node's posterior, forking from the best node when a
+lineage stalls. `beam({ width })` expands the top nodes in turn;
+`incumbent()` is the hill climb, which needs `uniform()`.
 
 ##### allocation?
 
 > `optional` **allocation?**: `SearchAllocator`
 
-Where cells go. Default `uniform()`: every node runs every train and
-selection task, which the `incumbent()` hill climb needs to see each
-result on the leader's units. `asha()` (successive halving over one
-seeded permutation of the selection units) spends fewer cells and pairs
-with policies that rank screened nodes. Its `reps` are every split's
-repeats, the claim's included.
+Where cells go. Default `asha()`: successive halving over one seeded
+permutation of the selection units. Each node is screened on 6 selection
+units and 2 train units, and the top third of each rung advances to twice
+the units. `uniform()` runs every node on every train and selection task.
+The allocator's `reps` are every split's repeats, the claim's included.
 
 ##### childrenPerProposal?
 
