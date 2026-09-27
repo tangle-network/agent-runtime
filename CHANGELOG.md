@@ -1,3 +1,9 @@
+## 0.280.0
+
+Fixed: the MCP delegation journal's loop-topology export (`createPropagatingTraceEmitter`, wired from `src/mcp/bin.ts`) called `buildLoopOtelSpans` with no redactor, so `tangle.loop.move.rationale`, `tangle.loop.decision`, `tangle.loop.error` and `tangle.loop.iteration.output_preview` shipped raw model/customer text — including credentials — to whatever `OTEL_EXPORTER_OTLP_ENDPOINT` collector the MCP subprocess is configured with. #1404 fixed the same defect in `exportRunRecord`'s own loop-topology export but missed this second sink. The MCP sink now threads the same default redactor (`resolveRedactor(undefined)`, agent-eval's redaction core) into every emitted span.
+
+`searchMethod`'s defaults are now Eval's `aide()` policy and `asha()` allocator, the native search the search-tree design specifies: `aide()` drafts from the baseline, debugs nodes whose cells fail as defects, and improves a parent drawn by Thompson sampling over node posteriors; `asha()` screens each node on 6 selection units and advances the top third of each rung. Pass `policy: incumbent()` with `allocation: uniform()` to keep the previous hill climb. Runtime now requires `@tangle-network/agent-eval` `>=0.198.0 <0.199.0` (0.198.0 adds `aide` and `beam` and removes `thompsonCurriculum` from `/rl`) and `@tangle-network/agent-knowledge` 17.1.9, which admits it.
+
 ## 0.279.0
 
 npm never served 0.278.0 or 0.278.1: their release runs stopped before publish. 0.279.0 is the first published version with the changes listed under 0.278.0 and 0.278.1 below, and it moves from 0.277.0 with both.

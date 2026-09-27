@@ -1,3 +1,0 @@
-type: minor
----
-`searchMethod`'s defaults are now Eval's `aide()` policy and `asha()` allocator, the native search the search-tree design specifies: `aide()` drafts from the baseline, debugs nodes whose cells fail as defects, and improves a parent drawn by Thompson sampling over node posteriors; `asha()` screens each node on 6 selection units and advances the top third of each rung. Pass `policy: incumbent()` with `allocation: uniform()` to keep the previous hill climb. Runtime now requires `@tangle-network/agent-eval` `>=0.198.0 <0.199.0` (0.198.0 adds `aide` and `beam` and removes `thompsonCurriculum` from `/rl`) and `@tangle-network/agent-knowledge` 17.1.9, which admits it.
