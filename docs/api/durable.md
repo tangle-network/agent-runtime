@@ -1147,9 +1147,8 @@ Digest-chain tip for this concrete execution journal.
 ### PursuitVersions
 
 Continue a pursuit across versions: after each version settles, an outside judge scores it, and
-the next version forks from the best version so far with one change, until the stop rule ends
-the chain. Each version is one `supervisePursuit` run in its own directory; the fork records its
-parent, the parent's seal, the change and the lineage root on the version's root.
+the next version forks from the version the chain keeps with one change, until the stop rule
+ends the chain.
 
 #### Properties
 
@@ -1164,9 +1163,9 @@ Scores each settled version from outside its tree: the run's declared check
 
 > `readonly` **next**: [`NextPursuitVersion`](#nextpursuitversion) \| `"review-of-best"`
 
-The change the next version applies to the best version's profile. `'review-of-best'` mounts
- the best version's verdict under `inputs/review/`, replaces any earlier review, and gives the
- next version's continuation note the best version's per-item verdict as its bar.
+The change the next version applies to the kept version's profile. `'review-of-best'`
+ mounts the kept version's verdict under `inputs/review/`, replaces any earlier review, and
+ gives the next version's continuation note the kept version's per-item verdict as its bar.
 
 ##### stop
 
@@ -1174,44 +1173,11 @@ The change the next version applies to the best version's profile. `'review-of-b
 
 When the chain stops. Every cap is required: a chain without one is refused.
 
-##### run?
-
-> `readonly` `optional` **run?**: [`RunPursuitVersion`](#runpursuitversion)
-
-Where a later version executes. Omit it to run each version in this process through
-`supervisePursuit({ fork })`, the same placement as the first. A caller that places versions
-elsewhere executes exactly `version.profile` on `version.task` under `version.budget`, with
-`version.execution` as the root's attribution, and returns once `version.runDir` holds the
-version's settle record and observer journal. It is called again for the same version after
-a restart, so it must attach to a version it already started rather than start a second one.
-
-##### usd?
-
-> `readonly` `optional` **usd?**: (`version`, `signal`) => `Promise`\<`number` \| `null`\>
-
-A version's dollars as the caller measured them, such as the provider's charge to the keys the
-version used. Omit it to use the version's settled `spentTotal.usd`, which is an estimate
-when `usdKnown` is false. `null` means unknown, and stops the chain.
-
-###### Parameters
-
-###### version
-
-[`SettledPursuitVersion`](#settledpursuitversion)
-
-###### signal
-
-`AbortSignal`
-
-###### Returns
-
-`Promise`\<`number` \| `null`\>
-
 ***
 
 ### PursuitVersionStop
 
-The chain's stop rule. The chain never starts a version once any cap is reached.
+The chain's stop rule. The chain never starts a version once a cap is reached.
 
 #### Properties
 
@@ -1219,22 +1185,21 @@ The chain's stop rule. The chain never starts a version once any cap is reached.
 
 > `readonly` **patience**: `number`
 
-Stop after this many consecutive versions that did not improve on the best score.
+Stop after this many proposed versions in a row that did not take the lead.
 
 ##### maxVersions
 
 > `readonly` **maxVersions**: `number`
 
-At most this many versions, the first included.
+At most this many versions, the first included. A change the chain refuses counts as one.
 
 ##### maxUsd
 
 > `readonly` **maxUsd**: `number`
 
-The chain's total dollars, the first version included, summed from each version's settled
-`spentTotal.usd`. The chain checks it between versions; a version's own budget, or the
-caller's spend watcher, bounds that version in flight. A version whose dollars are not a
-number stops the chain, since the chain can no longer prove it is under the cap.
+The chain's dollars: settled versions' spend plus a hold for the next one. A version's
+unknown spend counts as its proven floor. A version's own `budget.maxUsd` is the hold, and
+bounds that version in flight; without it the hold is 0.
 
 ##### deadlineMs
 
@@ -1246,7 +1211,8 @@ The chain's wall clock, from its first version's start. A running version is abo
 
 > `readonly` `optional` **minImprovement?**: `number`
 
-A version improves when its score exceeds the best by more than this. Default 0.
+A version takes the lead when its score beats the kept version's by more than this.
+ Default 0.
 
 ***
 
@@ -1263,7 +1229,7 @@ An outside judge. Runtime calls it after a version's settle record exists, never
 > `readonly` **digest**: `` `sha256:${string}` ``
 
 The sha256 of the judge's code and configuration. Every verdict must carry it, and a chain
- whose ledger was judged under another digest is refused.
+ whose ledger was opened under another digest is refused.
 
 #### Methods
 
@@ -1295,8 +1261,8 @@ The sha256 of the judge's code and configuration. Every verdict must carry it, a
 
 > `readonly` **score**: `number` \| `null`
 
-Higher is better. `null` when the judge could not score the version, which never counts as
- an improvement.
+Higher is better. `null` when the judge could not score the version: the cell is recorded
+ unscored and retried, and an unscored version never takes the lead.
 
 ##### judgeDigest
 
@@ -1333,7 +1299,13 @@ A settled version, as the judge and `next` read it.
 
 > `readonly` **version**: `number`
 
-1 for the first version.
+1 for the first version: the node's registration ordinal plus 1.
+
+##### nodeId
+
+> `readonly` **nodeId**: `string`
+
+The version's node in the chain's search ledger.
 
 ##### runId
 
@@ -1347,7 +1319,7 @@ A settled version, as the judge and `next` read it.
 
 > `readonly` **settleDigest**: `` `sha256:${string}` ``
 
-The sha256 of the version's `result.json` bytes.
+The sha256 of the version's `result.json` bytes: its seal.
 
 ##### result
 
@@ -1361,29 +1333,25 @@ The profile the version executed: the first version's, or its parent's plus its 
 
 ##### parent?
 
-> `readonly` `optional` **parent?**: [`PursuitVersionParent`](#pursuitversionparent)
+> `readonly` `optional` **parent?**: `object`
+
+The version it forked from. Absent for the first version.
+
+###### version
+
+> `readonly` **version**: `number`
+
+###### runId
+
+> `readonly` **runId**: `string`
+
+###### settleDigest
+
+> `readonly` **settleDigest**: `` `sha256:${string}` ``
 
 ##### change?
 
 > `readonly` `optional` **change?**: `AgentProfileDiff`
-
-***
-
-### PursuitVersionParent
-
-#### Properties
-
-##### version
-
-> `readonly` **version**: `number`
-
-##### runId
-
-> `readonly` **runId**: `string`
-
-##### settleDigest
-
-> `readonly` **settleDigest**: `` `sha256:${string}` ``
 
 ***
 
@@ -1401,11 +1369,21 @@ A settled version, as the judge and `next` read it.
 
 > `readonly` **version**: `number`
 
-1 for the first version.
+1 for the first version: the node's registration ordinal plus 1.
 
 ###### Inherited from
 
 [`SettledPursuitVersion`](#settledpursuitversion).[`version`](#version)
+
+##### nodeId
+
+> `readonly` **nodeId**: `string`
+
+The version's node in the chain's search ledger.
+
+###### Inherited from
+
+[`SettledPursuitVersion`](#settledpursuitversion).[`nodeId`](#nodeid)
 
 ##### runId
 
@@ -1427,7 +1405,7 @@ A settled version, as the judge and `next` read it.
 
 > `readonly` **settleDigest**: `` `sha256:${string}` ``
 
-The sha256 of the version's `result.json` bytes.
+The sha256 of the version's `result.json` bytes: its seal.
 
 ###### Inherited from
 
@@ -1453,7 +1431,21 @@ The profile the version executed: the first version's, or its parent's plus its 
 
 ##### parent?
 
-> `readonly` `optional` **parent?**: [`PursuitVersionParent`](#pursuitversionparent)
+> `readonly` `optional` **parent?**: `object`
+
+The version it forked from. Absent for the first version.
+
+###### version
+
+> `readonly` **version**: `number`
+
+###### runId
+
+> `readonly` **runId**: `string`
+
+###### settleDigest
+
+> `readonly` **settleDigest**: `` `sha256:${string}` ``
 
 ###### Inherited from
 
@@ -1471,38 +1463,6 @@ The profile the version executed: the first version's, or its parent's plus its 
 
 > `readonly` **verdict**: [`VersionVerdict`](#versionverdict)
 
-##### improved
-
-> `readonly` **improved**: `boolean`
-
-Whether its score beat every earlier version's by more than `minImprovement`.
-
-##### usd
-
-> `readonly` **usd**: `number` \| `null`
-
-The version's dollars: `versions.usd`'s measurement, or its settled `spentTotal.usd`;
- `null` when that is not a number.
-
-##### usdKnown
-
-> `readonly` **usdKnown**: `boolean`
-
-False when the figure is Runtime's estimate or unknown.
-
-##### usdSource
-
-> `readonly` **usdSource**: `"caller"` \| `"runtime"`
-
-Who measured `usd`: the caller's `versions.usd`, or Runtime's settled `spentTotal`.
-
-##### lineage?
-
-> `readonly` `optional` **lineage?**: `AgentCandidateLineage`
-
-Where the version came from: its parent run and its change. Absent for a first version that
- is not a fork.
-
 ***
 
 ### NextPursuitVersionInput
@@ -1513,126 +1473,68 @@ Where the version came from: its parent run and its change. Absent for a first v
 
 > `readonly` **best**: [`JudgedPursuitVersion`](#judgedpursuitversion)
 
-The version the next one forks from: the highest score, the earliest on a tie.
+The version the next one forks from: the version the chain keeps.
 
 ##### last
 
 > `readonly` **last**: [`JudgedPursuitVersion`](#judgedpursuitversion)
 
-##### versions
-
-> `readonly` **versions**: readonly [`JudgedPursuitVersion`](#judgedpursuitversion)[]
-
-***
-
-### PreparedPursuitVersion
-
-One version, ready to execute.
-
-#### Properties
-
-##### version
-
-> `readonly` **version**: `number`
-
-##### runId
-
-> `readonly` **runId**: `string`
-
-##### runDir
-
-> `readonly` **runDir**: `string`
-
-##### pursuitId
-
-> `readonly` **pursuitId**: `string`
-
-##### profile
-
-> `readonly` **profile**: `AgentProfile`
-
-The profile to execute, the change already applied.
-
-##### task
-
-> `readonly` **task**: `unknown`
-
-##### budget
-
-> `readonly` **budget**: [`Budget`](runtime.md#budget-18)
-
-##### execution
-
-> `readonly` **execution**: [`AgentExecutionRef`](runtime.md#agentexecutionref)
-
-The root's attribution, with the fork's parent, seal, change and lineage root.
-
-##### fork
-
-> `readonly` **fork**: [`PursuitFork`](#pursuitfork)
-
-The fork Runtime verified, for a placement that runs `supervisePursuit({ fork })` itself
- with the parent's profile, `parentProfile`.
-
-##### parentProfile
-
-> `readonly` **parentProfile**: `AgentProfile`
-
-***
-
-### PursuitVersionsRecord
-
-The chain's record, returned beside the best version's result and kept in `versions.jsonl`.
-
-#### Properties
-
-##### lineageDir
-
-> `readonly` **lineageDir**: `string`
-
-`<runDir>.versions`, beside the first version's directory.
-
-##### judgeDigest
-
-> `readonly` **judgeDigest**: `` `sha256:${string}` ``
-
-##### stop
-
-> `readonly` **stop**: [`PursuitVersionStop`](#pursuitversionstop)
-
-##### startedAt
-
-> `readonly` **startedAt**: `string`
-
-ISO instant the first version started.
+The most recently judged version.
 
 ##### versions
 
 > `readonly` **versions**: readonly [`JudgedPursuitVersion`](#judgedpursuitversion)[]
+
+Every judged version, first first.
+
+***
+
+### PursuitVersionChain
+
+The chain as its search ledger records it, returned beside the kept version's result.
+
+#### Properties
+
+##### ledgerPath
+
+> `readonly` **ledgerPath**: `string`
+
+`<runDir>.search/ledger.jsonl`: the chain's only record and checkpoint.
+
+##### searchId
+
+> `readonly` **searchId**: `string`
+
+##### reason
+
+> `readonly` **reason**: `SearchCloseReason`
+
+Why the chain stopped: the kernel's close reason (`patience`, `max-nodes`, `budget`,
+ `deadline` or `converged`).
 
 ##### best
 
 > `readonly` **best**: `number`
 
-The best version's number.
+The kept version's number: the kernel's leader when the chain closed.
 
-##### spentUsd
+##### versions
 
-> `readonly` **spentUsd**: `number`
+> `readonly` **versions**: readonly [`JudgedPursuitVersion`](#judgedpursuitversion)[]
 
-Sum of the versions' `usd`; a floor when any version's dollars are unknown.
+Every judged version, first first.
 
-##### stopped
+##### spend
 
-> `readonly` **stopped**: `object`
+> `readonly` **spend**: `object`
 
-###### reason
+Known dollars, proven floors of unknown ones, and the counts of each.
 
-> `readonly` **reason**: [`PursuitVersionStopReason`](#pursuitversionstopreason)
+##### receipt
 
-###### at
+> `readonly` **receipt**: `SearchHistoryReceipt`
 
-> `readonly` **at**: `string`
+A bounded receipt over the exact ledger bytes.
 
 ***
 
@@ -1734,7 +1636,7 @@ ISO instant the holder took the lock.
 
 ###### Inherited from
 
-[`RunDirectoryLockHolder`](#rundirectorylockholder).[`startedAt`](#startedat-2)
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`startedAt`](#startedat-1)
 
 ##### runId
 
@@ -1742,7 +1644,7 @@ ISO instant the holder took the lock.
 
 ###### Inherited from
 
-[`RunDirectoryLockHolder`](#rundirectorylockholder).[`runId`](#runid-6)
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`runId`](#runid-4)
 
 ##### processStart?
 
@@ -1885,14 +1787,16 @@ one whose parent has an uncertain node, writes nothing.
 
 > `readonly` `optional` **versions?**: [`PursuitVersions`](#pursuitversions)
 
-Continue this pursuit across versions. The first version runs at `runDir` as usual, or is
-read back when that directory already settled. After each version settles, `versions.judge`
-scores it from outside its tree; unless `versions.stop` ends the chain, the next version forks
-from the best version so far with the change `versions.next` returns, at `<runDir>.v<n>` with
-run id `<runId>.v<n>`. `<runDir>.versions/versions.jsonl` records every version, its parent,
-its change, its verdict and its dollars, and the stop. A call on a chain that stopped reads
-that record back; a call on a chain that did not resumes it without re-running or re-judging a
-settled version. The call returns the best version's result with the chain's record.
+Continue this pursuit across versions, on Eval's search kernel. The first version runs at
+`runDir` as usual, or is read back when that directory already settled. After each version
+settles, `versions.judge` scores it from outside its tree; unless `versions.stop` ends the
+chain, the next version forks from the version the chain keeps with the change
+`versions.next` returns, at `<runDir>.v<n>` with run id `<runId>.v<n>`. The search ledger at
+`<runDir>.search/ledger.jsonl` records every version as a node, every change as an edge, and
+every run and verdict as a cell; it is the chain's only record and checkpoint. A call on a
+closed chain reads it back; a call on an open chain continues it without re-running or
+re-judging a settled version. Aborting `signal` pauses the chain: the call rejects and a later
+call continues it. The call returns the kept version's result with the chain.
 
 ##### runContext?
 
@@ -2946,9 +2850,9 @@ spans are telemetry, never the replay/resume record.
 
 ##### versions?
 
-> `readonly` `optional` **versions?**: [`PursuitVersionsRecord`](#pursuitversionsrecord)
+> `readonly` `optional` **versions?**: [`PursuitVersionChain`](#pursuitversionchain)
 
-The version chain's record, when the call set `versions`.
+The version chain, when the call set `versions`.
 
 ***
 
@@ -3094,32 +2998,6 @@ Build the one change the next version applies to `best.profile`. Its `id` must b
 
 ***
 
-### RunPursuitVersion
-
-> **RunPursuitVersion** = (`version`, `signal`) => `Promise`\<`void`\>
-
-#### Parameters
-
-##### version
-
-[`PreparedPursuitVersion`](#preparedpursuitversion)
-
-##### signal
-
-`AbortSignal`
-
-#### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### PursuitVersionStopReason
-
-> **PursuitVersionStopReason** = `"no-improvement"` \| `"max-versions"` \| `"max-usd"` \| `"spend-unknown"` \| `"deadline"` \| `"aborted"`
-
-***
-
 ### RootStreamRecord
 
 > **RootStreamRecord** = `object` & \{ `event`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent); \} \| \{ `dropped`: \{ `kind`: [`ExecutorProgressEvent`](runtime.md#executorprogressevent)\[`"kind"`\]; `reason`: `string`; \}; \}
@@ -3148,14 +3026,6 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
  re-enters the harness and continues the same file with the next attempt number.
 
 ## Variables
-
-### PURSUIT\_VERSIONS\_FILE
-
-> `const` **PURSUIT\_VERSIONS\_FILE**: `"versions.jsonl"` = `'versions.jsonl'`
-
-The ledger file inside the lineage directory.
-
-***
 
 ### REVIEW\_DIR
 
@@ -3393,11 +3263,11 @@ readonly [`ObserverRecord`](#observerrecord)[]
 
 ***
 
-### pursuitVersionRun()
+### pursuitVersionsLedgerPath()
 
-> **pursuitVersionRun**(`runDir`, `runId`, `version`): `object`
+> **pursuitVersionsLedgerPath**(`runDir`): `string`
 
-The `<runDir>.v<n>` directory and `<runId>.v<n>` id of version `n`, beside the first.
+The chain's directory beside the first version's: the ledger and its content blobs.
 
 #### Parameters
 
@@ -3405,25 +3275,9 @@ The `<runDir>.v<n>` directory and `<runId>.v<n>` id of version `n`, beside the f
 
 `string`
 
-##### runId
-
-`string`
-
-##### version
-
-`number`
-
 #### Returns
 
-`object`
-
-##### runDir
-
-> **runDir**: `string`
-
-##### runId
-
-> **runId**: `string`
+`string`
 
 ***
 
