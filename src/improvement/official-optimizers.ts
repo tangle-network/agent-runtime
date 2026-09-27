@@ -245,13 +245,22 @@ function optimizerSearchIdentity(
   evaluationId: string,
   config: object,
 ): SearchRunIdentity {
+  // How a run is started, resumed or launched does not change the search, so
+  // a resumed run records under the header of the run it continues.
+  const {
+    resume: _resume,
+    trustResumeState: _trustResumeState,
+    runner: _runner,
+    timeoutMs: _timeoutMs,
+    ...searchSettings
+  } = config as Record<string, unknown>
   const search = {
     uri: `agent-runtime:official-${optimizer}`,
     revision: canonicalCandidateDigest({
       optimizer,
       evaluationId,
       // Functions (model calls, descriptors) are identified by evaluationId.
-      settings: JSON.parse(JSON.stringify(config)) as unknown,
+      settings: JSON.parse(JSON.stringify(searchSettings)) as unknown,
     }),
   }
   const model = (config as { optimizer?: { model: string; callRef: string } }).optimizer
