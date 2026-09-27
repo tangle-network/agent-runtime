@@ -157,9 +157,12 @@ export class PlatformOidcClient {
   }
 
   authorizeUrl(options: OidcAuthorizeUrlOptions): string {
-    if (!this.redirectUri) throw new Error('PlatformOidcClient: redirectUri is required for authorization code')
-    if (!options.state) throw new Error('PlatformOidcClient.authorizeUrl: state is required for CSRF')
-    if (!options.codeChallenge) throw new Error('PlatformOidcClient.authorizeUrl: codeChallenge is required for PKCE')
+    if (!this.redirectUri)
+      throw new Error('PlatformOidcClient: redirectUri is required for authorization code')
+    if (!options.state)
+      throw new Error('PlatformOidcClient.authorizeUrl: state is required for CSRF')
+    if (!options.codeChallenge)
+      throw new Error('PlatformOidcClient.authorizeUrl: codeChallenge is required for PKCE')
     const url = new URL('/api/auth/oauth2/authorize', this.baseUrl)
     url.searchParams.set('client_id', this.clientId)
     url.searchParams.set('redirect_uri', this.redirectUri)
@@ -176,11 +179,16 @@ export class PlatformOidcClient {
   }
 
   async exchange(code: string, codeVerifier: string): Promise<OidcExchangeResult> {
-    if (!this.redirectUri) throw new Error('PlatformOidcClient: redirectUri is required for authorization code')
+    if (!this.redirectUri)
+      throw new Error('PlatformOidcClient: redirectUri is required for authorization code')
     if (!code) throw new Error('PlatformOidcClient.exchange: code is required')
-    if (!codeVerifier) throw new Error('PlatformOidcClient.exchange: codeVerifier is required for PKCE')
+    if (!codeVerifier)
+      throw new Error('PlatformOidcClient.exchange: codeVerifier is required for PKCE')
     const tokens = await this.token({
-      grant_type: 'authorization_code', code, redirect_uri: this.redirectUri, code_verifier: codeVerifier,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: this.redirectUri,
+      code_verifier: codeVerifier,
     })
     return { tokens, user: await this.userinfo(tokens.accessToken) }
   }
@@ -194,25 +202,53 @@ export class PlatformOidcClient {
   async userinfo(accessToken: string): Promise<OidcUser> {
     if (!accessToken) throw new Error('PlatformOidcClient.userinfo: accessToken is required')
     const res = await this.fetchImpl(`${this.baseUrl}/api/auth/oauth2/userinfo`, {
-      headers: { authorization: `Bearer ${accessToken}` }, redirect: 'error',
+      headers: { authorization: `Bearer ${accessToken}` },
+      redirect: 'error',
     })
     const body: unknown = await res.json().catch(() => null)
-    if (!res.ok) throw new PlatformAuthError(oauthError(body, `Platform userinfo failed (${res.status})`), res.status, body)
-    if (!isRecord(body) || !isNonemptyString(body.sub) || !isNonemptyString(body.email) || body.email_verified !== true) {
-      throw new PlatformAuthError('Platform userinfo has no verified identity', res.status, { code: 'INVALID_USERINFO_RESPONSE' })
+    if (!res.ok)
+      throw new PlatformAuthError(
+        oauthError(body, `Platform userinfo failed (${res.status})`),
+        res.status,
+        body,
+      )
+    if (
+      !isRecord(body) ||
+      !isNonemptyString(body.sub) ||
+      !isNonemptyString(body.email) ||
+      body.email_verified !== true
+    ) {
+      throw new PlatformAuthError('Platform userinfo has no verified identity', res.status, {
+        code: 'INVALID_USERINFO_RESPONSE',
+      })
     }
-    return { id: body.sub, email: body.email, emailVerified: true, ...(isNonemptyString(body.name) ? { name: body.name } : {}) }
+    return {
+      id: body.sub,
+      email: body.email,
+      emailVerified: true,
+      ...(isNonemptyString(body.name) ? { name: body.name } : {}),
+    }
   }
 
   /** RFC 7009. A local logout alone is not a provider disconnect. */
   async revoke(token: string, tokenTypeHint?: 'access_token' | 'refresh_token'): Promise<void> {
     if (!token) throw new Error('PlatformOidcClient.revoke: token is required')
-    const res = await this.post(`${this.baseUrl}/api/auth/oauth2/revoke`, {
-      token, ...(tokenTypeHint ? { token_type_hint: tokenTypeHint } : {}),
-    }, undefined, false)
+    const res = await this.post(
+      `${this.baseUrl}/api/auth/oauth2/revoke`,
+      {
+        token,
+        ...(tokenTypeHint ? { token_type_hint: tokenTypeHint } : {}),
+      },
+      undefined,
+      false,
+    )
     if (!res.ok) {
       const body: unknown = await res.json().catch(() => null)
-      throw new PlatformAuthError(oauthError(body, `Platform revoke failed (${res.status})`), res.status, body)
+      throw new PlatformAuthError(
+        oauthError(body, `Platform revoke failed (${res.status})`),
+        res.status,
+        body,
+      )
     }
   }
 
@@ -222,44 +258,85 @@ export class PlatformOidcClient {
    * device endpoint: those issue different credentials.
    */
   async deviceAuthorize(options: { signal?: AbortSignal } = {}): Promise<OidcDeviceAuthorization> {
-    const discovery = await this.fetchImpl(`${this.baseUrl}/api/auth/.well-known/openid-configuration`, {
-      redirect: 'error', signal: options.signal,
-    })
+    const discovery = await this.fetchImpl(
+      `${this.baseUrl}/api/auth/.well-known/openid-configuration`,
+      {
+        redirect: 'error',
+        signal: options.signal,
+      },
+    )
     const metadata: unknown = await discovery.json().catch(() => null)
     const issuer = `${this.baseUrl}/api/auth`
-    if (!discovery.ok || !isRecord(metadata) || metadata.issuer !== issuer ||
-        metadata.token_endpoint !== `${issuer}/oauth2/token` ||
-        !Array.isArray(metadata.grant_types_supported) || !metadata.grant_types_supported.includes(DEVICE_GRANT) ||
-        !isNonemptyString(metadata.device_authorization_endpoint)) {
-      throw new PlatformAuthError('Issuer does not advertise an OAuth device grant', discovery.status, { code: 'OAUTH_DEVICE_GRANT_UNAVAILABLE' })
+    if (
+      !discovery.ok ||
+      !isRecord(metadata) ||
+      metadata.issuer !== issuer ||
+      metadata.token_endpoint !== `${issuer}/oauth2/token` ||
+      !Array.isArray(metadata.grant_types_supported) ||
+      !metadata.grant_types_supported.includes(DEVICE_GRANT) ||
+      !isNonemptyString(metadata.device_authorization_endpoint)
+    ) {
+      throw new PlatformAuthError(
+        'Issuer does not advertise an OAuth device grant',
+        discovery.status,
+        { code: 'OAUTH_DEVICE_GRANT_UNAVAILABLE' },
+      )
     }
     const endpoint = new URL(metadata.device_authorization_endpoint)
     const origin = new URL(this.baseUrl).origin
     if (endpoint.origin !== origin || endpoint.username || endpoint.password || endpoint.hash) {
-      throw new PlatformAuthError('Device endpoint is outside the configured issuer', 400, { code: 'INVALID_DEVICE_ENDPOINT' })
+      throw new PlatformAuthError('Device endpoint is outside the configured issuer', 400, {
+        code: 'INVALID_DEVICE_ENDPOINT',
+      })
     }
     const startedAt = Date.now()
     const res = await this.post(endpoint.href, { scope: this.scope }, options.signal)
     const body: unknown = await res.json().catch(() => null)
-    if (!res.ok) throw new PlatformAuthError(oauthError(body, `Device authorization failed (${res.status})`), res.status, body)
-    if (!isRecord(body) || !isNonemptyString(body.device_code) || !isNonemptyString(body.user_code) ||
-        !isNonemptyString(body.verification_uri) || typeof body.expires_in !== 'number' ||
-        !Number.isSafeInteger(body.expires_in) || body.expires_in <= 0 ||
-        (body.interval !== undefined && (typeof body.interval !== 'number' || !Number.isSafeInteger(body.interval) || body.interval <= 0))) {
-      throw new PlatformAuthError('Malformed device authorization response', res.status, { code: 'INVALID_DEVICE_RESPONSE' })
+    if (!res.ok)
+      throw new PlatformAuthError(
+        oauthError(body, `Device authorization failed (${res.status})`),
+        res.status,
+        body,
+      )
+    if (
+      !isRecord(body) ||
+      !isNonemptyString(body.device_code) ||
+      !isNonemptyString(body.user_code) ||
+      !isNonemptyString(body.verification_uri) ||
+      typeof body.expires_in !== 'number' ||
+      !Number.isSafeInteger(body.expires_in) ||
+      body.expires_in <= 0 ||
+      (body.interval !== undefined &&
+        (typeof body.interval !== 'number' ||
+          !Number.isSafeInteger(body.interval) ||
+          body.interval <= 0))
+    ) {
+      throw new PlatformAuthError('Malformed device authorization response', res.status, {
+        code: 'INVALID_DEVICE_RESPONSE',
+      })
     }
     for (const value of [body.verification_uri, body.verification_uri_complete]) {
       if (value === undefined) continue
-      if (!isNonemptyString(value)) throw new PlatformAuthError('Invalid device verification URI', 400, { code: 'INVALID_DEVICE_RESPONSE' })
+      if (!isNonemptyString(value))
+        throw new PlatformAuthError('Invalid device verification URI', 400, {
+          code: 'INVALID_DEVICE_RESPONSE',
+        })
       const uri = new URL(value)
       if (uri.origin !== origin || uri.username || uri.password || uri.hash) {
-        throw new PlatformAuthError('Device verification URI is outside the issuer', 400, { code: 'INVALID_DEVICE_RESPONSE' })
+        throw new PlatformAuthError('Device verification URI is outside the issuer', 400, {
+          code: 'INVALID_DEVICE_RESPONSE',
+        })
       }
     }
     return {
-      deviceCode: body.device_code, userCode: body.user_code, verificationUri: body.verification_uri,
-      ...(isNonemptyString(body.verification_uri_complete) ? { verificationUriComplete: body.verification_uri_complete } : {}),
-      expiresIn: body.expires_in, expiresAt: startedAt + body.expires_in * 1000,
+      deviceCode: body.device_code,
+      userCode: body.user_code,
+      verificationUri: body.verification_uri,
+      ...(isNonemptyString(body.verification_uri_complete)
+        ? { verificationUriComplete: body.verification_uri_complete }
+        : {}),
+      expiresIn: body.expires_in,
+      expiresAt: startedAt + body.expires_in * 1000,
       interval: typeof body.interval === 'number' ? body.interval : 5,
     }
   }
@@ -269,7 +346,12 @@ export class PlatformOidcClient {
     grant: OidcDeviceAuthorization,
     options: { signal?: AbortSignal } = {},
   ): Promise<OidcTokens> {
-    if (!grant.deviceCode || !Number.isFinite(grant.expiresAt) || !Number.isFinite(grant.interval) || grant.interval <= 0) {
+    if (
+      !grant.deviceCode ||
+      !Number.isFinite(grant.expiresAt) ||
+      !Number.isFinite(grant.interval) ||
+      grant.interval <= 0
+    ) {
       throw new Error('PlatformOidcClient.pollDeviceAuthorization: invalid device grant')
     }
     let intervalMs = grant.interval * 1000
@@ -303,11 +385,21 @@ export class PlatformOidcClient {
   private async token(params: Record<string, string>, signal?: AbortSignal): Promise<OidcTokens> {
     const res = await this.post(`${this.baseUrl}/api/auth/oauth2/token`, params, signal)
     const body: unknown = await res.json().catch(() => null)
-    if (!res.ok) throw new PlatformAuthError(oauthError(body, `Platform token request failed (${res.status})`), res.status, body)
+    if (!res.ok)
+      throw new PlatformAuthError(
+        oauthError(body, `Platform token request failed (${res.status})`),
+        res.status,
+        body,
+      )
     return parseTokens(body, res.status)
   }
 
-  private post(url: string, params: Record<string, string>, signal?: AbortSignal, includeResources = true): Promise<Response> {
+  private post(
+    url: string,
+    params: Record<string, string>,
+    signal?: AbortSignal,
+    includeResources = true,
+  ): Promise<Response> {
     const body = new URLSearchParams(params)
     const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' }
     if (this.clientSecret) {
