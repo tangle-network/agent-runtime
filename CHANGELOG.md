@@ -1,3 +1,17 @@
+## 0.278.0
+
+Widened the `@tangle-network/agent-eval` peer range to `>=0.191.0 <0.198.0` and bumped the `agent-knowledge` catalog pin to 17.1.8 (#1419). A fresh install against agent-eval 0.194.0 through 0.197.0 previously failed strict peer resolution; the census of this package's own imports from agent-eval found nothing outside that range's stable surface.
+
+`@tangle-network/agent-runtime/platform` adds `PlatformOidcClient`, a standard OpenID Connect client for the Tangle authorization server at `/api/auth/oauth2/*`: S256 PKCE authorize URL, code exchange, verified identity from userinfo, refresh, and revoke. A confidential client passes `clientSecret` (sent with HTTP Basic); a public client omits it. `createPkcePair()` makes the verifier and challenge with Web Crypto. `PlatformAuthClient` is unchanged and still returns the `sk-tan` API key; a consumer moves to `PlatformOidcClient` after its client id and redirect URI are registered in the platform `oauthClient` registry.
+
+Release preparation now happens once at release time. Feature changes carry small release-note files instead of editing the package version, changelog, canonical API version banner, generated API surface, or versioned fixtures.
+
+Retained directors checkpoint their workspace during coordination and restore the latest checkpoint when their provider replaces a lost environment.
+Restore receipts verify the checkpoint marker, and re-entry instructions tell directors to read restored files before repeating work.
+Checkpoint receipts must match the exact execution request, and unresolved snapshot cleanup remains visible across resume.
+Runtime records checkpoint intent before remote creation and preserves the source until an unresolved operation can be reconciled.
+This requires agent-interface 2.13.0 and a provider with workspace checkpoint restore support.
+
 ## 0.277.0
 
 A supervisor tree (what discovery-lab calls a fleet) grows to hundreds of agents with only money, time and safety bounds on it.
