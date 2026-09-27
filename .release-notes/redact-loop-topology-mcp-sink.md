@@ -1,3 +1,0 @@
-type: patch
----
-Fixed: the MCP delegation journal's loop-topology export (`createPropagatingTraceEmitter`, wired from `src/mcp/bin.ts`) called `buildLoopOtelSpans` with no redactor, so `tangle.loop.move.rationale`, `tangle.loop.decision`, `tangle.loop.error` and `tangle.loop.iteration.output_preview` shipped raw model/customer text — including credentials — to whatever `OTEL_EXPORTER_OTLP_ENDPOINT` collector the MCP subprocess is configured with. #1404 fixed the same defect in `exportRunRecord`'s own loop-topology export but missed this second sink. The MCP sink now threads the same default redactor (`resolveRedactor(undefined)`, agent-eval's redaction core) into every emitted span.
