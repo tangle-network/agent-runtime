@@ -14,6 +14,7 @@ import {
 } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
+import { gzipSync } from 'node:zlib'
 
 if (process.argv.includes('--cleanup-failure')) {
   const original = childProcess.execFile
@@ -27,6 +28,39 @@ if (process.argv.includes('--cleanup-failure')) {
   syncBuiltinESMExports()
 }
 const { runIsolatedCheck } = await import('./isolated-checker.mjs')
+
+if (process.argv.includes('--memory-exhaustion')) {
+  assert.equal(
+    (await readFile('/sys/fs/cgroup/memory.max', 'utf8')).trim(),
+    String(192 * 1024 * 1024),
+  )
+  assert.equal((await readFile('/sys/fs/cgroup/pids.max', 'utf8')).trim(), '64')
+  assert.match((await readFile('/sys/fs/cgroup/cpu.max', 'utf8')).trim(), /^\d+ \d+$/)
+  const tree = await mkdtemp('/work/compressed-')
+  try {
+    const member = gzipSync(Buffer.alloc(1024 * 1024))
+    await writeFile(`${tree}/compressed`, Buffer.concat(Array(512).fill(member)))
+    const result = await runIsolatedCheck({
+      workspaceRoot: tree,
+      tree,
+      command: [
+        '/bin/sh',
+        '-c',
+        'python3 -c \'import gzip; gzip.open("compressed", "rb").read()\'',
+      ],
+      maxInputBytes: 1024 * 1024,
+      timeoutMs: 15_000,
+    })
+    assert.equal(result.succeeded, false, JSON.stringify(result))
+    assert.equal(result.reason, 'failed', JSON.stringify(result))
+    console.log(
+      `PASS: cgroup memory.max=201326592 pids.max=64; capped container survived compressed check exhaustion; result=${result.reason} exit=${result.exitCode}`,
+    )
+  } finally {
+    await rm(tree, { recursive: true, force: true })
+  }
+  process.exit(0)
+}
 
 if (process.argv.includes('--cleanup-failure')) {
   const tree = await mkdtemp('/work/cleanup-failure-')
@@ -103,6 +137,22 @@ try {
   await assert.rejects(readFile(`${tree}/output`), { code: 'ENOENT' })
   assert.equal((await run('sleep 30', { timeoutMs: 100 })).reason, 'timeout')
   assert.equal((await run('yes', { maxOutputBytes: 64 })).reason, 'output-limit')
+  await writeFile(`${tree}/large-input`, Buffer.alloc(65 * 1024))
+  const inputLimit = await run('echo should-not-run', { maxInputBytes: 64 * 1024 })
+  assert.equal(inputLimit.reason, 'input-limit', JSON.stringify(inputLimit))
+  assert.equal(inputLimit.stdout, undefined)
+  const entryLimit = await run('echo should-not-run', { maxInputEntries: 2 })
+  assert.equal(entryLimit.reason, 'input-limit', JSON.stringify(entryLimit))
+  assert.equal((await run('true', { maxInputEntries: 3 })).succeeded, true)
+  await rm(`${tree}/large-input`)
+  // A small input can expand in the check. The Docker placement bounds this proof's resources.
+  await writeFile(`${tree}/compressed`, gzipSync(Buffer.alloc(32 * 1024 * 1024)))
+  const expansion = await run(
+    'python3 -c \'import gzip; assert len(gzip.open("compressed", "rb").read()) == 32 * 1024 * 1024\'',
+    { maxInputBytes: 64 * 1024 },
+  )
+  assert.equal(expansion.succeeded, true, JSON.stringify(expansion))
+  await rm(`${tree}/compressed`)
   const controller = new AbortController()
   setTimeout(() => controller.abort(), 100)
   assert.equal((await run('sleep 30', { signal: controller.signal })).reason, 'cancelled')
@@ -178,7 +228,7 @@ try {
   })
   assert.equal(overlap.reason, 'refused')
   console.log(
-    'PASS: parent absent, external symlink dangling, writes discarded, literal path, environment cleared, timeout, output limit, cancellation, ancestor bind refusal, PID/network isolation, parent-death termination, deep cleanup, symlink-safe cleanup, trusted execution classification, stdout failure evidence',
+    'PASS: parent absent, external symlink dangling, writes discarded, literal path, environment cleared, timeout, output limit, input limits, compressed expansion inside capped container, cancellation, ancestor bind refusal, PID/network isolation, parent-death termination, deep cleanup, symlink-safe cleanup, trusted execution classification, stdout failure evidence',
   )
 } finally {
   await rm(workspace, { recursive: true, force: true })

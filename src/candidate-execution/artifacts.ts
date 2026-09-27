@@ -71,6 +71,9 @@ export interface WorkspaceScanLimits {
   readonly maxTotalFileBytes: number
 }
 
+/** A configured file-count or byte limit stopped workspace capture. */
+export class WorkspaceScanLimitError extends Error {}
+
 /** What a workspace scan reads and how it records a file's permission bits. */
 export interface WorkspaceScanOptions {
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
@@ -316,7 +319,7 @@ async function walkWorkspace(
         throw new Error(`workspace contains a non-regular entry: ${relPath}`)
       }
       if (limits && scanned.length >= limits.maxFiles) {
-        throw new Error('workspace exceeds maxFiles')
+        throw new WorkspaceScanLimitError('workspace exceeds maxFiles')
       }
       const descriptor = await open(
         absolute,
@@ -336,11 +339,11 @@ async function walkWorkspace(
             ? portableFileMode(openedStats.mode)
             : openedStats.mode & 0o777
         if (limits && openedStats.size > limits.maxFileBytes) {
-          throw new Error(`workspace file exceeds maxFileBytes: ${relPath}`)
+          throw new WorkspaceScanLimitError(`workspace file exceeds maxFileBytes: ${relPath}`)
         }
         const remainingBytes = limits ? limits.maxTotalFileBytes - totalBytes : undefined
         if (remainingBytes !== undefined && openedStats.size > remainingBytes) {
-          throw new Error('workspace exceeds maxTotalFileBytes')
+          throw new WorkspaceScanLimitError('workspace exceeds maxTotalFileBytes')
         }
         const read = await readWorkspaceFile(
           descriptor,
@@ -427,7 +430,7 @@ async function readWorkspaceFile(
     if (bytesRead === 0) break
     total += bytesRead
     if (maxBytes !== undefined && total > maxBytes) {
-      throw new Error(`workspace file exceeds its capture limit: ${path}`)
+      throw new WorkspaceScanLimitError(`workspace file exceeds its capture limit: ${path}`)
     }
     const chunk = buffer.subarray(0, bytesRead)
     hash.update(chunk)

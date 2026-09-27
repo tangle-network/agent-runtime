@@ -37,6 +37,7 @@ function localBoxes(root: string) {
       environment?: unknown
       agent?: unknown
       ephemeral?: unknown
+      resources?: { memoryMB?: number }
     }) => {
       created.push({
         egressPolicy: options.egressPolicy,
@@ -49,6 +50,7 @@ function localBoxes(root: string) {
       await mkdir(dir, { recursive: true })
       return {
         id: `box-${boxes}`,
+        resources: { memoryMB: options.resources?.memoryMB },
         createReceipt: () => ({
           outcome: 'created',
           ownerContext: 'isolated',
