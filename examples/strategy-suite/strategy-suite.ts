@@ -16,7 +16,6 @@
  *   TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts   # live router worker
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   defaultAnalystInstruction,
   defineStrategy,
@@ -25,7 +24,7 @@ import {
   runBenchmark,
   sample,
 } from '@tangle-network/agent-runtime/kernel'
-import { counterEnv, counterTask, target } from './counter-env'
+import { counterEnv, counterProfile, counterTask, offlineCounterComplete } from './counter-env'
 
 // ── 1. The domain — the only thing a new domain writes ──────────────────────
 // `counterEnv` (the shared toy `Environment`, 5 hooks open/tools/call/score/close)
@@ -82,80 +81,6 @@ const doubleCheck = defineStrategy(
   },
 )
 
-// ── The offline worker: a deterministic `complete` transport (no server) ─────
-// `worker.complete` is the injected completion transport: given the OpenAI request body
-// it returns the parsed `/chat/completions` JSON the worker + analyst would have fetched. The same
-// fn serves BOTH legs — the worker's tool-calling turns and the refine analyst's chat-only steer —
-// exactly as a localhost mock endpoint would, but in-process. The live router is the drop-in upgrade.
-
-interface ChatBody {
-  messages?: Array<{ role?: string; content?: string | null }>
-  tools?: Array<{ function?: { name?: string } }>
-}
-
-/** Highest `count is now N` (or `count is N`) seen in the prior tool results. */
-function currentCount(messages: ChatBody['messages']): number {
-  let count = 0
-  for (const m of messages ?? []) {
-    if (m.role !== 'tool' || typeof m.content !== 'string') continue
-    const match = m.content.match(/count is(?: now)? (\d+)/)
-    if (match) count = Math.max(count, Number(match[1]))
-  }
-  return count
-}
-
-/** Drive the counter: emit `increment` until the count hits the target, verify with `read_count`,
- *  then answer "DONE". With NO tools (the analyst's chat-only call) return a short steer string. */
-async function offlineComplete(body: Record<string, unknown>): Promise<unknown> {
-  const req = body as ChatBody
-  const message = (() => {
-    if (!req.tools?.length) {
-      return {
-        role: 'assistant',
-        content: 'Keep calling increment until read_count shows the target.',
-      }
-    }
-    const count = currentCount(req.messages)
-    if (count < target) {
-      return {
-        role: 'assistant',
-        content: '',
-        tool_calls: [
-          {
-            id: `call_${count}`,
-            type: 'function',
-            function: { name: 'increment', arguments: '{}' },
-          },
-        ],
-      }
-    }
-    const verified = (req.messages ?? []).some((m) =>
-      (m as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls?.some(
-        (t) => t.function?.name === 'read_count',
-      ),
-    )
-    if (!verified) {
-      return {
-        role: 'assistant',
-        content: '',
-        tool_calls: [
-          {
-            id: 'call_verify',
-            type: 'function',
-            function: { name: 'read_count', arguments: '{}' },
-          },
-        ],
-      }
-    }
-    return { role: 'assistant', content: `DONE — count is ${count}` }
-  })()
-  return {
-    choices: [{ message, finish_reason: 'tool_calls' in message ? 'tool_calls' : 'stop' }],
-    // Real (small, fixed) usage so the backend-integrity guard sees a backend, never a phantom 0.
-    usage: { prompt_tokens: 40, completion_tokens: 12 },
-  }
-}
-
 // ── 3. Compare them at equal budget, scored by the env's own check ──────────
 
 async function main(): Promise<void> {
@@ -166,9 +91,11 @@ async function main(): Promise<void> {
   const worker = {
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey: routerKey ?? 'offline',
-    workerProfile: routerProfile('counter-worker', model, undefined, 6),
-    analystProfile: routerProfile('counter-analyst', model, defaultAnalystInstruction),
-    ...(routerKey ? {} : { complete: offlineComplete }),
+    workerProfile: counterProfile('counter-worker', model, { maxTurns: 6, tools: true }),
+    analystProfile: counterProfile('counter-analyst', model, {
+      systemPrompt: defaultAnalystInstruction,
+    }),
+    ...(routerKey ? {} : { complete: offlineCounterComplete }),
   }
   console.log(routerKey ? 'worker: live Tangle router\n' : 'worker: offline (injected transport)\n')
   if (!routerKey) {
@@ -195,21 +122,3 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
-
-function routerProfile(
-  name: string,
-  model: string,
-  systemPrompt?: string,
-  maxTurns?: number,
-): AgentProfile {
-  return {
-    name,
-    harness: 'cli-base',
-    model: {
-      provider: 'tangle-router',
-      default: model,
-      ...(maxTurns !== undefined ? { metadata: { maxTurns } } : {}),
-    },
-    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
-  }
-}

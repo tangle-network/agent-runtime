@@ -83,9 +83,7 @@ The same final source unit cannot be reused after a failed promotion attempt wit
 If the available final set is too small, report a clean negative or inconclusive result with power and a bound on detectable lift.
 Do not claim a tie proves no useful effect when the interval includes one.
 
-Runtime's generic `promotionGate` defaults to six paired tasks and zero useful margin.
-It skips unpaired rows, treats latency as informational, and permits unknown costs in superiority mode.
-Those defaults do not certify this live-agent loop.
+A generic paired decision, such as Eval's `heldoutSignificance` at six paired tasks and zero useful margin, does not certify this live-agent loop.
 The product adapter must require the registered sample size and coverage, cost and latency guardrails, and complete receipts before promotion.
 
 ## First hosted-pilot measurement registration, 2026-09-24

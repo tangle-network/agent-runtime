@@ -55,6 +55,7 @@ These are valid API demonstrations but are not part of the newcomer path:
 | Example | Scope |
 |---|---|
 | [`strategy-suite`](./strategy-suite/) | compare budget-allocation strategies against a deterministic check |
+| [`strategy-evolution`](./strategy-evolution/) | search for a better strategy an author model writes, and claim once on sealed tasks |
 | [`product-eval`](./product-eval/) | evaluate an agent in a multi-turn simulated-user conversation |
 | [`agentic-data-creation`](./agentic-data-creation/) | generate candidate training cases and keep only discriminating ones |
 | [`intelligence-drop-in`](./intelligence-drop-in/) | the optional `/intelligence` wrapper and its zero-intelligence-cost off tier |

@@ -118,9 +118,9 @@ cd bench
 pnpm tsx src/swe-self-improve.mts
 ```
 
-This fixture uses `runStrategyEvolution` with SWE-bench tasks and a frozen holdout.
-It does not exercise `improve`, and it deletes its temporary run directory on exit.
-It therefore cannot provide retained improvement or lineage evidence.
+This fixture uses `runStrategyEvolution` with SWE-bench tasks split into train, selection and sealed test slices.
+It does not exercise `improve`.
+It keeps its run directory, whose search ledger is the checkpoint and the lineage record of one search.
 Use `examples/improve` for the maintained offline API fixture.
 Use the consuming labs for registered learning campaigns with retained execution and comparison evidence.
 

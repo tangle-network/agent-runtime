@@ -90,7 +90,7 @@ Only a claim about process transfer requires a corresponding comparison in new d
 - `src/improvement/improve.ts`: profile and code improvement entry points.
 - `src/improvement/method-execution.ts`: exact profiles executed through complete optimization methods.
 - `src/runtime/strategy.ts` and `src/runtime/strategy-author.ts`: executable strategies and their authoring contract.
-- `src/runtime/strategy-evolution.ts`: strategy search, retained candidates, and checkpoint identity.
+- `src/runtime/strategy-evolution.ts`: strategy search on Eval's search kernel, whose ledger holds every authored strategy, its lineage, and the claim.
 - `src/runtime/observe.ts` and `src/runtime/personify/corpus.ts`: trace-derived recommendations and persistent records.
 - `src/mcp/tools/coordination.ts`: agent-driven observation, delegation, and steering.
 - `src/candidate-execution/`: execution of exact candidate combinations.

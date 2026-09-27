@@ -56,10 +56,10 @@ TANGLE_API_KEY=sk-tan-... pnpm tsx examples/strategy-suite/strategy-suite.ts
 | file | what it is |
 |---|---|
 | `strategy-suite.ts` | authors `doubleCheck`, wires the offline responder, runs the comparison |
-| `counter-env.ts` | the toy domain: the counter, its two tools, and the pass/fail check |
+| `counter-env.ts` | the toy domain: the counter, its two tools, the pass/fail check, and the offline worker |
 
 ## Where to go next
 
-- To have an AI *write* new strategies from the tasks each one loses on, and promote a winner
-  only if it beats the incumbent on held-out tasks, see
+- To have an AI *write* new strategies from their train results, rank them on private tasks,
+  and ship a winner only if it beats the incumbent on sealed tasks, see
   [`../strategy-evolution/`](../strategy-evolution/) (it reuses this same counter domain).

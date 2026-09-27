@@ -152,6 +152,9 @@ interface ShotOut {
   tokens: { input: number; output: number }
   /** False when any Router turn omitted usage. */
   tokensKnown?: false
+  /** Provider-billed dollars over the shot's turns; `usdKnown` is false when any turn billed none. */
+  usd: number
+  usdKnown: boolean
 }
 
 const taskNudge =
@@ -281,7 +284,15 @@ async function runShot(
     toolErrors,
     tokens: { input: turn.usage.input, output: turn.usage.output },
     ...(turn.usage.tokensKnown === false ? { tokensKnown: false } : {}),
+    ...billedSpend(turn.usage.usdKnown === false ? undefined : turn.usage.costUsd),
   }
+}
+
+/** Provider-billed dollars of one call, or unknown when it billed none: never a fabricated 0. */
+function billedSpend(costUsd: number | null | undefined): { usd: number; usdKnown: boolean } {
+  return typeof costUsd === 'number' && Number.isFinite(costUsd) && costUsd >= 0
+    ? { usd: costUsd, usdKnown: true }
+    : { usd: 0, usdKnown: false }
 }
 
 /** The trace-analyst (selector≠judge): reads ONLY the trajectory + task, never the score. */
@@ -295,6 +306,8 @@ interface AnalyzeOut {
   tokens: { input: number; output: number }
   /** False when any analyst call omitted usage. */
   tokensKnown?: false
+  usd: number
+  usdKnown: boolean
 }
 
 /** The firewall's input shape: the trajectory as compacted text — calls, results,
@@ -385,6 +398,7 @@ async function consultAnalyst(
       output: output ?? 0,
     },
     ...(tokensKnown ? {} : { tokensKnown: false }),
+    ...billedSpend(res.costUsd),
   }
 }
 
@@ -427,6 +441,7 @@ async function analyze(
     steer: steer || 'COMPLETE',
     tokens: { input: obs.usage.input, output: obs.usage.output },
     ...(obs.usage.known ? {} : { tokensKnown: false }),
+    ...billedSpend(obs.usage.costUsd),
   }
 }
 
@@ -529,14 +544,14 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
           outRef: `shot:${handle.id}:${shot.completions}:${s.passes}/${s.total}`,
           out,
           verdict: { valid: s.total > 0 && s.passes === s.total, score },
-          // Real usage to the conserved pool: tokens from the router responses; usd only
-          // when the model is in the price table (never a fabricated number).
+          // Real usage to the conserved pool: tokens from the router responses; dollars only
+          // when the provider billed them (never a fabricated number).
           spent: {
             iterations: shot.completions,
             tokens: shot.tokens,
             ...(shot.tokensKnown === false ? { tokensKnown: false } : {}),
-            usd: 0,
-            usdKnown: false,
+            usd: shot.usd,
+            usdKnown: shot.usdKnown,
             ms: 0,
           },
         }
@@ -559,7 +574,7 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
     runtime: 'agentic-analyst',
     async execute(task: unknown): Promise<ExecutorResult<unknown>> {
       const t = task as { task: AgenticTask; messages: StrategyMessage[]; rawInstruction?: string }
-      const { steer, tokens, tokensKnown } = t.rawInstruction
+      const { steer, tokens, tokensKnown, usd, usdKnown } = t.rawInstruction
         ? await consultAnalyst(t.task, t.messages, t.rawInstruction, opts)
         : await analyze(t.task, t.messages, opts)
       artifact = {
@@ -569,8 +584,8 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
           iterations: 1,
           tokens,
           ...(tokensKnown === false ? { tokensKnown: false } : {}),
-          usd: 0,
-          usdKnown: false,
+          usd,
+          usdKnown,
           ms: 0,
         },
       }

@@ -91,8 +91,9 @@ export interface Observation {
   learned: CorpusRecord[]
   /** Operator-facing markdown: what the observer noticed + what to change. */
   report: string
-  /** Measured model usage for this analysis turn. */
-  usage: { input: number; output: number; known: boolean }
+  /** Measured model usage for this analysis turn. `known` covers the tokens; `costUsd` is the
+   *  provider-billed dollars, absent when the call billed none. */
+  usage: { input: number; output: number; known: boolean; costUsd?: number }
 }
 
 /** Analysis can fail after paid work; its measured subtotal must remain recoverable. */
@@ -114,10 +115,11 @@ function validateUsage(usage: Observation['usage']): void {
     usage.input < 0 ||
     !Number.isSafeInteger(usage.output) ||
     usage.output < 0 ||
-    typeof usage.known !== 'boolean'
+    typeof usage.known !== 'boolean' ||
+    (usage.costUsd !== undefined && !(Number.isFinite(usage.costUsd) && usage.costUsd >= 0))
   ) {
     throw new TypeError(
-      'observation usage requires nonnegative safe integer subtotals and explicit known status',
+      'observation usage requires nonnegative safe integer subtotals, explicit known status, and a finite nonnegative costUsd when present',
     )
   }
 }
@@ -267,6 +269,7 @@ async function analyzeWithProfile(
       res.usage?.captured !== false &&
       typeof inputTokens === 'number' &&
       typeof outputTokens === 'number',
+    ...(typeof res.costUsd === 'number' ? { costUsd: res.costUsd } : {}),
   }
   validateUsage(usage)
   try {

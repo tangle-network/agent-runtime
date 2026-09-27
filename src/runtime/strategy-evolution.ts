@@ -1,876 +1,883 @@
 /**
- * runStrategyEvolution — the multi-generation strategy search: per generation the system
- * authors a POPULATION of candidate strategies from the current tournament's losses,
- * plays them against the incumbent at equal budget, and advances a champion; one final
- * promotion decision runs on a NEVER-BEFORE-USED holdout slice through `promotionGate`.
+ * runStrategyEvolution: strategy search on Eval's search kernel (`runSearch`).
  *
- * Measurement invariants (the reasons this design is shaped the way it is):
- *  - The author sees TRAIN losses only. The holdout slice is drawn fresh (disjoint task
- *    offsets) after all authoring is done — one promotion decision, one untouched slice,
- *    so adaptive reuse of evaluation data never enters the verdict.
- *  - Every tournament runs at the same per-strategy budget through the conserved pool;
- *    candidates cannot win by overspending.
- *  - Champion selection within the search is a SEARCH policy (configurable, default
- *    cost-aware: ties on score go to the cheapest strategy — a scalar hides a strategy
- *    that ties at half the cost). The promotion verdict never comes from search
- *    selection; it comes from the gate on the fresh slice.
- *  - Every authored artifact's description length (gzip bits) is recorded, so the
- *    artifact-complexity-vs-holdout-gap relation is analyzable from any run's report.
+ * Every node is a strategy: the caller's root, or a module an author model wrote from the
+ * train results of the parent the policy chose. The default policy is `beam({ width: 2 })`
+ * and the default allocator `asha()`, so a strategy is screened on a few selection tasks and
+ * earns more tasks only by ranking well. Each cell is one `runAgentic` run of one strategy on
+ * one task, scored by the environment's own check.
  *
- * Lineage fields (`parent`, `generation`) are recorded on every archive node so a
- * descendant-productivity parent-selection policy can be added without changing the
- * report schema; the v1 search authors from the latest tournament's losses.
+ * Measurement follows the kernel's splits. The author reads train results only; the policy
+ * and allocator rank on the private selection split; the claim runs the root and at most 3
+ * finalists together on the sealed test split, once, with a power check and a Bonferroni
+ * decision. The report is a projection of the ledger, and the ledger is the only checkpoint:
+ * calling again with the same inputs continues an interrupted search and returns a finished
+ * one without running anything.
  *
  * @experimental
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { mkdirSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
-import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import {
+  asha,
+  beam,
+  createRunCostLedger,
+  estimateNode,
+  fsCampaignStorage,
+  type NodeEstimate,
+  openSearchLedger,
+  renderSearchSummary,
+  runSearch,
+  type SearchAllocator,
+  type SearchArtifactCodec,
+  type SearchAttemptAccounting,
+  type SearchCellResult,
+  type SearchClaim,
+  type SearchClaimVerification,
+  type SearchCloseReason,
+  type SearchExecutionIdentity,
+  type SearchNodeStatus,
+  type SearchPolicy,
+  type SearchProposerPort,
+  SearchRecorder,
+  type SearchSourceRef,
+  type SearchSplit,
+  type SearchStateView,
+  type SearchTask,
+  searchClaimReserveUsd,
+  searchModelIdentity,
+  surfaceDiff,
+} from '@tangle-network/agent-eval/campaign'
+import {
+  defineEvaluationClaim,
+  type EvaluationClaim,
+  summarizeEvaluationUnits,
+} from '@tangle-network/agent-eval/experiment'
+import { redact } from '@tangle-network/agent-eval/traces'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  type Sha256Digest,
+} from '@tangle-network/agent-interface'
 import {
   canonicalCandidateDigest,
   immutableCandidateValue,
   sha256Bytes,
 } from '../candidate-execution/digest'
-import type { RuntimeHooks } from '../runtime-hooks'
-import { profileChatClient } from './profile-chat-client'
-import { type PromotionVerdict, promotionGate } from './promotion-gate'
+import { ConfigError } from '../errors'
 import {
-  type BenchmarkConfig,
-  type BenchmarkReport,
-  type BenchmarkTaskRow,
-  type Environment,
-  runBenchmark,
-} from './run-benchmark'
+  dedicatedLane,
+  reconcileInterruptedSearchCalls,
+  searchExecutor,
+} from '../improvement/search-executor'
+import { runtimeShipDecision } from '../improvement/search-method'
+import type { RuntimeHooks } from '../runtime-hooks'
+import { type BenchmarkConfig, type Environment, preflightModels } from './run-benchmark'
 import {
   type AgenticOptions,
   type AgenticTask,
   refine,
+  runAgentic,
   type Strategy,
-  sample,
-  sampleThenRefine,
 } from './strategy'
-import { authorStrategy, strategyAuthorContract } from './strategy-author'
+import {
+  loadAuthoredStrategy,
+  requestStrategySource,
+  type StrategyAuthorTurn,
+  strategyAuthorContract,
+} from './strategy-author'
+import { concreteModelId } from './supervise/model-policy'
 import type { ExecutorConfig } from './supervise/runtime'
+import type { WorkerSlots } from './supervise/worker-slots'
 
 export interface EvolutionAuthor {
   /** Exact author identity. */
   profile: AgentProfile
   /** Execution substrate. All behavior comes from the profile. */
   executor: ExecutorConfig
-  /** Optional exact fallback identity. */
+  /** Exact fallback identity, tried once when the primary call fails or writes no module. */
   fallbackProfile?: AgentProfile
 }
 
-export type ChampionPolicy = 'score' | 'costAware'
-
 export interface StrategyEvolutionConfig {
   environment: Environment
-  /** Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
-   *  offset range. Train draws [0, trainN); the holdout draws [trainN + holdoutOffset,
-   *  …) — tasks the search never touched. */
-  tasks: (offset: number, n: number) => Promise<AgenticTask[]>
-  trainN: number
-  holdoutN: number
-  /** Extra offset past the train slice for the holdout draw (rotate across runs). */
-  holdoutOffset?: number
+  /** Tasks the author learns from: it reads every strategy's results on them. */
+  train: AgenticTask[]
+  /** Private tasks the policy and allocator rank strategies on. The author never sees them. */
+  selection: AgenticTask[]
+  /** Sealed tasks: the claim runs the root and at most 3 finalists on them, together, once. */
+  test: AgenticTask[]
+  /** What the numbers may claim. `independentUnit` is a path into each task, for example
+   * `id`, or `meta.repo` when tasks from one repository are not independent. The power
+   * check needs `minimumEffect`. */
+  claim: EvaluationClaim
+  /** Digest of what the ledger cannot see: the environment's code and state, the root's
+   * code, transports and callbacks. Change it whenever one of them changes. */
+  executionRef: Sha256Digest
   worker: AgenticOptions
-  /**
-   * Model availability check before the first benchmark phase.
-   *
-   * A successful check is reused for the remaining phases in this evolution run.
-   * See `BenchmarkConfig.modelPreflight`.
-   */
+  author: EvolutionAuthor
+  /** The strategy to beat and the tree's root. Default `refine`. */
+  root?: Strategy
+  /** Rollouts (sample) or shots (refine) per strategy per task. Default 3. */
+  budget?: number
+  /** Strategies the author writes. Default 4. */
+  maxExpansions?: number
+  /** Which strategy each authoring extends. Default `beam({ width: 2 })`. */
+  policy?: SearchPolicy
+  /** Where cells go. Default `asha()`. `uniform()` runs every strategy on every train and
+   * selection task. The allocator's `reps` are every split's repeats, the claim's included. */
+  allocation?: SearchAllocator
+  /** Cells that run at once. Default 3. */
+  concurrency?: number
+  /** Dollar cap on committed spend plus open holds. Default none. */
+  maxUsd?: number
+  /** Prior dollar hold for one cell, until 20 cells settle. Default 0. */
+  cellUsd?: number
+  /** ISO time after which the search stops authoring and claims. */
+  deadline?: string
+  /** Attempts per cell when the environment faults. Default 3. */
+  maxAttempts?: number
+  /** Seeds the allocator's task permutation. Default 42. */
+  seed?: number
+  /** The search's directory is `<outDir>/<searchId>`: its ledger, blobs and authored
+   * modules. Authored modules import `@tangle-network/agent-runtime/kernel`, so `outDir`
+   * must sit inside a project that resolves it, under a TypeScript-capable loader. */
+  outDir: string
+  /** Model availability check before the search runs. See `BenchmarkConfig.modelPreflight`. */
   modelPreflight?: BenchmarkConfig['modelPreflight']
   /** Maximum time for each model availability check. Default 30 seconds. */
   modelPreflightTimeoutMs?: BenchmarkConfig['modelPreflightTimeoutMs']
-  author: EvolutionAuthor
-  /** Rollouts (sample) / shots (refine) per strategy per task. Default 3. */
-  budget?: number
-  concurrency?: number
-  /** Author→tournament rounds after gen0. Default 2. */
-  generations?: number
-  /** Authored candidates per generation. Default 2. */
-  populationSize?: number
-  /** The gen0 field. Default [sample, refine, sampleThenRefine]. */
-  baselines?: Strategy[]
-  /** What "better" means for PROMOTION. 'score' (default): the candidate must beat the
-   *  incumbent's score (superiority gate). 'cost': the candidate must prove score
-   *  NON-INFERIORITY (not worse by more than `scoreTolerance`) plus significant cost
-   *  savings — the "same quality, cheaper" objective. The author is told the objective
-   *  and sees per-task spend either way. */
-  objective?: 'score' | 'cost'
-  /** Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0.05. */
-  scoreTolerance?: number
-  /** Search-side champion selection. Default 'costAware'. */
-  champion?: ChampionPolicy
-  /** Score band treated as a tie under 'costAware'. Default 0.01. */
-  championEpsilon?: number
-  /** Where authored modules are written. */
-  outDir: string
-  /** Promotion-gate evidence floor (paired holdout tasks). */
-  minPairedTasks?: number
-  /** BAND-AWARE scoring — concentrate the measurement where lift is possible.
-   *  Holdout: draw `holdoutPoolN` candidate tasks and run `baselines[0]` once at the run
-   *  budget as an INDEPENDENT reference screen; keep tasks scoring ≤ `maxRefScore`
-   *  (headroom exists) and take the first `holdoutN`. Band membership is decided before
-   *  either finalist touches a task and both finalists then face the SAME tasks — the
-   *  estimand becomes "paired lift on headroom tasks", pre-registered by this config.
-   *  Train: champion selection ignores zero-spread tasks (every field strategy scored
-   *  identically — zero selection information, pure noise dilution). */
-  band?: {
-    holdoutPoolN: number
-    /** Keep holdout tasks where the reference scores ≤ this. Default 0.99 — drop only
-     *  tasks the reference already solves fully (no headroom, a candidate can only tie). */
-    maxRefScore?: number
-  }
-  /** What the author learns from a tournament. 'exact' (default) = scores + progressions
-   *  per task; 'binary' = pass/fail only — the leakage-bounded channel (one bit per cell
-   *  per generation reaches the author from the evaluation data). */
-  lossesDetail?: 'exact' | 'binary'
-  /** Reproducer certification (arXiv:2606.11045): when the final champion is AUTHORED,
-   *  compress it to a short natural-language summary, have a fresh author re-implement
-   *  from the summary alone (no losses, no code), and score the reproduction on the same
-   *  holdout. A reproduction gap is an overfitting signal (their detector: 100%
-   *  sensitivity / 91% specificity in the ML-agent setting) — recorded on the report,
-   *  never gate-blocking in v1. */
-  reproducerCheck?: {
-    /** Word budget for the strategy summary. Default 64. */
-    summaryMaxWords?: number
-    /** Reproduction counts as faithful when reproducedScore ≥ championScore − tolerance.
-     *  Default 0.05. */
-    tolerance?: number
-  }
-  /** Endurance: write the run state after every completed phase; with `resume`, a
-   *  restart skips completed phases (authored modules re-imported from their files).
-   *  Worst case after a mid-run death is re-paying ONE phase, never the run. */
-  checkpoint?: {
-    path: string
-    resume?: boolean
-    /** Digest of execution dependencies: environment, baseline code, transports, callbacks,
-     * and external state such as a corpus. Update it when any dependency changes.
-     * Runtime hashes profiles, settings, JSON task payloads, and authored bytes separately;
-     * it cannot infer callback behavior or external state. */
-    executionRef: Sha256Digest
-  }
-  /** Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reproduce).
-   *  The seam for environment recycling — no artifacts span phases, so a runner may
-   *  recreate a wedge-prone environment container here. */
-  onPhase?: (phase: string) => Promise<void>
-  onTask?: (phase: string, row: BenchmarkTaskRow, done: number, total: number) => void
   hooks?: RuntimeHooks
+  /** Bound working cells across every search that shares this allocator. */
+  workerSlots?: WorkerSlots
+  /** Aborting pauses the search once running cells settle; call again to continue. */
+  signal?: AbortSignal
 }
 
-/** The on-disk phase ledger — everything needed to skip completed phases on resume. */
-interface EvolutionCheckpoint {
-  fingerprint: Sha256Digest
-  trainDigest: Sha256Digest
-  holdoutPoolDigest?: Sha256Digest
-  gen0?: BenchmarkReport
-  gen0Champion?: ChampionPick
-  generations: EvolutionGeneration[]
-  archive: EvolutionArchiveNode[]
-  trajectory: Array<{ generation: number; champion: string; score: number; usd: number }>
-  holdout?: BenchmarkReport
-  verdict?: PromotionVerdict
-  band?: EvolutionBandInfo
-}
-
-export interface ChampionPick {
+/** One strategy the search registered, as the ledger records it. */
+export interface EvolutionStrategy {
+  /** Unique within the report: the strategy's name, suffixed `~<ordinal>` on a collision. */
   name: string
-  score: number
+  nodeId: string
+  /** The name of the strategy it was authored from; null for the root. */
+  parent: string | null
+  source: 'root' | 'authored'
+  /** The node's latest decision; null while undecided. */
+  status: SearchNodeStatus | null
+  /** The authored module's source; null for the root. */
+  code: string | null
+  /** Description length of the authored source in gzip bits; null for the root. */
+  gzipBits: number | null
+  /** Why admission refused the module; null when admitted. */
+  refusal: string | null
+  /** Paired contrast against the root on the selection split; null for the root. */
+  selection: NodeEstimate | null
+}
+
+/** One strategy on one task at one repeat: the settled cell's final attempt. */
+export interface TournamentCell {
+  /** Null when the cell ended unscored (an environment fault with no attempt left). */
+  score: number | null
+  outcome: 'passed' | 'failed' | 'errored'
+  /** Known dollars plus proven floors of unknown ones. */
   usd: number
+  usdKnown: boolean
 }
 
-export interface EvolutionCandidate {
-  name: string
-  file?: string
-  /** Digest of the exact authored module evaluated in this generation. */
-  sourceSha256?: Sha256Digest
-  gzipBits?: number
-  codeChars?: number
-  /** Present when this author attempt failed (recorded, never silent). */
-  error?: string
+export interface TournamentRow {
+  taskId: string
+  unitId: string
+  rep: number
+  cells: Record<string, TournamentCell>
 }
 
-export interface EvolutionGeneration {
-  generation: number
-  candidates: EvolutionCandidate[]
-  report: BenchmarkReport
-  champion: ChampionPick
-}
-
-export interface EvolutionArchiveNode {
-  name: string
-  source: 'baseline' | 'authored'
-  generation: number
-  /** The champion whose tournament losses this candidate was authored from. */
-  parent?: string
-  gzipBits?: number
-  file?: string
-  /** Latest measured tournament result — 0 until the node's first tournament settles
-   *  (an authored node is created before its generation's benchmark runs). */
-  score: number
-  usd: number
-}
-
-export interface ReproductionCheck {
-  /** The compressed strategy description the reproducer implemented from. */
-  summary: string
-  reproducedName: string
-  file?: string
-  championHoldoutScore: number
-  reproducedHoldoutScore: number
-  /** champion − reproduced (positive = the reproduction fell short). */
-  gap: number
-  /** reproducedScore ≥ championScore − tolerance. A failed reproduction is an
-   *  overfitting signal: the champion's win did not fit through the summary. */
-  reproducible: boolean
-  /** Infra failure during reproduction (distinct from a semantic reproduction failure). */
-  error?: string
-}
-
-export interface EvolutionBandInfo {
-  /** Tasks screened by the reference on the holdout pool. */
-  screened: number
-  /** Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN. */
-  inBand: number
-  /** Reference scores per screened task (the screening record). */
-  refScores: Array<{ taskId: string; score: number }>
+/** Every settled cell of one split, by task and strategy. Strategies measured on different
+ * tasks have unpaired means; compare them with the paired `selection` estimates. */
+export interface StrategyTournament {
+  split: SearchSplit
+  rows: TournamentRow[]
+  perStrategy: Record<
+    string,
+    { cells: number; scored: number; score: number | null; usd: number; usdKnown: boolean }
+  >
 }
 
 export interface EvolutionReport {
-  gen0: BenchmarkReport
-  gen0Champion: ChampionPick
-  generations: EvolutionGeneration[]
-  archive: EvolutionArchiveNode[]
-  finalChampion: ChampionPick
-  holdout: BenchmarkReport
-  verdict: PromotionVerdict
-  /** Present when band screening ran — the verdict's estimand is then "paired lift on
-   *  headroom tasks" (band membership fixed by the reference screen, pre-registered). */
-  band?: EvolutionBandInfo
-  /** Present when reproducerCheck ran (final champion was authored). */
-  reproduction?: ReproductionCheck
-  /** SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
-   *  re-measurement, so cross-generation deltas mix true drift with run-to-run variance
-   *  (entries are unpaired across generations). The only evidence-grade comparison in
-   *  this report is `verdict` — both finalists measured fresh, paired, on the holdout. */
-  trajectory: Array<{ generation: number; champion: string; score: number; usd: number }>
-}
-
-/** Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field
- *  strategies did not all score identically. Zero-spread tasks (everyone 1.0, everyone
- *  0.0, everyone tied) carry no selection information; averaging over them dilutes real
- *  differences toward zero. Search-side denoising only — the gate never uses this. */
-export function discriminatingMeans(
-  report: BenchmarkReport,
-  fieldOrder: string[],
-): Record<string, { score: number; usd: number }> | null {
-  const rows = report.perTask.filter((r) => {
-    if (!r.cells) return false
-    const scores = fieldOrder.map((n) => r.cells?.[n]?.score).filter((s) => s !== undefined)
-    if (scores.length < fieldOrder.length) return false
-    return Math.max(...scores) - Math.min(...scores) > 0
-  })
-  if (rows.length === 0) return null
-  const out: Record<string, { score: number; usd: number }> = {}
-  for (const name of fieldOrder) {
-    const cells = rows.map((r) => r.cells?.[name]).filter((c) => !!c)
-    out[name] = {
-      score: cells.reduce((s, c) => s + c.score, 0) / cells.length,
-      usd: cells.reduce((s, c) => s + c.usd, 0) / cells.length,
-    }
+  searchId: string
+  /** The search ledger: the only record and checkpoint. */
+  ledger: string
+  closeReason: SearchCloseReason
+  /** Root first, in registration order. */
+  strategies: EvolutionStrategy[]
+  /** The strategy the search keeps: the claim's selection, else the root. */
+  selected: EvolutionStrategy
+  claim: SearchClaim
+  claimVerification: SearchClaimVerification
+  /** `ship` only when the claim shipped, re-derives from the ledger, every cost is known, and
+   * the shipped finalist's test lower bound is above zero. */
+  decision: 'ship' | 'hold'
+  reason: string
+  tournament: Record<SearchSplit, StrategyTournament>
+  /** Known dollars, proven floors of unknown ones, and how many cells and operations (an
+   * authoring an interrupted process lost, for example) have an unknown cost. */
+  spend: {
+    knownUsd: number
+    floorUsd: number
+    unknownCostCells: number
+    unknownCostOperations: number
   }
-  return out
 }
 
-/** The champion pick over a means table. 'score' takes the best mean score (ties →
- *  field order). 'costAware' treats scores within `epsilon` of the best as tied and
- *  takes the cheapest — the (score, $) Pareto rule collapsed to one pick. */
-export function pickChampion(
-  means: Record<string, { score: number; usd: number }>,
-  fieldOrder: string[],
-  policy: ChampionPolicy,
-  epsilon: number,
-): ChampionPick {
-  const entries = fieldOrder
-    .map((name) => ({ name, summary: means[name] }))
-    .filter((e): e is { name: string; summary: NonNullable<typeof e.summary> } => !!e.summary)
-  if (entries.length === 0)
-    throw new Error('pickChampion: the means table carries none of the field strategies')
-  const best = Math.max(...entries.map((e) => e.summary.score))
-  const pick =
-    policy === 'score'
-      ? entries.find((e) => e.summary.score === best)
-      : entries
-          .filter((e) => e.summary.score >= best - epsilon)
-          .sort((a, b) => a.summary.usd - b.summary.usd || b.summary.score - a.summary.score)[0]
-  if (!pick) throw new Error('pickChampion: empty pick (unreachable)')
-  return { name: pick.name, score: pick.summary.score, usd: pick.summary.usd }
+/** A search node: the caller's root, or an authored module and why admission refused it. */
+type StrategyNode =
+  | { kind: 'root'; name: string }
+  | { kind: 'authored'; name: string | null; code: string; refusal: string | null }
+
+/** The rules `runStrategyEvolution` adds to the kernel's; its digest is the process
+ * revision every evolution ledger records. */
+const STRATEGY_EVOLUTION_DEFINITION = {
+  name: 'agent-runtime.strategy-evolution.2026-09',
+  node: 'the root strategy by name under the caller executionRef, or an authored module content-addressed by the sha256 of its source',
+  edge: 'a text diff from the parent module source to the child; unknown from the root, which has no source here',
+  admission:
+    'a module is refused when the reply carries none, it breaks the author contract, or it does not load a default Strategy',
+  cell: 'one runAgentic run on one task, metered as one paid call on the search cost ledger through the Runtime search executor; an environment fault during it is errored and retried, a thrown strategy is failed at score 0, anything else passed at its harness-verified score',
+  proposer:
+    'the author reads the strategy contract, the task tools, the train summary, the train results of every strategy and the parent source',
+  ship: 'the claim shipped, re-derives from the ledger, cost accounting is complete, and the shipped finalist test lower bound exceeds 0',
+} as const
+
+const STRATEGY_EVOLUTION_SOURCE: SearchSourceRef = {
+  uri: 'npm:@tangle-network/agent-runtime#runStrategyEvolution',
+  revision: canonicalCandidateDigest(STRATEGY_EVOLUTION_DEFINITION),
 }
 
-/** Search-side champion selection over a tournament report. */
-export function selectChampion(
-  report: BenchmarkReport,
-  fieldOrder: string[],
-  policy: ChampionPolicy,
-  epsilon: number,
-): ChampionPick {
-  return pickChampion(report.perStrategy, fieldOrder, policy, epsilon)
-}
+const NO_MODULE = 'the author reply carried no fenced ts module'
 
-const fieldSummary = (archive: EvolutionArchiveNode[]): string =>
-  archive
-    .map(
-      (n) =>
-        `- ${n.name} (${n.source}, gen ${n.generation}, last score ${(n.score * 100).toFixed(0)}%)`,
-    )
-    .join('\n')
-
-/** The author-visible losses: EVERY train task in compact form (score/resolved/
- *  progression per cell). A pretty-printed prefix slice would hide the tail tasks from
- *  the author and bias which failure modes it can target; the hard cap stays only as a
- *  guard against enormous fields. */
-const compactLosses = (report: BenchmarkReport, detail: 'exact' | 'binary'): string => {
-  const r2 = (x: number) => Math.round(x * 100) / 100
-  const rows = report.perTask.map((row) =>
-    row.cells
-      ? {
-          task: row.taskId,
-          ...(row.errors
-            ? {
-                errors: Object.fromEntries(
-                  Object.entries(row.errors).map(([n, msg]) => [n, msg.slice(0, 100)]),
-                ),
-              }
-            : {}),
-          cells: Object.fromEntries(
-            Object.entries(row.cells).map(([name, c]) => [
-              name,
-              // 'binary' is the leakage-bounded channel: the author learns pass/fail per
-              // task and nothing else — the per-generation leak from the evaluation data
-              // is capped at one bit per cell (arXiv:2606.11045 measured that exploration
-              // survives this; whether AUTHORING does is the E1-coarse A/B).
-              detail === 'binary'
-                ? { resolved: c.resolved, usd: Math.round(c.usd * 10000) / 10000 }
-                : {
-                    score: r2(c.score),
-                    resolved: c.resolved,
-                    usd: Math.round(c.usd * 10000) / 10000,
-                    progression: (c.progression ?? []).map(r2),
-                  },
-            ]),
-          ),
-        }
-      : { task: row.taskId, error: row.error?.slice(0, 80) },
+/** Evolve a strategy on the search kernel and claim once on the sealed test split. */
+export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promise<EvolutionReport> {
+  const root = cfg.root ?? refine
+  const budget = positiveInteger('budget', cfg.budget ?? 3)
+  const concurrency = positiveInteger('concurrency', cfg.concurrency ?? 3)
+  const maxExpansions = nonNegativeInteger('maxExpansions', cfg.maxExpansions ?? 4)
+  const maxAttempts = positiveInteger('maxAttempts', cfg.maxAttempts ?? 3)
+  const seed = nonNegativeInteger('seed', cfg.seed ?? 42)
+  const cellUsd = dollars('cellUsd', cfg.cellUsd) ?? 0
+  const maxUsd = dollars('maxUsd', cfg.maxUsd)
+  const policy = cfg.policy ?? beam({ width: 2 })
+  const allocation = cfg.allocation ?? asha()
+  if (cfg.deadline !== undefined && !Number.isFinite(Date.parse(cfg.deadline))) {
+    throw new ConfigError('evolution: deadline must be an ISO time')
+  }
+  if (!/^sha256:[0-9a-f]{64}$/.test(cfg.executionRef)) {
+    throw new ConfigError('evolution: executionRef must be a lowercase sha256:<64 hex> digest')
+  }
+  if (!root.name.trim() || typeof root.driver !== 'function') {
+    throw new ConfigError('evolution: root must be a named Strategy')
+  }
+  const claim = defineEvaluationClaim(cfg.claim)
+  if (claim.minimumEffect === undefined) {
+    throw new ConfigError('evolution: the claim needs minimumEffect for its power check')
+  }
+  const taskIds = new Set<string>()
+  const splitTasks = (label: string, tasks: AgenticTask[]): AgenticTask[] => {
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      throw new ConfigError(`evolution: ${label} needs at least one task`)
+    }
+    for (const task of tasks) {
+      if (typeof task.id !== 'string' || !task.id.trim() || taskIds.has(task.id)) {
+        throw new ConfigError(`evolution: task IDs must be non-empty and unique across splits`)
+      }
+      taskIds.add(task.id)
+    }
+    return immutableCandidateValue(tasks)
+  }
+  const train = splitTasks('train', cfg.train)
+  const selection = splitTasks('selection', cfg.selection)
+  const test = splitTasks('test', cfg.test)
+  const taskById = new Map([...train, ...selection, ...test].map((task) => [task.id, task]))
+  const searchTasks = (tasks: AgenticTask[]): SearchTask[] =>
+    tasks.map((task) => ({
+      taskId: task.id,
+      unitId: summarizeEvaluationUnits(claim, [task]).units[0]!.id,
+      source: { uri: `task://${task.id}`, revision: canonicalCandidateDigest(task) },
+    }))
+  const splits = {
+    train: searchTasks(train),
+    selection: searchTasks(selection),
+    test: searchTasks(test),
+  }
+  const developmentUnits = new Set(
+    [...splits.train, ...splits.selection].map((task) => task.unitId),
   )
-  return JSON.stringify(rows).slice(0, 12000)
-}
 
-/** Rename a strategy AND the deliverable's mode label its driver closes over — report
- *  keys and observability labels must never diverge for a renamed candidate. */
-function renameStrategy(orig: Strategy, unique: string): Strategy {
-  if (orig.name === unique) return orig
-  return {
-    name: unique,
-    driver: (s, t, o, b) => {
-      const agent = orig.driver(s, t, o, b)
+  const workerProfile = cfg.worker.workerProfile
+  const analystProfile = cfg.worker.analystProfile ?? workerProfile
+  const workerModel = concreteModelId(workerProfile.model?.default)
+  if (!workerModel) {
+    throw new ConfigError('evolution: worker AgentProfile.model.default must name an exact model')
+  }
+  const authorModel = concreteModelId(cfg.author.profile.model?.default)
+  if (!authorModel) {
+    throw new ConfigError('evolution: author AgentProfile.model.default must name an exact model')
+  }
+  const workerSource: SearchSourceRef = {
+    uri: 'npm:@tangle-network/agent-runtime#runAgentic',
+    revision: canonicalCandidateDigest({
+      worker: canonicalAgentProfileDigest(workerProfile),
+      analyst: canonicalAgentProfileDigest(analystProfile),
+      routerBaseUrl: cfg.worker.routerBaseUrl,
+      corpusTags: cfg.worker.corpusTags ?? [],
+      corpusReadback: cfg.worker.corpusReadback ?? null,
+      budget,
+    }),
+  }
+  const authorSource: SearchSourceRef = {
+    uri: `agent-profile:${cfg.author.profile.name}`,
+    revision: canonicalCandidateDigest({
+      profile: canonicalAgentProfileDigest(cfg.author.profile),
+      fallback: cfg.author.fallbackProfile
+        ? canonicalAgentProfileDigest(cfg.author.fallbackProfile)
+        : null,
+      backend: cfg.author.executor.backend,
+      contract: strategyAuthorContract,
+    }),
+  }
+  const environmentSource: SearchSourceRef = {
+    uri: `environment:${cfg.environment.name}`,
+    revision: cfg.executionRef,
+  }
+  const execution: SearchExecutionIdentity = {
+    model: searchModelIdentity(workerModel, workerProfile.model?.provider ?? 'unknown'),
+    agent: workerSource,
+    benchmark: environmentSource,
+  }
+  const searchKey = canonicalCandidateDigest({
+    process: STRATEGY_EVOLUTION_SOURCE,
+    executionRef: cfg.executionRef,
+    root: root.name,
+    worker: workerSource,
+    author: authorSource,
+    claim,
+    splits,
+    policy: policy.name,
+    allocation: allocation.name,
+    reps: allocation.reps,
+    maxExpansions,
+    concurrency,
+    maxUsd,
+    cellUsd,
+    deadline: cfg.deadline ?? null,
+    maxAttempts,
+    seed,
+  }).slice('sha256:'.length, 'sha256:'.length + 24)
+  const searchId = `evolution-${searchKey}`
+  const searchDir = `${cfg.outDir}/${searchId}`
+  const modulesDir = `${searchDir}/strategies`
+  const ledgerPath = `${searchDir}/ledger.jsonl`
+
+  mkdirSync(searchDir, { recursive: true })
+  const recorder = await SearchRecorder.open(
+    { ledger: openSearchLedger({ path: ledgerPath, searchId }) },
+    {
+      subject: `strategy/${cfg.environment.name}`,
+      process: { name: 'strategy-evolution', executionRef: STRATEGY_EVOLUTION_SOURCE },
+      artifactKind: 'code',
+      objective: { metric: 'score', direction: 'maximize', judge: environmentSource, claim },
+      splits: {
+        ...splits,
+        heldOutUnits: splits.test.every((task) => !developmentUnits.has(task.unitId)),
+      },
+      policy: { expansion: policy.name, allocation: allocation.name, seed },
+      budget: {
+        maxUsd,
+        maxCells: null,
+        maxNodes: 1 + maxExpansions,
+        deadline: cfg.deadline === undefined ? null : new Date(cfg.deadline).toISOString(),
+        maxConcurrency: concurrency,
+        reservedClaimUsd:
+          maxUsd === null
+            ? 0
+            : searchClaimReserveUsd({
+                testTasks: splits.test.length,
+                reps: allocation.reps,
+                cellUsd,
+              }),
+      },
+      containment: null,
+      derivedFrom: null,
+      identity: execution,
+    },
+  )
+  if (!(await recorder.state()).closed) {
+    await preflightModels({
+      worker: cfg.worker,
+      modelPreflight: cfg.modelPreflight,
+      modelPreflightTimeoutMs: cfg.modelPreflightTimeoutMs,
+    })
+  }
+
+  const rootNode: StrategyNode = { kind: 'root', name: root.name }
+  const codec: SearchArtifactCodec<StrategyNode> = {
+    node(rec, node) {
+      const artifact = rec.blob('strategy', { ...node })
       return {
-        ...agent,
-        name: unique,
-        act: async (task, scope) => {
-          const out = await agent.act(task, scope)
-          if (out.kind !== 'done') return out
-          const deliverable = { ...(out.deliverable as Record<string, unknown>), mode: unique }
-          return { ...out, deliverable }
+        artifactDigest:
+          node.kind === 'root'
+            ? canonicalCandidateDigest({ kind: 'root', name: node.name })
+            : sha256Bytes(Buffer.from(node.code, 'utf8')),
+        artifact,
+        surfaces: [{ surfaceId: 'strategy', kind: 'code', artifact }],
+      }
+    },
+    diff(rec, parent, child) {
+      if (parent.kind === 'root' || child.kind === 'root') {
+        return { unknown: 'the root is a caller-supplied strategy with no source here' }
+      }
+      return surfaceDiff(rec, parent.code, child.code)
+    },
+    load(rec, node) {
+      const stored = rec.readBlob(node.artifact) as StrategyNode
+      if (stored.kind === 'root') {
+        if (stored.name !== root.name) {
+          throw new Error(
+            `evolution: node ${node.nodeId} is root '${stored.name}', not '${root.name}'`,
+          )
+        }
+        return rootNode
+      }
+      if (stored.kind === 'authored' && typeof stored.code === 'string') return stored
+      throw new Error(`evolution: node ${node.nodeId} holds no strategy`)
+    },
+  }
+
+  const loaded = new Map<string, Promise<Strategy>>()
+  const strategyOf = (node: StrategyNode): Promise<Strategy> => {
+    if (node.kind === 'root') return Promise.resolve(root)
+    let strategy = loaded.get(node.code)
+    if (!strategy) {
+      strategy = loadAuthoredStrategy(node.code, modulesDir).then((module) => module.strategy)
+      loaded.set(node.code, strategy)
+    }
+    return strategy
+  }
+
+  // Cells run in this process on one dedicated lane of Runtime's search executor, which
+  // records each finished attempt under its run id (a restarted search adopts it instead of
+  // running it again), meters it through the search's cost ledger, and traces it.
+  const storage = fsCampaignStorage()
+  const costLedger = createRunCostLedger({ storage, runDir: searchDir })
+  const lanes = [dedicatedLane({ name: 'in-process', capacity: concurrency, cellUsd })]
+  await reconcileInterruptedSearchCalls(costLedger, searchId, lanes)
+  const executor = searchExecutor<StrategyNode>({
+    lanes,
+    profileOf: () => workerProfile,
+    costLedger,
+    identity: execution,
+    storage,
+    dir: searchDir,
+    ...(cfg.workerSlots ? { workerSlots: cfg.workerSlots } : {}),
+    async runAttempt({ work, lane, costLedger: cellLedger }): Promise<SearchCellResult> {
+      if (work.artifact.kind === 'authored' && work.artifact.refusal !== null) {
+        throw new Error(`evolution: refused node ${work.nodeId} was given a cell`)
+      }
+      const strategy = await strategyOf(work.artifact)
+      const task = taskById.get(work.taskId)
+      if (!task) throw new Error(`evolution: cell ${work.cellId} names unknown task ${work.taskId}`)
+      const faults: string[] = []
+      const environment = faultRecording(cfg.environment, faults)
+      // The whole run is one paid call on the attempt's ledger, so its measured spend is the
+      // attempt's accounting, and a run a killed process left pending settles as unknown.
+      const paid = await cellLedger.runPaidCall({
+        channel: 'agent',
+        phase: `search.${work.stage}`,
+        actor: `strategy:${strategy.name}`,
+        model: workerModel,
+        signal: work.signal,
+        execute: () =>
+          runAgentic({
+            ...cfg.worker,
+            surface: environment,
+            task,
+            strategy,
+            budget,
+            ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
+          }),
+        receipt: (run) => ({
+          model: workerModel,
+          inputTokens: run.tokens.input,
+          outputTokens: run.tokens.output,
+          ...(run.usdKnown ? { actualCostUsd: run.usd } : { costUnknown: true }),
+          ...(run.tokensKnown ? {} : { usageUnknown: true }),
+        }),
+        receiptFromError: () => ({
+          model: workerModel,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUnknown: true,
+          usageUnknown: true,
+        }),
+      })
+      const settled = {
+        identity: execution,
+        placement: { lane: lane.name, boxId: null },
+        // The executor replaces this with the receipts the ledger holds for the attempt.
+        accounting: unknownAccounting('replaced by the attempt receipts'),
+        ...(paid.succeeded ? { wallMs: paid.value.ms } : {}),
+      }
+      if (faults.length > 0) return { ...settled, ...environmentFault(faults) }
+      if (!paid.succeeded) {
+        return {
+          ...settled,
+          outcome: {
+            status: 'failed',
+            score: 0,
+            metrics: {},
+            failure: { code: 'strategy-threw', message: shareText(paid.error) },
+          },
+        }
+      }
+      const run = paid.value
+      return {
+        ...settled,
+        outcome: {
+          status: 'passed',
+          score: run.score,
+          metrics: { resolved: run.resolved ? 1 : 0, shots: run.shots },
         },
       }
+    },
+  })
+
+  let toolCatalog: Promise<string> | undefined
+  const catalog = (): Promise<string> => {
+    toolCatalog ??= listToolCatalog(cfg.environment, train[0]!)
+    return toolCatalog
+  }
+  const authorProvider = cfg.author.profile.model?.provider ?? 'unknown'
+  const proposer: SearchProposerPort<StrategyNode> = {
+    name: 'strategy-author',
+    kind: 'frontier-author',
+    source: authorSource,
+    execution: {
+      kind: 'model',
+      model: searchModelIdentity(authorModel, authorProvider),
+      source: authorSource,
+    },
+    childrenPerProposal: 1,
+    async propose(request) {
+      // Read the ledger once, synchronously, before any await: the kernel retires a state
+      // view when it appends.
+      const state = await recorder.state()
+      const names = strategyNames(state, recorder, codec)
+      const losses = JSON.stringify(
+        strategyTournament(state, 'train', names).rows.map((row) => ({
+          task: row.taskId,
+          ...(row.rep > 0 ? { rep: row.rep } : {}),
+          cells: row.cells,
+        })),
+      ).slice(0, 12_000)
+      const summary = renderSearchSummary(state, { split: 'train' })
+      const parent = request.parents[0]!
+      const parentName = names.get(parent.nodeId) ?? parent.nodeId
+      const tried = [...names.values()].join(', ')
+      const parentSource =
+        parent.artifact.kind === 'authored'
+          ? `\n\nPARENT STRATEGY "${parentName}" (improve on it):\n${parent.artifact.code}`
+          : `\n\nPARENT STRATEGY "${parentName}" is the built-in baseline; improve on it.`
+      const contract = `${strategyAuthorContract}\n\nEXAMPLE TOOLS FROM ONE TASK (tool sets VARY per task on this domain — a strategy MUST select tool names from await listTools(handle) at runtime; hardcoding these example names will zero your score on most tasks):\n${await catalog()}\n\nTHE SEARCH SO FAR (train split):\n${summary}\n\nSTRATEGIES ALREADY TRIED (author something MEANINGFULLY different — a new composition, not a rename): ${tried}${parentSource}`
+      const source = await requestStrategySource({
+        profile: cfg.author.profile,
+        executor: cfg.author.executor,
+        ...(cfg.author.fallbackProfile ? { fallbackProfile: cfg.author.fallbackProfile } : {}),
+        contract,
+        environmentName: cfg.environment.name,
+        lossesJson: losses,
+        budget,
+        outDir: modulesDir,
+        signal: request.signal,
+      })
+      let child: StrategyNode = { kind: 'authored', name: null, code: '', refusal: NO_MODULE }
+      if (source.code !== null) {
+        try {
+          const { strategy } = await loadAuthoredStrategy(source.code, modulesDir)
+          child = { kind: 'authored', name: strategy.name, code: source.code, refusal: null }
+        } catch (error) {
+          child = { kind: 'authored', name: null, code: source.code, refusal: shareText(error) }
+        }
+      }
+      const answered = source.turns.at(-1)
+      return {
+        children: [
+          {
+            artifact: child,
+            label: child.name ?? 'refused module',
+            rationale: `authored from the train results of ${parentName} and ${names.size - 1} other strategies`,
+          },
+        ],
+        accounting: authorAccounting(source.turns),
+        ...(answered
+          ? {
+              execution: {
+                kind: 'model' as const,
+                model: searchModelIdentity(answered.model, authorProvider),
+                source: authorSource,
+              },
+            }
+          : {}),
+      }
+    },
+  }
+
+  const result = await runSearch({
+    recorder,
+    root: rootNode,
+    codec,
+    policy,
+    allocation,
+    proposer,
+    executor,
+    admit: (node) => (node.kind === 'authored' ? node.refusal : null),
+    maxExpansions,
+    maxAttempts,
+    ...(cfg.signal ? { signal: cfg.signal } : {}),
+  })
+  if (!result.claim || !result.claimVerification) {
+    throw new Error(`evolution: search ${searchId} closed without a claim`)
+  }
+  const { state } = result
+  const names = strategyNames(state, recorder, codec)
+  const rootId = state.rootNodeId!
+  const strategies = state.nodes().map((node): EvolutionStrategy => {
+    const artifact = codec.load(recorder, node)
+    const authored = artifact.kind === 'authored' ? artifact : null
+    return {
+      name: names.get(node.nodeId)!,
+      nodeId: node.nodeId,
+      parent: node.primaryParentId === null ? null : names.get(node.primaryParentId)!,
+      source: artifact.kind,
+      status: node.status,
+      code: authored?.code ?? null,
+      gzipBits: authored ? gzipSync(Buffer.from(authored.code)).length * 8 : null,
+      refusal: authored?.refusal ?? null,
+      selection:
+        node.nodeId === rootId
+          ? null
+          : estimateNode(state, node.nodeId, { against: rootId, split: 'selection' }),
+    }
+  })
+  const claimResult = result.claim
+  const shipped = claimResult.finalists.find(
+    (finalist) => finalist.nodeId === claimResult.selected && finalist.test !== null,
+  )
+  const { spend } = state.audit
+  const { decision, reason } = runtimeShipDecision({
+    claim: claimResult,
+    verified: result.claimVerification.status === 'verified',
+    accountingComplete: spend.unknownCostCells === 0 && spend.unknownCostOperations === 0,
+    lowerBound: shipped?.test?.interval[0] ?? null,
+    minimumLift: 0,
+  })
+  return {
+    searchId,
+    ledger: ledgerPath,
+    closeReason: result.reason,
+    strategies,
+    selected: strategies.find((strategy) => strategy.nodeId === result.leader)!,
+    claim: claimResult,
+    claimVerification: result.claimVerification,
+    decision,
+    reason,
+    tournament: {
+      train: strategyTournament(state, 'train', names),
+      selection: strategyTournament(state, 'selection', names),
+      test: strategyTournament(state, 'test', names),
+    },
+    spend: {
+      knownUsd: spend.knownUsd,
+      floorUsd: spend.floorUsd,
+      unknownCostCells: spend.unknownCostCells,
+      unknownCostOperations: spend.unknownCostOperations,
     },
   }
 }
 
-/** Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice. */
-export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promise<EvolutionReport> {
-  const budget = cfg.budget ?? 3
-  const concurrency = cfg.concurrency ?? 3
-  const generations = cfg.generations ?? 2
-  const populationSize = cfg.populationSize ?? 2
-  const baselines = cfg.baselines ?? [sample, refine, sampleThenRefine]
-  const policy = cfg.champion ?? 'costAware'
-  // FUNNEL ALIGNMENT: the search-side tie band must be no stricter than the promotion
-  // criterion, or the gate never sees the candidates it was designed to judge. Under the
-  // cost objective the gate accepts score within −scoreTolerance; a candidate that the
-  // gate would promote must therefore be able to DISPLACE in search at that same band.
-  const epsilon =
-    cfg.championEpsilon ?? (cfg.objective === 'cost' ? (cfg.scoreTolerance ?? 0.05) : 0.01)
-  const byName = new Map<string, Strategy>(baselines.map((s) => [s.name, s]))
-  const codeByName = new Map<string, string>()
-
-  for (const [label, count] of Object.entries({ trainN: cfg.trainN, holdoutN: cfg.holdoutN })) {
-    if (!Number.isSafeInteger(count) || count < 1) {
-      throw new Error(`evolution: ${label} must be a positive integer`)
+/**
+ * The tournament on one split, projected from the ledger: each settled cell's final attempt,
+ * by task and repeat, keyed by strategy name. `names` maps node ids to report names.
+ */
+export function strategyTournament(
+  state: SearchStateView,
+  split: SearchSplit,
+  names: ReadonlyMap<string, string>,
+): StrategyTournament {
+  const rows = new Map<string, TournamentRow>()
+  const perStrategy: StrategyTournament['perStrategy'] = {}
+  for (const nodeId of state.nodeIds()) {
+    const name = names.get(nodeId)
+    if (name === undefined) throw new Error(`strategyTournament: node ${nodeId} has no name`)
+    perStrategy[name] = { cells: 0, scored: 0, score: null, usd: 0, usdKnown: true }
+  }
+  const sums = new Map<string, number>()
+  const cells = state
+    .cells()
+    .filter((cell) => cell.split === split && cell.outcome !== null)
+    .sort((left, right) => compare(left.taskId, right.taskId) || left.rep - right.rep)
+  for (const cell of cells) {
+    const name = names.get(cell.nodeId)!
+    const key = `${cell.taskId}\u0000${cell.rep}`
+    let row = rows.get(key)
+    if (!row) {
+      row = { taskId: cell.taskId, unitId: cell.unitId, rep: cell.rep, cells: {} }
+      rows.set(key, row)
+    }
+    const outcome = cell.outcome as TournamentCell['outcome']
+    row.cells[name] = { score: cell.score, outcome, usd: cell.spentUsd, usdKnown: cell.costKnown }
+    const summary = perStrategy[name]!
+    summary.cells += 1
+    summary.usd += cell.spentUsd
+    summary.usdKnown &&= cell.costKnown
+    if (cell.score !== null) {
+      summary.scored += 1
+      sums.set(name, (sums.get(name) ?? 0) + cell.score)
     }
   }
-  const holdoutOffset = cfg.holdoutOffset ?? 0
-  if (!Number.isSafeInteger(holdoutOffset) || holdoutOffset < 0) {
-    throw new Error('evolution: holdoutOffset must be a non-negative integer')
+  for (const [name, summary] of Object.entries(perStrategy)) {
+    summary.score = summary.scored === 0 ? null : sums.get(name)! / summary.scored
   }
-  if (baselines.length === 0 || byName.size !== baselines.length) {
-    throw new Error('evolution: baselines must have non-empty, unique names')
-  }
-  if (cfg.checkpoint && !/^sha256:[0-9a-f]{64}$/.test(cfg.checkpoint.executionRef)) {
-    throw new Error('evolution checkpoint: executionRef must be a lowercase sha256:<64 hex> digest')
-  }
-  const fingerprint = cfg.checkpoint
-    ? canonicalCandidateDigest({
-        schemaVersion: 2,
-        executionRef: cfg.checkpoint?.executionRef ?? null,
-        environment: cfg.environment.name,
-        trainN: cfg.trainN,
-        holdoutN: cfg.holdoutN,
-        holdoutOffset,
-        budget,
-        concurrency,
-        generations,
-        populationSize,
-        baselines: baselines.map((baseline) => baseline.name),
-        objective: cfg.objective ?? 'score',
-        scoreTolerance: cfg.scoreTolerance ?? 0.05,
-        champion: policy,
-        championEpsilon: epsilon,
-        minPairedTasks: cfg.minPairedTasks ?? null,
-        band: cfg.band ?? null,
-        lossesDetail: cfg.lossesDetail ?? 'exact',
-        reproducerCheck: cfg.reproducerCheck ?? null,
-        modelPreflight: cfg.modelPreflight !== false,
-        modelPreflightTimeoutMs: cfg.modelPreflightTimeoutMs ?? null,
-        worker: {
-          routerBaseUrl: cfg.worker.routerBaseUrl,
-          profile: cfg.worker.workerProfile,
-          analystProfile: cfg.worker.analystProfile ?? cfg.worker.workerProfile,
-          corpusTags: cfg.worker.corpusTags ?? [],
-          corpusReadback: cfg.worker.corpusReadback ?? null,
-        },
-        author: {
-          profile: cfg.author.profile,
-          fallbackProfile: cfg.author.fallbackProfile ?? null,
-          executorBackend: cfg.author.executor.backend,
-        },
-        authorContract: strategyAuthorContract,
-      })
-    : undefined
-  let ckpt: EvolutionCheckpoint | undefined
-  if (cfg.checkpoint?.resume && existsSync(cfg.checkpoint.path)) {
-    const raw = JSON.parse(readFileSync(cfg.checkpoint.path, 'utf8')) as EvolutionCheckpoint
-    if (raw.fingerprint !== fingerprint) {
-      throw new Error(
-        `evolution resume: checkpoint design mismatch at ${cfg.checkpoint.path}; use a new checkpoint or restore the original execution dependencies`,
-      )
-    }
-    ckpt = raw
-  }
+  return { split, rows: [...rows.values()], perStrategy }
+}
 
-  const train = checkedTaskSlice(
-    await cfg.tasks(0, cfg.trainN),
-    cfg.trainN,
-    'train',
-    !!cfg.checkpoint,
-  )
-  const trainDigest = cfg.checkpoint ? canonicalCandidateDigest(train) : undefined
-  if (ckpt && ckpt.trainDigest !== trainDigest) {
-    throw new Error('evolution resume: train task payloads changed')
+/** Report names: each node's strategy name, suffixed `~<ordinal>` when an earlier node has it. */
+function strategyNames(
+  state: SearchStateView,
+  recorder: SearchRecorder,
+  codec: SearchArtifactCodec<StrategyNode>,
+): Map<string, string> {
+  const names = new Map<string, string>()
+  const taken = new Set<string>()
+  for (const node of state.nodes()) {
+    const artifact = codec.load(recorder, node)
+    const base = artifact.name ?? 'refused-module'
+    const name = taken.has(base) ? `${base}~${node.ordinal}` : base
+    taken.add(name)
+    names.set(node.nodeId, name)
   }
-  let holdoutPoolDigest: Sha256Digest | undefined
-  const save = (
-    state: Omit<EvolutionCheckpoint, 'fingerprint' | 'trainDigest' | 'holdoutPoolDigest'>,
-  ): void => {
-    if (cfg.checkpoint)
-      writeFileSync(
-        cfg.checkpoint.path,
-        JSON.stringify({ ...state, fingerprint, trainDigest, holdoutPoolDigest }, null, 1),
-      )
-  }
+  return names
+}
 
-  let modelsPreflighted = false
-  const bench = async (phase: string, tasks: AgenticTask[], strategies: Strategy[]) => {
-    await cfg.onPhase?.(phase)
-    const report = await runBenchmark({
-      environment: cfg.environment,
-      tasks,
-      worker: cfg.worker,
-      strategies,
-      budget,
-      concurrency,
-      modelPreflight: modelsPreflighted ? false : cfg.modelPreflight,
-      modelPreflightTimeoutMs: cfg.modelPreflightTimeoutMs,
-      ...(cfg.onTask
-        ? { onTask: (row, done, total) => cfg.onTask?.(phase, row, done, total) }
-        : {}),
-      ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
-    })
-    modelsPreflighted = true
-    return report
-  }
-
-  // One probe round-trip lists the domain's tools so the author can write tool-focused
-  // shots (shot({tools})) — names + descriptions, never the implementations.
-  const probeTask = train[0]
-  if (!probeTask) throw new Error('runStrategyEvolution: empty train slice')
-  const probe = await cfg.environment.open(probeTask)
-  let toolCatalog: string
-  try {
-    const tools = await cfg.environment.tools(probeTask, probe)
-    toolCatalog = tools
-      .map(
-        (t) =>
-          `- ${t.function.name}${t.function.description ? ` — ${t.function.description.slice(0, 120)}` : ''}`,
-      )
-      .join('\n')
-  } finally {
-    await cfg.environment.close(probe)
-  }
-  const gen0 = ckpt?.gen0 ?? (await bench('gen0', train, baselines))
-  const archive: EvolutionArchiveNode[] = ckpt?.archive
-    ? [...ckpt.archive]
-    : baselines.map((s) => ({
-        name: s.name,
-        source: 'baseline' as const,
-        generation: 0,
-        score: gen0.perStrategy[s.name]?.score ?? 0,
-        usd: gen0.perStrategy[s.name]?.usd ?? 0,
-      }))
-  const gen0Champion =
-    ckpt?.gen0Champion ??
-    selectChampion(
-      gen0,
-      baselines.map((s) => s.name),
-      policy,
-      epsilon,
-    )
-
-  const generationRows: EvolutionGeneration[] = ckpt?.generations ? [...ckpt.generations] : []
-  const trajectory = ckpt?.trajectory
-    ? [...ckpt.trajectory]
-    : [
-        {
-          generation: 0,
-          champion: gen0Champion.name,
-          score: gen0Champion.score,
-          usd: gen0Champion.usd,
-        },
-      ]
-  // Re-import resumed authored modules from their files (the collision rename re-applied
-  // so report keys stay stable across the restart).
-  for (const row of generationRows) {
-    for (const c of row.candidates) {
-      if (c.error) continue
-      if (!c.file || !c.sourceSha256) {
-        throw new Error(`evolution resume: missing source identity for '${c.name}'`)
-      }
-      const bytes = readFileSync(c.file)
-      if (sha256Bytes(bytes) !== c.sourceSha256) {
-        throw new Error(`evolution resume: authored source changed for '${c.name}' (${c.file})`)
-      }
-      const sourceUrl = pathToFileURL(c.file)
-      sourceUrl.searchParams.set('sha256', c.sourceSha256)
-      const mod = (await import(sourceUrl.href)) as { default?: Strategy }
-      if (!mod.default || typeof mod.default.driver !== 'function') {
-        throw new Error(
-          `evolution resume: ${c.file} no longer exports a Strategy — cannot restore "${c.name}"`,
-        )
-      }
-      byName.set(c.name, renameStrategy(mod.default, c.name))
-      codeByName.set(c.name, bytes.toString('utf8'))
-    }
-  }
-  let authoredOk = generationRows.reduce(
-    (n, row) => n + row.candidates.filter((c) => !c.error).length,
-    0,
-  )
-  const lastRow = generationRows[generationRows.length - 1]
-  let incumbent = lastRow ? lastRow.champion : gen0Champion
-  let latestReport = lastRow ? lastRow.report : gen0
-  if (!ckpt) save({ gen0, gen0Champion, generations: generationRows, archive, trajectory })
-
-  for (let g = generationRows.length + 1; g <= generations; g += 1) {
-    const lossesJson = compactLosses(latestReport, cfg.lossesDetail ?? 'exact')
-    const candidates: EvolutionCandidate[] = []
-    const newStrategies: Strategy[] = []
-    for (let i = 0; i < populationSize; i += 1) {
-      const objectiveNote =
-        cfg.objective === 'cost'
-          ? `\n\nYOUR OBJECTIVE: match or exceed the incumbent's SCORE while spending LESS (the losses include usd per task). Promotion requires proven score non-inferiority PLUS significant cost savings — a strategy that ties the score at half the cost WINS; a cheaper strategy that loses score by more than ${((cfg.scoreTolerance ?? 0.05) * 100).toFixed(0)}pp LOSES.`
-          : ''
-      const contract = `${strategyAuthorContract}${objectiveNote}\n\nEXAMPLE TOOLS FROM ONE TASK (tool sets VARY per task on this domain — a strategy MUST select tool names from await listTools(handle) at runtime; hardcoding these example names will zero your score on most tasks):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
+/** The environment as one attempt sees it, recording each throw from `open`, `tools`,
+ * `score` or `close`: those are the environment's faults. A `call` that throws is a tool
+ * error the agent's loop handles. */
+function faultRecording(environment: Environment, faults: string[]): Environment {
+  const recorded =
+    <A extends unknown[], R>(name: string, method: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
       try {
-        const authored = await authorStrategy({
-          profile: cfg.author.profile,
-          executor: cfg.author.executor,
-          ...(cfg.author.fallbackProfile ? { fallbackProfile: cfg.author.fallbackProfile } : {}),
-          contract,
-          environmentName: cfg.environment.name,
-          lossesJson,
-          budget,
-          outDir: cfg.outDir,
-        })
-        // A name collision with the archive would silently overwrite a report cell —
-        // disambiguate the strategy key. The defineStrategy driver closes over the
-        // ORIGINAL name for its deliverable's `mode` label, so the wrapper must rename
-        // the returned agent AND its deliverable or observability labels diverge from
-        // the report keys.
-        const unique = byName.has(authored.strategy.name)
-          ? `${authored.strategy.name}-g${g}c${i + 1}`
-          : authored.strategy.name
-        const strategy: Strategy = renameStrategy(authored.strategy, unique)
-        byName.set(unique, strategy)
-        codeByName.set(unique, authored.code)
-        newStrategies.push(strategy)
-        archive.push({
-          name: unique,
-          source: 'authored',
-          generation: g,
-          parent: incumbent.name,
-          gzipBits: gzipSync(Buffer.from(authored.code)).length * 8,
-          file: authored.file,
-          score: 0,
-          usd: 0,
-        })
-        candidates.push({
-          name: unique,
-          file: authored.file,
-          sourceSha256: sha256Bytes(Buffer.from(authored.code)),
-          gzipBits: gzipSync(Buffer.from(authored.code)).length * 8,
-          codeChars: authored.code.length,
-        })
-        authoredOk += 1
-      } catch (e) {
-        candidates.push({
-          name: `(author-failed g${g}c${i + 1})`,
-          error: e instanceof Error ? e.message.slice(0, 300) : String(e),
-        })
+        return await method(...args)
+      } catch (error) {
+        faults.push(`${name}: ${shareText(error)}`)
+        throw error
       }
     }
-
-    const incumbentStrategy = byName.get(incumbent.name)
-    if (!incumbentStrategy)
-      throw new Error(`evolution: incumbent "${incumbent.name}" missing from the field`)
-    const field = [incumbentStrategy, ...newStrategies]
-    const report = await bench(`gen${g}`, train, field)
-    for (const node of archive) {
-      const cell = report.perStrategy[node.name]
-      if (cell) {
-        node.score = cell.score
-        node.usd = cell.usd
-      }
-    }
-    // With banding on, the champion is picked over the DISCRIMINATING tasks (any
-    // zero-spread task carries no selection information). Falls back to full means
-    // when every task tied — a degenerate generation, not an error.
-    const fieldNames = field.map((s) => s.name)
-    const means = cfg.band
-      ? (discriminatingMeans(report, fieldNames) ?? report.perStrategy)
-      : report.perStrategy
-    const champion = pickChampion(means, fieldNames, policy, epsilon)
-    generationRows.push({ generation: g, candidates, report, champion })
-    trajectory.push({
-      generation: g,
-      champion: champion.name,
-      score: champion.score,
-      usd: champion.usd,
-    })
-    incumbent = champion
-    latestReport = report
-    save({ gen0, gen0Champion, generations: generationRows, archive, trajectory })
-  }
-
-  if (authoredOk === 0) {
-    throw new Error(
-      'runStrategyEvolution: every author attempt failed across all generations — no search happened; see the candidates[].error entries',
-    )
-  }
-
-  // The promotion decision: ONE fresh slice the search never touched, drawn after all
-  // authoring is done. The gate, not the search policy, owns this verdict.
-  const poolN = cfg.band?.holdoutPoolN ?? cfg.holdoutN
-  const pool = checkedTaskSlice(
-    await cfg.tasks(cfg.trainN + holdoutOffset, poolN),
-    poolN,
-    'holdout',
-    !!cfg.checkpoint,
-  )
-  const trainIds = new Set(train.map((task) => task.id))
-  if (pool.some((task) => trainIds.has(task.id))) {
-    throw new Error('evolution: train and holdout task IDs must be disjoint')
-  }
-  holdoutPoolDigest = cfg.checkpoint ? canonicalCandidateDigest(pool) : undefined
-  if (ckpt?.holdout && ckpt.holdoutPoolDigest !== holdoutPoolDigest) {
-    throw new Error('evolution resume: holdout task payloads changed')
-  }
-  let holdoutTasks: AgenticTask[] = []
-  let bandInfo: EvolutionBandInfo | undefined
-  if (ckpt?.holdout && ckpt.verdict) {
-    // Gate already settled before the restart. Reconstruct the exact gate tasks only if
-    // the reproducer still needs to bench on them.
-    bandInfo = ckpt.band
-    if (cfg.reproducerCheck && codeByName.has(incumbent.name)) {
-      const gateIds = new Set(ckpt.holdout.perTask.map((r) => r.taskId))
-      holdoutTasks = pool.filter((t) => gateIds.has(t.id))
-    }
-  } else if (cfg.band) {
-    // Reference screening: baselines[0] runs once over the pool; tasks it already fully
-    // solves carry no headroom (a candidate can only tie there) and are dropped. The
-    // screen is independent of both finalists' gate runs — band membership is fixed
-    // before either touches a task, and both then face the SAME kept tasks.
-    const maxRef = cfg.band.maxRefScore ?? 0.99
-    const reference = baselines[0]
-    if (!reference)
-      throw new Error('evolution band: baselines[0] required as the screening reference')
-    const screen = await bench('band-screen', pool, [reference])
-    const refScores = screen.perTask
-      .filter((r) => r.cells?.[reference.name])
-      .map((r) => ({ taskId: r.taskId, score: r.cells?.[reference.name]?.score ?? 0 }))
-    const inBandIds = new Set(refScores.filter((r) => r.score <= maxRef).map((r) => r.taskId))
-    const kept = pool.filter((t) => inBandIds.has(t.id))
-    if (kept.length < cfg.holdoutN) {
-      throw new Error(
-        `evolution band: only ${kept.length}/${cfg.holdoutN} holdout tasks have headroom (pool ${cfg.band.holdoutPoolN}, reference "${reference.name}" ≤ ${maxRef}) — widen holdoutPoolN or raise maxRefScore`,
-      )
-    }
-    holdoutTasks = kept.slice(0, cfg.holdoutN)
-    bandInfo = { screened: refScores.length, inBand: kept.length, refScores }
-  } else {
-    holdoutTasks = pool
-  }
-  let holdout: BenchmarkReport
-  let verdict: PromotionVerdict
-  if (ckpt?.holdout && ckpt.verdict) {
-    holdout = ckpt.holdout
-    verdict = ckpt.verdict
-  } else {
-    const finalists = [...new Set([gen0Champion.name, incumbent.name])]
-      .map((n) => byName.get(n))
-      .filter((s): s is Strategy => !!s)
-    holdout = await bench('holdout', holdoutTasks, finalists)
-    verdict = promotionGate({
-      report: holdout,
-      incumbent: gen0Champion.name,
-      candidate: incumbent.name,
-      ...(cfg.objective === 'cost'
-        ? {
-            mode: 'non-inferiority' as const,
-            ...(cfg.scoreTolerance !== undefined ? { scoreTolerance: cfg.scoreTolerance } : {}),
-          }
-        : {}),
-      ...(cfg.minPairedTasks !== undefined ? { minPairedTasks: cfg.minPairedTasks } : {}),
-    })
-    save({
-      gen0,
-      gen0Champion,
-      generations: generationRows,
-      archive,
-      trajectory,
-      holdout,
-      verdict,
-      ...(bandInfo ? { band: bandInfo } : {}),
-    })
-  }
-
-  let reproduction: ReproductionCheck | undefined
-  const championCode = codeByName.get(incumbent.name)
-  if (cfg.reproducerCheck && championCode) {
-    const words = cfg.reproducerCheck.summaryMaxWords ?? 64
-    const tolerance = cfg.reproducerCheck.tolerance ?? 0.05
-    const championHoldoutScore = holdout.perStrategy[incumbent.name]?.score ?? 0
-    try {
-      const summaryProfile: AgentProfile = {
-        ...cfg.author.profile,
-        prompt: {
-          ...cfg.author.profile.prompt,
-          systemPrompt: `Summarize the optimization strategy implemented by this code in at most ${words} words. Describe the COMPOSITION (shots, critique, artifact handling, restarts, stopping) — not the code. Output only the summary.`,
-        },
-      }
-      const summaryRes = await profileChatClient({
-        profile: summaryProfile,
-        executor: cfg.author.executor,
-        context: 'strategy reproducer summary',
-      }).chat({
-        messages: [{ role: 'user', content: championCode }],
-      })
-      const summary = summaryRes.content.trim()
-      // The reproducer sees the summary and the contract — never the losses, never the
-      // original code. If its implementation matches the champion on the SAME holdout,
-      // the champion's win fits through the summary and cannot be holdout-specific.
-      const reproduced = await authorStrategy({
-        profile: cfg.author.profile,
-        executor: cfg.author.executor,
-        ...(cfg.author.fallbackProfile ? { fallbackProfile: cfg.author.fallbackProfile } : {}),
-        contract: `${strategyAuthorContract}\n\nIMPLEMENT EXACTLY THIS STRATEGY (a colleague's description — do not invent a different approach):\n${summary}`,
-        environmentName: cfg.environment.name,
-        lossesJson: '[]',
-        budget,
-        outDir: cfg.outDir,
-      })
-      const reproStrategy: Strategy = {
-        name: `${incumbent.name}-reproduced`,
-        driver: reproduced.strategy.driver,
-      }
-      const reproReport = await bench('reproduce', holdoutTasks, [reproStrategy])
-      const reproducedHoldoutScore = reproReport.perStrategy[reproStrategy.name]?.score ?? 0
-      reproduction = {
-        summary,
-        reproducedName: reproStrategy.name,
-        file: reproduced.file,
-        championHoldoutScore,
-        reproducedHoldoutScore,
-        gap: championHoldoutScore - reproducedHoldoutScore,
-        reproducible: reproducedHoldoutScore >= championHoldoutScore - tolerance,
-      }
-    } catch (e) {
-      reproduction = {
-        summary: '',
-        reproducedName: '',
-        championHoldoutScore,
-        reproducedHoldoutScore: 0,
-        gap: championHoldoutScore,
-        reproducible: false,
-        error: e instanceof Error ? e.message.slice(0, 300) : String(e),
-      }
-    }
-  }
-
   return {
-    gen0,
-    gen0Champion,
-    generations: generationRows,
-    archive,
-    finalChampion: incumbent,
-    holdout,
-    verdict,
-    ...(bandInfo ? { band: bandInfo } : {}),
-    ...(reproduction ? { reproduction } : {}),
-    trajectory,
+    name: environment.name,
+    open: recorded('open', (task) => environment.open(task)),
+    tools: recorded('tools', (task, handle) => environment.tools(task, handle)),
+    call: (handle, name, args) => environment.call(handle, name, args),
+    score: recorded('score', (task, handle) => environment.score(task, handle)),
+    close: recorded('close', (handle) => environment.close(handle)),
   }
 }
 
-function checkedTaskSlice(
-  tasks: AgenticTask[],
-  count: number,
-  label: string,
-  snapshot: boolean,
-): AgenticTask[] {
-  if (!Number.isSafeInteger(count) || count < 1 || tasks.length !== count) {
-    throw new Error(
-      `evolution: ${label} must supply exactly ${count} tasks; received ${tasks.length}`,
-    )
+function environmentFault(faults: string[]): Pick<SearchCellResult, 'outcome'> {
+  return {
+    outcome: {
+      status: 'errored',
+      metrics: {},
+      error: { code: 'environment-fault', message: faults[0]!, retryable: true },
+    },
   }
-  const ids = new Set<string>()
-  for (const task of tasks) {
-    if (typeof task.id !== 'string' || !task.id.trim() || ids.has(task.id)) {
-      throw new Error(`evolution: ${label} task IDs must be non-empty and unique`)
-    }
-    ids.add(task.id)
+}
+
+function authorAccounting(turns: readonly StrategyAuthorTurn[]): SearchAttemptAccounting {
+  let usd = 0
+  let costKnown = true
+  for (const turn of turns) {
+    if (turn.costUsd === null) costKnown = false
+    else usd += turn.costUsd
   }
-  return snapshot ? immutableCandidateValue(tasks) : tasks
+  return {
+    tokens: turns.every((turn) => turn.tokensKnown)
+      ? {
+          status: 'known',
+          inputTokens: turns.reduce((sum, turn) => sum + turn.inputTokens, 0),
+          outputTokens: turns.reduce((sum, turn) => sum + turn.outputTokens, 0),
+          cachedTokens: 0,
+        }
+      : { status: 'unknown', reason: 'an authoring call reported no token usage' },
+    cost: costKnown
+      ? { status: 'known', usd, source: usd === 0 ? 'free' : 'provider' }
+      : {
+          status: 'unknown',
+          knownLowerBoundUsd: usd,
+          reason: 'an authoring call reported no billed cost',
+        },
+  }
+}
+
+function unknownAccounting(reason: string): SearchAttemptAccounting {
+  return {
+    tokens: { status: 'unknown', reason },
+    cost: { status: 'unknown', knownLowerBoundUsd: 0, reason },
+  }
+}
+
+/** One probe round-trip lists the domain's tools so the author can focus shots, names and
+ * descriptions only, never the implementations. */
+async function listToolCatalog(environment: Environment, task: AgenticTask): Promise<string> {
+  const handle = await environment.open(task)
+  try {
+    return (await environment.tools(task, handle))
+      .map(
+        (tool) =>
+          `- ${tool.function.name}${tool.function.description ? ` — ${tool.function.description.slice(0, 120)}` : ''}`,
+      )
+      .join('\n')
+  } finally {
+    await environment.close(handle)
+  }
+}
+
+/** Free text as the ledger stores it: redacted with the share profile and bounded. */
+function shareText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error)
+  return redact(text, { profile: 'share' }).value.slice(0, 300)
+}
+
+function compare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function positiveInteger(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new ConfigError(`evolution: ${name} must be a positive integer`)
+  }
+  return value
+}
+
+function nonNegativeInteger(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ConfigError(`evolution: ${name} must be a non-negative integer`)
+  }
+  return value
+}
+
+function dollars(name: string, value: number | undefined): number | null {
+  if (value === undefined) return null
+  if (!Number.isFinite(value) || value < 0) {
+    throw new ConfigError(`evolution: ${name} must be a finite non-negative number`)
+  }
+  return value
 }
