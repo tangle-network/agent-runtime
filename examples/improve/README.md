@@ -40,12 +40,15 @@ The kernel grows a tree of prompt candidates, measures each on the train and sel
 Run it again with the same `runDir` and it continues the search from its ledger; a finished search returns without running anything.
 
 ```text
-nodes 8, edges 9, cells 224, claim ship
-decision: ship (finalist node_3052… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
-test lift 0.237 [0.217, 0.255]
+nodes 8, edges 9, cells 190, claim ship
+decision: ship (finalist node_fcd4… beat the root on the 24 test units at confidence 0.9833 (3 finalists, family-wise 0.95))
+test lift 0.142 [0.128, 0.157]
 ```
 
-The three positive rules add 0.22 to every task, and the claim's interval covers it.
+The search runs `searchMethod`'s defaults, Eval's `aide()` policy and `asha()` allocator.
+`aide()` spends 5 of the 8 proposals on one-rule drafts from the baseline, so this run keeps 2 of the 3 positive rules (0.12 and 0.02).
+Pass `policy: incumbent()` with `allocation: uniform()` for the hill climb.
+On this additive example the hill climb keeps all three positive rules (0.22) at test lift 0.237 [0.217, 0.255], with 224 cells.
 
 ## What the call owns
 
