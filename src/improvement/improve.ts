@@ -20,9 +20,12 @@ import type {
   ImproveMethodOptions,
   ImproveMethodResult,
   ImproveResult,
+  ImproveSearchOptions,
+  ImproveSearchResult,
 } from './improve-types'
 import { runMethodImprovement } from './method-execution'
 import type { ReadonlyAgentProfile } from './profile-types'
+import { isImproveSearchMethod, runSearchImprovement } from './search-method'
 import {
   type ImproveTrainingOptions,
   type ImproveTrainingResult,
@@ -32,6 +35,7 @@ import {
 // The owning modules are the single list of these names; re-exporting them by
 // hand made every new option type a three-file edit.
 export type * from './improve-types'
+export { type SearchMethodOptions, searchMethod } from './search-method'
 export type * from './training'
 export { createCommandProfileTrainer } from './training'
 
@@ -41,12 +45,26 @@ export function improve(
   opts: ImproveTrainingOptions,
 ): Promise<ImproveTrainingResult>
 /**
+ * Search one exact profile surface with Runtime's native search
+ * (`method: searchMethod(...)`): the kernel expands, allocates and claims on
+ * the sealed test split, and the claim decides.
+ */
+export function improve<TScenario extends Scenario, TArtifact>(
+  profile: ReadonlyAgentProfile,
+  opts: ImproveSearchOptions<TScenario, TArtifact>,
+): Promise<ImproveSearchResult>
+/**
  * Optimize one exact profile surface with a complete method.
  */
 export function improve<TScenario extends Scenario, TArtifact>(
   profile: ReadonlyAgentProfile,
   opts: ImproveMethodOptions<TScenario, TArtifact>,
 ): Promise<ImproveMethodResult>
+/** Optimize one exact profile surface with a complete method or a search. */
+export function improve<TScenario extends Scenario, TArtifact>(
+  profile: ReadonlyAgentProfile,
+  opts: ImproveMethodOptions<TScenario, TArtifact> | ImproveSearchOptions<TScenario, TArtifact>,
+): Promise<ImproveMethodResult | ImproveSearchResult>
 /**
  * Optimize repository code through Runtime's isolated worktree path.
  */
@@ -55,7 +73,10 @@ export function improve<TScenario extends Scenario, TArtifact>(
 ): Promise<ImproveCodeResult<TScenario, TArtifact>>
 export async function improve<TScenario extends Scenario, TArtifact>(
   profileOrCode: ReadonlyAgentProfile | ImproveCodeRunOptions<TScenario, TArtifact>,
-  opts?: ImproveMethodOptions<TScenario, TArtifact> | ImproveTrainingOptions,
+  opts?:
+    | ImproveMethodOptions<TScenario, TArtifact>
+    | ImproveSearchOptions<TScenario, TArtifact>
+    | ImproveTrainingOptions,
 ): Promise<ImproveResult<TScenario, TArtifact> | ImproveTrainingResult> {
   if (opts === undefined) {
     const code = profileOrCode as ImproveCodeRunOptions<TScenario, TArtifact>
@@ -80,5 +101,9 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
     )
   }
-  return runMethodImprovement(immutableCandidateValue(parsedProfile.data), opts)
+  const exact = immutableCandidateValue(parsedProfile.data)
+  if (isImproveSearchMethod(opts.method)) {
+    return runSearchImprovement(exact, opts as ImproveSearchOptions<TScenario, TArtifact>)
+  }
+  return runMethodImprovement(exact, opts as ImproveMethodOptions<TScenario, TArtifact>)
 }

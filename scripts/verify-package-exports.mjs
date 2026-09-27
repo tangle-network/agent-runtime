@@ -228,8 +228,8 @@ try {
         type ImproveTrainingResult,
         type ProfileTrainer,
         type ImproveMethodResult,
-        type ImprovementProfileCandidatePopulation,
-        type ImprovementProfilePopulationCandidateSource,
+        type ImproveSearchResult,
+        searchMethod,
       } from '@tangle-network/agent-runtime'
       import {
         driverAgent,
@@ -334,9 +334,11 @@ try {
       void commandTrainer
       void harnessTraining
       declare const improvementResult: ImproveMethodResult
-      const candidatePopulation: ImprovementProfileCandidatePopulation =
-        improvementResult.candidatePopulation
-      declare const populationCandidateSource: ImprovementProfilePopulationCandidateSource
+      const methodLedgerDigest: string | undefined = improvementResult.searchHistory?.ledger.sha256
+      declare const searchResult: ImproveSearchResult
+      const searchLedgerComplete: boolean = searchResult.searchHistory.complete
+      const searchDecision: 'ship' | 'hold' = searchResult.decision
+      const nativeSearch: typeof searchMethod = searchMethod
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
       const profileFixture: AgentProfileImprovementFixture =
         loadAgentProfileImprovementFixture()
@@ -449,8 +451,10 @@ try {
       void currentDigest
       void profileDiffs
       void profilePrepared
-      void candidatePopulation
-      void populationCandidateSource
+      void methodLedgerDigest
+      void searchLedgerComplete
+      void searchDecision
+      void nativeSearch
       void proposalFixture
       void profileFixture
       void fixtureProfileExperimentDigest

@@ -2024,7 +2024,7 @@ Required only when an activation targets the complete `agent-profile` surface.
 
 ##### improvement
 
-> **improvement**: `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object` \| `Omit`\<[`ImproveCodeRunOptions`](index.md#improvecoderunoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object`
+> **improvement**: `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object` \| `Omit`\<[`ImproveSearchOptions`](index.md#improvesearchoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object` \| `Omit`\<[`ImproveCodeRunOptions`](index.md#improvecoderunoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object`
 
 ##### buildExperiment
 

@@ -19734,7 +19734,7 @@ Runtime acknowledgement for one exact steer operation.
 
 ##### effect
 
-> `readonly` **effect**: `"unknown"` \| `"refused"` \| `"delivered"` \| `"not_live"` \| `"unsupported"`
+> `readonly` **effect**: `"unknown"` \| `"delivered"` \| `"refused"` \| `"not_live"` \| `"unsupported"`
 
 ##### requestedAt
 
