@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.281.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.198.0 <0.199.0`.
+> `agent-eval` must satisfy `>=0.199.0 <0.200.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0 || ^0.51.0 || ^0.52.0 || ^0.53.0 || ^0.54.0 || ^0.55.0`.
 > The second clause admits prereleases of base `0.49.0` and stable `0.49.x`; it does not admit prereleases of `0.49.1`.
 > The last six clauses admit stable Sandbox `0.50.x`, `0.51.x`, `0.52.x`, `0.53.x`, `0.54.x` and `0.55.x`.
@@ -224,7 +224,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Render a **multi-profile × multi-axis benchmark leaderboard** (ranked board + score matrix + SVG/HTML charts) from an EXISTING fleet of matrix runs | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml`: `/kernel` (feed it `runProfileMatrix().records`, any domain; `defineLeaderboard` calls these for you) | a per-benchmark report/chart renderer; hand-rolled SVG/markdown tables; a curated subset of axes |
 | Read ONE execution's complete tree — every node's ids, usage by token class, cost with provenance, timing, receipts, and the run's inclusive and exclusive totals | `projectPursuit(records)` over a `FileObserverJournal` (or `supervisePursuit(...)`, which returns the projection, holds `supervise.lock` for the call, and leaves `result.json` at settle or `failure.json` on a throw beside `observer.jsonl`): `/durable` — a node's settled spend already contains the child work its nested tree reported, so `totals.inclusive` sums the run's top-level nodes and `totals.exclusiveByNode` telescopes back to it; a channel no provider reported stays ABSENT and the node is named in `spendGaps` | combining `loadTopSnapshot`/`TopSnapshot` (`/tui`) with root stream events to build totals — that projection is the experimental operator view over on-disk run state, carries no model-call identity, and double counts when joined; or a second per-node cost tally |
 | Start a version of a settled run with one profile change (a run-level fork) | `supervisePursuit(parentProfile, parentTask, { runDir, runId, budget, ..., fork: { runDir: parentRunDir, settleDigest, change } })`: `/durable` — `settleDigest` is the sha256 of the parent's `result.json`, the call's profile, task and budget must equal the parent's recorded root, and `change` is one Interface profile diff with an id. Runtime records the parent, the seal, the change and the lineage in the root's `execution.correlation` (`RUN_FORK_CORRELATION_KEYS`). See [the fork rules](#a-run-level-fork-starts-from-the-parents-sealed-root). | copying or re-keying a parent run directory, a `parent` or `diff` field on a record, a caller-written fork correlation key, or a restart that differs from its parent in more than the recorded change |
-| Keep improving a pursuit across versions until an outside judge stops improving (the version loop) | `supervisePursuit(profile, task, { runDir, runId, budget, ..., versions: { judge, next, stop: { patience, maxVersions, maxUsd, deadlineMs } } })`: `/durable` — `judge` is a digest-pinned `VersionJudge` Runtime calls after each version settles, outside its tree; `next` returns the one Interface profile diff the next version applies to the best version's profile; each later version is a run-level fork of the best version at `<runDir>.v<n>`, and `<runDir>.versions/versions.jsonl` is the chain's record. `versions.run` places versions elsewhere. See [the version loop](#a-version-loop-continues-a-pursuit-until-its-judge-stops-improving). | an operator or Lab script that waits for a settle, judges by hand and presses the next version; a restart loop; a judge that runs inside the judged tree; a chain with no dollar or time cap |
+| Keep improving a pursuit across versions until an outside judge stops improving (the version loop) | `supervisePursuit(profile, task, { runDir, runId, budget, ..., versions: { judge, next, stop: { patience, maxVersions, maxUsd, deadlineMs, minImprovement? } } })`: `/durable` — the chain runs on agent-eval's search kernel (`runSearch` with `incumbent({ patience, minImprovement })`): each version is a node, each change an edge, and each run and verdict a cell. `judge` is a digest-pinned `VersionJudge` Runtime calls after each version settles, outside its tree; `next` returns the one Interface profile diff the next version applies to the kept version's profile; each later version is a run-level fork of the kept version at `<runDir>.v<n>`, and the search ledger at `<runDir>.search/ledger.jsonl` is the chain's only record and checkpoint. See [the version loop](#a-version-loop-continues-a-pursuit-until-its-judge-stops-improving). | an operator or Lab script that waits for a settle, judges by hand and presses the next version; a restart loop; a judge that runs inside the judged tree; a chain with no dollar or time cap; a second lineage file beside the ledger |
 | Attach a human terminal to the EXACT process one supervised worker is running in | `scope.interactive(nodeId)` in-process, or `attachWorker(eventDir, nodeId, { providers })` after restart: `/kernel` — returns that child's `RetainedInteractiveRunHandle` (type, resize, ordered replay, detach, acknowledged close, all bound to its admitted execution) when its executor published an exact retained reference. `attachWorker` reloads the runtime-owned binding, verifies the worker remains live in the spawn journal, resolves the named provider, and reconstructs only that reference. Both APIs return a typed `unavailable` reason when they cannot prove an exact live process. | starting a second CLI process that resumes the same conversation and calling it attachment; guessing a provider session from conversation metadata; reading a headless worker's missing session as an empty terminal; a per-runner attach API beside this one |
 | Run a provider-owned interactive worker under a real Supervisor and reconnect it after a coordinator restart | `workerFromInteractiveProvider(provider, options)` with `supervise(..., { makeWorkerAgent, runDir })`: `/kernel` — Runtime persists credential-free admissions, stable process identity, control acknowledgements, and the exact binding that `attachWorker` reloads. The provider remains authoritative for the environment, process, terminal, and native session. | launching a provider process from Braid, writing `.agent/supervisor` from the client, persisting secrets, or inventing a second operation-id/replay protocol |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)`: root export | a second event-bus or callback-prop zoo (there is ONE stream) |
@@ -329,38 +329,41 @@ Environment checkpoints cannot seed a fork of a settled run, because `superviseP
 ### A version loop continues a pursuit until its judge stops improving
 
 Inside one run, the director works in rounds until its deliverable check passes or its budget ends.
-`versions` continues the pursuit after that run settles, as a chain of runs.
+`versions` continues the pursuit after that run settles, as a chain of runs on agent-eval's search kernel.
 
 1. The first version runs at `runDir`, or Runtime reads it back when that directory already settled.
-2. Runtime calls `versions.judge` with the settled version: its run id, directory, sealed `result.json` digest, result and executed profile.
+2. Runtime calls `versions.judge` with the settled version: its node id, run id, directory, sealed `result.json` digest, result and executed profile.
    The judge runs after the settle record exists and receives no handle into the version's tree, so it can run in its own sandbox: `runIsolatedCheck({ box })` runs a digest-checked command in a fresh box owned by an account the judged run holds no key to.
    Its verdict carries a `score` (higher is better, or `null` when it cannot score) and the judge's `digest`; a verdict under another digest is refused.
-3. Runtime applies the stop rule.
-   It stops after `patience` consecutive versions that do not beat the best score by more than `minImprovement`, at `maxVersions`, when the versions' settled `spentTotal.usd` reaches `maxUsd`, or at `deadlineMs` from the first version's start.
-   A version whose dollars are not a number stops the chain, because the chain can no longer prove it is under its cap.
-   The deadline also aborts a running version.
-4. Otherwise `versions.next` returns one `AgentProfileDiff` with an id, and the next version forks from the best version so far: the highest score, the earliest on a tie.
+   A `null` score records the version unscored, and the kernel asks the judge again, up to 3 attempts.
+3. The kernel's hill climb, `incumbent({ patience, minImprovement })`, keeps a version: a scored version takes the lead when its score beats the kept version's by more than `minImprovement` (default 0), and an unscored first version yields to the first scored one.
+4. Unless a cap is reached, `versions.next` returns one `AgentProfileDiff` with an id, and the next version forks from the kept version.
    It runs at `<runDir>.v<n>` with run id `<runId>.v<n>` and the same pursuit id, task and budget, so its root records the parent, the seal, the change and the lineage root.
+   A change that does not apply is recorded as a refused node and never runs; a change that reproduces an earlier version's profile is a second edge into that version and does not run again.
 
-The chain checks its caps between versions and never starts a version once one is reached.
-A version's own `budget`, or the caller's spend watcher, bounds that version's dollars in flight.
+The chain stops after `patience` proposals in a row that did not take the lead (`patience`), at `maxVersions` nodes (`max-nodes`; a refused change counts as one), when the next version cannot be admitted under `maxUsd` (`budget`), or at `deadlineMs` from the first version's start (`deadline`).
+The dollar rule is the kernel's: settled spend, with an unknown spend counted at its proven floor, plus a hold for the next version stays within `maxUsd`.
+The hold is the version's own `budget.maxUsd`, or 0 without one; a `budget.maxUsd` above `stop.maxUsd` is refused.
+The deadline also aborts a running version; that version settles, and its judge still scores it.
 A deadline or a driver failure often leaves a child without a terminal record, so the chain forks with `fork.acceptUncertain`: a version never replays its parent's children, and its root records the parent's uncertain nodes as `forkParentUncertainNodes`.
-`versions.usd` lets the caller measure each version's dollars, such as the provider's charge to its keys; without it the chain sums the settled `spentTotal.usd`, which is Runtime's estimate when `usdKnown` is false.
-`<runDir>.versions/versions.jsonl` records each version, its parent, its change, its verdict, its dollars and its `AgentCandidateLineage`, and then the stop.
-A call on a stopped chain returns that record without running anything.
-A call on an unfinished chain resumes it: a judged version is never re-run or re-judged, and a started version runs again in its own directory, which resumes it.
-The chain's judge digest and stop rule are part of its record, and a call with another is refused.
-The call returns the best version's result, projection and settle path, with the chain's record as `versions`.
 
-A fork carries recorded inputs, not workspace, so `next` carries the best build into the next version.
-Mount the best version's product as profile resources, and the judge's review beside it.
+The search ledger at `<runDir>.search/ledger.jsonl` records every version as a node (its exact profile), every change as an edge (its Interface diff), and every run as a cell with its seal, its verdict and its settled spend; blobs live beside it.
+It is the chain's only record and its only checkpoint.
+A call on a closed chain reads it back without running anything.
+A call on an open chain continues it: a judged version is never re-run or re-judged, and a version that started runs again in its own directory, which resumes it.
+Before a settled version directory is read back, Runtime checks that its root ran that node's profile and, for a fork, recorded the parent's seal and the change; a directory that holds another run is refused.
+A version whose `result.json` changed after it was judged is refused.
+A version whose run throws fails the call and leaves its cell open, and calling again resumes it.
+Aborting the call's `signal` pauses the chain: the running version is aborted and settles, the call rejects, and a later call continues the chain.
+The judge digest, the task, the first profile and the stop rule are part of the ledger's header, and a call with another is refused.
+A directory that still holds a retired `<runDir>.versions/versions.jsonl` chain is refused; finish it on the release that wrote it.
+The call returns the kept version's result, projection and settle path, with the chain as `versions`: its ledger path, close reason, kept version, judged versions, spend and a receipt over the ledger bytes.
 
-`versions.run` places later versions outside this process, for example in a cloud driver box.
-Runtime verifies each fork against the parent's records first, then passes the profile to execute with its change applied, the task, the budget and the root's `execution` attribution.
-The port returns once the version's directory holds its `result.json` and `observer.jsonl`.
-It is called again for the same version after a restart, so it must attach to a version it already started.
+A fork carries recorded inputs, not workspace, so `next` carries the kept build into the next version.
+Mount the kept version's product as profile resources, and the judge's review beside it.
+
 The judge is a `VersionJudge`: for a record with a declared check, `declaredCheckJudge(check, placement)`, which scores each version on the check's sealed cases when it has them.
-`next: 'review-of-best'` mounts the best version's per-item verdict at `inputs/review/version-<n>.md`, replaces the earlier review, reads its words from `continuation.profile.review`, and gives the next version's continuation note that verdict as its bar.
+`next: 'review-of-best'` mounts the kept version's per-item verdict at `inputs/review/version-<n>.md`, replaces the earlier review, reads its words from `continuation.profile.review`, and gives the next version's continuation note that verdict as its bar.
 `assertPursuitVersions` checks the option before any compute.
 
 ### A re-entered director is told the run from the coordinator
