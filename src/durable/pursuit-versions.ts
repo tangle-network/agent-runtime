@@ -243,7 +243,7 @@ const VERSION_CHAIN_DEFINITION = {
   edge: 'one change from the kept version, stored as its Interface profile diff',
   cell: 'one supervisePursuit run of the version on the pursuit task, forked from its parent sealed result.json, then scored by the outside judge; a settled version directory is read back after its root identity and fork seal are checked',
   outcome:
-    'a scored winner passes; a scored no-winner fails with its reason; an unscored version and a failed run are retryable errors',
+    'a scored winner passes; a scored no-winner fails with its reason; an unscored version is a retryable error; a run that throws fails the call and leaves its cell open',
   deadline: 'the chain deadline aborts a running version; its judge still runs',
   directories: 'version n runs at <runDir>.v<n> with run id <runId>.v<n>; version 1 at <runDir>',
 } as const
@@ -490,33 +490,10 @@ export async function runPursuitVersions(
       if (parent !== undefined && (parent.seal === undefined || parent.profile === null)) {
         throw new RuntimeRunStateError(`version ${record.version}'s parent has no sealed result`)
       }
+      // A version whose run throws fails the call and leaves its cell open: Runtime's driver
+      // retry already ran, and calling again resumes the version in its own directory.
       if ((await readSettleRecord(record.runDir)) === undefined) {
-        try {
-          await runVersion(record, parent, AbortSignal.any([work.signal, expired.signal]))
-        } catch (error) {
-          // A run that failed left its failure record; running the cell again resumes it.
-          if (!(error instanceof Error && error.name === 'SupervisePursuitError')) throw error
-          return {
-            outcome: {
-              status: 'errored',
-              metrics: {},
-              error: { code: 'version-failed', message: error.message, retryable: true },
-            },
-            accounting: {
-              tokens: { status: 'unknown', reason: 'the version failed before it settled' },
-              cost: {
-                status: 'unknown',
-                knownLowerBoundUsd: 0,
-                reason: 'the version failed before it settled; its failure record holds no spend',
-              },
-            },
-            identity: identity(record.profile),
-            placement: { lane: work.lane, boxId: null },
-            traceRef: {
-              unknown: `version ${record.version} is run ${record.runId}; it did not settle`,
-            },
-          }
-        }
+        await runVersion(record, parent, AbortSignal.any([work.signal, expired.signal]))
       }
       const { settled, byteLength } = await readVersion(record, parent)
       // A retried cell reads the same sealed run back and only judges it again; the run's spend
@@ -550,11 +527,9 @@ export async function runPursuitVersions(
       const judged = await judgedVersions(await versionsOf())
       const best = judged.find((version) => version.nodeId === parent.nodeId)
       if (best === undefined || parent.artifact.profile === null) {
-        return {
-          children: [],
-          stop: 'the kept version never settled, so no version can fork from it',
-          accounting: FREE,
-        }
+        throw new RuntimeRunStateError(
+          `supervisePursuit versions: the kept version ${parent.nodeId} has no judged run to fork from`,
+        )
       }
       const change = await next(
         { best, last: judged.at(-1)!, versions: Object.freeze(judged) },
@@ -619,7 +594,7 @@ export async function runPursuitVersions(
     const best = judged.find((version) => version.nodeId === closed.leader)
     if (best === undefined) {
       throw new RuntimeRunStateError(
-        `supervisePursuit versions: the chain in ${ledgerPath} closed (${closed.reason}) without a judged version to keep; version 1 never settled`,
+        `supervisePursuit versions: the chain in ${ledgerPath} closed (${closed.reason}) without a judged version to keep`,
       )
     }
     const observerPath = resolve(best.runDir, 'observer.jsonl')
