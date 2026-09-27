@@ -1,3 +1,11 @@
+## 0.282.1
+
+Runtime admits stable `@tangle-network/agent-eval` 0.200.x through its peer range. Eval 0.200.0 adds `/rl` claim-integrity signals and 0.199.1 fixed search-lenses charging and the release pin; neither touches the `/analyst`, `/campaign`, `/contract`, `/experiment`, `/pipelines` or `/traces` subpaths Runtime imports, and Eval removes no API between 0.199.0 and 0.200.0.
+
+Runtime admits stable `@tangle-network/sandbox` 0.56.x through its peer range. Sandbox 0.56.0 (Hub line role policies and owner approvals, tangle-network/agent-dev-container#8218) adds API and removes none, and Runtime calls no new 0.56 API. The packed compatibility cohort derives its Sandbox rows from npm, so it exercises 0.56.x once npm serves it.
+
+Allow isolated checks to limit copied input bytes and entries, and verify explicit Sandbox memory grants before upload.
+
 ## 0.282.0
 
 **Breaking.** `runStrategyEvolution` runs on Eval's search kernel and returns a projection of its search ledger. The generation loop, its JSON checkpoint and its archive are gone.
