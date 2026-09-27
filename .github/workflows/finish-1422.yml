@@ -17,6 +17,11 @@ jobs:
           ref: 188182e336a2950dc54a29ff9ab693933b3e3cd5
           fetch-depth: 0
           persist-credentials: false
+      - name: Merge current main without credentials
+        run: |
+          git config user.name 'Repository verification'
+          git config user.email 'verification@users.noreply.github.com'
+          git merge --no-edit origin/main
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -25,6 +30,8 @@ jobs:
       - name: Retain source and verification dependencies
         run: |
           mkdir -p /tmp/oidc-source
+          git rev-parse HEAD > /tmp/oidc-source/candidate.sha
+          git rev-parse origin/main > /tmp/oidc-source/main.sha
           git bundle create /tmp/oidc-source/repository.bundle HEAD refs/remotes/origin/main
           tar --exclude='./.git' --exclude='node_modules' -czf /tmp/oidc-source/source.tar.gz .
           tar -czf /tmp/oidc-source/dependencies.tar.gz node_modules bench/node_modules
