@@ -29,7 +29,7 @@ The author is a scripted transport with fixed replies: two strategies that keep 
   refused-module~4         invalid   parent sample refused: the author reply carried no fenced ts module
   carry-forward-steered    pruned    parent sample selection Δ +0.346 on 6 tasks
 claim: ship (finalist … beat the root on the 24 test units at confidence 0.95 (1 finalist, family-wise 0.95))
-test lift 0.276 [0.195, 0.351] on 24 tasks
+test lift 0.276 [0.195, 0.350] on 24 tasks
 decision: ship (…); kept carry-forward
 ```
 
@@ -39,6 +39,8 @@ Print the ledger with `agent-eval search show <outDir>/<searchId>/ledger.jsonl`.
 ## A real author
 
 Set `BRIDGE_URL`, `BRIDGE_BEARER` and `AUTHOR_MODEL` (a cli-bridge model id, default `claude-code/sonnet`) to have a model write the strategies through cli-bridge.
+Set `BRIDGE_CWD` to an empty directory on the bridge host.
+The author profile writes its instructions into that directory and refuses to replace a file already there, so a bridge started inside a checkout with its own `CLAUDE.md` refuses the turn when `BRIDGE_CWD` is unset.
 The worker stays offline, so the scores measure the authored strategies exactly.
 Runtime refuses an author reply that does not report the model that served it, so the bridge backend must report its served model.
 

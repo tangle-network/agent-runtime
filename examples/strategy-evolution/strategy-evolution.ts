@@ -12,8 +12,9 @@
  * shows every path a real author can take.
  *
  * Set BRIDGE_URL and BRIDGE_BEARER to have a real model write the strategies through
- * cli-bridge (`AUTHOR_MODEL`, default `claude-code/sonnet`). The worker stays offline, so the
- * scores measure the authored strategies exactly.
+ * cli-bridge (`AUTHOR_MODEL`, default `claude-code/sonnet`), and BRIDGE_CWD to an empty
+ * directory on the bridge host. The worker stays offline, so the scores measure the authored
+ * strategies exactly.
  *
  * The ledger is the checkpoint: run again with the same outDir and the search continues; a
  * finished search returns its report without running anything.
@@ -157,7 +158,15 @@ function author(): { profile: AgentProfile; executor: ExecutorConfig } {
         // cannot replace.
         prompt: { instructions: [strategyAuthorSystemPrompt] },
       },
-      executor: { backend: 'bridge', bridgeUrl, bridgeBearer },
+      // The profile writes its instructions into the bridge's working directory and refuses
+      // to replace a file already there, such as the CLAUDE.md of the checkout a bridge was
+      // started from, so the author runs in an empty directory of its own.
+      executor: {
+        backend: 'bridge',
+        bridgeUrl,
+        bridgeBearer,
+        ...(process.env.BRIDGE_CWD ? { cwd: process.env.BRIDGE_CWD } : {}),
+      },
     }
   }
   return {
