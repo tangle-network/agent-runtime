@@ -4336,7 +4336,7 @@ usable certified content. Reads only the prompt-folding slice of a profile.
 
 ##### certified
 
-`Pick`\<[`CertifiedProfile`](#certifiedprofile), `"promptSurface"` \| `"artifacts"`\> \| `null`
+`Pick`\<[`CertifiedProfile`](#certifiedprofile), `"artifacts"` \| `"promptSurface"`\> \| `null`
 
 #### Returns
 
