@@ -168,6 +168,7 @@
     "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-profile-materialize": "catalog:",
     "@tangle-network/agent-trace-contract": "catalog:",
-    "tar-stream": "3.2.1"
+    "tar-stream": "3.2.1",
+    "zod": "catalog:"
   }
 }

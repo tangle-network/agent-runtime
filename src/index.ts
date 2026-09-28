@@ -307,6 +307,7 @@ export {
   generateSpanId,
   loopEventToOtelSpan,
   padSpanId,
+  padTraceId,
   toOtelAttributes,
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 303 exports.
+Import from `@tangle-network/agent-runtime` — 304 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -68,6 +68,7 @@ Import from `@tangle-network/agent-runtime` — 303 exports.
 | `officialGepa` | function | Build a complete method backed by GEPA's official Optimize Anything API. |
 | `officialSkillOpt` | function | Build a complete method backed by Microsoft's official SkillOpt trainer. |
 | `padSpanId` | function | Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C |
+| `padTraceId` | function | Trace-id counterpart of {@link padSpanId}: valid W3C trace ids pass through (dash-stripped when |
 | `parseLoopRunnerArgv` | function | Parse `--mode X --config Y` from an argv tail (`process.argv.slice(2)`). |
 | `parseRolloutPolicy` | function | Parse a serialized policy surface. Returns `undefined` for non-strings, |
 | `rawTraceDistiller` | function | Build an `analyzeGeneration` producer that feeds the proposer RAW-TRACE |

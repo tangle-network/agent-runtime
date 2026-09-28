@@ -10780,6 +10780,26 @@ a parent's exported spans and the context it hands its children always name the 
 
 ***
 
+### padTraceId()
+
+> **padTraceId**(`id`): `string`
+
+Trace-id counterpart of [padSpanId](#padspanid): valid W3C trace ids pass through (dash-stripped when
+ UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
+ `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### generateSpanId()
 
 > **generateSpanId**(): `string`
