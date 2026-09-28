@@ -9,8 +9,6 @@
  * See `docs/concepts.md` (mental model) and `README.md` (quickstart).
  */
 
-export { isolatedCheckBoxEvidenceSchema, isolatedCheckResultSchema } from './runtime/isolated-check-result'
-
 // ── Re-exports from @tangle-network/agent-eval ───────────────────────
 export type {
   ControlBudget,
@@ -314,6 +312,10 @@ export {
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
+export {
+  isolatedCheckBoxEvidenceSchema,
+  isolatedCheckResultSchema,
+} from './runtime/isolated-check-result'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
   RuntimeDecisionEvidenceRef,
