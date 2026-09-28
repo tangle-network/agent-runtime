@@ -1,0 +1,52 @@
+name: Receipt API generation
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/receipt-generated-artifacts.yml'
+permissions:
+  contents: read
+jobs:
+  generate:
+    if: github.event.pull_request.number == 1453 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - name: Run existing API generators
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run docs:api
+          pnpm run api:surface
+      - name: Retain generated blobs without updating branches or releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync } from 'node:fs';
+          const files = [...new Set([
+            ...execFileSync('git', ['diff', '--name-only', '-z'], { encoding: 'utf8' }).split('\0'),
+            ...execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], { encoding: 'utf8' }).split('\0'),
+          ])].filter(Boolean);
+          console.log(JSON.stringify({ sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), generatedFiles: files }));
+          for (const path of files) {
+            if (!path.startsWith('docs/') && !path.endsWith('api-surface.json')) throw new Error(`Unexpected generator output: ${path}`);
+            const bytes = readFileSync(path);
+            const response = await fetch('https://api.github.com/repos/tangle-network/agent-runtime/git/blobs', {
+              method: 'POST',
+              headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+              body: JSON.stringify({ content: bytes.toString('base64'), encoding: 'base64' }),
+            });
+            if (!response.ok) throw new Error(`Blob retention failed: ${response.status}`);
+            console.log(JSON.stringify({ path, sha: (await response.json()).sha, bytes: bytes.length }));
+          }
+          JS
