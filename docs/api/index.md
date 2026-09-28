@@ -8028,6 +8028,51 @@ Runs the exact node profile on one scenario. `ctx.search` names the attempt: its
 its run id (key remote work by it) and its trace. Throw `SearchEnvironmentFault` when the
 environment, not the profile, ended the run; the kernel then runs a fresh attempt.
 
+##### executionRunId?
+
+> `optional` **executionRunId?**: (`artifact`) => `string` \| `null`
+
+Nested execution tree a finished cell's artifact recorded, if it ran an AgentGraph.
+
+###### Parameters
+
+###### artifact
+
+`TArtifact`
+
+###### Returns
+
+`string` \| `null`
+
+##### recordCell?
+
+> `optional` **recordCell?**: (`input`) => `RunRecord` \| `Promise`\<`RunRecord`\>
+
+Build the authoritative RunRecord for a scored passed or failed cell after judging and cost reconciliation,
+before the attempt is persisted or its `cell-settled` event is appended.
+Eval binds the returned record to the same ledger event. A throw stops the
+search; resume reuses the campaign's cached cell before trying again.
+
+###### Parameters
+
+###### input
+
+###### cell
+
+`CampaignCellResult`\<`TArtifact`\>
+
+###### search
+
+[`SearchCellContext`](#searchcellcontext)
+
+###### result
+
+`SearchCellResult`
+
+###### Returns
+
+`RunRecord` \| `Promise`\<`RunRecord`\>
+
 ##### workerSlots?
 
 > `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-7)

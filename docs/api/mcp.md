@@ -5065,7 +5065,7 @@ Best-effort hint — coder loops can take minutes-to-hours.
 
 ##### kind
 
-> **kind**: `"artifact"` \| `"outcome"` \| `"delegation"`
+> **kind**: `"outcome"` \| `"artifact"` \| `"delegation"`
 
 **`Experimental`**
 
