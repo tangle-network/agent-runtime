@@ -80,7 +80,7 @@ The pass rule is fixed: each rerun row equals the recorded row, field for field,
 Credit only the cells that the check reran and matched; a sample can refuse a certificate, never extend credit.
 A null that is no search, such as a spec conflict or a gap list, names each item with evidence; it counts when the held-back check reproduces each.
 A null without a certificate, or without a registered reproducer, is recorded as "stopped, unverified", never as success.
-A null inside a range the source or a registered earlier run already searched adds nothing.
+A null inside a range the source checked or an earlier reproduced null covered adds nothing.
 Tell agents the checker may be wrong; credit a checker-defect report the same way, once someone outside the run reproduces the defect.
 Measured elsewhere: a credited exit cut one model's test cheating from 54% to 9%, while prohibitions barely moved another's.
 Measured: an in-run check that accepted a documented null made it the cheapest hack in 11 of 16 blind judgments.
