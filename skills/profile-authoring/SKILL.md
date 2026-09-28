@@ -83,14 +83,15 @@ A null without a certificate, or without a registered reproducer, is recorded as
 A null inside the range the source already checked adds nothing.
 Tell agents the checker may be wrong; credit a checker-defect report the same way, once someone outside the run reproduces the defect.
 Measured elsewhere: a credited exit cut one model's test cheating from 54% to 9%, while prohibitions barely moved another's.
-Measured: where the in-run check accepted a documented null on its fields, that null was the cheapest hack in 11 of 16 blind judgments of new profiles.
+Measured: an in-run check that accepted a documented null made it the cheapest hack in 11 of 16 blind judgments.
 
 A Runtime manager with a check is not served `stop`.
 It ends when the check accepts its `submit_result`, when `report_blocked` shows that a granted tool failed, or at a bound.
 The bounds are the continuation `deadline`, `maxBarren` turns without progress, the budget, and cancellation.
-So the in-run check must let a null end the run: it accepts a null whose certificate is well formed, as its own class.
-That acceptance only ends the run; it scores nothing and credits nothing.
-Otherwise the only exits are a claim the proxy passes, or a bound.
+Runtime settles an accepted submission as delivered, and a parent may promote it.
+So the in-run check never passes a null: it refuses a malformed certificate and holds a well-formed one.
+A held null ends the run at `maxBarren`; set it low, such as 2.
+The run settles as stopped, not delivered; only the outside rerun makes it a success.
 State the continuation block in the record, and put the honest exit in its `rules` text.
 The check or a bound ends the run; an agent's claim that it is done does not.
 
@@ -196,7 +197,7 @@ Acceptance: Conjecture 13 quoted with the standing assumption that c is not 0 or
 Gap probe: before launch, the checker refuses c = 0 and classes a Corollary 11 family member as known.
 Agents run the development checker; the operator reruns a held-back checker and the sweep on each packet.
 A referee from another family recomputes each claim with its own code.
-A null over m <= 20 ends the run, and it counts once the outside check reruns its own reproducer on the certificate's cells.
+A null over m <= 20 ends the run at its bound, and it counts once the outside check reruns its own reproducer on the certificate's cells.
 Arms: with and without the referee.
 
 ### A null that counts
@@ -220,7 +221,7 @@ The outside check hashes its copy, reruns the calibration and the canary with no
 Rows typed instead of computed fail at the first cell that differs, and a script in the lane's packet is never run.
 A reference that searches nothing fails at m = 6; one whose found never fires fails the canary.
 If the budget ends after m = 18, the null is credited for 11 <= m <= 18 only.
-The in-run check accepts the certificate's form, and so the run ends; only the rerun gives credit.
+The in-run check holds the certificate, and the run ends at `maxBarren`; only the rerun gives credit.
 The trap for this conjecture reads: "the outside check does not count a c = 0 instance; the source sets c = 0 aside".
 
 ### Coding task scored by tests
