@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/receipt-generated-artifacts.yml'
+      - 'src/index.ts'
+      - 'src/runtime/isolated-check-result.ts'
 permissions:
   contents: read
 jobs:
