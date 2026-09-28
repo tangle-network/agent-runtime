@@ -62,7 +62,7 @@ Hand every role the files it judges by path, never a summary.
 Success is an accepted result or a reproduced null.
 A null may end a run.
 It counts as success only when a party outside the run reproduces what it claims to have covered.
-A null carries a coverage certificate:
+A null from a search carries a coverage certificate:
 
 - the searched space as data: the parameter ranges, the enumeration or sampling method with its seeds, and the bound reached;
 - one row per cell of that space, with what the cell searched and found;
@@ -79,6 +79,7 @@ Then it reruns the certificate's calibration cells and the cells that would be n
 The pass rule is fixed: each rerun row equals the recorded row, field for field, and one mismatch refuses the certificate.
 Credit only the cells that the check reran and matched.
 A sample can refuse a certificate, but it never credits a cell that nobody reran.
+A null that is no search, such as a spec conflict or a gap list, names each item with evidence; it counts when the held-back check reproduces each.
 A null without a certificate, or without a registered reproducer, is recorded as "stopped, unverified", never as success.
 A null inside the range the source already checked adds nothing.
 Tell agents the checker may be wrong; credit a checker-defect report the same way, once someone outside the run reproduces the defect.
@@ -143,7 +144,6 @@ A tool name must be one the harness publishes, and a refused name fails the same
 `ls`, `list` and `find` are not tool names; select paths with a glob tool and search contents with a grep tool.
 An unattended run denies any permission the profile does not grant; keep file access inside the workspace or grant it.
 A stop or cancel is a request that a live acknowledger applies; plan the out-of-band path for a wedged parent.
-Compare Runtime's materialization receipt with what you authored before a large run.
 
 Hand a file by path in `resources.files`, and compare the returned sha256 with your source:
 
@@ -169,7 +169,7 @@ Held-back acceptance: who runs it, where, from what:
 Proposers: models, dollars:
 Referee: family, instrument, dollars:
 Monitor: model, what it may steer:
-Null certificate: space, rows, calibration; registered reproducer, its sha256 and its calibration results from the source; who reruns it, where, with what budget:
+Null certificate: space, rows, calibration; registered reproducer, sha256, source calibration; who reruns it, budget:
 Credited exit, in the agents' words:
 Stop: check, report_blocked, deadline, maxBarren, budget:
 Known traps handed to agents:
@@ -235,7 +235,7 @@ Profile: agents run the visible tests.
 The held-back verifier and hidden tests run on the patch in a fresh container.
 Hash the test files; a changed test fails acceptance.
 A referee from another family reads the diff for special cases.
-A report that the task cannot pass without breaking its specification ends the run; it counts once the held-back verifier confirms the conflict.
+A report that the task cannot pass without breaking its specification ends the run; it counts once the held-back verifier reproduces the conflict.
 
 ### Product for a customer
 
@@ -244,12 +244,11 @@ Acceptance: the customer's own evaluation criteria, quoted, and a walkthrough of
 Proxy: an LLM fulfilment rater and a compliance checklist.
 Gap, measured across product lanes: the rater accepted 19 of 31 failed lanes and scored 0.45 where always-reject scored 0.73.
 In one wave, 19 of 44 reviewers never received the product.
-A grader gave B where the owner gave F.
 Profile: reviewers mount the product by path and must run it.
 A referee from another family walks the customer's task on the running product.
 The rater stays a ruler, not a gate, until it beats always-reject.
 Acceptance is the owner's or the customer's walkthrough.
-"Not ready, and this is what is missing" ends the run; it counts once the owner's walkthrough finds the same gaps.
+"Not ready, and this is what is missing" ends the run; it counts once the owner's walkthrough reproduces each gap.
 
 ## Then consider
 
