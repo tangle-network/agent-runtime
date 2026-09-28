@@ -70,8 +70,7 @@ A null carries a coverage certificate:
 - the sha256 of the reproducer that printed the rows.
 
 The reproducer belongs to the check, not to the run.
-Register it before launch with its sha256, the statements it searches, and its own calibration: cells and the results the source gives.
-A certificate for any other statement is not covered.
+Register it before launch with its sha256, the statements it covers, and its own calibration: cells with the source's results, and a canary where the predicate certified as zero must fire.
 Agents may run it; they never write it.
 The outside check reruns its own copy, never code from the run: a script can print the recorded rows.
 Its copy's hash must equal the registered hash and the certificate's.
@@ -205,8 +204,7 @@ Arms: with and without the referee.
 Wang and Zheng checked Conjecture 13 for 2 <= m <= 10.
 Two lanes searched every (m, d, c) with c not in {0, 1} to m = 20, found no counterexample, and wrote a table.
 Nobody outside the run could check that table.
-Before the next launch, the operator registers a reference search for one m, its sha256, and its calibration: Theorem 9 gives 4 PcN pairs at m = 6 and 8 at m = 10, and the authors found no others.
-Lanes may run it.
+Before the next launch, the operator registers a reference search for one m, its sha256, and its calibration: Theorem 9 gives 4 PcN pairs at m = 6 and 8 at m = 10, and a canary drops family (2) so those pairs must count as found.
 As a certificate, the null reads:
 
 ```json
@@ -214,13 +212,13 @@ As a certificate, the null reads:
   "within": "each unit d modulo 2^m - 1, one per Frobenius orbit, and each c outside {0, 1}"},
  "rows": [{"cell": {"m": 12}, "searched": 585442, "positives": 28, "found": 0}],
  "calibration": [{"cell": {"m": 6}, "why": "Theorem 9: x^5 is PcN for c in GF(4) outside {0, 1}"}],
- "reference": "sha256:2c5418f854c1..."}
+ "reference": "sha256:5d198f4fc2d9..."}
 ```
 
 The rows list every m; one is shown.
-The outside check hashes its copy, then reruns it with no network: m = 6 and 10 against the registered counts, then m = 11 to 20, then the rest.
+The outside check hashes its copy, reruns the calibration and the canary with no network, then m = 11 to 20, then the rest.
 Rows typed instead of computed fail at the first cell that differs, and a script in the lane's packet is never run.
-A reference that searches nothing fails at m = 6, where the source gives 4.
+A reference that searches nothing fails at m = 6; one whose found never fires fails the canary.
 If the budget ends after m = 18, the null is credited for 11 <= m <= 18 only.
 The in-run check accepts the certificate's form, and so the run ends; only the rerun gives credit.
 The trap for this conjecture reads: "the outside check does not count a c = 0 instance; the source sets c = 0 aside".
