@@ -9155,6 +9155,22 @@ All valid delegated-loop mode names — used for validation and CLI surfaces.
 
 Default Tangle Router base URL used when no env override is set.
 
+***
+
+### isolatedCheckBoxEvidenceSchema
+
+> `const` **isolatedCheckBoxEvidenceSchema**: `ZodType`\<[`IsolatedCheckBoxEvidence`](runtime.md#isolatedcheckboxevidence)\>
+
+Decode the existing execution contract without widening or reinterpreting its evidence.
+
+***
+
+### isolatedCheckResultSchema
+
+> `const` **isolatedCheckResultSchema**: `ZodType`\<[`IsolatedCheckResult`](runtime.md#isolatedcheckresult)\>
+
+Execution evidence, not a verdict about task correctness or permission to execute again.
+
 ## Functions
 
 ### createIterableBackend()

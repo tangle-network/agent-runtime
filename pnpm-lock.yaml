@@ -48,6 +48,9 @@ catalogs:
     typescript:
       specifier: 6.0.3
       version: 6.0.3
+    zod:
+      specifier: 4.5.4
+      version: 4.5.4
 
 importers:
 
@@ -68,6 +71,9 @@ importers:
       tar-stream:
         specifier: 3.2.1
         version: 3.2.1
+      zod:
+        specifier: 'catalog:'
+        version: 4.5.4
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'

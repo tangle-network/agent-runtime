@@ -314,6 +314,10 @@ export {
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
+export {
+  isolatedCheckBoxEvidenceSchema,
+  isolatedCheckResultSchema,
+} from './runtime/isolated-check-result'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
   RuntimeDecisionEvidenceRef,

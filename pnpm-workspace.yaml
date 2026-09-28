@@ -32,6 +32,7 @@ catalog:
   publint: 0.3.24
   tsdown: 0.22.14
   tsx: 4.23.12
+  zod: 4.5.4
   # TypeDoc 0.28.20 and the repository's AST-based test helpers require the
   # compiler API that TypeScript 7 removes. The packed-consumer check below
   # keeps an exact TypeScript 7.0.2 alias for consumer compatibility proof.

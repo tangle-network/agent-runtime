@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 302 exports.
+Import from `@tangle-network/agent-runtime` — 304 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -104,6 +104,8 @@ Import from `@tangle-network/agent-runtime` — 302 exports.
 | `worktreeLoopRunner` | function | `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a |
 | `DEFAULT_ROUTER_BASE_URL` | const | Default Tangle Router base URL used when no env override is set. |
 | `DELEGATED_LOOP_MODES` | const | All valid delegated-loop mode names — used for validation and CLI surfaces. |
+| `isolatedCheckBoxEvidenceSchema` | const | Decode the existing execution contract without widening or reinterpreting its evidence. |
+| `isolatedCheckResultSchema` | const | Execution evidence, not a verdict about task correctness or permission to execute again. |
 | `optimizerMethod` | const | The shared method block every build/author prompt embeds. Domain framing |
 | `PROMPT_INSTRUCTION_COMPONENT_PREFIX` | const | Stable component-name prefix used for `profile.prompt.instructions`. |
 | `promptInstructionsProfileComponents` | const | Canonical `ImproveProfileComponents` mapping for the ordered |
