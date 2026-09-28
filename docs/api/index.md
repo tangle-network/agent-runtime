@@ -9155,6 +9155,22 @@ All valid delegated-loop mode names — used for validation and CLI surfaces.
 
 Default Tangle Router base URL used when no env override is set.
 
+***
+
+### isolatedCheckBoxEvidenceSchema
+
+> `const` **isolatedCheckBoxEvidenceSchema**: `ZodType`\<[`IsolatedCheckBoxEvidence`](runtime.md#isolatedcheckboxevidence)\>
+
+Decode the existing execution contract without widening or reinterpreting its evidence.
+
+***
+
+### isolatedCheckResultSchema
+
+> `const` **isolatedCheckResultSchema**: `ZodType`\<[`IsolatedCheckResult`](runtime.md#isolatedcheckresult)\>
+
+Execution evidence, not a verdict about task correctness or permission to execute again.
+
 ## Functions
 
 ### createIterableBackend()
@@ -10751,26 +10767,6 @@ raw input in the wire id and were not even valid hex (the contract's own `non-he
 rejected what this module exported). Exported as the ONE wire-id normalization every writer
 shares — `traceContextToEnv` builds the child's `TRACEPARENT` through these same functions, so
 a parent's exported spans and the context it hands its children always name the same trace.
-
-#### Parameters
-
-##### id
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### padTraceId()
-
-> **padTraceId**(`id`): `string`
-
-Trace-id counterpart of [padSpanId](#padspanid): valid W3C trace ids pass through (dash-stripped when
- UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
- `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run.
 
 #### Parameters
 
