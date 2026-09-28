@@ -70,10 +70,12 @@ A null carries a coverage certificate:
 - the sha256 of the reproducer that printed the rows.
 
 The reproducer belongs to the check, not to the run.
-Write or review it before launch, and register it with the held-back acceptance.
-The run may read it and run it; it never writes it.
-The outside check reruns its own copy on the certificate's cells, never code from the run: a script can print the recorded rows.
-It reruns every calibration cell first, then the cells that would be new, until its budget ends.
+Register it before launch with its sha256 and its own calibration: cells and the results the source gives.
+Agents may run it; they never write it.
+The outside check reruns its own copy, never code from the run: a script can print the recorded rows.
+Its copy's hash must equal the registered hash and the certificate's.
+It reruns the registered calibration first and credits nothing on a miss: a reproducer that searches nothing reproduces an empty row too.
+Then it reruns the certificate's calibration cells and the cells that would be new, until its budget ends.
 The pass rule is fixed: each rerun row equals the recorded row, field for field, and one mismatch refuses the certificate.
 Credit only the cells that the check reran and matched.
 A sample can refuse a certificate, but it never credits a cell that nobody reran.
@@ -166,7 +168,7 @@ Held-back acceptance: who runs it, where, from what:
 Proposers: models, dollars:
 Referee: family, instrument, dollars:
 Monitor: model, what it may steer:
-Null certificate: space, rows, calibration; registered reproducer and its sha256; who reruns it, where, with what budget:
+Null certificate: space, rows, calibration; registered reproducer, its sha256 and its calibration results from the source; who reruns it, where, with what budget:
 Credited exit, in the agents' words:
 Stop: check, report_blocked, deadline, maxBarren, budget:
 Known traps handed to agents:
@@ -202,8 +204,8 @@ Arms: with and without the referee.
 Wang and Zheng checked Conjecture 13 for 2 <= m <= 10.
 Two lanes searched every (m, d, c) with c not in {0, 1} to m = 20, found no counterexample, and wrote a table.
 Nobody outside the run could check that table.
-Before the next launch, the operator writes a reference search that prints one m's row, and registers its sha256.
-Lanes mount it read-only and may run it.
+Before the next launch, the operator registers a reference search for one m, its sha256, and its calibration: Theorem 9 gives 4 PcN pairs at m = 6 and 8 at m = 10, and the authors found no others.
+Lanes may run it.
 As a certificate, the null reads:
 
 ```json
@@ -215,9 +217,9 @@ As a certificate, the null reads:
 ```
 
 The rows list every m; one is shown.
-The outside check reruns its own copy of the reference in a container with no network: m = 6, then m = 11 to 20, then m <= 10.
+The outside check hashes its copy, then reruns it with no network: m = 6 and 10 against the registered counts, then m = 11 to 20, then the rest.
 Rows typed instead of computed fail at the first cell that differs, and a script in the lane's packet is never run.
-A reference that searches nothing fails at m = 6, where positives must appear.
+A reference that searches nothing fails at m = 6, where the source gives 4.
 If the budget ends after m = 18, the null is credited for 11 <= m <= 18 only.
 The in-run check accepts the certificate's form, and so the run ends; only the rerun gives credit.
 The trap for this conjecture reads: "the outside check does not count a c = 0 instance; the source sets c = 0 aside".
