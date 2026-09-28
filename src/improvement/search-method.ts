@@ -218,6 +218,8 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     method,
     claim: inputClaim,
     agent,
+    executionRunId,
+    recordCell,
     trainScenarios,
     selectionScenarios,
     testScenarios,
@@ -426,7 +428,17 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
           ? { expectUsage: 'off' as const }
           : {}),
         scenarios,
-        judges: prepared.judges,
+        judges: prepared.judges.map((judge) => ({
+          ...judge,
+          async score(input) {
+            try {
+              return await judge.score(input)
+            } catch (error) {
+              if (isSearchEnvironmentFault(error)) fault = error
+              throw error
+            }
+          },
+        })),
         seed,
         reps,
         storage,
@@ -450,10 +462,28 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
       })
       const cell = campaign.cells[0]
       if (!cell) throw new Error(`improve(): cell ${work.cellId} produced no campaign cell`)
-      return faultResult(
-        campaignCellSearchResult(cell, { execution, lane: lane.name }),
-        cell.errorStage === 'dispatch' ? fault : undefined,
+      const result = campaignCellSearchResult(cell, { execution, lane: lane.name })
+      const execRunId = cell.error ? null : (executionRunId?.(cell.artifact) ?? null)
+      const settled = faultResult(
+        execRunId && context.trace
+          ? {
+              ...result,
+              traceRef: {
+                traceId: context.trace.traceId,
+                execRunId,
+                spansWritten: null,
+                spansDropped: null,
+              },
+            }
+          : result,
+        fault,
       )
+      return recordCell && settled.outcome.status === 'passed'
+        ? {
+            ...settled,
+            recordCell: (finalResult) => recordCell({ cell, search: context, result: finalResult }),
+          }
+        : settled
     },
   })
 

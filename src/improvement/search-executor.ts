@@ -42,6 +42,7 @@ import {
   type PaidCallResult,
   type PendingCostCallView,
   type RunPaidCallInput,
+  type RunRecord,
 } from '@tangle-network/agent-eval'
 import {
   type CampaignStorage,
@@ -305,7 +306,12 @@ export interface SearchExecutorOptions<TArtifact> {
   /** Run one attempt. Report an environment fault as an `errored` retryable outcome; throw only
    *  for a failure that must stop the search. The executor replaces the result's accounting
    *  with the receipts tagged with the attempt's run id. */
-  runAttempt(attempt: SearchAttempt<TArtifact>): Promise<SearchCellResult>
+  runAttempt(attempt: SearchAttempt<TArtifact>): Promise<
+    SearchCellResult & {
+      /** Mint from the final attempt accounting before adoption or ledger settlement. */
+      recordCell?: (result: SearchCellResult) => RunRecord | Promise<RunRecord>
+    }
+  >
   /** The search's cost ledger. */
   costLedger: CostLedgerHandle
   /** What the search runs, recorded on an attempt the search's own stop interrupted. */
@@ -396,19 +402,25 @@ export function searchExecutor<TArtifact>(
           trace: trace.ids,
         })
         const tags = searchCallTags(work.searchId, { run: work.runId, lane: lane.name })
-        const measured = await options.runAttempt({
+        const { recordCell, ...measured } = await options.runAttempt({
           work,
           lane,
           context,
           costLedger: attemptLedger(options.costLedger, lane, tags),
           span: trace.span,
         })
+        const traceRef = await trace.finish(measured)
+        const execRunId =
+          measured.traceRef && 'execRunId' in measured.traceRef ? measured.traceRef.execRunId : null
         result = {
           ...measured,
           accounting: attemptAccounting(options.costLedger, lane, tags),
           queueMs,
           placement: { lane: lane.name, boxId: measured.placement?.boxId ?? null },
-          traceRef: await trace.finish(measured),
+          traceRef: execRunId && 'traceId' in traceRef ? { ...traceRef, execRunId } : traceRef,
+        }
+        if (!work.signal.aborted && recordCell && result.outcome.status === 'passed') {
+          result.runRecord = await recordCell(result)
         }
       } finally {
         hold.release(result)

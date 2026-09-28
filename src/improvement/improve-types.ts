@@ -1,10 +1,12 @@
-import type { MaximumCharge, ProposalFinding } from '@tangle-network/agent-eval'
+import type { MaximumCharge, ProposalFinding, RunRecord } from '@tangle-network/agent-eval'
 import type {
+  CampaignCellResult,
   CampaignScenarioIdentity,
   CompareOptimizationMethodsOptions,
   OptimizationMethod,
   OptimizationMethodComparison,
   SearchAllocator,
+  SearchCellResult,
   SearchClaim,
   SearchClaimVerification,
   SearchHistoryReceipt,
@@ -207,6 +209,19 @@ export type ImproveSearchOptions<TScenario extends Scenario, TArtifact> = Omit<
    * its run id (key remote work by it) and its trace. Throw `SearchEnvironmentFault` when the
    * environment, not the profile, ended the run; the kernel then runs a fresh attempt. */
   agent: ImproveSearchAgent<TScenario, TArtifact>
+  /** Nested execution tree a finished cell's artifact recorded, if it ran an AgentGraph. */
+  executionRunId?: (artifact: TArtifact) => string | null
+  /**
+   * Build the authoritative RunRecord after judging and cost reconciliation,
+   * before the attempt is persisted or its `cell-settled` event is appended.
+   * Eval binds the returned record to the same ledger event. A throw stops the
+   * search; resume reuses the campaign's cached cell before trying again.
+   */
+  recordCell?: (input: {
+    cell: CampaignCellResult<TArtifact>
+    search: SearchCellContext
+    result: SearchCellResult
+  }) => RunRecord | Promise<RunRecord>
   /** Bounds working cells across every search that shares this allocator. */
   workerSlots?: WorkerSlots
   /** Fleet dollars shared across searches: a cell on a hard lane holds its lane's `cellUsd`
