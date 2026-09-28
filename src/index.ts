@@ -9,6 +9,8 @@
  * See `docs/concepts.md` (mental model) and `README.md` (quickstart).
  */
 
+export { isolatedCheckBoxEvidenceSchema, isolatedCheckResultSchema } from './runtime/isolated-check-result'
+
 // ── Re-exports from @tangle-network/agent-eval ───────────────────────
 export type {
   ControlBudget,
@@ -293,7 +295,6 @@ export type {
   OtelAttribute,
   OtelExportConfig,
   OtelExporter,
-  OtelExportStats,
   OtelSpan,
   RuntimeEventOtelOptions,
 } from './otel-export'
@@ -307,7 +308,6 @@ export {
   generateSpanId,
   loopEventToOtelSpan,
   padSpanId,
-  padTraceId,
   toOtelAttributes,
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────
@@ -323,7 +323,6 @@ export type {
   RuntimeHookErrorContext,
   RuntimeHookEvent,
   RuntimeHookPhase,
-  RuntimeHooks,
   RuntimeHookTarget,
 } from './runtime-hooks'
 export {
