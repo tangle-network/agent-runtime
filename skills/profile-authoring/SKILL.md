@@ -92,7 +92,7 @@ The bounds are the continuation `deadline`, `maxBarren` turns without progress, 
 Runtime settles an accepted submission as delivered, and a parent may promote it.
 So the in-run check never passes a null: it refuses a malformed certificate and holds a well-formed one.
 A held null ends the run at `maxBarren`; set it low, such as 2.
-The run settles as stopped, not delivered; only the outside rerun makes it a success.
+The run settles as stopped, not delivered.
 State the continuation block in the record, and put the honest exit in its `rules` text.
 The check or a bound ends the run; an agent's claim that it is done does not.
 
@@ -144,6 +144,7 @@ A tool name must be one the harness publishes, and a refused name fails the same
 `ls`, `list` and `find` are not tool names; select paths with a glob tool and search contents with a grep tool.
 An unattended run denies any permission the profile does not grant; keep file access inside the workspace or grant it.
 A stop or cancel is a request that a live acknowledger applies; plan the out-of-band path for a wedged parent.
+Compare Runtime's materialization receipt with what you authored before a large run.
 
 Hand a file by path in `resources.files`, and compare the returned sha256 with your source:
 
@@ -188,7 +189,6 @@ The checker refused only c = 1, and its admission decoys came from that transcri
 Workers held the same checker that scored claims, and it counted any verified claim as new.
 All 3 lanes on that conjecture filed 39 "verified-new" claims, every one at c = 0.
 The paper assumes c != 0 throughout; at c = 0 the question is only whether x^d permutes the field.
-One claim page said "the checker refuses only c = 1".
 The real yield was 0.
 
 After:
