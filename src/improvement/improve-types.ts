@@ -212,7 +212,7 @@ export type ImproveSearchOptions<TScenario extends Scenario, TArtifact> = Omit<
   /** Nested execution tree a finished cell's artifact recorded, if it ran an AgentGraph. */
   executionRunId?: (artifact: TArtifact) => string | null
   /**
-   * Build the authoritative RunRecord after judging and cost reconciliation,
+   * Build the authoritative RunRecord for a scored passed or failed cell after judging and cost reconciliation,
    * before the attempt is persisted or its `cell-settled` event is appended.
    * Eval binds the returned record to the same ledger event. A throw stops the
    * search; resume reuses the campaign's cached cell before trying again.

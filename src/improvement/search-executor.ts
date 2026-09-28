@@ -419,7 +419,7 @@ export function searchExecutor<TArtifact>(
           placement: { lane: lane.name, boxId: measured.placement?.boxId ?? null },
           traceRef: execRunId && 'traceId' in traceRef ? { ...traceRef, execRunId } : traceRef,
         }
-        if (!work.signal.aborted && recordCell && result.outcome.status === 'passed') {
+        if (!work.signal.aborted && recordCell && result.outcome.status !== 'errored') {
           result.runRecord = await recordCell(result)
         }
       } finally {

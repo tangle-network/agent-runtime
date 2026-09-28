@@ -478,7 +478,7 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
           : result,
         fault,
       )
-      return recordCell && settled.outcome.status === 'passed'
+      return recordCell && settled.outcome.status !== 'errored'
         ? {
             ...settled,
             recordCell: (finalResult) => recordCell({ cell, search: context, result: finalResult }),
