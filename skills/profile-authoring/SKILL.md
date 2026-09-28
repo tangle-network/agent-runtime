@@ -77,8 +77,7 @@ Its copy's hash must equal the registered hash and the certificate's.
 It reruns the registered calibration first and credits nothing on a miss: a reproducer that searches nothing reproduces an empty row too.
 Then it reruns the certificate's calibration cells and the cells that would be new, until its budget ends.
 The pass rule is fixed: each rerun row equals the recorded row, field for field, and one mismatch refuses the certificate.
-Credit only the cells that the check reran and matched.
-A sample can refuse a certificate, but it never credits a cell that nobody reran.
+Credit only the cells that the check reran and matched; a sample can refuse a certificate, never extend credit.
 A null that is no search, such as a spec conflict or a gap list, names each item with evidence; it counts when the held-back check reproduces each.
 A null without a certificate, or without a registered reproducer, is recorded as "stopped, unverified", never as success.
 A null inside the range the source already checked adds nothing.
@@ -89,8 +88,9 @@ Measured: an in-run check that accepted a documented null made it the cheapest h
 A Runtime manager with a check is not served `stop`.
 It ends when the check accepts its `submit_result`, when `report_blocked` shows that a granted tool failed, or at a bound.
 The bounds are the continuation `deadline`, `maxBarren` turns without progress, the budget, and cancellation.
-Runtime settles an accepted submission as delivered, and a parent may promote it.
-So the in-run check never passes a null: it refuses a malformed certificate and holds a well-formed one.
+Runtime settles an accepted submission as delivered, and a parent may promote it; it keeps no refused one.
+So the run records its certificate on a page, such as a Knowledge page, where the outside check reads it.
+The in-run check never passes a null: it refuses a malformed certificate and holds a well-formed one.
 A held null ends the run at `maxBarren`; set it low, such as 2.
 The run settles as stopped, not delivered.
 State the continuation block in the record, and put the honest exit in its `rules` text.
@@ -230,7 +230,6 @@ Audience: the task's author, and a maintainer who decides whether to merge.
 Proxy: the visible tests.
 Gap: a change that passes the tests and that a maintainer rejects, such as a special-cased input, an edited test or a skipped check.
 Measured: in an 8-lane Terminal-Bench batch, Runtime marked 6 lanes as winners and the task's verifier passed 1 of them.
-Measured elsewhere: 0 of 15 reviewed agent pull requests were mergeable as-is, including 4 that passed the tests.
 Profile: agents run the visible tests.
 The held-back verifier and hidden tests run on the patch in a fresh container.
 Hash the test files; a changed test fails acceptance.
