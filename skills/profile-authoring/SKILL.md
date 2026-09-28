@@ -67,10 +67,17 @@ A null carries a coverage certificate:
 - the searched space as data: the parameter ranges, the enumeration or sampling method with its seeds, and the bound reached;
 - one row per cell of that space, with what the cell searched and found;
 - a calibration cell where the search must find objects that exist, with the source's reason;
-- a reproducer that the outside check runs without the lane, on every cell or on a declared random sample, with a pass rule: each rerun row equals the recorded row.
+- the sha256 of the reproducer that printed the rows.
 
-The outside check draws the sample after the run, so the lane cannot prepare only those cells.
-A null without a certificate is recorded as "stopped, unverified", never as success.
+The reproducer belongs to the check, not to the run.
+Write or review it before launch, and register it with the held-back acceptance.
+The run may read it and run it; it never writes it.
+The outside check reruns its own copy on the certificate's cells, never code from the run: a script can print the recorded rows.
+It reruns every calibration cell first, then the cells that would be new, until its budget ends.
+The pass rule is fixed: each rerun row equals the recorded row, field for field, and one mismatch refuses the certificate.
+Credit only the cells that the check reran and matched.
+A sample can refuse a certificate, but it never credits a cell that nobody reran.
+A null without a certificate, or without a registered reproducer, is recorded as "stopped, unverified", never as success.
 A null inside the range the source already checked adds nothing.
 Tell agents the checker may be wrong; credit a checker-defect report the same way, once someone outside the run reproduces the defect.
 Measured elsewhere: a credited exit cut one model's test cheating from 54% to 9%, while prohibitions barely moved another's.
@@ -159,7 +166,7 @@ Held-back acceptance: who runs it, where, from what:
 Proposers: models, dollars:
 Referee: family, instrument, dollars:
 Monitor: model, what it may steer:
-Null certificate: space, rows, calibration, reproducer, sample; who reruns it, where:
+Null certificate: space, rows, calibration; registered reproducer and its sha256; who reruns it, where, with what budget:
 Credited exit, in the agents' words:
 Stop: check, report_blocked, deadline, maxBarren, budget:
 Known traps handed to agents:
@@ -187,7 +194,7 @@ Acceptance: Conjecture 13 quoted with the standing assumption that c is not 0 or
 Gap probe: before launch, the checker refuses c = 0 and classes a Corollary 11 family member as known.
 Agents run the development checker; the operator reruns a held-back checker and the sweep on each packet.
 A referee from another family recomputes each claim with its own code.
-A null over m <= 20 ends the run, and it counts once the outside check reruns its certificate.
+A null over m <= 20 ends the run, and it counts once the outside check reruns its own reproducer on the certificate's cells.
 Arms: with and without the referee.
 
 ### A null that counts
@@ -195,6 +202,8 @@ Arms: with and without the referee.
 Wang and Zheng checked Conjecture 13 for 2 <= m <= 10.
 Two lanes searched every (m, d, c) with c not in {0, 1} to m = 20, found no counterexample, and wrote a table.
 Nobody outside the run could check that table.
+Before the next launch, the operator writes a reference search that prints one m's row, and registers its sha256.
+Lanes mount it read-only and may run it.
 As a certificate, the null reads:
 
 ```json
@@ -202,14 +211,14 @@ As a certificate, the null reads:
   "within": "each unit d modulo 2^m - 1, one per Frobenius orbit, and each c outside {0, 1}"},
  "rows": [{"cell": {"m": 12}, "searched": 585442, "positives": 28, "found": 0}],
  "calibration": [{"cell": {"m": 6}, "why": "Theorem 9: x^5 is PcN for c in GF(4) outside {0, 1}"}],
- "reproducer": {"files": {"reproduce.py": "..."}, "run": ["python3", "reproduce.py"], "secondsPerCell": 900},
- "check": {"cells": 3}}
+ "reference": "sha256:2c5418f854c1..."}
 ```
 
 The rows list every m; one is shown.
-The outside check reruns m = 6 and 3 cells that it draws, in a container with no network.
-Rows typed instead of computed fail on the first drawn cell.
-A reproducer that searches nothing fails at m = 6, where positives must appear.
+The outside check reruns its own copy of the reference in a container with no network: m = 6, then m = 11 to 20, then m <= 10.
+Rows typed instead of computed fail at the first cell that differs, and a script in the lane's packet is never run.
+A reference that searches nothing fails at m = 6, where positives must appear.
+If the budget ends after m = 18, the null is credited for 11 <= m <= 18 only.
 The in-run check accepts the certificate's form, and so the run ends; only the rerun gives credit.
 The trap for this conjecture reads: "the outside check does not count a c = 0 instance; the source sets c = 0 aside".
 
