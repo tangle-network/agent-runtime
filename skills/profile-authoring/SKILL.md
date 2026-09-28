@@ -70,7 +70,8 @@ A null carries a coverage certificate:
 - the sha256 of the reproducer that printed the rows.
 
 The reproducer belongs to the check, not to the run.
-Register it before launch with its sha256 and its own calibration: cells and the results the source gives.
+Register it before launch with its sha256, the statements it searches, and its own calibration: cells and the results the source gives.
+A certificate for any other statement is not covered.
 Agents may run it; they never write it.
 The outside check reruns its own copy, never code from the run: a script can print the recorded rows.
 Its copy's hash must equal the registered hash and the certificate's.
