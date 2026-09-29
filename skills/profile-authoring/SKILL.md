@@ -95,6 +95,13 @@ An always-false acceptance placeholder alone cannot distinguish useful work from
 Preserve genuine no-progress limits, deadlines, budgets, and cancellation.
 Choose `maxBarren` from the task's measured feedback cadence; pending assessment does not justify a universally low value.
 
+For managers, state how they wait for descendants and collect their artifacts before returning.
+A nested manager returning can end its scope and cancel live descendants.
+Use the granted `await_event` tool while required descendant work remains live.
+A bounded event wait can return before the worker finishes; inspect its state and continue waiting when appropriate.
+A background shell timer does not establish Runtime re-entry.
+Require each descendant to retain partial work where its parent can recover it after interruption.
+
 Retain certificates and partial work where the outside assessor can read exact bytes.
 A certificate becomes accepted only through the registered outside check.
 Record the actual termination cause separately from the research outcome.
