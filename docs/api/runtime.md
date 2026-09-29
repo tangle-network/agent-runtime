@@ -8369,6 +8369,12 @@ Durable join from one provider box to the verified bytes retained before cleanup
 
 > `readonly` **environmentId**: `string`
 
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+Immutable authored AgentProfile identity; run records retain its content.
+
 ##### providerSessionId
 
 > `readonly` **providerSessionId**: `string` \| `null`
@@ -9926,6 +9932,12 @@ through them when the driver plans N tasks. Mutually exclusive with
 
 > **ctx**: [`ExecCtx`](#execctx)
 
+##### evidenceRetention?
+
+> `optional` **evidenceRetention?**: [`SandboxEvidenceRetentionPort`](#sandboxevidenceretentionport)
+
+Durable Sandbox evidence capture required before any worker box cleanup.
+
 ##### maxIterations?
 
 > `optional` **maxIterations?**: `number`
@@ -10082,6 +10094,42 @@ Sleep override for deterministic tests.
 ###### ms
 
 `number`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### onAcquire?
+
+> `optional` **onAcquire?**: (`box`) => `void`
+
+**`Experimental`**
+
+Register the live source before readiness polling can destroy it.
+
+###### Parameters
+
+###### box
+
+`SandboxInstance`
+
+###### Returns
+
+`void`
+
+##### beforeDelete?
+
+> `optional` **beforeDelete?**: (`box`) => `Promise`\<`void`\>
+
+**`Experimental`**
+
+Capture and persist evidence before failed-readiness cleanup.
+
+###### Parameters
+
+###### box
+
+`SandboxInstance`
 
 ###### Returns
 
@@ -10255,6 +10303,140 @@ Sequence for synthesized call ids when an event carries none.
 
 ***
 
+### SandboxEvidenceRetentionPort
+
+One durable capture before a Sandbox box is removed.
+
+#### Properties
+
+##### timeoutMs
+
+> `readonly` **timeoutMs**: `number`
+
+##### limits?
+
+> `readonly` `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](candidate-execution.md#agentcandidateworkspacearchivelimits)\>
+
+##### artifacts
+
+> `readonly` **artifacts**: [`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
+
+#### Methods
+
+##### capture()
+
+> **capture**(`context`): `Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; `provenance`: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance); \}\>
+
+###### Parameters
+
+###### context
+
+[`SandboxEvidenceContext`](#sandboxevidencecontext) & `object`
+
+###### Returns
+
+`Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; `provenance`: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance); \}\>
+
+##### record()
+
+> **record**(`receipt`): `Promise`\<`void`\>
+
+Must durably record this exact verified receipt before returning.
+
+###### Parameters
+
+###### receipt
+
+[`SandboxEvidenceReceipt`](#sandboxevidencereceipt)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### SandboxEvidenceContext
+
+#### Properties
+
+##### box
+
+> `readonly` **box**: `SandboxInstance`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+##### sandboxSessionIds
+
+> `readonly` **sandboxSessionIds**: readonly `string`[]
+
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+##### sessionExecutionIds
+
+> `readonly` **sessionExecutionIds**: `Readonly`\<`Record`\<`string`, `ReadonlyArray`\<`string`\>\>\>
+
+***
+
+### SandboxEvidenceReceipt
+
+#### Properties
+
+##### boxId
+
+> `readonly` **boxId**: `string`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+Exact authored profile identity without copying credentials into the receipt.
+
+##### scope
+
+> `readonly` **scope**: `"box"`
+
+##### sandboxSessionIds
+
+> `readonly` **sandboxSessionIds**: readonly `string`[]
+
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+##### sessionExecutionIds
+
+> `readonly` **sessionExecutionIds**: `Readonly`\<`Record`\<`string`, `ReadonlyArray`\<`string`\>\>\>
+
+##### snapshot
+
+> `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+##### provenance
+
+> `readonly` **provenance**: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance)
+
+##### coverageComplete
+
+> `readonly` **coverageComplete**: `boolean`
+
+##### incompleteReason?
+
+> `readonly` `optional` **incompleteReason?**: `string`
+
+***
+
 ### SandboxLeafOut
 
 Parsed output of one Sandbox executor turn.
@@ -10403,7 +10585,7 @@ of a contextless turn the caller mistakes for a real continuation.
 
 ##### fork()
 
-> **fork**(`parent`, `prompts`, `specs`, `signal`, `promptOptions?`): `Promise`\<`object`[]\>
+> **fork**(`parent`, `prompts`, `specs`, `signal`, `promptOptions?`, `executionIds?`): `Promise`\<`object`[]\>
 
 **`Experimental`**
 
@@ -10443,6 +10625,10 @@ a branch that drops it runs without the caller's session credential.
 ###### promptOptions?
 
 `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
+###### executionIds?
+
+readonly `string`[]
 
 ###### Returns
 
@@ -12520,7 +12706,7 @@ Open/close artifacts the body manages itself (e.g. one persistent handle for dep
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](#scope-2)\<[`Outcome`](#outcome-2)\<`unknown`\>\>
+> `readonly` **scope**: [`Scope`](#scope-3)\<[`Outcome`](#outcome-2)\<`unknown`\>\>
 
 #### Methods
 
@@ -18740,7 +18926,7 @@ readonly [`PeerMailEvent`](#peermailevent)[]
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](#scope-2)\<`unknown`\>
+> `readonly` **scope**: [`Scope`](#scope-3)\<`unknown`\>
 
 ##### publish
 
@@ -21449,7 +21635,7 @@ Materialize the view. Pass the live `Scope` to include the worker feed and tree 
 
 ###### scope?
 
-[`Scope`](#scope-2)\<`unknown`\>
+[`Scope`](#scope-3)\<`unknown`\>
 
 ###### opts?
 
@@ -21475,7 +21661,7 @@ Evaluate a rule against the current view.
 
 ###### scope?
 
-[`Scope`](#scope-2)\<`unknown`\>
+[`Scope`](#scope-3)\<`unknown`\>
 
 ###### opts?
 
@@ -22899,7 +23085,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-21)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-22)
 
 ##### task
 
@@ -23065,7 +23251,7 @@ The standing instruction assembled from the profile: its system prompt in either
 
 ###### scope
 
-[`Scope`](#scope-2)\<`unknown`\>
+[`Scope`](#scope-3)\<`unknown`\>
 
 ###### coordinationMcpUrl
 
@@ -23877,7 +24063,7 @@ unordered collection. `scope.next()` delivers strictly in recorded `seq` order.
 
 ###### scope
 
-[`Scope`](#scope-2)\<`Out`\>
+[`Scope`](#scope-3)\<`Out`\>
 
 ###### Returns
 
@@ -31280,7 +31466,7 @@ Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the or
 
 ### DriverBudgetReadout
 
-> **DriverBudgetReadout** = [`Scope`](#scope-2)\<`unknown`\>\[`"budget"`\]
+> **DriverBudgetReadout** = [`Scope`](#scope-3)\<`unknown`\>\[`"budget"`\]
 
 The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this
  module tracks the pool's shape rather than restating it.
@@ -36535,7 +36721,7 @@ Fail loud (no silent empty findings):
 
 ##### scope
 
-[`Scope`](#scope-2)\<[`Outcome`](#outcome-2)\<`D`\>\>
+[`Scope`](#scope-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
 
 ##### options
 
@@ -37953,6 +38139,32 @@ at most one result.
 
 ***
 
+### captureBeforeDestroy()
+
+> **captureBeforeDestroy**(`port`, `context`, `destroy`): `Promise`\<[`SandboxEvidenceReceipt`](#sandboxevidencereceipt)\>
+
+Capture, verify, durably record, then destroy. A failure leaves the source intact.
+
+#### Parameters
+
+##### port
+
+[`SandboxEvidenceRetentionPort`](#sandboxevidenceretentionport)
+
+##### context
+
+[`SandboxEvidenceContext`](#sandboxevidencecontext)
+
+##### destroy
+
+() => `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<[`SandboxEvidenceReceipt`](#sandboxevidencereceipt)\>
+
+***
+
 ### createSandboxLineage()
 
 > **createSandboxLineage**(`client`, `capabilities`, `options?`): [`SandboxLineage`](#sandboxlineage)
@@ -37996,6 +38208,16 @@ Run provenance recorder forwarded to every `prepareBox` the lineage runs
 `boolean`
 
 A failed delete must surface and leave the box available for evidence recovery.
+
+###### beforeDelete?
+
+(`box`) => `Promise`\<`void`\>
+
+Capture and durably record evidence before the box is deleted.
+
+###### onAcquire?
+
+(`box`, `profile`) => `void`
 
 #### Returns
 
@@ -39449,7 +39671,7 @@ a whole round, a slow child never idles the other slots.
 
 ##### scope
 
-[`Scope`](#scope-2)\<`Out`\>
+[`Scope`](#scope-3)\<`Out`\>
 
 ##### opts
 
@@ -41006,7 +41228,7 @@ One steerable sandbox worker. The returned session is inert until `stream()` is 
 
 ### createScope()
 
-> **createScope**\<`Out`\>(`args`): [`Scope`](#scope-2)\<`Out`\>
+> **createScope**\<`Out`\>(`args`): [`Scope`](#scope-3)\<`Out`\>
 
 Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay.
 
@@ -41024,7 +41246,7 @@ Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children o
 
 #### Returns
 
-[`Scope`](#scope-2)\<`Out`\>
+[`Scope`](#scope-3)\<`Out`\>
 
 ***
 

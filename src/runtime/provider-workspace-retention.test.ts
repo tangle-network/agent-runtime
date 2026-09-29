@@ -8,6 +8,7 @@ import type {
   AgentProfile,
 } from '@tangle-network/agent-interface'
 import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
+import type { SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentCandidateOutputArtifactPort,
@@ -22,6 +23,8 @@ import {
 } from './environment-provider'
 import type { ProviderWorkspaceCaptureReceipt } from './provider-workspace-retention'
 import type { RetainedRunAdmission } from './retained-run-types'
+import { runAgentRounds } from './run-loop'
+import { captureBeforeDestroy } from './sandbox-evidence-retention'
 import type { RetainedExecutorContext } from './supervise/retained-executor'
 import { retainedExecutorSeamKey } from './supervise/retained-executor'
 import type { UsageEvent } from './supervise/types'
@@ -215,6 +218,272 @@ function doneStream(text = 'done') {
 }
 
 describe('provider workspace retention', () => {
+  it('captures a runAgentRounds box through its public execution path', async () => {
+    const artifacts = artifactStore()
+    const order: string[] = []
+    const box = {
+      id: 'loop-box',
+      status: 'running',
+      async *streamPrompt(_prompt: string, options: { sessionId: string; executionId: string }) {
+        yield {
+          type: 'result',
+          data: {
+            finalText: 'done',
+            runtimeSessionId: options.sessionId,
+            executionId: options.executionId,
+          },
+        }
+        yield {
+          type: 'done',
+          data: {
+            outcome: { type: 'completed' },
+            runtimeSessionId: options.sessionId,
+            executionId: options.executionId,
+          },
+        }
+      },
+      async delete() {
+        order.push('delete')
+      },
+    } as unknown as SandboxInstance
+    await runAgentRounds({
+      driver: {
+        async plan(_task: string, history: readonly unknown[]) {
+          return history.length ? [] : ['task']
+        },
+        decide: () => 'done' as const,
+      },
+      agentRun: { profile: testProfile('loop-retention'), taskToPrompt: (task: string) => task },
+      output: { parse: () => 'done' },
+      task: 'task',
+      runId: 'loop-1',
+      maxIterations: 1,
+      ctx: {
+        sandboxClient: {
+          async create() {
+            return box
+          },
+        },
+      },
+      evidenceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture(context) {
+          order.push('capture')
+          expect(context.sandboxSessionIds).toHaveLength(1)
+          const sessionId = context.sandboxSessionIds[0]!
+          const executionId = context.sessionExecutionIds[sessionId]?.[0]
+          expect(executionId).toBeTruthy()
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported' as const,
+              environmentId: 'loop-box',
+              executionId: 'loop-1',
+              workspace: {
+                scannedFiles: 1,
+                scannedDirectories: 0,
+                reportedFiles: 1,
+                reportedDirectories: 0,
+                complete: true,
+              },
+              sessions: [
+                {
+                  id: sessionId,
+                  executionId: 'loop-1',
+                  executionIds: [executionId!],
+                  eventCountsByExecutionId: { [executionId!]: 2 },
+                  backendType: 'opencode',
+                  transportEvents: 'complete',
+                  eventCount: 2,
+                  messageCount: 1,
+                  nativeSessionId: null,
+                  nativeStore: {
+                    scope: 'session' as const,
+                    roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
+                    inventory: {
+                      scannedFiles: 1,
+                      reportedFiles: 1,
+                      scannedDirectories: 0,
+                      reportedDirectories: 0,
+                      scannedSymlinks: 0,
+                      reportedSymlinks: 0,
+                      skippedEntries: 0,
+                    },
+                    complete: true,
+                    entries: [],
+                    excludedPaths: [],
+                  },
+                  processStreams: {
+                    complete: true,
+                    streamCount: 1,
+                    stdinBytes: 0,
+                    stdoutBytes: 1,
+                    stderrBytes: 0,
+                    protocolBytes: 0,
+                  },
+                  nativeEvents: { complete: true, count: 1 },
+                },
+              ],
+              missing: [],
+            },
+          }
+        },
+        async record() {
+          order.push('record')
+        },
+      },
+    })
+    expect(order).toEqual(['capture', 'record', 'delete'])
+  })
+  it('records a verified raw Sandbox receipt before deleting its box', async () => {
+    const artifacts = artifactStore()
+    const order: string[] = []
+    const box = {
+      id: 'raw-box',
+      async delete() {
+        order.push('delete')
+      },
+    } as unknown as SandboxInstance
+    const profile = testProfile('raw-box')
+    const context = {
+      box,
+      executionId: 'run-1',
+      profile,
+      sandboxSessionIds: ['sandbox-1'],
+      sessionExecutionIds: { 'sandbox-1': ['execution-1'] },
+    }
+    const receipt = await captureBeforeDestroy(
+      {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture() {
+          order.push('capture')
+          return {
+            snapshot: await snapshot(artifacts, 'run-1'),
+            provenance: {
+              status: 'reported' as const,
+              environmentId: 'raw-box',
+              executionId: 'run-1',
+              workspace: {
+                scannedFiles: 1,
+                scannedDirectories: 0,
+                reportedFiles: 1,
+                reportedDirectories: 0,
+                complete: true,
+              },
+              sessions: [
+                {
+                  id: 'sandbox-1',
+                  executionId: 'run-1',
+                  executionIds: ['execution-1'],
+                  eventCountsByExecutionId: { 'execution-1': 1 },
+                  backendType: 'opencode',
+                  transportEvents: 'complete',
+                  eventCount: 1,
+                  messageCount: 1,
+                  nativeSessionId: null,
+                  nativeStore: {
+                    scope: 'session' as const,
+                    roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
+                    inventory: {
+                      scannedFiles: 1,
+                      reportedFiles: 1,
+                      scannedDirectories: 0,
+                      reportedDirectories: 0,
+                      scannedSymlinks: 0,
+                      reportedSymlinks: 0,
+                      skippedEntries: 0,
+                    },
+                    complete: true,
+                    entries: [],
+                    excludedPaths: [],
+                  },
+                  processStreams: {
+                    complete: true,
+                    streamCount: 1,
+                    stdinBytes: 0,
+                    stdoutBytes: 1,
+                    stderrBytes: 0,
+                    protocolBytes: 0,
+                  },
+                  nativeEvents: { complete: true, count: 1 },
+                },
+              ],
+              missing: [],
+            },
+          }
+        },
+        async record() {
+          order.push('record')
+        },
+      },
+      context,
+      async () => {
+        await box.delete()
+      },
+    )
+    expect(order).toEqual(['capture', 'record', 'delete'])
+    expect(receipt).toMatchObject({
+      boxId: 'raw-box',
+      coverageComplete: true,
+      sessionExecutionIds: { 'sandbox-1': ['execution-1'] },
+    })
+  })
+  it('keeps a box when a dispatched execution is absent from the retained raw evidence', async () => {
+    const artifacts = artifactStore()
+    const order: string[] = []
+    const box = {
+      id: 'held-box',
+      async delete() {
+        order.push('delete')
+      },
+    } as unknown as SandboxInstance
+    await expect(
+      captureBeforeDestroy(
+        {
+          timeoutMs: 5_000,
+          artifacts,
+          async capture() {
+            return {
+              snapshot: await snapshot(artifacts, 'held-run'),
+              provenance: {
+                status: 'reported' as const,
+                environmentId: 'held-box',
+                executionId: 'held-run',
+                workspace: {
+                  scannedFiles: 0,
+                  scannedDirectories: 0,
+                  reportedFiles: 0,
+                  reportedDirectories: 0,
+                  complete: true,
+                },
+                sessions: [],
+                missing: [],
+              },
+            }
+          },
+          async record(receipt) {
+            expect(receipt.coverageComplete).toBe(false)
+            expect(receipt.incompleteReason).toContain('session-1')
+            order.push('record')
+          },
+        },
+        {
+          box,
+          executionId: 'held-run',
+          profile: testProfile('held-box'),
+          sandboxSessionIds: ['session-1'],
+          sessionExecutionIds: { 'session-1': ['execution-1'] },
+        },
+        async () => {
+          await box.delete()
+        },
+      ),
+    ).rejects.toThrow('session-1')
+    expect(order).toEqual(['record'])
+  })
+
   it('accepts complete raw evidence when the harness has no native session id', async () => {
     const artifacts = artifactStore()
     const { provider, destroyed } = providerFor(doneStream())

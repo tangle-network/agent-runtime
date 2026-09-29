@@ -57,6 +57,10 @@ export interface AcquireOptions {
   now?: () => number
   /** Sleep override for deterministic tests. */
   sleep?: (ms: number) => Promise<void>
+  /** Register the live source before readiness polling can destroy it. */
+  onAcquire?: (box: SandboxInstance) => void
+  /** Capture and persist evidence before failed-readiness cleanup. */
+  beforeDelete?: (box: SandboxInstance) => Promise<void>
 }
 
 /** Minimal client surface acquire needs beyond `create` (the real SDK satisfies it). */
@@ -110,7 +114,16 @@ export async function acquireSandbox(
       )
       // Tear the just-created box down if it never reaches `running` (abort,
       // terminal status, budget) so a failed wait never leaks a live sandbox.
-      return await waitReadyOrDestroy(box, deadline, pollMs, acquire.signal, now, sleep)
+      acquire.onAcquire?.(box)
+      return await waitReadyOrDestroy(
+        box,
+        deadline,
+        pollMs,
+        acquire.signal,
+        now,
+        sleep,
+        acquire.beforeDelete,
+      )
     } catch (err) {
       throwIfAborted(acquire.signal)
       // Non-retryable (auth/validation/budget) fails loud immediately.
@@ -128,8 +141,18 @@ export async function acquireSandbox(
       if (typeof c.list === 'function') {
         for (let scan = 0; scan < appearScans && now() < deadline; scan += 1) {
           const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
-          if (found)
-            return await waitReadyOrDestroy(found, deadline, pollMs, acquire.signal, now, sleep)
+          if (found) {
+            acquire.onAcquire?.(found)
+            return await waitReadyOrDestroy(
+              found,
+              deadline,
+              pollMs,
+              acquire.signal,
+              now,
+              sleep,
+              acquire.beforeDelete,
+            )
+          }
           if (scan < appearScans - 1) await sleep(pollMs)
         }
       }
@@ -152,11 +175,13 @@ async function waitReadyOrDestroy(
   signal: AbortSignal | undefined,
   now: () => number,
   sleep: (ms: number) => Promise<void>,
+  beforeDelete?: (box: SandboxInstance) => Promise<void>,
 ): Promise<SandboxInstance> {
   try {
     return await waitUntilReady(box, deadline, pollMs, signal, now, sleep)
   } catch (err) {
-    await deleteBoxSafe(box)
+    if (beforeDelete === undefined) await deleteBoxSafe(box)
+    else await beforeDelete(box)
     throw err
   }
 }

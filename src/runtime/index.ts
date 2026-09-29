@@ -527,6 +527,12 @@ export {
   sumSandboxUsage,
 } from './sandbox-events'
 export {
+  captureBeforeDestroy,
+  type SandboxEvidenceContext,
+  type SandboxEvidenceReceipt,
+  type SandboxEvidenceRetentionPort,
+} from './sandbox-evidence-retention'
+export {
   type BranchCapableBox,
   type CheckpointCapableBox,
   createSandboxLineage,

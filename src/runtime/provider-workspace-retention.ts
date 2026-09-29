@@ -74,6 +74,8 @@ export interface ProviderWorkspaceCaptureProvenance {
     readonly messageCount: number
     readonly messageScope?: string
     readonly backendType?: string
+    readonly executionIds?: ReadonlyArray<string>
+    readonly eventCountsByExecutionId?: Readonly<Record<string, number>>
     readonly nativeSessionId?: string | null
     readonly nativeReason?: string | null
     readonly nativeStore?: {
@@ -153,6 +155,8 @@ export interface ProviderWorkspaceCaptureReceipt {
   readonly executionId: string
   readonly node?: ExecutorNodeContext
   readonly environmentId: string
+  /** Immutable authored AgentProfile identity; run records retain its content. */
+  readonly profileDigest: string
   readonly providerSessionId: string | null
   readonly nativeSessionId: string | null
   readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
