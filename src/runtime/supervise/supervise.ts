@@ -3608,6 +3608,7 @@ function superviseInternal(
         let acceptedSubmission = false
         const nested = supervisorAgent(authorized, {
           blobs,
+          ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
           makeWorkerAgent: childFactory,
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
