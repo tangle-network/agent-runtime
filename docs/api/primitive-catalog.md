@@ -449,7 +449,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1020,6 +1020,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
 | `ProviderPlacement` | interface | Caller-declared execution placement. Matching never changes the authored profile. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
+| `ProviderWorkspaceAttemptProvenance` | interface | One Sidecar execution attempt; retries remain separate evidence. |
 | `ProviderWorkspaceCaptureProvenance` | interface | Source-reported coverage retained with the verified archive reference. |
 | `ProviderWorkspaceCaptureReceipt` | interface | Durable join from one provider box to the verified bytes retained before cleanup. |
 | `ProviderWorkspaceEntryMetadata` | interface | Source inventory metadata for a workspace entry. |

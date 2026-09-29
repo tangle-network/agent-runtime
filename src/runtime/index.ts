@@ -225,6 +225,7 @@ export {
   type ProviderLeafOut,
   type ProviderPlacement,
   type ProviderPromptOptions,
+  type ProviderWorkspaceAttemptProvenance,
   type ProviderWorkspaceCaptureProvenance,
   type ProviderWorkspaceCaptureReceipt,
   type ProviderWorkspaceCaptureResult,

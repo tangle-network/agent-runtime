@@ -373,6 +373,13 @@ Retention policy must be configurable by data class:
 - knowledge writes,
 - secrets and personal data.
 
+A provider workspace receipt retains the attempt manifest in `provenance.attempts`.
+Each attempt records its Sidecar execution ID, ordinal, backend session ID, observed native session IDs, process IDs, outcome, and missing reasons.
+The Sidecar execution ID joins `sessions[].executionIds`; it differs from the Runtime node execution ID.
+Strict retention requires a complete, uniquely owned attempt inventory before it certifies capture coverage.
+A receipt derives its singular `nativeSessionId` after archive verification only when the attempt identities agree.
+Older receipts without an attempt manifest remain unknown at the attempt level.
+
 Deleting a run must either delete referenced private blobs or record why shared content-addressed blobs remain.
 
 ## Explicit Non-Goals

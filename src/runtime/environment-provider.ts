@@ -185,6 +185,7 @@ export type {
 } from '@tangle-network/agent-interface/environment-provider'
 
 export type {
+  ProviderWorkspaceAttemptProvenance,
   ProviderWorkspaceCaptureProvenance,
   ProviderWorkspaceCaptureReceipt,
   ProviderWorkspaceCaptureResult,
@@ -538,6 +539,38 @@ export interface ProviderLeafOut {
   workspaceCapture?: ProviderWorkspaceCaptureReceipt
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
+}
+
+/** Only a verified, single-session capture may supply a scalar session identity. */
+function capturedSessionIdentity(
+  provenance: ProviderWorkspaceCaptureProvenance | undefined,
+  coverageComplete: boolean,
+  executionId: string,
+  providerSessionId: string | null,
+): { providerSessionId: string | null; nativeSessionId: string | null } {
+  const unknown = { providerSessionId, nativeSessionId: null }
+  if (
+    !coverageComplete ||
+    provenance?.status !== 'reported' ||
+    provenance.executionId !== executionId ||
+    provenance.sessions?.length !== 1
+  )
+    return unknown
+  const session = provenance.sessions[0]!
+  if (
+    session.executionId !== executionId ||
+    (providerSessionId !== null && session.id !== providerSessionId)
+  )
+    return unknown
+  const ids = new Set(
+    (provenance.attempts ?? [])
+      .filter((attempt) => session.executionIds?.includes(attempt.executionId))
+      .flatMap((attempt) => attempt.nativeSessionIds),
+  )
+  const nativeSessionId = ids.size === 1 ? [...ids][0]! : null
+  if (session.nativeSessionId != null && nativeSessionId !== session.nativeSessionId)
+    return { providerSessionId, nativeSessionId: null }
+  return { providerSessionId, nativeSessionId }
 }
 
 /**
@@ -1641,6 +1674,12 @@ async function* streamProviderExecutor(
     })
     const retainedWorkspace = await args.captureWorkspace(environment, outcome)
     args.onPublishedSnapshot(retainedWorkspace)
+    const captureIdentity = capturedSessionIdentity(
+      args.workspaceProvenance(),
+      args.workspaceCoverage().complete,
+      args.executionId,
+      turn.sessionId ?? null,
+    )
     const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...result,
       ...(retainedWorkspace === undefined
@@ -1652,8 +1691,7 @@ async function* streamProviderExecutor(
               ...(args.node === undefined ? {} : { node: args.node }),
               environmentId: environment.id,
               profileDigest: canonicalAgentProfileDigest(args.profile),
-              providerSessionId: turn.sessionId ?? null,
-              nativeSessionId: null,
+              ...captureIdentity,
               snapshot: retainedWorkspace,
               provenance: args.workspaceProvenance() ?? {
                 status: 'unavailable',
@@ -2457,13 +2495,18 @@ function environmentAsSandboxInstance(
           profile: identity.profile,
         })
         const { snapshot, provenance, coverageComplete, incompleteReason } = await capture
+        const captureIdentity = capturedSessionIdentity(
+          provenance,
+          coverageComplete === true,
+          identity.executionId,
+          providerSessionId,
+        )
         options.onWorkspaceCaptured?.({
           executionId: identity.executionId,
           ...(identity.node === undefined ? {} : { node: identity.node }),
           environmentId: environment.id,
           profileDigest: canonicalAgentProfileDigest(identity.profile),
-          providerSessionId,
-          nativeSessionId: null,
+          ...captureIdentity,
           snapshot,
           provenance,
           coverageComplete: coverageComplete ?? false,

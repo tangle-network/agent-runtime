@@ -514,87 +514,133 @@ describe('provider workspace retention', () => {
     expect(order).toEqual(['record'])
   })
 
-  it('accepts complete raw evidence when the harness has no native session id', async () => {
-    const artifacts = artifactStore()
-    const { provider, destroyed } = providerFor(doneStream())
-    const executor = providerAsExecutor(provider, {
-      workspaceRetention: {
-        timeoutMs: 5_000,
-        requireCompleteProvenance: true,
-        artifacts,
-        async capture(context) {
-          return {
-            snapshot: await snapshot(artifacts, context.executionId),
-            provenance: {
-              status: 'reported' as const,
-              environmentId: context.environment.id,
-              executionId: context.executionId,
-              workspace: {
-                scannedFiles: 1,
-                scannedDirectories: 0,
-                reportedFiles: 1,
-                reportedDirectories: 0,
-                complete: true,
-              },
-              sessions: [
-                {
-                  id: 'sandbox-session-1',
-                  executionId: context.executionId,
-                  backendType: 'opencode',
-                  transportEvents: 'complete',
-                  eventCount: 1,
-                  messageCount: 1,
-                  nativeSessionId: null,
-                  sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
-                  sidecarBundleRevision: 'b'.repeat(40),
-                  nativeStore: {
-                    scope: 'session' as const,
-                    roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
-                    inventory: {
-                      scannedFiles: 1,
-                      reportedFiles: 1,
-                      scannedDirectories: 0,
-                      reportedDirectories: 0,
-                      scannedSymlinks: 0,
-                      reportedSymlinks: 0,
-                      skippedEntries: 0,
-                    },
-                    complete: true,
-                    entries: [],
-                    excludedPaths: [],
-                  },
-                  processStreams: {
-                    complete: true,
-                    streamCount: 1,
-                    stdinBytes: 0,
-                    stdoutBytes: 2,
-                    stderrBytes: 0,
-                    protocolBytes: 0,
-                  },
-                  nativeEvents: { complete: true, count: 1 },
+  it.each([
+    ['complete', true, 'native-1'],
+    ['missing-attempts', false, null],
+    ['identity-conflict', false, null],
+    ['wrong-execution', false, null],
+    ['missing-process', false, null],
+  ] as const)(
+    'reconciles %s attempt evidence before deleting the source',
+    async (variant, expectedComplete, expectedNativeSessionId) => {
+      const artifacts = artifactStore()
+      const { provider, destroyed } = providerFor(doneStream())
+      const executor = providerAsExecutor(provider, {
+        workspaceRetention: {
+          timeoutMs: 5_000,
+          requireCompleteProvenance: true,
+          artifacts,
+          async capture(context) {
+            return {
+              snapshot: await snapshot(artifacts, context.executionId),
+              provenance: {
+                status: 'reported' as const,
+                environmentId: context.environment.id,
+                executionId: context.executionId,
+                workspace: {
+                  scannedFiles: 1,
+                  scannedDirectories: 0,
+                  reportedFiles: 1,
+                  reportedDirectories: 0,
+                  complete: true,
                 },
-              ],
-              missing: [],
-            },
-          }
+                sessions: [
+                  {
+                    id: 'sandbox-session-1',
+                    executionId: context.executionId,
+                    executionIds: ['sidecar-execution-1'],
+                    eventCountsByExecutionId: { 'sidecar-execution-1': 1 },
+                    backendType: 'opencode',
+                    transportEvents: 'complete',
+                    eventCount: 1,
+                    messageCount: 1,
+                    nativeSessionId: variant === 'identity-conflict' ? 'other-native' : null,
+                    sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
+                    sidecarBundleRevision: 'b'.repeat(40),
+                    nativeStore: {
+                      scope: 'session' as const,
+                      roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
+                      inventory: {
+                        scannedFiles: 1,
+                        reportedFiles: 1,
+                        scannedDirectories: 0,
+                        reportedDirectories: 0,
+                        scannedSymlinks: 0,
+                        reportedSymlinks: 0,
+                        skippedEntries: 0,
+                      },
+                      complete: true,
+                      entries: [],
+                      excludedPaths: [],
+                    },
+                    processStreams: {
+                      complete: true,
+                      streamCount: 1,
+                      stdinBytes: 0,
+                      stdoutBytes: 2,
+                      stderrBytes: 0,
+                      protocolBytes: 0,
+                    },
+                    nativeEvents: { complete: true, count: 1 },
+                  },
+                ],
+                ...(variant === 'missing-attempts'
+                  ? {}
+                  : {
+                      attempts: [
+                        {
+                          executionId:
+                            variant === 'wrong-execution'
+                              ? 'wrong-sidecar-execution'
+                              : 'sidecar-execution-1',
+                          ordinal: 1,
+                          providerSessionId: 'provider-session-1',
+                          nativeSessionIds: ['native-1'],
+                          processIds: variant === 'missing-process' ? [] : ['process-1'],
+                          outcome: 'succeeded' as const,
+                          missingReasons: [],
+                        },
+                      ],
+                    }),
+                missing: [],
+              },
+            }
+          },
         },
-      },
-    })(
-      { profile: testProfile('raw-evidence'), harness: null },
-      { signal: new AbortController().signal, seams: {} },
-    )
-    for await (const _event of executor.execute(
-      'task',
-      new AbortController().signal,
-    ) as AsyncIterable<UsageEvent>) {
-      /* drain */
-    }
-    expect((executor.resultArtifact().out as ProviderLeafOut).workspaceCapture).toMatchObject({
-      coverageComplete: true,
-      nativeSessionId: null,
-    })
-    expect(destroyed()).toBe(1)
-  })
+      })(
+        { profile: testProfile('raw-evidence'), harness: null },
+        { signal: new AbortController().signal, seams: {} },
+      )
+      for await (const _event of executor.execute(
+        'task',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        /* drain */
+      }
+      const capture = (executor.resultArtifact().out as ProviderLeafOut).workspaceCapture
+      expect(capture).toMatchObject({
+        coverageComplete: expectedComplete,
+        nativeSessionId: expectedNativeSessionId,
+      })
+      if (variant === 'complete') {
+        expect(capture).toMatchObject({
+          providerSessionId: null,
+          provenance: {
+            attempts: [
+              {
+                executionId: 'sidecar-execution-1',
+                ordinal: 1,
+                nativeSessionIds: ['native-1'],
+              },
+            ],
+          },
+        })
+      } else {
+        expect(capture?.incompleteReason).toBeTruthy()
+      }
+      expect(destroyed()).toBe(expectedComplete ? 1 : 0)
+    },
+  )
   it('keeps the source when complete native coverage is required but unavailable', async () => {
     const artifacts = artifactStore()
     const { provider, destroyed } = providerFor(doneStream())

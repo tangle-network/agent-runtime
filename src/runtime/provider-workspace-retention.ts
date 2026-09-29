@@ -46,6 +46,17 @@ export interface ProviderWorkspaceEntryMetadata {
   readonly symlinkTarget?: string | null
 }
 
+/** One Sidecar execution attempt; retries remain separate evidence. */
+export interface ProviderWorkspaceAttemptProvenance {
+  readonly executionId: string
+  readonly ordinal: number
+  readonly providerSessionId: string
+  readonly nativeSessionIds: ReadonlyArray<string>
+  readonly processIds: ReadonlyArray<string>
+  readonly outcome: 'succeeded' | 'failed' | 'cancelled' | 'unknown'
+  readonly missingReasons: ReadonlyArray<string>
+}
+
 /** Source-reported coverage retained with the verified archive reference. */
 export interface ProviderWorkspaceCaptureProvenance {
   readonly status: 'reported' | 'unavailable'
@@ -66,6 +77,8 @@ export interface ProviderWorkspaceCaptureProvenance {
     readonly reportedDirectories: number
     readonly complete: boolean
   }
+  /** Sidecar attempts join sessions through executionIds, not the Runtime node ID. */
+  readonly attempts?: ReadonlyArray<ProviderWorkspaceAttemptProvenance>
   readonly sessions?: ReadonlyArray<{
     readonly id: string
     readonly executionId: string
@@ -272,6 +285,9 @@ export async function captureProviderWorkspaceSnapshot(
           if (!/^[0-9a-f]{40}$/.test(session.sidecarBundleRevision ?? ''))
             coverageGaps.push(`Session ${session.id} sidecar bundle revision missing`)
         }
+        coverageGaps.push(
+          ...attemptCoverageGaps(provenance, port.requireCompleteProvenance === true),
+        )
         const coverageComplete = coverageGaps.length === 0
         requireDurableWorkspaceArtifacts(snapshot)
         const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, port.artifacts)
@@ -299,6 +315,123 @@ export async function captureProviderWorkspaceSnapshot(
   } finally {
     clearDeadline()
   }
+}
+
+/** Reconcile Sidecar attempts to the exact captured session executions. */
+function attemptCoverageGaps(
+  provenance: ProviderWorkspaceCaptureProvenance,
+  strict: boolean,
+): string[] {
+  const attempts = provenance.attempts
+  if (attempts === undefined) return strict ? ['Attempt inventory missing'] : []
+  if (!Array.isArray(attempts)) return ['Attempt inventory malformed']
+  const gaps: string[] = []
+  if (strict && attempts.length === 0) gaps.push('Attempt inventory empty')
+  const owners = new Map<string, string>()
+  for (const session of provenance.sessions ?? []) {
+    if (!Array.isArray(session.executionIds) || session.executionIds.length === 0) {
+      gaps.push(`Session ${session.id} has no Sidecar execution inventory`)
+      continue
+    }
+    for (const id of session.executionIds) {
+      if (typeof id !== 'string' || id.trim() === '') {
+        gaps.push(`Session ${session.id} has an invalid Sidecar execution ID`)
+        continue
+      }
+      if (owners.has(id)) gaps.push(`Sidecar execution ${id} has multiple session owners`)
+      else owners.set(id, session.id)
+      const count = session.eventCountsByExecutionId?.[id]
+      if (!Number.isSafeInteger(count) || (count ?? 0) <= 0)
+        gaps.push(`Sidecar execution ${id} has no retained event count`)
+    }
+  }
+  const ordinals = new Map<string, Set<number>>()
+  for (const [index, attempt] of attempts.entries()) {
+    if (attempt === null || typeof attempt !== 'object') {
+      gaps.push(`Attempt ${index} is malformed`)
+      continue
+    }
+    const id = attempt.executionId
+    if (typeof id !== 'string' || id.trim() === '' || !owners.has(id)) {
+      gaps.push(`Attempt ${index} has no exact Sidecar execution owner`)
+      continue
+    }
+    if (typeof attempt.providerSessionId !== 'string' || attempt.providerSessionId.trim() === '')
+      gaps.push(`Attempt ${id} has no provider session ID`)
+    if (!Number.isSafeInteger(attempt.ordinal) || attempt.ordinal <= 0) {
+      gaps.push(`Attempt ${id} has an invalid ordinal`)
+    } else {
+      const seen = ordinals.get(id) ?? new Set<number>()
+      if (seen.has(attempt.ordinal)) gaps.push(`Attempt ${id} repeats ordinal ${attempt.ordinal}`)
+      seen.add(attempt.ordinal)
+      ordinals.set(id, seen)
+    }
+    if (
+      !Array.isArray(attempt.nativeSessionIds) ||
+      attempt.nativeSessionIds.length === 0 ||
+      attempt.nativeSessionIds.some(
+        (nativeId: unknown) => typeof nativeId !== 'string' || nativeId.trim() === '',
+      ) ||
+      new Set(attempt.nativeSessionIds).size !== attempt.nativeSessionIds.length
+    )
+      gaps.push(`Attempt ${id}/${attempt.ordinal} has incomplete native session identity`)
+    if (
+      !Array.isArray(attempt.processIds) ||
+      attempt.processIds.some(
+        (processId: unknown) => typeof processId !== 'string' || processId.trim() === '',
+      ) ||
+      new Set(attempt.processIds).size !== attempt.processIds.length
+    )
+      gaps.push(`Attempt ${id}/${attempt.ordinal} has invalid process identity`)
+    if (!['succeeded', 'failed', 'cancelled', 'unknown'].includes(attempt.outcome))
+      gaps.push(`Attempt ${id}/${attempt.ordinal} has invalid outcome`)
+    else if (strict && attempt.outcome === 'unknown')
+      gaps.push(`Attempt ${id}/${attempt.ordinal} has unknown outcome`)
+    if (
+      !Array.isArray(attempt.missingReasons) ||
+      attempt.missingReasons.some(
+        (reason: unknown) => typeof reason !== 'string' || reason.trim() === '',
+      )
+    )
+      gaps.push(`Attempt ${id}/${attempt.ordinal} has malformed missing reasons`)
+    else if (attempt.missingReasons.length > 0)
+      gaps.push(`Attempt ${id}/${attempt.ordinal}: ${attempt.missingReasons.join('; ')}`)
+  }
+  for (const session of provenance.sessions ?? []) {
+    const ownedAttempts = attempts.filter(
+      (attempt) =>
+        attempt != null &&
+        typeof attempt === 'object' &&
+        session.executionIds?.includes(attempt.executionId),
+    )
+    if (session.nativeSessionId != null) {
+      const nativeIds = new Set(
+        ownedAttempts.flatMap((attempt) =>
+          Array.isArray(attempt.nativeSessionIds) ? attempt.nativeSessionIds : [],
+        ),
+      )
+      if (!nativeIds.has(session.nativeSessionId))
+        gaps.push(`Session ${session.id} native identity conflicts with attempt inventory`)
+    }
+    if (
+      (session.processStreams?.streamCount ?? 0) > 0 &&
+      !ownedAttempts.some(
+        (attempt) => Array.isArray(attempt.processIds) && attempt.processIds.length > 0,
+      )
+    )
+      gaps.push(`Session ${session.id} process streams lack attempt process identity`)
+  }
+  for (const id of owners.keys()) {
+    const seen = ordinals.get(id)
+    if (!seen || seen.size === 0) {
+      gaps.push(`Sidecar execution ${id} has no attempt record`)
+      continue
+    }
+    for (let ordinal = 1; ordinal <= seen.size; ordinal++)
+      if (!seen.has(ordinal))
+        gaps.push(`Sidecar execution ${id} is missing attempt ordinal ${ordinal}`)
+  }
+  return gaps
 }
 
 /** Native checkpoints, embedded bytes, and digest-only values cannot outlive their source. */
