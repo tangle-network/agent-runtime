@@ -551,6 +551,8 @@ describe('retained scope owner input and result', () => {
   it.each([
     { name: 'null', invalid: null, destroyed: false },
     { name: 'empty', invalid: {}, destroyed: false },
+    { name: 'partial', invalid: undefined, destroyed: false },
+    { name: 'wrong-source', invalid: undefined, destroyed: false },
     { name: 'valid', invalid: undefined, destroyed: true },
   ])('requires a durable owner workspace receipt before deletion ($name)', async (testCase) => {
     const environmentId = 'receipt-source'
@@ -561,7 +563,15 @@ describe('retained scope owner input and result', () => {
       { artifactPersistence: { executionId: 'owner:input:1', outputArtifacts } },
     )
     const output = {
-      workspaceSnapshot: testCase.name === 'valid' ? valid.snapshot : testCase.invalid,
+      workspaceSnapshot: ['valid', 'partial', 'wrong-source'].includes(testCase.name)
+        ? valid.snapshot
+        : testCase.invalid,
+      workspaceCapture: {
+        environmentId: testCase.name === 'wrong-source' ? 'another-source' : environmentId,
+        executionId: 'owner:input:1',
+        coverageComplete: testCase.name === 'valid' || testCase.name === 'wrong-source',
+        snapshot: valid.snapshot,
+      },
     }
     const outRef = contentAddress(output)
     await blobs.put(outRef, output)

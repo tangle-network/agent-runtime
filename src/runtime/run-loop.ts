@@ -24,6 +24,7 @@
  * @stable
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../errors'
@@ -38,6 +39,10 @@ import {
   createSandboxUsageLedger,
   notifySandboxEventObserver,
 } from './sandbox-events'
+import {
+  type SandboxEvidenceRetentionPort,
+  SandboxEvidenceTracker,
+} from './sandbox-evidence-retention'
 import {
   createSandboxLineage,
   promptEvents,
@@ -70,6 +75,7 @@ import {
   deleteBoxSafe,
   promptCacheTokenClasses,
   randomSuffix,
+  randomUuid,
   stringifySafe,
   throwAbort,
   withTimeout,
@@ -97,6 +103,8 @@ export interface RunAgentRoundsOptions<Task, Output, Decision> {
   validator?: Validator<Output>
   task: Task
   ctx: ExecCtx
+  /** Durable Sandbox evidence capture required before any worker box cleanup. */
+  evidenceRetention?: SandboxEvidenceRetentionPort
   /** Default 10. Hard cap on total iterations across all `plan()` rounds. */
   maxIterations?: number
   /** Default 4. In-flight worker cap within a single `plan()` batch. */
@@ -188,6 +196,15 @@ export async function runAgentRounds<Task, Output, Decision>(
   )
   const now = options.now ?? Date.now
   const runId = options.runId ?? `loop-${randomSuffix()}`
+  if (options.evidenceRetention !== undefined && options.onWorkerBox !== undefined) {
+    throw new ValidationError(
+      'runAgentRounds: evidenceRetention cannot cover sessions dispatched through onWorkerBox',
+    )
+  }
+  const evidenceTracker =
+    options.evidenceRetention === undefined
+      ? undefined
+      : new SandboxEvidenceTracker(options.evidenceRetention, runId)
   const loopStart = now()
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
@@ -214,7 +231,13 @@ export async function runAgentRounds<Task, Output, Decision>(
   // box+session handles so a refine continues the parent session and a fanout
   // branches the parent box. Both flags off ⇒ lineage stays undefined and
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
-  const lineageState = await setUpLineage(options, maxConcurrency, recordMount, promptOptions)
+  const lineageState = await setUpLineage(
+    options,
+    maxConcurrency,
+    recordMount,
+    promptOptions,
+    evidenceTracker,
+  )
 
   emitRunLoopHook(options, {
     target: 'agent.run',
@@ -327,7 +350,14 @@ export async function runAgentRounds<Task, Output, Decision>(
       // a fresh box per iteration (today's path). With lineage it may continue
       // the parent session (refine) or branch the parent box (fanout).
       const lineagePlan = lineageState
-        ? planLineageRound(lineageState, specs, slice, parentIndex, controller.signal)
+        ? planLineageRound(
+            lineageState,
+            specs,
+            slice,
+            parentIndex,
+            controller.signal,
+            evidenceTracker !== undefined,
+          )
         : undefined
 
       await runBatch({
@@ -348,6 +378,7 @@ export async function runAgentRounds<Task, Output, Decision>(
         collectBox,
         lineagePlan,
         lineageState,
+        evidenceTracker,
         recordMount,
         ...(promptOptions === undefined ? {} : { promptOptions }),
       })
@@ -405,14 +436,26 @@ export async function runAgentRounds<Task, Output, Decision>(
     // stream into them — the kernel owns their teardown. Destroy in parallel so a
     // large fanout's deletes don't serialize, and bound each so a hung platform
     // delete cannot wedge loop return after the caller aborted.
-    await Promise.allSettled(
-      ownedBoxes.map((b) => destroySandboxSafe(b, options.ctx.traceEmitter, runId, now)),
+    const cleanup = await Promise.allSettled(
+      ownedBoxes.map((box) =>
+        evidenceTracker === undefined
+          ? destroySandboxSafe(box, options.ctx.traceEmitter, runId, now)
+          : evidenceTracker.destroy(box),
+      ),
     )
     if (options.onWorkerBox) options.onWorkerBox(undefined)
-    // The lineage owns every box it started or branched across all rounds; it tears
-    // them down at loop end (kept alive between rounds so a later round can
-    // continue/fork them).
-    if (lineageState) await lineageState.lineage.teardown()
+    let lineageFailure: unknown
+    try {
+      if (lineageState) await lineageState.lineage.teardown()
+    } catch (error) {
+      lineageFailure = error
+    }
+    const failures = cleanup.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    )
+    if (lineageFailure !== undefined) failures.push(lineageFailure)
+    // biome-ignore lint/correctness/noUnsafeFinally: Evidence failure must prevent a successful run result and keep source boxes live.
+    if (failures.length) throw new AggregateError(failures, 'Sandbox evidence cleanup failed')
   }
 }
 
@@ -450,6 +493,7 @@ async function setUpLineage<Task, Output, Decision>(
   maxConcurrency: number,
   recordMount: MountRecorder,
   promptOptions: Omit<PromptOptions, 'signal' | 'sessionId'> | undefined,
+  evidenceTracker?: SandboxEvidenceTracker,
 ): Promise<LineageState | undefined> {
   const lineageOpts = options.lineage
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
@@ -464,6 +508,14 @@ async function setUpLineage<Task, Output, Decision>(
       maxConcurrency,
       streaming: lineageOpts.streaming,
       recordMount,
+      ...(evidenceTracker === undefined
+        ? {}
+        : {
+            failOnDestroyError: true,
+            onAcquire: (box: SandboxInstance, profile: AgentProfile) =>
+              evidenceTracker.register(box, profile),
+            beforeDelete: (box: SandboxInstance) => evidenceTracker.destroy(box),
+          }),
     }),
     options: lineageOpts,
     ...(promptOptions === undefined ? {} : { promptOptions }),
@@ -480,7 +532,11 @@ async function setUpLineage<Task, Output, Decision>(
  * handle to record for the NEXT round to descend from.
  */
 interface LineageStreamSource {
-  acquire(): Promise<{ events: AsyncIterable<SandboxEvent>; handle: SandboxLineageHandle }>
+  acquire(): Promise<{
+    events: AsyncIterable<SandboxEvent>
+    handle: SandboxLineageHandle
+    executionId?: string
+  }>
 }
 
 /** The per-round lineage plan: a stream source per slice offset, or `undefined`
@@ -506,7 +562,13 @@ function planLineageRound<Task>(
   slice: Task[],
   parentIndex: number | undefined,
   signal: AbortSignal,
+  retainEvidence: boolean,
 ): LineageRoundPlan {
+  const executionIds = retainEvidence ? slice.map(() => randomUuid()) : []
+  const promptForOffset = (offset: number) =>
+    retainEvidence
+      ? { ...(state.promptOptions ?? {}), executionId: executionIds[offset] }
+      : state.promptOptions
   const lineage = state.lineage
   const parent = parentIndex !== undefined ? state.handles.get(parentIndex) : undefined
   const promptFor = (offset: number): string => {
@@ -528,10 +590,14 @@ function planLineageRound<Task>(
     return [
       {
         async acquire() {
-          const events = await lineage.continue(parent, promptFor(0), signal, state.promptOptions)
+          const events = await lineage.continue(parent, promptFor(0), signal, promptForOffset(0))
           // Continuation threads the SAME handle forward — later rounds keep
           // descending from this box's evolving session.
-          return { events, handle: parent }
+          return {
+            events,
+            handle: parent,
+            ...(retainEvidence ? { executionId: executionIds[0] } : {}),
+          }
         },
       },
     ]
@@ -545,7 +611,14 @@ function planLineageRound<Task>(
     const childSpecs = slice.map((_, offset) => specAt(offset))
     let forked: Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
     const ensureForked = () => {
-      forked ??= lineage.fork(parent, prompts, childSpecs, signal, state.promptOptions)
+      forked ??= lineage.fork(
+        parent,
+        prompts,
+        childSpecs,
+        signal,
+        state.promptOptions,
+        retainEvidence ? executionIds : undefined,
+      )
       return forked
     }
     return slice.map((_, offset) => ({
@@ -554,7 +627,7 @@ function planLineageRound<Task>(
         const branch = branches[offset]
         if (!branch)
           throw new ValidationError('runAgentRounds: lineage fork produced no branch for offset')
-        return branch
+        return { ...branch, ...(retainEvidence ? { executionId: executionIds[offset] } : {}) }
       },
     }))
   }
@@ -563,7 +636,13 @@ function planLineageRound<Task>(
   // start an owned box per iteration and record a handle for later descent.
   return slice.map((_, offset) => ({
     async acquire() {
-      return lineage.start(specAt(offset), promptFor(offset), signal, state.promptOptions)
+      const started = await lineage.start(
+        specAt(offset),
+        promptFor(offset),
+        signal,
+        promptForOffset(offset),
+      )
+      return { ...started, ...(retainEvidence ? { executionId: executionIds[offset] } : {}) }
     },
   }))
 }
@@ -630,6 +709,7 @@ interface RunBatchArgs<Task, Output> {
   /** The loop's lineage state; iterations record their handle here for the next
    *  round to descend from. Set iff `lineagePlan` is. */
   lineageState?: LineageState
+  evidenceTracker?: SandboxEvidenceTracker
   /** Sandbox streaming mode for the default fresh-box path. 'poll' fire-and-
    *  detaches + status-polls the terminal result (drop-resilient for long batch
    *  turns); 'sse' streams live (default). */
@@ -753,6 +833,8 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     // byte-identical when no lineage). The lineage path supplies a session id on
     // the stream; the fresh path passes none — preserving N-independent-boxes.
     let stream: AsyncIterable<SandboxEvent>
+    let sandboxSessionId: string | undefined
+    let dispatchedExecutionId: string | undefined
     const source = args.lineagePlan?.[args.item.index - args.baseIndex]
     if (source) {
       const acquired = await source.acquire()
@@ -760,9 +842,18 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       boxAcquiredAt = args.now()
       lineageOwned = true
       args.lineageState?.handles.set(args.item.index, acquired.handle)
+      args.evidenceTracker?.register(box, spec.profile, acquired.handle.sessionId)
       stream = acquired.events
+      sandboxSessionId = acquired.handle.sessionId
+      dispatchedExecutionId = acquired.executionId
     } else {
-      box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal, args.recordMount)
+      box = await createSandboxForSpec(
+        args.ctx.sandboxClient,
+        spec,
+        args.signal,
+        args.recordMount,
+        args.evidenceTracker,
+      )
       boxAcquiredAt = args.now()
       const prompt = spec.taskToPrompt(args.item.task)
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
@@ -770,18 +861,37 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // streams live — byte-identical to the prior path.
       // The caller's per-prompt SDK options ride every turn; the kernel's own
       // session id and signal are applied after them and always win.
-      const promptOptions = args.promptOptions
+      const sandboxSessionIdForTurn = args.evidenceTracker === undefined ? undefined : randomUuid()
+      sandboxSessionId = sandboxSessionIdForTurn
+      dispatchedExecutionId = args.evidenceTracker === undefined ? undefined : randomUuid()
+      const promptOptions =
+        dispatchedExecutionId === undefined
+          ? args.promptOptions
+          : { ...(args.promptOptions ?? {}), executionId: dispatchedExecutionId }
       stream =
         args.streaming === 'poll'
           ? promptEvents(
               'poll',
               box,
               prompt,
-              `${args.runId}-i${args.item.index}`,
+              sandboxSessionIdForTurn ?? `${args.runId}-i${args.item.index}`,
               args.signal,
               promptOptions,
             )
-          : box.streamPrompt(prompt, { ...(promptOptions ?? {}), signal: args.signal })
+          : box.streamPrompt(prompt, {
+              ...(promptOptions ?? {}),
+              ...(sandboxSessionIdForTurn === undefined
+                ? {}
+                : { sessionId: sandboxSessionIdForTurn }),
+              signal: args.signal,
+            })
+    }
+    if (
+      box !== undefined &&
+      sandboxSessionId !== undefined &&
+      dispatchedExecutionId !== undefined
+    ) {
+      args.evidenceTracker?.recordDispatch(box, sandboxSessionId, dispatchedExecutionId)
     }
     const placement = describeSandboxPlacement(args.ctx.sandboxClient, box)
     await emitTrace(args.ctx.traceEmitter, {
@@ -816,6 +926,12 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     const outcomeTracker = createAgentRunOutcomeTracker()
     for await (const event of stream) {
       events.push(event)
+      if (box !== undefined)
+        args.evidenceTracker?.observe(
+          box,
+          event,
+          source ? args.lineageState?.handles.get(args.item.index)?.sessionId : undefined,
+        )
       outcomeTracker.observe(event)
       // Tee each raw event to an optional host observer so a caller can stream
       // the agent's live output. Best-effort + isolated: the observer gets a
@@ -896,7 +1012,10 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     } else if (args.collectBox && box) {
       args.collectBox(box)
     } else {
-      const teardown = await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
+      const teardown =
+        args.evidenceTracker === undefined || box === undefined
+          ? await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
+          : await args.evidenceTracker.destroy(box).then(() => 'deleted' as const)
       // The platform bills a box until it is deleted, so the lifetime closes on the delete, not on
       // the stream. A delete this loop could not prove leaves the number a floor: the box may have
       // outlived it.
@@ -1031,14 +1150,30 @@ export async function createSandboxForSpec<Task>(
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
   recordMount?: MountRecorder,
+  evidenceTracker?: SandboxEvidenceTracker,
 ): Promise<SandboxInstance> {
   const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides)
   // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
   // host-agent registration) can't surface as a failure — readiness is observed
   // from sandbox status, and a gateway-timed-out create is recovered by lookup.
   if (signal.aborted) throwAbort()
-  const box = await acquireSandbox(client, opts, { signal })
-  await invokePrepareBox(spec, box, signal, recordMount)
+  const box = await acquireSandbox(client, opts, {
+    signal,
+    ...(evidenceTracker === undefined
+      ? {}
+      : {
+          onAcquire: (source: SandboxInstance) => evidenceTracker.register(source, spec.profile),
+          beforeDelete: (source: SandboxInstance) => evidenceTracker.destroy(source),
+        }),
+  })
+  evidenceTracker?.register(box, spec.profile)
+  try {
+    await invokePrepareBox(spec, box, signal, recordMount)
+  } catch (error) {
+    if (evidenceTracker === undefined) await deleteBoxSafe(box)
+    else await evidenceTracker.destroy(box)
+    throw error
+  }
   return box
 }
 

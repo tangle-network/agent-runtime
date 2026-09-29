@@ -303,7 +303,7 @@ describe('provider executable workspace retention', () => {
     expect(existsSync(workspace)).toBe(true)
   })
 
-  it('refuses a steering path that cannot enforce the capture barrier before creating a worker', async () => {
+  it('configures the steering capture barrier before creating a worker', async () => {
     const root = await temporaryRoot()
     let creates = 0
     const provider: AgentEnvironmentProvider = {
@@ -315,23 +315,23 @@ describe('provider executable workspace retention', () => {
       },
     }
     const signal = new AbortController().signal
-    expect(() =>
-      createExecutor({
-        backend: 'provider',
-        provider,
-        steering: { maxTurns: 2 },
-        workspaceRetention: {
-          timeoutMs: 5_000,
-          artifacts: artifactStore(join(root, 'artifacts')),
-          async capture() {
-            throw new Error('capture should not run')
-          },
+    const executorFactory = createExecutor({
+      backend: 'provider',
+      provider,
+      steering: { maxTurns: 2 },
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts: artifactStore(join(root, 'artifacts')),
+        async capture() {
+          throw new Error('capture should not run')
         },
-      })(
-        { profile: testAgentProfile('unsupported-steering-worker'), harness: null },
-        { signal, seams: {} },
-      ),
-    ).toThrow(/workspaceRetention.*steering|steering.*workspaceRetention/)
+      },
+    })
+    const executor = executorFactory(
+      { profile: testAgentProfile('supported-steering-worker'), harness: null },
+      { signal, seams: {} },
+    )
+    expect(executor).toBeDefined()
     expect(creates).toBe(0)
   })
 })

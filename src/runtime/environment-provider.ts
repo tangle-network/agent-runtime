@@ -74,6 +74,9 @@ import { defaultRedactor } from '../redact'
 import {
   assertProviderWorkspaceRetentionPort,
   captureProviderWorkspaceSnapshot,
+  type ProviderWorkspaceCaptureProvenance,
+  type ProviderWorkspaceCaptureReceipt,
+  type ProviderWorkspaceCaptureResult,
   type ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 import { environmentGone } from './retained-interactive-lifecycle'
@@ -182,6 +185,10 @@ export type {
 } from '@tangle-network/agent-interface/environment-provider'
 
 export type {
+  ProviderWorkspaceCaptureProvenance,
+  ProviderWorkspaceCaptureReceipt,
+  ProviderWorkspaceCaptureResult,
+  ProviderWorkspaceEntryMetadata,
   ProviderWorkspaceRetentionContext,
   ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
@@ -280,6 +287,12 @@ export interface ProviderAsSandboxClientOptions {
   requireTerminalEvent?: boolean
   /** Require declared live continuation plus concrete session controls. */
   requireSession?: boolean
+  /** Verified workspace capture before every environment delete, including steerable sessions. */
+  workspaceRetention?: ProviderWorkspaceRetentionPort
+  /** Supervised identity assigned before the environment is created. */
+  retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
+  /** Called after verification and before deletion so the run result can retain the exact join. */
+  onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,
   ) => Partial<CreateAgentEnvironmentInput>
@@ -291,6 +304,17 @@ export function providerAsSandboxClient(
   provider: AgentEnvironmentProvider,
   options: ProviderAsSandboxClientOptions = {},
 ): SandboxClient {
+  if (options.workspaceRetention !== undefined) {
+    assertProviderWorkspaceRetentionPort(
+      options.workspaceRetention,
+      `providerAsSandboxClient(${provider.name})`,
+    )
+    if (options.retentionIdentity === undefined) {
+      throw new ValidationError(
+        'providerAsSandboxClient: retentionIdentity is required with workspaceRetention',
+      )
+    }
+  }
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
@@ -329,13 +353,22 @@ export function providerAsSandboxClient(
       }
       const environment = await provider.create(mapped as CreateAgentEnvironmentInput)
       if (options.requireSession && !environment.session) {
-        await environment.destroy?.()
+        if (options.workspaceRetention === undefined) await environment.destroy?.()
         throw new ValidationError(
           `providerAsSandboxClient(${provider.name}): session() is required`,
         )
       }
       return environmentAsSandboxInstance(environment, {
         requireTerminalEvent: options.requireTerminalEvent ?? true,
+        ...(options.workspaceRetention === undefined
+          ? {}
+          : { workspaceRetention: options.workspaceRetention }),
+        ...(options.retentionIdentity === undefined
+          ? {}
+          : { retentionIdentity: options.retentionIdentity }),
+        ...(options.onWorkspaceCaptured === undefined
+          ? {}
+          : { onWorkspaceCaptured: options.onWorkspaceCaptured }),
       })
     },
   }
@@ -501,6 +534,8 @@ export interface ProviderLeafOut {
   events: AgentEnvironmentEvent[]
   /** Portable executable workspace evidence accepted before the source environment was deleted. */
   workspaceSnapshot?: AgentCandidateWorkspaceSnapshotEvidence
+  /** Exact provider and supervisor identities bound to the retained bytes. */
+  workspaceCapture?: ProviderWorkspaceCaptureReceipt
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
 }
@@ -741,6 +776,9 @@ function createProviderExecutor(
   let destroyed = false
   let workspaceEnvironmentId: string | undefined
   let workspaceSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
+  let workspaceProvenance: ProviderWorkspaceCaptureProvenance | undefined
+  let workspaceCoverageComplete = false
+  let workspaceIncompleteReason: string | undefined
   let workspacePublishedSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
   let workspaceCaptureFailure: unknown
   let workspaceCapturePromise: Promise<AgentCandidateWorkspaceSnapshotEvidence> | undefined
@@ -750,6 +788,7 @@ function createProviderExecutor(
   let workspaceOutcome: AgentRunOutcome | undefined
   let workspacePreservationRequired = false
   let workspaceRunActive = false
+  let providerSessionId: string | null = null
 
   const runtime = options.runtime ?? (provider.name as Runtime)
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
@@ -770,6 +809,9 @@ function createProviderExecutor(
     if (workspaceEnvironmentId === next.id) return
     workspaceEnvironmentId = next.id
     workspaceSnapshot = undefined
+    workspaceProvenance = undefined
+    workspaceCoverageComplete = false
+    workspaceIncompleteReason = undefined
     workspacePublishedSnapshot = undefined
     workspaceCaptureFailure = undefined
     workspaceCapturePromise = undefined
@@ -813,6 +855,9 @@ function createProviderExecutor(
     }
     workspaceRunActive = true
     workspaceSnapshot = undefined
+    workspaceProvenance = undefined
+    workspaceCoverageComplete = false
+    workspaceIncompleteReason = undefined
     workspacePublishedSnapshot = undefined
     workspaceCaptureFailure = undefined
     workspaceCapturePromise = undefined
@@ -836,11 +881,20 @@ function createProviderExecutor(
       workspaceCapturePromise = captureProviderWorkspaceSnapshot(workspaceRetention, {
         environment: next,
         executionId,
+        ...(node === undefined ? {} : { node }),
+        providerSessionId,
+        nativeSessionId: null,
         profile: createProfile,
         ...(outcome === undefined ? {} : { outcome }),
       })
-        .then((snapshot) => {
+        .then(({ snapshot, provenance, coverageComplete, incompleteReason }) => {
           workspaceSnapshot = snapshot
+          workspaceProvenance = provenance
+          workspaceCoverageComplete = coverageComplete ?? false
+          workspaceIncompleteReason = incompleteReason
+          if (workspaceRetention.requireCompleteProvenance && !coverageComplete) {
+            workspacePreservationRequired = true
+          }
           return snapshot
         })
         .catch((error: unknown) => {
@@ -868,6 +922,7 @@ function createProviderExecutor(
         return {
           destroyed: false,
           detail:
+            workspaceIncompleteReason ??
             'provider workspace retention: source preserved because execution failed before a retrievable settled workspace receipt existed',
           permanent: true,
         }
@@ -1068,6 +1123,9 @@ function createProviderExecutor(
           onArtifact: (next) => {
             artifact = next
           },
+          onProviderSessionId: (id) => {
+            providerSessionId = id
+          },
           onHarnessTranscript: (next) => {
             harnessTranscript = next
           },
@@ -1078,6 +1136,11 @@ function createProviderExecutor(
             workspacePublishedSnapshot = snapshot
           },
           captureWorkspace,
+          workspaceProvenance: () => workspaceProvenance,
+          workspaceCoverage: () => ({
+            complete: workspaceCoverageComplete,
+            incompleteReason: workspaceIncompleteReason,
+          }),
           destroyEnvironment,
         })
         const refusal = ended.unavailable
@@ -1357,12 +1420,15 @@ interface StreamProviderExecutorArgs {
   onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
   onArtifact: (artifact: ExecutorResult<unknown>) => void
+  onProviderSessionId: (id: string | null) => void
   onUnsettledFailure: () => void
   onPublishedSnapshot: (snapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined) => void
   captureWorkspace: (
     environment: AgentEnvironment,
     outcome: AgentRunOutcome | undefined,
   ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
+  workspaceProvenance: () => ProviderWorkspaceCaptureProvenance | undefined
+  workspaceCoverage: () => { complete: boolean; incompleteReason?: string }
   destroyEnvironment: (signal?: AbortSignal) => Promise<TeardownAnswer>
   /** The harness transcript read out of the live environment, reported on the settled path AND
    *  on the drop path. One channel for both, so a reader never has to know which path ran. */
@@ -1412,6 +1478,7 @@ async function* streamProviderExecutor(
     const { signal: _signal, ...material } = turn
     turn = { ...detachedSnapshot(material, 'provider placement turn'), signal: linked }
   }
+  args.onProviderSessionId(turn.sessionId ?? null)
   const source = await providerExecutionSource(args, turn, linked)
   const environment = source.environment
   args.onEnvironment(environment)
@@ -1576,7 +1643,28 @@ async function* streamProviderExecutor(
     args.onPublishedSnapshot(retainedWorkspace)
     const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...result,
-      ...(retainedWorkspace === undefined ? {} : { workspaceSnapshot: retainedWorkspace }),
+      ...(retainedWorkspace === undefined
+        ? {}
+        : {
+            workspaceSnapshot: retainedWorkspace,
+            workspaceCapture: {
+              executionId: args.executionId,
+              ...(args.node === undefined ? {} : { node: args.node }),
+              environmentId: environment.id,
+              profileDigest: canonicalAgentProfileDigest(args.profile),
+              providerSessionId: turn.sessionId ?? null,
+              nativeSessionId: null,
+              snapshot: retainedWorkspace,
+              provenance: args.workspaceProvenance() ?? {
+                status: 'unavailable',
+                missing: ['Capture coverage metadata was not retained'],
+              },
+              coverageComplete: args.workspaceCoverage().complete,
+              ...(args.workspaceCoverage().incompleteReason === undefined
+                ? {}
+                : { incompleteReason: args.workspaceCoverage().incompleteReason }),
+            },
+          }),
     }
     settled = {
       ...(result.outcome?.status === 'failed'
@@ -2185,8 +2273,15 @@ async function sandboxProfileFromReference(
 
 function environmentAsSandboxInstance(
   environment: AgentEnvironment,
-  options: { requireTerminalEvent: boolean },
+  options: {
+    requireTerminalEvent: boolean
+    workspaceRetention?: ProviderWorkspaceRetentionPort
+    retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
+    onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void
+  },
 ): SandboxInstance {
+  let providerSessionId: string | null = null
+  let capture: Promise<ProviderWorkspaceCaptureResult> | undefined
   const box = {
     id: environment.id,
     name: environment.name,
@@ -2200,6 +2295,7 @@ function environmentAsSandboxInstance(
     ): AsyncGenerator<SandboxEvent> {
       let terminal = false
       const input = turnInputFromPrompt(message, promptOptions)
+      providerSessionId = input.sessionId ?? null
       let cancellation: Promise<void> | undefined
       let cancellationStarted = false
       let cancellationFailed = false
@@ -2346,6 +2442,37 @@ function environmentAsSandboxInstance(
         }
       : {}),
     async delete(): Promise<void> {
+      if (options.workspaceRetention !== undefined) {
+        const identity = options.retentionIdentity
+        if (identity === undefined)
+          throw new ValidationError(
+            'providerAsSandboxClient: retention identity missing before delete',
+          )
+        capture ??= captureProviderWorkspaceSnapshot(options.workspaceRetention, {
+          environment,
+          executionId: identity.executionId,
+          ...(identity.node === undefined ? {} : { node: identity.node }),
+          providerSessionId,
+          nativeSessionId: null,
+          profile: identity.profile,
+        })
+        const { snapshot, provenance, coverageComplete, incompleteReason } = await capture
+        options.onWorkspaceCaptured?.({
+          executionId: identity.executionId,
+          ...(identity.node === undefined ? {} : { node: identity.node }),
+          environmentId: environment.id,
+          profileDigest: canonicalAgentProfileDigest(identity.profile),
+          providerSessionId,
+          nativeSessionId: null,
+          snapshot,
+          provenance,
+          coverageComplete: coverageComplete ?? false,
+          ...(incompleteReason === undefined ? {} : { incompleteReason }),
+        })
+        if (options.workspaceRetention.requireCompleteProvenance && !coverageComplete) {
+          throw new Error(incompleteReason ?? 'provider workspace retention coverage incomplete')
+        }
+      }
       await environment.destroy?.()
     },
   }

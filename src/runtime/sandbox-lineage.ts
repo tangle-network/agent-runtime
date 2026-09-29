@@ -33,6 +33,7 @@
  * @experimental
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   BranchOptions,
   CreateSandboxOptions,
@@ -208,6 +209,7 @@ export interface SandboxLineage {
     specs: AgentRunSpec<unknown>[],
     signal: AbortSignal,
     promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>,
+    executionIds?: readonly string[],
   ): Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
   /**
    * Destroy every owned box whose handle is NOT in `keep`, freeing it before
@@ -238,6 +240,11 @@ export function createSandboxLineage(
      *  (fresh start, continue, and fork branches). Absent ⇒ mounts go unrecorded
      *  (a no-op recorder stands in so the ctx shape is always satisfied). */
     recordMount?: MountRecorder
+    /** A failed delete must surface and leave the box available for evidence recovery. */
+    failOnDestroyError?: boolean
+    /** Capture and durably record evidence before the box is deleted. */
+    beforeDelete?: (box: SandboxInstance) => Promise<void>
+    onAcquire?: (box: SandboxInstance, profile: AgentProfile) => void
   } = {},
 ): SandboxLineage {
   if (!client || typeof client.create !== 'function') {
@@ -254,6 +261,7 @@ export function createSandboxLineage(
     Math.floor(options.maxConcurrency ?? DEFAULT_FORK_CONCURRENCY),
   )
   const owned: SandboxInstance[] = []
+  const profiles = new Map<SandboxInstance, AgentProfile>()
 
   const acquireFresh = async (
     spec: AgentRunSpec<unknown>,
@@ -261,9 +269,30 @@ export function createSandboxLineage(
   ): Promise<SandboxInstance> => {
     if (signal.aborted) throwAbort()
     const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides)
-    const box = await acquireSandbox(client, opts, { signal })
-    await spec.prepareBox?.(box, { signal, recordMount })
+    const box = await acquireSandbox(client, opts, {
+      signal,
+      ...(options.onAcquire === undefined
+        ? {}
+        : { onAcquire: (source: SandboxInstance) => options.onAcquire?.(source, spec.profile) }),
+      ...(options.beforeDelete === undefined ? {} : { beforeDelete: options.beforeDelete }),
+    })
     owned.push(box)
+    profiles.set(box, spec.profile)
+    options.onAcquire?.(box, spec.profile)
+    try {
+      await spec.prepareBox?.(box, { signal, recordMount })
+    } catch (error) {
+      try {
+        await destroyBounded(box, options.failOnDestroyError, options.beforeDelete)
+        owned.splice(owned.indexOf(box), 1)
+      } catch (captureError) {
+        throw new AggregateError(
+          [error, captureError],
+          'Sandbox preparation and evidence cleanup failed',
+        )
+      }
+      throw error
+    }
     return box
   }
 
@@ -285,7 +314,14 @@ export function createSandboxLineage(
       return promptEvents(streaming, handle.box, prompt, handle.sessionId, signal, promptOptions)
     },
 
-    async fork(parent, prompts, specs, signal, promptOptions) {
+    async fork(parent, prompts, specs, signal, promptOptions, executionIds) {
+      if (executionIds !== undefined && executionIds.length !== prompts.length) {
+        throw new ValidationError('SandboxLineage.fork: execution IDs must match prompts')
+      }
+      const optionsFor = (index: number) =>
+        executionIds === undefined
+          ? promptOptions
+          : { ...(promptOptions ?? {}), executionId: executionIds[index] }
       if (prompts.length === 0) {
         throw new ValidationError('SandboxLineage.fork: prompts must be non-empty')
       }
@@ -295,6 +331,13 @@ export function createSandboxLineage(
         // Track children before validating the fan-out so teardown can reap a
         // partial response if the platform reports fewer children than asked.
         owned.push(...branched)
+        const inheritedProfile = profiles.get(parent.box)
+        if (inheritedProfile !== undefined) {
+          for (const box of branched) {
+            profiles.set(box, inheritedProfile)
+            options.onAcquire?.(box, inheritedProfile)
+          }
+        }
         if (branched.length !== prompts.length) {
           throw new ValidationError(
             `SandboxLineage.fork: Sandbox returned ${branched.length} of ${prompts.length} requested children`,
@@ -304,11 +347,15 @@ export function createSandboxLineage(
           throwIfAborted(signal)
           const spec = specs[i % specs.length]
           if (!spec) throw new ValidationError('SandboxLineage.fork: no AgentRunSpec for branch')
+          if (inheritedProfile === undefined) {
+            profiles.set(box, spec.profile)
+            options.onAcquire?.(box, spec.profile)
+          }
           await spec.prepareBox?.(box, { signal, recordMount })
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
-            events: promptEvents(streaming, box, prompts[i]!, sessionId, signal, promptOptions),
+            events: promptEvents(streaming, box, prompts[i]!, sessionId, signal, optionsFor(i)),
           }
         })
       }
@@ -330,18 +377,21 @@ export function createSandboxLineage(
         if (checkpointId !== undefined) {
           const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
           owned.push(box)
+          const inheritedProfile = profiles.get(parent.box) ?? spec.profile
+          profiles.set(box, inheritedProfile)
+          options.onAcquire?.(box, inheritedProfile)
           await spec.prepareBox?.(box, { signal, recordMount })
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
-            events: promptEvents(streaming, box, prompt, sessionId, signal, promptOptions),
+            events: promptEvents(streaming, box, prompt, sessionId, signal, optionsFor(i)),
           }
         }
         const box = await acquireFresh(spec, signal)
         const sessionId = mintSessionId()
         return {
           handle: { box, sessionId },
-          events: promptEvents(streaming, box, prompt, sessionId, signal, promptOptions),
+          events: promptEvents(streaming, box, prompt, sessionId, signal, optionsFor(i)),
         }
       })
     },
@@ -353,14 +403,39 @@ export function createSandboxLineage(
       const doomed: SandboxInstance[] = []
       for (const box of owned) (keepBoxes.has(box) ? survivors : doomed).push(box)
       if (doomed.length === 0) return
+      const results = await Promise.allSettled(
+        doomed.map((box) => destroyBounded(box, options.failOnDestroyError, options.beforeDelete)),
+      )
+      const failed = results.flatMap((result, index) =>
+        result.status === 'rejected' ? [doomed[index]!] : [],
+      )
       owned.length = 0
-      owned.push(...survivors)
-      await Promise.allSettled(doomed.map((box) => destroyBounded(box)))
+      owned.push(...survivors, ...failed)
+      if (failed.length > 0)
+        throw new AggregateError(
+          results
+            .filter((result) => result.status === 'rejected')
+            .map((result) => (result as PromiseRejectedResult).reason),
+          'Sandbox evidence capture failed before prune',
+        )
     },
 
     async teardown() {
       const boxes = owned.splice(0, owned.length)
-      await Promise.allSettled(boxes.map((box) => destroyBounded(box)))
+      const results = await Promise.allSettled(
+        boxes.map((box) => destroyBounded(box, options.failOnDestroyError, options.beforeDelete)),
+      )
+      const failed = results.flatMap((result, index) =>
+        result.status === 'rejected' ? [boxes[index]!] : [],
+      )
+      owned.push(...failed)
+      if (failed.length > 0)
+        throw new AggregateError(
+          results
+            .filter((result) => result.status === 'rejected')
+            .map((result) => (result as PromiseRejectedResult).reason),
+          'Sandbox evidence capture failed before teardown',
+        )
     },
   }
 }
@@ -384,16 +459,21 @@ async function branchParent(
   const branch = (box as unknown as BranchCapableBox).branch
   if (typeof branch !== 'function') return undefined
   const children: SandboxInstance[] = []
-  for (let offset = 0; offset < count; offset += concurrency) {
-    throwIfAborted(signal)
-    const requested = Math.min(concurrency, count - offset)
-    const batch = await branch.call(box, requested)
-    children.push(...batch)
-    // Return partial batches to the caller so it can register every child for
-    // teardown before rejecting the incomplete fan-out.
-    if (batch.length !== requested) return children
+  try {
+    for (let offset = 0; offset < count; offset += concurrency) {
+      throwIfAborted(signal)
+      const requested = Math.min(concurrency, count - offset)
+      const batch = await branch.call(box, requested)
+      children.push(...batch)
+      // Return partial batches to the caller so it can register every child for
+      // teardown before rejecting the incomplete fan-out.
+      if (batch.length !== requested) return children
+    }
+    return children
+  } catch (error) {
+    if (children.length) return children
+    throw error
   }
-  return children
 }
 
 /**
@@ -459,7 +539,19 @@ async function assertSessionLive(box: SandboxInstance, sessionId: string): Promi
   }
 }
 
-async function destroyBounded(box: SandboxInstance): Promise<void> {
+async function destroyBounded(
+  box: SandboxInstance,
+  failOnError = false,
+  beforeDelete?: (box: SandboxInstance) => Promise<void>,
+): Promise<void> {
+  if (beforeDelete !== undefined) {
+    await beforeDelete(box)
+    return
+  }
+  if (failOnError) {
+    await box.delete()
+    return
+  }
   await withTimeout(deleteBoxSafe(box), TEARDOWN_TIMEOUT_MS)
 }
 

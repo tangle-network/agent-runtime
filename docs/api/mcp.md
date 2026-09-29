@@ -3919,7 +3919,7 @@ One rejected field of an authored analyst definition: which field, and what is w
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](runtime.md#scope-2)\<`unknown`\>
+> `readonly` **scope**: [`Scope`](runtime.md#scope-3)\<`unknown`\>
 
 ##### blobs
 

@@ -225,6 +225,10 @@ export {
   type ProviderLeafOut,
   type ProviderPlacement,
   type ProviderPromptOptions,
+  type ProviderWorkspaceCaptureProvenance,
+  type ProviderWorkspaceCaptureReceipt,
+  type ProviderWorkspaceCaptureResult,
+  type ProviderWorkspaceEntryMetadata,
   type ProviderWorkspaceRetentionContext,
   type ProviderWorkspaceRetentionPort,
   providerAsExecutor,
@@ -422,6 +426,7 @@ export type {
   WidenSpec,
   WinnerStrategy,
 } from './personify/wave-types'
+export { createPrivateCasArtifactPort } from './private-cas'
 // Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
 // a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
@@ -521,6 +526,13 @@ export {
   sandboxProgressEvents,
   sumSandboxUsage,
 } from './sandbox-events'
+export {
+  captureBeforeDestroy,
+  type SandboxEvidenceContext,
+  type SandboxEvidenceReceipt,
+  SandboxEvidenceRetentionError,
+  type SandboxEvidenceRetentionPort,
+} from './sandbox-evidence-retention'
 export {
   type BranchCapableBox,
   type CheckpointCapableBox,

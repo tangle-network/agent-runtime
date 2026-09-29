@@ -35,6 +35,7 @@ import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
+  type ProviderWorkspaceCaptureReceipt,
   placedProviderExecutor,
   providerAsExecutor,
   providerAsSandboxClient,
@@ -192,6 +193,10 @@ const routerTurnProfileMaterialization = defineProfileMaterializationContract({
  */
 export interface SandboxSeam {
   sandboxClient: SandboxClient
+  /** Surface evidence capture failures from session cleanup. */
+  failOnDestroyError?: boolean
+  /** Verified provider captures collected before session teardown. */
+  workspaceCaptures?: () => ReadonlyArray<ProviderWorkspaceCaptureReceipt>
   /** Forwarded into the composed `runAgentRounds`'s `ctx` (trace emitter, run handle, etc.). */
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
   /** PR #150 `RunAgentRoundsOptions.lineage` passthrough — opaque; forwarded, not parsed. */
@@ -1190,6 +1195,8 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       profile: spec.profile,
       harness,
       sandboxClient: seam.sandboxClient,
+      failOnDestroyError: seam.failOnDestroyError,
+      workspaceCaptures: seam.workspaceCaptures,
       inbox,
       taskToPrompt: (t) => taskToPrompt(t),
       options: seam.steering,
@@ -2141,6 +2148,8 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         config as unknown as Readonly<Record<string, unknown>>,
         new Set([
           'backend',
+          'failOnDestroyError',
+          'workspaceCaptures',
           'lineage',
           'loopCtx',
           'maxIterations',
@@ -2152,10 +2161,11 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       )
       // `validator` is an executable port like `sandboxClient`: retained live by reference,
       // never cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
-      const { sandboxClient, loopCtx, validator, ...decisionData } = config
+      const { sandboxClient, loopCtx, validator, workspaceCaptures, ...decisionData } = config
       const port = {
         sandboxClient,
         ...(validator === undefined ? {} : { validator }),
+        ...(workspaceCaptures === undefined ? {} : { workspaceCaptures }),
       }
       if (loopCtx === undefined) {
         const snapshot = detachedSnapshot(decisionData, 'createExecutor sandbox config')
@@ -2312,11 +2322,6 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           ? selectProviderPlacement(spec.profile, originalSeam)
           : undefined
         const providerSeam = selected?.options ?? originalSeam
-        if (providerSeam.steering && providerSeam.workspaceRetention !== undefined) {
-          throw new ValidationError(
-            'createExecutor(provider, steering): workspaceRetention cannot be used with steering because the session-owned environment has no single-shot preservation barrier',
-          )
-        }
         const provider = resolveAgentEnvironmentProvider(
           providerSeam.provider,
           providerSeam.registry,
@@ -2338,6 +2343,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             )
           }
           const harness = requiredProviderProfileHarness(spec, providerSeam)
+          const workspaceCaptures: ProviderWorkspaceCaptureReceipt[] = []
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
               ...(providerSeam.defaults ?? {}),
@@ -2345,6 +2351,19 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             },
             requireTerminalEvent: providerSeam.requireTerminalEvent,
             requireSession: true,
+            ...(providerSeam.workspaceRetention === undefined
+              ? {}
+              : {
+                  workspaceRetention: providerSeam.workspaceRetention,
+                  retentionIdentity: {
+                    executionId: seamed.node?.nodeId ?? `provider-run-${randomUUID()}`,
+                    profile: spec.profile,
+                    ...(seamed.node === undefined ? {} : { node: seamed.node }),
+                  },
+                  onWorkspaceCaptured: (receipt: ProviderWorkspaceCaptureReceipt) => {
+                    workspaceCaptures.push(receipt)
+                  },
+                }),
           })
           // The steerable session already speaks this vocabulary: it reads
           // `ExecCtx.promptOptions` and the composed client raises them back onto
@@ -2356,6 +2375,10 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
               ...seamed.seams,
               [sandboxSeamKey]: {
                 sandboxClient,
+                failOnDestroyError: providerSeam.workspaceRetention !== undefined,
+                ...(providerSeam.workspaceRetention === undefined
+                  ? {}
+                  : { workspaceCaptures: () => workspaceCaptures }),
                 steering: providerSeam.steering,
                 ...(providerSeam.promptOptions === undefined
                   ? {}

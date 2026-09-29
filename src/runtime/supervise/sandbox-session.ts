@@ -35,6 +35,7 @@ import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-netw
 import { ValidationError } from '../../errors'
 import type { RuntimeStreamEvent } from '../../types'
 import { readPromptOptions } from '../prompt-options'
+import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import {
   assertSandboxServedModel,
@@ -102,6 +103,9 @@ export interface SteerableSandboxArgs {
   readonly profile: AgentProfile
   readonly harness: BackendType
   readonly sandboxClient: SandboxClient
+  /** Require capture failures at box cleanup to fail the supervised worker. */
+  readonly failOnDestroyError?: boolean
+  readonly workspaceCaptures?: () => ReadonlyArray<ProviderWorkspaceCaptureReceipt>
   readonly inbox: Inbox
   readonly taskToPrompt: (task: unknown) => string
   readonly options?: SandboxSteeringOptions
@@ -190,8 +194,12 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
   }
 
   async function* stream(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent> {
+    let preservationFailure: string | undefined
     const capabilities = await probeSandboxCapabilities(args.sandboxClient)
-    const lineage = createSandboxLineage(args.sandboxClient, capabilities, { maxConcurrency: 1 })
+    const lineage = createSandboxLineage(args.sandboxClient, capabilities, {
+      maxConcurrency: 1,
+      failOnDestroyError: args.failOnDestroyError,
+    })
     state.teardown = () => lineage.teardown()
 
     const spec: AgentRunSpec<unknown> = {
@@ -382,7 +390,13 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       }
     } finally {
       state.note = 'settled'
-      await lineage.teardown().catch(() => {})
+      if (args.failOnDestroyError) {
+        try {
+          await lineage.teardown()
+        } catch (error) {
+          preservationFailure = error instanceof Error ? error.message : String(error)
+        }
+      } else await lineage.teardown().catch(() => {})
       state.teardown = undefined
     }
 
@@ -416,10 +430,17 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       // The conserved pool already carries the measurement fact — `tokensKnown: false` taints the
       // readout and names the node in `spendGaps`.
       ...(usageFailure === undefined ? {} : { tokensUnknownReason: usageFailure }),
+      ...(args.workspaceCaptures === undefined
+        ? {}
+        : { workspaceCaptures: args.workspaceCaptures() }),
+      ...(preservationFailure === undefined ? {} : { preservationFailure }),
     }
-    const verdict = state.latestOutcome
-      ? projectSandboxOutcome(state.latestOutcome).verdict
-      : undefined
+    const verdict =
+      preservationFailure !== undefined
+        ? { valid: false, score: 0, notes: preservationFailure }
+        : state.latestOutcome
+          ? projectSandboxOutcome(state.latestOutcome).verdict
+          : undefined
     state.artifact = {
       outRef: args.contentRef('sandbox-steerable', { harness: args.harness, out }),
       out,
@@ -495,7 +516,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     traceSource: () => trace.source,
     artifact: () => state.artifact,
     async teardown() {
-      await state.teardown?.().catch(() => {})
+      if (args.failOnDestroyError) await state.teardown?.()
+      else await state.teardown?.().catch(() => {})
     },
   }
 }
