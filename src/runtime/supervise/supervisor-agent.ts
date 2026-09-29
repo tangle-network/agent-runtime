@@ -1142,6 +1142,7 @@ function buildSupervisorAgent(
               })
             },
             canReadMore: runtimeToolNames.includes('read_continuation'),
+            canSubmitResult: runtimeToolNames.includes('submit_result'),
           })
         }
         let candidate: unknown
@@ -1269,6 +1270,7 @@ function buildSupervisorAgent(
                   : (continuity: ReentryContinuity) =>
                       composeReentryTask({
                         originalTask: task,
+                        tools: runtimeToolNames,
                         ...(describe === undefined ? {} : { contract: describe }),
                         reentry,
                         continuity,

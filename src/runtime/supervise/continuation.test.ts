@@ -252,9 +252,7 @@ describe('the continuation note', () => {
       progress,
       canReadMore: false,
     })
-    expect(none.split('\n')[0]).toBe(
-      'No result has reached the check yet. The run ends only when a result passes it through submit_result.',
-    )
+    expect(none.split('\n')[0]).toBe('No check verdict is available yet.')
     const passing = composeContinuationNote({
       profile: testContinuationProfile,
       continuation: 1,
@@ -265,6 +263,23 @@ describe('the continuation note', () => {
       canReadMore: false,
     })
     expect(passing).toContain('The check passes on the current state')
+  })
+
+  it.each([true, false])('only requests submission when it is served (%s)', (canSubmitResult) => {
+    for (const verdict of [undefined, { pass: true }]) {
+      const note = composeContinuationNote({
+        profile: { ...testContinuationProfile, plan: 'Preserve the evidence.' },
+        continuation: 1,
+        ...(verdict === undefined ? {} : { verdict }),
+        reads: verdict === undefined ? 0 : 1,
+        failures: 'off',
+        progress,
+        canReadMore: false,
+        canSubmitResult,
+      })
+      expect(note.split('\n')[0]?.includes('submit_result')).toBe(canSubmitResult)
+      expect(note).not.toContain('The run ends only')
+    }
   })
 
   it('writes the bar item by item against the best version, with the reference and the review', () => {

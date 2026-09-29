@@ -552,6 +552,8 @@ export interface ContinuationNoteInput {
   readonly progress: DriverProgressMark
   /** Whether `read_continuation` is served to this manager. */
   readonly canReadMore: boolean
+  /** Whether submit_result is served to this manager. Absent means unavailable. */
+  readonly canSubmitResult?: boolean
   /** Whether the check's score comes from cases the director cannot see. */
   readonly sealed?: boolean
 }
@@ -589,9 +591,13 @@ export function composeContinuationNote(input: ContinuationNoteInput): string {
   // does not exist.
   const sections: string[] = [
     verdict === undefined
-      ? 'No result has reached the check yet. The run ends only when a result passes it through submit_result.'
+      ? 'No check verdict is available yet.' +
+        (input.canSubmitResult === true
+          ? ' Submit a result through submit_result to request the check.'
+          : '')
       : verdict.pass
-        ? 'The check passes on the current state, but no result was submitted. Call submit_result to end the run.'
+        ? 'The check passes on the current state, but no result has been accepted.' +
+          (input.canSubmitResult === true ? ' Call submit_result to request acceptance.' : '')
         : fill(profile.opening).trim(),
   ]
   const section = (heading: string, body: ReadonlyArray<string>) => {
@@ -820,6 +826,8 @@ export interface ContinuationKeeperInput {
   readonly traces?: () => Promise<TraceAnalysisStore | undefined>
   /** Whether `read_continuation` is served to this manager. */
   readonly canReadMore: boolean
+  /** Whether submit_result is served to this manager. Absent means unavailable. */
+  readonly canSubmitResult?: boolean
 }
 
 /** One manager's continuation state: the notes it was sent and the panel's running ledger. */
@@ -967,6 +975,7 @@ export function createContinuationKeeper(input: ContinuationKeeperInput): Contin
         ...(input.owed === undefined ? {} : { owed: input.owed }),
         progress: context.progress,
         canReadMore: input.canReadMore,
+        canSubmitResult: input.canSubmitResult === true,
         ...(input.sealed === true ? { sealed: true } : {}),
       })
       notes.push({

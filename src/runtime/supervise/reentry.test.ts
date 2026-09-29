@@ -19,6 +19,7 @@ describe('composeReentryTask', () => {
     const task = composeReentryTask({
       originalTask: 'Fetch the holder token and submit it.',
       contract: 'an object {token}',
+      tools: ['submit_result', 'read_journal', 'await_event', 'observe_agent'],
       reentry: { reason: 'driver-failure', failure: 'Sandbox not found', retry: 1 },
       continuity: {
         session: 'new',
@@ -35,11 +36,14 @@ describe('composeReentryTask', () => {
     expect(task).not.toContain('Sandbox not found')
     expect(task).toContain('Your previous environment (sandbox-1) is gone')
     expect(task).toContain('Fetch the holder token and submit it.')
-    expect(task).toContain('It expects: an object {token}')
-    expect(task).toContain('call read_journal with sinceRow 9')
+    expect(task).toContain(
+      'Call submit_result to request acceptance through the independent check.',
+    )
+    expect(task).toContain('The declared completion requirement is: an object {token}')
+    expect(task).toContain('Call read_journal with sinceRow 9')
     expect(task).toContain('Workers running: run:s1 (verifier, running)')
     expect(task).toContain('run:s0 (done, did not pass its check, not yet received)')
-    expect(task).toContain('Events waiting for you in await_event: 1 (settled from run:s0)')
+    expect(task).toContain('Events waiting for you: 1 (settled from run:s0)')
     expect(task).toContain('#4 finding from run:s0')
     expect(task).toContain('Your last submit_result was refused: result.token is missing')
   })
@@ -47,6 +51,7 @@ describe('composeReentryTask', () => {
   it('tells a director re-entered after a pause only that its turn was interrupted', () => {
     const task = composeReentryTask({
       originalTask: 'Fetch the holder token and submit it.',
+      tools: ['read_journal'],
       reentry: { reason: 'upstream-unavailable', signal: 'provider_quota_exhausted', pause: 3 },
       continuity: { session: 'continued', environment: 'same', workspace: 'kept' },
       state,
@@ -57,7 +62,10 @@ describe('composeReentryTask', () => {
     expect(task).not.toContain('provider_quota_exhausted')
     expect(task).not.toMatch(/quota|provider|pause/iu)
     expect(task).toContain('Fetch the holder token and submit it.')
-    expect(task).toContain('call read_journal with sinceRow 9')
+    expect(task).not.toContain(
+      'Call submit_result to request acceptance through the independent check.',
+    )
+    expect(task).toContain('Call read_journal with sinceRow 9')
   })
 
   it('sends only the unmet items and what changed into a proven-continuous session', () => {
@@ -74,7 +82,7 @@ describe('composeReentryTask', () => {
     })
     expect(task.startsWith('The completion check has not passed.')).toBe(true)
     expect(task).not.toContain('Fetch the holder token')
-    expect(task).toContain('Events waiting for you in await_event: 1')
+    expect(task).toContain('Events waiting for you: 1')
     expect(task).toContain('Workers settled that you have not received: run:s0')
   })
 
