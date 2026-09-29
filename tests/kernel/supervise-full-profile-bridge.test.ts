@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -402,6 +402,138 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
   afterEach(async () => {
     if (server) await new Promise((resolve) => server?.close(resolve))
     server = undefined
+  })
+
+  it('resolves mounted resource paths through bridge root, child and grandchild managers', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'nested-bridge-resources-'))
+    const skill = '# Profile authoring\nKeep the exact mounted bytes: αβ.\n'
+    await writeFile(join(directory, 'root-skill.md'), skill)
+    const requests: BridgeRequest[] = []
+    const receipts: unknown[] = []
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    server = createBridgeServer(async (req, res) => {
+      try {
+        const body = await readJson(req)
+        requests.push(body)
+        const name = body.agent_profile.name
+        const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+        if (name === 'manager') {
+          // The bridge materializes the exact child resource before that manager delegates it.
+          const resource = body.agent_profile.resources?.skills?.[0]
+          if (resource?.kind !== 'inline' || typeof resource.content !== 'string') {
+            throw new Error('manager did not receive inline skill bytes')
+          }
+          await writeFile(join(directory, 'child-skill.md'), resource.content)
+        }
+        if (coordination?.url) {
+          const profile: AgentProfile = {
+            ...codexTestProfile(
+              name === 'root' ? 'manager' : 'grandchild',
+              undefined,
+              name === 'root' ? ['spawn_worker', 'await_event'] : [],
+            ),
+            resources: {
+              skills: [
+                {
+                  kind: 'inline',
+                  name: 'profile-authoring',
+                  path: name === 'root' ? 'root-skill.md' : 'child-skill.md',
+                },
+              ],
+            },
+          }
+          const response = await fetch(coordination.url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: name,
+              method: 'tools/call',
+              params: {
+                name: 'spawn_worker',
+                arguments: { profile, task: 'Use the mounted method.' },
+              },
+            }),
+          })
+          const payload = (await response.json()) as {
+            result?: { content?: Array<{ text?: string }> }
+          }
+          const result = JSON.parse(payload.result?.content?.[0]?.text ?? '{}')
+          receipts.push(result)
+          if (!response.ok || typeof result.workerId !== 'string') {
+            throw new Error(`resource spawn refused: ${JSON.stringify(result)}`)
+          }
+          await callCoordination(coordination.url, 'await_event', {})
+        }
+        respondWithBridgeStream(res, body, successStream('resource consumer completed'))
+      } catch (error) {
+        res.writeHead(500)
+        res.end(String(error))
+      }
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    try {
+      await supervise(
+        codexTestProfile('root', undefined, ['spawn_worker', 'await_event']),
+        'Delegate the exact mounted method through two generations.',
+        {
+          backend: {
+            backend: 'bridge',
+            bridgeUrl: `http://127.0.0.1:${port}`,
+            bridgeBearer: 'test',
+            cwd: directory,
+          },
+          budget: { maxIterations: 20, maxTokens: 100_000 },
+          perWorker: { maxIterations: 8, maxTokens: 20_000 },
+          maxDepth: 3,
+          driverRetry: { enabled: false },
+          journal,
+          blobs,
+          runId: 'resource-tree',
+        },
+      )
+      expect(requests.map((request) => request.agent_profile.name)).toEqual([
+        'root',
+        'manager',
+        'grandchild',
+      ])
+      for (const request of requests.slice(1)) {
+        expect(request.agent_profile.resources?.skills?.[0]).toEqual({
+          kind: 'inline',
+          name: 'profile-authoring',
+          content: skill,
+        })
+      }
+      expect(receipts).toEqual([
+        expect.objectContaining({
+          resourcesFromPath: [
+            {
+              at: 'skills[0]',
+              path: 'root-skill.md',
+              byteLength: Buffer.byteLength(skill),
+              sha256: sha256Bytes(Buffer.from(skill)).replace('sha256:', ''),
+            },
+          ],
+        }),
+        expect.objectContaining({
+          resourcesFromPath: [
+            {
+              at: 'skills[0]',
+              path: 'child-skill.md',
+              byteLength: Buffer.byteLength(skill),
+              sha256: sha256Bytes(Buffer.from(skill)).replace('sha256:', ''),
+            },
+          ],
+        }),
+      ])
+      expect(await replaySpawnTree(journal, blobs, 'resource-tree/resource-tree:s0')).toHaveLength(
+        1,
+      )
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('cancels a quiet external invocation from its durable request without admitting a successor', async () => {
