@@ -1,3 +1,16 @@
+## 0.286.0
+
+Retain exact provider execution attempts with verified workspace evidence.
+Require strict capture to reconcile every execution and retry before deleting its source.
+Preserve incomplete archives for review and derive native session identity only from verified, unambiguous evidence.
+
+Continuation and reentry notes request coordination tools only when those tools are served to the manager.
+Coordinator facts remain visible when the corresponding tool is unavailable.
+A missing check verdict stays unknown; acceptance and measured progress rules are unchanged.
+
+Clarify profile authoring for calibrated development progress, served completion tools, and outside acceptance.
+Keep historical examples in an optional reference while preserving a self-contained mounted skill.
+
 ## 0.285.0
 
 `resolveDeliverable` can return `null` to run a child without inheriting the root completion check or continuation.
