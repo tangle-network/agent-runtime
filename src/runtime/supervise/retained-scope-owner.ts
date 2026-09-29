@@ -828,6 +828,7 @@ export async function releaseScopeRetainedOwnerEnvironment(
 
 interface OwnerAttempt {
   readonly environmentIds: Set<string>
+  readonly executionByEnvironment: Map<string, string>
   result?: Extract<SpawnEvent, { kind: 'execution-result' }>
 }
 
@@ -847,13 +848,14 @@ async function ownerWorkspaceRetentionFailures(
     if (!('id' in event) || event.id !== nodeId) continue
     if (event.kind === 'execution-input') {
       flush()
-      current = { environmentIds: new Set<string>() }
+      current = { environmentIds: new Set<string>(), executionByEnvironment: new Map() }
     } else if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
       if (current?.result !== undefined) flush()
-      current ??= { environmentIds: new Set<string>() }
+      current ??= { environmentIds: new Set<string>(), executionByEnvironment: new Map() }
       current.environmentIds.add(event.admission.environmentId)
+      current.executionByEnvironment.set(event.admission.environmentId, event.admission.executionId)
     } else if (event.kind === 'execution-result') {
-      current ??= { environmentIds: new Set<string>() }
+      current ??= { environmentIds: new Set<string>(), executionByEnvironment: new Map() }
       current.result = event
     }
   }
@@ -884,17 +886,46 @@ async function ownerWorkspaceRetentionFailures(
       output !== null && typeof output === 'object'
         ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
         : undefined
-    if (!hasDurableWorkspaceSnapshot(snapshot)) {
-      for (const environmentId of attempt.environmentIds) failures.add(environmentId)
+    const environmentId = [...attempt.environmentIds][0]!
+    const executionId = attempt.executionByEnvironment.get(environmentId)
+    if (!hasDurableWorkspaceCapture(output, snapshot, environmentId, executionId)) {
+      failures.add(environmentId)
     }
   }
   return failures
 }
 
-/** A stored result is deletion authority only when it names the durable archive capture wrote. */
-function hasDurableWorkspaceSnapshot(value: unknown): boolean {
-  const parsed = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(value)
-  return parsed.success && 'locator' in parsed.data.manifest && 'locator' in parsed.data.archive
+/** A stored result authorizes cleanup only for the exact source and complete capture. */
+function hasDurableWorkspaceCapture(
+  output: unknown,
+  snapshot: unknown,
+  environmentId: string,
+  executionId: string | undefined,
+): boolean {
+  const parsed = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(snapshot)
+  if (
+    !parsed.success ||
+    !('locator' in parsed.data.manifest) ||
+    !('locator' in parsed.data.archive)
+  )
+    return false
+  if (output === null || typeof output !== 'object') return false
+  const capture = (output as { readonly workspaceCapture?: unknown }).workspaceCapture
+  if (capture === null || typeof capture !== 'object') return false
+  const receipt = capture as Record<string, unknown>
+  if (
+    receipt.environmentId !== environmentId ||
+    receipt.executionId !== executionId ||
+    receipt.coverageComplete !== true
+  )
+    return false
+  const linked = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(receipt.snapshot)
+  return (
+    linked.success &&
+    linked.data.digest === parsed.data.digest &&
+    JSON.stringify(linked.data.manifest) === JSON.stringify(parsed.data.manifest) &&
+    JSON.stringify(linked.data.archive) === JSON.stringify(parsed.data.archive)
+  )
 }
 
 /** Environment ids this owner's provider confirmed gone, from their teardown receipts. */

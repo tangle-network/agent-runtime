@@ -211,8 +211,6 @@ export async function captureProviderWorkspaceSnapshot(
             coverageGaps.push(`Session ${session.id} transport events unavailable`)
           if (session.nativeRollout !== 'complete')
             coverageGaps.push(`Session ${session.id} native rollout unavailable`)
-          if (session.nativeRollout === 'complete' && !session.nativeSessionId)
-            coverageGaps.push(`Session ${session.id} native identity missing`)
         }
         const coverageComplete = coverageGaps.length === 0
         requireDurableWorkspaceArtifacts(snapshot)
