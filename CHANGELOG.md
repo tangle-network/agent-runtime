@@ -1,3 +1,8 @@
+## 0.284.2
+
+Nested bridge managers retain the existing workspace resource root when spawning descendants.
+Path-backed skills keep their exact bytes and validation across recursive delegation.
+
 ## 0.284.1
 
 Admit Sandbox 0.57 in the peer range so evidence-retaining consumers can install the published SDK.
