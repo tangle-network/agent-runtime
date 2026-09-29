@@ -20,6 +20,7 @@ import {
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
+  requiredPackedPeerCandidateVersion,
 } from './lib/packed-package-test.mjs'
 import {
   findLiteralModuleSpecifiers,
@@ -162,6 +163,13 @@ try {
       return [name, requiredPackedDevelopmentDependency(packageJson, name)]
     }),
   )
+  const sandboxVersion = suppliedSandboxTarball
+    ? requiredPackedPeerCandidateVersion(
+        packageJson,
+        '@tangle-network/sandbox',
+        JSON.parse(run('tar', ['-xOf', suppliedSandboxTarball, 'package/package.json'], repoRoot)),
+      )
+    : requiredPackedDevelopmentDependency(packageJson, '@tangle-network/sandbox')
   if (suppliedSandboxTarball) {
     peerDependencies['@tangle-network/sandbox'] = `file:${suppliedSandboxTarball}`
   }
@@ -500,10 +508,7 @@ try {
       '@tangle-network/agent-knowledge',
       packageJson.name,
     ),
-    '@tangle-network/sandbox': requiredPackedDevelopmentDependency(
-      packageJson,
-      '@tangle-network/sandbox',
-    ),
+    '@tangle-network/sandbox': sandboxVersion,
   }
   for (const [packageName, expectedVersion] of Object.entries(
     expectedFirstPartyVersions,

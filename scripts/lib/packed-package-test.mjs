@@ -53,6 +53,17 @@ export function requiredPackedPackageVersion(version, name, owner) {
   return version
 }
 
+/** A supplied peer archive must name one release admitted by the packed consumer. */
+export function requiredPackedPeerCandidateVersion(packageJson, name, candidate) {
+  if (candidate?.name !== name || !isExactVersionSpec(candidate.version)) {
+    throw new Error(`supplied ${name} archive has an invalid package identity or version`)
+  }
+  if (!rangeAdmits(packageJson.peerDependencies?.[name], candidate.version)) {
+    throw new Error(`packed peer ${name} does not admit supplied candidate ${candidate.version}`)
+  }
+  return candidate.version
+}
+
 export function currentMinorPeerRange(version) {
   const match = /^(\d+)\.(\d+)\.\d+(?:-.+)?$/.exec(version)
   if (!match) throw new Error(`cannot derive peer range from version ${version}`)
