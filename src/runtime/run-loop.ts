@@ -874,7 +874,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
               'poll',
               box,
               prompt,
-              `${args.runId}-i${args.item.index}`,
+              sandboxSessionIdForTurn ?? `${args.runId}-i${args.item.index}`,
               args.signal,
               promptOptions,
             )

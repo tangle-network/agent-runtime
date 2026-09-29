@@ -218,126 +218,152 @@ function doneStream(text = 'done') {
 }
 
 describe('provider workspace retention', () => {
-  it('captures a runAgentRounds box through its public execution path', async () => {
-    const artifacts = artifactStore()
-    const order: string[] = []
-    const box = {
-      id: 'loop-box',
-      status: 'running',
-      async *streamPrompt(_prompt: string, options: { sessionId: string; executionId: string }) {
-        yield {
-          type: 'result',
-          data: {
-            finalText: 'done',
-            runtimeSessionId: options.sessionId,
-            executionId: options.executionId,
-          },
-        }
-        yield {
-          type: 'done',
-          data: {
-            outcome: { type: 'completed' },
-            runtimeSessionId: options.sessionId,
-            executionId: options.executionId,
-          },
-        }
-      },
-      async delete() {
-        order.push('delete')
-      },
-    } as unknown as SandboxInstance
-    await runAgentRounds({
-      driver: {
-        async plan(_task: string, history: readonly unknown[]) {
-          return history.length ? [] : ['task']
-        },
-        decide: () => 'done' as const,
-      },
-      agentRun: { profile: testProfile('loop-retention'), taskToPrompt: (task: string) => task },
-      output: { parse: () => 'done' },
-      task: 'task',
-      runId: 'loop-1',
-      maxIterations: 1,
-      ctx: {
-        sandboxClient: {
-          async create() {
-            return box
-          },
-        },
-      },
-      evidenceRetention: {
-        timeoutMs: 5_000,
-        artifacts,
-        async capture(context) {
-          order.push('capture')
-          expect(context.sandboxSessionIds).toHaveLength(1)
-          const sessionId = context.sandboxSessionIds[0]!
-          const executionId = context.sessionExecutionIds[sessionId]?.[0]
-          expect(executionId).toBeTruthy()
-          return {
-            snapshot: await snapshot(artifacts, context.executionId),
-            provenance: {
-              status: 'reported' as const,
-              environmentId: 'loop-box',
-              executionId: 'loop-1',
-              workspace: {
-                scannedFiles: 1,
-                scannedDirectories: 0,
-                reportedFiles: 1,
-                reportedDirectories: 0,
-                complete: true,
-              },
-              sessions: [
-                {
-                  id: sessionId,
-                  executionId: 'loop-1',
-                  executionIds: [executionId!],
-                  eventCountsByExecutionId: { [executionId!]: 2 },
-                  backendType: 'opencode',
-                  transportEvents: 'complete',
-                  eventCount: 2,
-                  messageCount: 1,
-                  nativeSessionId: null,
-                  sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
-                  sidecarBundleRevision: 'b'.repeat(40),
-                  nativeStore: {
-                    scope: 'session' as const,
-                    roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
-                    inventory: {
-                      scannedFiles: 1,
-                      reportedFiles: 1,
-                      scannedDirectories: 0,
-                      reportedDirectories: 0,
-                      scannedSymlinks: 0,
-                      reportedSymlinks: 0,
-                      skippedEntries: 0,
-                    },
-                    complete: true,
-                    entries: [],
-                    excludedPaths: [],
-                  },
-                  processStreams: {
-                    complete: true,
-                    streamCount: 1,
-                    stdinBytes: 0,
-                    stdoutBytes: 1,
-                    stderrBytes: 0,
-                    protocolBytes: 0,
-                  },
-                  nativeEvents: { complete: true, count: 1 },
-                },
-              ],
-              missing: [],
+  it.each(['sse', 'poll'] as const)(
+    'captures a runAgentRounds box through the %s execution path',
+    async (streaming) => {
+      const artifacts = artifactStore()
+      const order: string[] = []
+      let recordedSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
+      let polledSessionId: string | undefined
+      const box = {
+        id: 'loop-box',
+        status: 'running',
+        async *streamPrompt(_prompt: string, options: { sessionId: string; executionId: string }) {
+          yield {
+            type: 'result',
+            data: {
+              finalText: 'done',
+              runtimeSessionId: options.sessionId,
+              executionId: options.executionId,
+            },
+          }
+          yield {
+            type: 'done',
+            data: {
+              outcome: { type: 'completed' },
+              runtimeSessionId: options.sessionId,
+              executionId: options.executionId,
             },
           }
         },
-        async record() {
-          order.push('record')
+        async dispatchPrompt(_prompt: string, options: { sessionId: string; executionId: string }) {
+          polledSessionId = options.sessionId
+          expect(options.executionId).toBeTruthy()
+          return { sessionId: options.sessionId }
         },
-      },
-    })
-    expect(order).toEqual(['capture', 'record', 'delete'])
-  })
+        session(id: string) {
+          return {
+            async result() {
+              expect(id).toBe(polledSessionId)
+              return { response: 'done', success: true, status: 'success' }
+            },
+          }
+        },
+        async delete() {
+          order.push('delete')
+        },
+      } as unknown as SandboxInstance
+      await runAgentRounds({
+        driver: {
+          async plan(_task: string, history: readonly unknown[]) {
+            return history.length ? [] : ['task']
+          },
+          decide: () => 'done' as const,
+        },
+        agentRun: { profile: testProfile('loop-retention'), taskToPrompt: (task: string) => task },
+        output: { parse: () => 'done' },
+        task: 'task',
+        runId: 'loop-1',
+        maxIterations: 1,
+        lineage: { streaming },
+        ctx: {
+          sandboxClient: {
+            async create() {
+              return box
+            },
+          },
+        },
+        evidenceRetention: {
+          timeoutMs: 5_000,
+          artifacts,
+          async capture(context) {
+            order.push('capture')
+            expect(context.sandboxSessionIds).toHaveLength(1)
+            const sessionId = context.sandboxSessionIds[0]!
+            if (streaming === 'poll') expect(sessionId).toBe(polledSessionId)
+            const executionId = context.sessionExecutionIds[sessionId]?.[0]
+            expect(executionId).toBeTruthy()
+            return {
+              snapshot: await snapshot(artifacts, context.executionId),
+              provenance: {
+                status: 'reported' as const,
+                environmentId: 'loop-box',
+                executionId: 'loop-1',
+                workspace: {
+                  scannedFiles: 1,
+                  scannedDirectories: 0,
+                  reportedFiles: 1,
+                  reportedDirectories: 0,
+                  complete: true,
+                },
+                sessions: [
+                  {
+                    id: sessionId,
+                    executionId: 'loop-1',
+                    executionIds: [executionId!],
+                    eventCountsByExecutionId: { [executionId!]: 2 },
+                    backendType: 'opencode',
+                    transportEvents: 'complete',
+                    eventCount: 2,
+                    messageCount: 1,
+                    nativeSessionId: null,
+                    sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
+                    sidecarBundleRevision: 'b'.repeat(40),
+                    nativeStore: {
+                      scope: 'session' as const,
+                      roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
+                      inventory: {
+                        scannedFiles: 1,
+                        reportedFiles: 1,
+                        scannedDirectories: 0,
+                        reportedDirectories: 0,
+                        scannedSymlinks: 0,
+                        reportedSymlinks: 0,
+                        skippedEntries: 0,
+                      },
+                      complete: true,
+                      entries: [],
+                      excludedPaths: [],
+                    },
+                    processStreams: {
+                      complete: true,
+                      streamCount: 1,
+                      stdinBytes: 0,
+                      stdoutBytes: 1,
+                      stderrBytes: 0,
+                      protocolBytes: 0,
+                    },
+                    nativeEvents: { complete: true, count: 1 },
+                  },
+                ],
+                missing: [],
+              },
+            }
+          },
+          async record(receipt) {
+            recordedSnapshot = receipt.snapshot
+            order.push('record')
+          },
+        },
+      })
+      expect(order).toEqual(['capture', 'record', 'delete'])
+      expect(recordedSnapshot).toBeDefined()
+      const archive = recordedSnapshot!.archive
+      if (!('locator' in archive)) throw new Error('retained archive lacks durable locator')
+      const reopenedArchive = await artifacts.read(archive)
+      expect(reopenedArchive.byteLength).toBeGreaterThan(0)
+    },
+  )
   it('records a verified raw Sandbox receipt before deleting its box', async () => {
     const artifacts = artifactStore()
     const order: string[] = []
