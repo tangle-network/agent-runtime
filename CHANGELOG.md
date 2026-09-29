@@ -1,3 +1,9 @@
+## 0.284.0
+
+Export `isolatedCheckResultSchema` and `isolatedCheckBoxEvidenceSchema` from the public package root. Consumers can decode retained execution receipts without duplicating Runtime's result types. Validation preserves complete failure and cleanup evidence and checks Sandbox input-manifest digests; it does not certify task correctness or authorize execution.
+
+Retain provider workspaces and raw Sandbox sessions before environment cleanup. Verified archive receipts carry exact execution, session, node, and profile identities; incomplete evidence keeps the source box for recovery. The optional `runAgentRounds` retention port covers direct and lineage teardown. A private content-addressed artifact store persists evidence with digest verification.
+
 ## 0.283.1
 
 `skills/profile-authoring`: a null inside a range the source checked, or that an earlier null's outside check already reproduced, adds nothing. A search that ran but was never reproduced (a budget that ended early, a failed calibration) still leaves its cells open. The review of discovery-lab#1143 found the gap: a lane that reran the Lab's own reproduced pcn-power search (m <= 18) could claim a credited null.
