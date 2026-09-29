@@ -18,7 +18,9 @@ import {
   type ProviderLeafOut,
   type ProviderWorkspaceRetentionContext,
   providerAsExecutor,
+  providerAsSandboxClient,
 } from './environment-provider'
+import type { ProviderWorkspaceCaptureReceipt } from './provider-workspace-retention'
 import type { RetainedRunAdmission } from './retained-run-types'
 import type { RetainedExecutorContext } from './supervise/retained-executor'
 import { retainedExecutorSeamKey } from './supervise/retained-executor'
@@ -213,6 +215,143 @@ function doneStream(text = 'done') {
 }
 
 describe('provider workspace retention', () => {
+  it('keeps the source when complete native coverage is required but unavailable', async () => {
+    const artifacts = artifactStore()
+    const { provider, destroyed } = providerFor(doneStream())
+    const executor = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        requireCompleteProvenance: true,
+        artifacts,
+        async capture(context) {
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported' as const,
+              environmentId: context.environment.id,
+              workspace: {
+                scannedFiles: 1,
+                scannedDirectories: 0,
+                reportedFiles: 1,
+                reportedDirectories: 0,
+                complete: true,
+              },
+              sessions: [
+                {
+                  id: 'session-1',
+                  executionId: context.executionId,
+                  transportEvents: 'complete',
+                  eventCount: 1,
+                  messageCount: 1,
+                  nativeRollout: 'unavailable',
+                },
+              ],
+              missing: ['Native rollout unavailable'],
+            },
+          }
+        },
+      },
+    })(
+      { profile: testProfile('strict-retention'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    for await (const _event of executor.execute(
+      'task',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      /* drain */
+    }
+    const out = executor.resultArtifact().out as ProviderLeafOut
+    expect(out.workspaceCapture).toMatchObject({
+      coverageComplete: false,
+      incompleteReason: expect.stringContaining('Native rollout unavailable'),
+      snapshot: out.workspaceSnapshot,
+    })
+    expect((executor.resultArtifact() as { teardown?: unknown }).teardown).toMatchObject({
+      failed: true,
+      error: expect.stringContaining('Native rollout unavailable'),
+    })
+    expect(destroyed()).toBe(0)
+  })
+  it('retains the verified steerable archive and source when native coverage is incomplete', async () => {
+    const artifacts = artifactStore()
+    const profile = testProfile('steerable-strict-retention')
+    const { provider, destroyed } = providerFor(doneStream())
+    const receipts: ProviderWorkspaceCaptureReceipt[] = []
+    const box = await providerAsSandboxClient(provider, {
+      retentionIdentity: { executionId: 'node-strict', profile },
+      onWorkspaceCaptured: (receipt) => {
+        receipts.push(receipt)
+      },
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        requireCompleteProvenance: true,
+        artifacts,
+        async capture(context) {
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported' as const,
+              environmentId: context.environment.id,
+              missing: ['Native rollout unavailable'],
+            },
+          }
+        },
+      },
+    }).create({ backend: { type: 'opencode', profile } })
+    await expect(box.delete()).rejects.toThrow('Native rollout unavailable')
+    expect(destroyed()).toBe(0)
+    expect(receipts).toMatchObject([
+      {
+        executionId: 'node-strict',
+        environmentId: 'retention-environment',
+        coverageComplete: false,
+        incompleteReason: expect.stringContaining('Native rollout unavailable'),
+      },
+    ])
+    expect(receipts[0]?.snapshot.archive).toBeDefined()
+  })
+  it('preserves a steerable source until its workspace is verified', async () => {
+    const artifacts = artifactStore()
+    const profile = testProfile('steerable-retention')
+    const { provider, destroyed } = providerFor(doneStream())
+    let accepted = false
+    const receipts: unknown[] = []
+    const box = await providerAsSandboxClient(provider, {
+      retentionIdentity: { executionId: 'node-1', profile },
+      onWorkspaceCaptured: (receipt) => {
+        receipts.push(receipt)
+      },
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture(context) {
+          expect(context.executionId).toBe('node-1')
+          expect(context.environment.id).toBe('retention-environment')
+          expect(context.nativeSessionId).toBeNull()
+          if (!accepted) throw new Error('archive unavailable')
+          return snapshot(artifacts, context.executionId)
+        },
+      },
+    }).create({ backend: { type: 'opencode', profile } })
+    await expect(box.delete()).rejects.toThrow('archive unavailable')
+    expect(destroyed()).toBe(0)
+    accepted = true
+    // A failed capture is not silently retried by the same box's cleanup path.
+    await expect(box.delete()).rejects.toThrow('archive unavailable')
+    expect(destroyed()).toBe(0)
+    const retry = await providerAsSandboxClient(provider, {
+      retentionIdentity: { executionId: 'node-1-retry', profile },
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        capture: (context) => snapshot(artifacts, context.executionId),
+      },
+    }).create({ backend: { type: 'opencode', profile } })
+    await retry.delete()
+    expect(destroyed()).toBe(1)
+    expect(receipts).toEqual([])
+  })
   it('captures and verifies a normal stream before destroying its source', async () => {
     const artifacts = artifactStore()
     const profile = testProfile('retention-normal')
@@ -224,7 +363,15 @@ describe('provider workspace retention', () => {
         artifacts,
         async capture(context) {
           seen = context
-          return await snapshot(artifacts, context.executionId)
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported' as const,
+              provider: context.environment.provider,
+              environmentId: context.environment.id,
+              missing: ['Native harness rollout unavailable'],
+            },
+          }
         },
       },
     })({ profile, harness: null }, { signal: new AbortController().signal, seams: {} })
@@ -236,6 +383,14 @@ describe('provider workspace retention', () => {
 
     const out = executor.resultArtifact().out as ProviderLeafOut
     expect(out.workspaceSnapshot).toBeDefined()
+    expect(out.workspaceCapture).toMatchObject({
+      executionId: seen?.executionId,
+      environmentId: environment.id,
+      providerSessionId: null,
+      nativeSessionId: null,
+      snapshot: out.workspaceSnapshot,
+      provenance: { status: 'reported', missing: ['Native harness rollout unavailable'] },
+    })
     expect(seen?.environment).toBe(environment)
     expect(seen?.executionId).toBeTruthy()
     expect(seen?.profile).toBe(profile)

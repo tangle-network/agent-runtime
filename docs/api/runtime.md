@@ -1377,7 +1377,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-19)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-20)
 
 ##### runtime
 
@@ -4639,6 +4639,52 @@ Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox cl
 
 Require declared live continuation plus concrete session controls.
 
+##### workspaceRetention?
+
+> `optional` **workspaceRetention?**: [`ProviderWorkspaceRetentionPort`](#providerworkspaceretentionport)
+
+**`Experimental`**
+
+Verified workspace capture before every environment delete, including steerable sessions.
+
+##### retentionIdentity?
+
+> `optional` **retentionIdentity?**: `object`
+
+**`Experimental`**
+
+Supervised identity assigned before the environment is created.
+
+###### executionId
+
+> **executionId**: `string`
+
+###### profile
+
+> **profile**: `AgentProfile`
+
+###### node?
+
+> `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+##### onWorkspaceCaptured?
+
+> `optional` **onWorkspaceCaptured?**: (`receipt`) => `void`
+
+**`Experimental`**
+
+Called after verification and before deletion so the run result can retain the exact join.
+
+###### Parameters
+
+###### receipt
+
+[`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)
+
+###### Returns
+
+`void`
+
 ##### mapCreateOptions?
 
 > `optional` **mapCreateOptions?**: (`options`) => `Partial`\<`CreateAgentEnvironmentInput`\>
@@ -4784,6 +4830,14 @@ Read a part's text from `part.text`; a retained frame's `delta` is only that fra
 **`Experimental`**
 
 Portable executable workspace evidence accepted before the source environment was deleted.
+
+##### workspaceCapture?
+
+> `optional` **workspaceCapture?**: [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)
+
+**`Experimental`**
+
+Exact provider and supervisor identities bound to the retained bytes.
 
 ##### supersededPartUpdates?
 
@@ -8065,6 +8119,18 @@ The caller-owned boundary used to retain an executable provider workspace.
 
 Maximum wall-clock time Runtime gives capture and verification.
 
+##### limits?
+
+> `readonly` `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](candidate-execution.md#agentcandidateworkspacearchivelimits)\>
+
+Same explicit archive bounds used by the capture callback.
+
+##### requireCompleteProvenance?
+
+> `readonly` `optional` **requireCompleteProvenance?**: `boolean`
+
+Refuse cleanup while any native session or workspace coverage remains missing.
+
 ##### artifacts
 
 > `readonly` **artifacts**: [`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
@@ -8075,7 +8141,7 @@ Reads the durable manifest and archive after capture returns.
 
 ##### capture()
 
-> **capture**(`context`): `Promise`\<`AgentCandidateWorkspaceSnapshotEvidence`\>
+> **capture**(`context`): `Promise`\<`AgentCandidateWorkspaceSnapshotEvidence` \| [`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
 
 Capture the live environment into the standard candidate workspace evidence shape.
 
@@ -8087,7 +8153,149 @@ Capture the live environment into the standard candidate workspace evidence shap
 
 ###### Returns
 
-`Promise`\<`AgentCandidateWorkspaceSnapshotEvidence`\>
+`Promise`\<`AgentCandidateWorkspaceSnapshotEvidence` \| [`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
+
+***
+
+### ProviderWorkspaceEntryMetadata
+
+Source inventory metadata for a workspace entry.
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### type
+
+> `readonly` **type**: `"file"` \| `"directory"` \| `"symlink"`
+
+##### sizeBytes
+
+> `readonly` **sizeBytes**: `number`
+
+##### mode
+
+> `readonly` **mode**: `number`
+
+##### owner?
+
+> `readonly` `optional` **owner?**: `string` \| `null`
+
+##### group?
+
+> `readonly` `optional` **group?**: `string` \| `null`
+
+##### modifiedAt?
+
+> `readonly` `optional` **modifiedAt?**: `string` \| `null`
+
+##### accessedAt?
+
+> `readonly` `optional` **accessedAt?**: `string` \| `null`
+
+##### symlinkTarget?
+
+> `readonly` `optional` **symlinkTarget?**: `string` \| `null`
+
+***
+
+### ProviderWorkspaceCaptureProvenance
+
+Source-reported coverage retained with the verified archive reference.
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: `"reported"` \| `"unavailable"`
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+##### environmentId?
+
+> `readonly` `optional` **environmentId?**: `string`
+
+##### executionId?
+
+> `readonly` `optional` **executionId?**: `string`
+
+##### workspaceScope?
+
+> `readonly` `optional` **workspaceScope?**: `"environment"`
+
+##### workspaceRoot?
+
+> `readonly` `optional` **workspaceRoot?**: `string`
+
+##### capturedAt?
+
+> `readonly` `optional` **capturedAt?**: `string`
+
+##### entries?
+
+> `readonly` `optional` **entries?**: readonly [`ProviderWorkspaceEntryMetadata`](#providerworkspaceentrymetadata)[]
+
+##### excludedPaths?
+
+> `readonly` `optional` **excludedPaths?**: readonly [`ProviderWorkspaceEntryMetadata`](#providerworkspaceentrymetadata) & `object`[]
+
+##### workspace?
+
+> `readonly` `optional` **workspace?**: `object`
+
+###### scannedFiles
+
+> `readonly` **scannedFiles**: `number`
+
+###### scannedDirectories
+
+> `readonly` **scannedDirectories**: `number`
+
+###### reportedFiles
+
+> `readonly` **reportedFiles**: `number`
+
+###### reportedDirectories
+
+> `readonly` **reportedDirectories**: `number`
+
+###### complete
+
+> `readonly` **complete**: `boolean`
+
+##### sessions?
+
+> `readonly` `optional` **sessions?**: readonly `object`[]
+
+##### missing
+
+> `readonly` **missing**: readonly `string`[]
+
+***
+
+### ProviderWorkspaceCaptureResult
+
+#### Properties
+
+##### snapshot
+
+> `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+##### provenance
+
+> `readonly` **provenance**: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance)
+
+##### coverageComplete?
+
+> `readonly` `optional` **coverageComplete?**: `boolean`
+
+##### incompleteReason?
+
+> `readonly` `optional` **incompleteReason?**: `string`
 
 ***
 
@@ -8104,6 +8312,24 @@ The exact live execution facts supplied to a retention callback.
 ##### executionId
 
 > `readonly` **executionId**: `string`
+
+##### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+Exact supervised tree identity, when a supervisor created this execution.
+
+##### providerSessionId?
+
+> `readonly` `optional` **providerSessionId?**: `string` \| `null`
+
+Sandbox/provider session used for this turn; null means no session id was observed.
+
+##### nativeSessionId?
+
+> `readonly` `optional` **nativeSessionId?**: `string` \| `null`
+
+The harness's own session identity is unknown until a provider reports it.
 
 ##### profile
 
@@ -8122,6 +8348,50 @@ The provider-derived outcome, when one was available before cleanup.
 > `readonly` **signal**: `AbortSignal`
 
 A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-2).
+
+***
+
+### ProviderWorkspaceCaptureReceipt
+
+Durable join from one provider box to the verified bytes retained before cleanup.
+
+#### Properties
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+##### providerSessionId
+
+> `readonly` **providerSessionId**: `string` \| `null`
+
+##### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string` \| `null`
+
+##### snapshot
+
+> `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+##### provenance
+
+> `readonly` **provenance**: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance)
+
+##### coverageComplete
+
+> `readonly` **coverageComplete**: `boolean`
+
+##### incompleteReason?
+
+> `readonly` `optional` **incompleteReason?**: `string`
 
 ***
 
@@ -19771,6 +20041,22 @@ checkpoint/fork.
 
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
+##### failOnDestroyError?
+
+> `optional` **failOnDestroyError?**: `boolean`
+
+Surface evidence capture failures from session cleanup.
+
+##### workspaceCaptures?
+
+> `optional` **workspaceCaptures?**: () => readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
+
+Verified provider captures collected before session teardown.
+
+###### Returns
+
+readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
+
 ##### loopCtx?
 
 > `optional` **loopCtx?**: `Partial`\<`Omit`\<[`ExecCtx`](#execctx), `"signal"` \| `"sandboxClient"`\>\>
@@ -20187,7 +20473,7 @@ Capture and verify a portable executable workspace before Runtime destroys the e
 
 ###### Inherited from
 
-[`ProviderExecutorOptions`](#providerexecutoroptions).[`workspaceRetention`](#workspaceretention)
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`workspaceRetention`](#workspaceretention-1)
 
 ##### profileForCreate?
 
@@ -20547,6 +20833,20 @@ Ask the box to stop the running execution on this exact session and report what 
 ##### sandboxClient
 
 > `readonly` **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
+
+##### failOnDestroyError?
+
+> `readonly` `optional` **failOnDestroyError?**: `boolean`
+
+Require capture failures at box cleanup to fail the supervised worker.
+
+##### workspaceCaptures?
+
+> `readonly` `optional` **workspaceCaptures?**: () => readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
+
+###### Returns
+
+readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
 
 ##### inbox
 
@@ -36824,6 +37124,28 @@ readonly [`EqualKArm`](#equalkarm)[]
 
 ***
 
+### createPrivateCasArtifactPort()
+
+> **createPrivateCasArtifactPort**(`root`, `namespace`): [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+Private host-local content-addressed storage scoped to one recorded run identity.
+
+#### Parameters
+
+##### root
+
+`string`
+
+##### namespace
+
+`string`
+
+#### Returns
+
+[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+***
+
 ### profileChatClient()
 
 > **profileChatClient**(`args`): `ChatClient`
@@ -37668,6 +37990,12 @@ and the lineage stays a pure function of "what this platform can do".
 Run provenance recorder forwarded to every `prepareBox` the lineage runs
  (fresh start, continue, and fork branches). Absent ⇒ mounts go unrecorded
  (a no-op recorder stands in so the ctx shape is always satisfied).
+
+###### failOnDestroyError?
+
+`boolean`
+
+A failed delete must surface and leave the box available for evidence recovery.
 
 #### Returns
 
@@ -41325,7 +41653,7 @@ containing a `.git` segment, and loop-infra dirs are skipped.
 
 ### withUntrackedArtifacts()
 
-> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace-1)
+> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace-2)
 
 Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside
 `runInWorkspace`) is followed by the untracked-artifact copy above — the clone
@@ -41336,7 +41664,7 @@ the worker starts in matches the source WORKING TREE, not just its history.
 
 ##### ws
 
-[`Workspace`](#workspace-1)
+[`Workspace`](#workspace-2)
 
 ##### sourceDir
 
@@ -41348,7 +41676,7 @@ the worker starts in matches the source WORKING TREE, not just its history.
 
 #### Returns
 
-[`Workspace`](#workspace-1)
+[`Workspace`](#workspace-2)
 
 ***
 
@@ -42062,7 +42390,7 @@ Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr,
 
 ### gitWorkspace()
 
-> **gitWorkspace**(`opts`): [`Workspace`](#workspace-1)
+> **gitWorkspace**(`opts`): [`Workspace`](#workspace-2)
 
 A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned.
 
@@ -42074,13 +42402,13 @@ A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, co
 
 #### Returns
 
-[`Workspace`](#workspace-1)
+[`Workspace`](#workspace-2)
 
 ***
 
 ### jjWorkspace()
 
-> **jjWorkspace**(`opts`): [`Workspace`](#workspace-1)
+> **jjWorkspace**(`opts`): [`Workspace`](#workspace-2)
 
 A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
  Same port, same `Shell` — a drop-in for `gitWorkspace`. jj suits agent loops:
@@ -42095,7 +42423,7 @@ A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
 
 #### Returns
 
-[`Workspace`](#workspace-1)
+[`Workspace`](#workspace-2)
 
 ***
 
@@ -42119,7 +42447,7 @@ The clone is removed after; durable state lives only in the ref.
 
 ##### ws
 
-[`Workspace`](#workspace-1)
+[`Workspace`](#workspace-2)
 
 ##### body
 

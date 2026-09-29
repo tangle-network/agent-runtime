@@ -7,6 +7,8 @@ import {
   type OutputAdapter,
   runAgentRounds,
 } from '../../src/runtime'
+import { probeSandboxCapabilities } from '../../src/runtime/sandbox-capabilities'
+import { createSandboxLineage } from '../../src/runtime/sandbox-lineage'
 import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
 interface Task {
@@ -47,6 +49,7 @@ interface StreamCall {
 
 interface FakeClientOpts {
   criuAvailable: boolean
+  deleteFailure?: boolean
   /** Whether boxes expose the current live branch(count) API. */
   branchAvailable?: boolean
   /** Return fewer live children than requested to exercise cleanup. */
@@ -125,6 +128,7 @@ function createFakeClient(opts: FakeClientOpts) {
           }
         : {}),
       async delete() {
+        if (opts.deleteFailure) throw new Error('workspace capture failed')
         deleted.push(id)
       },
       ...(opts.sessionState
@@ -156,6 +160,22 @@ function createFakeClient(opts: FakeClientOpts) {
   }
   return { client, streamCalls, created, forked, branched, deleted, peakFork }
 }
+
+describe('sandbox lineage evidence cleanup', () => {
+  it('surfaces a required capture failure and keeps the box available', async () => {
+    const { client, deleted } = createFakeClient({ criuAvailable: false, deleteFailure: true })
+    const capabilities = await probeSandboxCapabilities(client)
+    const lineage = createSandboxLineage(client, capabilities, { failOnDestroyError: true })
+    await lineage.start(
+      spec('retained') as AgentRunSpec<unknown>,
+      'work',
+      new AbortController().signal,
+    )
+    await expect(lineage.teardown()).rejects.toThrow('Sandbox evidence capture failed')
+    expect(deleted).toEqual([])
+    await expect(lineage.teardown()).rejects.toThrow('Sandbox evidence capture failed')
+  })
+})
 
 /** A planner that replays a fixed sequence of topology moves. */
 function scriptedPlanner(moves: ScriptedMove<Task>[]): ScriptedPlanner<Task, Out> {

@@ -238,6 +238,8 @@ export function createSandboxLineage(
      *  (fresh start, continue, and fork branches). Absent ⇒ mounts go unrecorded
      *  (a no-op recorder stands in so the ctx shape is always satisfied). */
     recordMount?: MountRecorder
+    /** A failed delete must surface and leave the box available for evidence recovery. */
+    failOnDestroyError?: boolean
   } = {},
 ): SandboxLineage {
   if (!client || typeof client.create !== 'function') {
@@ -353,14 +355,39 @@ export function createSandboxLineage(
       const doomed: SandboxInstance[] = []
       for (const box of owned) (keepBoxes.has(box) ? survivors : doomed).push(box)
       if (doomed.length === 0) return
+      const results = await Promise.allSettled(
+        doomed.map((box) => destroyBounded(box, options.failOnDestroyError)),
+      )
+      const failed = results.flatMap((result, index) =>
+        result.status === 'rejected' ? [doomed[index]!] : [],
+      )
       owned.length = 0
-      owned.push(...survivors)
-      await Promise.allSettled(doomed.map((box) => destroyBounded(box)))
+      owned.push(...survivors, ...failed)
+      if (failed.length > 0)
+        throw new AggregateError(
+          results
+            .filter((result) => result.status === 'rejected')
+            .map((result) => (result as PromiseRejectedResult).reason),
+          'Sandbox evidence capture failed before prune',
+        )
     },
 
     async teardown() {
       const boxes = owned.splice(0, owned.length)
-      await Promise.allSettled(boxes.map((box) => destroyBounded(box)))
+      const results = await Promise.allSettled(
+        boxes.map((box) => destroyBounded(box, options.failOnDestroyError)),
+      )
+      const failed = results.flatMap((result, index) =>
+        result.status === 'rejected' ? [boxes[index]!] : [],
+      )
+      owned.push(...failed)
+      if (failed.length > 0)
+        throw new AggregateError(
+          results
+            .filter((result) => result.status === 'rejected')
+            .map((result) => (result as PromiseRejectedResult).reason),
+          'Sandbox evidence capture failed before teardown',
+        )
     },
   }
 }
@@ -459,7 +486,11 @@ async function assertSessionLive(box: SandboxInstance, sessionId: string): Promi
   }
 }
 
-async function destroyBounded(box: SandboxInstance): Promise<void> {
+async function destroyBounded(box: SandboxInstance, failOnError = false): Promise<void> {
+  if (failOnError) {
+    await box.delete()
+    return
+  }
   await withTimeout(deleteBoxSafe(box), TEARDOWN_TIMEOUT_MS)
 }
 
