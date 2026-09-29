@@ -15326,6 +15326,12 @@ What the run owes, from the check's description.
 
 Whether `read_continuation` is served to this manager.
 
+##### canSubmitResult?
+
+> `readonly` `optional` **canSubmitResult?**: `boolean`
+
+Whether submit_result is served to this manager. Absent means unavailable.
+
 ##### sealed?
 
 > `readonly` `optional` **sealed?**: `boolean`
@@ -19689,6 +19695,12 @@ The run's original task, exactly as the first drive received it.
 > `readonly` `optional` **contract?**: `string`
 
 What the completion check requires, when the caller described it.
+
+##### tools?
+
+> `readonly` `optional` **tools?**: readonly `string`[]
+
+Coordination tools served to this manager. Absent means none are proven available.
 
 ##### reentry
 

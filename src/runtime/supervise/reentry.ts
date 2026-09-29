@@ -47,6 +47,8 @@ export interface ReentryTaskInput {
   readonly originalTask: unknown
   /** What the completion check requires, when the caller described it. */
   readonly contract?: string
+  /** Coordination tools served to this manager. Absent means none are proven available. */
+  readonly tools?: ReadonlyArray<string>
   readonly reentry: DriverReentry
   readonly continuity: ReentryContinuity
   readonly state: ManagerReentryState
@@ -58,7 +60,7 @@ export interface ReentryTaskInput {
 export function composeReentryTask(input: ReentryTaskInput): string {
   const { reentry, continuity, state } = input
   if (reentry.reason === 'unmet-contract' && continuity.session === 'continued') {
-    const changes = stateLines(state, false)
+    const changes = stateLines(state, false, input.tools)
     return [reentry.steer, ...(changes.length > 0 ? ['', ...changes] : [])].join('\n')
   }
   const lines: string[] = [
@@ -75,14 +77,17 @@ export function composeReentryTask(input: ReentryTaskInput): string {
     '',
     '## Completion check',
     '',
+    ...(input.tools?.includes('submit_result') === true
+      ? ['Call submit_result to request acceptance through the independent check.']
+      : []),
     input.contract === undefined || input.contract.trim().length === 0
-      ? 'The run ends when submit_result passes the independent check.'
-      : `The run ends when submit_result passes the independent check. It expects: ${input.contract.trim()}`,
+      ? 'No completion requirement was described.'
+      : `The declared completion requirement is: ${input.contract.trim()}`,
     ...(reentry.reason === 'unmet-contract' ? ['', 'What is still unmet:', '', reentry.steer] : []),
     '',
     '## Run state, from the coordinator',
     '',
-    ...stateLines(state, true),
+    ...stateLines(state, true, input.tools),
     '',
     '## What to do now',
     '',
@@ -95,7 +100,14 @@ export function composeReentryTask(input: ReentryTaskInput): string {
           'Read the files you already wrote before you repeat any step of the task. A step whose file is there is done, and its content stands.',
         ]
       : []),
-    'Receive the waiting events with await_event, and read the output of every settled worker before you spawn anything new.',
+    ...(input.tools?.includes('await_event') === true
+      ? ['Receive the waiting events with await_event before starting new work.']
+      : []),
+    ...(input.tools?.includes('observe_agent') === true
+      ? [
+          'Read the output of every settled worker with observe_agent before you spawn anything new.',
+        ]
+      : []),
     'Do not spawn a replacement for a worker that is running or has settled.',
     'Your coordination tools are served by the same coordinator as before, and the state above comes from it.',
   ]
@@ -136,11 +148,18 @@ function environmentLine(continuity: ReentryContinuity): string {
   return 'You may be in a new environment. Check for files before you rely on them; the coordinator kept everything below.'
 }
 
-function stateLines(state: ManagerReentryState, full: boolean): string[] {
+function stateLines(
+  state: ManagerReentryState,
+  full: boolean,
+  tools: ReadonlyArray<string> | undefined,
+): string[] {
   const lines: string[] = []
   if (full || state.journalRows > state.journalReadTo) {
     lines.push(
-      `Journal: ${state.journalRows} rows. You last read up to row ${state.journalReadTo}; call read_journal with sinceRow ${state.journalReadTo} to read what happened since, or sinceRow 0 to read the whole run.`,
+      `Journal: ${state.journalRows} rows. You last read up to row ${state.journalReadTo}.` +
+        (tools?.includes('read_journal') === true
+          ? ` Call read_journal with sinceRow ${state.journalReadTo} to read what happened since, or sinceRow 0 to read the whole run.`
+          : ''),
     )
   }
   if (state.live.length > 0) {
@@ -158,21 +177,24 @@ function stateLines(state: ManagerReentryState, full: boolean): string[] {
           (worker) =>
             `${worker.id} (${worker.status}${worker.valid === undefined ? '' : worker.valid ? ', passed its check' : ', did not pass its check'}${worker.delivered ? '' : ', not yet received'})`,
         )
-        .join('; ')}. Read an output with observe_agent and the worker id.`,
+        .join('; ')}.` +
+        (tools?.includes('observe_agent') === true
+          ? ' Read an output with observe_agent and the worker id.'
+          : ''),
     )
   } else if (full) {
     lines.push('Workers settled: none.')
   }
   if (state.waiting.length > 0) {
     lines.push(
-      `Events waiting for you in await_event: ${state.waiting.length} (${state.waiting
+      `Events waiting for you: ${state.waiting.length} (${state.waiting
         .map((event) =>
           event.worker === undefined ? event.type : `${event.type} from ${event.worker}`,
         )
         .join('; ')}).`,
     )
   } else if (full) {
-    lines.push('Events waiting for you in await_event: none.')
+    lines.push('Events waiting for you: none.')
   }
   if (state.unacknowledged.length > 0) {
     lines.push(
@@ -181,9 +203,10 @@ function stateLines(state: ManagerReentryState, full: boolean): string[] {
           (event) =>
             `#${event.seq} ${event.type}${event.worker === undefined ? '' : ` from ${event.worker}`}`,
         )
-        .join(
-          '; ',
-        )}. Pass their numbers in await_event's acknowledge once you have processed them.`,
+        .join('; ')}.` +
+        (tools?.includes('await_event') === true
+          ? " Pass their numbers in await_event's acknowledge once you have processed them."
+          : ''),
     )
   }
   if (state.lastRejection !== undefined) {
