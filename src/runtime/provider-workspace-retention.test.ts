@@ -298,6 +298,8 @@ describe('provider workspace retention', () => {
                   eventCount: 2,
                   messageCount: 1,
                   nativeSessionId: null,
+                  sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
+                  sidecarBundleRevision: 'b'.repeat(40),
                   nativeStore: {
                     scope: 'session' as const,
                     roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
@@ -383,6 +385,8 @@ describe('provider workspace retention', () => {
                   eventCount: 1,
                   messageCount: 1,
                   nativeSessionId: null,
+                  sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
+                  sidecarBundleRevision: 'b'.repeat(40),
                   nativeStore: {
                     scope: 'session' as const,
                     roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
@@ -515,6 +519,8 @@ describe('provider workspace retention', () => {
                   eventCount: 1,
                   messageCount: 1,
                   nativeSessionId: null,
+                  sidecarImageDigest: `sha256:${'a'.repeat(64)}`,
+                  sidecarBundleRevision: 'b'.repeat(40),
                   nativeStore: {
                     scope: 'session' as const,
                     roots: [{ scope: 'session-home' as const, path: '/home/agent' }],

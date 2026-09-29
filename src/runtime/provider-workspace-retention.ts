@@ -78,6 +78,8 @@ export interface ProviderWorkspaceCaptureProvenance {
     readonly eventCountsByExecutionId?: Readonly<Record<string, number>>
     readonly nativeSessionId?: string | null
     readonly nativeReason?: string | null
+    readonly sidecarImageDigest?: string | null
+    readonly sidecarBundleRevision?: string | null
     readonly nativeStore?: {
       readonly scope: 'session'
       readonly roots: ReadonlyArray<{
@@ -265,6 +267,10 @@ export async function captureProviderWorkspaceSnapshot(
             coverageGaps.push(`Session ${session.id} process streams incomplete`)
           if (session.nativeEvents?.complete !== true)
             coverageGaps.push(`Session ${session.id} native events incomplete`)
+          if (!/^sha256:[0-9a-f]{64}$/.test(session.sidecarImageDigest ?? ''))
+            coverageGaps.push(`Session ${session.id} sidecar image digest missing`)
+          if (!/^[0-9a-f]{40}$/.test(session.sidecarBundleRevision ?? ''))
+            coverageGaps.push(`Session ${session.id} sidecar bundle revision missing`)
         }
         const coverageComplete = coverageGaps.length === 0
         requireDurableWorkspaceArtifacts(snapshot)
