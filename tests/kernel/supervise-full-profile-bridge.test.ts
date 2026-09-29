@@ -404,6 +404,91 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     server = undefined
   })
 
+  it.each([
+    { label: 'explicit unchecked tools', tools: ['await_event'], inherit: false, runs: true },
+    { label: 'unchecked bridge leaf', tools: [], inherit: false, runs: true },
+    { label: 'explicit submit grant', tools: ['submit_result'], inherit: false, runs: false },
+    {
+      label: 'explicit continuation grant',
+      tools: ['read_continuation'],
+      inherit: false,
+      runs: false,
+    },
+    { label: 'inherited completion grant', tools: [], inherit: true, runs: false },
+  ])('keeps null child-check selection honest with $label', async ({ tools, inherit, runs }) => {
+    const requests: BridgeRequest[] = []
+    const blobs = new InMemoryResultBlobStore()
+    const events: SpawnEvent[] = []
+    const childProfile = codexTestProfile('unchecked-child', 'Report the measurement.', tools)
+    let checkerCalls = 0
+    server = createBridgeServer(async (req, res) => {
+      try {
+        const body = await readJson(req)
+        requests.push(body)
+        const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+        if (body.agent_profile.name === 'root' && coordination?.url) {
+          await callCoordination(coordination.url, 'spawn_worker', {
+            profile: childProfile,
+            task: 'Return the unassessed measurement.',
+          })
+          await callCoordination(coordination.url, 'await_event', {})
+        }
+        respondWithBridgeStream(
+          res,
+          body,
+          successStream('Measured result awaiting outside assessment.'),
+        )
+      } catch (error) {
+        res.writeHead(500)
+        res.end(String(error))
+      }
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const runId = 'unchecked-managed-child'
+    const result = await supervise(
+      codexTestProfile('root', 'Lead.', ['spawn_worker', 'await_event', 'submit_result']),
+      'Collect a report without judging the child.',
+      {
+        backend: { backend: 'bridge', bridgeUrl: `http://127.0.0.1:${port}`, bridgeBearer: 'test' },
+        budget: { maxIterations: 10, maxTokens: 100_000 },
+        perWorker: { maxIterations: 4, maxTokens: 10_000 },
+        deliverable: {
+          describe: 'Outside assessment remains pending.',
+          check: () => {
+            checkerCalls += 1
+            return false
+          },
+        },
+        resolveDeliverable: () => null,
+        continuation: testContinuation({ deadline: 1 }),
+        inheritSpawnRights: inherit,
+        driverRetry: { enabled: false },
+        journal: recordingJournal(events),
+        blobs,
+        runId,
+      },
+    )
+    expect(requests.map((request) => request.agent_profile.name)).toEqual(
+      runs ? ['root', 'unchecked-child'] : ['root'],
+    )
+    if (runs) {
+      const child = requests[1]!
+      const { tools: _childTools, ...visibleChildProfile } = childProfile
+      expect(canonicalAgentProfileDigest(child.agent_profile)).toBe(
+        canonicalAgentProfileDigest(visibleChildProfile),
+      )
+    }
+    const settled = events.filter((event) => event.kind === 'settled')
+    expect(settled).toHaveLength(1)
+    expect(settled[0]).toMatchObject({ status: runs ? 'done' : 'down' })
+    expect(settled[0]).not.toHaveProperty('verdict.valid', true)
+    if (runs) expect(settled[0]).not.toHaveProperty('verdict')
+    else expect(JSON.stringify(settled)).toContain('unavailable')
+    expect(result.kind).toBe('no-winner')
+    expect(checkerCalls).toBe(0)
+  })
+
   it('resolves mounted resource paths through bridge root, child and grandchild managers', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'nested-bridge-resources-'))
     const skill = '# Profile authoring\nKeep the exact mounted bytes: αβ.\n'
