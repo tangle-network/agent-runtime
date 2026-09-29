@@ -28,6 +28,7 @@
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+import { SandboxEvidenceRetentionError } from './sandbox-evidence-retention'
 import type { SandboxClient } from './types'
 import { sleep as abortableSleep, deleteBoxSafe, randomUuid, throwIfAborted } from './util'
 
@@ -125,6 +126,7 @@ export async function acquireSandbox(
         acquire.beforeDelete,
       )
     } catch (err) {
+      if (err instanceof SandboxEvidenceRetentionError) throw err
       throwIfAborted(acquire.signal)
       // Non-retryable (auth/validation/budget) fails loud immediately.
       if (!isRetryable(err)) throw err

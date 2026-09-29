@@ -530,6 +530,7 @@ export {
   captureBeforeDestroy,
   type SandboxEvidenceContext,
   type SandboxEvidenceReceipt,
+  SandboxEvidenceRetentionError,
   type SandboxEvidenceRetentionPort,
 } from './sandbox-evidence-retention'
 export {

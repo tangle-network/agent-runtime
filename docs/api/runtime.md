@@ -806,6 +806,46 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ***
 
+### SandboxEvidenceRetentionError
+
+A failed capture keeps the live source handle available for an explicit retry.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SandboxEvidenceRetentionError**(`box`, `cause`): [`SandboxEvidenceRetentionError`](#sandboxevidenceretentionerror)
+
+###### Parameters
+
+###### box
+
+`SandboxInstance`
+
+###### cause
+
+`unknown`
+
+###### Returns
+
+[`SandboxEvidenceRetentionError`](#sandboxevidenceretentionerror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### box
+
+> `readonly` **box**: `SandboxInstance`
+
+***
+
 ### SandboxRunAbortError
 
 **`Experimental`**

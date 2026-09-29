@@ -50,6 +50,20 @@ export interface SandboxEvidenceReceipt {
   readonly incompleteReason?: string
 }
 
+/** A failed capture keeps the live source handle available for an explicit retry. */
+export class SandboxEvidenceRetentionError extends Error {
+  readonly box: SandboxInstance
+
+  constructor(box: SandboxInstance, cause: unknown) {
+    super(
+      `Sandbox evidence retention failed for box ${String(box.id)}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    )
+    this.name = 'SandboxEvidenceRetentionError'
+    this.box = box
+  }
+}
+
 /** Capture, verify, durably record, then destroy. A failure leaves the source intact. */
 export async function captureBeforeDestroy(
   port: SandboxEvidenceRetentionPort,
@@ -203,19 +217,23 @@ export class SandboxEvidenceTracker {
     const sessionExecutionIds = Object.fromEntries(
       [...state.sessions.entries()].map(([id, executions]) => [id, [...executions].sort()]),
     )
-    await captureBeforeDestroy(
-      this.port,
-      {
-        box,
-        executionId: this.runId,
-        profile: state.profile,
-        sandboxSessionIds,
-        sessionExecutionIds,
-      },
-      async () => {
-        await box.delete()
-      },
-    )
-    this.boxes.delete(box)
+    try {
+      await captureBeforeDestroy(
+        this.port,
+        {
+          box,
+          executionId: this.runId,
+          profile: state.profile,
+          sandboxSessionIds,
+          sessionExecutionIds,
+        },
+        async () => {
+          await box.delete()
+        },
+      )
+      this.boxes.delete(box)
+    } catch (error) {
+      throw new SandboxEvidenceRetentionError(box, error)
+    }
   }
 }

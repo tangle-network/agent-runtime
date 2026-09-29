@@ -190,6 +190,27 @@ describe('acquireSandbox — cold-start resilience', () => {
     )
   })
 
+  it('keeps a failed-readiness box when evidence capture times out and does not recreate it', async () => {
+    const held = box({ id: 'held-box', name: 'sbx-1', status: 'failed' })
+    let creates = 0
+    const client = {
+      async create() {
+        creates += 1
+        return held
+      },
+    }
+    const { SandboxEvidenceRetentionError } = await import('../../src/runtime')
+    await expect(
+      acquireSandbox(client, OPTS, {
+        ...clock(),
+        beforeDelete: async (source) => {
+          throw new SandboxEvidenceRetentionError(source, new Error('capture timed out'))
+        },
+      }),
+    ).rejects.toMatchObject({ box: held })
+    expect(creates).toBe(1)
+  })
+
   it('retries create on gateway failure and times out loud if no host ever comes up', async () => {
     let creates = 0
     const client = {

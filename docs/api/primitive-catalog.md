@@ -449,7 +449,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -811,6 +811,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `ObservationError` | class | Analysis can fail after paid work; its measured subtotal must remain recoverable. |
 | `ReservationWaitRefused` | class | A waiting reservation that can never be granted: every open reservation settled and the free |
+| `SandboxEvidenceRetentionError` | class | A failed capture keeps the live source handle available for an explicit retry. |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
 | `SqlResultBlobStore` | class | SQL-backed `ResultBlobStore`. One content-addressed row per settled result. |
