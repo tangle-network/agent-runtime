@@ -235,6 +235,29 @@ describe('supervisor run layout', () => {
     ).toThrow(/symbolic link/)
   })
 
+  it('rejects empty and symlinked explicit event directories before admission', () => {
+    const root = tempRoot()
+    const outside = tempRoot()
+    const alias = join(root, 'event-alias')
+    symlinkSync(outside, alias, 'dir')
+    expect(() =>
+      writeWorkerSteer(root, 'run', 'run', {
+        operationId: 'empty-dir',
+        message: 'inspect',
+        eventDir: ' ',
+      }),
+    ).toThrow(/eventDir is empty/)
+    expect(() =>
+      writeWorkerSteer(root, 'run', 'run', {
+        operationId: 'linked-dir',
+        message: 'inspect',
+        eventDir: alias,
+      }),
+    ).toThrow(/symbolic link/)
+    expect(readdirSync(outside)).toEqual([])
+    expect(readdirSync(root)).toEqual(['event-alias'])
+  })
+
   it('rejects a symbolic-link run directory before reading steer requests', () => {
     const actualRoot = tempRoot()
     const actualDir = supervisorRunDir(actualRoot, 'run-actual')

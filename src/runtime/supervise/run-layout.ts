@@ -89,6 +89,9 @@ export interface WorkerSteerAcknowledgement {
 
 /** Caller input for one retry-safe steer operation. @stable */
 export interface WriteWorkerSteerOptions {
+  /** Exact Runtime event/control directory, matching the run's `steerDir`.
+   * Defaults to `supervisorRunDir(rootDir, supervisorId)` when omitted. */
+  readonly eventDir?: string
   readonly operationId: string
   readonly message: string
   readonly source?: string
@@ -325,7 +328,13 @@ export function writeWorkerSteer(
   if (!trimmed) throw new Error('steer message is empty')
   const source = options.source?.trim() || 'human'
   const interrupt = options.interrupt === true
-  const dir = supervisorRunDir(rootDir, supervisorId)
+  if (options.eventDir !== undefined && !options.eventDir.trim()) {
+    throw new Error('writeWorkerSteer: eventDir is empty')
+  }
+  const dir =
+    options.eventDir === undefined
+      ? supervisorRunDir(rootDir, supervisorId)
+      : resolve(options.eventDir)
   const requestDigest = workerSteerRequestDigest({
     operationId,
     worker: workerId,
@@ -360,7 +369,7 @@ export function writeWorkerSteer(
     }
   }
   mkdirSync(supervisorWorkersDir(dir), { recursive: true })
-  const projection = workerInboxFile(rootDir, supervisorId, workerId)
+  const projection = workerInboxFileFromEventDir(dir, workerId)
   try {
     appendFileSync(projection, `${JSON.stringify(request)}\n`, 'utf8')
   } catch {

@@ -19952,6 +19952,13 @@ Caller input for one retry-safe steer operation.
 
 #### Properties
 
+##### eventDir?
+
+> `readonly` `optional` **eventDir?**: `string`
+
+Exact Runtime event/control directory, matching the run's `steerDir`.
+Defaults to `supervisorRunDir(rootDir, supervisorId)` when omitted.
+
 ##### operationId
 
 > `readonly` **operationId**: `string`
