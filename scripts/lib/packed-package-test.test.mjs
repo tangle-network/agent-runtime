@@ -10,6 +10,7 @@ import {
   currentMinorPeerRange,
   isExactVersionSpec,
   rangeAdmits,
+  requiredPackedPeerCandidateVersion,
 } from './packed-package-test.mjs'
 import {
   evalCompatibilityVersions,
@@ -79,7 +80,8 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits(sandboxPeerRange, '0.55.0')).toBe(true)
     expect(rangeAdmits(sandboxPeerRange, '0.56.0')).toBe(true)
     expect(rangeAdmits(sandboxPeerRange, '0.57.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.58.0')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.58.0')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.59.0')).toBe(false)
   })
 
   it('admits prereleases only at the declared caret base', () => {
@@ -314,5 +316,30 @@ describe('registry peer install', () => {
     expect(() => assertSingleRegistryInstall(appDir, new Map([[name, [copies[1]]]]), name, '0.183.0')).toThrow(
       /installed 2 physical copies/,
     )
+  })
+})
+
+
+describe('requiredPackedPeerCandidateVersion', () => {
+  const name = '@tangle-network/sandbox'
+  const owner = { peerDependencies: { [name]: '^0.57.0 || ^0.58.0' } }
+
+  it('uses the supplied archive version instead of the development pin', () => {
+    expect(requiredPackedPeerCandidateVersion(
+      { ...owner, devDependencies: { [name]: '0.47.0' } },
+      name,
+      { name, version: '0.58.0' },
+    )).toBe('0.58.0')
+  })
+
+  it('refuses the wrong package, an unresolved version, or an unadmitted release', () => {
+    for (const candidate of [
+      { name: '@tangle-network/other', version: '0.58.0' },
+      { name, version: '^0.58.0' },
+      { name, version: '0.59.0' },
+      null,
+    ]) {
+      expect(() => requiredPackedPeerCandidateVersion(owner, name, candidate)).toThrow()
+    }
   })
 })
