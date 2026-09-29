@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,6 +7,7 @@ import {
   type DriveHarness,
   readWorkerSteerAcknowledgement,
   supervisorRunDir,
+  workerInboxFileFromEventDir,
   writeWorkerSteer,
 } from '../../src/runtime'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
@@ -29,65 +30,87 @@ async function jsonRpc(url: string, method: string, params: unknown): Promise<vo
 }
 
 describe('supervisePursuit root steering', () => {
-  it('consumes a public root steer written from the workspace root', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'pursuit-root-steer-'))
-    roots.push(root)
-    const runId = 'public-root-steer'
-    const operationId = 'public-root-steer-1'
-    const eventDir = supervisorRunDir(root, runId)
-    const received: unknown[] = []
-    let delivered!: () => void
-    const deliveredPromise = new Promise<void>((resolve) => {
-      delivered = resolve
-    })
+  it.each([false, true])(
+    'consumes an admitted root steer with explicit event directory=%s',
+    async (explicitEventDir) => {
+      const root = mkdtempSync(join(tmpdir(), 'pursuit-root-steer-'))
+      roots.push(root)
+      const runId = 'public-root-steer'
+      const operationId = 'public-root-steer-1'
+      const eventDir = explicitEventDir ? join(root, 'flat-events') : supervisorRunDir(root, runId)
+      const received: unknown[] = []
+      let delivered!: () => void
+      const deliveredPromise = new Promise<void>((resolve) => {
+        delivered = resolve
+      })
 
-    writeWorkerSteer(root, runId, runId, {
-      operationId,
-      message: 'use the admitted root correction',
-      interrupt: true,
-    })
+      const steerOptions = {
+        operationId,
+        message: 'use the admitted root correction',
+        interrupt: true,
+        ...(explicitEventDir ? { eventDir } : {}),
+      }
+      const admitted = writeWorkerSteer(root, runId, runId, steerOptions)
+      const retry = writeWorkerSteer(root, runId, runId, steerOptions)
+      expect(admitted.replayed).toBe(false)
+      expect(retry.replayed).toBe(true)
 
-    const driveHarness: DriveHarness = Object.assign(
-      async ({ coordinationMcpUrl }) => {
-        await Promise.race([
-          deliveredPromise,
-          new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
-        ])
-        await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'stop',
-          arguments: {},
-        })
-      },
-      {
-        deliver: (message: unknown) => {
-          received.push(message)
-          delivered()
-          return true
+      const driveHarness: DriveHarness = Object.assign(
+        async ({ coordinationMcpUrl }) => {
+          await Promise.race([
+            deliveredPromise,
+            new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
+          ])
+          await jsonRpc(coordinationMcpUrl, 'tools/call', {
+            name: 'stop',
+            arguments: {},
+          })
         },
-        deliverReady: () => true,
-      },
-    )
+        {
+          deliver: (message: unknown) => {
+            received.push(message)
+            delivered()
+            return true
+          },
+          deliverReady: () => true,
+        },
+      )
 
-    await supervisePursuit(
-      testAgentProfile('public-root-steer', {
-        harness: 'codex',
-        tools: runtimeToolDeclarations('stop'),
-      }),
-      'drive the root',
-      {
-        pursuitId: 'pursuit:public-root-steer',
-        runId,
-        runDir: root,
-        budget: { maxIterations: 8, maxTokens: 10_000 },
-        perWorker: { maxIterations: 1, maxTokens: 10 },
-        driverRetry: { enabled: false },
-        driveHarness,
-        makeWorkerAgent: () => ({ name: 'unused', act: async () => undefined }),
-      },
-    )
+      await supervisePursuit(
+        testAgentProfile('public-root-steer', {
+          harness: 'codex',
+          tools: runtimeToolDeclarations('stop'),
+        }),
+        'drive the root',
+        {
+          pursuitId: 'pursuit:public-root-steer',
+          runId,
+          runDir: root,
+          ...(explicitEventDir ? { steerDir: eventDir } : {}),
+          budget: { maxIterations: 8, maxTokens: 10_000 },
+          perWorker: { maxIterations: 1, maxTokens: 10 },
+          driverRetry: { enabled: false },
+          driveHarness,
+          makeWorkerAgent: () => ({ name: 'unused', act: async () => undefined }),
+        },
+      )
 
-    expect(received).toEqual([{ steer: 'use the admitted root correction', interrupt: true }])
-    expect(readWorkerSteerAcknowledgement(root, operationId)).toBeUndefined()
-    expect(readWorkerSteerAcknowledgement(eventDir, operationId)?.effect).toBe('delivered')
-  })
+      expect(received).toEqual([{ steer: 'use the admitted root correction', interrupt: true }])
+      expect(readWorkerSteerAcknowledgement(root, operationId)).toBeUndefined()
+      expect(readWorkerSteerAcknowledgement(eventDir, operationId)?.effect).toBe('delivered')
+      const acknowledgedRetry = writeWorkerSteer(root, runId, runId, steerOptions)
+      expect(acknowledgedRetry.replayed).toBe(true)
+      expect(acknowledgedRetry.acknowledgement?.effect).toBe('delivered')
+      const projected = readFileSync(workerInboxFileFromEventDir(eventDir, runId), 'utf8')
+        .trim()
+        .split('\n')
+      expect(projected).toHaveLength(1)
+      expect(JSON.parse(projected[0]!)).toMatchObject({
+        operationId,
+        message: steerOptions.message,
+      })
+      if (explicitEventDir)
+        expect(existsSync(join(supervisorRunDir(root, runId), 'steers'))).toBe(false)
+    },
+  )
 })
