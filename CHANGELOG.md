@@ -1,3 +1,13 @@
+## 0.285.0
+
+`resolveDeliverable` can return `null` to run a child without inheriting the root completion check or continuation.
+Use explicit compatible child tools with `inheritSpawnRights: false`; unavailable completion grants remain refused.
+Returning `undefined` still inherits the run-wide completion check.
+
+`writeWorkerSteer` accepts an explicit `eventDir` matching the running supervisor control directory.
+Requests, retry acknowledgments and inbox projections use that directory together.
+The existing workspace-root default is unchanged.
+
 ## 0.284.2
 
 Nested bridge managers retain the existing workspace resource root when spawning descendants.
