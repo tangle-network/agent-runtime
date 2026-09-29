@@ -188,15 +188,33 @@ export async function captureProviderWorkspaceSnapshot(
         ) {
           throw new Error('provider workspace retention provenance names another execution')
         }
-        const coverageComplete = !(
-          provenance.status !== 'reported' ||
-          provenance.workspace?.complete !== true ||
-          provenance.missing.length > 0 ||
-          provenance.sessions?.some(
+        const coverageGaps = [...provenance.missing]
+        if (provenance.status !== 'reported') coverageGaps.push('Coverage metadata unavailable')
+        if (provenance.executionId !== context.executionId)
+          coverageGaps.push('Exact execution identity missing')
+        if (provenance.workspace?.complete !== true)
+          coverageGaps.push('Workspace inventory incomplete')
+        if (provenance.sessions === undefined) coverageGaps.push('Session inventory missing')
+        if (
+          context.providerSessionId != null &&
+          !provenance.sessions?.some(
             (session) =>
-              session.transportEvents !== 'complete' || session.nativeRollout !== 'complete',
-          ) !== false
+              session.id === context.providerSessionId &&
+              session.executionId === context.executionId,
+          )
         )
+          coverageGaps.push(`Provider session ${context.providerSessionId} missing from capture`)
+        for (const session of provenance.sessions ?? []) {
+          if (session.executionId !== context.executionId)
+            coverageGaps.push(`Session ${session.id} names another execution`)
+          if (session.transportEvents !== 'complete')
+            coverageGaps.push(`Session ${session.id} transport events unavailable`)
+          if (session.nativeRollout !== 'complete')
+            coverageGaps.push(`Session ${session.id} native rollout unavailable`)
+          if (session.nativeRollout === 'complete' && !session.nativeSessionId)
+            coverageGaps.push(`Session ${session.id} native identity missing`)
+        }
+        const coverageComplete = coverageGaps.length === 0
         requireDurableWorkspaceArtifacts(snapshot)
         const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, port.artifacts)
         await verifyAgentCandidateWorkspaceArchive({
@@ -212,7 +230,7 @@ export async function captureProviderWorkspaceSnapshot(
           ...(coverageComplete
             ? {}
             : {
-                incompleteReason: `provider workspace retention coverage incomplete: ${provenance.missing.join('; ') || 'native session or workspace export missing'}`,
+                incompleteReason: `provider workspace retention coverage incomplete: ${coverageGaps.join('; ')}`,
               }),
         }
       },
