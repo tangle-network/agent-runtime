@@ -1,3 +1,9 @@
+## 0.284.1
+
+Admit Sandbox 0.57 in the peer range so evidence-retaining consumers can install the published SDK.
+
+Admit Sandbox 0.58 after packed consumer qualification, and verify supplied SDK archives against their own admitted version.
+
 ## 0.284.0
 
 Export `isolatedCheckResultSchema` and `isolatedCheckBoxEvidenceSchema` from the public package root. Consumers can decode retained execution receipts without duplicating Runtime's result types. Validation preserves complete failure and cleanup evidence and checks Sandbox input-manifest digests; it does not certify task correctness or authorize execution.
