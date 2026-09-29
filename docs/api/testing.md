@@ -659,11 +659,15 @@ digests itself from the exact detached values it executes.
 
 ##### resolveDeliverable?
 
-> `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
+> `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `null` \| `undefined`
 
 Resolve the completion check for one exact authorized backend-derived child. The callback runs
 after spawn authorization and receives a detached immutable context. It may return `undefined`
-to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
+to use the run-wide `deliverable`, or `null` to omit this child's assignment check and continuation.
+Null does not turn completion into acceptance or erase existing backend/descendant verdicts.
+An unchecked child must declare compatible tools: disable inherited spawn rights and author its
+coordination grants without `submit_result` or `read_continuation`. Explicit incompatible
+grants remain refused; the authorized profile is never rewritten after this callback.
 
 ###### Parameters
 
@@ -673,7 +677,7 @@ to use the run-wide `deliverable`; a managed child receives its selected check f
 
 ###### Returns
 
-[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
+[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `null` \| `undefined`
 
 ###### Inherited from
 
@@ -1496,11 +1500,15 @@ The independent completion check for backend-derived workers and direct supervis
 
 ##### resolveDeliverable?
 
-> `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
+> `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `null` \| `undefined`
 
 Resolve the completion check for one exact authorized backend-derived child. The callback runs
 after spawn authorization and receives a detached immutable context. It may return `undefined`
-to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
+to use the run-wide `deliverable`, or `null` to omit this child's assignment check and continuation.
+Null does not turn completion into acceptance or erase existing backend/descendant verdicts.
+An unchecked child must declare compatible tools: disable inherited spawn rights and author its
+coordination grants without `submit_result` or `read_continuation`. Explicit incompatible
+grants remain refused; the authorized profile is never rewritten after this callback.
 
 ###### Parameters
 
@@ -1510,7 +1518,7 @@ to use the run-wide `deliverable`; a managed child receives its selected check f
 
 ###### Returns
 
-[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
+[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `null` \| `undefined`
 
 ###### Inherited from
 
