@@ -215,6 +215,85 @@ function doneStream(text = 'done') {
 }
 
 describe('provider workspace retention', () => {
+  it('accepts complete raw evidence when the harness has no native session id', async () => {
+    const artifacts = artifactStore()
+    const { provider, destroyed } = providerFor(doneStream())
+    const executor = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        requireCompleteProvenance: true,
+        artifacts,
+        async capture(context) {
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported' as const,
+              environmentId: context.environment.id,
+              executionId: context.executionId,
+              workspace: {
+                scannedFiles: 1,
+                scannedDirectories: 0,
+                reportedFiles: 1,
+                reportedDirectories: 0,
+                complete: true,
+              },
+              sessions: [
+                {
+                  id: 'sandbox-session-1',
+                  executionId: context.executionId,
+                  backendType: 'opencode',
+                  transportEvents: 'complete',
+                  eventCount: 1,
+                  messageCount: 1,
+                  nativeSessionId: null,
+                  nativeStore: {
+                    scope: 'session' as const,
+                    roots: [{ scope: 'session-home' as const, path: '/home/agent' }],
+                    inventory: {
+                      scannedFiles: 1,
+                      reportedFiles: 1,
+                      scannedDirectories: 0,
+                      reportedDirectories: 0,
+                      scannedSymlinks: 0,
+                      reportedSymlinks: 0,
+                      skippedEntries: 0,
+                    },
+                    complete: true,
+                    entries: [],
+                    excludedPaths: [],
+                  },
+                  processStreams: {
+                    complete: true,
+                    streamCount: 1,
+                    stdinBytes: 0,
+                    stdoutBytes: 2,
+                    stderrBytes: 0,
+                    protocolBytes: 0,
+                  },
+                  nativeEvents: { complete: true, count: 1 },
+                },
+              ],
+              missing: [],
+            },
+          }
+        },
+      },
+    })(
+      { profile: testProfile('raw-evidence'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    for await (const _event of executor.execute(
+      'task',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      /* drain */
+    }
+    expect((executor.resultArtifact().out as ProviderLeafOut).workspaceCapture).toMatchObject({
+      coverageComplete: true,
+      nativeSessionId: null,
+    })
+    expect(destroyed()).toBe(1)
+  })
   it('keeps the source when complete native coverage is required but unavailable', async () => {
     const artifacts = artifactStore()
     const { provider, destroyed } = providerFor(doneStream())

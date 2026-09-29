@@ -73,11 +73,52 @@ export interface ProviderWorkspaceCaptureProvenance {
     readonly eventCount: number
     readonly messageCount: number
     readonly messageScope?: string
-    readonly nativeRollout: string
+    readonly backendType?: string
     readonly nativeSessionId?: string | null
     readonly nativeReason?: string | null
-    readonly nativeSha256?: string | null
-    readonly nativeBytes?: number | null
+    readonly nativeStore?: {
+      readonly scope: 'session'
+      readonly roots: ReadonlyArray<{
+        readonly scope: 'session-home' | 'workspace-session'
+        readonly path: string
+      }>
+      readonly inventory: {
+        readonly scannedFiles: number
+        readonly reportedFiles: number
+        readonly scannedDirectories: number
+        readonly reportedDirectories: number
+        readonly scannedSymlinks: number
+        readonly reportedSymlinks: number
+        readonly skippedEntries: number
+      } | null
+      readonly complete: boolean
+      readonly entries: ReadonlyArray<{
+        readonly rootScope: 'session-home' | 'workspace-session'
+        readonly path: string
+        readonly kind: 'file' | 'directory' | 'symlink'
+        readonly mode: number
+        readonly sizeBytes: number
+        readonly sha256: string | null
+        readonly linkTarget: string | null
+      }>
+      readonly excludedPaths: ReadonlyArray<{
+        readonly rootScope: 'session-home' | 'workspace-session'
+        readonly path: string
+        readonly kind: 'file' | 'directory' | 'symlink'
+        readonly mode: number
+        readonly sizeBytes: number
+        readonly reason: 'credential'
+      }>
+    }
+    readonly processStreams?: {
+      readonly complete: boolean
+      readonly streamCount: number
+      readonly stdinBytes: number
+      readonly stdoutBytes: number
+      readonly stderrBytes: number
+      readonly protocolBytes: number
+    }
+    readonly nativeEvents?: { readonly complete: boolean; readonly count: number }
   }>
   readonly missing: ReadonlyArray<string>
 }
@@ -209,8 +250,17 @@ export async function captureProviderWorkspaceSnapshot(
             coverageGaps.push(`Session ${session.id} names another execution`)
           if (session.transportEvents !== 'complete')
             coverageGaps.push(`Session ${session.id} transport events unavailable`)
-          if (session.nativeRollout !== 'complete')
-            coverageGaps.push(`Session ${session.id} native rollout unavailable`)
+          if (session.backendType !== context.profile.harness)
+            coverageGaps.push(`Session ${session.id} harness identity mismatch`)
+          if (
+            session.nativeStore?.complete !== true ||
+            session.nativeStore.inventory?.skippedEntries !== 0
+          )
+            coverageGaps.push(`Session ${session.id} native store incomplete`)
+          if (session.processStreams?.complete !== true)
+            coverageGaps.push(`Session ${session.id} process streams incomplete`)
+          if (session.nativeEvents?.complete !== true)
+            coverageGaps.push(`Session ${session.id} native events incomplete`)
         }
         const coverageComplete = coverageGaps.length === 0
         requireDurableWorkspaceArtifacts(snapshot)
