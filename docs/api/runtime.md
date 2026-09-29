@@ -8241,6 +8241,42 @@ Source inventory metadata for a workspace entry.
 
 ***
 
+### ProviderWorkspaceAttemptProvenance
+
+One Sidecar execution attempt; retries remain separate evidence.
+
+#### Properties
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### ordinal
+
+> `readonly` **ordinal**: `number`
+
+##### providerSessionId
+
+> `readonly` **providerSessionId**: `string`
+
+##### nativeSessionIds
+
+> `readonly` **nativeSessionIds**: readonly `string`[]
+
+##### processIds
+
+> `readonly` **processIds**: readonly `string`[]
+
+##### outcome
+
+> `readonly` **outcome**: `"unknown"` \| `"failed"` \| `"cancelled"` \| `"succeeded"`
+
+##### missingReasons
+
+> `readonly` **missingReasons**: readonly `string`[]
+
+***
+
 ### ProviderWorkspaceCaptureProvenance
 
 Source-reported coverage retained with the verified archive reference.
@@ -8306,6 +8342,12 @@ Source-reported coverage retained with the verified archive reference.
 ###### complete
 
 > `readonly` **complete**: `boolean`
+
+##### attempts?
+
+> `readonly` `optional` **attempts?**: readonly [`ProviderWorkspaceAttemptProvenance`](#providerworkspaceattemptprovenance)[]
+
+Sidecar attempts join sessions through executionIds, not the Runtime node ID.
 
 ##### sessions?
 
@@ -16517,7 +16559,7 @@ Driver invocations started.
 
 ###### Inherited from
 
-[`DriverLoopRecord`](#driverlooprecord).[`attempts`](#attempts-1)
+[`DriverLoopRecord`](#driverlooprecord).[`attempts`](#attempts-2)
 
 ##### reprompts
 
