@@ -1,3 +1,15 @@
+## 0.287.0
+
+Require Eval 0.201 through 0.203, Interface 2.15, Knowledge 18, and Sandbox 0.58.4.
+Use Core 0.10.2, Trace Contract 2, and Zod 4.6.5 across the installed dependency tree.
+Develop against Eval 0.203 and Provider 2.0.
+Keep published worker profile fields independent of registered API metadata.
+
+Retain verified provider workspace captures through the existing execution journal and blob store.
+Publish captures before source deletion, including failed and cancelled executions.
+Keep partial coverage explicit and retain its source.
+Retry rejected evidence writes without repeating a successful capture publication.
+
 ## 0.286.0
 
 Retain exact provider execution attempts with verified workspace evidence.

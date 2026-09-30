@@ -2,6 +2,7 @@ import type { ToolSpan, TraceAnalysisStore } from '@tangle-network/agent-eval'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { withProfileKb } from '@tangle-network/agent-interface/profile-kb'
 import { describe, expect, it } from 'vitest'
+import { registry } from 'zod'
 import { createMcpServer } from '../../src/mcp/server'
 import {
   type CoordinationEvent,
@@ -1709,6 +1710,7 @@ describe("spawn_worker's published child-profile schema", () => {
   const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v), 'utf8')
   const canonicalProperties = (): Record<string, unknown> =>
     agentProfileSchema.toJSONSchema({
+      metadata: registry(),
       io: 'input',
       target: 'draft-07',
       unrepresentable: 'any',
