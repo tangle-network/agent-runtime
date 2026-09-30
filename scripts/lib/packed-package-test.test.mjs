@@ -23,7 +23,7 @@ import {
 
 const sandboxVersion = sandboxCompatibilityVersions[0]
 if (sandboxVersion === undefined) throw new Error('Sandbox compatibility version is missing')
-const [sandboxMajor, sandboxMinor] = sandboxVersion.split('.').map(Number)
+const [sandboxMajor, sandboxMinor, sandboxPatch] = sandboxVersion.split('.').map(Number)
 const priorSandboxVersion = `${sandboxMajor}.${sandboxMinor - 1}.0`
 const sandboxCeiling = /<(\d+)\.(\d+)\.0\b/u.exec(sandboxPeerRange)
 if (sandboxCeiling === undefined) throw new Error('Sandbox peer ceiling is missing')
@@ -73,25 +73,17 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0', '0.48.0')).toBe(false)
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0', '0.50.0')).toBe(true)
     expect(rangeAdmits('>=0.36.4 <0.48.0 || ^0.49.0-0 || ^0.50.0', '0.51.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.51.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.52.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.53.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.54.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.55.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.56.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.57.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.58.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.59.0')).toBe(false)
   })
 
   it('admits prereleases only at the declared caret base', () => {
     const snapshot = '0.49.0-l9.20260924035255.062dd6f'
     expect(rangeAdmits('^0.49.0', snapshot)).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, snapshot)).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.49.0')).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, '0.49.1-l9.1')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.48.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.50.0-0')).toBe(false)
+    expect(rangeAdmits('^0.49.0-0', snapshot)).toBe(true)
+    expect(rangeAdmits('^0.49.0-0', '0.49.0')).toBe(true)
+    expect(rangeAdmits('^0.49.0-0', '0.49.1-l9.1')).toBe(false)
+    expect(rangeAdmits('^0.49.0-0', '0.48.0')).toBe(false)
+    expect(rangeAdmits('^0.49.0-0', '0.50.0-0')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, snapshot)).toBe(false)
     expect(rangeAdmits('>=0.36.4 <0.48.0', '0.47.0-l9.1')).toBe(false)
   })
 
@@ -106,6 +98,10 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
     expect(rangeAdmits(sandboxPeerRange, priorSandboxVersion)).toBe(false)
     expect(rangeAdmits(sandboxPeerRange, sandboxVersion)).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, `${sandboxMajor}.${sandboxMinor}.${sandboxPatch + 1}`)).toBe(true)
+    if (sandboxPatch > 0) {
+      expect(rangeAdmits(sandboxPeerRange, `${sandboxMajor}.${sandboxMinor}.${sandboxPatch - 1}`)).toBe(false)
+    }
     expect(rangeAdmits(sandboxPeerRange, latestSandboxVersion)).toBe(true)
     expect(rangeAdmits(sandboxPeerRange, nextSandboxVersion)).toBe(false)
   })

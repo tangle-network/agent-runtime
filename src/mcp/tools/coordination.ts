@@ -20,6 +20,7 @@ import {
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import { registry } from 'zod'
 import { type Redactor, resolveRedactor } from '../../redact'
 import type {
   AgentExecutionRef,
@@ -1571,6 +1572,9 @@ let spawnProfileArgCache: Record<string, unknown> | undefined
 function spawnProfileArg(): Record<string, unknown> {
   if (!spawnProfileArgCache) {
     const canonical = agentProfileSchema.toJSONSchema({
+      // Runtime's API metadata contains ids and output schemas. Derive this input shape
+      // without that shared registry so import order cannot replace properties with a ref.
+      metadata: registry(),
       io: 'input',
       target: 'draft-07',
       unrepresentable: 'any',

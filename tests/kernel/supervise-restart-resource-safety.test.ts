@@ -1,5 +1,5 @@
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -1099,53 +1099,66 @@ describe('supervision restart and resource safety', () => {
   })
 
   it('settles after its deadline even when executor teardown never acknowledges', async () => {
-    let teardownCalls = 0
-    const ignoring = leafFromExecutor('ignores-teardown', () => ({
-      runtime: 'router',
-      execute: () => new Promise<ExecutorResult<string>>(() => {}),
-      teardown(): Promise<{ destroyed: boolean }> {
-        teardownCalls += 1
-        return new Promise(() => {})
-      },
-      resultArtifact(): ExecutorResult<string> {
-        throw new Error('an executor that never settled has no result artifact')
-      },
-    }))
-    const root: Agent<unknown, string> = {
-      name: 'teardown-deadline-root',
-      async act(task, scope): Promise<string> {
-        const spawned = scope.spawn(ignoring, task, {
-          budget: { maxIterations: 1, maxTokens: 10 },
-          label: 'ignores-teardown',
-        })
-        expect(spawned.ok).toBe(true)
-        const settled = await scope.next()
-        if (settled?.kind === 'down') throw new Error(settled.reason)
-        return settled?.out ?? 'missing result'
-      },
+    vi.useFakeTimers()
+    try {
+      const started = deferred()
+      let teardownCalls = 0
+      const ignoring = leafFromExecutor('ignores-teardown', () => ({
+        runtime: 'router',
+        execute: () => {
+          started.resolve()
+          return new Promise<ExecutorResult<string>>(() => {})
+        },
+        teardown(): Promise<{ destroyed: boolean }> {
+          teardownCalls += 1
+          return new Promise(() => {})
+        },
+        resultArtifact(): ExecutorResult<string> {
+          throw new Error('an executor that never settled has no result artifact')
+        },
+      }))
+      const root: Agent<unknown, string> = {
+        name: 'teardown-deadline-root',
+        async act(task, scope): Promise<string> {
+          const spawned = scope.spawn(ignoring, task, {
+            budget: { maxIterations: 1, maxTokens: 10 },
+            label: 'ignores-teardown',
+          })
+          expect(spawned.ok).toBe(true)
+          const settled = await scope.next()
+          if (settled?.kind === 'down') throw new Error(settled.reason)
+          return settled?.out ?? 'missing result'
+        },
+      }
+
+      const running = createSupervisor<unknown, string>().run(root, 'task', {
+        budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 15 },
+        // A deadline stops work, not cleanup: settlement still asks again, inside this window.
+        teardownConfirmMs: 100,
+        runId: 'ignores-teardown-deadline',
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+      })
+      // Arm the deadline at a controlled time, then start the executor before advancing it.
+      await started.promise
+      const outcomePromise = settleWithin(running, 750)
+      await vi.advanceTimersByTimeAsync(750)
+      const outcome = await outcomePromise
+
+      expect(outcome.settled).toBe(true)
+      if (!outcome.settled) return
+      expect(outcome.value).toMatchObject({
+        kind: 'no-winner',
+        reason: 'budget-exhausted',
+        tree: { inFlight: 0 },
+        teardownUnconfirmed: [{ label: 'ignores-teardown', attempts: 1 }],
+      })
+      // The settlement's own request never answers; every retry awaits it and never sends another.
+      expect(teardownCalls).toBe(1)
+    } finally {
+      vi.useRealTimers()
     }
-
-    const running = createSupervisor<unknown, string>().run(root, 'task', {
-      budget: { maxIterations: 1, maxTokens: 10, deadlineMs: 15 },
-      // A deadline stops work, not cleanup: settlement still asks again, inside this window.
-      teardownConfirmMs: 100,
-      runId: 'ignores-teardown-deadline',
-      journal: new InMemorySpawnJournal(),
-      blobs: new InMemoryResultBlobStore(),
-      executors: createExecutorRegistry(),
-    })
-    const outcome = await settleWithin(running, 750)
-
-    expect(outcome.settled).toBe(true)
-    if (!outcome.settled) return
-    expect(outcome.value).toMatchObject({
-      kind: 'no-winner',
-      reason: 'budget-exhausted',
-      tree: { inFlight: 0 },
-      teardownUnconfirmed: [{ label: 'ignores-teardown', attempts: 1 }],
-    })
-    // The settlement's own request never answers; every retry awaits it and never sends another.
-    expect(teardownCalls).toBe(1)
   })
 
   it('turns unknown accounting from a crashing nested driver into a terminal down node', async () => {

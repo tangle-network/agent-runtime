@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.0
+
+Require Eval 0.201 through 0.203, Interface 2.15, Knowledge 18, and Sandbox 0.58.4 through the shared catalog.
+Consume Runtime 0.287 through the workspace dependency.
+
 ## 0.13.13
 
 Require Knowledge 17.1.6 and Eval `>=0.191.0 <0.194.0` through the shared dependency catalog.
