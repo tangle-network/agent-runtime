@@ -838,6 +838,13 @@ export class SpawnEventIndex {
   assert(event: SpawnEvent): void {
     const node = this.nodes.get(event.id)
     this.assertRetained(node, event)
+    if (event.kind === 'execution-evidence') {
+      if (!node?.spawned || !/^sha256:[0-9a-f]{64}$/.test(event.outRef)) {
+        throw new Error(
+          'spawn journal corrupted: executor evidence has no spawned node or valid content reference',
+        )
+      }
+    }
     if (event.kind === 'materialized') {
       if (node?.materialized) {
         throw new Error(
@@ -1018,6 +1025,7 @@ const outsideCursorNamespaceKinds = [
   'execution-input',
   'execution-admitted',
   'execution-result',
+  'execution-evidence',
   'progress',
   'reconciled',
   'edge',
@@ -1127,7 +1135,8 @@ export async function replaySpawnTree(
     if (
       ev.kind === 'execution-input' ||
       ev.kind === 'execution-admitted' ||
-      ev.kind === 'execution-result'
+      ev.kind === 'execution-result' ||
+      ev.kind === 'execution-evidence'
     )
       continue
     if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement

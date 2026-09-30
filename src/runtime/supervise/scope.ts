@@ -96,6 +96,7 @@ import {
 import { prepareScopeResume } from './recover-executors'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
+  executorEvidenceWriter,
   leafContinuationExecutionId,
   type RetainedChildRecovery,
   RetainedExecutionPendingError,
@@ -1242,6 +1243,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
         onAdmission,
         onResult,
+        onEvidence: executorEvidenceWriter({
+          journal: args.journal,
+          blobs: args.blobs,
+          rootId: args.root,
+          nodeId: id,
+          nextSequence: () => ordinal,
+          now,
+        }),
         onPause,
         continueInvocation: async (nextTask) => {
           controller.signal.throwIfAborted()

@@ -7,16 +7,27 @@ import type {
   AgentCandidateWorkspaceSnapshotEvidence,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   type AgentCandidateOutputArtifactPort,
   captureAgentCandidateWorkspace,
   createAgentCandidateWorkspacePort,
 } from '../src/candidate-execution'
 import { sha256Bytes } from '../src/candidate-execution/digest'
+import { contentAddress, replaySpawnTree } from '../src/durable/spawn-journal'
 import type { ProviderLeafOut } from '../src/runtime/environment-provider'
+import {
+  executorEvidenceWriter,
+  retainedExecutorSeamKey,
+} from '../src/runtime/supervise/retained-executor'
+import {
+  prepareScopeRetainedOwnerTask,
+  scopeRetainedOwnerContext,
+} from '../src/runtime/supervise/retained-scope-owner'
+import { createFileRunContext } from '../src/runtime/supervise/run-context'
 import { createExecutor } from '../src/runtime/supervise/runtime'
-import type { UsageEvent } from '../src/runtime/supervise/types'
+import { createSupervisor } from '../src/runtime/supervise/supervisor'
+import type { SpawnEvent, UsageEvent } from '../src/runtime/supervise/types'
 import { durableRetainedProvider } from './helpers/durable-retained-provider'
 import { testAgentProfile } from './kernel/test-agent-profile'
 
@@ -63,6 +74,369 @@ function artifactStore(directory: string): AgentCandidateOutputArtifactPort {
 }
 
 describe('provider executable workspace retention', () => {
+  it.each(
+    (
+      [
+        { location: 'worker', steering: false, ending: 'failed', storageFailure: undefined },
+        { location: 'worker', steering: true, ending: 'failed', storageFailure: undefined },
+        { location: 'worker', steering: false, ending: 'cancelled', storageFailure: undefined },
+        { location: 'root', steering: false, ending: 'failed', storageFailure: undefined },
+        ...(['root', 'worker'] as const).flatMap((location) =>
+          [false, true].map((steering) => ({
+            location,
+            steering,
+            ending: 'completed' as const,
+            storageFailure: undefined,
+          })),
+        ),
+        ...(['blob', 'journal'] as const).flatMap((storageFailure) =>
+          [false, true].map((steering) => ({
+            location: 'root' as const,
+            steering,
+            ending: 'failed' as const,
+            storageFailure,
+          })),
+        ),
+        ...(['blob', 'journal'] as const).flatMap((storageFailure) =>
+          [false, true].flatMap((steering) =>
+            (['completed', 'failed'] as const).map((ending) => ({
+              location: 'worker' as const,
+              steering,
+              ending,
+              storageFailure,
+            })),
+          ),
+        ),
+        ...[false, true].map((steering) => ({
+          location: 'worker' as const,
+          steering,
+          ending: 'completed' as const,
+          storageFailure: undefined,
+          strictPartial: true,
+        })),
+      ] as const
+    ).map((config) => ({ strictPartial: false, ...config })),
+  )(
+    'retains $location evidence after $ending with steering=$steering, storageFailure=$storageFailure and strictPartial=$strictPartial',
+    async ({ location, steering, ending, storageFailure, strictPartial }) => {
+      const root = await temporaryRoot()
+      const runDir = join(root, 'run')
+      const workspace = join(root, 'workspace')
+      const artifacts = artifactStore(join(root, 'artifacts'))
+      const run = createFileRunContext(runDir)
+      if (storageFailure === 'blob') {
+        const put = run.blobs.put.bind(run.blobs)
+        vi.spyOn(run.blobs, 'put').mockImplementation(async (outRef, out) => {
+          if (
+            out !== null &&
+            typeof out === 'object' &&
+            ('workspaceCapture' in out || 'workspaceCaptures' in out)
+          ) {
+            throw new Error('capture blob publication rejected')
+          }
+          await put(outRef, out)
+        })
+      } else if (storageFailure === 'journal') {
+        const append = run.journal.appendEvent.bind(run.journal)
+        vi.spyOn(run.journal, 'appendEvent').mockImplementation(async (rootId, event) => {
+          if (event.kind === 'execution-evidence') {
+            throw new Error('capture journal publication rejected')
+          }
+          await append(rootId, event)
+        })
+      }
+      let destroyed = 0
+      const profile = testAgentProfile('failed-capture-record')
+      const task = 'retain failed execution'
+      const runId = 'failed-capture-record'
+      let started!: () => void
+      const admitted = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      let captured!: () => void
+      const captureDone = new Promise<void>((resolve) => {
+        captured = resolve
+      })
+      const provider: AgentEnvironmentProvider = {
+        name: 'failed-capture-record',
+        async capabilities() {
+          return { streaming: { live: true }, sessions: { continue: true } }
+        },
+        async create(options) {
+          await mkdir(workspace)
+          const raw = { type: 'text', data: { text: 'partial work', metadata: [null, 0, false] } }
+          await writeFile(join(workspace, 'native-trace.json'), JSON.stringify(raw))
+          return {
+            id: 'failed-environment',
+            provider: provider.name,
+            status: async () => 'running',
+            async *stream() {
+              yield raw
+              started()
+              if (ending === 'cancelled') {
+                await new Promise<void>((_, reject) => {
+                  if (options.signal?.aborted) reject(options.signal.reason)
+                  options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                    once: true,
+                  })
+                })
+              }
+              if (ending === 'completed') yield { type: 'done', data: { finalText: 'finished' } }
+              else throw new Error('execution failed after partial work')
+            },
+            session(id) {
+              return {
+                id,
+                status: async () => 'completed',
+                async *events() {},
+                result: async () => ({ text: '', success: false, sessionId: id }),
+                prompt: async () => ({ text: '', success: false, sessionId: id }),
+              }
+            },
+            async destroy() {
+              const events = (await run.journal.loadTree(runId)) ?? []
+              const citation = events.find((event) => event.kind === 'execution-evidence')
+              if (citation?.kind !== 'execution-evidence') {
+                throw new Error('source deletion preceded durable capture citation')
+              }
+              const output = await run.blobs.get(citation.outRef)
+              expect(citation.outRef).toBe(contentAddress(output))
+              const receipt =
+                (output as ProviderLeafOut).workspaceCapture ??
+                (output as { workspaceCaptures?: unknown[] }).workspaceCaptures?.[0]
+              expect(receipt).toMatchObject({ environmentId: 'failed-environment' })
+              destroyed++
+              await rm(workspace, { recursive: true })
+            },
+          }
+        },
+      }
+      const executorFactory = createExecutor({
+        backend: 'provider',
+        provider,
+        ...(steering ? { steering: { maxTurns: 1 } } : {}),
+        workspaceRetention: {
+          timeoutMs: 5_000,
+          requireCompleteProvenance: strictPartial,
+          artifacts,
+          async capture({ executionId, signal }) {
+            const { snapshot } = await captureAgentCandidateWorkspace(workspace, {
+              artifactPersistence: { executionId, outputArtifacts: artifacts, signal },
+            })
+            captured()
+            return {
+              snapshot,
+              provenance: {
+                status: 'reported',
+                executionId,
+                environmentId: 'failed-environment',
+                missing: ['offline fixture does not supply native coverage'],
+                fixtureMetadata: [null, 0, false],
+              },
+            }
+          },
+        },
+      })
+      const supervisor = createSupervisor()
+      await supervisor.run(
+        {
+          name: 'failed-capture-root',
+          async act(ownerTask, scope) {
+            if (location === 'root') {
+              await prepareScopeRetainedOwnerTask(scope, ownerTask)
+              const context = scopeRetainedOwnerContext(scope)
+              if (!context) throw new Error('missing root writer')
+              const executor = executorFactory(
+                { profile, harness: null },
+                {
+                  signal: scope.signal,
+                  seams: { [retainedExecutorSeamKey]: context },
+                },
+              )
+              const consume = async () => {
+                for await (const _event of executor.execute(task, scope.signal)) {
+                }
+              }
+              if (ending === 'completed') await consume()
+              else {
+                const error: unknown = await consume().catch((error: unknown) => error)
+                expect(error).toBeInstanceOf(Error)
+                if (!(error instanceof Error)) throw new Error('missing execution failure')
+                if (storageFailure === undefined || steering) {
+                  expect(error.message).toBe('execution failed after partial work')
+                } else {
+                  expect(error.message).toBe(`capture ${storageFailure} publication rejected`)
+                }
+                if (storageFailure !== undefined) {
+                  if (steering) {
+                    expect(error.cause).toBeInstanceOf(AggregateError)
+                    expect((error.cause as AggregateError).errors).toContainEqual(
+                      expect.objectContaining({
+                        message: `capture ${storageFailure} publication rejected`,
+                      }),
+                    )
+                    await expect(executor.teardown('brutalKill')).rejects.toThrow(
+                      'Sandbox evidence capture failed before teardown',
+                    )
+                  } else {
+                    expect(error.cause).toMatchObject({
+                      message: 'execution failed after partial work',
+                    })
+                    expect(await executor.teardown('brutalKill')).toMatchObject({
+                      destroyed: false,
+                    })
+                  }
+                }
+              }
+            } else {
+              const worker = {
+                name: 'failed-capture-worker',
+                act: async () => 'unused',
+                executorSpec: { profile, harness: null, executorFactory },
+              }
+              const spawned = await scope.spawn(worker, task, {
+                label: 'failed capture',
+                budget: { maxIterations: 2, maxTokens: 100 },
+              })
+              if (!spawned.ok) throw new Error('worker admission failed')
+              if (ending === 'cancelled') {
+                await admitted
+                await scope.cancel(spawned.handle.id, { operationId: 'cancel-with-evidence' })
+              }
+              expect(await scope.next()).toMatchObject({
+                kind:
+                  ending === 'completed' &&
+                  storageFailure === undefined &&
+                  !(strictPartial && steering)
+                    ? 'done'
+                    : 'down',
+              })
+            }
+            return 'fixture complete'
+          },
+        },
+        task,
+        {
+          ...run,
+          runId,
+          teardownConfirmMs: 20,
+          rootIdentity: {
+            profileDigest: contentAddress(profile),
+            taskDigest: contentAddress(task),
+          },
+          budget: { maxIterations: 20, maxTokens: 1_000 },
+        },
+      )
+      await captureDone
+      if (storageFailure !== undefined) {
+        const events = (await run.journal.loadTree(runId)) ?? []
+        expect(events.filter((event) => event.kind === 'execution-evidence')).toEqual([])
+        expect(events.filter((event) => event.kind === 'execution-result')).toEqual([])
+        if (location === 'worker') {
+          const worker = events.find((event) => event.kind === 'spawned' && event.parent === runId)
+          const terminal = events.find(
+            (event) => event.kind === 'settled' && event.id === worker?.id,
+          )
+          expect(terminal).toMatchObject({ status: 'down' })
+          expect(events).toContainEqual(
+            expect.objectContaining({ kind: 'teardown-unconfirmed', id: worker?.id }),
+          )
+        }
+        expect(existsSync(workspace)).toBe(true)
+        expect(destroyed).toBe(0)
+        return
+      }
+      const evidenceEvent = await vi.waitFor(() => {
+        // Cancellation can settle before the bounded capture finishes.
+        return readFile(join(runDir, 'spawn-journal.jsonl'), 'utf8').then((text) => {
+          const events = text
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line).event)
+          const event = events.find(
+            (event: SpawnEvent | undefined) => event?.kind === 'execution-evidence',
+          )
+          expect(event).toBeDefined()
+          return event
+        })
+      })
+      expect(evidenceEvent.kind).toBe('execution-evidence')
+      const output = JSON.parse(
+        await readFile(
+          join(runDir, 'blobs', `sha256-${evidenceEvent.outRef.slice(7)}.json`),
+          'utf8',
+        ),
+      )
+      const receipt = output.workspaceCapture ?? output.workspaceCaptures?.[0]
+      expect(receipt).toMatchObject({
+        environmentId: 'failed-environment',
+        coverageComplete: false,
+        provenance: { fixtureMetadata: [null, 0, false] },
+      })
+      expect(receipt.snapshot.archive).toHaveProperty('locator')
+      expect(evidenceEvent.outRef).toBe(contentAddress(output))
+      const events = (await run.journal.loadTree(runId)) ?? []
+      expect(events.filter((event) => event.kind === 'execution-result')).toEqual([])
+      if (strictPartial) {
+        expect(events.filter((event) => event.kind === 'execution-evidence')).toHaveLength(1)
+        expect(destroyed).toBe(0)
+        expect(existsSync(workspace)).toBe(true)
+        if (steering) expect(output.workspaceCaptures).toHaveLength(1)
+      }
+      await expect(
+        run.journal.appendEvent(runId, {
+          kind: 'execution-evidence',
+          id: 'never-spawned',
+          outRef: evidenceEvent.outRef,
+          seq: 0,
+          at: new Date().toISOString(),
+        }),
+      ).rejects.toThrow(/no spawned node or valid content reference/)
+      await expect(
+        run.journal.appendEvent(runId, {
+          kind: 'execution-evidence',
+          id: evidenceEvent.id,
+          outRef: 'unverifiable-reference',
+          seq: 0,
+          at: new Date().toISOString(),
+        }),
+      ).rejects.toThrow(/no spawned node or valid content reference/)
+      expect(await run.journal.loadTree(runId)).toEqual(events)
+      if (location === 'worker') {
+        const worker = events.find((event) => event.kind === 'spawned' && event.parent === runId)
+        const terminal = events.find(
+          (event) =>
+            (event.kind === 'cancelled' || event.kind === 'settled') && event.id === worker?.id,
+        )
+        expect(terminal).toBeDefined()
+        if (ending !== 'completed' || strictPartial)
+          expect(terminal).not.toHaveProperty('status', 'done')
+        else {
+          expect(terminal).toHaveProperty('status', 'done')
+          expect(terminal).toHaveProperty('outRef', evidenceEvent.outRef)
+          expect(destroyed).toBe(strictPartial ? 0 : 1)
+          expect(existsSync(workspace)).toBe(strictPartial)
+        }
+        const lateWriter = executorEvidenceWriter({
+          rootId: runId,
+          nodeId: evidenceEvent.id,
+          journal: run.journal,
+          blobs: run.blobs,
+          nextSequence: () => 0,
+          now: Date.now,
+        })
+        await lateWriter(output)
+        expect((await run.journal.loadTree(runId))?.at(-1)).toMatchObject({
+          kind: 'execution-evidence',
+          id: evidenceEvent.id,
+          outRef: contentAddress(output),
+        })
+        expect(await replaySpawnTree(run.journal, run.blobs, runId)).toMatchObject([
+          { kind: ending === 'completed' && !strictPartial ? 'done' : 'down' },
+        ])
+      }
+    },
+  )
   it('executes retained helper bytes after deleting the source and restores the original revision', async () => {
     const root = await temporaryRoot()
     const artifacts = artifactStore(join(root, 'artifacts'))

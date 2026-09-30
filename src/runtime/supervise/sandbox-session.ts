@@ -95,6 +95,8 @@ export interface SteerableSandboxSession {
   cancel(request: ExecutorCancellationRequest): Promise<ExecutorCancellation>
   traceSource(): TraceSource
   artifact(): { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend } | undefined
+  /** Same output projection used at capture and terminal publication. */
+  output(): unknown
   teardown(): Promise<void>
 }
 
@@ -149,6 +151,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     note: 'starting',
   }
 
+  let readOutput: (() => unknown) | undefined
+
   const toolParts = createSandboxToolPartState()
 
   /** Record one box event for the trace and the activity window, and return the live output it
@@ -195,6 +199,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
   async function* stream(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent> {
     let preservationFailure: string | undefined
+    let preservationError: unknown
+    let executionFailure: unknown
     const capabilities = await probeSandboxCapabilities(args.sandboxClient)
     const lineage = createSandboxLineage(args.sandboxClient, capabilities, {
       maxConcurrency: 1,
@@ -236,6 +242,24 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     // charged once. `settleTurn` resets it, so each turn accounts independently.
     const usageLedger = createSandboxUsageLedger(args.harness)
     let usageFailure: string | undefined
+    readOutput = () => ({
+      content: state.lastText,
+      output: sandboxOutputMarker(state.lastText),
+      ...(state.servedBackend === undefined ? {} : { servedBackend: state.servedBackend }),
+      turns: state.turns,
+      toolCalls: state.toolCalls,
+      ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
+      // The named reason behind a `false` `spent.tokensKnown`, on the settlement rather than the
+      // verdict: whether the work SUCCEEDED and whether its spend was MEASURED are different
+      // facts, and collapsing them would drop a correct worker from every valid-winner selection.
+      // The conserved pool already carries the measurement fact — `tokensKnown: false` taints the
+      // readout and names the node in `spendGaps`.
+      ...(usageFailure === undefined ? {} : { tokensUnknownReason: usageFailure }),
+      ...(args.workspaceCaptures === undefined
+        ? {}
+        : { workspaceCaptures: args.workspaceCaptures() }),
+      ...(preservationFailure === undefined ? {} : { preservationFailure }),
+    })
     function* creditCall(call: RuntimeStreamEvent & { type: 'llm_call' }): Generator<UsageEvent> {
       const callTokensKnown =
         call.tokensKnown !== false &&
@@ -388,17 +412,29 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         // settlement simply by keeping mail in flight.
         if (args.inbox.pendingAuthority() === 0) break
       }
+    } catch (error) {
+      executionFailure = error
+      throw error
     } finally {
       state.note = 'settled'
       if (args.failOnDestroyError) {
         try {
           await lineage.teardown()
+          state.teardown = undefined
         } catch (error) {
           preservationFailure = error instanceof Error ? error.message : String(error)
+          preservationError = error
+          if (executionFailure instanceof Error) {
+            Object.assign(executionFailure, { cause: executionFailure.cause ?? error })
+          }
         }
-      } else await lineage.teardown().catch(() => {})
-      state.teardown = undefined
+      } else {
+        await lineage.teardown().catch(() => {})
+        state.teardown = undefined
+      }
     }
+
+    if (preservationFailure !== undefined) throw preservationError
 
     // Mark the dollar channel unknown even when no event carried a numeric subtotal: a completed
     // sandbox turn is not proof that the provider billed exactly zero.
@@ -417,30 +453,10 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       ...(state.turns > 0 && usd > 0 ? { usdEstimated: usd } : {}),
       ms: now() - started,
     }
-    const out = {
-      content: state.lastText,
-      output: sandboxOutputMarker(state.lastText),
-      ...(state.servedBackend === undefined ? {} : { servedBackend: state.servedBackend }),
-      turns: state.turns,
-      toolCalls: state.toolCalls,
-      ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
-      // The named reason behind a `false` `spent.tokensKnown`, on the settlement rather than the
-      // verdict: whether the work SUCCEEDED and whether its spend was MEASURED are different
-      // facts, and collapsing them would drop a correct worker from every valid-winner selection.
-      // The conserved pool already carries the measurement fact — `tokensKnown: false` taints the
-      // readout and names the node in `spendGaps`.
-      ...(usageFailure === undefined ? {} : { tokensUnknownReason: usageFailure }),
-      ...(args.workspaceCaptures === undefined
-        ? {}
-        : { workspaceCaptures: args.workspaceCaptures() }),
-      ...(preservationFailure === undefined ? {} : { preservationFailure }),
-    }
-    const verdict =
-      preservationFailure !== undefined
-        ? { valid: false, score: 0, notes: preservationFailure }
-        : state.latestOutcome
-          ? projectSandboxOutcome(state.latestOutcome).verdict
-          : undefined
+    const out = readOutput()
+    const verdict = state.latestOutcome
+      ? projectSandboxOutcome(state.latestOutcome).verdict
+      : undefined
     state.artifact = {
       outRef: args.contentRef('sandbox-steerable', { harness: args.harness, out }),
       out,
@@ -451,6 +467,11 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
   return {
     stream,
+    output() {
+      if (readOutput === undefined)
+        throw new ValidationError('sandbox output read before execution')
+      return readOutput()
+    },
     async cancel(request: ExecutorCancellationRequest): Promise<ExecutorCancellation> {
       const live = state.session?.()
       const observedAt = () => new Date().toISOString()

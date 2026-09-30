@@ -110,6 +110,7 @@ import {
 } from './model-policy'
 import type { ExecutorProgress } from './progress'
 import { addResourceSpend } from './resources'
+import { retainedExecutorContext } from './retained-executor'
 import { createRouterTranscript } from './router-transcript'
 import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
 import { detachedSnapshot } from './snapshot'
@@ -134,6 +135,8 @@ import { WORKER_TRACE_PROPAGATION, workerTraceEnv } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
+
+const sandboxCaptureOutputSeamKey = 'runtime.sandboxCaptureOutput'
 
 /**
  * Router/inline transport seam. The profile owns model, prompt, and generation behavior.
@@ -1204,6 +1207,8 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       ...(Object.keys(traceEnv).length > 0 ? { traceEnv } : {}),
       contentRef,
     })
+    const bindCaptureOutput = ctx.seams[sandboxCaptureOutputSeamKey]
+    if (typeof bindCaptureOutput === 'function') bindCaptureOutput(() => session.output())
     return attestRuntimeOwnedExecutor(
       {
         runtime: 'sandbox' as Runtime,
@@ -2344,6 +2349,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           }
           const harness = requiredProviderProfileHarness(spec, providerSeam)
           const workspaceCaptures: ProviderWorkspaceCaptureReceipt[] = []
+          let capturedOutput: (() => unknown) | undefined
+          const publishEvidence = retainedExecutorContext(seamed)?.onEvidence
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
               ...(providerSeam.defaults ?? {}),
@@ -2360,8 +2367,14 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
                     profile: spec.profile,
                     ...(seamed.node === undefined ? {} : { node: seamed.node }),
                   },
-                  onWorkspaceCaptured: (receipt: ProviderWorkspaceCaptureReceipt) => {
-                    workspaceCaptures.push(receipt)
+                  onWorkspaceCaptured: async (receipt: ProviderWorkspaceCaptureReceipt) => {
+                    if (!workspaceCaptures.includes(receipt)) workspaceCaptures.push(receipt)
+                    if (publishEvidence !== undefined) {
+                      if (capturedOutput === undefined) {
+                        throw new ValidationError('provider capture has no bound session output')
+                      }
+                      await publishEvidence(capturedOutput())
+                    }
                   },
                 }),
           })
@@ -2373,6 +2386,9 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             ...seamed,
             seams: {
               ...seamed.seams,
+              [sandboxCaptureOutputSeamKey]: (read: () => unknown) => {
+                capturedOutput = read
+              },
               [sandboxSeamKey]: {
                 sandboxClient,
                 failOnDestroyError: providerSeam.workspaceRetention !== undefined,

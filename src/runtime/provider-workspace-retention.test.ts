@@ -699,44 +699,61 @@ describe('provider workspace retention', () => {
     })
     expect(destroyed()).toBe(0)
   })
-  it('retains the verified steerable archive and source when native coverage is incomplete', async () => {
-    const artifacts = artifactStore()
-    const profile = testProfile('steerable-strict-retention')
-    const { provider, destroyed } = providerFor(doneStream())
-    const receipts: ProviderWorkspaceCaptureReceipt[] = []
-    const box = await providerAsSandboxClient(provider, {
-      retentionIdentity: { executionId: 'node-strict', profile },
-      onWorkspaceCaptured: (receipt) => {
-        receipts.push(receipt)
-      },
-      workspaceRetention: {
-        timeoutMs: 5_000,
-        requireCompleteProvenance: true,
-        artifacts,
-        async capture(context) {
-          return {
-            snapshot: await snapshot(artifacts, context.executionId),
-            provenance: {
-              status: 'reported' as const,
-              environmentId: context.environment.id,
-              missing: ['Native rollout unavailable'],
-            },
-          }
+  it.each([false, true])(
+    'publishes one verified partial archive across teardown retries; first publication rejected=$rejectFirstPublication',
+    async (rejectFirstPublication) => {
+      const artifacts = artifactStore()
+      const profile = testProfile('steerable-strict-retention')
+      const { provider, destroyed } = providerFor(doneStream())
+      const receipts: ProviderWorkspaceCaptureReceipt[] = []
+      let captureCalls = 0
+      const box = await providerAsSandboxClient(provider, {
+        retentionIdentity: { executionId: 'node-strict', profile },
+        onWorkspaceCaptured: (receipt) => {
+          receipts.push(receipt)
+          if (rejectFirstPublication && receipts.length === 1)
+            throw new Error('publication unavailable')
         },
-      },
-    }).create({ backend: { type: 'opencode', profile } })
-    await expect(box.delete()).rejects.toThrow('Native rollout unavailable')
-    expect(destroyed()).toBe(0)
-    expect(receipts).toMatchObject([
-      {
-        executionId: 'node-strict',
-        environmentId: 'retention-environment',
-        coverageComplete: false,
-        incompleteReason: expect.stringContaining('Native rollout unavailable'),
-      },
-    ])
-    expect(receipts[0]?.snapshot.archive).toBeDefined()
-  })
+        workspaceRetention: {
+          timeoutMs: 5_000,
+          requireCompleteProvenance: true,
+          artifacts,
+          async capture(context) {
+            captureCalls++
+            return {
+              snapshot: await snapshot(artifacts, context.executionId),
+              provenance: {
+                status: 'reported' as const,
+                environmentId: context.environment.id,
+                missing: ['Native rollout unavailable'],
+              },
+            }
+          },
+        },
+      }).create({ backend: { type: 'opencode', profile } })
+      if (rejectFirstPublication) {
+        await expect(box.delete()).rejects.toThrow('publication unavailable')
+      }
+      await Promise.all(
+        Array.from({ length: 3 }, () =>
+          expect(box.delete()).rejects.toThrow('Native rollout unavailable'),
+        ),
+      )
+      expect(captureCalls).toBe(1)
+      expect(receipts).toHaveLength(rejectFirstPublication ? 2 : 1)
+      expect(receipts[0]).toBe(receipts.at(-1))
+      expect(destroyed()).toBe(0)
+      expect([receipts[0]]).toMatchObject([
+        {
+          executionId: 'node-strict',
+          environmentId: 'retention-environment',
+          coverageComplete: false,
+          incompleteReason: expect.stringContaining('Native rollout unavailable'),
+        },
+      ])
+      expect(receipts[0]?.snapshot.archive).toBeDefined()
+    },
+  )
   it('preserves a steerable source until its workspace is verified', async () => {
     const artifacts = artifactStore()
     const profile = testProfile('steerable-retention')

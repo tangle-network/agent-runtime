@@ -92,6 +92,12 @@ Its environment is handled as a successful turn's: it is not force-killed.
 The retry starts a new invocation, which reuses the retained owner environment.
 A resumed run replays a committed failed owner result as the same failure rather than as a delivered turn.
 Accepted failures keep that status through cancellation races and coordinator recovery.
+
+Thrown provider and steerable failures retain verified workspace captures as `execution-evidence` output references.
+Root and child scopes use the same durable writer.
+A bounded capture can finish after cancellation; its evidence remains appendable after the terminal record.
+Evidence publication does not accept a result, finalize spend, or authorize replacing a retained invocation.
+A failed capture keeps its live source and records missing evidence.
 Recoverable tool failures inside a completed turn do not fail the child.
 
 Terminal success and failure receipts preserve observed usage and explicit completeness flags.

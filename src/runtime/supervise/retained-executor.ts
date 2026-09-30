@@ -1,16 +1,20 @@
 import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
+import { contentAddress } from '../../durable/spawn-journal'
 import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
+import { detachedSnapshot } from './snapshot'
 import type {
   AgentSpec,
   ExecutorContext,
   ExecutorFactory,
   ExecutorResult,
   ProfileMaterializationReceipt,
+  ResultBlobStore,
   SpawnEvent,
+  SpawnJournal,
   WorkspaceCheckpointMarker,
 } from './types'
 
@@ -28,6 +32,8 @@ export interface RetainedExecutorContext {
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
+  /** Retain failure evidence without accepting a result or changing recovery state. */
+  readonly onEvidence?: (out: unknown) => Promise<void>
   /**
    * Start this node's next invocation in the environment and session its last one ran in, once
    * that one committed its result. The scope journals `task` as the node's next
@@ -43,6 +49,29 @@ export interface RetainedExecutorContext {
   /** Receives what a restored environment held of the checkpoint's marker, before any turn is
    *  judged by it. */
   readonly onWorkspaceRestored?: (receipt: RetainedWorkspaceRestoreReceipt) => Promise<void>
+}
+
+/** @internal A capture may finish after cancellation; its durable citation remains appendable. */
+export function executorEvidenceWriter(args: {
+  journal: SpawnJournal
+  blobs: ResultBlobStore
+  rootId: string
+  nodeId: string
+  nextSequence: () => number
+  now: () => number
+}): (out: unknown) => Promise<void> {
+  return async (out) => {
+    const snapshot = detachedSnapshot(out, 'executor evidence')
+    const outRef = contentAddress(snapshot)
+    await args.blobs.put(outRef, snapshot)
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'execution-evidence',
+      id: args.nodeId,
+      outRef,
+      seq: args.nextSequence(),
+      at: new Date(args.now()).toISOString(),
+    })
+  }
 }
 
 /** A checkpoint to create the next environment from, with the marker it must hold. */
