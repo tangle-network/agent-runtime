@@ -1478,6 +1478,14 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** Capture output retained independently of terminal outcome, spend, and recovery state. */
+      kind: 'execution-evidence'
+      id: NodeId
+      outRef: string
+      seq: number
+      at: string
+    }
+  | {
       /** Volatile transport/session binding for exactly one attempt. The full binding is retained
        * only by digest; descriptor fields are safe structural labels, never credential-bearing URLs. */
       kind: 'execution-bound'

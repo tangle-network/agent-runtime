@@ -15,10 +15,11 @@ import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
 import { executorFailureReason } from './executor-outcome'
-import type {
-  RetainedExecutorContext,
-  RetainedWorkspaceRestore,
-  RetainedWorkspaceRestoreReceipt,
+import {
+  executorEvidenceWriter,
+  type RetainedExecutorContext,
+  type RetainedWorkspaceRestore,
+  type RetainedWorkspaceRestoreReceipt,
 } from './retained-executor'
 import { detachedSnapshot } from './snapshot'
 import type {
@@ -169,6 +170,14 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         scope.signal.throwIfAborted()
         admissions.push(detachedSnapshot(admission, 'retained owner admission'))
       },
+      onEvidence: executorEvidenceWriter({
+        journal: args.journal,
+        blobs: args.blobs,
+        rootId: args.rootId,
+        nodeId: args.nodeId,
+        nextSequence: () => state.nextSequence(),
+        now: args.now,
+      }),
       onResult: async (result) => {
         scope.signal.throwIfAborted()
         assertValidSpend(result.spent, 'retained owner result')

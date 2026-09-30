@@ -76,7 +76,6 @@ import {
   captureProviderWorkspaceSnapshot,
   type ProviderWorkspaceCaptureProvenance,
   type ProviderWorkspaceCaptureReceipt,
-  type ProviderWorkspaceCaptureResult,
   type ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 import { environmentGone } from './retained-interactive-lifecycle'
@@ -293,7 +292,7 @@ export interface ProviderAsSandboxClientOptions {
   /** Supervised identity assigned before the environment is created. */
   retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
   /** Called after verification and before deletion so the run result can retain the exact join. */
-  onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void
+  onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,
   ) => Partial<CreateAgentEnvironmentInput>
@@ -1468,6 +1467,32 @@ interface StreamProviderExecutorArgs {
   onHarnessTranscript: (capture: HarnessTranscriptCapture) => void
 }
 
+function providerWorkspaceCaptureReceipt(
+  args: StreamProviderExecutorArgs,
+  environment: AgentEnvironment,
+  snapshot: AgentCandidateWorkspaceSnapshotEvidence,
+  fallbackSessionId: string | null,
+): ProviderWorkspaceCaptureReceipt {
+  const provenance = args.workspaceProvenance()
+  const coverage = args.workspaceCoverage()
+  return {
+    executionId: args.executionId,
+    ...(args.node === undefined ? {} : { node: args.node }),
+    environmentId: environment.id,
+    profileDigest: canonicalAgentProfileDigest(args.profile),
+    ...capturedSessionIdentity(provenance, coverage.complete, args.executionId, fallbackSessionId),
+    snapshot,
+    provenance: provenance ?? {
+      status: 'unavailable',
+      missing: ['Capture coverage metadata was not retained'],
+    },
+    coverageComplete: coverage.complete,
+    ...(coverage.incompleteReason === undefined
+      ? {}
+      : { incompleteReason: coverage.incompleteReason }),
+  }
+}
+
 /** How one invocation ended, for the executor that may continue it. */
 interface ProviderInvocationEnd {
   /** The upstream refused the turn for capacity, and the environment was kept to continue in. */
@@ -1674,34 +1699,18 @@ async function* streamProviderExecutor(
     })
     const retainedWorkspace = await args.captureWorkspace(environment, outcome)
     args.onPublishedSnapshot(retainedWorkspace)
-    const captureIdentity = capturedSessionIdentity(
-      args.workspaceProvenance(),
-      args.workspaceCoverage().complete,
-      args.executionId,
-      turn.sessionId ?? null,
-    )
     const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...result,
       ...(retainedWorkspace === undefined
         ? {}
         : {
             workspaceSnapshot: retainedWorkspace,
-            workspaceCapture: {
-              executionId: args.executionId,
-              ...(args.node === undefined ? {} : { node: args.node }),
-              environmentId: environment.id,
-              profileDigest: canonicalAgentProfileDigest(args.profile),
-              ...captureIdentity,
-              snapshot: retainedWorkspace,
-              provenance: args.workspaceProvenance() ?? {
-                status: 'unavailable',
-                missing: ['Capture coverage metadata was not retained'],
-              },
-              coverageComplete: args.workspaceCoverage().complete,
-              ...(args.workspaceCoverage().incompleteReason === undefined
-                ? {}
-                : { incompleteReason: args.workspaceCoverage().incompleteReason }),
-            },
+            workspaceCapture: providerWorkspaceCaptureReceipt(
+              args,
+              environment,
+              retainedWorkspace,
+              turn.sessionId ?? null,
+            ),
           }),
     }
     settled = {
@@ -1731,6 +1740,7 @@ async function* streamProviderExecutor(
       unavailable = { signal: refusal, cause: errorText(result.outcome?.error ?? '') }
     }
     if (source.retained) await args.retention?.onResult(settled)
+    else if (retainedWorkspace !== undefined) await args.retention?.onEvidence?.(settledResult)
     args.onPending(false)
     args.onArtifact(settled)
   } catch (error) {
@@ -1748,7 +1758,20 @@ async function* streamProviderExecutor(
         ...(linked.aborted ? { errorCode: 'cancelled' } : {}),
       } satisfies AgentRunOutcome)
     try {
-      await args.captureWorkspace(environment, failureOutcome)
+      const retainedWorkspace = await args.captureWorkspace(environment, failureOutcome)
+      if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {
+        await args.retention.onEvidence({
+          ...resultFromEvents(archive.events(), text),
+          outcome: failureOutcome,
+          workspaceSnapshot: retainedWorkspace,
+          workspaceCapture: providerWorkspaceCaptureReceipt(
+            args,
+            environment,
+            retainedWorkspace,
+            turn.sessionId ?? null,
+          ),
+        })
+      }
     } catch (captureError) {
       // The portable preservation error is the actionable failure, while the original stream
       // error remains available as its cause for callers that need both diagnostics.
@@ -2315,11 +2338,12 @@ function environmentAsSandboxInstance(
     requireTerminalEvent: boolean
     workspaceRetention?: ProviderWorkspaceRetentionPort
     retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
-    onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void
+    onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   },
 ): SandboxInstance {
   let providerSessionId: string | null = null
-  let capture: Promise<ProviderWorkspaceCaptureResult> | undefined
+  let capture: Promise<ProviderWorkspaceCaptureReceipt> | undefined
+  let publication: Promise<void> | undefined
   const box = {
     id: environment.id,
     name: environment.name,
@@ -2493,27 +2517,37 @@ function environmentAsSandboxInstance(
           providerSessionId,
           nativeSessionId: null,
           profile: identity.profile,
-        })
-        const { snapshot, provenance, coverageComplete, incompleteReason } = await capture
-        const captureIdentity = capturedSessionIdentity(
-          provenance,
-          coverageComplete === true,
-          identity.executionId,
-          providerSessionId,
-        )
-        options.onWorkspaceCaptured?.({
+        }).then(({ snapshot, provenance, coverageComplete, incompleteReason }) => ({
           executionId: identity.executionId,
           ...(identity.node === undefined ? {} : { node: identity.node }),
           environmentId: environment.id,
           profileDigest: canonicalAgentProfileDigest(identity.profile),
-          ...captureIdentity,
+          ...capturedSessionIdentity(
+            provenance,
+            coverageComplete === true,
+            identity.executionId,
+            providerSessionId,
+          ),
           snapshot,
           provenance,
           coverageComplete: coverageComplete ?? false,
           ...(incompleteReason === undefined ? {} : { incompleteReason }),
+        }))
+        const receipt = await capture
+        publication ??= Promise.resolve().then(async () => {
+          await options.onWorkspaceCaptured?.(receipt)
         })
-        if (options.workspaceRetention.requireCompleteProvenance && !coverageComplete) {
-          throw new Error(incompleteReason ?? 'provider workspace retention coverage incomplete')
+        const publishing = publication
+        try {
+          await publishing
+        } catch (error) {
+          if (publication === publishing) publication = undefined
+          throw error
+        }
+        if (options.workspaceRetention.requireCompleteProvenance && !receipt.coverageComplete) {
+          throw new Error(
+            receipt.incompleteReason ?? 'provider workspace retention coverage incomplete',
+          )
         }
       }
       await environment.destroy?.()
