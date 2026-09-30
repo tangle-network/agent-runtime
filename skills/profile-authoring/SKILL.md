@@ -123,7 +123,9 @@ Hard limits live in Runtime options and per-assignment budgets: `budget`, `worke
 Prompt text enforces no limit.
 `maxTokens` is settled after the work: an overspent child keeps its output and carries a `budgetViolation`.
 A child's total counts input tokens on every turn, so reserve turns times context.
-Give each paid job its own named key with a dollar cap, and state the dollars before launch.
+For paid calls, use the execution owner's named credential and enforceable dollar limit.
+For subscriptions, retain token, iteration, time, and compute bounds that the installed path can enforce.
+An unmeasured dollar cost stays unknown; an unsupported dollar cap is not protection.
 
 ## 8. Register arms, a control and outcomes
 
@@ -153,6 +155,16 @@ Group retries of the same assignment into one lineage when comparing teams.
 Grant `submit_result` only when Runtime gives that node an independent check; otherwise its settlement stays unassessed.
 Grant only the observation, steering and journal tools that the assignment needs.
 Set `harness`, `model.default` and `model.provider` explicitly, and validate against the current `agentProfileSchema`.
+
+For subscription execution, select a harness and model that the granted account can serve.
+The private executor resolves the authorized credential and materializes the harness's authentication files.
+Keep credential references in supported configuration; keep credential values outside profiles, tasks, resources, and journals.
+Runtime descendants use the same configured provider and credential resolver; author their profiles rather than copying login files.
+Check the child's materialization receipt and actual session before claiming that account or harness executed.
+Grant only the models and authentication routes the execution owner authorized.
+When the run requires cloud execution, place its controller, root, and descendants through the maintained managed-cloud deployment.
+When mounted, [execution and credentials](references/execution-and-credentials.md) explains binding, renewal, and recovery in more detail.
+
 A tool name must be one the harness publishes, and a refused name fails the same way on retry.
 `ls`, `list` and `find` are not tool names; select paths with a glob tool and search contents with a grep tool.
 Inspect materialized permissions and served tools before relying on a restriction.
