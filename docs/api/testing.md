@@ -2607,6 +2607,27 @@ Receives a result only after this manager's completion check accepted it.
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onAcceptedSubmission`](runtime.md#onacceptedsubmission)
 
+##### onUnassessedOutput?
+
+> `readonly` `optional` **onUnassessedOutput?**: (`result`) => `void`
+
+Reports that a nested unchecked manager returned its own harness evidence, not a checked
+finalizer result. Recursive settlement must preserve the absence of a quality verdict.
+
+###### Parameters
+
+###### result
+
+`unknown`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onUnassessedOutput`](runtime.md#onunassessedoutput)
+
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)

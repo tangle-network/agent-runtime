@@ -13,7 +13,7 @@
  *    relay or tunnel. The harness IS the brain.
  *
  * Both arms spawn children through the SAME `makeWorkerAgent` seam and apply the SAME independent
- * deliverable check to direct submissions. Raw driver prose is never eligible.
+ * deliverable check to direct submissions. Raw driver prose is never quality-accepted.
  */
 import { dirname } from 'node:path'
 import {
@@ -97,7 +97,14 @@ import {
   type StopRule,
 } from './stop-rules'
 import type { TraceSource } from './trace-source'
-import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
+import type {
+  Agent,
+  Budget,
+  ExecutorResult,
+  NodeExecutionIdentity,
+  ResultBlobStore,
+  Scope,
+} from './types'
 import { observeWorkerControls } from './worker-control-observer'
 
 /** Runtime-owned coordination is mounted under this MCP alias. */
@@ -464,6 +471,9 @@ export interface DriveHarness {
   traceSource?(): TraceSource | undefined
   /** Optional live progress from the harness execution currently being driven. */
   progress?(): ExecutorProgress | undefined
+  /** Terminal artifact from the newest successfully completed invocation. A child without a
+   * completion check retains its output as unassessed evidence for its parent. */
+  resultArtifact?(): ExecutorResult<unknown> | undefined
   /** Optional capture of the manager's own harness session from its newest attempt. */
   harnessTranscript?(): HarnessTranscriptCapture | undefined
 }
@@ -491,6 +501,9 @@ export interface SupervisorAgentDeps {
   readonly deliverable?: DeliverableSpec<unknown>
   /** Receives a result only after this manager's completion check accepted it. */
   readonly onAcceptedSubmission?: (result: unknown) => void
+  /** Reports that a nested unchecked manager returned its own harness evidence, not a checked
+   * finalizer result. Recursive settlement must preserve the absence of a quality verdict. */
+  readonly onUnassessedOutput?: (result: unknown) => void
   /** Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
    *  profile's model wins. */
   readonly router?: RouterTransportConfig
@@ -1375,9 +1388,22 @@ function buildSupervisorAgent(
           deps.onAcceptedSubmission?.(submitted.result)
           return submitted.result
         }
-        // The deliverable comes from the finalizer seam over DELIVERED children only — never the
-        // harness's own output (Foreman 0/18). Default keep-best.
-        return contractDeclared ? candidate : await finalize()
+        if (contractDeclared) return candidate
+        const finalized = await finalize()
+        if (finalized !== undefined) return finalized
+        // An unchecked child may do direct work. Retain its terminal report through the same
+        // settlement and blob reader, without treating native completion as quality acceptance.
+        const harnessResult = driveHarness.resultArtifact?.()
+        if (
+          nodeContextSeed !== undefined &&
+          nodeContextSeed.depth > 0 &&
+          harnessResult?.out !== undefined &&
+          harnessResult.out !== null
+        ) {
+          deps.onUnassessedOutput?.(harnessResult.out)
+          return harnessResult.out
+        }
+        return undefined
       } finally {
         coordinationLifetime.abort(new Error('supervisor manager stopped'))
         try {

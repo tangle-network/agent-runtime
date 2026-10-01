@@ -2629,6 +2629,7 @@ export function createCoordinationToolsForManager(
         settled: id,
         status,
         ...evidence,
+        ...(status === 'done' && evidence.valid === undefined ? { assessment: 'unassessed' } : {}),
         ...(evidence.outRef === undefined
           ? {}
           : {

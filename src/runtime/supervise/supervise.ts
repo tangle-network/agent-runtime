@@ -871,6 +871,7 @@ function driveHarnessFromBackend(
   let activeExecutor: Executor<unknown> | undefined
   // The manager's own harness session, as the newest attempt captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
+  let managerArtifact: ExecutorResult<unknown> | undefined
   const drive: DriveHarness = async ({
     profile,
     authoredProfile,
@@ -882,6 +883,7 @@ function driveHarnessFromBackend(
     coordinationTools,
     reentry,
   }) => {
+    managerArtifact = undefined
     const retainedOwner =
       boundBackend.backend === 'provider' ? scopeRetainedOwnerContext(scope) : undefined
     if (retainedOwner && boundBackend.backend === 'provider') {
@@ -922,6 +924,7 @@ function driveHarnessFromBackend(
         throw new HarnessTurnFailedError(ownerRuntime, replayedFailure)
       }
       // The coordination journal still goes through the normal driver finalizer.
+      managerArtifact = acceptedOwner
       return
     }
     const initialBudget = scope.budget
@@ -1197,6 +1200,7 @@ function driveHarnessFromBackend(
     // still COMPLETED: its accounting and materialization are captured and its environment is
     // released exactly as a successful turn's is. Only after that does it become a driver failure.
     let turnFailure: HarnessTurnFailedError | undefined
+    let terminalArtifact: ExecutorResult<unknown> | undefined
     let ownerMaterializationPublished = false
     const ownerDeclaration = (
       exactDeclaration: ExecutorMaterialization,
@@ -1333,6 +1337,7 @@ function driveHarnessFromBackend(
         // `resultArtifact()` is typed without the envelope outcome; scope's child settlement reads
         // the same artifact through the same widening.
         const artifact = executor.resultArtifact() as ExecutorResult<unknown>
+        terminalArtifact = artifact
         const terminalResources = withBudgetResources(
           { ...artifact.spent, ...resourceTelemetry(observedOwnerSpend, artifact.spent) },
           scope.budget,
@@ -1381,6 +1386,7 @@ function driveHarnessFromBackend(
           turnFailure = new HarnessTurnFailedError(executor.runtime, reported)
       } else {
         const artifact = await run
+        terminalArtifact = artifact
         await meterRuntimeOwnedProviderAttempt(
           scope,
           withBudgetResources({ ...artifact.spent, iterations: 0 }, scope.budget),
@@ -1525,7 +1531,9 @@ function driveHarnessFromBackend(
     }
     if (failed) throw failure
     if (turnFailure !== undefined) throw turnFailure
+    managerArtifact = terminalArtifact
   }
+  drive.resultArtifact = () => managerArtifact
   drive.deliver = (message): boolean => {
     const deliver = activeExecutor?.deliver
     if (!deliver) return false
@@ -3612,8 +3620,12 @@ function superviseInternal(
         const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
         const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
         let acceptedSubmission = false
+        let unassessedOutput = false
         const nested = supervisorAgent(authorized, {
           blobs,
+          onUnassessedOutput: () => {
+            unassessedOutput = true
+          },
           ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
           makeWorkerAgent: childFactory,
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
@@ -3716,6 +3728,7 @@ function superviseInternal(
           childExecution.ref,
           () => acceptedSubmission,
           recoveryFactories.get(childFactory),
+          () => unassessedOutput,
         )
       }
       if (
