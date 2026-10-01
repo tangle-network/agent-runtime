@@ -1,4 +1,6 @@
 import {
+  type AgentExactRunControlRef,
+  AgentExactRunControlRefSchema,
   type AgentWorkspaceBranching,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   workspaceCheckpointRequestDigest,
@@ -10,6 +12,7 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { environmentReader, type SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
+import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
@@ -837,7 +840,8 @@ export async function releaseScopeRetainedOwnerEnvironment(
 
 interface OwnerAttempt {
   readonly environmentIds: Set<string>
-  readonly executionByEnvironment: Map<string, string>
+  readonly executionId?: string
+  readonly controlByEnvironment: Map<string, AgentExactRunControlRef>
   result?: Extract<SpawnEvent, { kind: 'execution-result' }>
 }
 
@@ -857,14 +861,22 @@ async function ownerWorkspaceRetentionFailures(
     if (!('id' in event) || event.id !== nodeId) continue
     if (event.kind === 'execution-input') {
       flush()
-      current = { environmentIds: new Set<string>(), executionByEnvironment: new Map() }
+      current = {
+        executionId: `${nodeId}:input:${event.seq}`,
+        environmentIds: new Set<string>(),
+        controlByEnvironment: new Map(),
+      }
     } else if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
       if (current?.result !== undefined) flush()
-      current ??= { environmentIds: new Set<string>(), executionByEnvironment: new Map() }
+      current ??= { environmentIds: new Set<string>(), controlByEnvironment: new Map() }
       current.environmentIds.add(event.admission.environmentId)
-      current.executionByEnvironment.set(event.admission.environmentId, event.admission.executionId)
+    } else if (event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
+      current?.controlByEnvironment.set(
+        event.admission.controlRef.environmentId,
+        event.admission.controlRef,
+      )
     } else if (event.kind === 'execution-result') {
-      current ??= { environmentIds: new Set<string>(), executionByEnvironment: new Map() }
+      current ??= { environmentIds: new Set<string>(), controlByEnvironment: new Map() }
       current.result = event
     }
   }
@@ -896,8 +908,10 @@ async function ownerWorkspaceRetentionFailures(
         ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
         : undefined
     const environmentId = [...attempt.environmentIds][0]!
-    const executionId = attempt.executionByEnvironment.get(environmentId)
-    if (!hasDurableWorkspaceCapture(output, snapshot, environmentId, executionId)) {
+    const controlRef = attempt.controlByEnvironment.get(environmentId)
+    if (
+      !hasDurableWorkspaceCapture(output, snapshot, environmentId, attempt.executionId, controlRef)
+    ) {
       failures.add(environmentId)
     }
   }
@@ -910,6 +924,7 @@ function hasDurableWorkspaceCapture(
   snapshot: unknown,
   environmentId: string,
   executionId: string | undefined,
+  controlRef: AgentExactRunControlRef | undefined,
 ): boolean {
   const parsed = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(snapshot)
   if (
@@ -922,7 +937,12 @@ function hasDurableWorkspaceCapture(
   const capture = (output as { readonly workspaceCapture?: unknown }).workspaceCapture
   if (capture === null || typeof capture !== 'object') return false
   const receipt = capture as Record<string, unknown>
+  const capturedControl = AgentExactRunControlRefSchema.safeParse(receipt.controlRef)
   if (
+    executionId === undefined ||
+    controlRef === undefined ||
+    !capturedControl.success ||
+    !sameControlCoordinates(capturedControl.data, controlRef) ||
     receipt.environmentId !== environmentId ||
     receipt.executionId !== executionId ||
     receipt.coverageComplete !== true
