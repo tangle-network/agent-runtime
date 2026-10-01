@@ -1,3 +1,16 @@
+## 0.291.0
+
+Admit Sandbox 0.60 in the verified peer window while retaining the supported 0.58 and 0.59 minors.
+Use the published Interface 2.16.0 cohort required by Sandbox 0.60.
+
+Router tool executors support versioned inline Auto policies without weakening concrete model checks.
+Runtime checks every declared strategy and assessment against the allowed models before dispatch.
+Buffered HTTP response receipts preserve complete routing metadata and failed responses in native transcripts.
+An awaited provider response observer supports durable capture during execution.
+Aggregate Auto usage remains unknown because its response reports final-generation tokens only.
+
+Retain a recursive external child's terminal report as unassessed evidence when its assignment has no completion check and no checked finalizer result. Parents read the durable report through await_event and observe_agent; checked submit_result and delivery progress remain unchanged.
+
 ## 0.290.1
 
 Remove an obsolete release-verification expectation that allowed owner deletion without a native binding.
