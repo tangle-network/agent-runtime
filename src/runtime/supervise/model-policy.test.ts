@@ -37,6 +37,23 @@ describe('provider model lowering', () => {
   })
 })
 
+describe('credential-source execution boundaries', () => {
+  it.each(['router', 'bridge', 'sandbox'] as const)(
+    'refuses credential intent on the %s path instead of dropping it',
+    (path) => {
+      for (const credentialSource of ['managed', 'subscription']) {
+        expect(() =>
+          profileModelExecutionSettings(
+            { model: { ...model, metadata: { credentialSource } } },
+            'test',
+            path,
+          ),
+        ).toThrow(/unsupported AgentProfile.model.metadata fields: credentialSource/)
+      }
+    },
+  )
+})
+
 describe('separate completion ceilings', () => {
   it('reads the three ceilings from the exact profile and refuses the retired metadata path', () => {
     const settings = profileModelExecutionSettings(

@@ -55,6 +55,14 @@ Dependencies flow from the executor through transport to protocol validation.
 Shared seam validation lives in `executor-seams.ts`; result pointer construction lives in `executor-outcome.ts`.
 New backends still implement the existing `Executor` contract.
 
+### Environment-provider credential identity
+
+An environment-provider executor passes the exact profile's `model.metadata.credentialSource` to the provider unchanged.
+Runtime accepts only `managed` or `subscription`; the provider validates the selected credential reference before creating an environment.
+Credential values remain private executor inputs.
+Router, bridge, and legacy sandbox executors reject this field because they do not enforce this selection contract.
+Unknown model controls and unenforceable completion ceilings still fail before execution.
+
 ## 2. Driver vs worker — judgment vs labor
 
 ```

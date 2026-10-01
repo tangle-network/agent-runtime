@@ -149,7 +149,11 @@ export function bindProfileChat(args: {
     executor: captureReusableExecutorConfig(args.executor, args.context),
     context: args.context,
     model,
-    settings: profileModelExecutionSettings(profile, args.context),
+    settings: profileModelExecutionSettings(
+      profile,
+      args.context,
+      args.executor.backend === 'provider' ? 'provider' : 'router',
+    ),
   }
 }
 

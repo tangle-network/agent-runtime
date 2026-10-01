@@ -151,12 +151,14 @@ const PROFILE_MODEL_METADATA_KEYS = new Set([
 ])
 
 /**
- * Read every Router-affecting control from the exact profile and reject unknown controls.
+ * Read execution controls from the exact profile and reject unknown controls.
+ * Credential intent reaches environment providers unchanged; other paths cannot enforce it.
  * Backends receive endpoint/auth and executable ports only; they cannot silently alter behavior.
  */
 export function profileModelExecutionSettings(
   profile: Pick<AgentProfile, 'model'>,
   context: string,
+  path: ModelExecutionPath = 'router',
 ): ProfileModelExecutionSettings {
   const metadata = profile.model?.metadata ?? {}
   if (metadata.maxTokens !== undefined) {
@@ -164,10 +166,22 @@ export function profileModelExecutionSettings(
       `${context}: AgentProfile.model.metadata.maxTokens is ambiguous across providers; declare AgentProfile.model.maxVisibleOutputTokens, maxReasoningTokens, or maxTotalOutputTokens instead`,
     )
   }
-  const unknown = Object.keys(metadata).filter((key) => !PROFILE_MODEL_METADATA_KEYS.has(key))
+  const unknown = Object.keys(metadata).filter(
+    (key) =>
+      !PROFILE_MODEL_METADATA_KEYS.has(key) && !(path === 'provider' && key === 'credentialSource'),
+  )
   if (unknown.length > 0) {
     throw new ConfigError(
       `${context}: unsupported AgentProfile.model.metadata fields: ${unknown.join(', ')}`,
+    )
+  }
+  if (
+    metadata.credentialSource !== undefined &&
+    metadata.credentialSource !== 'managed' &&
+    metadata.credentialSource !== 'subscription'
+  ) {
+    throw new ConfigError(
+      `${context}: AgentProfile.model.metadata.credentialSource must be managed or subscription`,
     )
   }
   const temperature = finiteNumber(metadata.temperature, `${context}: temperature`)

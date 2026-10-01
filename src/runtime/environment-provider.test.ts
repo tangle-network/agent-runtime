@@ -36,6 +36,7 @@ import {
   sandboxClientAsProvider,
 } from './environment-provider'
 import { harnessTranscriptArtifact } from './harness-transcript'
+import { bindProfileChat } from './profile-chat-client'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 import { retainedCreateMaterial } from './retained-run-intent'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
@@ -53,6 +54,118 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it.each(['managed', 'subscription'] as const)(
+    'preserves explicit %s credentials through the actual provider executor',
+    async (credentialSource) => {
+      let createdProfile: AgentProfile | undefined
+      const provider: AgentEnvironmentProvider = {
+        name: 'tangle-sandbox',
+        capabilities: fakeCapabilities,
+        async create(input) {
+          if (typeof input.profile === 'string') throw new Error('expected inline profile')
+          createdProfile = input.profile
+          return fakeEnvironment({
+            async *stream() {
+              yield { type: 'done', data: { finalText: 'subscription result' } }
+            },
+          })
+        },
+      }
+      const profile: AgentProfile = {
+        name: 'subscription-worker',
+        harness: 'claude-code',
+        model: {
+          provider: 'anthropic',
+          default: 'claude-opus-5-5',
+          reasoningEffort: 'high',
+          metadata: { credentialSource },
+        },
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile, harness: null },
+        { signal, seams: {} },
+      )
+      await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
+      expect(createdProfile).toEqual(profile)
+      expect(canonicalAgentProfileDigest(createdProfile!)).toBe(
+        canonicalAgentProfileDigest(profile),
+      )
+      expect(executor.resultArtifact().out).toMatchObject({ content: 'subscription result' })
+      expect(
+        bindProfileChat({
+          profile,
+          executor: { backend: 'provider', provider },
+          context: 'subscription chat',
+        }).profile,
+      ).toEqual(profile)
+    },
+  )
+
+  it.each([
+    { credentialSource: 'api-key' },
+    { credentialSource: null },
+    { credentialSource: 1 },
+    { credentialSource: { subscription: true } },
+    { credentialSource: 'subscription', unknownControl: true },
+  ])(
+    'refuses invalid credential intent or unknown controls before provider creation: %j',
+    (metadata) => {
+      let creates = 0
+      const provider: AgentEnvironmentProvider = {
+        name: 'tangle-sandbox',
+        capabilities: fakeCapabilities,
+        async create() {
+          creates += 1
+          throw new Error('creation must remain unreachable')
+        },
+      }
+      expect(() =>
+        providerAsExecutor(provider)(
+          {
+            profile: {
+              name: 'invalid-worker',
+              model: { provider: 'anthropic', default: 'claude-opus-5-5', metadata },
+            },
+            harness: null,
+          },
+          { signal: new AbortController().signal, seams: {} },
+        ),
+      ).toThrow(/credentialSource|unknownControl/)
+      expect(creates).toBe(0)
+    },
+  )
+
+  it('still refuses unenforceable completion ceilings before creating a subscription environment', () => {
+    let creates = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'tangle-sandbox',
+      capabilities: fakeCapabilities,
+      async create() {
+        creates += 1
+        throw new Error('creation must remain unreachable')
+      },
+    }
+    expect(() =>
+      providerAsExecutor(provider)(
+        {
+          profile: {
+            name: 'bounded-subscription',
+            model: {
+              provider: 'anthropic',
+              default: 'claude-opus-5-5',
+              metadata: { credentialSource: 'subscription' },
+              maxTotalOutputTokens: 100,
+            },
+          },
+          harness: null,
+        },
+        { signal: new AbortController().signal, seams: {} },
+      ),
+    ).toThrow(/maxTotalOutputTokens cannot be enforced on the provider path/)
+    expect(creates).toBe(0)
+  })
+
   it.each([false, true])(
     'reconciles interim unpriced work with a complete terminal bill (estimate=%s)',
     async (estimate) => {
