@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+
+Require Interface 2.16 and Sandbox 0.60 through the shared catalog.
+Consume Runtime 0.291 through the workspace dependency.
+Benchmark execution and grading remain unchanged.
+
 ## 0.14.0
 
 Require Eval 0.201 through 0.203, Interface 2.15, Knowledge 18, and Sandbox 0.58.4 through the shared catalog.

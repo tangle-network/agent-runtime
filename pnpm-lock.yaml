@@ -31,7 +31,7 @@ catalogs:
       specifier: ^2.0.0
       version: 2.0.0
     '@tangle-network/sandbox':
-      specifier: 0.60.0
+      specifier: ^0.60.0
       version: 0.60.0
     '@types/node':
       specifier: 26.4.0
