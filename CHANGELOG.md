@@ -1,7 +1,9 @@
-## 0.288.1
+## 0.289.0
 
 Retain exact admitted provider control references with workspace capture.
 Keep Runtime artifact identity separate from native session and execution identity, including pre-harness failures and reconstructed environments.
+Capture adapters must forward the optional controlRef when it is present.
+Keep logical artifact execution IDs separate from the admitted native execution ID.
 
 ## 0.288.0
 
