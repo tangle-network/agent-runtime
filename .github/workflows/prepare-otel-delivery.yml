@@ -1,0 +1,120 @@
+name: Prepare exact OTEL repair
+on:
+  push:
+    branches: ['fix/otel-idle-flush-acknowledgement']
+    paths: ['.github/workflows/prepare-otel-delivery.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    if: github.repository == 'tangle-network/agent-runtime'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify preimages and retain exact source blobs without moving a branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, urllib.request
+          def blob(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          production = pathlib.Path('src/otel-export.ts')
+          tests = pathlib.Path('tests/otel-export.test.ts')
+          assert blob(production.read_bytes()) == 'd9f0078b35709b6caa0d8d62028b04ff3441f5d1', 'Production source changed'
+          assert blob(tests.read_bytes()) == '4db2bb895f6856509d381a9ea4ecc66d200ce987', 'Collector test source changed'
+          source = production.read_text()
+          old = "const text = await response.text().catch(() => '')"
+          assert source.count(old) == 1
+          source = source.replace(old, 'const text = await response.text()')
+          old = '  function drain(): Promise<void> {\n'
+          assert source.count(old) == 1
+          source = source.replace(old, old + '    if (sending === undefined && queue.length === 0) return Promise.resolve()\n')
+          production.write_text(source)
+          assert blob(production.read_bytes()) == '0e922392f1f88a0c312471095c43fbfb5d3f3f19', 'Candidate differs from verified source'
+          addition = '''  it('delivers later batches after empty and concurrent idle flushes', async () => {
+              const collector = await startCollector((res) => res.writeHead(200).end('{}'))
+              collectors.push(collector)
+              const exporter = createOtelExporter({ endpoint: collector.endpoint, batchSize: 10 })!
+              try {
+                for (const id of ['1', '2', '3']) {
+                  await Promise.all([exporter.flush(), exporter.flush()])
+                  exporter.exportSpan(testSpan(id))
+                  await exporter.flush()
+                }
+                expect(collector.batches).toEqual([1, 1, 1])
+                expect(exporter.stats()).toEqual({ written: 3, dropped: 0, pending: 0 })
+              } finally {
+                await exporter.shutdown()
+              }
+            })
+
+            it('joins an in-flight delivery even when the waiting queue is empty', async () => {
+              const stalled: ServerResponse[] = []
+              const collector = await startCollector((res) => stalled.push(res))
+              collectors.push(collector)
+              const exporter = createOtelExporter({ endpoint: collector.endpoint, batchSize: 1 })!
+              let finished = false
+              try {
+                exporter.exportSpan(testSpan('1'))
+                await waitFor(() => stalled.length === 1)
+                const flushed = exporter.flush().then(() => {
+                  finished = true
+                })
+                await new Promise<void>((resolve) => setImmediate(resolve))
+                expect(finished).toBe(false)
+                stalled.shift()!.writeHead(200).end('{}')
+                await flushed
+                expect(exporter.stats()).toEqual({ written: 1, dropped: 0, pending: 0 })
+              } finally {
+                for (const res of stalled) res.writeHead(200).end('{}')
+                await exporter.shutdown()
+              }
+            })
+
+            it('does not confirm delivery when a successful response body is interrupted', async () => {
+              const collector = await startCollector((res) => {
+                res.writeHead(200, { 'content-type': 'application/json', 'content-length': '4096' })
+                res.flushHeaders()
+                res.write('{"partialSuccess":')
+                setTimeout(() => res.destroy(), 100)
+              })
+              collectors.push(collector)
+              const exporter = createOtelExporter({ endpoint: collector.endpoint })!
+              try {
+                exporter.exportSpan(testSpan('1'))
+                await expect(exporter.flush()).rejects.toThrow(/dropped 1 spans/)
+                expect(exporter.stats()).toMatchObject({ written: 0, dropped: 1, pending: 0 })
+                expect(collector.batches).toEqual([1])
+              } finally {
+                await exporter.shutdown()
+              }
+            })
+
+          '''
+          # The first line is already at two spaces; remove the heredoc's four-space
+          # Python indentation from every subsequent source line.
+          lines = addition.splitlines(keepends=True)
+          addition = lines[0] + ''.join(line[4:] if line.startswith('    ') else line for line in lines[1:])
+          source = tests.read_text()
+          marker = "  it('counts every span the collector confirms as written', async () => {"
+          assert source.count(marker) == 1
+          tests.write_text(source.replace(marker, addition + marker))
+          for path in [production, tests]:
+              data = path.read_bytes()
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/tangle-network/agent-runtime/git/blobs',
+                  data=json.dumps({'content': base64.b64encode(data).decode(), 'encoding': 'base64'}).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'},
+                  method='POST')
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  result = json.load(response)
+              assert result['sha'] == blob(data), 'Blob retention mismatch'
+              print(json.dumps({'path': str(path), 'blob': result['sha'], 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}))
+          PY
