@@ -528,6 +528,65 @@ describe('createOtelExporter delivery accounting against a real collector', () =
     await Promise.all(collectors.splice(0).map((collector) => collector.close()))
   })
 
+  it('delivers later batches after empty and concurrent idle flushes', async () => {
+    const collector = await startCollector((res) => res.writeHead(200).end('{}'))
+    collectors.push(collector)
+    const exporter = createOtelExporter({ endpoint: collector.endpoint, batchSize: 10 })!
+    try {
+      for (const id of ['1', '2', '3']) {
+        await Promise.all([exporter.flush(), exporter.flush()])
+        exporter.exportSpan(testSpan(id))
+        await exporter.flush()
+      }
+      expect(collector.batches).toEqual([1, 1, 1])
+      expect(exporter.stats()).toEqual({ written: 3, dropped: 0, pending: 0 })
+    } finally {
+      await exporter.shutdown()
+    }
+  })
+
+  it('joins an in-flight delivery even when the waiting queue is empty', async () => {
+    const stalled: ServerResponse[] = []
+    const collector = await startCollector((res) => stalled.push(res))
+    collectors.push(collector)
+    const exporter = createOtelExporter({ endpoint: collector.endpoint, batchSize: 1 })!
+    let finished = false
+    try {
+      exporter.exportSpan(testSpan('1'))
+      await waitFor(() => stalled.length === 1)
+      const flushed = exporter.flush().then(() => {
+        finished = true
+      })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(finished).toBe(false)
+      stalled.shift()!.writeHead(200).end('{}')
+      await flushed
+      expect(exporter.stats()).toEqual({ written: 1, dropped: 0, pending: 0 })
+    } finally {
+      for (const res of stalled) res.writeHead(200).end('{}')
+      await exporter.shutdown()
+    }
+  })
+
+  it('does not confirm delivery when a successful response body is interrupted', async () => {
+    const collector = await startCollector((res) => {
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': '4096' })
+      res.flushHeaders()
+      res.write('{"partialSuccess":')
+      setTimeout(() => res.destroy(), 100)
+    })
+    collectors.push(collector)
+    const exporter = createOtelExporter({ endpoint: collector.endpoint })!
+    try {
+      exporter.exportSpan(testSpan('1'))
+      await expect(exporter.flush()).rejects.toThrow(/dropped 1 spans/)
+      expect(exporter.stats()).toMatchObject({ written: 0, dropped: 1, pending: 0 })
+      expect(collector.batches).toEqual([1])
+    } finally {
+      await exporter.shutdown()
+    }
+  })
+
   it('counts every span the collector confirms as written', async () => {
     const collector = await startCollector((res) => res.writeHead(200).end('{}'))
     collectors.push(collector)
