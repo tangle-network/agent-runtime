@@ -215,7 +215,6 @@ export {
   type CreateTangleSandboxExactProcessProviderOptions,
   createAgentEnvironmentProviderRegistry,
   createTangleSandboxExactProcessProvider,
-  DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
   type ExecRequest,
   type ExecResult,
   type ForkRequest,
@@ -236,8 +235,6 @@ export {
   providerAsSandboxClient,
   type ResourceRequest,
   resolveAgentEnvironmentProvider,
-  type SandboxClientProviderOptions,
-  sandboxClientAsProvider,
   type WorkspaceRequest,
 } from './environment-provider'
 // Two substrates for the same "recursive agent decision" atom, both exported here (per

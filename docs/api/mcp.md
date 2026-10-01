@@ -640,7 +640,7 @@ Test-only — number of in-flight (non-terminal) records.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-6)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-5)
 
 **`Experimental`**
 
@@ -666,7 +666,7 @@ shape against the structural `FleetHandle` contract.
 
 ###### client
 
-[`SandboxClient`](runtime.md#sandboxclient-6)
+[`SandboxClient`](runtime.md#sandboxclient-5)
 
 ###### fleetId
 
@@ -849,7 +849,7 @@ one or the other, not both.
 
 ##### sandboxClient?
 
-> `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-6)
+> `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-5)
 
 **`Experimental`**
 
@@ -1407,7 +1407,7 @@ The SDK's cached AgentExecutionResult-shape record for the turn.
 
 ##### client
 
-> **client**: [`SandboxClient`](runtime.md#sandboxclient-6)
+> **client**: [`SandboxClient`](runtime.md#sandboxclient-5)
 
 **`Experimental`**
 
@@ -1626,7 +1626,7 @@ profile's gate — the queue settles the record as failed with that error.
 
 ##### client
 
-> `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-6)
+> `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-5)
 
 **`Experimental`**
 
@@ -1668,7 +1668,7 @@ Best-effort one-liner used in stderr boot logs and diagnostics.
 
 ##### client
 
-> **client**: [`SandboxClient`](runtime.md#sandboxclient-6)
+> **client**: [`SandboxClient`](runtime.md#sandboxclient-5)
 
 **`Experimental`**
 
@@ -2012,7 +2012,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-19)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-18)
 
 ##### sandboxId?
 

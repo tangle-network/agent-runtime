@@ -4301,7 +4301,7 @@ Exact base profile the axes expand over (prompt/tools/skills held fixed).
 
 ##### backends?
 
-> `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-6)) \| `undefined`\>
+> `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-5)) \| `undefined`\>
 
 Execution-backend registry: `--backend <name>` picks the factory that
 yields the `SandboxClient` every cell runs on. Merged over the defaults:
@@ -4740,97 +4740,6 @@ Called after verification and before deletion so the run result can retain the e
 ###### Returns
 
 `Partial`\<`CreateAgentEnvironmentInput`\>
-
-***
-
-### SandboxClientProviderOptions
-
-**`Experimental`**
-
-Options for wrapping the current Tangle sandbox client as an environment provider.
-
-#### Properties
-
-##### name?
-
-> `optional` **name?**: `string`
-
-**`Experimental`**
-
-##### defaultBackend?
-
-> `optional` **defaultBackend?**: `BackendType`
-
-**`Experimental`**
-
-##### capabilities?
-
-> `optional` **capabilities?**: `AgentEnvironmentCapabilities` \| (() => `AgentEnvironmentCapabilities` \| `Promise`\<`AgentEnvironmentCapabilities`\>)
-
-**`Experimental`**
-
-##### validateProfile?
-
-> `optional` **validateProfile?**: (`profile`) => `AgentProfileValidationResult` \| `Promise`\<`AgentProfileValidationResult`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### profile
-
-`AgentProfileRef`
-
-###### Returns
-
-`AgentProfileValidationResult` \| `Promise`\<`AgentProfileValidationResult`\>
-
-##### resolveProfile?
-
-> `optional` **resolveProfile?**: (`profileId`) => `AgentProfile` \| `Promise`\<`AgentProfile`\>
-
-**`Experimental`**
-
-Resolve a named profile before calling Sandbox, which accepts inline profiles only.
-
-###### Parameters
-
-###### profileId
-
-`string`
-
-###### Returns
-
-`AgentProfile` \| `Promise`\<`AgentProfile`\>
-
-##### mapCreateInput?
-
-> `optional` **mapCreateInput?**: (`input`) => `CreateSandboxOptions`
-
-**`Experimental`**
-
-Map portable creation into a supported SDK or deployment contract. Runtime attachments
-require this explicit mapper until the maintained Sandbox SDK transports them.
-
-###### Parameters
-
-###### input
-
-`CreateAgentEnvironmentInput`
-
-###### Returns
-
-`CreateSandboxOptions`
-
-##### idleTimeoutSeconds?
-
-> `optional` **idleTimeoutSeconds?**: `number`
-
-**`Experimental`**
-
-`idleTimeoutSeconds` sent on every Sandbox create this adapter makes (a mapped create, a
-`mapCreateInput` result, or a fork), unless those create options already name one. Defaults to
-[DEFAULT\_SANDBOX\_IDLE\_TIMEOUT\_SECONDS](#default_sandbox_idle_timeout_seconds); a positive whole number of seconds.
 
 ***
 
@@ -5631,7 +5540,7 @@ different per-create profile and provides no host isolation.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
 
 Sandbox client used for every cell's `runAgentRounds`. Supplied once.
 
@@ -5853,7 +5762,7 @@ Options for adapting plain agent-eval campaign scenarios into Runtime cells.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
 
 Sandbox client used for every campaign cell's `runAgentRounds`.
 
@@ -8515,7 +8424,7 @@ The execution transport for the driven loop.
 
 ##### sandboxClient?
 
-> `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-6)
+> `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-5)
 
 `sandbox` backend: the caller's real Sandbox-backed client. Required for that backend.
 
@@ -11388,7 +11297,7 @@ Options for [sharedBoxPlacement](#sharedboxplacement-1).
 
 ##### client
 
-> **client**: [`SandboxClient`](#sandboxclient-6)
+> **client**: [`SandboxClient`](#sandboxclient-5)
 
 The Sandbox client that creates and deletes the shared boxes.
 
@@ -19523,45 +19432,15 @@ readonly [`RegisteredPrompt`](#registeredprompt)[]
 
 ### ProvisionSupervisorConnection
 
-Caller-supplied provider or Sandbox SDK connection for one supervisor run.
+Caller-supplied environment provider for one supervisor run.
 
 #### Properties
 
-##### provider?
+##### provider
 
-> `readonly` `optional` **provider?**: `AgentEnvironmentProvider`
+> `readonly` **provider**: `AgentEnvironmentProvider`
 
-A fully constructed provider. This is the preferred programmatic seam and is testable.
-
-##### client?
-
-> `readonly` `optional` **client?**: [`SandboxClient`](#sandboxclient-6)
-
-A Sandbox SDK-compatible client. Runtime adapts it to the public provider contract.
-
-##### sandboxClient?
-
-> `readonly` `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-6)
-
-Alias for `client`, accepted so callers can pass their existing connection object.
-
-##### endpoint?
-
-> `readonly` `optional` **endpoint?**: `string`
-
-Sandbox API endpoint used only when Runtime constructs the SDK client.
-
-##### apiKey?
-
-> `readonly` `optional` **apiKey?**: `string`
-
-Transient Sandbox API key used only when Runtime constructs the SDK client.
-
-##### kind?
-
-> `readonly` `optional` **kind?**: `string`
-
-Connection kind is descriptive only and does not select a hidden implementation.
+A constructed provider that owns exact-profile admission and environment reconnection.
 
 ***
 
@@ -19615,7 +19494,7 @@ Poll cadence for lifecycle/control readiness.
 
 > `readonly` **connection**: [`ProvisionSupervisorConnection`](#provisionsupervisorconnection)
 
-Explicit provider, client, or endpoint and API key for one provider connection.
+Constructed provider for one execution connection.
 
 ***
 
@@ -20350,7 +20229,7 @@ checkpoint/fork.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
 
 ##### failOnDestroyError?
 
@@ -21153,7 +21032,7 @@ Same output projection used at capture and terminal publication.
 
 ##### sandboxClient
 
-> `readonly` **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
+> `readonly` **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
 
 ##### failOnDestroyError?
 
@@ -29509,7 +29388,7 @@ Execution context for `runAgentRounds`: the sandbox client the kernel creates bo
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
 
 Sandbox SDK client — the kernel calls `.create()` per iteration.
 
@@ -34953,28 +34832,6 @@ Default system instruction for intent-auditor agents: diagnose diverged/drifting
 
 ***
 
-### DEFAULT\_SANDBOX\_IDLE\_TIMEOUT\_SECONDS
-
-> `const` **DEFAULT\_SANDBOX\_IDLE\_TIMEOUT\_SECONDS**: `1800` = `1_800`
-
-The idle timeout this adapter sends when nothing else names one: 1,800 seconds.
-
-Sandbox substitutes no value of its own: an omitted field falls back to the platform's global
-idle timeout, documented as 30 minutes unless an operator changed it, and Runtime sent none. Idle
-means inactivity to Sandbox, which suspends the sandbox (the container stops; the workspace is
-kept) rather than deleting it. The SDK does not define inactivity further. A request in flight
-counts as activity: a Discovery Lab seat created with `idleTimeoutSeconds: 1800` ran one request
-to 2,252 seconds, ended by a per-request cap, not by idling (fleet-launch-2026-08-22).
-
-The value restates the documented default, so it can tighten a longer operator setting but never
-loosen the default. It is 3.8 times the longest gap between frames recorded across a healthy
-fleet run (469 seconds, same report), and a supervised provider child is observed through an open
-stream for its whole turn. It is a backstop for a process that dies holding an environment; the
-settlement barrier releases retained environments itself (`Executor.releaseRetained`). It does
-nothing on a driver with a create/delete-only lifecycle, which the SDK says skips suspension.
-
-***
-
 ### mcpSecretEnvMetadataKey
 
 > `const` **mcpSecretEnvMetadataKey**: `"secretEnv"` = `'secretEnv'`
@@ -36242,7 +36099,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 ### providerAsSandboxClient()
 
-> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](#sandboxclient-6)
+> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](#sandboxclient-5)
 
 **`Experimental`**
 
@@ -36260,33 +36117,7 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-6)
-
-***
-
-### sandboxClientAsProvider()
-
-> **sandboxClientAsProvider**(`client`, `options?`): `AgentEnvironmentProvider`
-
-**`Experimental`**
-
-Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
-The provider declares the public SDK contract before it creates an environment.
-Each environment exposes interactive methods only when its deployment declares every required capability.
-
-#### Parameters
-
-##### client
-
-[`SandboxClient`](#sandboxclient-6)
-
-##### options?
-
-[`SandboxClientProviderOptions`](#sandboxclientprovideroptions) = `{}`
-
-#### Returns
-
-`AgentEnvironmentProvider`
+[`SandboxClient`](#sandboxclient-5)
 
 ***
 
@@ -36454,7 +36285,7 @@ Batch the selected observation implementation over completed runs and retain its
 
 ### inProcessSandboxClient()
 
-> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-6)
+> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-5)
 
 **`Experimental`**
 
@@ -36475,13 +36306,13 @@ Other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ***
 
 ### inlineSandboxClient()
 
-> **inlineSandboxClient**(`factory`, `defaults?`): [`SandboxClient`](#sandboxclient-6)
+> **inlineSandboxClient**(`factory`, `defaults?`): [`SandboxClient`](#sandboxclient-5)
 
 Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
 instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
@@ -36504,7 +36335,7 @@ other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ***
 
@@ -36646,7 +36477,7 @@ Rules, all fail-closed:
 
 ### localSandboxClient()
 
-> **localSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-6)
+> **localSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-5)
 
 A same-host `SandboxClient` adapter with no process isolation. Local MCP is
 refused unless the caller explicitly supplies a policy that allows it.
@@ -36662,7 +36493,7 @@ other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ***
 
@@ -37601,7 +37432,7 @@ AgentProfile, execution route, retries, usage, and finite execution evidence.
 
 ### resolveSandboxClient()
 
-> **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-6)
+> **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-5)
 
 Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core
 that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
@@ -37615,7 +37446,7 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ***
 
@@ -37990,7 +37821,7 @@ Cold-start-resilient sandbox acquisition: create by name, observe readiness from
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ##### options
 
@@ -38021,7 +37852,7 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 #### Returns
 
@@ -38382,7 +38213,7 @@ and the lineage stays a pure function of "what this platform can do".
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ##### capabilities
 
@@ -38448,7 +38279,7 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-6)
+[`SandboxClient`](#sandboxclient-5)
 
 ##### options
 
