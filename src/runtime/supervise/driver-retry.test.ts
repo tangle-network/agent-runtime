@@ -14,6 +14,7 @@ import {
   summarizeDriverAttempts,
   upstreamUnavailableSignal,
 } from './driver-retry'
+import { executorFailure } from './executor-outcome'
 import { RetainedExecutionPendingError } from './retained-executor'
 
 /** A pool readout with room in every channel — the case where only the driver's own failures
@@ -147,6 +148,43 @@ describe('classifyDriverFailure', () => {
     const cancelled = new AbortController()
     cancelled.abort()
     expect(classifyDriverFailure(timeout, cancelled.signal)).toBe('terminal')
+  })
+
+  it.each([
+    [400, 'terminal'],
+    [401, 'terminal'],
+    [408, 'transient'],
+    [429, 'unavailable'],
+    [500, 'transient'],
+    [502, 'transient'],
+    [503, 'unavailable'],
+    [529, 'unavailable'],
+  ] as const)('classifies native HTTP %s by numeric metadata', (statusCode, expected) => {
+    const failure = executorFailure({
+      outcome: {
+        success: false,
+        error: 'native API request failed',
+        errorCode: 'native_api_error',
+        statusCode,
+      },
+    })
+    expect(failure).toBeDefined()
+    const error = new HarnessTurnFailedError('tangle-sandbox', failure!)
+    expect(error.status).toBe(statusCode)
+    expect(classifyDriverFailure(error)).toBe(expected)
+    expect(upstreamUnavailableSignal(error)).toBe(
+      expected === 'unavailable' ? `http-${statusCode}` : undefined,
+    )
+  })
+
+  it('does not infer capacity from prose when a native request reports HTTP 400', () => {
+    const error = new HarnessTurnFailedError('tangle-sandbox', {
+      error: 'status code 429 provider_rate_limit',
+      errorCode: 'native_api_error',
+      statusCode: 400,
+    })
+    expect(upstreamUnavailableSignal(error)).toBeUndefined()
+    expect(classifyDriverFailure(error)).toBe('terminal')
   })
 
   it('keeps the historical default when a status is absent or is not an HTTP status', () => {
@@ -347,6 +385,35 @@ describe('runDriverWithRetry', () => {
     ).rejects.toBeInstanceOf(DriverAttemptsExhaustedError)
     // One attempt: Runtime's own refusal is a decision, and re-running it just re-decides.
     expect(script.attempts).toEqual([1])
+  })
+
+  it('stops a rejected native request after one driver attempt and retains HTTP evidence', async () => {
+    const failure = executorFailure({
+      outcome: {
+        success: false,
+        error: 'native request rejected',
+        errorCode: 'native_api_error',
+        statusCode: 400,
+      },
+    })
+    const script = scriptedDrive([new HarnessTurnFailedError('tangle-sandbox', failure!)])
+    const records: DriverAttemptRecord[] = []
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+      onAttempt: (record) => void records.push(record),
+    }).catch((error: unknown) => error)
+    expect(script.attempts).toEqual([1])
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(error instanceof DriverAttemptsExhaustedError)) return
+    expect(error.stop).toBe('terminal-error')
+    expect(records).toHaveLength(1)
+    expect(records[0]?.error).toContain('HTTP 400')
+    expect(records[0]?.error).toContain('native_api_error')
+    expect(records[0]?.retryInMs).toBeUndefined()
   })
 
   it('gives up in three attempts when the driver is dead on arrival', async () => {

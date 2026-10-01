@@ -372,6 +372,8 @@ The judge is a `VersionJudge`: for a record with a declared check, `declaredChec
 ### A re-entered director is told the run from the coordinator
 
 A continuation or a failure retry enters the external director again.
+A native HTTP failure status remains in the executor outcome and persisted driver error.
+HTTP 400 ends the turn without retry; 408 and 5xx retain retries, while 429/503/529 retain capacity pauses.
 What the director keeps depends on where the next drive runs, and the drive harness states it before the turn starts:
 
 | Backend | Next drive | What the director receives |

@@ -1573,6 +1573,9 @@ async function* streamProviderExecutor(
               ...(result.outcome.error ? { error: result.outcome.error } : {}),
               // The code, not the text, is what a retry policy may branch on.
               ...(result.outcome.errorCode ? { errorCode: result.outcome.errorCode } : {}),
+              ...(failureStatusCode(result.outcome) === undefined
+                ? {}
+                : { statusCode: failureStatusCode(result.outcome) }),
             },
           }
         : {}),
@@ -1586,6 +1589,9 @@ async function* streamProviderExecutor(
         ? unavailableSignalOfFailure({
             error: result.outcome.error ?? '',
             ...(result.outcome.errorCode ? { errorCode: result.outcome.errorCode } : {}),
+            ...(failureStatusCode(result.outcome) === undefined
+              ? {}
+              : { statusCode: failureStatusCode(result.outcome) }),
           })
         : undefined
     if (refusal !== undefined) {
@@ -2544,12 +2550,15 @@ function providerFailureEvent(
     failureDetail(result) ??
     (normalized?.type === 'status' ? normalized.detail : undefined)
   const errorCode = failureCode(sandboxEvent.data) ?? failureCode(outcome) ?? failureCode(result)
+  const statusCode =
+    failureStatusCode(sandboxEvent.data) ?? failureStatusCode(outcome) ?? failureStatusCode(result)
   return {
     type: 'result',
     data: {
       status: 'failed',
       ...(detail ? { error: detail } : {}),
       ...(errorCode ? { errorCode } : {}),
+      ...(statusCode === undefined ? {} : { statusCode }),
     },
   }
 }
@@ -2642,6 +2651,17 @@ function failureDetail(value: Record<string, unknown> | undefined): string | und
   if (typeof nestedError?.message === 'string') return nestedError.message
   if (typeof value.message === 'string') return value.message
   return typeof value.detail === 'string' ? value.detail : undefined
+}
+
+/** Preserve the Sandbox outcome's numeric HTTP metadata across the provider adapter. */
+function failureStatusCode(value: unknown): number | undefined {
+  const statusCode = recordValue(value)?.statusCode
+  return typeof statusCode === 'number' &&
+    Number.isInteger(statusCode) &&
+    statusCode >= 400 &&
+    statusCode <= 599
+    ? statusCode
+    : undefined
 }
 
 function failureCode(value: Record<string, unknown> | undefined): string | undefined {

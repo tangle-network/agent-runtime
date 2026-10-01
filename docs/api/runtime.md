@@ -24568,6 +24568,12 @@ Explicit execution outcome; application output and scoring verdicts do not deter
 
 > `optional` **errorCode?**: `string`
 
+###### statusCode?
+
+> `optional` **statusCode?**: `number`
+
+Native HTTP failure status, when reported, in the range 400–599.
+
 ##### outRef
 
 > **outRef**: `string`
@@ -32843,6 +32849,12 @@ Recoverable output committed before releasing its provider environment.
 ###### errorCode?
 
 > `optional` **errorCode?**: `string`
+
+###### statusCode?
+
+> `optional` **statusCode?**: `number`
+
+Native HTTP failure status, when reported, in the range 400–599.
 
 ###### id
 

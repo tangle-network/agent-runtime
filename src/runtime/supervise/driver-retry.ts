@@ -299,8 +299,14 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
 export class HarnessTurnFailedError extends Error {
   readonly runtime: string
   readonly errorCode?: string
+  readonly statusCode?: number
+  /** The shared HTTP error reader also uses this status for persisted diagnostics. */
+  readonly status?: number
 
-  constructor(runtime: string, failure: { readonly error: string; readonly errorCode?: string }) {
+  constructor(
+    runtime: string,
+    failure: { readonly error: string; readonly errorCode?: string; readonly statusCode?: number },
+  ) {
     super(
       `${runtime} harness turn ended with a failed outcome` +
         (failure.errorCode === undefined ? '' : ` (${failure.errorCode})`) +
@@ -309,6 +315,10 @@ export class HarnessTurnFailedError extends Error {
     this.name = 'HarnessTurnFailedError'
     this.runtime = runtime
     if (failure.errorCode !== undefined) this.errorCode = failure.errorCode
+    if (failure.statusCode !== undefined) {
+      this.statusCode = failure.statusCode
+      this.status = failure.statusCode
+    }
   }
 }
 
@@ -341,6 +351,7 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
     return unavailableSignalOfFailure({
       error: error.message,
       ...(error.errorCode === undefined ? {} : { errorCode: error.errorCode }),
+      ...(error.statusCode === undefined ? {} : { statusCode: error.statusCode }),
     })
   }
   if (error instanceof BackendTransportError) {
@@ -383,7 +394,8 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
     if (error.errorCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.errorCode)) {
       return 'terminal'
     }
-    return isUpstreamUnavailable(error) ? 'unavailable' : 'transient'
+    if (isUpstreamUnavailable(error)) return 'unavailable'
+    return foreignHttpStatusVerdict(error) ?? 'transient'
   }
   if (error instanceof BackendTransportError) {
     if (error.upstreamCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.upstreamCode))

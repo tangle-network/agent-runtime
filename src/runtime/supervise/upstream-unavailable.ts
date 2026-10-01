@@ -54,14 +54,18 @@ export function unavailableSignalInText(text: string): string | undefined {
 /**
  * The code or status that marks a failed turn outcome as an upstream capacity refusal, or
  * `undefined`. The outcome's own `errorCode` decides first; the failure text is read only when no
- * code decided, because a harness CLI reports the router's refusal as text.
+ * code or numeric status decided, because a harness CLI can report the router's refusal as text.
  */
 export function unavailableSignalOfFailure(failure: {
   readonly error: string
   readonly errorCode?: string
+  readonly statusCode?: number
 }): string | undefined {
   const code = failure.errorCode?.toLowerCase()
   if (code !== undefined && UNAVAILABLE_CODES.has(code)) return code
+  if (failure.statusCode !== undefined) {
+    return UNAVAILABLE_STATUSES.has(failure.statusCode) ? `http-${failure.statusCode}` : undefined
+  }
   return unavailableSignalInText(failure.error)
 }
 
