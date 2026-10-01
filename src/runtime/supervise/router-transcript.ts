@@ -25,6 +25,7 @@ import {
   harnessTranscriptFromLines,
   harnessTranscriptUnavailable,
 } from '../harness-transcript'
+import type { RouterResponseReceipt } from '../router-client'
 import type { ToolLoopMessageRecord, ToolLoopToolCall } from '../tool-loop'
 
 /** The harness name a router-brained agent's transcript carries. */
@@ -48,12 +49,15 @@ export interface RouterTranscript {
   observe(messages: ReadonlyArray<ToolLoopMessageRecord>): void
   /** Keep the model's reply for this turn, and return what this turn added, for the turn event. */
   reply(reply: RouterTranscriptReply): ReadonlyArray<ToolLoopMessageRecord>
+  /** Keep a physical HTTP response outside the model conversation. */
+  response(receipt: RouterResponseReceipt): void
   /** The whole conversation so far as a harness transcript. */
   capture(): HarnessTranscriptCapture
 }
 
 export function createRouterTranscript(): RouterTranscript {
   const kept: ToolLoopMessageRecord[] = []
+  const records: unknown[] = []
   const seen = new WeakSet<object>()
   // Index in `kept` where the current turn's additions start.
   let turnStart = 0
@@ -72,11 +76,15 @@ export function createRouterTranscript(): RouterTranscript {
         if (message.role === 'assistant') continue
       }
       kept.push(message)
+      records.push(message)
     }
   }
 
   return {
     observe,
+    response(receipt) {
+      records.push({ type: 'provider.response', ...receipt })
+    },
     reply(reply) {
       const message: ToolLoopMessageRecord = {
         role: 'assistant',
@@ -92,6 +100,7 @@ export function createRouterTranscript(): RouterTranscript {
           : {}),
       }
       kept.push(message)
+      records.push(message)
       replyEchoPending = true
       const added = kept.slice(turnStart).map(forTurnEvent)
       turnStart = kept.length
@@ -103,7 +112,7 @@ export function createRouterTranscript(): RouterTranscript {
       return harnessTranscriptFromLines(
         ROUTER_TRANSCRIPT_HARNESS,
         'conversation',
-        kept.map((message) => JSON.stringify(message)),
+        records.map((record) => JSON.stringify(record)),
       )
     },
   }

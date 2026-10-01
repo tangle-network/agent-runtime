@@ -44,11 +44,13 @@ import {
 import { agentHarness } from '../harness-role'
 import { observedModelMatchesDeclared } from '../model-identity'
 import { selectProviderPlacement } from '../provider-placement'
+import { assertRouterAutoDeclaration, assertRouterAutoResponse } from '../router-auto-evidence'
 import {
   type PromptCacheUsage,
   type RouterChatResult,
   type RouterChatToolsResult,
   type RouterConfig,
+  type RouterResponseReceipt,
   routerChatWithTools,
   routerChatWithUsage,
   routerTransportAttemptsFromError,
@@ -632,6 +634,8 @@ export interface RouterToolsSeam {
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
   /** Exact conversation to continue. Runtime validates its system message against the profile. */
   initialMessages?: ReadonlyArray<Readonly<Record<string, unknown>>>
+  /** Persist each buffered HTTP attempt, including failed responses, before the next turn. */
+  onProviderResponse?: (receipt: RouterResponseReceipt) => void | Promise<void>
   /** Observe the detached final conversation for session persistence. */
   onMessages?: (messages: ReadonlyArray<Readonly<Record<string, unknown>>>) => void | Promise<void>
   /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
@@ -705,6 +709,8 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
     },
     { multiTurn: true },
   )
+  if (model === 'tangle/auto')
+    assertRouterAutoDeclaration(profileExecution.extraBody?.auto, profileExecution.stream)
   const enabledToolNames = new Set(seam.tools.map((tool) => tool.function.name))
   const maxTurns = profileExecution.maxTurns ?? 0
   const requestIdentity = routerRequestIdentity(ctx)
@@ -745,6 +751,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         let resources: Spend['resources']
         let transportAttempts = 0
         let observedModel: string | undefined
+        const providerResponses: RouterResponseReceipt[] = []
         let reasoningTokens = 0
         let reasoningKnown = true
         const promptCache: Record<string, number | string> = {}
@@ -800,6 +807,11 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                     ? { temperature: profileExecution.temperature }
                     : {}),
                   signal: turnController.signal,
+                  onResponse: async (receipt: RouterResponseReceipt) => {
+                    providerResponses.push(receipt)
+                    transcript.response(receipt)
+                    await seam.onProviderResponse?.(structuredClone(receipt))
+                  },
                   ...(profileExecution.toolChoice
                     ? { toolChoice: profileExecution.toolChoice }
                     : {}),
@@ -865,7 +877,12 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             ).resources
             transportAttempts += res.transportAttempts
             if (res.model !== undefined) recordRuntimeOwnedProviderModel(executor, res.model)
-            assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')
+            if (model === 'tangle/auto') {
+              assertRouterAutoResponse(profileExecution.extraBody?.auto, res.response, res.model)
+              // Auto reports final-generation usage only. Child usage stays unknown here.
+              tokensKnown = false
+              reasoningKnown = false
+            } else assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')
             if (res.model !== undefined) observedModel = res.model
             mergePromptCache(promptCache, res.cache)
             if (res.usage) {
@@ -990,6 +1007,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           turns,
           toolCalls: executedToolCalls,
           transportAttempts,
+          providerResponses,
           ...(estimatedUsd !== undefined ? { estimatedCostUsd: estimatedUsd } : {}),
           ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
           ...(reasoningKnown && turns > 0 ? { reasoningTokens } : {}),
@@ -2063,12 +2081,20 @@ export type ExecutorConfig =
 export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
   switch (config.backend) {
     case 'router-tools': {
-      const { complete, executeToolCall, onMessages, onToolStep, ...decisionData } = config
+      const {
+        complete,
+        executeToolCall,
+        onMessages,
+        onToolStep,
+        onProviderResponse,
+        ...decisionData
+      } = config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor router-tools config')
       return Object.freeze({
         ...snapshot,
         ...(complete === undefined ? {} : { complete }),
         executeToolCall,
+        ...(onProviderResponse === undefined ? {} : { onProviderResponse }),
         ...(onMessages === undefined ? {} : { onMessages }),
         ...(onToolStep === undefined ? {} : { onToolStep }),
       })

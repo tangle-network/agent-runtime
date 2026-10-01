@@ -1417,7 +1417,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-20)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-21)
 
 ##### runtime
 
@@ -9588,6 +9588,58 @@ Injectable OpenAI-compatible transport. Optional usage.resources carries measure
 ###### Returns
 
 `Promise`\<`unknown`\>
+
+***
+
+### RouterResponseReceipt
+
+Exact buffered HTTP evidence. Authentication and cookie headers are excluded.
+
+#### Properties
+
+##### endpoint
+
+> `readonly` **endpoint**: `string`
+
+##### callId
+
+> `readonly` **callId**: `string`
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+##### startedAt
+
+> `readonly` **startedAt**: `string`
+
+##### endedAt
+
+> `readonly` **endedAt**: `string`
+
+##### status
+
+> `readonly` **status**: `number` \| `null`
+
+##### error?
+
+> `readonly` `optional` **error?**: `object`
+
+###### name
+
+> `readonly` **name**: `string`
+
+###### message
+
+> `readonly` **message**: `string`
+
+##### headers
+
+> `readonly` **headers**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+##### body
+
+> `readonly` **body**: `string` \| `null`
 
 ***
 
@@ -20841,6 +20893,22 @@ surfaces (e.g. a gym keyed by task) can dispatch correctly.
 > `optional` **initialMessages?**: readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[]
 
 Exact conversation to continue. Runtime validates its system message against the profile.
+
+##### onProviderResponse?
+
+> `optional` **onProviderResponse?**: (`receipt`) => `void` \| `Promise`\<`void`\>
+
+Persist each buffered HTTP attempt, including failed responses, before the next turn.
+
+###### Parameters
+
+###### receipt
+
+[`RouterResponseReceipt`](#routerresponsereceipt)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
 
 ##### onMessages?
 

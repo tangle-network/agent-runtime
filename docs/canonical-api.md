@@ -14,6 +14,29 @@ Run pnpm docs:freshness after editing this file. -->
 >
 > **Read this before writing any orchestration, optimization, or measurement code in this repo.** If you are about to write a persona⟷agent conversation runner, a "skill optimizer", a "profile-seam", a depth-vs-breadth A/B harness, a bootstrap loop, or a `new Sandbox(...)` + stream + read dance: **stop**, it already exists, and a parallel copy will silently break one of the guarantees the existing primitives enforce: equal compute per compared arm ("equal-k"), the attempt-picker never being the grader ("selector≠judge"), complete usage capture, or eval running the same code path as production.
 
+## Router Auto execution and evidence
+
+Use `createExecutor({ backend: 'router-tools', ... })` with an exact profile.
+Declare `model.default: 'tangle/auto'` and an inline policy in `model.metadata.extraBody.auto`.
+Use the Router Auto base URL and buffered transport.
+Runtime checks strategy and assessment models against `allowedModels` before dispatch.
+It checks each reported child model against the declared policy.
+Preset references require resolution into an inline policy before execution.
+
+`onProviderResponse` receives each buffered HTTP attempt before response decoding.
+The receipt preserves its full body, endpoint, call identity, times, status, and response headers.
+Authentication and cookie headers are excluded.
+Network failures have no HTTP status and retain their error.
+Native transcripts preserve these receipts outside the model conversation.
+Final outputs also retain received HTTP receipts.
+A failed attempt still retains its transcript.
+Observer failures stop the executor and do not authorize another paid request.
+
+Auto response usage covers the final generation only.
+Runtime marks aggregate token and dollar usage unknown.
+Use the returned physical generation identifiers to join authoritative billing records.
+A receipt header cost does not prove complete campaign billing.
+
 ## 1. Mental model: the spine
 
 > **Legend**: five terms the rest of this doc leans on, in plain terms:
