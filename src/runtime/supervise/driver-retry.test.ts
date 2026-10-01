@@ -215,6 +215,74 @@ describe('classifyDriverFailure', () => {
   })
 })
 
+describe('retained admission classification', () => {
+  const refused = () =>
+    new RetainedExecutionPendingError(
+      Object.assign(new Error('dispatch refused'), { status: 400 }),
+      'admission',
+    )
+
+  it('reads transparent admission wrappers but leaves arbitrary execution causes uncertain', () => {
+    const original = Object.assign(new Error('dispatch refused'), { status: 400 })
+    const admission = new RetainedExecutionPendingError(
+      new Error('provider wrapper', { cause: original }),
+      'admission',
+    )
+    expect(classifyDriverFailure(admission)).toBe('terminal')
+    expect(classifyDriverFailure(new Error('in-flight observation', { cause: original }))).toBe(
+      'transient',
+    )
+    expect(classifyDriverFailure(new RetainedExecutionPendingError(original, 'execution'))).toBe(
+      'transient',
+    )
+    expect(classifyDriverFailure(new RetainedExecutionPendingError(admission, 'execution'))).toBe(
+      'transient',
+    )
+  })
+
+  it('keeps capacity evidence on an admission refusal', () => {
+    const quota = new RetainedExecutionPendingError(
+      Object.assign(new Error('capacity'), { status: 429 }),
+      'admission',
+    )
+    expect(upstreamUnavailableSignal(quota)).toBe('http-429')
+    const overload = new RetainedExecutionPendingError(
+      Object.assign(new Error('capacity'), { name: 'ServerError', status: 503 }),
+      'admission',
+    )
+    expect(classifyDriverFailure(overload)).toBe('unavailable')
+    expect(upstreamUnavailableSignal(overload)).toBe('http-503')
+    const uncertain = new RetainedExecutionPendingError(
+      Object.assign(new Error('connection lost'), {
+        name: 'NetworkError',
+        cause: Object.assign(new Error('earlier refusal'), { status: 400 }),
+      }),
+      'admission',
+    )
+    expect(classifyDriverFailure(uncertain)).toBe('transient')
+  })
+
+  it('bounds cyclic, deep and unreadable causes without changing the retry default', () => {
+    const cyclic = refused()
+    Object.assign(cyclic, { cause: cyclic })
+    expect(classifyDriverFailure(cyclic)).toBe('transient')
+
+    const deep = refused()
+    let cause: Error = Object.assign(new Error('refused'), { status: 400 })
+    for (let depth = 0; depth < 100; depth += 1) cause = new Error('wrapper', { cause })
+    Object.assign(deep, { cause })
+    expect(classifyDriverFailure(deep)).toBe('transient')
+
+    const unreadable = refused()
+    Object.defineProperty(unreadable, 'cause', {
+      get() {
+        throw new Error('unreadable cause')
+      },
+    })
+    expect(classifyDriverFailure(unreadable)).toBe('transient')
+  })
+})
+
 describe('retained driver failure evidence', () => {
   it('retains the first provider cause when reconciliation later fails differently', async () => {
     const script = scriptedDrive([

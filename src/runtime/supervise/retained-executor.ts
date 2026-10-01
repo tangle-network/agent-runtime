@@ -257,6 +257,7 @@ export function classifyRetainedPendingCause(
  */
 export class RetainedExecutionPendingError extends Error {
   readonly pendingCause: RetainedPendingCause
+  readonly phase: RetainedPendingPhase
 
   constructor(
     cause: unknown,
@@ -269,6 +270,7 @@ export class RetainedExecutionPendingError extends Error {
     super(causeMessages[resolved], { cause })
     this.name = 'RetainedExecutionPendingError'
     this.pendingCause = resolved
+    this.phase = pendingCause === 'admission' ? 'admission' : 'execution'
   }
 }
 

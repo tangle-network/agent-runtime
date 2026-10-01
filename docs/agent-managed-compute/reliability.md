@@ -118,6 +118,10 @@ An absent cache counter remains absent, while a reported zero remains zero.
 Sandbox's `effectiveBackend.model` reports a platform binding, not an upstream inference receipt.
 The provider executor leaves upstream model identity unknown without response-observed evidence.
 
+Retained dispatch refusals preserve their original HTTP status through driver retry classification.
+Deterministic request refusals end the driver; capacity refusals keep the existing pause policy.
+A failure after durable dispatch or exact reattachment remains an observation failure, even when its cause carries a client HTTP status.
+
 ## Required Invariants
 
 The implementation is complete only when all of these hold:

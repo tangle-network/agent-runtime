@@ -173,6 +173,8 @@ describe('RetainedExecutionPendingError', () => {
       'request-rejected',
     )
     expect(new RetainedExecutionPendingError(zod()).pendingCause).toBe('provider-contract')
+    expect(new RetainedExecutionPendingError(zod(), 'admission').phase).toBe('admission')
+    expect(new RetainedExecutionPendingError(zod()).phase).toBe('execution')
     const nested = new RetainedExecutionPendingError(new Error('opaque'), 'nested-recovery')
     expect(nested.pendingCause).toBe('nested-recovery')
     expect(nested.message).toMatch(/nested execution requires recovery/u)
