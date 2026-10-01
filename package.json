@@ -161,7 +161,7 @@
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.201.0 <0.204.0",
     "@tangle-network/agent-interface": "^2.15.0",
-    "@tangle-network/sandbox": ">=0.58.4 <0.59.0"
+    "@tangle-network/sandbox": ">=0.58.4 <0.60.0"
   },
   "dependencies": {
     "@tangle-network/agent-core": "catalog:",
