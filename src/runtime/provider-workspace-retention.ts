@@ -1,8 +1,10 @@
 import type {
   AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceSnapshotEvidence,
+  AgentExactRunControlRef,
   AgentProfile,
 } from '@tangle-network/agent-interface'
+import { AgentExactRunControlRefSchema } from '@tangle-network/agent-interface'
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import { verifyWorkspaceSnapshotArtifacts } from '../candidate-execution/artifacts'
@@ -12,6 +14,7 @@ import {
   verifyAgentCandidateWorkspaceArchive,
 } from '../candidate-execution/workspace-archive'
 import { ValidationError } from '../errors'
+import { sameControlCoordinates } from './retained-run-binding'
 import { runAbortable } from './supervise/abortable'
 import { armDeadlineTimer } from './supervise/deadline'
 import { detachedSnapshot } from './supervise/snapshot'
@@ -63,6 +66,8 @@ export interface ProviderWorkspaceCaptureProvenance {
   readonly provider?: string
   readonly environmentId?: string
   readonly executionId?: string
+  /** Exact admitted provider execution; executionId above remains the Runtime artifact identity. */
+  readonly controlRef?: AgentExactRunControlRef
   readonly workspaceScope?: 'environment'
   readonly workspaceRoot?: string
   readonly capturedAt?: string
@@ -150,7 +155,10 @@ export interface ProviderWorkspaceCaptureResult {
 /** The exact live execution facts supplied to a retention callback. */
 export interface ProviderWorkspaceRetentionContext {
   readonly environment: AgentEnvironment
+  /** Runtime invocation identity used by the artifact store; never a provider session coordinate. */
   readonly executionId: string
+  /** Exact admitted provider execution, available even before the harness emits its session id. */
+  readonly controlRef?: AgentExactRunControlRef
   /** Exact supervised tree identity, when a supervisor created this execution. */
   readonly node?: ExecutorNodeContext
   /** Sandbox/provider session used for this turn; null means no session id was observed. */
@@ -168,6 +176,8 @@ export interface ProviderWorkspaceRetentionContext {
 /** Durable join from one provider box to the verified bytes retained before cleanup. */
 export interface ProviderWorkspaceCaptureReceipt {
   readonly executionId: string
+  /** Durable provider-native identity, separate from the Runtime invocation identity. */
+  readonly controlRef?: AgentExactRunControlRef
   readonly node?: ExecutorNodeContext
   readonly environmentId: string
   /** Immutable authored AgentProfile identity; run records retain its content. */
@@ -204,6 +214,19 @@ export async function captureProviderWorkspaceSnapshot(
   context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
 ): Promise<ProviderWorkspaceCaptureResult> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
+  const controlRef =
+    context.controlRef === undefined
+      ? undefined
+      : AgentExactRunControlRefSchema.parse(context.controlRef)
+  if (
+    controlRef !== undefined &&
+    (controlRef.environmentId !== context.environment.id ||
+      controlRef.provider !== context.environment.provider ||
+      (context.providerSessionId != null && controlRef.sessionId !== context.providerSessionId))
+  )
+    throw new Error(
+      'provider workspace retention control reference names another environment or session',
+    )
   const controller = new AbortController()
   const clearDeadline = armDeadlineTimer(
     port.timeoutMs,
@@ -219,7 +242,11 @@ export async function captureProviderWorkspaceSnapshot(
         // Detach before any asynchronous artifact read. The callback owns its return object and
         // could otherwise mutate the manifest or archive references while verification is in flight.
         const result = detachedSnapshot(
-          await port.capture({ ...context, signal: controller.signal }),
+          await port.capture({
+            ...context,
+            ...(controlRef === undefined ? {} : { controlRef: Object.freeze({ ...controlRef }) }),
+            signal: controller.signal,
+          }),
           'provider workspace retention snapshot',
         )
         const snapshot = 'snapshot' in result ? result.snapshot : result
@@ -248,7 +275,30 @@ export async function captureProviderWorkspaceSnapshot(
         ) {
           throw new Error('provider workspace retention provenance names another execution')
         }
+        if (
+          provenance.controlRef !== undefined &&
+          (controlRef === undefined ||
+            !sameControlCoordinates(
+              AgentExactRunControlRefSchema.parse(provenance.controlRef),
+              controlRef,
+            ))
+        )
+          throw new Error(
+            'provider workspace retention provenance names another admitted execution',
+          )
         const coverageGaps = [...provenance.missing]
+        if (controlRef !== undefined) {
+          if (provenance.controlRef === undefined)
+            coverageGaps.push('Exact admitted control reference missing')
+          if (
+            !provenance.sessions?.some(
+              (session) =>
+                session.id === controlRef.sessionId &&
+                session.executionIds?.includes(controlRef.executionId),
+            )
+          )
+            coverageGaps.push('Exact admitted provider execution missing from capture')
+        }
         if (provenance.status !== 'reported') coverageGaps.push('Coverage metadata unavailable')
         if (provenance.executionId !== context.executionId)
           coverageGaps.push('Exact execution identity missing')

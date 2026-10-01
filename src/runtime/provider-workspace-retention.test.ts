@@ -21,7 +21,10 @@ import {
   providerAsExecutor,
   providerAsSandboxClient,
 } from './environment-provider'
-import type { ProviderWorkspaceCaptureReceipt } from './provider-workspace-retention'
+import {
+  captureProviderWorkspaceSnapshot,
+  type ProviderWorkspaceCaptureReceipt,
+} from './provider-workspace-retention'
 import type { RetainedRunAdmission } from './retained-run-types'
 import { runAgentRounds } from './run-loop'
 import { captureBeforeDestroy } from './sandbox-evidence-retention'
@@ -218,6 +221,212 @@ function doneStream(text = 'done') {
 }
 
 describe('provider workspace retention', () => {
+  it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {
+    const artifacts = artifactStore()
+    const provider = pendingRetainedProvider()
+    const get = provider.get!.bind(provider)
+    provider.get = async (id) => {
+      const environment = await get(id)
+      // Reconnection returns a fresh handle, without the original object's local session cache.
+      return environment === null ? null : { ...environment }
+    }
+    const admissions: RetainedRunAdmission[] = []
+    const evidence: ProviderLeafOut[] = []
+    const contexts: ProviderWorkspaceRetentionContext[] = []
+    const retention: RetainedExecutorContext = {
+      executionId: 'frontier:input:1',
+      preserveEnvironment: true,
+      admissions,
+      async onAdmission(admission) {
+        admissions.push(admission)
+      },
+      async onResult() {
+        throw new Error('an unresolved native result must not settle')
+      },
+      async onEvidence(out) {
+        evidence.push(out as ProviderLeafOut)
+      },
+    }
+    const factory = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        requireCompleteProvenance: true,
+        artifacts,
+        async capture(context) {
+          contexts.push(context)
+          const controlRef = context.controlRef!
+          expect(context.executionId).toBe('frontier:input:1')
+          expect(controlRef.executionId).toMatch(/^retained-execution-/)
+          expect(controlRef.sessionId).toMatch(/^retained-session-/)
+          expect(context.providerSessionId).toBe(controlRef.sessionId)
+          expect(context.nativeSessionId).toBeNull()
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported' as const,
+              environmentId: context.environment.id,
+              executionId: context.executionId,
+              controlRef,
+              workspace: {
+                scannedFiles: 1,
+                scannedDirectories: 0,
+                reportedFiles: 1,
+                reportedDirectories: 0,
+                complete: true,
+              },
+              sessions: [
+                {
+                  id: controlRef.sessionId,
+                  executionId: context.executionId,
+                  executionIds: [controlRef.executionId],
+                  eventCountsByExecutionId: { [controlRef.executionId]: 0 },
+                  backendType: 'opencode',
+                  transportEvents: 'unavailable',
+                  eventCount: 0,
+                  messageCount: 0,
+                  nativeSessionId: null,
+                  nativeReason: 'harness-never-started',
+                },
+              ],
+              attempts: [],
+              missing: ['harness-never-started'],
+            },
+          }
+        },
+      },
+    })
+    for (const recovering of [false, true]) {
+      const executor = factory(
+        { profile: testProfile('pre-harness-capture'), harness: null },
+        { signal: new AbortController().signal, seams: { [retainedExecutorSeamKey]: retention } },
+      )
+      const execute = recovering
+        ? executor.recover!.bind(executor)
+        : executor.execute.bind(executor)
+      await expect(async () => {
+        for await (const _event of execute(
+          'task',
+          new AbortController().signal,
+        ) as AsyncIterable<UsageEvent>) {
+        }
+      }).rejects.toThrow(/retained result unavailable|requires reconciliation/)
+      expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
+    }
+    const admission = admissions.find((entry) => entry.phase === 'dispatched')!
+    if (admission.phase !== 'dispatched') throw new Error('expected admitted execution')
+    expect(contexts).toHaveLength(2)
+    expect(evidence).toHaveLength(2)
+    for (const out of evidence) {
+      expect(out.workspaceCapture).toMatchObject({
+        executionId: 'frontier:input:1',
+        controlRef: admission.controlRef,
+        providerSessionId: admission.controlRef.sessionId,
+        nativeSessionId: null,
+        coverageComplete: false,
+        provenance: { executionId: 'frontier:input:1', controlRef: admission.controlRef },
+      })
+      expect(out.workspaceCapture!.incompleteReason).toContain('harness-never-started')
+      expect(out.workspaceCapture!.incompleteReason).not.toContain(
+        'admitted control reference missing',
+      )
+    }
+    expect(contexts[0]!.environment).not.toBe(contexts[1]!.environment)
+    expect(contexts[0]!.controlRef).toEqual(contexts[1]!.controlRef)
+  })
+
+  it.each(['execution', 'request', 'session', 'environment'] as const)(
+    'refuses capture provenance that changes the admitted %s',
+    async (changed) => {
+      const artifacts = artifactStore()
+      const { environment } = providerFor(doneStream())
+      const controlRef: AgentExactRunControlRef = {
+        runId: 'run-1',
+        provider: environment.provider,
+        environmentId: environment.id,
+        sessionId: 'retained-session-1',
+        executionId: 'retained-execution-1',
+        requestDigest: `sha256:${'a'.repeat(64)}`,
+      }
+      const wrong: AgentExactRunControlRef = {
+        ...controlRef,
+        ...{
+          execution: { executionId: 'other-execution' },
+          request: { requestDigest: `sha256:${'b'.repeat(64)}` as const },
+          session: { sessionId: 'other-session' },
+          environment: { environmentId: 'other-box' },
+        }[changed],
+      }
+      await expect(
+        captureProviderWorkspaceSnapshot(
+          {
+            timeoutMs: 5_000,
+            artifacts,
+            async capture(context) {
+              return {
+                snapshot: await snapshot(artifacts, context.executionId),
+                provenance: {
+                  status: 'reported',
+                  environmentId: environment.id,
+                  executionId: context.executionId,
+                  controlRef: wrong,
+                  missing: [],
+                },
+              }
+            },
+          },
+          {
+            environment,
+            executionId: 'frontier:input:1',
+            controlRef,
+            providerSessionId: controlRef.sessionId,
+            profile: testProfile('wrong-native-ref'),
+          },
+        ),
+      ).rejects.toThrow('another admitted execution')
+    },
+  )
+
+  it('keeps native execution coverage incomplete when an exact reference is omitted from capture', async () => {
+    const artifacts = artifactStore()
+    const { environment } = providerFor(doneStream())
+    const controlRef: AgentExactRunControlRef = {
+      runId: 'run-1',
+      provider: environment.provider,
+      environmentId: environment.id,
+      sessionId: 'retained-session-1',
+      executionId: 'retained-execution-1',
+      requestDigest: `sha256:${'a'.repeat(64)}`,
+    }
+    const result = await captureProviderWorkspaceSnapshot(
+      {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture(context) {
+          return {
+            snapshot: await snapshot(artifacts, context.executionId),
+            provenance: {
+              status: 'reported',
+              environmentId: environment.id,
+              executionId: context.executionId,
+              sessions: [],
+              missing: [],
+            },
+          }
+        },
+      },
+      {
+        environment,
+        executionId: 'frontier:input:1',
+        controlRef,
+        providerSessionId: controlRef.sessionId,
+        profile: testProfile('missing-native-ref'),
+      },
+    )
+    expect(result.coverageComplete).toBe(false)
+    expect(result.incompleteReason).toContain('Exact admitted control reference missing')
+    expect(result.incompleteReason).toContain('Exact admitted provider execution missing')
+  })
+
   it.each(['sse', 'poll'] as const)(
     'captures a runAgentRounds box through the %s execution path',
     async (streaming) => {
