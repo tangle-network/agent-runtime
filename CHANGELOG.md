@@ -1,3 +1,10 @@
+## 0.289.1
+
+Stop retrying retained provider dispatch refusals with deterministic HTTP statuses.
+Preserve capacity pauses and uncertainty when observation fails after execution admission.
+
+Accept Sandbox SDK 0.59 in Runtime's peer range and resolve one Sandbox version through tcloud 0.8.1.
+
 ## 0.289.0
 
 Retain exact admitted provider control references with workspace capture.
