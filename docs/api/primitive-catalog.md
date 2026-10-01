@@ -449,7 +449,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1069,6 +1069,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
 | `RetainedRunStartMaterial` | interface | Environment, turn, and optional identity needed to replay one retained start. |
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
 | `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
+| `RouterResponseReceipt` | interface | Exact buffered HTTP evidence. Authentication and cookie headers are excluded. |
 | `RouterSeam` | interface | Router/inline transport seam. The profile owns model, prompt, and generation behavior. |
 | `RouterToolsSeam` | interface | Router seam WITH tool use — the tool-using router backend. Same direct |
 | `RouterTransportConfig` | interface | Connection details for Runtime's Router-backed executors. |

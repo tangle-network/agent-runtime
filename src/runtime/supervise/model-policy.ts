@@ -8,6 +8,7 @@ import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
 import { agentHarness } from '../harness-role'
+import { routerAutoDeclaredModels } from '../router-auto-evidence'
 import { type ResolvedRouterRetryPolicy, resolveRouterRetryPolicy } from '../router-retry-policy'
 
 /**
@@ -383,6 +384,14 @@ export function assertProfileModelsAllowed(
 ): void {
   assertModelAllowed(profile.model?.default, allowed)
   assertModelAllowed(profile.model?.small, allowed)
+  if (profile.model?.default === 'tangle/auto') {
+    const extra = profile.model.metadata?.extraBody
+    const policy =
+      extra !== null && typeof extra === 'object'
+        ? (extra as Record<string, unknown>).auto
+        : undefined
+    for (const model of routerAutoDeclaredModels(policy)) assertModelAllowed(model, allowed)
+  }
   for (const subagent of Object.values(profile.subagents ?? {})) {
     assertModelAllowed(subagent.model, allowed)
   }
