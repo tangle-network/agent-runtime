@@ -437,7 +437,7 @@ describe('durable worker controls during a native harness invocation', () => {
         operationId: 'after-close',
         message: 'already closed',
       })
-      await new Promise<void>((resolve) => setTimeout(resolve, 150))
+      await vi.advanceTimersByTimeAsync(150)
       expect(readWorkerSteerAcknowledgement(dir, 'after-close')).toBeUndefined()
     } finally {
       vi.useRealTimers()
