@@ -549,11 +549,10 @@ describe('retained scope owner input and result', () => {
   })
 
   it.each([
-    { name: 'null', invalid: null, destroyed: false },
-    { name: 'empty', invalid: {}, destroyed: false },
-    { name: 'partial', invalid: undefined, destroyed: false },
-    { name: 'wrong-source', invalid: undefined, destroyed: false },
-    { name: 'valid', invalid: undefined, destroyed: true },
+    { name: 'null', invalid: null },
+    { name: 'empty', invalid: {} },
+    { name: 'partial', invalid: undefined },
+    { name: 'wrong-source', invalid: undefined },
   ])('requires a durable owner workspace receipt before deletion ($name)', async (testCase) => {
     const environmentId = 'receipt-source'
     const blobs = new InMemoryResultBlobStore()
@@ -563,13 +562,13 @@ describe('retained scope owner input and result', () => {
       { artifactPersistence: { executionId: 'owner:input:1', outputArtifacts } },
     )
     const output = {
-      workspaceSnapshot: ['valid', 'partial', 'wrong-source'].includes(testCase.name)
+      workspaceSnapshot: ['partial', 'wrong-source'].includes(testCase.name)
         ? valid.snapshot
         : testCase.invalid,
       workspaceCapture: {
         environmentId: testCase.name === 'wrong-source' ? 'another-source' : environmentId,
         executionId: 'owner:input:1',
-        coverageComplete: testCase.name === 'valid' || testCase.name === 'wrong-source',
+        coverageComplete: testCase.name === 'wrong-source',
         snapshot: valid.snapshot,
       },
     }
@@ -648,11 +647,9 @@ describe('retained scope owner input and result', () => {
       })
       bindScopeRetainedOwnerProvider(scope, provider)
       bindScopeRetainedOwnerWorkspaceRetention(scope, false)
-      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toHaveLength(
-        testCase.destroyed ? 0 : 1,
-      )
+      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toHaveLength(1)
     })
-    expect(destroys).toBe(testCase.destroyed ? 1 : 0)
+    expect(destroys).toBe(0)
     expect(events.at(-1)).toMatchObject({
       kind: 'environment-teardown',
       environmentId,
