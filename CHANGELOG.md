@@ -1,3 +1,7 @@
+## 0.287.3
+
+Persist manager driver attempt outcomes in the existing spawn journal so ordinary dispatch errors survive cancellation and coordinator restart.
+
 ## 0.287.2
 
 Environment-provider executors preserve explicit managed or subscription credential intent from the exact AgentProfile.
