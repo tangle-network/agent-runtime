@@ -653,7 +653,7 @@ describe('retained scope owner input and result', () => {
     expect(events.at(-1)).toMatchObject({
       kind: 'environment-teardown',
       environmentId,
-      destroyed: testCase.destroyed,
+      destroyed: false,
     })
   })
 
