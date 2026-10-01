@@ -293,7 +293,22 @@ export interface RouterToolCall {
   arguments: string
 }
 
+/** Exact buffered HTTP evidence. Authentication and cookie headers are excluded. */
+export interface RouterResponseReceipt {
+  readonly endpoint: string
+  readonly callId: string
+  readonly attempt: number
+  readonly startedAt: string
+  readonly endedAt: string
+  readonly status: number | null
+  readonly error?: { readonly name: string; readonly message: string }
+  readonly headers: Readonly<Record<string, string>>
+  readonly body: string | null
+}
+
 export interface RouterChatToolsResult {
+  /** Complete buffered response, including routing decisions and physical call receipts. */
+  response?: unknown
   content: string | null
   toolCalls: RouterToolCall[]
   usage?: { input: number; output: number; reasoning?: number }
@@ -349,6 +364,8 @@ export async function routerChatWithTools(
     function: { name: string; description?: string; parameters: unknown }
   }>,
   opts?: {
+    /** Observe each actual HTTP attempt before decoding or rejecting its response. */
+    onResponse?: (receipt: RouterResponseReceipt) => void | Promise<void>
     temperature?: number
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
@@ -390,6 +407,7 @@ export async function routerChatWithTools(
           },
           opts?.signal,
           retry,
+          opts?.onResponse,
         )
         transportAttempts = result.attempts
         return routerResponseJson(result.response, result.attempts)
@@ -418,6 +436,7 @@ export async function routerChatWithTools(
     transportAttempts,
   )
   return {
+    response: raw,
     content: msg?.content ?? null,
     toolCalls,
     transportAttempts,
@@ -873,9 +892,76 @@ async function fetchRouterResponse(
   init: Omit<RequestInit, 'signal'>,
   callerSignal: AbortSignal | undefined,
   retry: ReturnType<typeof resolveRouterRetryPolicy>,
+  onResponse?: (receipt: RouterResponseReceipt) => void | Promise<void>,
 ): Promise<{ response: Response; attempts: number }> {
+  let attempt = 0
   const result = await retryRouterOperation(retry, callerSignal, async (signal) => {
-    const candidate = await fetch(url, { ...init, signal })
+    attempt += 1
+    const startedAt = new Date().toISOString()
+    let candidate: Response
+    try {
+      candidate = await fetch(url, { ...init, signal })
+    } catch (error) {
+      await observeRouterResponse(
+        onResponse,
+        {
+          endpoint: url,
+          callId: new Headers(init.headers).get('idempotency-key') ?? '',
+          attempt,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          status: null,
+          headers: {},
+          body: null,
+          error: {
+            name: error instanceof Error ? error.name : 'Error',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+        signal,
+      )
+      throw error
+    }
+    if (onResponse) {
+      const headers = Object.fromEntries(
+        [...candidate.headers].filter(
+          ([name]) =>
+            !['authorization', 'proxy-authorization', 'set-cookie', 'cookie'].includes(
+              name.toLowerCase(),
+            ),
+        ),
+      )
+      let body: string | null = null
+      let bodyError: unknown
+      try {
+        body = await candidate.clone().text()
+      } catch (error) {
+        bodyError = error
+      }
+      await observeRouterResponse(
+        onResponse,
+        {
+          endpoint: url,
+          callId: new Headers(init.headers).get('idempotency-key') ?? '',
+          attempt,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          status: candidate.status,
+          headers,
+          body,
+          ...(bodyError === undefined
+            ? {}
+            : {
+                error: {
+                  name: bodyError instanceof Error ? bodyError.name : 'Error',
+                  message: bodyError instanceof Error ? bodyError.message : String(bodyError),
+                },
+              }),
+        },
+        signal,
+      )
+      if (bodyError !== undefined) throw bodyError
+    }
     if (candidate.ok) return candidate
     const text = await candidate.text().catch(() => '<failed to read response body>')
     throw new SDKError(`router ${candidate.status}: ${text.slice(0, 200)}`, {
@@ -886,6 +972,33 @@ async function fetchRouterResponse(
     })
   })
   return { response: result.value, attempts: result.attempts }
+}
+
+/** Evidence failure cannot authorize a second inference, even after the request deadline. */
+async function observeRouterResponse(
+  observer: ((receipt: RouterResponseReceipt) => void | Promise<void>) | undefined,
+  receipt: RouterResponseReceipt,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!observer) return
+  let onAbort: (() => void) | undefined
+  try {
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(signal.reason ?? new Error('Response observation aborted'))
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    })
+    await Promise.race([Promise.resolve().then(() => observer(receipt)), aborted])
+  } catch (error) {
+    throw new SDKError('Router response observation failed', {
+      code: 'UNKNOWN',
+      retryable: false,
+      cause: error instanceof Error ? error : new Error(String(error)),
+      context: { phase: 'response_observation' },
+    })
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
 }
 
 async function retryRouterOperation<T>(
@@ -902,6 +1015,8 @@ async function retryRouterOperation<T>(
         try {
           return await operation(attemptSignal.signal)
         } catch (error) {
+          if (error instanceof SDKError && error.context?.phase === 'response_observation')
+            throw error
           if (callerSignal?.aborted) throw callerSignal.reason ?? error
           if (attemptSignal.signal.aborted) {
             throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {

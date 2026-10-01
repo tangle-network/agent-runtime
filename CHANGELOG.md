@@ -1,3 +1,21 @@
+## 0.290.1
+
+Remove an obsolete release-verification expectation that allowed owner deletion without a native binding.
+Keep exact logical and native capture validation and all incomplete-receipt refusal controls.
+
+## 0.290.0
+
+Preserve native HTTP failure status in supervised executor outcomes. A reported HTTP 400 ends the failed driver turn without another identical attempt; HTTP 408 and 5xx keep their existing retry behavior, and 429/503/529 keep capacity pauses.
+
+Remove `sandboxClientAsProvider`, `SandboxClientProviderOptions`, and `DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS`.
+Construct `createTangleProvider` from `@tangle-network/agent-provider-tangle` and pass that provider to Runtime.
+`provisionSupervisor` now requires `connection.provider` instead of constructing a provider from a client, endpoint, or API key.
+Shared-box workers implement the environment contract directly and keep profiles with explicit credential intent on their dedicated provider.
+
+Retained owner cleanup validates the logical input identity and accepted native control reference separately.
+Complete capture can release its exact source without treating the native execution ID as the logical Runtime ID.
+Incomplete, mismatched or unbound receipts still preserve their source.
+
 ## 0.289.1
 
 Stop retrying retained provider dispatch refusals with deterministic HTTP statuses.

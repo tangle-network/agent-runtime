@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.289.1.**
+> **Version 0.290.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.201.0 <0.204.0`.
 > `sandbox` must satisfy `>=0.58.4 <0.60.0`.
@@ -13,6 +13,32 @@ Run pnpm docs:freshness after editing this file. -->
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
 > **Read this before writing any orchestration, optimization, or measurement code in this repo.** If you are about to write a persona⟷agent conversation runner, a "skill optimizer", a "profile-seam", a depth-vs-breadth A/B harness, a bootstrap loop, or a `new Sandbox(...)` + stream + read dance: **stop**, it already exists, and a parallel copy will silently break one of the guarantees the existing primitives enforce: equal compute per compared arm ("equal-k"), the attempt-picker never being the grader ("selector≠judge"), complete usage capture, or eval running the same code path as production.
+
+## Router Auto execution and evidence
+
+Use `createExecutor({ backend: 'router-tools', ... })` with an exact profile.
+Declare `model.default: 'tangle/auto'` and an inline policy in `model.metadata.extraBody.auto`.
+Use the Router Auto base URL and buffered transport.
+Runtime checks strategy and assessment models against `allowedModels` before dispatch.
+It checks each reported child model against the declared policy.
+It checks policy ID and revision; Router owns normalization and the policy digest.
+Consumers must compare that digest with their frozen Router policy before using the result.
+Preset references require resolution into an inline policy before execution.
+
+`onProviderResponse` receives each buffered HTTP attempt before response decoding.
+The receipt preserves its full body, endpoint, call identity, times, status, and response headers.
+Authentication and cookie headers are excluded.
+Network failures have no HTTP status and retain their error.
+Native transcripts preserve these receipts outside the model conversation.
+Final outputs also retain received HTTP receipts.
+A failed attempt still retains its transcript.
+Observer failures stop the executor and do not authorize another paid request.
+
+Auto response usage covers the final generation only.
+Runtime marks aggregate token and dollar usage unknown.
+Any observed final-generation dollar subtotal is a lower bound, not a complete Auto total.
+Use the returned physical generation identifiers to join authoritative billing records.
+A receipt header cost does not prove complete campaign billing.
 
 ## 1. Mental model: the spine
 

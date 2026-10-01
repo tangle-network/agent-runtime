@@ -481,7 +481,7 @@ export {
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
 // endpoint/auth transport used by that path.
-export type { RouterTransportConfig } from './router-client'
+export type { RouterResponseReceipt, RouterTransportConfig } from './router-client'
 export {
   type BenchmarkCell,
   type BenchmarkConfig,
