@@ -208,3 +208,12 @@ Record `box.inputDigest` with the verdict to name the exact bytes the check judg
 
 The calling process holds the verdict.
 Store it where the run cannot write; the run's own record directory does not qualify when the run can reach it.
+
+## Driver attempt evidence
+
+Runtime appends each completed manager driver attempt to the spawn journal before retrying or calling `onDriverAttempt`.
+Each `driver-attempt` event retains the error, classification, duration, progress, retry decision, and execution attempt identity when known.
+Errors remain bounded and redacted through Runtime's shared error formatter.
+The per-node event ordinal continues across coordinator restarts.
+Cancellation keeps its terminal outcome and does not remove earlier attempt evidence.
+Replay and cost readers treat these events as observations, without settling nodes or charging work again.

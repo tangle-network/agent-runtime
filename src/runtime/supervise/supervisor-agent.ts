@@ -84,7 +84,11 @@ import { readRootStream } from './root-stream'
 import { createRouterTranscript } from './router-transcript'
 import { applyRunCancellation } from './run-cancellation'
 import { runTraceAnalysisStore } from './run-traces'
-import { beginScopeOwnerAttempt, recordScopeOwnerPause } from './scope'
+import {
+  beginScopeOwnerAttempt,
+  recordScopeOwnerDriverAttempt,
+  recordScopeOwnerPause,
+} from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
   createProgressTracker,
@@ -1343,6 +1347,7 @@ function buildSupervisorAgent(
               : {}),
             onAttempt: async (record) => {
               loopRecords.push(record)
+              await recordScopeOwnerDriverAttempt(scope, record)
               // A pause on an unavailable upstream is infrastructure time, so the run's own
               // journal records it; the caller's observer still sees every attempt.
               if (record.classification === 'unavailable' && record.retryInMs !== undefined) {

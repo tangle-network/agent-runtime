@@ -42,6 +42,7 @@ import type { RetainedInteractiveRunHandle } from '../retained-interactive-types
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
 import type { ReservationShortfall } from './budget'
+import type { DriverAttemptRecord } from './driver-retry'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { RetainedPendingCause } from './retained-executor'
 import type { TraceSource } from './trace-source'
@@ -1915,6 +1916,18 @@ export type SpawnEvent =
       /** The worker-execution backend that has no propagation channel. */
       backend: string
       reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
+      seq: number
+      at: string
+    }
+  | {
+      /** One completed manager driver attempt, recorded before retry or observer callbacks.
+       * Errors are redacted and bounded. Informational: replay and cost readers skip it.
+       * `seq` counts this node's driver records across coordinator restarts. */
+      kind: 'driver-attempt'
+      id: NodeId
+      record: DriverAttemptRecord
+      /** Runtime execution attempt identity when the manager uses a deferred executor. */
+      attemptId?: string
       seq: number
       at: string
     }

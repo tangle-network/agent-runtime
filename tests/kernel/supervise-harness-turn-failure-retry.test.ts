@@ -11,6 +11,7 @@ import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-executi
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/environment-provider'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
+import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
@@ -45,6 +46,8 @@ interface TurnFailure {
   readonly afterSubmit?: boolean
   /** The provider loses both its event stream and exact result before a terminal receipt exists. */
   readonly streamFailure?: boolean
+  /** Dispatch rejects before the provider admits a native execution. */
+  readonly dispatchFailure?: boolean
 }
 
 interface DriverRetry {
@@ -112,8 +115,9 @@ async function harnessFailureFixture(options: {
       const dispatch = dispatches
       environmentIds.push(environment.id)
       sessionIds.push(turn.sessionId)
-      const dispatched = await environment.dispatch!(turn)
       const failure = options.failures(dispatch)
+      if (failure?.dispatchFailure) throw new Error(failure.error)
+      const dispatched = await environment.dispatch!(turn)
       if (failure !== undefined) {
         failedExecutions.set(dispatched.controlRef!.executionId!, failure)
         if (!failure.afterSubmit) return dispatched
@@ -186,6 +190,7 @@ async function harnessFailureFixture(options: {
   const run = async (
     driverRetry: DriverRetry,
     retainedAtSettlement: 'release' | 'keep' = 'release',
+    afterAttempt?: (record: DriverAttemptRecord) => void | Promise<void>,
   ) => {
     const attempts: DriverAttemptRecord[] = []
     const abort = new AbortController()
@@ -220,7 +225,10 @@ async function harnessFailureFixture(options: {
           unavailablePauseMs: 0,
           maxUnavailablePauseMs: 0,
         },
-        onDriverAttempt: (record) => void attempts.push(record),
+        onDriverAttempt: async (record) => {
+          attempts.push(record)
+          await afterAttempt?.(record)
+        },
         retainedAtSettlement,
         deliverable: {
           describe: 'the answer from a turn that did not fail',
@@ -243,6 +251,7 @@ async function harnessFailureFixture(options: {
   }
   return {
     run,
+    runDir: join(directory, 'run'),
     events: async () => (await context.journal.loadTree(options.runId)) ?? [],
     environmentIds,
     sessionIds,
@@ -267,6 +276,61 @@ function meteredTokens(events: readonly SpawnEvent[]): number {
 }
 
 describe('a root harness turn that ends with a failed outcome', () => {
+  it('commits a pre-admission dispatch failure before cancellation and survives cold readback', async () => {
+    const runId = 'dispatch-failure-cancelled'
+    const failure = 'dispatchPrompt did not receive an execution admission from the sandbox'
+    const fixture = await harnessFailureFixture({
+      runId,
+      failures: () => ({ error: failure, dispatchFailure: true }),
+    })
+    const { result } = await fixture.run({ maxAttempts: 5 }, 'release', async (record) => {
+      const cold = createFileRunContext(fixture.runDir)
+      const events = (await cold.journal.loadTree(runId)) ?? []
+      expect(ofKind(events, 'driver-attempt')).toMatchObject([
+        { id: runId, seq: 0, record: { attempt: 1, error: expect.stringContaining(failure) } },
+      ])
+      if (record.attempt === 1) {
+        cancelRun(fixture.runDir, 'stop-dispatch-retries', {
+          source: 'operator',
+          reason: 'inspect failure',
+        })
+        await expect
+          .poll(() => readRunCancellation(fixture.runDir, 'stop-dispatch-retries')?.effect)
+          .toBe('cancel_requested')
+      }
+    })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled', source: 'operator' })
+    expect(fixture.dispatches()).toBe(1)
+    const cold = createFileRunContext(fixture.runDir)
+    const events = (await cold.journal.loadTree(runId)) ?? []
+    expect(
+      ofKind(events, 'execution-admitted').every((event) => event.admission.phase !== 'dispatched'),
+    ).toBe(true)
+    expect(ofKind(events, 'execution-result')).toHaveLength(0)
+    expect(ofKind(events, 'driver-attempt')[0]?.record.error).toContain(failure)
+    expect(readRunCancellation(fixture.runDir, 'stop-dispatch-retries')?.effect).toBe('cancelled')
+  })
+
+  it('bounds and redacts a rejected dispatch before journaling its error', async () => {
+    const runId = 'dispatch-failure-redacted'
+    const secret = `sk-proj-${'a'.repeat(100)}`
+    const fixture = await harnessFailureFixture({
+      runId,
+      failures: () => ({
+        error: `Authorization: Bearer ${secret}${' '.repeat(40_000)}`,
+        dispatchFailure: true,
+      }),
+    })
+    const { result } = await fixture.run({ enabled: false })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    const events = await fixture.events()
+    const error = ofKind(events, 'driver-attempt')[0]?.record.error
+    expect(error).toBeDefined()
+    expect(error).not.toContain(secret)
+    expect(error).toContain('REDACTED')
+    expect(error!.length).toBeLessThanOrEqual(32_768)
+  })
+
   it('is retried as a transient driver failure in a new turn on the retained environment', async () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-then-success',
@@ -453,6 +517,20 @@ describe('a root harness turn that ends with a failed outcome', () => {
 
     expect(resumed.result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
     expect(fixture.dispatches()).toBe(2)
+    // Reopening the journal sees both processes' attempts, with one per-node ordinal.
+    const cold = createFileRunContext(fixture.runDir)
+    const durable = ofKind(
+      (await cold.journal.loadTree('harness-failure-resumed')) ?? [],
+      'driver-attempt',
+    )
+    expect(durable.map((event) => [event.seq, event.record.attempt])).toEqual([
+      [0, 1],
+      [1, 1],
+      [2, 2],
+    ])
+    expect(durable[0]?.record.error).toContain(UPSTREAM_TIMEOUT)
+    expect(durable[1]?.record.error).toContain(UPSTREAM_TIMEOUT)
+    expect(durable[2]?.record.stop).toBe('completed')
     // The replayed failure is attempt 1 of the resumed process; it dispatches nothing itself.
     expect(resumed.attempts).toMatchObject([
       { attempt: 1, classification: 'transient', retryInMs: 0 },
