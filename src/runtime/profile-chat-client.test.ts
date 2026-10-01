@@ -60,6 +60,25 @@ const request = {
 }
 
 describe('profileChatClient exact Runtime adapter', () => {
+  it.each(['managed', 'subscription'] as const)(
+    'refuses explicit %s credential identity before a paid router call',
+    (credentialSource) => {
+      const complete = vi.fn()
+      expect(() =>
+        profileChatClient({
+          profile: { ...profile, model: { ...profile.model, metadata: { credentialSource } } },
+          context: 'router credential control',
+          executor: {
+            backend: 'router',
+            routerBaseUrl: 'http://injected.invalid/v1',
+            routerKey: 'injected-transport',
+            complete,
+          },
+        }),
+      ).toThrow(/credentialSource/)
+      expect(complete).not.toHaveBeenCalled()
+    },
+  )
   it('returns only provider-observed model and billed usage, including prompt-cache accounting', async () => {
     const response = await clientWith(async () => ({
       model: 'deepseek-v4-flash',

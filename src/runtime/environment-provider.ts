@@ -1027,7 +1027,7 @@ function createProviderExecutor(
   // The provider owns the model call inside its environment and the create input carries no
   // completion cap, so a requested ceiling is refused before the environment is paid for.
   const tokenLimits = enforceTokenLimits(
-    profileModelExecutionSettings(createProfile, `providerAsExecutor(${provider.name})`)
+    profileModelExecutionSettings(createProfile, `providerAsExecutor(${provider.name})`, 'provider')
       .tokenLimits,
     'provider',
     `providerAsExecutor(${provider.name})`,
