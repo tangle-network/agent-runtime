@@ -514,3 +514,12 @@ than returning the result of an assertion or array operation. Do asynchronous pr
 calling the improvement API; keep measurement and held-out decisions in the existing evaluators.
 The original callback remains part of execution identity, so centralizing its invocation does
 not collapse distinct validator implementations into one cache identity.
+
+### Provider workspace capture identity
+
+`ProviderWorkspaceRetentionContext.executionId` identifies the Runtime invocation and its artifacts.
+Its optional `controlRef` carries the exact admitted provider environment, session, execution, and request digest.
+Forward this reference to provider capture without replacing the Runtime artifact identity.
+Runtime verifies both identities before accepting captured provenance.
+A pre-harness failure can retain partial evidence with an unknown native session.
+Incomplete required coverage preserves the source environment.

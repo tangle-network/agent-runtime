@@ -8299,6 +8299,12 @@ Source-reported coverage retained with the verified archive reference.
 
 > `readonly` `optional` **executionId?**: `string`
 
+##### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+Exact admitted provider execution; executionId above remains the Runtime artifact identity.
+
 ##### workspaceScope?
 
 > `readonly` `optional` **workspaceScope?**: `"environment"`
@@ -8395,6 +8401,14 @@ The exact live execution facts supplied to a retention callback.
 
 > `readonly` **executionId**: `string`
 
+Runtime invocation identity used by the artifact store; never a provider session coordinate.
+
+##### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+Exact admitted provider execution, available even before the harness emits its session id.
+
 ##### node?
 
 > `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
@@ -8442,6 +8456,12 @@ Durable join from one provider box to the verified bytes retained before cleanup
 ##### executionId
 
 > `readonly` **executionId**: `string`
+
+##### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+Durable provider-native identity, separate from the Runtime invocation identity.
 
 ##### node?
 

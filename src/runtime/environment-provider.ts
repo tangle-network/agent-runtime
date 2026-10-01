@@ -83,6 +83,7 @@ import {
   assertEventBinding,
   awaitAbortable,
   exactSession,
+  freezeControlRef,
   RetainedRunProviderContractError,
   sameControlCoordinates,
 } from './retained-run-binding'
@@ -821,6 +822,7 @@ function createProviderExecutor(
   let workspacePreservationRequired = false
   let workspaceRunActive = false
   let providerSessionId: string | null = null
+  let workspaceControlRef: AgentExactRunControlRef | undefined
 
   const runtime = options.runtime ?? (provider.name as Runtime)
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
@@ -886,6 +888,8 @@ function createProviderExecutor(
       workspaceEnvironmentId = undefined
     }
     workspaceRunActive = true
+    workspaceControlRef = undefined
+    providerSessionId = null
     workspaceSnapshot = undefined
     workspaceProvenance = undefined
     workspaceCoverageComplete = false
@@ -913,6 +917,7 @@ function createProviderExecutor(
       workspaceCapturePromise = captureProviderWorkspaceSnapshot(workspaceRetention, {
         environment: next,
         executionId,
+        ...(workspaceControlRef === undefined ? {} : { controlRef: workspaceControlRef }),
         ...(node === undefined ? {} : { node }),
         providerSessionId,
         nativeSessionId: null,
@@ -1109,6 +1114,8 @@ function createProviderExecutor(
             invocation.retention?.continueInvocation !== undefined,
           onRetained: (handle) => {
             retained = handle
+            workspaceControlRef = freezeControlRef(handle.controlRef)
+            providerSessionId = workspaceControlRef.sessionId
           },
           onPending: (value) => {
             pending = value
@@ -1168,6 +1175,7 @@ function createProviderExecutor(
             workspacePublishedSnapshot = snapshot
           },
           captureWorkspace,
+          workspaceControlRef: () => workspaceControlRef,
           workspaceProvenance: () => workspaceProvenance,
           workspaceCoverage: () => ({
             complete: workspaceCoverageComplete,
@@ -1459,6 +1467,7 @@ interface StreamProviderExecutorArgs {
     environment: AgentEnvironment,
     outcome: AgentRunOutcome | undefined,
   ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
+  workspaceControlRef: () => AgentExactRunControlRef | undefined
   workspaceProvenance: () => ProviderWorkspaceCaptureProvenance | undefined
   workspaceCoverage: () => { complete: boolean; incompleteReason?: string }
   destroyEnvironment: (signal?: AbortSignal) => Promise<TeardownAnswer>
@@ -1475,12 +1484,19 @@ function providerWorkspaceCaptureReceipt(
 ): ProviderWorkspaceCaptureReceipt {
   const provenance = args.workspaceProvenance()
   const coverage = args.workspaceCoverage()
+  const controlRef = args.workspaceControlRef()
   return {
     executionId: args.executionId,
+    ...(controlRef === undefined ? {} : { controlRef }),
     ...(args.node === undefined ? {} : { node: args.node }),
     environmentId: environment.id,
     profileDigest: canonicalAgentProfileDigest(args.profile),
-    ...capturedSessionIdentity(provenance, coverage.complete, args.executionId, fallbackSessionId),
+    ...capturedSessionIdentity(
+      provenance,
+      coverage.complete,
+      args.executionId,
+      controlRef?.sessionId ?? fallbackSessionId,
+    ),
     snapshot,
     provenance: provenance ?? {
       status: 'unavailable',
@@ -2342,6 +2358,21 @@ function environmentAsSandboxInstance(
   },
 ): SandboxInstance {
   let providerSessionId: string | null = null
+  let controlRef: AgentExactRunControlRef | undefined
+  const noteControlRef = (candidate: unknown): void => {
+    if (options.workspaceRetention === undefined) return
+    const parsed = AgentExactRunControlRefSchema.safeParse(candidate)
+    if (!parsed.success) return
+    if (
+      parsed.data.environmentId !== environment.id ||
+      parsed.data.provider !== environment.provider
+    )
+      throw new ValidationError(
+        'providerAsSandboxClient: capture control reference names another environment',
+      )
+    controlRef = freezeControlRef(parsed.data)
+    providerSessionId = controlRef.sessionId
+  }
   let capture: Promise<ProviderWorkspaceCaptureReceipt> | undefined
   let publication: Promise<void> | undefined
   const box = {
@@ -2358,6 +2389,7 @@ function environmentAsSandboxInstance(
       let terminal = false
       const input = turnInputFromPrompt(message, promptOptions)
       providerSessionId = input.sessionId ?? null
+      noteControlRef(input.controlRef)
       let cancellation: Promise<void> | undefined
       let cancellationStarted = false
       let cancellationFailed = false
@@ -2434,7 +2466,10 @@ function environmentAsSandboxInstance(
       let usage: TokenUsage | undefined
       let terminal = false
       const failures = createProviderFailureLedger()
-      for await (const event of environment.stream(turnInputFromPrompt(message, promptOptions))) {
+      const input = turnInputFromPrompt(message, promptOptions)
+      providerSessionId = input.sessionId ?? null
+      noteControlRef(input.controlRef)
+      for await (const event of environment.stream(input)) {
         events.push(event)
         if (isTerminalEnvironmentEvent(event)) terminal = true
         failures.observe(event, sandboxEventFromEnvironmentEvent(event))
@@ -2464,6 +2499,7 @@ function environmentAsSandboxInstance(
             )
             if (!session)
               throw new ValidationError('providerAsSandboxClient: dispatch returned no session')
+            noteControlRef(session.controlRef)
             return sandboxDispatchResultFromSessionRef(session)
           },
         }
@@ -2471,6 +2507,7 @@ function environmentAsSandboxInstance(
     ...(environment.session
       ? {
           session(id: string, sessionOptions?: { controlRef?: AgentRunControlRef }) {
+            noteControlRef(sessionOptions?.controlRef)
             return sandboxSessionFromAgentSession(
               environment.session?.(id, sessionOptions),
               sessionOptions?.controlRef,
@@ -2513,12 +2550,14 @@ function environmentAsSandboxInstance(
         capture ??= captureProviderWorkspaceSnapshot(options.workspaceRetention, {
           environment,
           executionId: identity.executionId,
+          ...(controlRef === undefined ? {} : { controlRef }),
           ...(identity.node === undefined ? {} : { node: identity.node }),
           providerSessionId,
           nativeSessionId: null,
           profile: identity.profile,
         }).then(({ snapshot, provenance, coverageComplete, incompleteReason }) => ({
           executionId: identity.executionId,
+          ...(controlRef === undefined ? {} : { controlRef }),
           ...(identity.node === undefined ? {} : { node: identity.node }),
           environmentId: environment.id,
           profileDigest: canonicalAgentProfileDigest(identity.profile),
