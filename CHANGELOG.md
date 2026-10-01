@@ -1,3 +1,8 @@
+## 0.288.0
+
+Persist manager driver attempt outcomes in the existing spawn journal so ordinary dispatch errors survive cancellation and coordinator restart.
+Exhaustive SpawnEvent consumers must handle the informational driver-attempt variant without settling nodes or charging work.
+
 ## 0.287.2
 
 Environment-provider executors preserve explicit managed or subscription credential intent from the exact AgentProfile.
