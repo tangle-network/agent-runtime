@@ -1,3 +1,10 @@
+## 0.287.1
+
+Recover committed journal evidence after the run deadline has passed.
+The existing deadline path then settles the run without invoking its root again.
+Caller cancellation still interrupts recovery.
+The original start time, budget, identity, and accounting remain unchanged.
+
 ## 0.287.0
 
 Require Eval 0.201 through 0.203, Interface 2.15, Knowledge 18, and Sandbox 0.58.4.
