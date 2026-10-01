@@ -378,7 +378,11 @@ export interface ExecutorResult<Out> {
   /** Explicit execution outcome; application output and scoring verdicts do not determine failure.
    *  `errorCode` is the provider's machine code for a failure when it reported one. A retry policy
    *  reads the code, never the human `error` text. */
-  outcome?: Pick<AgentTurnResult, 'success' | 'error'> & { errorCode?: string }
+  outcome?: Pick<AgentTurnResult, 'success' | 'error'> & {
+    errorCode?: string
+    /** Native HTTP failure status, when reported, in the range 400–599. */
+    statusCode?: number
+  }
   outRef: string
   out: Out
   verdict?: DefaultVerdict
@@ -1470,7 +1474,11 @@ export type SpawnEvent =
   | {
       /** Recoverable output committed before releasing its provider environment. */
       kind: 'execution-result'
-      outcome?: Pick<AgentTurnResult, 'success' | 'error'> & { errorCode?: string }
+      outcome?: Pick<AgentTurnResult, 'success' | 'error'> & {
+        errorCode?: string
+        /** Native HTTP failure status, when reported, in the range 400–599. */
+        statusCode?: number
+      }
       id: NodeId
       outRef: string
       spent: Spend

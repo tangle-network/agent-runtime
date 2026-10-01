@@ -70,3 +70,25 @@ describe('executorFailureInfra: the envelope path stops stamping `infra: false`'
     expect(executorFailure({ outcome: { success: true } })).toBeUndefined()
   })
 })
+
+describe('executorFailure HTTP metadata', () => {
+  it('retains a numeric native failure status through the strict executor envelope', () => {
+    expect(
+      executorFailure({
+        outcome: {
+          success: false,
+          error: 'native request rejected',
+          errorCode: 'native_api_error',
+          statusCode: 400,
+        },
+      }),
+    ).toEqual({ error: 'native request rejected', errorCode: 'native_api_error', statusCode: 400 })
+  })
+
+  it.each([0, 399, 600, 400.5, Number.NaN])(
+    'refuses malformed HTTP failure status %s',
+    (statusCode) => {
+      expect(() => executorFailure({ outcome: { success: false, statusCode } })).toThrow()
+    },
+  )
+})

@@ -1,10 +1,12 @@
 import { AgentTurnResultSchema } from '@tangle-network/agent-interface'
+import { z } from 'zod'
 import type { ExecutorResult } from './types'
 
-// `errorCode` reuses the interface's own optional-string schema, so the envelope stays strict
-// without this package importing a second copy of zod.
 const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true })
-  .extend({ errorCode: AgentTurnResultSchema.shape.error })
+  .extend({
+    errorCode: AgentTurnResultSchema.shape.error,
+    statusCode: z.number().int().min(400).max(599).optional(),
+  })
   .strict()
 
 /** Why an executor's own envelope says the execution failed, with the provider's machine code
@@ -12,6 +14,7 @@ const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true })
 export interface ExecutorFailure {
   readonly error: string
   readonly errorCode?: string
+  readonly statusCode?: number
 }
 
 /** Read only the executor envelope; application output and grades are not execution status. */
@@ -24,6 +27,7 @@ export function executorFailure(
   return {
     error: outcome.error ?? 'Agent execution failed',
     ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
+    ...(outcome.statusCode === undefined ? {} : { statusCode: outcome.statusCode }),
   }
 }
 
