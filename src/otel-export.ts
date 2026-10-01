@@ -277,7 +277,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       })
-      const text = await response.text().catch(() => '')
+      const text = await response.text()
       if (!response.ok) {
         const detail = text ? `: ${text.slice(0, 200)}` : ''
         drop(batch.length, `HTTP ${response.status} from ${url}${detail}`)
@@ -295,6 +295,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
 
   /** The single sender: it drains the queue batch by batch until the queue is empty. */
   function drain(): Promise<void> {
+    if (sending === undefined && queue.length === 0) return Promise.resolve()
     sending ??= (async () => {
       try {
         while (queue.length > 0) {
