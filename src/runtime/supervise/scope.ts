@@ -65,7 +65,8 @@ import {
   teardownExecutor,
 } from './deadline'
 import { freeSlots } from './dispatch'
-import { errMessage } from './error-message'
+import type { DriverAttemptRecord } from './driver-retry'
+import { errMessage, errorText } from './error-message'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import { executorFailure, executorFailureInfra, executorFailureReason } from './executor-outcome'
 import {
@@ -314,6 +315,7 @@ export type ScopeOwnerPause = Omit<
   'kind' | 'id' | 'seq' | 'at'
 >
 const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<void>>()
+const driverAttemptRecorders = new WeakMap<object, (record: DriverAttemptRecord) => Promise<void>>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
 const retainedSlotClosers = new WeakMap<object, () => Promise<void>>()
@@ -2273,6 +2275,31 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // Its unknown-cost marker still belongs in the durable journal after the scope aborts.
       meterInternal(spend, detail, providerModel, accountingOnly, true),
   )
+  let driverAttemptSeq: number | undefined
+  driverAttemptRecorders.set(scope as Scope<unknown>, async (record) => {
+    if (driverAttemptSeq === undefined) {
+      const events = (await args.journal.loadTree(args.root)) ?? []
+      driverAttemptSeq = events.reduce(
+        (next, event) =>
+          event.kind === 'driver-attempt' && event.id === args.parentId
+            ? Math.max(next, event.seq + 1)
+            : next,
+        0,
+      )
+    }
+    const attemptId = ownerMaterializationStates.get(scope as Scope<unknown>)?.attemptId
+    await args.journal.appendEvent(args.root, {
+      kind: 'driver-attempt',
+      id: args.parentId,
+      record: {
+        ...record,
+        ...(record.error === undefined ? {} : { error: errorText(record.error) }),
+      },
+      ...(attemptId === undefined ? {} : { attemptId }),
+      seq: driverAttemptSeq++,
+      at: new Date(now()).toISOString(),
+    })
+  })
   let pauseSeq = 0
   pauseRecorders.set(scope as Scope<unknown>, async (pause) => {
     await args.journal.appendEvent(args.root, {
@@ -2664,6 +2691,18 @@ export function recordScopeOwnerPause(
     throw new ValidationError('scope: pause recorder is not bound to this scope')
   }
   return record(pause)
+}
+
+/** @internal Persist the owner's driver outcome even after its scope has been aborted. */
+export function recordScopeOwnerDriverAttempt(
+  scope: Scope<unknown>,
+  attempt: DriverAttemptRecord,
+): Promise<void> {
+  const record = driverAttemptRecorders.get(scope as object)
+  if (record === undefined) {
+    throw new ValidationError('scope: driver attempt recorder is not bound to this scope')
+  }
+  return record(attempt)
 }
 
 /** @internal Meter Runtime-owned accounting that does not represent provider execution. */
