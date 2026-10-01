@@ -428,12 +428,15 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
     try {
       if (!(value instanceof Error) || seen.has(value)) continue
       seen.add(value)
-      if (
-        value instanceof RetainedExecutionPendingError &&
-        (value.phase !== 'admission' ||
-          (value.pendingCause !== 'request-rejected' && value.pendingCause !== 'transport'))
-      )
-        return undefined
+      if (value instanceof RetainedExecutionPendingError) {
+        if (
+          value.phase !== 'admission' ||
+          (value.pendingCause !== 'request-rejected' && value.pendingCause !== 'transport')
+        )
+          return undefined
+        queue.push(value.cause)
+        continue
+      }
       // A failed retained read observes an existing execution, even inside an admission wrapper.
       if (errorProperty(value, 'name') === 'RetainedRunProviderContractError') return undefined
       const status = errorHttpStatus(value)

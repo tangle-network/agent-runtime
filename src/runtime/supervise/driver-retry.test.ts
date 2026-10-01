@@ -266,6 +266,13 @@ describe('retained admission classification', () => {
     const cyclic = refused()
     Object.assign(cyclic, { cause: cyclic })
     expect(classifyDriverFailure(cyclic)).toBe('transient')
+    const decoratedCycle = refused()
+    Object.assign(decoratedCycle, { cause: decoratedCycle, status: 400 })
+    expect(classifyDriverFailure(decoratedCycle)).toBe('terminal')
+    expect(upstreamUnavailableSignal(decoratedCycle)).toBeUndefined()
+    const wrappedCycle = refused()
+    Object.assign(wrappedCycle, { cause: decoratedCycle })
+    expect(classifyDriverFailure(wrappedCycle)).toBe('transient')
 
     const deep = refused()
     let cause: Error = Object.assign(new Error('refused'), { status: 400 })
