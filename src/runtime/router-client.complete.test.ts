@@ -332,14 +332,19 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       [{ role: 'user', content: 'stop retrying' }],
       { signal: controller.signal },
     )
-    await started
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(timerSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
-    controller.abort(new Error('caller stopped'))
+    try {
+      await started
+      await vi.waitFor(() => {
+        expect(timerSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
+      })
+      controller.abort(new Error('caller stopped'))
 
-    await expect(pending).rejects.toThrow(/caller stopped/u)
-    expect(fetchSpy).toHaveBeenCalledOnce()
+      await expect(pending).rejects.toThrow(/caller stopped/u)
+      expect(fetchSpy).toHaveBeenCalledOnce()
+    } finally {
+      controller.abort(new Error('test cleanup'))
+      await pending.catch(() => undefined)
+    }
   })
 
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
