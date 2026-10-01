@@ -1,3 +1,8 @@
+## 0.288.1
+
+Retain exact admitted provider control references with workspace capture.
+Keep Runtime artifact identity separate from native session and execution identity, including pre-harness failures and reconstructed environments.
+
 ## 0.288.0
 
 Persist manager driver attempt outcomes in the existing spawn journal so ordinary dispatch errors survive cancellation and coordinator restart.
