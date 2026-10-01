@@ -1309,6 +1309,7 @@ describe('a crash between the receipt and the released record heals on the next 
     const runDirectory = join(directory, 'run')
     const observerPath = join(directory, 'observer.jsonl')
     const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
+    const initialObserver = new FileObserverJournal(observerPath, 'pursuit:heal')
     await createSupervisor<unknown, unknown>().run(
       {
         name: 'root',
@@ -1322,7 +1323,7 @@ describe('a crash between the receipt and the released record heals on the next 
         ...createFileRunContext(runDirectory),
         journal: crashed.journal,
         ...common('heal'),
-        hooks: new FileObserverJournal(observerPath, 'pursuit:heal').hooks(),
+        hooks: initialObserver.hooks(),
       },
     )
     // The window exactly: the environment is destroyed, the receipt is the last record, the slot
@@ -1345,6 +1346,8 @@ describe('a crash between the receipt and the released record heals on the next 
     })
     expect(reconciled).not.toHaveProperty('cancellation')
 
+    // Finish the simulated crashed process's writer before constructing its replacement.
+    await initialObserver.read()
     fleet.state.resultLost = false
     const restarted = createFileRunContext(runDirectory)
     const hookEvents: RuntimeHookEvent[] = []

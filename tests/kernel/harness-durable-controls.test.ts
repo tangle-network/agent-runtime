@@ -402,34 +402,45 @@ describe('durable worker controls during a native harness invocation', () => {
   })
 
   it('expires late controls and stops observing after the harness ends', async () => {
-    const { root, dir } = layout()
-    const worker = controlledLeaf('worker')
-    let workerId = ''
-    await runHarness(
-      dir,
-      async ({ coordinationMcpUrl }) => {
-        const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
-          profile: testAgentProfile('worker'),
-          task: 'wait',
-        })
-        workerId = spawned.workerId
-        await worker.started.promise
-        cancelWorker(dir, workerId, 'late-cancel')
-        writeWorkerSteer(root, runId, workerId, { operationId: 'late-steer', message: 'too late' })
-      },
-      () => worker.agent,
-    )
-    expect(readWorkerCancellation(dir, 'late-cancel')).toMatchObject({
-      effect: 'not_live',
-      terminated: [],
-    })
-    expect(readWorkerSteerAcknowledgement(dir, 'late-steer')).toMatchObject({ effect: 'not_live' })
-    expect(worker.delivered).not.toHaveBeenCalled()
-    writeWorkerSteer(root, runId, workerId, {
-      operationId: 'after-close',
-      message: 'already closed',
-    })
-    await new Promise<void>((resolve) => setTimeout(resolve, 150))
-    expect(readWorkerSteerAcknowledgement(dir, 'after-close')).toBeUndefined()
+    // Hold interval polls so these commands reach the observer only during close.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      const { root, dir } = layout()
+      const worker = controlledLeaf('worker')
+      let workerId = ''
+      await runHarness(
+        dir,
+        async ({ coordinationMcpUrl }) => {
+          const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
+            profile: testAgentProfile('worker'),
+            task: 'wait',
+          })
+          workerId = spawned.workerId
+          await worker.started.promise
+          cancelWorker(dir, workerId, 'late-cancel')
+          writeWorkerSteer(root, runId, workerId, {
+            operationId: 'late-steer',
+            message: 'too late',
+          })
+        },
+        () => worker.agent,
+      )
+      expect(readWorkerCancellation(dir, 'late-cancel')).toMatchObject({
+        effect: 'not_live',
+        terminated: [],
+      })
+      expect(readWorkerSteerAcknowledgement(dir, 'late-steer')).toMatchObject({
+        effect: 'not_live',
+      })
+      expect(worker.delivered).not.toHaveBeenCalled()
+      writeWorkerSteer(root, runId, workerId, {
+        operationId: 'after-close',
+        message: 'already closed',
+      })
+      await new Promise<void>((resolve) => setTimeout(resolve, 150))
+      expect(readWorkerSteerAcknowledgement(dir, 'after-close')).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
