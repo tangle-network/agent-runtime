@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.287.0.**
+> **Version 0.287.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.201.0 <0.204.0`.
 > `sandbox` must satisfy `>=0.58.4 <0.59.0`.
@@ -48,6 +48,8 @@ The system is four steps, each with a named entry point:
 
 Two standing rules: the model that picks the best attempt is never the model that grades it, and observation attaches to the *loop* via `RuntimeHooks`, never to the portable profile. A durable `Supervisor` replays a crashed tree from its journal after coordinator restart; committed work is reused while in-flight keyed work remains `in-doubt` until its exact prior execution is recovered.
 Configure `recoverExecutor` for retained provider children when using the lower-level supervisor.
+An expired run still reconciles its committed records and reaches deadline settlement.
+Recovery does not grant more execution time.
 The built-in nonsteering provider path in `supervise` supplies recovery for children, nested managers, and the root manager invocation.
 Live descendants regain their original reservations before the parent resumes, without waiting for their terminal results.
 Recovery uses original durable inputs and exact provider references; missing proof leaves the invocation unresolved.

@@ -508,19 +508,13 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         const abortRecovery = () => recoveryController.abort(opts.signal?.reason)
         if (opts.signal?.aborted) abortRecovery()
         else opts.signal?.addEventListener('abort', abortRecovery, { once: true })
-        const recoveryDeadline =
-          opts.budget.deadlineMs === undefined ? undefined : runEpochMs + opts.budget.deadlineMs
-        const clearRecoveryDeadline =
-          recoveryDeadline === undefined
-            ? undefined
-            : armDeadlineTimer(Math.max(0, recoveryDeadline - now()), () =>
-                recoveryController.abort('run deadline exceeded during recovery'),
-              )
+        // The execution deadline forbids new work, not recovery of committed evidence.
+        // Restore the tree first so an expired run reaches the normal deadline settlement
+        // and teardown path. Caller cancellation still interrupts reconciliation.
         let restored: Awaited<ReturnType<typeof prepareScopeResume>>
         try {
           restored = await prepareScopeResume(opts, prior, recoveryController.signal, now)
         } finally {
-          clearRecoveryDeadline?.()
           opts.signal?.removeEventListener('abort', abortRecovery)
         }
         resumeFrom = restored.resumeFrom
@@ -817,6 +811,46 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
               })
             }
           }
+          // An expired or cancelled resume can stop before adopting retained children.
+          // Preserve those nodes and name their source environments instead of implying
+          // that the empty live scope confirmed their cleanup.
+          const adopted = new Set(openScope.view.nodes.map((node) => node.id))
+          const unrecovered: UnconfirmedTeardown[] = []
+          for (const recovery of resumeFrom?.recoveries ?? []) {
+            if (adopted.has(recovery.spawned.id)) continue
+            const environments = new Map<
+              string,
+              { provider: string; environmentId: string; keptFor: 'evidence' }
+            >()
+            for (const admission of recovery.admissions) {
+              const environment =
+                admission.phase === 'environment'
+                  ? admission
+                  : admission.phase === 'dispatched'
+                    ? admission.controlRef
+                    : undefined
+              if (environment === undefined) continue
+              const ref = {
+                provider: environment.provider,
+                environmentId: environment.environmentId,
+                keptFor: 'evidence' as const,
+              }
+              environments.set(JSON.stringify([ref.provider, ref.environmentId]), ref)
+            }
+            unrecovered.push({
+              id: recovery.spawned.id,
+              label: recovery.spawned.label,
+              runtime: recovery.spawned.runtime,
+              status:
+                resumeFrom?.view.nodes.find((node) => node.id === recovery.spawned.id)?.status ??
+                'pending',
+              ...(environments.size === 0 ? {} : { kept: [...environments.values()] }),
+              attempts: 0,
+              detail:
+                'Retained child was not recovered before settlement; source evidence and teardown remain unverified.',
+            })
+          }
+          teardownUnconfirmed = [...teardownUnconfirmed, ...unrecovered]
           // The leak is real and must surface, so it is journaled per node — durable evidence a
           // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping,
           // naming the environment ids an operator's sweeper deletes.
