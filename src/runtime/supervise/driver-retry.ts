@@ -85,6 +85,7 @@ import {
   type ContinuationEntry,
 } from './continuation'
 import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
+import { RetainedExecutionPendingError } from './retained-executor'
 import type { Scope } from './types'
 import {
   UNAVAILABLE_CODES,
@@ -330,6 +331,8 @@ export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
  * no structured field decided, because a harness CLI reports the router's refusal as text.
  */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
+  const admission = retainedAdmissionCause(error)
+  if (admission !== undefined) return upstreamUnavailableSignal(admission)
   if (!(error instanceof Error)) return undefined
   // The check could not run. It is not a verdict on the director, so the loop pauses as it does
   // for an upstream out of capacity and never counts the turn for or against the run.
@@ -371,6 +374,8 @@ function isUpstreamUnavailable(error: unknown): boolean {
  */
 export function classifyDriverFailure(error: unknown, signal?: AbortSignal): DriverFailureClass {
   if (signal?.aborted) return 'terminal'
+  const admission = retainedAdmissionCause(error)
+  if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
@@ -401,6 +406,55 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   if (error instanceof AgentEvalError) return 'terminal'
   if (isUpstreamUnavailable(error)) return 'unavailable'
   return foreignHttpStatusVerdict(error) ?? 'transient'
+}
+
+/** Admission refusals keep the original HTTP rules without interpreting failures after execution starts. */
+function retainedAdmissionCause(error: unknown): Error | undefined {
+  if (
+    !(error instanceof RetainedExecutionPendingError) ||
+    error.phase !== 'admission' ||
+    (error.pendingCause !== 'request-rejected' && error.pendingCause !== 'transport')
+  )
+    return undefined
+  const queue: unknown[] = []
+  try {
+    queue.push(error.cause)
+  } catch {
+    return undefined
+  }
+  const seen = new Set<Error>()
+  for (let steps = 0; queue.length > 0 && steps < 12; steps += 1) {
+    const value = queue.shift()
+    try {
+      if (!(value instanceof Error) || seen.has(value)) continue
+      seen.add(value)
+      if (value instanceof RetainedExecutionPendingError) {
+        if (
+          value.phase !== 'admission' ||
+          (value.pendingCause !== 'request-rejected' && value.pendingCause !== 'transport')
+        )
+          return undefined
+        queue.push(value.cause)
+        continue
+      }
+      // A failed retained read observes an existing execution, even inside an admission wrapper.
+      if (errorProperty(value, 'name') === 'RetainedRunProviderContractError') return undefined
+      const status = errorHttpStatus(value)
+      if (status !== undefined && status >= 400) {
+        // An uncertain transport cause can establish capacity, but cannot establish a terminal refusal.
+        return error.pendingCause === 'request-rejected' || UNAVAILABLE_STATUSES.has(status)
+          ? value
+          : undefined
+      }
+      if (error.pendingCause === 'request-rejected' && value instanceof AgentEvalError) return value
+      const members: unknown = Reflect.get(value, 'errors')
+      if (Array.isArray(members)) queue.push(...members.slice(0, 12 - steps))
+      queue.push(value.cause)
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 /**

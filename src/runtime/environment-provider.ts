@@ -1982,7 +1982,10 @@ async function providerExecutionSource(
   }
   const retention = args.retention!
   let admitted = args.recovering
+  let executionAdmitted =
+    args.recovering && retention.admissions.some((admission) => admission.phase === 'dispatched')
   const onAdmission = async (admission: Parameters<typeof retention.onAdmission>[0]) => {
+    if (admission.phase === 'dispatched') executionAdmitted = true
     await retention.onAdmission(admission)
     admitted = true
     args.onPending(true)
@@ -2087,6 +2090,7 @@ async function providerExecutionSource(
         throw new Error('retained provider execution has no durable admission')
       handle = await startRetainedRun({ provider: args.provider, ...material, onAdmission })
     }
+    executionAdmitted = true
     args.onRetained(handle)
     args.onPending(true)
     const environment = await args.provider.get?.(handle.controlRef.environmentId)
@@ -2222,8 +2226,9 @@ async function providerExecutionSource(
     }
     return { environment, events: events(), retained: true }
   } catch (error) {
-    // Before `events()` is ever iterated, so a refused request still means refused: admission.
-    if (admitted) throw new RetainedExecutionPendingError(error, 'admission')
+    // A durable dispatch or exact reattachment proves execution admission before observation starts.
+    if (admitted)
+      throw new RetainedExecutionPendingError(error, executionAdmitted ? 'execution' : 'admission')
     throw error
   }
 }
