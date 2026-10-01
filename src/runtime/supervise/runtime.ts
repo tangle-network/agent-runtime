@@ -882,6 +882,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               // Auto reports final-generation usage only. Child usage stays unknown here.
               tokensKnown = false
               reasoningKnown = false
+              usdKnown = false
             } else assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')
             if (res.model !== undefined) observedModel = res.model
             mergePromptCache(promptCache, res.cache)

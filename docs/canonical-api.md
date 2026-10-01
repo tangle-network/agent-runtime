@@ -21,6 +21,8 @@ Declare `model.default: 'tangle/auto'` and an inline policy in `model.metadata.e
 Use the Router Auto base URL and buffered transport.
 Runtime checks strategy and assessment models against `allowedModels` before dispatch.
 It checks each reported child model against the declared policy.
+It checks policy ID and revision; Router owns normalization and the policy digest.
+Consumers must compare that digest with their frozen Router policy before using the result.
 Preset references require resolution into an inline policy before execution.
 
 `onProviderResponse` receives each buffered HTTP attempt before response decoding.
@@ -34,6 +36,7 @@ Observer failures stop the executor and do not authorize another paid request.
 
 Auto response usage covers the final generation only.
 Runtime marks aggregate token and dollar usage unknown.
+Any observed final-generation dollar subtotal is a lower bound, not a complete Auto total.
 Use the returned physical generation identifiers to join authoritative billing records.
 A receipt header cost does not prove complete campaign billing.
 

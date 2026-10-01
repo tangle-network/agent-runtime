@@ -902,20 +902,24 @@ async function fetchRouterResponse(
     try {
       candidate = await fetch(url, { ...init, signal })
     } catch (error) {
-      await onResponse?.({
-        endpoint: url,
-        callId: new Headers(init.headers).get('idempotency-key') ?? '',
-        attempt,
-        startedAt,
-        endedAt: new Date().toISOString(),
-        status: null,
-        headers: {},
-        body: null,
-        error: {
-          name: error instanceof Error ? error.name : 'Error',
-          message: error instanceof Error ? error.message : String(error),
+      await observeRouterResponse(
+        onResponse,
+        {
+          endpoint: url,
+          callId: new Headers(init.headers).get('idempotency-key') ?? '',
+          attempt,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          status: null,
+          headers: {},
+          body: null,
+          error: {
+            name: error instanceof Error ? error.name : 'Error',
+            message: error instanceof Error ? error.message : String(error),
+          },
         },
-      })
+        signal,
+      )
       throw error
     }
     if (onResponse) {
@@ -934,24 +938,28 @@ async function fetchRouterResponse(
       } catch (error) {
         bodyError = error
       }
-      await onResponse({
-        endpoint: url,
-        callId: new Headers(init.headers).get('idempotency-key') ?? '',
-        attempt,
-        startedAt,
-        endedAt: new Date().toISOString(),
-        status: candidate.status,
-        headers,
-        body,
-        ...(bodyError === undefined
-          ? {}
-          : {
-              error: {
-                name: bodyError instanceof Error ? bodyError.name : 'Error',
-                message: bodyError instanceof Error ? bodyError.message : String(bodyError),
-              },
-            }),
-      })
+      await observeRouterResponse(
+        onResponse,
+        {
+          endpoint: url,
+          callId: new Headers(init.headers).get('idempotency-key') ?? '',
+          attempt,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          status: candidate.status,
+          headers,
+          body,
+          ...(bodyError === undefined
+            ? {}
+            : {
+                error: {
+                  name: bodyError instanceof Error ? bodyError.name : 'Error',
+                  message: bodyError instanceof Error ? bodyError.message : String(bodyError),
+                },
+              }),
+        },
+        signal,
+      )
       if (bodyError !== undefined) throw bodyError
     }
     if (candidate.ok) return candidate
@@ -964,6 +972,33 @@ async function fetchRouterResponse(
     })
   })
   return { response: result.value, attempts: result.attempts }
+}
+
+/** Evidence failure cannot authorize a second inference, even after the request deadline. */
+async function observeRouterResponse(
+  observer: ((receipt: RouterResponseReceipt) => void | Promise<void>) | undefined,
+  receipt: RouterResponseReceipt,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!observer) return
+  let onAbort: (() => void) | undefined
+  try {
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(signal.reason ?? new Error('Response observation aborted'))
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    })
+    await Promise.race([Promise.resolve().then(() => observer(receipt)), aborted])
+  } catch (error) {
+    throw new SDKError('Router response observation failed', {
+      code: 'UNKNOWN',
+      retryable: false,
+      cause: error instanceof Error ? error : new Error(String(error)),
+      context: { phase: 'response_observation' },
+    })
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
 }
 
 async function retryRouterOperation<T>(
@@ -980,6 +1015,8 @@ async function retryRouterOperation<T>(
         try {
           return await operation(attemptSignal.signal)
         } catch (error) {
+          if (error instanceof SDKError && error.context?.phase === 'response_observation')
+            throw error
           if (callerSignal?.aborted) throw callerSignal.reason ?? error
           if (attemptSignal.signal.aborted) {
             throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {
