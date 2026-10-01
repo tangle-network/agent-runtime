@@ -751,10 +751,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             reason: expect.stringContaining('manager execution failed'),
           })
         } else {
-          expect(parentRows[0]).toMatchObject({ kind: 'done', out: null })
+          expect(parentRows[0]).toMatchObject({
+            kind: 'done',
+            out: { content: 'unassessed report' },
+          })
         }
         if (parentRows[0]?.kind === 'done') {
-          expect(parentRows[0].verdict?.valid).not.toBe(true)
+          expect(parentRows[0].verdict).toBeUndefined()
         }
         const leafRows = await replaySpawnTree(journal, blobs, 'unassessed/unassessed:s0')
         expect(leafRows).toHaveLength(1)

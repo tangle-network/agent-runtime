@@ -161,6 +161,10 @@ When the parent declares a `deliverable`, its finalizer's candidate must pass th
 The default selects the highest-scoring child that also passes the parent's check.
 Custom finalizers assemble their candidate before the check.
 Child validity and delivery counts remain unchanged.
+A nested external child without a completion check retains its terminal harness report when no checked finalizer output exists.
+Its parent's `await_event` receipt labels that report `assessment: 'unassessed'` and provides the existing `observe_agent` read.
+The durable settlement carries no quality verdict.
+A raw report cannot satisfy a declared check, become a checked delivery, or reset checked-delivery progress.
 An external director with a check must declare a `continuation` policy, and Runtime then sends it back from a rejected candidate within its existing resource limits.
 The policy holds a deadline and `maxBarren`; there is no continuation count and no default.
 Runtime writes the continuation note from the check's verdict: its `FAIL` lines, the items that pass, what changed, and optionally the question panel's verified findings and the bar.

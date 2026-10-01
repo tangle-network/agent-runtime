@@ -23432,6 +23432,17 @@ Optional live progress from the harness execution currently being driven.
 
 [`ExecutorProgress`](#executorprogress) \| `undefined`
 
+##### resultArtifact()?
+
+> `optional` **resultArtifact**(): [`ExecutorResult`](#executorresult)\<`unknown`\> \| `undefined`
+
+Terminal artifact from the newest successfully completed invocation. A child without a
+completion check retains its output as unassessed evidence for its parent.
+
+###### Returns
+
+[`ExecutorResult`](#executorresult)\<`unknown`\> \| `undefined`
+
 ##### harnessTranscript()?
 
 > `optional` **harnessTranscript**(): [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
@@ -23507,6 +23518,23 @@ Independent completion check for direct driver work (`submit_result`).
 > `readonly` `optional` **onAcceptedSubmission?**: (`result`) => `void`
 
 Receives a result only after this manager's completion check accepted it.
+
+###### Parameters
+
+###### result
+
+`unknown`
+
+###### Returns
+
+`void`
+
+##### onUnassessedOutput?
+
+> `readonly` `optional` **onUnassessedOutput?**: (`result`) => `void`
+
+Reports that a nested unchecked manager returned its own harness evidence, not a checked
+finalizer result. Recursive settlement must preserve the absence of a quality verdict.
 
 ###### Parameters
 

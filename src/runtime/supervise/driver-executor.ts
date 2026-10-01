@@ -92,6 +92,8 @@ interface DriverSpec extends AgentSpec {
   /** Reads whether this manager accepted a direct result through its assignment's completion
    *  check. The check itself runs in the manager, exactly once, before this executor settles. */
   readonly acceptedSubmission?: () => boolean
+  /** The driver returned native evidence without an assignment quality check. */
+  readonly unassessedOutput?: () => boolean
   readonly recoverExecutor?: ExecutorFactory<unknown>
   readonly traceSource?: () => TraceSource | undefined
   readonly progress?: () => ExecutorProgress | undefined
@@ -113,6 +115,7 @@ export function driverChild<Out>(
   execution?: AgentExecutionRef,
   acceptedSubmission?: () => boolean,
   recoverExecutor?: ExecutorFactory<unknown>,
+  unassessedOutput?: () => boolean,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
   const traceSource = (
@@ -134,6 +137,7 @@ export function driverChild<Out>(
     driver: driver as Agent<unknown, unknown>,
     journal,
     ...(acceptedSubmission ? { acceptedSubmission } : {}),
+    ...(unassessedOutput ? { unassessedOutput } : {}),
     ...(recoverExecutor ? { recoverExecutor } : {}),
     ...(traceSource ? { traceSource } : {}),
     ...(progress ? { progress } : {}),
@@ -340,11 +344,15 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         // A manager may finish work itself through an assignment-selected completion check. That
         // accepted submission is already independent evidence, so carry it to this settlement
         // instead of requiring an unrelated nested child or running the check again.
-        const verdict = deriveDeliveryVerdict(
-          events.filter((event) => event.kind === 'settled'),
-          out,
-          spec.acceptedSubmission?.() === true,
-        )
+        const acceptedSubmission = spec.acceptedSubmission?.() === true
+        const verdict =
+          !acceptedSubmission && spec.unassessedOutput?.() === true
+            ? undefined
+            : deriveDeliveryVerdict(
+                events.filter((event) => event.kind === 'settled'),
+                out,
+                acceptedSubmission,
+              )
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           // No accepted finalizer output is a present, unassessed result. Undefined is the
