@@ -63,6 +63,12 @@ Credential values remain private executor inputs.
 Router, bridge, and legacy sandbox executors reject this field because they do not enforce this selection contract.
 Unknown model controls and unenforceable completion ceilings still fail before execution.
 
+Construct the Sandbox provider with `createTangleProvider` from `@tangle-network/agent-provider-tangle`.
+Pass it to `createExecutor({ backend: 'provider', provider })` or `provisionSupervisor({ connection: { provider }, ... })`.
+Runtime no longer constructs an agent provider from a Sandbox client, endpoint, or API key.
+Shared-box workers implement `AgentEnvironment` directly.
+A profile with explicit credential intent keeps its dedicated provider.
+
 ## 2. Driver vs worker — judgment vs labor
 
 ```

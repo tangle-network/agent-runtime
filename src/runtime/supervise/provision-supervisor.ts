@@ -25,8 +25,6 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createCoordinationTools } from '../../mcp/tools/coordination'
-import { sandboxClientAsProvider } from '../environment-provider'
-import type { SandboxClient } from '../types'
 import { sleep } from '../util'
 import { createCancelAcknowledger, createSteerAcknowledger } from './coordination-driver'
 import { armDeadlineTimer } from './deadline'
@@ -47,20 +45,10 @@ const ROOT_MAX_TOKENS = 100_000
 const WORKER_MAX_ITERATIONS = 25
 const WORKER_MAX_TOKENS = 25_000
 
-/** Caller-supplied provider or Sandbox SDK connection for one supervisor run. */
+/** Caller-supplied environment provider for one supervisor run. */
 export interface ProvisionSupervisorConnection {
-  /** A fully constructed provider. This is the preferred programmatic seam and is testable. */
-  readonly provider?: AgentEnvironmentProvider
-  /** A Sandbox SDK-compatible client. Runtime adapts it to the public provider contract. */
-  readonly client?: SandboxClient
-  /** Alias for `client`, accepted so callers can pass their existing connection object. */
-  readonly sandboxClient?: SandboxClient
-  /** Sandbox API endpoint used only when Runtime constructs the SDK client. */
-  readonly endpoint?: string
-  /** Transient Sandbox API key used only when Runtime constructs the SDK client. */
-  readonly apiKey?: string
-  /** Connection kind is descriptive only and does not select a hidden implementation. */
-  readonly kind?: string
+  /** A constructed provider that owns exact-profile admission and environment reconnection. */
+  readonly provider: AgentEnvironmentProvider
 }
 
 /** Input to the public Runtime supervisor provisioner. */
@@ -78,7 +66,7 @@ export interface ProvisionSupervisorRequest {
   readonly timeoutMs?: number
   /** Poll cadence for lifecycle/control readiness. */
   readonly pollMs?: number
-  /** Explicit provider, client, or endpoint and API key for one provider connection. */
+  /** Constructed provider for one execution connection. */
   readonly connection: ProvisionSupervisorConnection
 }
 
@@ -145,7 +133,7 @@ export async function provisionSupervisor(
   request: ProvisionSupervisorRequest,
 ): Promise<ProvisionedSupervisor> {
   const input = normalizeRequest(request)
-  const provider = await resolveProvider(input)
+  const provider = resolveProvider(input)
   const capabilities = await readCapabilities(provider)
   const terminalTakeover = terminalCapability(capabilities)
   const profile = input.profile
@@ -470,34 +458,11 @@ function resolveProfile(profile: AgentProfile): AgentProfile {
   return parsed.data
 }
 
-async function resolveProvider(
-  request: ProvisionSupervisorRequest,
-): Promise<AgentEnvironmentProvider> {
-  const connection = request.connection
-  if (connection === undefined) {
-    throw unavailable('Runtime supervisor provider connection is required')
+function resolveProvider(request: ProvisionSupervisorRequest): AgentEnvironmentProvider {
+  const provider = request.connection?.provider
+  if (provider === undefined) {
+    throw unavailable('Runtime supervisor requires connection.provider')
   }
-  if (connection?.provider !== undefined) return requireReconnectProvider(connection.provider)
-  const client = connection?.client ?? connection?.sandboxClient
-  if (client !== undefined) {
-    return requireReconnectProvider(sandboxClientAsProvider(client))
-  }
-  const apiKey = connection.apiKey?.trim()
-  const endpoint = connection.endpoint?.trim()
-  if (!apiKey || !endpoint) {
-    throw unavailable(
-      'Runtime supervisor needs a provider/client or both connection.endpoint and connection.apiKey',
-    )
-  }
-  let module: typeof import('@tangle-network/sandbox')
-  try {
-    module = await import('@tangle-network/sandbox')
-  } catch (error) {
-    throw unavailable('Runtime supervisor could not load the Sandbox SDK peer dependency', error)
-  }
-  const SandboxCtor = (module as { Sandbox?: new (config: unknown) => SandboxClient }).Sandbox
-  if (SandboxCtor === undefined) throw unavailable('Sandbox SDK does not export a Sandbox client')
-  const provider = sandboxClientAsProvider(new SandboxCtor({ apiKey, baseUrl: endpoint }))
   return requireReconnectProvider(provider)
 }
 

@@ -12,62 +12,41 @@ import {
   type AgentCandidateWorkspaceSnapshotEvidence,
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
-  type AgentInteractiveSession,
-  type AgentInteractiveSessionRef,
-  AgentInteractiveSessionRefSchema,
-  type AgentInteractiveSessionStart,
-  AgentInteractiveSessionStartSchema,
   type AgentProfile,
-  type AgentProfileValidationResult,
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type AgentRunControlRef,
-  agentInteractiveSessionRefMatchesStart,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   canonicalWorkspaceCwd,
-  harnessSystemPromptIntents,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
   type TokenUsage,
-  WorkspaceRequestSchema,
-  workspaceCwdPathForBase,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
-  AgentEnvironmentQuery,
   AgentEnvironmentStatus,
-  AgentEnvironmentSummary,
-  AgentProfileRef,
   AgentSession,
   AgentSessionRef,
   AgentSessionStatus,
   AgentTurnInput,
   AgentTurnResult,
-  CheckpointRef,
   CheckpointRequest,
   CreateAgentEnvironmentInput,
-  ExecRequest,
-  ExecResult,
   ForkRequest,
-  PlacementInfo,
   ResourceRequest,
 } from '@tangle-network/agent-interface/environment-provider'
 import type {
-  BackendType,
   CreateSandboxOptions,
-  InteractiveSessionHandle,
   PromptInputPart,
   PromptOptions,
   PromptResult,
   SandboxEvent,
-  ExecResult as SandboxExecResult,
   SandboxInstance,
-  SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { defaultRedactor } from '../redact'
@@ -97,7 +76,6 @@ import {
 import type { RetainedRunHandle } from './retained-run-types'
 import {
   canonicalSandboxUsageMode,
-  canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
   createSandboxUsageLedger,
   isSandboxTerminalEvent,
@@ -147,8 +125,7 @@ import {
   unavailableSignalOfFailure,
 } from './supervise/upstream-unavailable'
 import { verifyWorkspaceMarker } from './supervise/workspace-checkpoint'
-import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
-import type { LoopSandboxPlacement, SandboxClient, Validator } from './types'
+import type { SandboxClient, Validator } from './types'
 import { addSpend, addTokenUsage, cloneTokenUsage, sleep, zeroTokenUsage } from './util'
 
 // Keep this file loadable from the lean `./environment-provider` export without agent-eval installed.
@@ -372,147 +349,6 @@ export function providerAsSandboxClient(
           : { onWorkspaceCaptured: options.onWorkspaceCaptured }),
       })
     },
-  }
-}
-
-/** Options for wrapping the current Tangle sandbox client as an environment provider.
- * @experimental */
-export interface SandboxClientProviderOptions {
-  name?: string
-  defaultBackend?: BackendType
-  capabilities?:
-    | AgentEnvironmentCapabilities
-    | (() => AgentEnvironmentCapabilities | Promise<AgentEnvironmentCapabilities>)
-  validateProfile?: (
-    profile: AgentProfileRef,
-  ) => AgentProfileValidationResult | Promise<AgentProfileValidationResult>
-  /** Resolve a named profile before calling Sandbox, which accepts inline profiles only. */
-  resolveProfile?: (profileId: string) => AgentProfile | Promise<AgentProfile>
-  /** Map portable creation into a supported SDK or deployment contract. Runtime attachments
-   * require this explicit mapper until the maintained Sandbox SDK transports them. */
-  mapCreateInput?: (input: CreateAgentEnvironmentInput) => CreateSandboxOptions
-  /**
-   * `idleTimeoutSeconds` sent on every Sandbox create this adapter makes (a mapped create, a
-   * `mapCreateInput` result, or a fork), unless those create options already name one. Defaults to
-   * {@link DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS}; a positive whole number of seconds.
-   */
-  idleTimeoutSeconds?: number
-}
-
-/**
- * The idle timeout this adapter sends when nothing else names one: 1,800 seconds.
- *
- * Sandbox substitutes no value of its own: an omitted field falls back to the platform's global
- * idle timeout, documented as 30 minutes unless an operator changed it, and Runtime sent none. Idle
- * means inactivity to Sandbox, which suspends the sandbox (the container stops; the workspace is
- * kept) rather than deleting it. The SDK does not define inactivity further. A request in flight
- * counts as activity: a Discovery Lab seat created with `idleTimeoutSeconds: 1800` ran one request
- * to 2,252 seconds, ended by a per-request cap, not by idling (fleet-launch-2026-08-22).
- *
- * The value restates the documented default, so it can tighten a longer operator setting but never
- * loosen the default. It is 3.8 times the longest gap between frames recorded across a healthy
- * fleet run (469 seconds, same report), and a supervised provider child is observed through an open
- * stream for its whole turn. It is a backstop for a process that dies holding an environment; the
- * settlement barrier releases retained environments itself (`Executor.releaseRetained`). It does
- * nothing on a driver with a create/delete-only lifecycle, which the SDK says skips suspension.
- */
-export const DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS = 1_800
-
-function sandboxIdleTimeoutSeconds(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new ValidationError(
-      `sandboxClientAsProvider: idleTimeoutSeconds must be a positive whole number of seconds, got ${String(value)}`,
-    )
-  }
-  return value
-}
-
-/**
- * Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
- * The provider declares the public SDK contract before it creates an environment.
- * Each environment exposes interactive methods only when its deployment declares every required capability.
- * @experimental */
-export function sandboxClientAsProvider(
-  client: SandboxClient,
-  options: SandboxClientProviderOptions = {},
-): AgentEnvironmentProvider {
-  const providerName = options.name ?? 'tangle-sandbox'
-  const idleTimeoutSeconds = sandboxIdleTimeoutSeconds(options.idleTimeoutSeconds)
-  const providerCapabilities = async (): Promise<AgentEnvironmentCapabilities> => {
-    const capabilities = options.capabilities
-      ? typeof options.capabilities === 'function'
-        ? options.capabilities()
-        : options.capabilities
-      : defaultTangleSandboxCapabilities({
-          namedProfiles: options.resolveProfile !== undefined,
-          rediscover: hasGet(client),
-        })
-    const resolved = await capabilities
-    if (hasGet(client)) return resolved
-    const { interactiveAgent: _interactiveAgent, ...withoutInteractive } = resolved
-    return withoutInteractive
-  }
-  return {
-    name: providerName,
-    capabilities: providerCapabilities,
-    ...(options.validateProfile ? { validateProfile: options.validateProfile } : {}),
-    async create(input: CreateAgentEnvironmentInput): Promise<AgentEnvironment> {
-      const custom = options.mapCreateInput?.(input)
-      const createOptions =
-        custom === undefined
-          ? await sandboxOptionsFromCreateInput(
-              input,
-              options.defaultBackend ?? 'opencode',
-              options.resolveProfile,
-              providerName,
-              idleTimeoutSeconds,
-            )
-          : { ...custom, idleTimeoutSeconds: custom.idleTimeoutSeconds ?? idleTimeoutSeconds }
-      const capabilities = await providerCapabilities()
-      const box = await client.create(
-        createOptions,
-        input.signal === undefined ? undefined : { signal: input.signal },
-      )
-      return sandboxInstanceAsEnvironment(
-        box,
-        providerName,
-        client,
-        capabilities,
-        idleTimeoutSeconds,
-      )
-    },
-    ...(hasGet(client)
-      ? {
-          async get(id: string): Promise<AgentEnvironment | null> {
-            const capabilities = await providerCapabilities()
-            const box = await client.get(id)
-            return box
-              ? sandboxInstanceAsEnvironment(
-                  box,
-                  providerName,
-                  client,
-                  capabilities,
-                  idleTimeoutSeconds,
-                )
-              : null
-          },
-        }
-      : {}),
-    ...(hasList(client)
-      ? {
-          async list(query?: AgentEnvironmentQuery): Promise<AgentEnvironmentSummary[]> {
-            const boxes = await client.list(query?.providerOptions)
-            return boxes.map((box) => ({
-              id: String(box.id),
-              provider: providerName,
-              name: typeof box.name === 'string' ? box.name : undefined,
-              status: statusFromUnknown(readBoxStatus(box)),
-              metadata: readBoxMetadata(box),
-            }))
-          },
-        }
-      : {}),
   }
 }
 
@@ -2263,96 +2099,6 @@ function createInputFromSandboxOptions(
   }
 }
 
-async function sandboxOptionsFromCreateInput(
-  input: CreateAgentEnvironmentInput,
-  defaultBackend: BackendType,
-  resolveProfile?: SandboxClientProviderOptions['resolveProfile'],
-  providerName = 'tangle-sandbox',
-  idleTimeoutSeconds = DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
-): Promise<CreateSandboxOptions> {
-  if (input.runtimeAttachments !== undefined) {
-    throw new ValidationError(
-      'Tangle Sandbox runtimeAttachments require an explicit mapCreateInput mapper; the maintained Sandbox SDK create contract does not transport them',
-    )
-  }
-  const backendType = (input.backend ?? defaultBackend) as BackendType
-  const workspace = WorkspaceRequestSchema.parse(input.workspace ?? {})
-  const environment = sandboxEnvironmentFromWorkspace(workspace)
-  const cwd = workspaceCwdPathForBase(workspace.cwd, 'repository', providerName)
-  const providerOptions = input.providerOptions?.sandboxCreateOptions
-  const base =
-    providerOptions && typeof providerOptions === 'object'
-      ? ({ ...(providerOptions as CreateSandboxOptions) } as CreateSandboxOptions)
-      : ({} satisfies CreateSandboxOptions)
-  assertSandboxSecretNames(input.secrets)
-  assertSandboxSecretNames((base as { secrets?: unknown }).secrets)
-  const profile = await sandboxProfileFromReference(input.profile, resolveProfile)
-  const { profile: _baseProfile, ...baseBackend } = base.backend ?? {}
-  return {
-    ...base,
-    // The backstop against a process that dies holding the environment. A caller's own create
-    // options win; the adapter only fills the field Runtime used to leave unset.
-    idleTimeoutSeconds: base.idleTimeoutSeconds ?? idleTimeoutSeconds,
-    ...(environment ? { environment } : {}),
-    ...(workspace.repoUrl ? { git: { url: workspace.repoUrl, ref: workspace.gitRef } } : {}),
-    ...(cwd === undefined ? {} : { cwd }),
-    ...(input.resources ? { resources: input.resources as CreateSandboxOptions['resources'] } : {}),
-    ...(input.env ? { env: input.env } : {}),
-    ...(Array.isArray(input.secrets) ? { secrets: input.secrets } : {}),
-    ...(input.metadata ? { metadata: input.metadata } : {}),
-    ...(input.name ? { name: input.name } : {}),
-    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
-    backend: {
-      ...baseBackend,
-      type: backendType,
-      profile,
-    },
-  }
-}
-
-function assertSandboxSecretNames(
-  secrets: unknown,
-): asserts secrets is string[] | 'all' | undefined {
-  if (
-    secrets !== undefined &&
-    secrets !== 'all' &&
-    (!Array.isArray(secrets) ||
-      secrets.some((secret) => typeof secret !== 'string' || secret.trim().length === 0))
-  ) {
-    throw new ValidationError(
-      'Tangle Sandbox secret names must be non-empty strings; secret values are unsupported',
-    )
-  }
-}
-
-function sandboxEnvironmentFromWorkspace(
-  workspace: NonNullable<CreateAgentEnvironmentInput['workspace']>,
-): string | undefined {
-  if (
-    workspace.environment !== undefined &&
-    workspace.image !== undefined &&
-    workspace.environment !== workspace.image
-  ) {
-    throw new ValidationError(
-      'Tangle Sandbox accepts one environment value; workspace.environment and workspace.image must match',
-    )
-  }
-  return workspace.environment ?? workspace.image
-}
-
-async function sandboxProfileFromReference(
-  profile: AgentProfileRef,
-  resolveProfile: SandboxClientProviderOptions['resolveProfile'],
-): Promise<AgentProfile> {
-  if (typeof profile !== 'string') return profile
-  if (!resolveProfile) {
-    throw new ValidationError(
-      `Tangle Sandbox requires an inline AgentProfile; named profile "${profile}" needs SandboxClientProviderOptions.resolveProfile`,
-    )
-  }
-  return resolveProfile(profile)
-}
-
 function environmentAsSandboxInstance(
   environment: AgentEnvironment,
   options: {
@@ -2600,273 +2346,6 @@ function environmentAsSandboxInstance(
   return box as unknown as SandboxInstance
 }
 
-async function sandboxInstanceAsEnvironment(
-  box: SandboxInstance,
-  providerName: string,
-  client: SandboxClient,
-  providerCapabilities: AgentEnvironmentCapabilities,
-  idleTimeoutSeconds: number,
-): Promise<AgentEnvironment> {
-  const capabilities = await sandboxEnvironmentCapabilities(box, providerCapabilities)
-  const interactiveAgent = capabilities.interactiveAgent
-  const environment: AgentEnvironment = {
-    id: String(box.id),
-    provider: providerName,
-    capabilities,
-    ...(typeof box.name === 'string' ? { name: box.name } : {}),
-    ...(readBoxMetadata(box) ? { metadata: readBoxMetadata(box) } : {}),
-    async status(): Promise<AgentEnvironmentStatus> {
-      await maybeRefresh(box)
-      return statusFromUnknown(readBoxStatus(box))
-    },
-    async *stream(input: AgentTurnInput): AsyncIterable<AgentEnvironmentEvent> {
-      for await (const event of box.streamPrompt(
-        promptFromAgentTurnInput(input),
-        promptOptionsFromAgentTurnInput(input),
-      )) {
-        yield environmentEventFromSandboxEvent(event)
-      }
-    },
-    ...(hasDispatchPrompt(box)
-      ? {
-          async dispatch(input: AgentTurnInput): Promise<AgentSessionRef> {
-            const dispatched = await box.dispatchPrompt(
-              promptFromAgentTurnInput(input),
-              promptOptionsFromAgentTurnInput(input),
-            )
-            return sessionRefFromSandboxDispatch(dispatched, providerName)
-          },
-        }
-      : {}),
-    ...(hasSession(box)
-      ? {
-          session(id: string, sessionOptions?: { controlRef?: AgentRunControlRef }): AgentSession {
-            return sandboxSessionAsAgentSession(box.session(id), sessionOptions?.controlRef)
-          },
-          async respondToInteraction(
-            command: InteractionResponseCommand,
-            options?: { signal?: AbortSignal },
-          ): Promise<InteractionAcknowledgement> {
-            const response = await box
-              .session(command.binding.sessionId)
-              .respondToInteraction(command, options)
-            return response.acknowledgement
-          },
-        }
-      : {}),
-    ...(interactiveAgent
-      ? {
-          async startInteractive(
-            request: AgentInteractiveSessionStart,
-            options?: { signal?: AbortSignal },
-          ): Promise<AgentInteractiveSessionRef> {
-            const exactRequest = AgentInteractiveSessionStartSchema.parse(request)
-            assertSandboxInteractiveBinding(exactRequest.run, box, providerName)
-            const result = await box
-              .session(exactRequest.run.sessionId)
-              .interactive()
-              .start(exactRequest, options)
-            if (result.state !== 'running') {
-              throw new ValidationError('sandbox interactive process settled before attachment')
-            }
-            const ref = detachedSnapshot(
-              AgentInteractiveSessionRefSchema.parse(result.ref),
-              'sandbox interactive start reference',
-            )
-            if (!agentInteractiveSessionRefMatchesStart(exactRequest, ref)) {
-              throw new ValidationError(
-                'sandbox interactive start returned a different exact process',
-              )
-            }
-            return ref
-          },
-          interactive(ref: AgentInteractiveSessionRef): AgentInteractiveSession {
-            const exactRef = detachedSnapshot(
-              AgentInteractiveSessionRefSchema.parse(ref),
-              'sandbox interactive reference',
-            )
-            assertSandboxInteractiveBinding(exactRef.run, box, providerName)
-            const session = box.session(exactRef.run.sessionId).interactive({ ref: exactRef })
-            const controlledSessions = new Map<string, InteractiveSessionHandle>()
-            const controlledSession = (
-              control: Parameters<AgentInteractiveSession['attach']>[0]['control'],
-            ) => {
-              const key = canonicalCandidateDigest(control)
-              const existing = controlledSessions.get(key)
-              if (existing) return existing
-              const created = box
-                .session(exactRef.run.sessionId)
-                .interactive({ ref: exactRef, control })
-              controlledSessions.set(key, created)
-              return created
-            }
-            return {
-              ref: exactRef,
-              claimControl: (request, options) => session.claimControl(request, options),
-              async status(options) {
-                const status = await session.status(options)
-                if (status === null) {
-                  throw new ValidationError(
-                    `sandbox interactive session "${exactRef.run.sessionId}" is unavailable`,
-                  )
-                }
-                return status
-              },
-              attach: (request, options) => {
-                const controlled = controlledSession(request.control)
-                if (typeof controlled.attachAgentTerminal !== 'function') {
-                  return Promise.reject(
-                    new ValidationError(
-                      'sandbox interactive session does not expose the exact terminal adapter',
-                    ),
-                  )
-                }
-                return controlled.attachAgentTerminal(request, options)
-              },
-              sendPrompt: (command, options) =>
-                controlledSession(command.control).sendPrompt(command, options),
-              stop: (command, options) => controlledSession(command.control).stop(command, options),
-            }
-          },
-        }
-      : {}),
-    ...(hasRead(box) ? { read: box.read.bind(box) } : {}),
-    ...(hasWrite(box) ? { write: box.write.bind(box) } : {}),
-    ...(hasExec(box)
-      ? {
-          async exec(command: string, options?: ExecRequest): Promise<ExecResult> {
-            return execResultFromSandboxExecResult(await box.exec(command, options as never))
-          },
-        }
-      : {}),
-    async checkpoint(options?: CheckpointRequest): Promise<CheckpointRef> {
-      const result = await box.snapshot({
-        ...(options?.name ? { tags: [options.name] } : {}),
-      })
-      return {
-        id: result.snapshotId,
-        provider: providerName,
-        ...(options?.metadata ? { metadata: options.metadata } : {}),
-      }
-    },
-    async fork(checkpoint: CheckpointRef, options?: ForkRequest): Promise<AgentEnvironment> {
-      const forked = await client.create({
-        fromSnapshot: checkpoint.id,
-        fromSandboxId: String(box.id),
-        idleTimeoutSeconds,
-        ...(options?.name ? { name: options.name } : {}),
-        ...(options?.metadata ? { metadata: options.metadata } : {}),
-      })
-      return sandboxInstanceAsEnvironment(
-        forked,
-        providerName,
-        client,
-        providerCapabilities,
-        idleTimeoutSeconds,
-      )
-    },
-    async placement(): Promise<PlacementInfo> {
-      return placementInfoFromLoopPlacement(client.describePlacement?.(box), box)
-    },
-    async refresh(): Promise<void> {
-      await maybeRefresh(box)
-    },
-    async destroy(): Promise<void> {
-      await destroyBox(box)
-    },
-  }
-  return environment
-}
-
-function sandboxSessionAsAgentSession(
-  session: SandboxSessionLike,
-  expectedControlRef?: AgentRunControlRef,
-): AgentSession {
-  // SandboxSession has no synchronous controlRef property. The exact ref
-  // returned by dispatch is therefore the wrapper's persisted binding, while
-  // any ref later exposed by status is still validated below.
-  const controlRef = resolveSessionControlRef(session.controlRef, expectedControlRef, {
-    allowExpectedWhenActualAbsent: true,
-  })
-  return {
-    id: session.id,
-    ...(controlRef === undefined ? {} : { controlRef }),
-    async status(): Promise<AgentSessionStatus | null> {
-      const status = await session.status()
-      if (!status) return null
-      assertSandboxStatusBinding(status, controlRef)
-      return sessionStatusFromUnknown((status as { status?: unknown }).status)
-    },
-    async *events(options?: {
-      since?: string
-      executionId?: string
-      signal?: AbortSignal
-    }): AsyncIterable<AgentEnvironmentEvent> {
-      const executionId = scopedExecutionId(controlRef, options?.executionId)
-      for await (const event of session.events({
-        ...(options?.since === undefined ? {} : { since: options.since }),
-        ...(executionId === undefined ? {} : { executionId }),
-        ...(options?.signal === undefined ? {} : { signal: options.signal }),
-      }))
-        yield environmentEventFromSandboxEvent(event)
-    },
-    async result(options?: { signal?: AbortSignal }): Promise<AgentTurnResult> {
-      return agentTurnResultFromPromptResult(
-        await awaitAbortable(
-          Promise.resolve().then(() =>
-            session.result({
-              ...(controlRef?.executionId === undefined
-                ? {}
-                : { executionId: controlRef.executionId }),
-            }),
-          ),
-          options?.signal,
-        ),
-      )
-    },
-    async prompt(input: AgentTurnInput): Promise<AgentTurnResult> {
-      return agentTurnResultFromPromptResult(
-        await session.prompt(
-          promptFromAgentTurnInput(input),
-          promptOptionsFromAgentTurnInput(input),
-        ),
-      )
-    },
-    ...(session.respondToInteraction
-      ? {
-          async respondToInteraction(
-            command: InteractionResponseCommand,
-            options?: { signal?: AbortSignal },
-          ): Promise<InteractionAcknowledgement> {
-            assertInteractionCommandScope(command, controlRef)
-            const response = await session.respondToInteraction!(command, options)
-            return response.acknowledgement
-          },
-        }
-      : {}),
-    ...(session.cancelRun
-      ? {
-          async cancelRun(
-            request: AgentRunCancellationRequest,
-            options?: { signal?: AbortSignal },
-          ): Promise<AgentRunCancellationAcknowledgement> {
-            assertCancellationScope(request, controlRef)
-            return session.cancelRun!(request, options)
-          },
-        }
-      : {}),
-    cancel(): Promise<void> {
-      return session
-        .interrupt(
-          controlRef?.executionId === undefined
-            ? undefined
-            : { executionId: controlRef.executionId },
-        )
-        .then(() => undefined)
-    },
-  }
-}
-
 function sandboxSessionFromAgentSession(
   session: AgentSession | undefined,
   expectedControlRef?: AgentRunControlRef,
@@ -2979,26 +2458,6 @@ function promptResultFromAgentTurnResult(result: AgentTurnResult): PromptResult 
           ...(result.usage.cost === undefined ? {} : { costUsd: result.usage.cost }),
         }
       : {}),
-  }
-}
-
-function environmentEventFromSandboxEvent(event: SandboxEvent): AgentEnvironmentEvent {
-  const data =
-    event.data && typeof event.data === 'object'
-      ? (event.data as Record<string, unknown>)
-      : ({} as Record<string, unknown>)
-  const normalized = canonicalStreamEventFromSandboxEvent(event)
-  const usage = tokenUsageFromData(data)
-  const receipt = tokenUsageReceipt(tokenUsageRecord(data))
-  return {
-    type: String(event.type),
-    data,
-    ...(event.id ? { id: event.id } : {}),
-    ...(normalized ? { normalized } : {}),
-    // TokenUsage requires both counters. Keep a partial receipt in data so downstream code can
-    // mark it unknown.
-    ...(usage && receipt.complete ? { usage } : {}),
-    providerEvent: event,
   }
 }
 
@@ -3299,26 +2758,6 @@ function resolveSessionControlRef(
   return actualExact.data
 }
 
-function assertSandboxStatusBinding(
-  status: unknown,
-  controlRef: AgentExactRunControlRef | undefined,
-): void {
-  if (!status || typeof status !== 'object' || controlRef === undefined) return
-  const record = status as Record<string, unknown>
-  if (record.runControlRef !== undefined) {
-    const statusControlRef = AgentExactRunControlRefSchema.parse(record.runControlRef)
-    if (!sameControlCoordinates(statusControlRef, controlRef)) {
-      throw new ValidationError('sandbox status returned a different exact run control reference')
-    }
-  }
-  for (const key of ['activeExecutionId', 'latestExecutionId']) {
-    const executionId = record[key]
-    if (executionId !== undefined && executionId !== controlRef.executionId) {
-      throw new ValidationError('sandbox status returned a different execution')
-    }
-  }
-}
-
 function assertInteractionCommandScope(
   command: InteractionResponseCommand,
   controlRef: AgentRunControlRef | undefined,
@@ -3505,84 +2944,6 @@ function isNestedUsageType(type: string): boolean {
   return isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage'
 }
 
-function tokenUsageFromData(data: Record<string, unknown>): TokenUsage | undefined {
-  const usageRecord = tokenUsageRecord(data)
-  const inputTokens = inputTokensFromUsage(usageRecord)
-  const outputTokens = outputTokensFromUsage(usageRecord)
-  const totalTokens = finiteNumber(usageRecord.totalTokens)
-  const cacheReadInputTokens = finiteNumber(usageRecord.cacheReadInputTokens)
-  const cacheCreationInputTokens = finiteNumber(usageRecord.cacheCreationInputTokens)
-  const reasoningTokens = finiteNumber(usageRecord.reasoningTokens)
-  const cost =
-    finiteNumber(usageRecord.cost) ??
-    finiteNumber(usageRecord.costUsd) ??
-    finiteNumber(usageRecord.totalCostUsd) ??
-    finiteNumber(data.costUsd) ??
-    finiteNumber(data.totalCostUsd)
-  if (
-    inputTokens === undefined &&
-    outputTokens === undefined &&
-    totalTokens === undefined &&
-    cacheReadInputTokens === undefined &&
-    cacheCreationInputTokens === undefined &&
-    reasoningTokens === undefined &&
-    cost === undefined
-  )
-    return undefined
-  return {
-    inputTokens: inputTokens ?? 0,
-    outputTokens: outputTokens ?? 0,
-    ...(totalTokens !== undefined ? { totalTokens } : {}),
-    ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
-    ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
-    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
-    ...(cost !== undefined ? { cost } : {}),
-  }
-}
-
-function tokenUsageRecord(data: Record<string, unknown>): Record<string, unknown> {
-  return recordValue(data.usage) ?? recordValue(data.tokenUsage) ?? data
-}
-
-function inputTokensFromUsage(value: unknown): number | undefined {
-  const usage = recordValue(value)
-  if (!usage) return undefined
-  return (
-    finiteNumber(usage.inputTokens) ??
-    finiteNumber(usage.tokensIn) ??
-    finiteNumber(usage.prompt_tokens)
-  )
-}
-
-function outputTokensFromUsage(value: unknown): number | undefined {
-  const usage = recordValue(value)
-  if (!usage) return undefined
-  return (
-    finiteNumber(usage.outputTokens) ??
-    finiteNumber(usage.tokensOut) ??
-    finiteNumber(usage.completion_tokens)
-  )
-}
-
-function tokenUsageReceipt(value: unknown): {
-  hasInput: boolean
-  hasOutput: boolean
-  hasTokens: boolean
-  complete: boolean
-} {
-  const usage = recordValue(value)
-  const hasInput = inputTokensFromUsage(usage) !== undefined
-  const hasOutput = outputTokensFromUsage(usage) !== undefined
-  const hasTokens =
-    hasInput ||
-    hasOutput ||
-    finiteNumber(usage?.totalTokens) !== undefined ||
-    finiteNumber(usage?.cacheReadInputTokens) !== undefined ||
-    finiteNumber(usage?.cacheCreationInputTokens) !== undefined ||
-    finiteNumber(usage?.reasoningTokens) !== undefined
-  return { hasInput, hasOutput, hasTokens, complete: hasInput && hasOutput }
-}
-
 function mergeTokenUsage(
   left: TokenUsage | undefined,
   right: TokenUsage | undefined,
@@ -3616,31 +2977,8 @@ function mergeTokenUsage(
   }
 }
 
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function agentTurnResultFromPromptResult(result: PromptResult): AgentTurnResult {
-  const record = result as unknown as Record<string, unknown>
-  const text =
-    typeof record.response === 'string'
-      ? record.response
-      : typeof record.text === 'string'
-        ? record.text
-        : typeof record.finalText === 'string'
-          ? record.finalText
-          : ''
-  const success = typeof record.success === 'boolean' ? record.success : true
-  return {
-    text,
-    success,
-    ...(typeof record.error === 'string' ? { error: record.error } : {}),
-    usage: tokenUsageFromData(record),
-  }
 }
 
 function sandboxDispatchResultFromSessionRef(session: AgentSessionRef): Record<string, unknown> {
@@ -3681,82 +3019,12 @@ function sandboxDispatchResultFromSessionRef(session: AgentSessionRef): Record<s
   }
 }
 
-function sessionRefFromSandboxDispatch(dispatched: unknown, providerName: string): AgentSessionRef {
-  const record =
-    dispatched && typeof dispatched === 'object'
-      ? (dispatched as Record<string, unknown>)
-      : undefined
-  const id = record?.sessionId ?? record?.id
-  if (typeof id !== 'string' || id.length === 0) {
-    throw new ValidationError('sandboxClientAsProvider: dispatch returned no session id')
-  }
-  if (!record) {
-    throw new ValidationError('sandboxClientAsProvider: dispatch returned no session record')
-  }
-  const executionId = optionalDispatchIdentity(record.executionId, 'executionId')
-  const controlRef =
-    record.runControlRef === undefined
-      ? undefined
-      : AgentExactRunControlRefSchema.parse(record.runControlRef)
-  if (controlRef !== undefined) {
-    if (controlRef.sessionId !== id || controlRef.provider !== providerName) {
-      throw new ValidationError('sandbox dispatch returned a control reference for another session')
-    }
-    if (executionId !== undefined && controlRef.executionId !== executionId) {
-      throw new ValidationError('sandbox dispatch returned conflicting execution identities')
-    }
-  }
-  if (record.alreadyExisted !== undefined && typeof record.alreadyExisted !== 'boolean') {
-    throw new ValidationError('sandbox dispatch returned an invalid alreadyExisted flag')
-  }
-  if (record.dispatched !== undefined && typeof record.dispatched !== 'boolean') {
-    throw new ValidationError('sandbox dispatch returned an invalid dispatched flag')
-  }
-  if (record.status !== undefined && !isSandboxSessionStatus(record.status)) {
-    throw new ValidationError('sandbox dispatch returned an invalid session status')
-  }
-  return {
-    id,
-    provider: providerName,
-    ...(controlRef === undefined ? {} : { controlRef }),
-    metadata: {
-      ...(record.status ? { status: record.status } : {}),
-      ...(executionId === undefined ? {} : { executionId }),
-      ...(record.alreadyExisted !== undefined ? { alreadyExisted: record.alreadyExisted } : {}),
-      ...(record.dispatched !== undefined ? { dispatched: record.dispatched } : {}),
-    },
-  }
-}
-
 function optionalDispatchIdentity(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'string' || value.length === 0) {
     throw new ValidationError(`sandbox dispatch returned an invalid ${label}`)
   }
   return value
-}
-
-function isSandboxSessionStatus(value: unknown): boolean {
-  return (
-    value === 'queued' ||
-    value === 'running' ||
-    value === 'completed' ||
-    value === 'failed' ||
-    value === 'cancelled'
-  )
-}
-
-function execResultFromSandboxExecResult(result: SandboxExecResult): ExecResult {
-  const record = result as unknown as Record<string, unknown>
-  const exitCode = finiteNumber(record.exitCode) ?? finiteNumber(record.code)
-  if (exitCode === undefined) {
-    throw new ValidationError('sandboxClientAsProvider: exec returned no exit code')
-  }
-  return {
-    exitCode,
-    stdout: typeof record.stdout === 'string' ? record.stdout : '',
-    stderr: typeof record.stderr === 'string' ? record.stderr : '',
-  }
 }
 
 function statusFromUnknown(status: unknown): AgentEnvironmentStatus {
@@ -3772,164 +3040,6 @@ function sessionStatusFromUnknown(status: unknown): AgentSessionStatus | null {
   return statusFromUnknown(status)
 }
 
-function readBoxStatus(box: SandboxInstance): unknown {
-  return (box as unknown as { status?: unknown }).status
-}
-
-function readBoxMetadata(box: SandboxInstance): Record<string, unknown> | undefined {
-  const metadata = (box as unknown as { metadata?: unknown }).metadata
-  return metadata && typeof metadata === 'object'
-    ? (metadata as Record<string, unknown>)
-    : undefined
-}
-
-async function maybeRefresh(box: SandboxInstance): Promise<void> {
-  const refresh = (box as unknown as { refresh?: () => Promise<void> }).refresh
-  if (typeof refresh === 'function') await refresh.call(box)
-}
-
-async function destroyBox(box: SandboxInstance): Promise<void> {
-  const deleteBox = (box as unknown as { delete?: () => Promise<void> }).delete
-  if (typeof deleteBox === 'function') await deleteBox.call(box)
-}
-
-function placementInfoFromLoopPlacement(
-  placement: LoopSandboxPlacement | undefined,
-  box: SandboxInstance,
-): PlacementInfo {
-  if (!placement) return { kind: 'sandbox', sandboxId: String(box.id) }
-  return {
-    // `in-process` runs in the caller's own process tree, which `PlacementInfo` names `local`.
-    kind:
-      placement.kind === 'fleet' ? 'fleet' : placement.kind === 'in-process' ? 'local' : 'sandbox',
-    ...(placement.sandboxId ? { sandboxId: placement.sandboxId } : { sandboxId: String(box.id) }),
-    ...(placement.fleetId ? { fleetId: placement.fleetId } : {}),
-    ...(placement.machineId ? { machineId: placement.machineId } : {}),
-  }
-}
-
-type InteractiveAgentCapabilities = NonNullable<AgentEnvironmentCapabilities['interactiveAgent']>
-
-const completeInteractiveAgentCapabilities: InteractiveAgentCapabilities = {
-  start: true,
-  control: true,
-  status: true,
-  attach: true,
-  reattach: true,
-  sendPrompt: true,
-  input: true,
-  resize: true,
-  stop: true,
-}
-
-async function sandboxEnvironmentCapabilities(
-  box: SandboxInstance,
-  providerCapabilities: AgentEnvironmentCapabilities,
-): Promise<AgentEnvironmentCapabilities> {
-  const { interactiveAgent: providerInteractive, ...baseCapabilities } = providerCapabilities
-  if (!hasCompleteInteractiveAgentCapabilities(providerInteractive)) return baseCapabilities
-  let deployed: SandboxRuntimeCapabilities | null
-  try {
-    deployed = await box.capabilities()
-  } catch {
-    return baseCapabilities
-  }
-  if (!hasCompleteInteractiveAgentCapabilities(deployed?.interactiveAgent)) {
-    return baseCapabilities
-  }
-  if (!hasExactInteractiveTerminalAdapter(box)) return baseCapabilities
-  return {
-    ...baseCapabilities,
-    interactiveAgent: { ...completeInteractiveAgentCapabilities },
-  }
-}
-
-function hasExactInteractiveTerminalAdapter(box: SandboxInstance): boolean {
-  if (!hasSession(box)) return false
-  try {
-    const session = box.session('__runtime-capability-probe__')
-    const interactive = (session as { interactive?: (options?: unknown) => unknown }).interactive
-    if (typeof interactive !== 'function') return false
-    const handle = interactive.call(session)
-    return typeof (handle as { attachAgentTerminal?: unknown }).attachAgentTerminal === 'function'
-  } catch {
-    return false
-  }
-}
-
-function hasCompleteInteractiveAgentCapabilities(
-  value: Partial<InteractiveAgentCapabilities> | undefined,
-): value is InteractiveAgentCapabilities {
-  return (
-    value?.start === true &&
-    value.control === true &&
-    value.status === true &&
-    value.attach === true &&
-    value.reattach === true &&
-    value.sendPrompt === true &&
-    value.input === true &&
-    value.resize === true &&
-    value.stop === true
-  )
-}
-
-function assertSandboxInteractiveBinding(
-  run: { provider: string; environmentId: string },
-  box: SandboxInstance,
-  providerName: string,
-): void {
-  if (run.provider !== providerName || run.environmentId !== String(box.id)) {
-    throw new ValidationError('sandbox interactive request targets another environment')
-  }
-}
-
-function defaultTangleSandboxCapabilities(options: {
-  namedProfiles: boolean
-  rediscover: boolean
-}): AgentEnvironmentCapabilities {
-  return {
-    profile: {
-      namedProfiles: options.namedProfiles,
-      systemPrompt: { ...harnessSystemPromptIntents(undefined) },
-      instructions: true,
-      tools: true,
-      permissions: true,
-      mcp: true,
-      subagents: true,
-      resources: {
-        files: true,
-        instructions: true,
-        tools: true,
-        skills: true,
-        agents: true,
-        commands: true,
-      },
-      hooks: true,
-      modes: true,
-      runtimeUpdate: true,
-      validation: true,
-    },
-    streaming: { live: true, replay: true, detach: true, turnIdempotency: true },
-    sessions: { continue: true, list: true, messages: true },
-    workspace: {
-      read: true,
-      write: true,
-      exec: true,
-      git: true,
-      upload: true,
-      download: true,
-      cwdBases: { repository: true, host: false },
-    },
-    branching: { checkpoint: false, fork: false },
-    ...(options.rediscover
-      ? { interactiveAgent: { ...completeInteractiveAgentCapabilities } }
-      : {}),
-    placement: true,
-    usage: true,
-    confidential: false,
-  }
-}
-
 function contentRef(prefix: string, value: unknown): string {
   let str: string
   try {
@@ -3943,48 +3053,6 @@ function contentRef(prefix: string, value: unknown): string {
     hash = Math.imul(hash, 0x01000193)
   }
   return `${prefix}:${(hash >>> 0).toString(16).padStart(8, '0')}`
-}
-
-function hasGet(
-  client: SandboxClient,
-): client is SandboxClient & { get(id: string): Promise<SandboxInstance | null> } {
-  return typeof (client as { get?: unknown }).get === 'function'
-}
-
-function hasList(
-  client: SandboxClient,
-): client is SandboxClient & { list(options?: unknown): Promise<SandboxInstance[]> } {
-  return typeof (client as { list?: unknown }).list === 'function'
-}
-
-function hasDispatchPrompt(box: SandboxInstance): box is SandboxInstance & {
-  dispatchPrompt(message: string | PromptInputPart[], options?: PromptOptions): Promise<unknown>
-} {
-  return typeof (box as { dispatchPrompt?: unknown }).dispatchPrompt === 'function'
-}
-
-function hasSession(
-  box: SandboxInstance,
-): box is SandboxInstance & { session(id: string): SandboxSessionLike } {
-  return typeof (box as { session?: unknown }).session === 'function'
-}
-
-function hasRead(box: SandboxInstance): box is SandboxInstance & {
-  read(path: string, options?: { sessionId?: string }): Promise<string>
-} {
-  return typeof (box as { read?: unknown }).read === 'function'
-}
-
-function hasWrite(
-  box: SandboxInstance,
-): box is SandboxInstance & { write(path: string, content: string): Promise<void> } {
-  return typeof (box as { write?: unknown }).write === 'function'
-}
-
-function hasExec(box: SandboxInstance): box is SandboxInstance & {
-  exec(command: string, options?: unknown): Promise<SandboxExecResult>
-} {
-  return typeof (box as { exec?: unknown }).exec === 'function'
 }
 
 interface SandboxSessionLike {

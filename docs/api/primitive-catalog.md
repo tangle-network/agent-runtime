@@ -449,7 +449,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -681,7 +681,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
 | `safeWorkerFile` | function | A worker label reduced to a safe filename stem. Empty labels get a stable fallback. |
 | `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
-| `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
 | `sandboxEventServedBackend` | function | Read the served execution identity off one Sandbox event. |
 | `sandboxProgressEvents` | function | Project one `SandboxEvent` onto Runtime's executor progress vocabulary: incremental text and |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
@@ -764,7 +763,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
 | `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote |
 | `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
-| `DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS` | const | The idle timeout this adapter sends when nothing else names one: 1,800 seconds. |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
 | `DEFAULT_SHARED_BOX_RESOURCES` | const | The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus |
 | `DEFAULT_SHARED_BOX_WORKERS` | const | The most workers one default box carries at once. |
@@ -1027,7 +1025,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
 | `ProviderWorkspaceRetentionContext` | interface | The exact live execution facts supplied to a retention callback. |
 | `ProviderWorkspaceRetentionPort` | interface | The caller-owned boundary used to retain an executable provider workspace. |
 | `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
-| `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
+| `ProvisionSupervisorConnection` | interface | Caller-supplied environment provider for one supervisor run. |
 | `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
 | `QuestionEscalationRecord` | interface | The operator-facing artifact written for every `ask_parent`: which question left, whether |
 | `ReadableEnvironment` | interface | The two optional environment reads the capture needs. Public because `captureHarnessTranscript` |
@@ -1082,7 +1080,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
 | `SandboxCapabilities` | interface | What the loop kernel is allowed to know about a sandbox backend: a single |
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
-| `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxEvidenceRetentionPort` | interface | One durable capture before a Sandbox box is removed. |
 | `SandboxLeafOut` | interface | Parsed output of one Sandbox executor turn. |
@@ -1707,7 +1704,7 @@ Import from `@tangle-network/agent-runtime/tui` — 27 exports.
 | `renderTopOnce` | function | Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a |
 | `runTopApp` | function | Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`; |
 | `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
-| `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
+| `ProvisionSupervisorConnection` | interface | Caller-supplied environment provider for one supervisor run. |
 | `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
 | `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
 | `TopSnapshot` | interface | The read side of the supervisor-run TUI: turn the on-disk run layout into one `TopSnapshot`, and |

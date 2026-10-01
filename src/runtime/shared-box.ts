@@ -47,21 +47,26 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
+  AgentEnvironment,
   AgentEnvironmentCapabilities,
+  AgentEnvironmentEvent,
   AgentEnvironmentProvider,
+  AgentTurnInput,
+  CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { harnessSystemPromptIntents } from '@tangle-network/agent-interface/harness-capabilities'
 import { materializeProfile } from '@tangle-network/agent-profile-materialize'
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { CreateSandboxOptions } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import { harnessInvocation } from '../mcp/local-harness'
-import { LEAF_CONTINUATION_TASK, sandboxClientAsProvider } from './environment-provider'
+import { LEAF_CONTINUATION_TASK } from './environment-provider'
 import { concreteProfileModel, profileProviderModel } from './supervise/model-policy'
 import {
   type UnavailablePausePolicy,
   unavailablePauseMs,
   unavailableSignalOfFailure,
 } from './supervise/upstream-unavailable'
+import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
 import type { SandboxClient } from './types'
 import { sleep } from './util'
 
@@ -261,6 +266,9 @@ export interface SharedBoxPlacement {
  * resource the materializer does not lower into the worker's directory.
  */
 export function sharedBoxRefusal(profile: AgentProfile): string | undefined {
+  if (profile.model?.metadata?.credentialSource !== undefined) {
+    return 'model.metadata.credentialSource requires a dedicated provider'
+  }
   if (profile.harness !== HARNESS) return `harness ${String(profile.harness)} is not ${HARNESS}`
   const model = concreteProfileModel(profile)
   if (model === undefined) return 'profile names no concrete model'
@@ -395,32 +403,33 @@ export function sharedBoxPlacement(options: SharedBoxPlacementOptions): SharedBo
   const providerFor = (worker: SharedWorkerIdentity = {}): AgentEnvironmentProvider => {
     const clientName =
       worker.nodeId === undefined ? undefined : sharedWorkerClientName(worker.nodeId)
-    const client: SandboxClient = {
-      async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
-        const profile = workerProfile(createOptions)
+    return {
+      name: SHARED_PROVIDER_NAME,
+      capabilities: sharedBoxCapabilities,
+      async create(input): Promise<AgentEnvironment> {
+        const profile = workerProfile(input)
         const refusal = sharedBoxRefusal(profile)
         if (refusal !== undefined) {
           throw new ValidationError(`sharedBoxPlacement: ${refusal}`)
         }
-        assertWorkerCreateOptions(createOptions)
+        assertWorkerCreateInput(input)
+        input.signal?.throwIfAborted()
         const lease = await pool.acquire()
         try {
-          const created = await createWorker(lease, workerRoot, profile, {
+          input.signal?.throwIfAborted()
+          return await createWorker(lease, workerRoot, profile, {
             retryDelayMs,
             clientName,
+            name: input.name,
+            metadata: input.metadata,
             unavailablePause: options.unavailablePause ?? {},
           })
-          return created as unknown as SandboxInstance
         } catch (error) {
           await lease.release()
           throw error
         }
       },
     }
-    return sandboxClientAsProvider(client, {
-      name: SHARED_PROVIDER_NAME,
-      capabilities: sharedBoxCapabilities(),
-    })
   }
   return {
     providerFor,
@@ -467,9 +476,8 @@ function sharedBoxCapabilities(): AgentEnvironmentCapabilities {
   }
 }
 
-function workerProfile(createOptions: CreateSandboxOptions | undefined): AgentProfile {
-  const raw = (createOptions?.backend as { profile?: unknown } | undefined)?.profile
-  const parsed = agentProfileSchema.safeParse(raw)
+function workerProfile(input: CreateAgentEnvironmentInput): AgentProfile {
+  const parsed = agentProfileSchema.safeParse(input.profile)
   if (!parsed.success) {
     throw new ValidationError('sharedBoxPlacement: an exact AgentProfile is required at create')
   }
@@ -482,30 +490,75 @@ function workerProfile(createOptions: CreateSandboxOptions | undefined): AgentPr
  * dropped: a worker that asked for an environment variable, a repository or its own resources
  * would otherwise run without them and report nothing.
  */
-function assertWorkerCreateOptions(createOptions: CreateSandboxOptions | undefined): void {
-  const options = (createOptions ?? {}) as Record<string, unknown>
-  for (const key of ['git', 'fromSnapshot', 'fromSandboxId', 'environment', 'cwd', 'resources']) {
-    if (options[key] !== undefined) {
+function assertWorkerCreateInput(input: CreateAgentEnvironmentInput): void {
+  for (const key of [
+    'idempotencyKey',
+    'workspace',
+    'resources',
+    'runtimeAttachments',
+    'requestedId',
+    'egress',
+    'billingOwner',
+  ] as const) {
+    if (input[key] !== undefined) {
       throw new ValidationError(`sharedBoxPlacement: a shared worker cannot set ${key}`)
     }
   }
-  const env = options.env as Record<string, string> | undefined
-  if (env !== undefined && Object.keys(env).length > 0) {
+  if (input.env !== undefined && Object.keys(input.env).length > 0) {
     throw new ValidationError('sharedBoxPlacement: a shared worker cannot set env')
   }
-  const secrets = options.secrets as unknown[] | undefined
-  if (Array.isArray(secrets) && secrets.length > 0) {
+  if (input.secrets !== undefined && Object.keys(input.secrets).length > 0) {
     throw new ValidationError('sharedBoxPlacement: a shared worker cannot request secrets')
   }
-  const backend = options.backend as { runtimeAttachments?: unknown; type?: unknown } | undefined
-  if (backend?.runtimeAttachments !== undefined) {
-    throw new ValidationError(
-      'sharedBoxPlacement: a shared worker cannot carry runtime attachments',
-    )
+  if (input.backend !== undefined && input.backend !== HARNESS) {
+    throw new ValidationError(`sharedBoxPlacement: backend ${input.backend} is not ${HARNESS}`)
   }
+  for (const key of Object.keys(input.providerOptions ?? {})) {
+    if (key !== 'sandboxCreateOptions') {
+      throw new ValidationError(
+        `sharedBoxPlacement: a shared worker cannot set providerOptions.${key}`,
+      )
+    }
+  }
+  // The round engine projects only its profile and annotations through this input.
+  // Every physical or security control must stay on the owning box placement.
+  const box = input.providerOptions?.sandboxCreateOptions
+  if (box === undefined) return
+  if (box === null || typeof box !== 'object' || Array.isArray(box)) {
+    throw new ValidationError('sharedBoxPlacement: sandboxCreateOptions must be an object')
+  }
+  for (const key of Object.keys(box)) {
+    if (!['backend', 'metadata', 'name'].includes(key)) {
+      throw new ValidationError(`sharedBoxPlacement: a shared worker cannot set ${key}`)
+    }
+  }
+  const projected = box as Pick<CreateSandboxOptions, 'backend' | 'metadata' | 'name'>
+  if (projected.name !== undefined && projected.name !== input.name) {
+    throw new ValidationError('sharedBoxPlacement: projected name must match the worker name')
+  }
+  if (
+    projected.metadata !== undefined &&
+    (input.metadata === undefined ||
+      canonicalCandidateDigest(projected.metadata) !== canonicalCandidateDigest(input.metadata))
+  ) {
+    throw new ValidationError('sharedBoxPlacement: projected metadata must match worker metadata')
+  }
+  const backend = projected.backend
   if (backend?.type !== undefined && backend.type !== HARNESS) {
+    throw new ValidationError(`sharedBoxPlacement: backend ${backend.type} is not ${HARNESS}`)
+  }
+  for (const key of Object.keys(backend ?? {})) {
+    if (key !== 'type' && key !== 'profile') {
+      throw new ValidationError(`sharedBoxPlacement: a shared worker cannot set backend.${key}`)
+    }
+  }
+  if (
+    backend?.profile !== undefined &&
+    canonicalAgentProfileDigest(agentProfileSchema.parse(backend.profile)) !==
+      canonicalAgentProfileDigest(workerProfile(input))
+  ) {
     throw new ValidationError(
-      `sharedBoxPlacement: backend ${String(backend.type)} is not ${HARNESS}`,
+      'sharedBoxPlacement: projected profile must match the exact worker profile',
     )
   }
 }
@@ -691,9 +744,11 @@ async function createWorker(
   placement: {
     readonly retryDelayMs: number
     readonly clientName: string | undefined
+    readonly name?: string
+    readonly metadata?: Record<string, unknown>
     readonly unavailablePause: UnavailablePausePolicy | false
   },
-) {
+): Promise<AgentEnvironment> {
   const { clientName, unavailablePause } = placement
   const box = resilientBox(lease.box, placement.retryDelayMs)
   const workerId = `w-${randomUUID()}`
@@ -768,7 +823,7 @@ async function createWorker(
           backend?: { model?: Record<string, unknown> }
         }
       | undefined,
-  ): AsyncGenerator<SandboxEvent> {
+  ): AsyncGenerator<AgentEnvironmentEvent> {
     const signal = options?.signal
     const timeoutMs = options?.timeoutMs ?? 0
     const turnDeadline = timeoutMs > 0 ? Date.now() + timeoutMs : undefined
@@ -849,19 +904,22 @@ async function createWorker(
     }
   }
 
-  const worker = {
+  const worker: AgentEnvironment = {
     id: `${box.id}/${workerId}`,
-    name: workerId,
-    status: 'running',
-    metadata: { sharedBoxId: box.id, workerId, workerDir: paths.dir },
-    async *streamPrompt(
-      message: string,
-      options?: {
-        signal?: AbortSignal
-        timeoutMs?: number
-        backend?: { type?: string; profile?: unknown; model?: Record<string, unknown> }
-      },
-    ): AsyncGenerator<SandboxEvent> {
+    provider: SHARED_PROVIDER_NAME,
+    name: placement.name ?? workerId,
+    creation: 'created',
+    capabilities: sharedBoxCapabilities(),
+    async status() {
+      return released ? 'stopped' : 'running'
+    },
+    metadata: { ...placement.metadata, sharedBoxId: box.id, workerId, workerDir: paths.dir },
+    async *stream(input: AgentTurnInput): AsyncGenerator<AgentEnvironmentEvent> {
+      const message = promptFromAgentTurnInput(input)
+      if (typeof message !== 'string') {
+        throw new ValidationError('sharedBoxPlacement: a shared worker requires a text prompt')
+      }
+      const options = promptOptionsFromAgentTurnInput(input)
       if (released) throw new ValidationError('sharedBoxPlacement: this worker was released')
       if (turnActive) {
         throw new ValidationError('sharedBoxPlacement: a worker runs one turn at a time')
@@ -904,8 +962,11 @@ async function createWorker(
     async write(path: string, content: string): Promise<void> {
       await box.fs.write(resolvePath(path), content)
     },
+    async placement() {
+      return { kind: 'sandbox', sandboxId: box.id }
+    },
     async refresh(): Promise<void> {},
-    async delete(): Promise<void> {
+    async destroy(): Promise<void> {
       if (released) return
       released = true
       try {
@@ -1041,8 +1102,12 @@ async function materializeWorker(
 ): Promise<{ args: string[]; config: string; model: string }> {
   const refusal = sharedBoxRefusal(profile)
   if (refusal !== undefined) throw new ValidationError(`sharedBoxPlacement: ${refusal}`)
-  if (turnModel?.authFiles !== undefined || turnModel?.authMode === 'oauth') {
-    throw new ValidationError('sharedBoxPlacement: a shared worker cannot carry auth files')
+  if (
+    turnModel?.cliAuth !== undefined ||
+    turnModel?.authFiles !== undefined ||
+    turnModel?.authMode === 'oauth'
+  ) {
+    throw new ValidationError('sharedBoxPlacement: a shared worker cannot carry native credentials')
   }
   const plan = materializeProfile(profile, HARNESS)
   let generated: Record<string, unknown> = {}
@@ -1171,7 +1236,7 @@ function subagentSessionOf(part: Record<string, unknown>): string | undefined {
   return undefined
 }
 
-// ── opencode `run --format json` to the Sandbox event wire ──────────────────────────────────
+// ── opencode `run --format json` to environment events ──────────────────────────────────
 
 interface OpencodeLine {
   readonly type?: string
@@ -1181,7 +1246,7 @@ interface OpencodeLine {
 }
 
 /**
- * Translate opencode's JSON event lines into the Sandbox event wire the provider executor reads.
+ * Translate opencode's JSON event lines into events the provider executor reads.
  *
  * Every part becomes `message.part.updated`, which is how the sidecar forwards opencode parts, so
  * the existing trace and progress readers decode them unchanged. Each `step-finish` part also
@@ -1213,7 +1278,7 @@ function createOpencodeEventParser(model: string) {
     failure: failureOf,
     /** Whether this run spent any model tokens before it ended. */
     madeProgress: () => spentTokens,
-    *line(raw: string): Generator<SandboxEvent> {
+    *line(raw: string): Generator<AgentEnvironmentEvent> {
       let event: OpencodeLine
       try {
         event = JSON.parse(raw) as OpencodeLine
@@ -1225,14 +1290,14 @@ function createOpencodeEventParser(model: string) {
       if (event.type === 'error') {
         const message = errorMessage(event.error)
         errors.push(message)
-        yield { type: 'error', data: { message } } as unknown as SandboxEvent
+        yield { type: 'error', data: { message } }
         return
       }
       const part = event.part
       if (part === undefined || part === null || typeof part !== 'object') return
       const subagent = subagentSessionOf(part)
       if (subagent !== undefined) subagentSessions.add(subagent)
-      yield { type: 'message.part.updated', data: { part } } as unknown as SandboxEvent
+      yield { type: 'message.part.updated', data: { part } }
       const messageId = typeof part.messageID === 'string' ? part.messageID : undefined
       if (part.type === 'text' && messageId !== undefined && typeof part.text === 'string') {
         const texts = textByMessage.get(messageId) ?? []
@@ -1250,7 +1315,7 @@ function createOpencodeEventParser(model: string) {
       }
     },
     /** The turn's terminal frames, from its last run. `runs` counts the runs of the session. */
-    *finish(exitCode: number, stderr: string, runs = 1): Generator<SandboxEvent> {
+    *finish(exitCode: number, stderr: string, runs = 1): Generator<AgentEnvironmentEvent> {
       const finalText =
         (finalMessageId === undefined ? undefined : textByMessage.get(finalMessageId)?.join('')) ??
         ''
@@ -1263,20 +1328,23 @@ function createOpencodeEventParser(model: string) {
         yield {
           type: 'result',
           data: { success: false, status: 'failed', error: failure, finalText, ...counted },
-        } as unknown as SandboxEvent
-        yield { type: 'done', data: { outcome: { type: 'failed' } } } as unknown as SandboxEvent
+        }
+        yield { type: 'done', data: { outcome: { type: 'failed' } } }
         return
       }
       yield {
         type: 'result',
         data: { success: true, finalText, ...counted },
-      } as unknown as SandboxEvent
-      yield { type: 'done', data: { outcome: { type: 'completed' } } } as unknown as SandboxEvent
+      }
+      yield { type: 'done', data: { outcome: { type: 'completed' } } }
     },
   }
 }
 
-function stepReceipt(part: Record<string, unknown>, model: string): SandboxEvent | undefined {
+function stepReceipt(
+  part: Record<string, unknown>,
+  model: string,
+): AgentEnvironmentEvent | undefined {
   const tokens = part.tokens as Record<string, unknown> | undefined
   if (tokens === undefined || tokens === null || typeof tokens !== 'object') return undefined
   const count = (value: unknown): number | undefined =>
@@ -1291,6 +1359,16 @@ function stepReceipt(part: Record<string, unknown>, model: string): SandboxEvent
   return {
     type: 'llm_call',
     ...(typeof part.id === 'string' ? { id: part.id } : {}),
+    usageMode: 'delta',
+    ...(known
+      ? {
+          usage: {
+            inputTokens: input + cacheRead + cacheWrite,
+            outputTokens: output + reasoning,
+            ...(reasoning > 0 ? { reasoningTokens: reasoning } : {}),
+          },
+        }
+      : {}),
     data: {
       usageMode: 'delta',
       model,
@@ -1305,7 +1383,7 @@ function stepReceipt(part: Record<string, unknown>, model: string): SandboxEvent
         : { tokensKnown: false }),
       costKnown: false,
     },
-  } as unknown as SandboxEvent
+  }
 }
 
 function errorMessage(error: unknown): string {

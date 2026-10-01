@@ -2,9 +2,10 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { LEAF_CONTINUATION_TASK } from './environment-provider'
+import { LEAF_CONTINUATION_TASK, providerAsSandboxClient } from './environment-provider'
 import type { SharedBoxHandle, SharedBoxProcess } from './shared-box'
 import {
   ROUTER_CLIENT_HEADER,
@@ -170,10 +171,63 @@ describe('sharedBoxRefusal', () => {
 })
 
 describe('sharedBoxPlacement', () => {
+  it.each(['managed', 'subscription'] as const)(
+    'refuses explicit %s credentials before reserving a shared worker',
+    async (credentialSource) => {
+      const { client, boxes } = fakeClient(() => ({ stdout: [], exit: 0 }))
+      const placement = sharedBoxPlacement({ client })
+      const profile = leaf({
+        model: {
+          provider: 'tangle-router',
+          default: 'deepseek/deepseek-v4.1-flash',
+          metadata: { credentialSource },
+        },
+      })
+      await expect(placement.providerFor().create({ profile })).rejects.toThrow(
+        /credentialSource requires a dedicated provider/,
+      )
+      expect(boxes).toHaveLength(0)
+      expect(placement.stats().workersPlaced).toBe(0)
+    },
+  )
+
+  it.each([
+    { profile: 'catalog/leaf' },
+    { idempotencyKey: 'same-worker' },
+    { runtimeAttachments: { mcp: {} } },
+    { requestedId: 'caller-box' },
+    { egress: { mode: 'allow-all' } },
+    { billingOwner: 'another-owner' },
+    { providerOptions: { sandboxCreateOptions: { ownerContext: 'isolated' } } },
+    { providerOptions: { sandboxCreateOptions: { egressPolicy: { mode: 'blocked' } } } },
+    { providerOptions: { sandboxCreateOptions: { confidential: true } } },
+    { providerOptions: { sandboxCreateOptions: { requireNativeSessionCapture: true } } },
+    { providerOptions: { sandboxCreateOptions: { driver: true } } },
+    { providerOptions: { sandboxCreateOptions: { teamId: 'another-team' } } },
+    {
+      providerOptions: {
+        sandboxCreateOptions: { backend: { profile: leaf({ name: 'changed' }) } },
+      },
+    },
+    { providerOptions: { sandboxCreateOptions: { backend: { type: 'claude-code' } } } },
+    { providerOptions: { sandboxCreateOptions: { backend: { model: { authMode: 'oauth' } } } } },
+  ])('refuses unsupported create fields before allocating a box: %j', async (fields) => {
+    const { client, boxes } = fakeClient(() => ({ stdout: [], exit: 0 }))
+    const placement = sharedBoxPlacement({ client })
+    await expect(
+      placement.providerFor().create({ profile: leaf(), ...fields } as CreateAgentEnvironmentInput),
+    ).rejects.toThrow(/sharedBoxPlacement/)
+    expect(boxes).toHaveLength(0)
+    expect(placement.stats().workersPlaced).toBe(0)
+  })
+
   it('runs each worker as its own opencode process in its own directory and HOME', async () => {
     const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ALPHA'), exit: 0 }))
     const placement = sharedBoxPlacement({ client, workersPerBox: 4 })
     const environment = await placement.providerFor().create({ profile: leaf() })
+    expect(environment.provider).toBe('tangle-shared-box')
+    expect(environment.creation).toBe('created')
+    expect(await environment.status()).toBe('running')
     const events = []
     for await (const event of environment.stream({ prompt: 'what is your code word?' })) {
       events.push(event)
@@ -214,6 +268,81 @@ describe('sharedBoxPlacement', () => {
     await environment.destroy?.()
     expect(box.execs.some((command) => command.includes(`rm -rf '${dir}'`))).toBe(true)
     expect(box.deleted).toBe(true)
+    expect(await environment.status()).toBe('stopped')
+  })
+
+  it('preserves complete prompt usage through the inverse public client without inventing cost', async () => {
+    const { client, boxes } = fakeClient(() => ({ stdout: opencodeRun('ALPHA'), exit: 0 }))
+    const placement = sharedBoxPlacement({ client })
+    const adapted = providerAsSandboxClient(placement.providerFor(), {
+      defaults: { profile: leaf() },
+    })
+    const box = await adapted.create()
+    const result = await box.prompt('go')
+    expect(result.response).toBe('ALPHA')
+    expect(result.usage).toMatchObject({ inputTokens: 250, outputTokens: 40 })
+    expect(result.usage).not.toHaveProperty('totalCostUsd')
+    expect(result.usage).not.toHaveProperty('cost')
+    await box.delete()
+    expect(boxes[0]?.deleted).toBe(true)
+  })
+
+  it('keeps partial token usage unknown through the inverse public client', async () => {
+    const stdout = `${[
+      JSON.stringify({
+        sessionID: 'ses_abc',
+        part: { type: 'text', messageID: 'm', text: 'ALPHA' },
+      }),
+      JSON.stringify({
+        sessionID: 'ses_abc',
+        part: { id: 'p', type: 'step-finish', messageID: 'm', tokens: { input: 12 } },
+      }),
+    ].join('\n')}\n`
+    const { client } = fakeClient(() => ({ stdout: [stdout], exit: 0 }))
+    const placement = sharedBoxPlacement({ client })
+    const adapted = providerAsSandboxClient(placement.providerFor(), {
+      defaults: { profile: leaf() },
+    })
+    const box = await adapted.create()
+    const result = await box.prompt('go')
+    expect(result.response).toBe('ALPHA')
+    expect(result.usage).toBeUndefined()
+    await box.delete()
+  })
+
+  it('retains caller annotations while protecting the worker directory identity', async () => {
+    const { client } = fakeClient(() => ({ stdout: [], exit: 0 }))
+    const placement = sharedBoxPlacement({ client })
+    const environment = await placement.providerFor().create({
+      profile: leaf(),
+      name: 'worker-label',
+      metadata: { purpose: 'research', workerDir: '/other' },
+    })
+    expect(environment.name).toBe('worker-label')
+    expect(environment.metadata?.purpose).toBe('research')
+    expect(environment.metadata?.workerDir).toMatch(/^\/home\/agent\/workers\/w-/)
+    await environment.destroy?.()
+  })
+
+  it('refuses a native credential turn before spawning a model process', async () => {
+    const { client, boxes } = fakeClient(() => ({ stdout: [], exit: 0 }))
+    const placement = sharedBoxPlacement({ client })
+    const environment = await placement.providerFor().create({ profile: leaf() })
+    await expect(
+      (async () => {
+        for await (const _ of environment.stream({
+          prompt: 'go',
+          providerOptions: {
+            backend: {
+              model: { cliAuth: { account: 'native', secretEnv: 'NATIVE', format: 'token' } },
+            },
+          },
+        })) {
+        }
+      })(),
+    ).rejects.toThrow(/cannot carry native credentials/)
+    expect(boxes[0]?.spawns).toHaveLength(0)
+    await environment.destroy?.()
   })
 
   it('exports each harness subagent session its task parts name, beside the parent session', async () => {
@@ -525,7 +654,7 @@ describe('createExecutor with a shared placement', () => {
           usage: true,
           confidential: false,
         }) as unknown as AgentEnvironmentCapabilities,
-      async create() {
+      async create(_input: CreateAgentEnvironmentInput) {
         provider.created += 1
         return {
           id: `dedicated-${provider.created}`,
@@ -601,6 +730,39 @@ describe('createExecutor with a shared placement', () => {
     expect(dedicated.created).toBe(1)
     expect(boxes).toHaveLength(0)
   })
+
+  it.each(['managed', 'subscription'] as const)(
+    'keeps explicit %s credential intent on the dedicated provider',
+    async (credentialSource) => {
+      const { client, boxes } = fakeClient(() => ({ stdout: [], exit: 0 }))
+      const placement = sharedBoxPlacement({ client })
+      const dedicated = dedicatedProvider()
+      let admitted: AgentProfile | string | undefined
+      const create = dedicated.create
+      dedicated.create = async (input) => {
+        admitted = input.profile
+        return await create(input)
+      }
+      const profile = leaf({
+        model: {
+          provider: 'tangle-router',
+          default: 'deepseek/deepseek-v4.1-flash',
+          metadata: { credentialSource },
+        },
+      })
+      const signal = new AbortController().signal
+      const executor = createExecutor({
+        backend: 'provider',
+        provider: dedicated,
+        shared: placement,
+      })({ profile, harness: null }, { signal, seams: {} })
+      for await (const _ of executor.execute('go', signal) as AsyncIterable<unknown>) {
+      }
+      expect(admitted).toEqual(profile)
+      expect(dedicated.created).toBe(1)
+      expect(boxes).toHaveLength(0)
+    },
+  )
 
   it('refuses shared placement combined with provider placements', () => {
     const { client } = fakeClient(() => ({ stdout: [], exit: 0 }))

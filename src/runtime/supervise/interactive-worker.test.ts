@@ -474,6 +474,35 @@ describe('provisionSupervisor', () => {
     }
   })
 
+  it.each(['client', 'sandboxClient', 'endpoint'] as const)(
+    'refuses removed %s connection construction before provider creation',
+    async (field) => {
+      let creates = 0
+      const client = {
+        async create() {
+          creates += 1
+          throw new Error('must not create')
+        },
+      }
+      const connection =
+        field === 'endpoint'
+          ? { endpoint: 'https://sandbox.invalid', apiKey: 'fixture-not-a-key' }
+          : { [field]: client }
+      await expect(
+        provisionSupervisor({
+          invocationId: `removed-connection-${field}`,
+          task: 'Inspect the assigned workspace',
+          profile,
+          connection: connection as never,
+        }),
+      ).rejects.toMatchObject({
+        unavailable: true,
+        message: 'Runtime supervisor requires connection.provider',
+      })
+      expect(creates).toBe(0)
+    },
+  )
+
   it('uses caller-supplied timeoutMs for the live lifecycle after worker admission', async () => {
     const fixture = interactiveProviderFixture()
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-deadline-'))
