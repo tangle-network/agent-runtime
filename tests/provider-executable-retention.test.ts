@@ -15,6 +15,7 @@ import {
 } from '../src/candidate-execution'
 import { sha256Bytes } from '../src/candidate-execution/digest'
 import { contentAddress, replaySpawnTree } from '../src/durable/spawn-journal'
+import { RuntimeRunStateError } from '../src/errors'
 import type { ProviderLeafOut } from '../src/runtime/environment-provider'
 import {
   executorEvidenceWriter,
@@ -238,7 +239,11 @@ describe('provider executable workspace retention', () => {
         },
       })
       const supervisor = createSupervisor()
-      await supervisor.run(
+      let rootExecutor: ReturnType<typeof executorFactory> | undefined
+      let rootExecutionDone: Promise<void> | undefined
+      let rootExecutionFailure: unknown
+      let workerMessage: unknown
+      const supervision = supervisor.run(
         {
           name: 'failed-capture-root',
           async act(ownerTask, scope) {
@@ -253,41 +258,15 @@ describe('provider executable workspace retention', () => {
                   seams: { [retainedExecutorSeamKey]: context },
                 },
               )
+              rootExecutor = executor
               const consume = async () => {
                 for await (const _event of executor.execute(task, scope.signal)) {
                 }
               }
-              if (ending === 'completed') await consume()
-              else {
-                const error: unknown = await consume().catch((error: unknown) => error)
-                expect(error).toBeInstanceOf(Error)
-                if (!(error instanceof Error)) throw new Error('missing execution failure')
-                if (storageFailure === undefined || steering) {
-                  expect(error.message).toBe('execution failed after partial work')
-                } else {
-                  expect(error.message).toBe(`capture ${storageFailure} publication rejected`)
-                }
-                if (storageFailure !== undefined) {
-                  if (steering) {
-                    expect(error.cause).toBeInstanceOf(AggregateError)
-                    expect((error.cause as AggregateError).errors).toContainEqual(
-                      expect.objectContaining({
-                        message: `capture ${storageFailure} publication rejected`,
-                      }),
-                    )
-                    await expect(executor.teardown('brutalKill')).rejects.toThrow(
-                      'Sandbox evidence capture failed before teardown',
-                    )
-                  } else {
-                    expect(error.cause).toMatchObject({
-                      message: 'execution failed after partial work',
-                    })
-                    expect(await executor.teardown('brutalKill')).toMatchObject({
-                      destroyed: false,
-                    })
-                  }
-                }
-              }
+              rootExecutionDone = consume().catch((error: unknown) => {
+                rootExecutionFailure = error
+              })
+              await rootExecutionDone
             } else {
               const worker = {
                 name: 'failed-capture-worker',
@@ -303,14 +282,7 @@ describe('provider executable workspace retention', () => {
                 await admitted
                 await scope.cancel(spawned.handle.id, { operationId: 'cancel-with-evidence' })
               }
-              expect(await scope.next()).toMatchObject({
-                kind:
-                  ending === 'completed' &&
-                  storageFailure === undefined &&
-                  !(strictPartial && steering)
-                    ? 'done'
-                    : 'down',
-              })
+              workerMessage = await scope.next()
             }
             return 'fixture complete'
           },
@@ -327,22 +299,88 @@ describe('provider executable workspace retention', () => {
           budget: { maxIterations: 20, maxTokens: 1_000 },
         },
       )
+      const persistenceMessage = `supervisor: durable state unavailable; restore storage and resume the same run (capture ${storageFailure} publication rejected)`
+      if (storageFailure === undefined) await supervision
+      else {
+        await expect(supervision).rejects.toBeInstanceOf(RuntimeRunStateError)
+        await expect(supervision).rejects.toMatchObject({
+          message: persistenceMessage,
+          cause: { message: `capture ${storageFailure} publication rejected` },
+        })
+      }
+      await rootExecutionDone
       await captureDone
+      // Assert outside act(): its rejection is a run outcome, so an assertion inside it can
+      // be hidden by the supervisor's stronger persistence interruption.
+      if (location === 'worker' && storageFailure === undefined) {
+        expect(workerMessage).toMatchObject({
+          kind: ending === 'completed' && !strictPartial ? 'done' : 'down',
+          ...(strictPartial
+            ? {
+                reason: steering
+                  ? 'Sandbox evidence capture failed before teardown'
+                  : expect.stringContaining('coverage incomplete'),
+              }
+            : {}),
+        })
+      }
+      if (location === 'root') {
+        if (ending === 'completed') expect(rootExecutionFailure).toBeUndefined()
+        else {
+          expect(rootExecutionFailure).toBeInstanceOf(Error)
+          if (!(rootExecutionFailure instanceof Error)) throw new Error('missing execution failure')
+          if (storageFailure === undefined || steering) {
+            expect(rootExecutionFailure.message).toBe('execution failed after partial work')
+          } else {
+            expect(rootExecutionFailure).toBeInstanceOf(AggregateError)
+            expect(rootExecutionFailure.message).toBe(persistenceMessage)
+          }
+          if (storageFailure !== undefined) {
+            if (steering) {
+              expect(rootExecutionFailure.cause).toBeInstanceOf(AggregateError)
+              expect((rootExecutionFailure.cause as AggregateError).errors).toContainEqual(
+                expect.objectContaining({
+                  message: persistenceMessage,
+                  cause: expect.objectContaining({
+                    message: `capture ${storageFailure} publication rejected`,
+                  }),
+                }),
+              )
+              await expect(rootExecutor!.teardown('brutalKill')).rejects.toThrow(
+                'Sandbox evidence capture failed before teardown',
+              )
+            } else {
+              expect(rootExecutionFailure.cause).toBeInstanceOf(RuntimeRunStateError)
+              expect(rootExecutionFailure.cause).toMatchObject({
+                message: persistenceMessage,
+                cause: { message: `capture ${storageFailure} publication rejected` },
+              })
+              expect((rootExecutionFailure as AggregateError).errors).toEqual([
+                rootExecutionFailure.cause,
+                expect.objectContaining({ message: 'execution failed after partial work' }),
+              ])
+              expect(await rootExecutor!.teardown('brutalKill')).toMatchObject({
+                destroyed: false,
+              })
+            }
+          }
+        }
+      }
       if (storageFailure !== undefined) {
         const events = (await run.journal.loadTree(runId)) ?? []
         expect(events.filter((event) => event.kind === 'execution-evidence')).toEqual([])
         expect(events.filter((event) => event.kind === 'execution-result')).toEqual([])
+        expect(
+          events.filter((event) => event.kind === 'settled' || event.kind === 'cancelled'),
+        ).toEqual([])
         if (location === 'worker') {
-          const worker = events.find((event) => event.kind === 'spawned' && event.parent === runId)
-          const terminal = events.find(
-            (event) => event.kind === 'settled' && event.id === worker?.id,
-          )
-          expect(terminal).toMatchObject({ status: 'down' })
-          expect(events).toContainEqual(
-            expect.objectContaining({ kind: 'teardown-unconfirmed', id: worker?.id }),
-          )
+          expect(events).toContainEqual(expect.objectContaining({ kind: 'spawned', parent: runId }))
         }
         expect(existsSync(workspace)).toBe(true)
+        expect(JSON.parse(await readFile(join(workspace, 'native-trace.json'), 'utf8'))).toEqual({
+          type: 'text',
+          data: { text: 'partial work', metadata: [null, 0, false] },
+        })
         expect(destroyed).toBe(0)
         return
       }
@@ -560,6 +598,7 @@ describe('provider executable workspace retention', () => {
     const root = await temporaryRoot()
     const workspace = join(root, 'live-source')
     let destroyed = 0
+    const captureFailure = new Error('portable archive unavailable')
     const provider: AgentEnvironmentProvider = {
       name: 'capture-failure-fixture',
       capabilities: durableRetainedProvider(join(root, 'unused-provider-state.json')).capabilities,
@@ -590,7 +629,7 @@ describe('provider executable workspace retention', () => {
         async capture({ environment }) {
           expect(environment.id).toBe('source-1')
           expect(existsSync(workspace)).toBe(true)
-          throw new Error('portable archive unavailable')
+          throw captureFailure
         },
       },
     })(
@@ -602,7 +641,11 @@ describe('provider executable workspace retention', () => {
       for await (const _event of executor.execute('execute', signal)) {
         // Drain until the capture barrier settles or fails.
       }
-    }).rejects.toThrow('portable archive unavailable')
+    }).rejects.toBe(captureFailure)
+    expect(captureFailure.cause).not.toBe(captureFailure)
+    expect(captureFailure.cause).toMatchObject({
+      message: expect.stringContaining('source preserved because execution failed'),
+    })
     expect(existsSync(workspace)).toBe(true)
     expect(destroyed).toBe(0)
     expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })

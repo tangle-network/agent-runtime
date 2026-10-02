@@ -1657,12 +1657,19 @@ async function* streamProviderExecutor(
         })
       }
     } catch (captureError) {
-      // The portable preservation error is the actionable failure, while the original stream
-      // error remains available as its cause for callers that need both diagnostics.
-      failure =
-        captureError instanceof Error
-          ? Object.assign(captureError, { cause: captureError.cause ?? failure })
-          : captureError
+      // Preserve the stream failure alongside capture's own cause. A persistence error can
+      // be shared with the supervisor, so never replace its cause or make it refer to itself
+      // when capture was also the original failure.
+      if (captureError instanceof Error && captureError !== error) {
+        failure =
+          captureError.cause === undefined
+            ? Object.assign(captureError, { cause: failure })
+            : new AggregateError([captureError, failure], captureError.message, {
+                cause: captureError,
+              })
+      } else {
+        failure = captureError
+      }
     }
     // THE LAST POINT THE ENVIRONMENT IS STILL LIVE. The `finally` below destroys it for a
     // non-retained source, and a retained one is released later by `releaseRetained` — either
