@@ -1055,7 +1055,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         label: opts.label,
         stage: 'admitted',
       },
-      recovery ? {} : { wait: true, ...(ownerFloor ? { keep: ownerFloor } : {}) },
+      { wait: true, ...(!recovery && ownerFloor ? { keep: ownerFloor } : {}) },
     )
     if (!reservation.ok) {
       return {
@@ -1100,7 +1100,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const permit =
       budgetGranted === undefined
         ? slotGroup.acquire(args.depth + 1, { force: recovery !== undefined })
-        : deferSlot(budgetGranted, () => slotGroup.acquire(args.depth + 1))
+        : deferSlot(budgetGranted, () =>
+            slotGroup.acquire(args.depth + 1, { force: recovery !== undefined }),
+          )
 
     // Everything between reserve and runChild's hand-off owns the reservation. A SYNCHRONOUS
     // throw here (most likely the executor factory `resolved.value(spec, ctx)`) would otherwise
@@ -1147,9 +1149,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // resolver (the untraced default) ⇒ no seam, and the child's `ExecutorContext` is exactly
       // the object it was before worker trace propagation existed.
       const workerTrace = args.workerTrace?.(args.parentId)
+      // A budget-queued recovery is already represented by this scope's child handle.
+      // Waiting for its nested mount here can deadlock a funded sibling that needs its parent.
+      // Its executor still restores descendants before it acts, after the pool grants the ticket.
       let markRecoveryReady: (() => void) | undefined
       const recoveryReady =
-        recovery?.spawned.ownedTreeRoot === undefined
+        recovery?.spawned.ownedTreeRoot === undefined || budgetGranted !== undefined
           ? undefined
           : new Promise<void>((resolve) => {
               markRecoveryReady = resolve

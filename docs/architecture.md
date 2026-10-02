@@ -87,7 +87,9 @@ driver-of-driver = a child whose profile is itself a coordinator — free, by re
 ```
 
 `Scope.spawn` is the recursive boundary; the journal makes completed settlements replayable.
-Recovery restores retained children and their original reservations before the coordinator admits new work.
+Recovery restores retained child identities before the coordinator admits new work.
+Original reservations use the shared budget queue when they cannot all fit at once.
+Funded nested managers restore their descendants before acting; deferred managers remain visible while the parent resumes.
 Parents and children resume together through Scope, including reconstructed nested managers.
 Provider managers can recover their original invocation and reuse an accepted result.
 Recovery preserves unresolved work when the provider cannot prove its identity or completion.
