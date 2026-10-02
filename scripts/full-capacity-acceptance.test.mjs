@@ -212,12 +212,13 @@ test('terminal native capture must preserve served harness/model and complete me
 
 test('native reader uses the SDK session handle paired with the exact session metadata', async () => {
   let calls = 0
-  const messages = [{ role: 'assistant', parts: [{ type: 'text', text: 'retained native work' }] }]
+  const messages = [{ role: 'assistant', metadata: { turnId: 'exact-turn' }, parts: [{ type: 'text', text: 'retained native work' }] }]
   const info = { id: 'exact-session', status: 'running', activeExecutionId: 'exact-execution', backend: 'claude-code', model: 'claude-opus-5-5' }
-  const box = { sessions: async () => [{ info, session: { messages: async (options) => { calls += 1; assert.deepEqual(options, { limit: 1000 }); return messages } } }] }
-  const result = await readNativeResponse(box, { sessionId: info.id, nativeScope: 'sandbox-api', environmentId: 'sandbox' })
+  const box = { sessions: async () => [{ info, session: { status: async () => info, messages: async (options) => { calls += 1; assert.deepEqual(options, { limit: 1000 }); return messages } } }] }
+  const result = await readNativeResponse(box, { sessionId: info.id, executionId: info.activeExecutionId, turnId: 'exact-turn', nativeScope: 'sandbox-api', environmentId: 'sandbox' })
   assert.equal(calls, 1)
-  assert.deepEqual(result, { nativeScope: 'sandbox-api', environmentId: 'sandbox', session: info, messages })
+  assert.deepEqual(result, { nativeScope: 'sandbox-api', environmentId: 'sandbox', session: info, sessionBefore: info,
+    turnId: 'exact-turn', messages, messagesComplete: true })
   await assert.rejects(readNativeResponse(box, { sessionId: 'different-session' }), /exact Runtime session absent/)
 })
 

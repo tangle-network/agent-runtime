@@ -9,8 +9,16 @@ const key = (runId, nodeId) => JSON.stringify([runId, nodeId])
 const nativeKey = (attempt) => attempt.nativeScope && attempt.environmentId && attempt.sessionId && attempt.executionId
   ? JSON.stringify([attempt.nativeScope, attempt.environmentId, attempt.sessionId, attempt.executionId]) : null
 
+function completeTurnMessages(capture, turnId) {
+  if (turnId == null) return true // Earlier retained observations did not record the admitted turn.
+  return capture.turnId === turnId && capture.messagesComplete === true &&
+    Array.isArray(capture.messages) && capture.messages.length < 1000 &&
+    capture.messages.every(message => message.role !== 'assistant' || typeof message.metadata?.turnId === 'string' && message.metadata.turnId.length > 0)
+}
+
 export function nativeProductivity(capture) {
-  const parts = (capture.messages ?? []).filter((message) => message.role === 'assistant').flatMap((message) => message.parts ?? [])
+  const parts = (capture.messages ?? []).filter((message) => message.role === 'assistant' &&
+    (capture.turnId == null || message.metadata?.turnId === capture.turnId)).flatMap((message) => message.parts ?? [])
   const productiveParts = parts.flatMap((part) => {
     const type = part?.type ?? part?.kind
     if (['text', 'text_delta', 'reasoning', 'reasoning_delta', 'thinking'].includes(type)) {
@@ -216,8 +224,9 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
       const capture = JSON.parse((await read(sample.nativeCapture.path)).toString('utf8'))
       const productivity = nativeProductivity(capture)
       if (capture.nativeScope !== sample.nativeScope || capture.environmentId !== sample.environmentId) throw new Error('native scope differs from retained response')
-      if (!logical.get(key(sample.runId, sample.nodeId))?.attempts.some((attempt) =>
-        nativeKey(attempt) && nativeKey(attempt) === nativeKey(sample))) throw new Error('native sample is not an admitted execution')
+      const admission = logical.get(key(sample.runId, sample.nodeId))?.attempts.find((attempt) =>
+        nativeKey(attempt) && nativeKey(attempt) === nativeKey(sample) && (attempt.turnId == null || attempt.turnId === sample.turnId))
+      if (!admission) throw new Error('native sample is not an admitted execution')
       if (capture.session?.id !== sample.sessionId ||
           (capture.session?.activeExecutionId ?? capture.session?.latestExecutionId) !== sample.executionId ||
           capture.session?.status !== sample.status ||
@@ -225,7 +234,8 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
           capture.session?.model !== sample.model ||
           productivity.productiveBytes !== sample.productiveBytes ||
           productivity.productiveDigest !== sample.productiveDigest) throw new Error('native sample differs from retained response')
-      if (sample.complete !== true || !Array.isArray(capture.messages) || capture.messages.length >= 1000) throw new Error('native sample truncated')
+      if (sample.complete !== true || !Array.isArray(capture.messages) || capture.messages.length >= 1000 ||
+          !completeTurnMessages(capture, admission.turnId)) throw new Error('native sample truncated or not attributed to the admitted turn')
       const from = instant(sample.startedAt)
       const to = instant(sample.completedAt)
       if (!Number.isFinite(from) || !Number.isFinite(to) || to < from ||
@@ -277,7 +287,7 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
               capture.session?.id !== latest.sessionId || capture.session?.latestExecutionId !== latest.executionId ||
               (capture.session?.backendType ?? capture.session?.backend) !== contract.profile?.harness ||
               capture.session?.model !== latest.profile?.model || !contract.profile?.models?.includes(capture.session?.model) ||
-              !Array.isArray(capture.messages) || capture.messages.length >= 1000) {
+              !Array.isArray(capture.messages) || capture.messages.length >= 1000 || !completeTurnMessages(capture, latest.turnId)) {
             add('native-result-not-complete', node.logicalId)
           }
         } catch { add('native-result-unreadable', node.logicalId) }
