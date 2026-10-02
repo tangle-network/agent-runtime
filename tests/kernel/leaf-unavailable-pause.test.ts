@@ -9,10 +9,19 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  type AgentCandidateOutputArtifactPort,
+  captureAgentCandidateWorkspaceFiles,
+} from '../../src/candidate-execution'
+import { sha256Bytes } from '../../src/candidate-execution/digest'
+import {
   LEAF_CONTINUATION_TASK,
   type ProviderExecutorOptions,
   providerAsExecutor,
 } from '../../src/runtime/environment-provider'
+import type {
+  ProviderWorkspaceCaptureResult,
+  ProviderWorkspaceRetentionContext,
+} from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, ExecutorFactory, Scope, SpawnEvent } from '../../src/runtime/supervise/types'
@@ -43,6 +52,8 @@ interface Dispatch {
  */
 async function leafFixture(options: {
   readonly failure: (dispatch: number) => string | undefined
+  readonly failureCode?: string
+  readonly costMode?: 'known' | 'estimated'
   readonly executor?: Omit<ProviderExecutorOptions, 'destroyOnSettle'>
   /** Refused turns spend this much before their refusal. */
   readonly refusedUsage?: { readonly inputTokens: number; readonly outputTokens: number }
@@ -77,6 +88,30 @@ async function leafFixture(options: {
         return {
           ...session,
           async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
+            if (failure !== undefined && options.failureCode !== undefined) {
+              yield {
+                type: 'error',
+                data: {
+                  error: failure,
+                  code: options.failureCode,
+                  executionId: session.controlRef?.executionId,
+                  sessionId: session.id,
+                },
+              }
+            }
+            if (options.costMode !== undefined) {
+              yield {
+                type: 'llm_call',
+                data: {
+                  usageMode: 'cumulative',
+                  tokensIn: failure === undefined ? 3 : (options.refusedUsage?.inputTokens ?? 0),
+                  tokensOut: failure === undefined ? 2 : (options.refusedUsage?.outputTokens ?? 0),
+                  costUsd: failure === undefined ? 0.5 : 0.25,
+                  costProvenance: options.costMode === 'known' ? 'billing-receipt' : 'uncaptured',
+                  ...(options.costMode === 'estimated' ? { usdKnown: false } : {}),
+                },
+              }
+            }
             yield* session.events!(eventOptions)
           },
           result: async () => ({
@@ -85,7 +120,12 @@ async function leafFixture(options: {
               failure === undefined
                 ? { inputTokens: 3, outputTokens: 2 }
                 : (options.refusedUsage ?? { inputTokens: 0, outputTokens: 0 }),
-            ...(failure === undefined ? {} : { success: false, error: failure }),
+            ...(failure === undefined
+              ? {}
+              : {
+                  success: false,
+                  error: failure,
+                }),
           }),
         }
       },
@@ -156,7 +196,204 @@ async function leafFixture(options: {
   }
 }
 
+function workspaceRetention(failCapture?: number, completeCoverage = true) {
+  const bytes = new Map<string, Uint8Array>()
+  const contexts: ProviderWorkspaceRetentionContext[] = []
+  const digests: string[] = []
+  const artifacts: AgentCandidateOutputArtifactPort = {
+    async put({ bytes: input }) {
+      const digest = sha256Bytes(input)
+      bytes.set(digest, Uint8Array.from(input))
+      return {
+        locator: { kind: 's3', bucket: 'leaf-retention-test', key: digest.slice(7) },
+        sha256: digest,
+        byteLength: input.byteLength,
+      }
+    },
+    async read(reference) {
+      const stored = bytes.get(reference.sha256)
+      if (stored === undefined) throw new Error('artifact is unavailable')
+      return Uint8Array.from(stored)
+    },
+  }
+  const port = {
+    timeoutMs: 5_000,
+    requireCompleteProvenance: true,
+    artifacts,
+    async capture(context: ProviderWorkspaceRetentionContext) {
+      contexts.push(context)
+      if (contexts.length === failCapture) throw new Error('continued workspace capture failed')
+      const captured = await captureAgentCandidateWorkspaceFiles(
+        [
+          {
+            path: 'turn.txt',
+            mode: 0o644,
+            bytes: Uint8Array.from(Buffer.from(context.executionId)),
+          },
+        ],
+        { artifactPersistence: { executionId: context.executionId, outputArtifacts: artifacts } },
+      )
+      digests.push(captured.snapshot.digest)
+      if (!completeCoverage) return captured.snapshot
+      const controlRef = context.controlRef!
+      const nativeId = 'native-test-session'
+      return {
+        snapshot: captured.snapshot,
+        provenance: {
+          status: 'reported',
+          environmentId: context.environment.id,
+          executionId: context.executionId,
+          controlRef,
+          workspace: {
+            scannedFiles: 1,
+            scannedDirectories: 0,
+            reportedFiles: 1,
+            reportedDirectories: 0,
+            complete: true,
+          },
+          sessions: [
+            {
+              id: controlRef.sessionId,
+              executionId: context.executionId,
+              transportEvents: 'complete',
+              eventCount: 1,
+              messageCount: 1,
+              backendType: context.profile.harness,
+              executionIds: [controlRef.executionId],
+              eventCountsByExecutionId: { [controlRef.executionId]: 1 },
+              nativeSessionId: nativeId,
+              sidecarImageDigest: `sha256:${'1'.repeat(64)}`,
+              sidecarBundleRevision: '2'.repeat(40),
+              nativeStore: {
+                scope: 'session',
+                roots: [],
+                complete: true,
+                entries: [],
+                excludedPaths: [],
+                inventory: {
+                  scannedFiles: 0,
+                  reportedFiles: 0,
+                  scannedDirectories: 0,
+                  reportedDirectories: 0,
+                  scannedSymlinks: 0,
+                  reportedSymlinks: 0,
+                  skippedEntries: 0,
+                },
+              },
+              processStreams: {
+                complete: true,
+                streamCount: 0,
+                stdinBytes: 0,
+                stdoutBytes: 0,
+                stderrBytes: 0,
+                protocolBytes: 0,
+              },
+              nativeEvents: { complete: true, count: 1 },
+            },
+          ],
+          attempts: [
+            {
+              executionId: controlRef.executionId,
+              ordinal: 1,
+              providerSessionId: controlRef.sessionId,
+              nativeSessionIds: [nativeId],
+              processIds: [],
+              outcome: context.outcome?.success === false ? 'failed' : 'succeeded',
+              missingReasons: [],
+            },
+          ],
+          missing: [],
+        },
+      } satisfies ProviderWorkspaceCaptureResult
+    },
+  }
+  return { port, contexts, digests }
+}
+
 describe('a leaf whose model provider refuses its turn for capacity', () => {
+  it('continues structured quota refusals with a fresh workspace receipt for every invocation', async () => {
+    const retained = workspaceRetention()
+    const fixture = await leafFixture({
+      failure: (dispatch) => (dispatch <= 2 ? 'Usage window exhausted' : undefined),
+      failureCode: 'rate_limit_error',
+      refusedUsage: { inputTokens: 4, outputTokens: 1 },
+      executor: { workspaceRetention: retained.port },
+    })
+    const runResult = await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 100 },
+      })
+      expect((await scope.next())?.kind).toBe('done')
+      return 'completed'
+    })
+    expect(runResult.kind).toBe('winner')
+    const events = await fixture.leafEvents()
+    const inputs = events.filter((event) => event.kind === 'execution-input')
+    expect(fixture.creates()).toBe(1)
+    expect(fixture.dispatches).toHaveLength(3)
+    expect(inputs).toHaveLength(3)
+    expect(retained.contexts.map((context) => context.executionId)).toEqual([
+      'root:s0',
+      'root:s0:input:1',
+      'root:s0:input:2',
+    ])
+    expect(new Set(retained.contexts.map((context) => context.controlRef?.executionId)).size).toBe(
+      3,
+    )
+    expect(new Set(retained.contexts.map((context) => context.providerSessionId)).size).toBe(1)
+    expect(new Set(retained.digests).size).toBe(3)
+    expect(events.filter((event) => event.kind === 'paused')).toMatchObject([
+      { signal: 'rate_limit_error' },
+      { signal: 'rate_limit_error' },
+    ])
+    expect(events.filter((event) => event.kind === 'settled')).toMatchObject([
+      { status: 'done', spent: { iterations: 1, tokens: { input: 11, output: 4 } } },
+    ])
+    expect(await fixture.liveEnvironments()).toEqual([])
+  })
+
+  it('preserves the source if the continued turn cannot capture its changed workspace', async () => {
+    const retained = workspaceRetention(2)
+    const fixture = await leafFixture({
+      failure: (dispatch) => (dispatch === 1 ? ROUTER_QUOTA : undefined),
+      executor: { workspaceRetention: retained.port },
+    })
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 10 },
+      })
+      await scope.next()
+      return 'inspected'
+    })
+    expect(fixture.dispatches).toHaveLength(2)
+    expect(retained.contexts).toHaveLength(2)
+    expect(retained.digests).toHaveLength(1)
+    expect(await fixture.liveEnvironments()).toHaveLength(1)
+  })
+
+  it('keeps the source and stops continuation when required capture coverage is incomplete', async () => {
+    const retained = workspaceRetention(undefined, false)
+    const fixture = await leafFixture({
+      failure: () => ROUTER_QUOTA,
+      executor: {
+        workspaceRetention: { ...retained.port, requireCompleteProvenance: true },
+      },
+    })
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 10 },
+      })
+      await scope.next()
+      return 'inspected'
+    })
+    expect(fixture.dispatches).toHaveLength(1)
+    expect(retained.contexts).toHaveLength(1)
+    expect(await fixture.liveEnvironments()).toHaveLength(1)
+  })
+
   it('pauses, continues in the same environment and session, and completes', async () => {
     const fixture = await leafFixture({
       failure: (dispatch) => (dispatch <= 3 ? ROUTER_QUOTA : undefined),
@@ -245,32 +482,38 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
     expect(results.map((event) => event.spent.tokens.input)).toEqual([4, 8, 11])
   })
 
-  it('ends at cancellation during a pause, settling the refused turn and releasing its box', async () => {
-    const fixture = await leafFixture({
-      failure: () => ROUTER_QUOTA,
-      executor: { unavailablePause: { unavailablePauseMs: 60_000 } },
-    })
-    await fixture.run(async (scope) => {
-      const spawned = scope.spawn(fixture.worker(), 'task', {
-        key: 'work',
-        budget: { maxIterations: 1, maxTokens: 10 },
+  it.each([false, true])(
+    'ends at cancellation during a pause and releases its box (retention=%s)',
+    async (retainWorkspace) => {
+      const fixture = await leafFixture({
+        failure: () => ROUTER_QUOTA,
+        executor: {
+          unavailablePause: { unavailablePauseMs: 60_000 },
+          ...(retainWorkspace ? { workspaceRetention: workspaceRetention().port } : {}),
+        },
       })
-      expect(spawned.ok).toBe(true)
-      if (!spawned.ok) return 'refused'
-      // Wait until the leaf is in its first pause, then cancel it.
-      for (let wait = 0; wait < 200; wait += 1) {
-        if ((await fixture.leafEvents()).some((event) => event.kind === 'paused')) break
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      }
-      spawned.handle.abort('operator cancelled')
-      const settled = await scope.next()
-      expect(settled).toMatchObject({ kind: 'down' })
-      if (settled?.kind === 'down') expect(settled.reason).toContain('provider_quota_exhausted')
-      return 'inspected'
-    })
-    expect(fixture.dispatches).toHaveLength(1)
-    expect(await fixture.liveEnvironments()).toEqual([])
-  })
+      await fixture.run(async (scope) => {
+        const spawned = scope.spawn(fixture.worker(), 'task', {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 10 },
+        })
+        expect(spawned.ok).toBe(true)
+        if (!spawned.ok) return 'refused'
+        // Wait until the leaf is in its first pause, then cancel it.
+        for (let wait = 0; wait < 200; wait += 1) {
+          if ((await fixture.leafEvents()).some((event) => event.kind === 'paused')) break
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        spawned.handle.abort('operator cancelled')
+        const settled = await scope.next()
+        expect(settled).toMatchObject({ kind: 'down' })
+        if (settled?.kind === 'down') expect(settled.reason).toContain('provider_quota_exhausted')
+        return 'inspected'
+      })
+      expect(fixture.dispatches).toHaveLength(1)
+      expect(await fixture.liveEnvironments()).toEqual([])
+    },
+  )
 
   it('ends on the refused turn when the pause is turned off', async () => {
     const fixture = await leafFixture({
@@ -306,68 +549,117 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
     expect(fixture.dispatches).toHaveLength(1)
   })
 
-  it('recovers a continuation after the process stops, in the same box, without another dispatch', async () => {
-    const fixture = await leafFixture({
-      failure: (dispatch) => (dispatch === 1 ? ROUTER_QUOTA : undefined),
-    })
-    // The first process stops right after the continuation's dispatch was admitted.
-    const journal = fixture.context.journal
-    let stopped = false
-    const stopping = {
-      beginTree: journal.beginTree.bind(journal),
-      loadTree: journal.loadTree.bind(journal),
-      appendEvent: async (tree: string, event: SpawnEvent) => {
-        await journal.appendEvent(tree, event)
-        if (
-          !stopped &&
-          event.kind === 'execution-admitted' &&
-          event.admission.phase === 'dispatched' &&
-          event.admission.turnId.includes(':input:')
-        ) {
-          stopped = true
-          throw new Error('process stopped')
-        }
-      },
-    }
-    await fixture.run(
-      async (scope) => {
-        scope.spawn(fixture.worker(), 'task', {
-          key: 'work',
-          label: 'work',
-          budget: { maxIterations: 1, maxTokens: 10 },
-        })
-        await scope.next()
-        return 'first process'
-      },
-      undefined,
-      stopping,
-    )
-    expect(stopped).toBe(true)
-    expect(fixture.dispatches).toHaveLength(2)
+  it.each(
+    [false, true].flatMap((retainWorkspace) =>
+      [1, 2].flatMap((refusals) =>
+        (['known', 'estimated'] as const).map((costMode) => ({
+          retainWorkspace,
+          refusals,
+          costMode,
+        })),
+      ),
+    ),
+  )(
+    'recovers cumulative spend without another dispatch (retention=$retainWorkspace, refusals=$refusals, cost=$costMode)',
+    async ({ retainWorkspace, refusals, costMode }) => {
+      const fixture = await leafFixture({
+        failure: (dispatch) => (dispatch <= refusals ? ROUTER_QUOTA : undefined),
+        refusedUsage: { inputTokens: 4, outputTokens: 1 },
+        costMode,
+        executor: retainWorkspace ? { workspaceRetention: workspaceRetention().port } : {},
+      })
+      // The first process stops right after the continuation's dispatch was admitted.
+      const journal = fixture.context.journal
+      let stopped = false
+      const stopping = {
+        beginTree: journal.beginTree.bind(journal),
+        loadTree: journal.loadTree.bind(journal),
+        appendEvent: async (tree: string, event: SpawnEvent) => {
+          await journal.appendEvent(tree, event)
+          if (
+            !stopped &&
+            event.kind === 'execution-admitted' &&
+            event.admission.phase === 'dispatched' &&
+            event.admission.turnId.endsWith(`:input:${refusals}:turn:0`)
+          ) {
+            stopped = true
+            throw new Error('process stopped')
+          }
+        },
+      }
+      await fixture.run(
+        async (scope) => {
+          scope.spawn(fixture.worker(), 'task', {
+            key: 'work',
+            label: 'work',
+            budget: { maxIterations: 1, maxTokens: 100 },
+          })
+          await scope.next()
+          return 'first process'
+        },
+        undefined,
+        stopping,
+      )
+      expect(stopped).toBe(true)
+      expect(fixture.dispatches).toHaveLength(refusals + 1)
 
-    const resumed = await fixture.run(
-      async (scope) => {
-        if (scope.view.inFlight > 0) {
-          const settled = await scope.next()
-          if (settled?.kind !== 'done') throw new Error('the continuation did not complete')
-        }
-        const replayed = scope.spawn(fixture.worker(), 'task', {
-          key: 'work',
-          label: 'work',
-          budget: { maxIterations: 1, maxTokens: 10 },
-        })
-        if (!replayed.ok || replayed.prior?.state !== 'completed') {
-          throw new Error('expected the recovered result')
-        }
-        return 'recovered'
+      const resumed = await fixture.run(
+        async (scope) => {
+          if (scope.view.inFlight > 0) {
+            const settled = await scope.next()
+            if (settled?.kind !== 'done') throw new Error('the continuation did not complete')
+          }
+          const replayed = scope.spawn(fixture.worker(), 'task', {
+            key: 'work',
+            label: 'work',
+            budget: { maxIterations: 1, maxTokens: 100 },
+          })
+          if (!replayed.ok || replayed.prior?.state !== 'completed') {
+            throw new Error('expected the recovered result')
+          }
+          return 'recovered'
+        },
+        providerAsExecutor(fixture.provider(), fixture.executorOptions),
+      )
+      expect(resumed.kind).toBe('winner')
+      // The recovery reconnected to the admitted continuation rather than dispatching again.
+      expect(fixture.dispatches).toHaveLength(refusals + 1)
+      expect(fixture.creates()).toBe(1)
+      const events = await fixture.leafEvents()
+      expect(events.filter((event) => event.kind === 'settled')).toMatchObject([
+        {
+          status: 'done',
+          spent: {
+            iterations: 1,
+            tokens: { input: 4 * refusals + 3, output: refusals + 2 },
+            usd: 0.25 * refusals + 0.5,
+            ...(costMode === 'estimated'
+              ? { usdKnown: false, usdEstimated: 0.25 * refusals + 0.5 }
+              : {}),
+          },
+        },
+      ])
+    },
+  )
+  it('keeps a prior captured workspace when a continued dispatch reply is lost', async () => {
+    const retained = workspaceRetention()
+    const fixture = await leafFixture({
+      failure: (dispatch) => {
+        if (dispatch === 2) throw new Error('continued dispatch reply lost')
+        return ROUTER_QUOTA
       },
-      providerAsExecutor(fixture.provider(), fixture.executorOptions),
-    )
-    expect(resumed.kind).toBe('winner')
-    // The recovery reconnected to the admitted continuation rather than dispatching again.
+      executor: { workspaceRetention: retained.port },
+    })
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 100 },
+      })
+      await scope.next()
+      return 'inspected'
+    })
     expect(fixture.dispatches).toHaveLength(2)
-    expect(fixture.creates()).toBe(1)
-    const events = await fixture.leafEvents()
-    expect(events.filter((event) => event.kind === 'settled')).toMatchObject([{ status: 'done' }])
+    expect(retained.contexts).toHaveLength(1)
+    expect(await fixture.liveEnvironments()).toHaveLength(1)
   })
 })

@@ -4940,8 +4940,9 @@ the leaf's deadline, cancellation and budget end it. Each pause is journaled as 
 spawn event, and each continuation as the node's next `execution-input`.
 
 Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
-that declares `retainedControl`, and not with `workspaceRetention`. `false` ends the execution
-on the refused turn.
+that declares `retainedControl`. Workspace retention verifies each invocation separately;
+failed capture or required incomplete coverage preserves the source and stops continuation.
+`false` ends the execution on the refused turn.
 
 ***
 
@@ -20782,8 +20783,9 @@ the leaf's deadline, cancellation and budget end it. Each pause is journaled as 
 spawn event, and each continuation as the node's next `execution-input`.
 
 Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
-that declares `retainedControl`, and not with `workspaceRetention`. `false` ends the execution
-on the refused turn.
+that declares `retainedControl`. Workspace retention verifies each invocation separately;
+failed capture or required incomplete coverage preserves the source and stops continuation.
+`false` ends the execution on the refused turn.
 
 ###### Inherited from
 

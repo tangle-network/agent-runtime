@@ -514,8 +514,9 @@ export interface ProviderExecutorOptions {
    * spawn event, and each continuation as the node's next `execution-input`.
    *
    * Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
-   * that declares `retainedControl`, and not with `workspaceRetention`. `false` ends the execution
-   * on the refused turn.
+   * that declares `retainedControl`. Workspace retention verifies each invocation separately;
+   * failed capture or required incomplete coverage preserves the source and stops continuation.
+   * `false` ends the execution on the refused turn.
    */
   unavailablePause?: UnavailablePausePolicy | false
 }
@@ -675,9 +676,14 @@ function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
 
-  const resetWorkspaceState = (next: AgentEnvironment): void => {
-    if (workspaceEnvironmentId === next.id) return
+  let workspaceExecutionId = executionId
+  const resetWorkspaceState = (
+    next: AgentEnvironment,
+    invocationId = workspaceExecutionId,
+  ): void => {
+    if (workspaceEnvironmentId === next.id && workspaceExecutionId === invocationId) return
     workspaceEnvironmentId = next.id
+    workspaceExecutionId = invocationId
     workspaceSnapshot = undefined
     workspaceProvenance = undefined
     workspaceCoverageComplete = false
@@ -752,7 +758,7 @@ function createProviderExecutor(
       workspaceOutcome = outcome
       workspaceCapturePromise = captureProviderWorkspaceSnapshot(workspaceRetention, {
         environment: next,
-        executionId,
+        executionId: workspaceExecutionId,
         ...(workspaceControlRef === undefined ? {} : { controlRef: workspaceControlRef }),
         ...(node === undefined ? {} : { node }),
         providerSessionId,
@@ -919,17 +925,25 @@ function createProviderExecutor(
     try {
       // One execution is one or more invocations: the first runs `task`; a later one continues it
       // in the same environment after the upstream refused a turn for capacity.
-      const executionStartedAt = Date.now()
+      const executionStartedAt = Date.now() - (retention?.priorSpent?.ms ?? 0)
       let invocation: {
         task: unknown
         retention: RetainedExecutorContext | undefined
         executionId: string
         recovering: boolean
       } = { task, retention, executionId, recovering }
-      let carried: Spend | undefined
+      let carried: Spend | undefined = retention?.priorSpent
       let refusalsInARow = 0
       for (let attempt = 1; ; attempt += 1) {
-        const continued = carried !== undefined
+        const continued = attempt > 1
+        if (continued && environment !== undefined) {
+          // A resumed turn can change this same workspace. Its predecessor's receipt cannot
+          // authorize cleanup, including when dispatch fails before returning a new handle.
+          resetWorkspaceState(environment, invocation.executionId)
+          workspaceControlRef = undefined
+          providerSessionId = null
+          workspacePreservationRequired = options.workspaceRetention !== undefined
+        }
         const ended = yield* streamProviderExecutor({
           provider,
           profile,
@@ -946,7 +960,6 @@ function createProviderExecutor(
           executionStartedAt,
           mayContinue:
             options.unavailablePause !== false &&
-            options.workspaceRetention === undefined &&
             invocation.retention?.continueInvocation !== undefined,
           onRetained: (handle) => {
             retained = handle
@@ -1009,6 +1022,13 @@ function createProviderExecutor(
           },
           onPublishedSnapshot: (snapshot) => {
             workspacePublishedSnapshot = snapshot
+            if (
+              continued &&
+              snapshot !== undefined &&
+              (!options.workspaceRetention?.requireCompleteProvenance || workspaceCoverageComplete)
+            ) {
+              workspacePreservationRequired = false
+            }
           },
           captureWorkspace,
           workspaceControlRef: () => workspaceControlRef,
@@ -1021,7 +1041,13 @@ function createProviderExecutor(
         })
         const refusal = ended.unavailable
         const continueInvocation = invocation.retention?.continueInvocation
-        if (refusal === undefined || continueInvocation === undefined) return
+        if (
+          refusal === undefined ||
+          continueInvocation === undefined ||
+          workspacePreservationRequired ||
+          workspaceCaptureFailure !== undefined
+        )
+          return
         // The same pause rule a driver follows: doubling per refusal in a row, restarting after a
         // refused turn that still did work. Only the deadline, cancellation and budget end it.
         refusalsInARow = ended.madeProgress ? 1 : refusalsInARow + 1
@@ -1491,7 +1517,7 @@ async function* streamProviderExecutor(
         `providerAsExecutor(${args.provider.name}): stream ended without a terminal result/done/status event`,
       )
     }
-    // A continuation finishes the iteration its refused turn began, so it counts none of its own.
+    // Continuations share one iteration; recovery restores it from the prior committed spend.
     if (args.carried === undefined) yield { kind: 'iteration' }
     // Read the child's own harness transcript while the environment is still live. The
     // `finally` below destroys it, and nothing used to read these files first, so a child's
