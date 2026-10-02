@@ -1,3 +1,7 @@
+## 0.292.3
+
+Run full-capacity acceptance calibration through the repository Vitest runner so normal package verification discovers its cases.
+
 ## 0.292.2
 
 Preserve the original provider stream failure alongside a workspace-capture publication error that already has its own cause, without mutating a shared persistence error or introducing a self-referencing cause. Retention checks now require recoverable controller interruption on journal/blob failure and verify the preserved source and absence of terminal records.
