@@ -20,7 +20,8 @@ Retained provider children and managers can reconcile original invocations after
 Durable inputs, ordered admissions, content-addressed results, and usage records support that recovery.
 New retained sessions use deterministic, bounded identifiers that are safe for provider workspace paths.
 Recovery preserves the recorded session and execution identifiers and validates the original request material.
-Recovery restores live descendants and their reservations before the manager resumes.
+Recovery restores live descendant identities and queues their original reservations through the shared budget pool.
+Funded descendants mount before their manager resumes; budget-deferred descendants stay visible without blocking the parent.
 Managers and children then continue together through the existing Scope lifecycle.
 Unresolved provider work remains uncertain until exact identity and completion can be established.
 
