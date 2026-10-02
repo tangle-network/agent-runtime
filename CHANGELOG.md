@@ -1,3 +1,7 @@
+## 0.292.1
+
+Keep pursuits resumable after a durable-store failure instead of settling and releasing retained executions whose outcomes remain pending.
+
 ## 0.292.0
 
 Keep the OTLP exporter usable after an empty idle flush and continue awaiting an existing in-flight batch when the waiting queue is empty. Treat an interrupted response body as unconfirmed delivery through the existing dropped-span accounting instead of substituting a successful empty acknowledgement. Public APIs, bounded queue behavior and retry policy are unchanged.
