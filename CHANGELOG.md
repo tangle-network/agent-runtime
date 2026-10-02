@@ -1,3 +1,9 @@
+## 0.292.4
+
+Carry the exact subscription AgentProfile through new provider turns, including quota continuations that reconnect to an existing environment. Reject a substituted turn profile before provisioning, and preserve the original digest when replaying an older retained admission.
+
+Restore retained child identities through the existing conserved budget queue when their original reservations cannot fit concurrently. Allow the parent to resume while unfunded nested managers wait, preserving original execution identity, cancellation and actual exhaustion handling.
+
 ## 0.292.3
 
 Run full-capacity acceptance calibration through the repository Vitest runner so normal package verification discovers its cases.
