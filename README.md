@@ -108,6 +108,12 @@ Five mechanisms continue interrupted work; choose by what died:
 
 Runtime's release gates prove that the declared profile reaches the selected backend, provider identity is read back when available, in-band failures cannot settle as empty success, budgets reconcile, resume identity is stable, and packed consumers can install the supported package cohort.
 
+A profile requesting subscription credentials reaches the provider on creation and every new turn.
+This includes a new invocation after a typed quota refusal and a cold lookup of the retained environment.
+The provider's account owner binds that turn's credential; Runtime keeps the original deadline, logical node, and native session.
+Exact replay retains the admitted request, including older admissions that relied on the creation-time profile.
+
+
 Those are **integration proofs**, not benchmark-value proofs.
 
 `pnpm verify:official-optimizers` verifies the official GEPA/Optimize Anything bridge, recipe identities, resume behavior, accounting, and package provenance on a controlled fixture. It does not claim to reproduce GEPA, Omni, AutoResearch, or Meta-Harness benchmark lift. Full benchmark reproduction belongs in Discovery Lab, using the benchmark's own evaluator, matched budgets, frozen partitions, and immutable receipts.

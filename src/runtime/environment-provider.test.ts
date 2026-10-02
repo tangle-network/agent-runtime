@@ -41,10 +41,46 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it('refuses a substituted subscription profile before creating an environment', async () => {
+    let creates = 0
+    const profile: AgentProfile = {
+      name: 'exact-subscription',
+      harness: 'claude-code',
+      model: {
+        provider: 'anthropic',
+        default: 'claude-opus-5-5',
+        metadata: { credentialSource: 'subscription' },
+      },
+      tools: {},
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: 'tangle-sandbox',
+      capabilities: fakeCapabilities,
+      async create() {
+        creates++
+        throw new Error('Unexpected environment creation')
+      },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider, {
+      taskToTurn: (_task, _profile, turn) => ({
+        ...turn,
+        providerOptions: { backend: { profile: { ...profile, tools: { Read: true } } } },
+      }),
+    })({ profile, harness: null }, { signal, seams: {} })
+    const execution = executor.execute('work', signal)
+    if (!(Symbol.asyncIterator in execution)) {
+      throw new Error('Expected streamed provider execution')
+    }
+    await expect(collect(execution)).rejects.toThrow('cannot replace its exact AgentProfile')
+    expect(creates).toBe(0)
+  })
+
   it.each(['managed', 'subscription'] as const)(
     'preserves explicit %s credentials through the actual provider executor',
     async (credentialSource) => {
       let createdProfile: AgentProfile | undefined
+      let streamedProfile: AgentProfile | undefined
       const provider: AgentEnvironmentProvider = {
         name: 'tangle-sandbox',
         capabilities: fakeCapabilities,
@@ -52,7 +88,10 @@ describe('environment provider adapters', () => {
           if (typeof input.profile === 'string') throw new Error('expected inline profile')
           createdProfile = input.profile
           return fakeEnvironment({
-            async *stream() {
+            async *stream(turn) {
+              streamedProfile = (
+                turn.providerOptions?.backend as { profile?: AgentProfile } | undefined
+              )?.profile
               yield { type: 'done', data: { finalText: 'subscription result' } }
             },
           })
@@ -75,6 +114,7 @@ describe('environment provider adapters', () => {
       )
       await collect(executor.execute('task', signal) as AsyncIterable<UsageEvent>)
       expect(createdProfile).toEqual(profile)
+      expect(streamedProfile).toEqual(credentialSource === 'subscription' ? profile : undefined)
       expect(canonicalAgentProfileDigest(createdProfile!)).toBe(
         canonicalAgentProfileDigest(profile),
       )

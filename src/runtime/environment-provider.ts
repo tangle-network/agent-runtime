@@ -5,6 +5,7 @@ import {
   harnessTranscriptUnavailable,
 } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
+import { promptOptionsFromAgentTurnInput } from './turn-input'
 
 export type { ProviderPlacement } from './provider-placement'
 
@@ -1833,6 +1834,25 @@ async function* streamProviderExecutor(
   }
 }
 
+/** Subscription selection needs the same complete profile on creation and every new turn. */
+function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): AgentTurnInput {
+  if (profile.model?.metadata?.credentialSource !== 'subscription') return turn
+  const backend = promptOptionsFromAgentTurnInput(turn).backend ?? {}
+  if (
+    backend.profile !== undefined &&
+    canonicalAgentProfileDigest(backend.profile) !== canonicalAgentProfileDigest(profile)
+  ) {
+    throw new ValidationError('provider subscription turn cannot replace its exact AgentProfile')
+  }
+  return {
+    ...turn,
+    providerOptions: {
+      ...turn.providerOptions,
+      backend: { ...backend, profile },
+    },
+  }
+}
+
 /** One retained dispatch owns creation, replay, result identity, and cancellation. */
 async function providerExecutionSource(
   args: StreamProviderExecutorArgs,
@@ -1843,6 +1863,7 @@ async function providerExecutionSource(
   events: AsyncIterable<AgentEnvironmentEvent>
   retained: boolean
 }> {
+  const selectedTurn = subscriptionTurnProfile(turn, args.profile)
   const capabilities = args.retention ? await args.provider.capabilities() : undefined
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
   if (!useRetained) {
@@ -1853,7 +1874,7 @@ async function providerExecutionSource(
       profile: args.createProfile,
       signal,
     })
-    return { environment, events: environment.stream(turn), retained: false }
+    return { environment, events: environment.stream(selectedTurn), retained: false }
   }
   const retention = args.retention!
   let admitted = args.recovering
@@ -1881,7 +1902,7 @@ async function providerExecutionSource(
       idempotencyKey: environmentKey,
       signal,
     },
-    turn: { ...turn, turnId },
+    turn: { ...selectedTurn, turnId },
     ...(priorSession === undefined
       ? {}
       : {
@@ -1904,7 +1925,16 @@ async function providerExecutionSource(
     // Start with the original execution keys; once any admission exists, validate its intent.
     if (args.recovering && admissions.length > 0) {
       if (!intent) throw new Error('retained provider execution has no original intent')
-      assertRetainedRunReplayMaterial(args.provider, material, intent)
+      try {
+        assertRetainedRunReplayMaterial(args.provider, material, intent)
+      } catch (error) {
+        if (selectedTurn === turn) throw error
+        // An older admission may have relied on the create-time profile. Only
+        // its exact original material may replay; a new turn uses the profile.
+        const original = { ...material, turn: { ...turn, turnId } }
+        assertRetainedRunReplayMaterial(args.provider, original, intent)
+        material.turn = original.turn
+      }
     }
     let handle: RetainedRunHandle
     if (args.recovering && dispatched?.phase === 'dispatched') {
