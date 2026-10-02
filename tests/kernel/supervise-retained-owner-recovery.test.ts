@@ -151,8 +151,9 @@ describe('retained external supervisor recovery', () => {
         },
         blobs: context.blobs,
       }
-      const interrupted = await supervise(profile, 'answer', options)
-      expect(interrupted).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+      await expect(supervise(profile, 'answer', options)).rejects.toThrow(
+        'durable state unavailable',
+      )
       const resumeAbort = new AbortController()
       const resumeTimer = setTimeout(() => resumeAbort.abort(new Error('resume timeout')), 5_000)
       const result = await supervise(profile, 'answer', {
@@ -404,9 +405,10 @@ describe('retained external supervisor recovery', () => {
     expect(fixture.authorizedRequests()).toBeGreaterThan(1)
   })
 
-  it('reconciles a same-process driver retry against already committed usage', async () => {
+  it('reconciles committed usage after storage failure interrupts driver retry', async () => {
     const fixture = await setup('metered', false, true)
     await fixture.first()
+    await fixture.resume()
     const events = await fixture.events()
     expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
     expect(events.filter((event) => event.kind === 'execution-result')).toHaveLength(1)

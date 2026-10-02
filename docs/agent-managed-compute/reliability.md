@@ -8,6 +8,10 @@ Child recovery uses the configured executor factory and validates the original r
 Scope restores each live child's original identity, deadline, reservation, and shared worker slot before its manager acts.
 Recovery waits for descendant admission, while managers and children can continue communicating before either finishes.
 An accepted result can be reused after environment deletion.
+A durable-store failure interrupts the controller and revokes further writes from that attempt.
+Runtime joins local observers and preserves retained invocations for recovery using their original identity and deadline.
+The pursuit records a failure when storage permits, without creating its terminal `result.json` guard.
+After restoring storage, resume the same run; Runtime does not start a replacement invocation or a local restart loop.
 If retained event observation fails, Runtime reads the exact terminal result before leaving the invocation unresolved.
 Recovered results preserve incomplete event observation and a bounded, redacted error summary.
 Runtime refuses settlement for received events with invalid identities and for unavailable or invalid exact results.

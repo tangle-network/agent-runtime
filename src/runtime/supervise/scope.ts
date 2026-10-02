@@ -318,6 +318,7 @@ const pauseRecorders = new WeakMap<object, (pause: ScopeOwnerPause) => Promise<v
 const driverAttemptRecorders = new WeakMap<object, (record: DriverAttemptRecord) => Promise<void>>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
 const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+const childDrains = new WeakMap<object, () => Promise<void>>()
 const retainedSlotClosers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriers = new WeakMap<object, () => Promise<void>>()
 const teardownRetriable = new WeakMap<object, (release: boolean) => boolean>()
@@ -512,6 +513,11 @@ export function hasRetriableTeardowns(scope: Scope<unknown>, release: boolean): 
  */
 export function closeScopeAdmission(scope: Scope<unknown>): void {
   admissionSeals.get(scope)?.()
+}
+
+/** Join local observers after abort without requiring a writable settlement journal. */
+export async function waitForScopeChildren(scope: Scope<unknown>): Promise<void> {
+  await childDrains.get(scope)?.()
 }
 
 /** Fail before execution when a reservation policy is malformed. */
@@ -1814,6 +1820,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           clearChildDeadline?.()
           if (cascadeAbort) args.signal.removeEventListener('abort', cascadeAbort)
         })
+      // Persistence may fail before a cursor starts awaiting this child.
+      void settled.catch(() => undefined)
       ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
 
       return { ok: true, handle, ...(prior ? { prior } : {}) }
@@ -2273,6 +2281,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     },
   }
+  childDrains.set(scope, async () => {
+    await Promise.allSettled([...children.values()].map((child) => child.settled))
+    await Promise.allSettled([...settlementWrites])
+    await Promise.all(
+      [...children.values()].map(async (child) => {
+        const nested = child.readNestedScope?.()
+        if (nested !== undefined) await waitForScopeChildren(nested)
+      }),
+    )
+  })
   admissionSeals.set(scope as Scope<unknown>, () => {
     admissionClosed = true
   })

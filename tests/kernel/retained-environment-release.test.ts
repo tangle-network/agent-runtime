@@ -1310,22 +1310,24 @@ describe('a crash between the receipt and the released record heals on the next 
     const observerPath = join(directory, 'observer.jsonl')
     const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
     const initialObserver = new FileObserverJournal(observerPath, 'pursuit:heal')
-    await createSupervisor<unknown, unknown>().run(
-      {
-        name: 'root',
-        async act(_task, scope) {
-          await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
-          return 'finished'
+    await expect(
+      createSupervisor<unknown, unknown>().run(
+        {
+          name: 'root',
+          async act(_task, scope) {
+            await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+            return 'finished'
+          },
         },
-      },
-      'task',
-      {
-        ...createFileRunContext(runDirectory),
-        journal: crashed.journal,
-        ...common('heal'),
-        hooks: initialObserver.hooks(),
-      },
-    )
+        'task',
+        {
+          ...createFileRunContext(runDirectory),
+          journal: crashed.journal,
+          ...common('heal'),
+          hooks: initialObserver.hooks(),
+        },
+      ),
+    ).rejects.toThrow('durable state unavailable')
     // The window exactly: the environment is destroyed, the receipt is the last record, the slot
     // is open, and the reconciled record carries the settlement and the cursor seq beside the floor.
     expect(fleet.state.destroys).toBe(1)
@@ -1501,12 +1503,14 @@ describe('a crash between the receipt and the released record heals on the next 
 
     const runDirectory = join(directory, 'run')
     const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
-    await createSupervisor<unknown, unknown>().run(root, 'task', {
-      ...createFileRunContext(runDirectory),
-      journal: crashed.journal,
-      ...common('same'),
-      now: fixedClock(),
-    })
+    await expect(
+      createSupervisor<unknown, unknown>().run(root, 'task', {
+        ...createFileRunContext(runDirectory),
+        journal: crashed.journal,
+        ...common('same'),
+        now: fixedClock(),
+      }),
+    ).rejects.toThrow('durable state unavailable')
     const crashedEvents = (await createFileRunContext(runDirectory).journal.loadTree('same')) ?? []
     expect(terminalRecords(crashedEvents, 'same:s0')).toEqual([])
     expect(recorded(crashedEvents)).toEqual(recorded(controlEvents.slice(0, -1)))
@@ -1577,12 +1581,14 @@ describe('a crash between the receipt and the released record heals on the next 
       })
     }
     const crashed = crashBeforeReleasedRecord(createFileRunContext(runDirectory).journal)
-    await createSupervisor<unknown, unknown>().run(root, 'task', {
-      ...createFileRunContext(runDirectory),
-      journal: crashed.journal,
-      ...common('abort-heal'),
-      signal: abort.signal,
-    })
+    await expect(
+      createSupervisor<unknown, unknown>().run(root, 'task', {
+        ...createFileRunContext(runDirectory),
+        journal: crashed.journal,
+        ...common('abort-heal'),
+        signal: abort.signal,
+      }),
+    ).rejects.toThrow('durable state unavailable')
     expect(fleet.state.destroys).toBe(1)
     const before = (await createFileRunContext(runDirectory).journal.loadTree('abort-heal')) ?? []
     expect(terminalRecords(before, 'abort-heal:s0')).toEqual([])
@@ -1725,12 +1731,14 @@ describe('a crash between the receipt and the released record heals on the next 
         return 'finished'
       },
     })
-    await createSupervisor<unknown, unknown>().run(rootFor(managerFor(crashed.journal)), 'task', {
-      ...createFileRunContext(runDirectory, { withDriver: true }),
-      journal: crashed.journal,
-      ...common('root'),
-      budget: { maxIterations: 4, maxTokens: 100 },
-    })
+    await expect(
+      createSupervisor<unknown, unknown>().run(rootFor(managerFor(crashed.journal)), 'task', {
+        ...createFileRunContext(runDirectory, { withDriver: true }),
+        journal: crashed.journal,
+        ...common('root'),
+        budget: { maxIterations: 4, maxTokens: 100 },
+      }),
+    ).rejects.toThrow('durable state unavailable')
     expect(fleet.environments()).toEqual([])
     expect(crashed.dropped).toHaveLength(1)
     const firstContext = createFileRunContext(runDirectory, { withDriver: true })
