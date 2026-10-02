@@ -1235,12 +1235,20 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         })
       const retainedContext = (
         continuing:
-          | { executionId: string; priorSession: RetainedRunEnvironmentAdmission }
+          | {
+              executionId: string
+              priorSession: RetainedRunEnvironmentAdmission
+              priorSpent?: Spend
+            }
           | undefined,
       ): RetainedExecutorContext => ({
         ...(continuing === undefined
           ? {}
-          : { executionId: continuing.executionId, priorSession: continuing.priorSession }),
+          : {
+              executionId: continuing.executionId,
+              priorSession: continuing.priorSession,
+              ...(continuing.priorSpent === undefined ? {} : { priorSpent: continuing.priorSpent }),
+            }),
         admissions,
         ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
         onAdmission,
@@ -1287,10 +1295,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           admissions = []
           // The committed result belongs to the invocation this one continues. A cancellation
           // from here on leaves this invocation pending, not that result accepted.
+          const priorSpent = live.acceptedResult.spent
           live.acceptedResult = undefined
           return retainedContext({
             executionId: leafContinuationExecutionId(id, nextSeq),
             priorSession: environment,
+            priorSpent,
           })
         },
       })
@@ -1312,6 +1322,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               : {
                   executionId: recovery.continuation.executionId,
                   priorSession: recovery.continuation.priorSession,
+                  priorSpent: recovery.continuation.priorSpent,
                 },
           ),
           [nestedScopeSeamKey]: makeNestedScopeSeam(
@@ -1717,6 +1728,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         closeRetainedWrites,
         budgetGranted,
         permit.ready,
+        recovery?.continuation?.priorSpent,
       )
       // `runChild` owns the ticket from here: only the child's settlement closes it, so a leak
       // found at the join barrier points at a child that never settled rather than at admission.
@@ -3513,7 +3525,9 @@ async function runChild<C>(
   closeRetainedWrites: () => Promise<void> = async () => {},
   budgetReady: Promise<void> | undefined = undefined,
   slotReady: Promise<void> = Promise.resolve(),
+  priorSpent?: Spend,
 ): Promise<PreSeqSettled> {
+  if (priorSpent !== undefined) live.spent = detachedSnapshot(priorSpent, 'prior committed usage')
   let reconciled = false
   let reconciliationError: unknown
   let teardownFailure: unknown
@@ -3650,6 +3664,7 @@ async function runChild<C>(
           })
         },
         childAbort.signal,
+        priorSpent,
       )
       live.spent = spend
       const reported = executor.resultArtifact() as ExecutorResult<C>
@@ -4225,8 +4240,9 @@ async function foldStream(
   stream: AsyncIterable<UsageEvent>,
   onProgress?: (running: Spend) => void | Promise<void>,
   signal?: AbortSignal,
+  priorSpent?: Spend,
 ): Promise<Spend> {
-  const totals = newUsageTotals()
+  const totals = newUsageTotals(priorSpent)
   const iterator = stream[Symbol.asyncIterator]()
   try {
     for (;;) {
@@ -4242,6 +4258,7 @@ async function foldStream(
         tokens: cloneTokenUsage(totals.tokens),
         ...(totals.tokensKnown ? {} : { tokensKnown: false }),
         usd: totals.usd,
+        ...(totals.usdEstimated > 0 ? { usdEstimated: totals.usdEstimated } : {}),
         ...(totals.usdKnown ? {} : { usdKnown: false }),
         // A live read says which receipt the running total came from, so `observe_agent` on a
         // codex seat reports store-read tokens as store-read rather than as a stream receipt.

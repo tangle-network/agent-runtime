@@ -15,6 +15,7 @@ import type {
   ResultBlobStore,
   SpawnEvent,
   SpawnJournal,
+  Spend,
   WorkspaceCheckpointMarker,
 } from './types'
 
@@ -26,6 +27,8 @@ export interface RetainedExecutorContext {
   readonly executionId?: string
   /** Prior committed environment admission to reuse for a deliberate later invocation. */
   readonly priorSession?: RetainedRunEnvironmentAdmission
+  /** Cumulative committed spend before this invocation; restored without summing prior totals. */
+  readonly priorSpent?: Spend
   /** Keep the retained provider environment alive across deliberate invocations. */
   readonly preserveEnvironment?: boolean
   readonly admissions: readonly RetainedRunAdmission[]
@@ -295,6 +298,7 @@ export interface RetainedLeafContinuation {
   readonly inputSeq: number
   readonly executionId: string
   readonly priorSession: RetainedRunEnvironmentAdmission
+  readonly priorSpent: Spend
 }
 
 /** The execution id of a leaf's later invocation, derived from its `execution-input` sequence so

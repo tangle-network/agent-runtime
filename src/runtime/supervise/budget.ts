@@ -66,7 +66,13 @@
 
 import { ValidationError } from '../../errors'
 import type { LoopTokenUsage } from '../types'
-import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
+import {
+  addTokenUsage,
+  chargedTokens,
+  cloneTokenUsage,
+  hasCompleteCacheBreakdown,
+  zeroTokenUsage,
+} from '../util'
 import { addResourceSpend, assertResources, withBudgetResources } from './resources'
 import type {
   Budget,
@@ -433,15 +439,20 @@ export interface UsageTotals {
   iterations: number
 }
 
-/** Fresh zeroed {@link UsageTotals}. */
-export function newUsageTotals(): UsageTotals {
+/** Fresh accounting totals, optionally restored from verified committed spend. */
+export function newUsageTotals(priorSpent?: Spend): UsageTotals {
+  if (priorSpent !== undefined) assertValidSpend(priorSpent, 'prior committed usage')
   return {
-    tokens: zeroTokenUsage(),
-    tokensKnown: true,
-    usd: 0,
-    usdEstimated: 0,
-    usdKnown: true,
-    iterations: 0,
+    ...addResourceSpend(priorSpent?.resources),
+    tokens: priorSpent === undefined ? zeroTokenUsage() : cloneTokenUsage(priorSpent.tokens),
+    tokensKnown: priorSpent?.tokensKnown !== false,
+    ...(priorSpent?.tokensProvenance === undefined
+      ? {}
+      : { tokensProvenance: priorSpent.tokensProvenance }),
+    usd: priorSpent?.usd ?? 0,
+    usdEstimated: priorSpent?.usdEstimated ?? 0,
+    usdKnown: priorSpent?.usdKnown !== false,
+    iterations: priorSpent?.iterations ?? 0,
   }
 }
 

@@ -399,6 +399,15 @@ async function leafContinuation(
       `cannot recover '${node.id}': its continuation names no environment it continued in`,
     )
   }
+  const priorResult = [...before]
+    .reverse()
+    .find((event): event is RecordedResult => event.kind === 'execution-result')
+  if (priorResult === undefined) {
+    throw new RuntimeRunStateError(
+      `cannot recover '${node.id}': its continuation has no committed predecessor result`,
+    )
+  }
+  await assertRecordedResult(node, priorResult, owned, opts)
   const task = await opts.blobs.get(latestInput.taskRef)
   if (task === undefined || contentAddress(task) !== latestInput.taskRef) {
     throw new RuntimeRunStateError(`continuation task for '${node.id}' is missing or corrupt`)
@@ -408,6 +417,7 @@ async function leafContinuation(
     inputSeq: latestInput.seq,
     executionId: leafContinuationExecutionId(node.id, latestInput.seq),
     priorSession,
+    priorSpent: priorResult.spent,
   }
 }
 
