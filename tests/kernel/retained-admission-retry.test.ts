@@ -8,6 +8,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
+import { startRetainedRun } from '../../src/runtime/retained-run-start'
 import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
 import {
   type DriverAttemptRecord,
@@ -51,6 +52,68 @@ const sdkError = (status: number, cause?: unknown) =>
   })
 
 describe('retained provider admission retry', () => {
+  it('reconnects a legacy subscription admission without changing its request or dispatching again', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'runtime-legacy-profile-'))
+    roots.push(root)
+    const base = durableRetainedProvider(join(root, 'provider.json'))
+    let creates = 0
+    let dispatches = 0
+    const legacyProfile: AgentProfile = {
+      name: 'legacy-subscription',
+      harness: 'claude-code',
+      model: {
+        provider: 'anthropic',
+        default: 'claude-opus-5-5',
+        metadata: { credentialSource: 'subscription' },
+      },
+    }
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      async create(input) {
+        creates++
+        const env = await base.create(input)
+        return {
+          ...env,
+          async dispatch(turn) {
+            dispatches++
+            expect(turn.providerOptions?.backend).toBeUndefined()
+            return env.dispatch!(turn)
+          },
+        }
+      },
+    }
+    const admissions: RetainedRunAdmission[] = []
+    await startRetainedRun({
+      provider,
+      environment: { profile: legacyProfile, idempotencyKey: 'runtime:legacy-execution' },
+      turn: { prompt: 'produce result', turnId: 'legacy-execution:turn:0' },
+      async onAdmission(admission) {
+        admissions.push(admission)
+      },
+    })
+    const before = JSON.stringify(admissions)
+    const reloaded: RetainedRunAdmission[] = JSON.parse(before)
+    const signal = new AbortController().signal
+    const retained: RetainedExecutorContext = {
+      executionId: 'legacy-execution',
+      admissions: reloaded,
+      async onAdmission(admission) {
+        reloaded.push(admission)
+      },
+      async onResult() {},
+    }
+    const executor = providerAsExecutor(provider, { destroyOnSettle: false })(
+      { profile: legacyProfile, harness: 'claude-code' },
+      { signal, seams: { [retainedExecutorSeamKey]: retained } },
+    )
+    if (!executor.recover) throw new Error('Expected retained recovery')
+    for await (const _event of executor.recover('produce result', signal)) {
+    }
+    expect(executor.resultArtifact().out).toMatchObject({ content: 'durable result' })
+    expect(JSON.stringify(reloaded)).toBe(before)
+    expect({ creates, dispatches }).toEqual({ creates: 1, dispatches: 1 })
+  })
+
   it.each([
     [400, 'terminal'],
     [401, 'terminal'],

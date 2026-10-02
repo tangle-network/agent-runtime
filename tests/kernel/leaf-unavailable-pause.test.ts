@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentEvent,
@@ -25,6 +25,7 @@ import type {
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, ExecutorFactory, Scope, SpawnEvent } from '../../src/runtime/supervise/types'
+import { promptOptionsFromAgentTurnInput } from '../../src/runtime/turn-input'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { testAgentProfile } from './test-agent-profile'
 
@@ -43,6 +44,9 @@ interface Dispatch {
   readonly environmentId: string
   readonly sessionId: string | undefined
   readonly prompt: string | undefined
+  readonly profile: AgentProfile | undefined
+  readonly turnId: string | undefined
+  readonly executionId: string | undefined
 }
 
 /**
@@ -53,6 +57,7 @@ interface Dispatch {
 async function leafFixture(options: {
   readonly failure: (dispatch: number) => string | undefined
   readonly failureCode?: string
+  readonly profile?: AgentProfile
   readonly costMode?: 'known' | 'estimated'
   readonly executor?: Omit<ProviderExecutorOptions, 'destroyOnSettle'>
   /** Refused turns spend this much before their refusal. */
@@ -75,6 +80,9 @@ async function leafFixture(options: {
           environmentId: environment.id,
           sessionId: turn.sessionId,
           prompt: turn.prompt,
+          profile: promptOptionsFromAgentTurnInput(turn).backend?.profile,
+          turnId: turn.turnId,
+          executionId: turn.executionId,
         })
         const dispatched = await environment.dispatch!(turn)
         const failure = options.failure(dispatches.length)
@@ -147,7 +155,7 @@ async function leafFixture(options: {
     unavailablePause: { unavailablePauseMs: 5, maxUnavailablePauseMs: 20 },
     ...options.executor,
   }
-  const profile = testAgentProfile('leaf')
+  const profile = options.profile ?? testAgentProfile('leaf')
   const worker = (): Agent<unknown, unknown> =>
     Object.assign(
       { name: 'leaf', act: async () => 'unused' },
@@ -392,6 +400,45 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
     expect(fixture.dispatches).toHaveLength(1)
     expect(retained.contexts).toHaveLength(1)
     expect(await fixture.liveEnvironments()).toHaveLength(1)
+  })
+
+  it('carries the exact subscription profile through typed quota re-entry and cold environment lookup', async () => {
+    const profile: AgentProfile = {
+      name: 'subscription-leaf',
+      harness: 'claude-code',
+      model: {
+        provider: 'anthropic',
+        default: 'claude-opus-5-5',
+        reasoningEffort: 'high',
+        metadata: { credentialSource: 'subscription' },
+      },
+      tools: {},
+    }
+    const fixture = await leafFixture({
+      profile,
+      failure: (count) => (count === 1 ? 'Subscription capacity refused' : undefined),
+      failureCode: 'rate_limit_error',
+    })
+    const result = await fixture.run(async (scope) => {
+      expect(
+        scope.spawn(fixture.worker(), 'Retain the research context', {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 10 },
+        }).ok,
+      ).toBe(true)
+      expect((await scope.next())?.kind).toBe('done')
+      return 'completed'
+    })
+    expect(result.kind).toBe('winner')
+    expect(fixture.creates()).toBe(1)
+    expect(fixture.dispatches).toHaveLength(2)
+    expect(fixture.dispatches.map((turn) => turn.profile)).toEqual([profile, profile])
+    expect(new Set(fixture.dispatches.map((turn) => turn.sessionId)).size).toBe(1)
+    expect(new Set(fixture.dispatches.map((turn) => turn.executionId)).size).toBe(2)
+    expect(new Set(fixture.dispatches.map((turn) => turn.turnId)).size).toBe(2)
+    expect((await fixture.leafEvents()).filter((event) => event.kind === 'paused')).toMatchObject([
+      { signal: 'rate_limit_error' },
+    ])
   })
 
   it('pauses, continues in the same environment and session, and completes', async () => {
