@@ -177,21 +177,23 @@ it.each([
     const abort = new AbortController()
     let cutoff: ReturnType<typeof setTimeout> | undefined
     try {
-      await createSupervisor<string, unknown>().run(
-        {
-          name: 'root',
-          async act(_task, scope) {
-            const child = scope.spawn(manager(journal), 'manager task', {
-              key: 'manager',
-              budget: { maxIterations: 3, maxTokens: 30 },
-            })
-            expect(child.ok).toBe(true)
-            await scope.next()
+      await expect(
+        createSupervisor<string, unknown>().run(
+          {
+            name: 'root',
+            async act(_task, scope) {
+              const child = scope.spawn(manager(journal), 'manager task', {
+                key: 'manager',
+                budget: { maxIterations: 3, maxTokens: 30 },
+              })
+              expect(child.ok).toBe(true)
+              await scope.next()
+            },
           },
-        },
-        'task',
-        { ...context, ...common, journal },
-      )
+          'task',
+          { ...context, ...common, journal },
+        ),
+      ).rejects.toThrow('durable state unavailable')
       expect(interrupted).toBe(true)
       expect(creates).toBe(1)
       const interruptedParent = (await context.journal.loadTree('root')) ?? []
@@ -202,6 +204,16 @@ it.each([
             (sum, event) =>
               sum +
               (event.kind === 'metered' ? event.spend.tokens.input + event.spend.tokens.output : 0),
+            0,
+          ),
+      ).toBe(0)
+      // The nested meter committed before the outage; its parent projection must wait for resume.
+      const nestedBefore = (await context.journal.loadTree('root/root:s0')) ?? []
+      expect(
+        nestedBefore
+          .filter((event) => event.kind === 'metered')
+          .reduce(
+            (total, event) => total + (event.kind === 'metered' ? event.spend.tokens.input : 0),
             0,
           ),
       ).toBe(managerTokens)

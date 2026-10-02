@@ -649,26 +649,32 @@ async function setup(
           },
         },
       }
-      await createSupervisor<string, string>().run(
-        {
-          name: 'root',
-          act: async (_task, scope) => {
-            for (let child = 0; child < childCount; child++) {
-              const spawned = scope.spawn(worker(), 'task', {
-                key: child === 0 ? 'work' : `work-${child}`,
-                label: 'work',
-                budget: { maxIterations: 1, maxTokens: 10 },
-              })
-              expect(spawned.ok).toBe(true)
-            }
-            for (let child = 0; child < childCount; child++) await scope.next()
-            return 'first process'
+      await createSupervisor<string, string>()
+        .run(
+          {
+            name: 'root',
+            act: async (_task, scope) => {
+              for (let child = 0; child < childCount; child++) {
+                const spawned = scope.spawn(worker(), 'task', {
+                  key: child === 0 ? 'work' : `work-${child}`,
+                  label: 'work',
+                  budget: { maxIterations: 1, maxTokens: 10 },
+                })
+                expect(spawned.ok).toBe(true)
+              }
+              for (let child = 0; child < childCount; child++) await scope.next()
+              return 'first process'
+            },
           },
-        },
-        'root-task',
-        { ...interrupted, ...common },
-      )
-      expect(injected.size).toBe(childCount)
+          'root-task',
+          { ...interrupted, ...common },
+        )
+        .catch((error: unknown) => {
+          expect(error).toMatchObject({
+            message: expect.stringContaining('durable state unavailable'),
+          })
+        })
+      expect(injected.size).toBeGreaterThan(0)
     },
     resume: (factory = providerAsExecutor(provider(), { destroyOnSettle })) =>
       run(async (scope) => {

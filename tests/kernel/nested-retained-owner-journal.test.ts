@@ -154,7 +154,10 @@ describe('nested retained owner journal isolation', () => {
           { content: 'done' },
         ]),
       }).catch((error: unknown) => {
-        if (!parentInterruption || !injected) throw error
+        if (!injected) throw error
+        expect(error).toMatchObject({
+          message: expect.stringContaining('durable state unavailable'),
+        })
       })
       const parent = (await context.journal.loadTree('root')) ?? []
       const spawn = parent.find((event) => event.kind === 'spawned' && event.key === 'manager')
@@ -165,10 +168,10 @@ describe('nested retained owner journal isolation', () => {
       expect(nested[0]).toEqual(expectedOwner)
       expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        mode === 'pending' ? 0 : 1,
+        retry ? 0 : 1,
       )
-      if (mode === 'pending' || parentInterruption) {
-        const terminalWritten = mode === 'parent-terminal-loss' || mode === 'parent-meter-loss'
+      if (retry || parentInterruption) {
+        const terminalWritten = mode === 'parent-terminal-loss'
         expect(parent.some((event) => event.kind === 'settled' && event.id === spawn.id)).toBe(
           terminalWritten,
         )

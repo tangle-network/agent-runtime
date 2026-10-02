@@ -340,7 +340,7 @@ describe('wait-states', () => {
       },
     }
 
-    const result = await createSupervisor<unknown, string>().run(
+    const running = createSupervisor<unknown, string>().run(
       {
         name: 'failed-wait-arm',
         async act(_task, scope): Promise<string> {
@@ -361,8 +361,7 @@ describe('wait-states', () => {
       },
     )
 
-    expect(result.kind).toBe('winner')
-    if (result.kind === 'winner') expect(result.out).toContain('journal unavailable')
+    await expect(running).rejects.toThrow('journal unavailable')
     expect(appendAttempts).not.toContain('woken')
   })
 })

@@ -587,19 +587,21 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
           }
         },
       }
-      await fixture.run(
-        async (scope) => {
-          scope.spawn(fixture.worker(), 'task', {
-            key: 'work',
-            label: 'work',
-            budget: { maxIterations: 1, maxTokens: 100 },
-          })
-          await scope.next()
-          return 'first process'
-        },
-        undefined,
-        stopping,
-      )
+      await expect(
+        fixture.run(
+          async (scope) => {
+            scope.spawn(fixture.worker(), 'task', {
+              key: 'work',
+              label: 'work',
+              budget: { maxIterations: 1, maxTokens: 100 },
+            })
+            await scope.next()
+            return 'first process'
+          },
+          undefined,
+          stopping,
+        ),
+      ).rejects.toThrow('durable state unavailable')
       expect(stopped).toBe(true)
       expect(fixture.dispatches).toHaveLength(refusals + 1)
 

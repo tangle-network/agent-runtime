@@ -66,6 +66,7 @@ export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './r
 
 import { withBudgetResources } from './resources'
 import { retainedOwnerWorkspaceRetentionSeamKey } from './retained-scope-owner'
+import { guardRunPersistence } from './run-persistence'
 import {
   assertRecursiveReservationPolicy,
   closeRetainedSlots,
@@ -77,6 +78,7 @@ import {
   retryUnconfirmedTeardowns,
   startScopeRecoveries,
   unconfirmedTeardowns,
+  waitForScopeChildren,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type {
@@ -452,10 +454,14 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         `supervisor: retainedAtSettlement must be 'release' or 'keep', got ${JSON.stringify(requestedRetainedAtSettlement)}`,
       )
     }
+    const controller = new AbortController()
+    const persistence = guardRunPersistence(journalStore, blobStore, (error) => {
+      controller.abort(error)
+    })
     opts = Object.freeze({
       ...input.options,
-      journal: journalStore,
-      blobs: blobStore,
+      journal: persistence.journal,
+      blobs: persistence.blobs,
       executors: executorRegistry,
       ...(recoverExecutor ? { recoverExecutor } : {}),
       ...(probes === undefined ? {} : { probes }),
@@ -586,7 +592,6 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // ONE internal controller is the root scope's abort source. Every cascade path
       // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
       // fans it out to each live child's executor (acquire-aware reap included).
-      const controller = new AbortController()
       let cascadeAborted = false
       const cascadeAbort = (reason?: unknown): boolean => {
         if (controller.signal.aborted) return false
@@ -771,14 +776,14 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // held 18 of a 60-slot fleet for 19 to 37 hours and later runs were refused for capacity.
           // Whether a later process resumes is the caller's knowledge, not the outcome's, so the
           // policy decides; the unconfirmed set is re-read so a released node is no longer named.
-          if (retainedAtSettlement === 'release') {
+          if (!persistence.failed && retainedAtSettlement === 'release') {
             teardownUnconfirmed = await releaseRetainedEnvironments(openScope)
           }
           // A first teardown that failed or answered late is not the provider's last word, and a
           // run that settles over it leaves the sandbox running: measured 2026-09-20, cancelling
           // 20 Discovery lanes left 2 workers running. Ask again until confirmed or out of time.
           const confirmWindowMs = opts.teardownConfirmMs ?? DEFAULT_TEARDOWN_CONFIRM_MS
-          const releasing = retainedAtSettlement === 'release'
+          const releasing = !persistence.failed && retainedAtSettlement === 'release'
           if (
             teardownUnconfirmed.length > 0 &&
             confirmWindowMs > 0 &&
@@ -870,10 +875,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
-        try {
-          await finalizeScopeOwnerMaterialization(openScope)
-        } catch (error) {
-          if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
+        if (!persistence.failed) {
+          try {
+            await finalizeScopeOwnerMaterialization(openScope)
+          } catch (error) {
+            if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
+          }
+        }
+        if (persistence.failed) {
+          // A failed journal cannot prove a terminal outcome or authorize release. Join local
+          // observers and admitted writes; retained providers keep their exact invocation alive.
+          await waitForScopeChildren(openScope)
+          await persistence.drain()
         }
         // Explicit cancellation can arrive during the join barrier; its cleanup abort is distinct.
         executionAborted ||= cascadeAborted
@@ -884,6 +897,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // The run's tree, not this process's: on a resumed run the prior process's committed nodes are
       // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
       // on every run that did not resume.
+      persistence.assertAvailable()
       const tree = runTree(scope)
       // Reservations still open once every child has settled, read once at the barrier and named
       // by their holders. A leak breaks `total ≡ free + reserved + committed`, so the winner path

@@ -113,21 +113,23 @@ it('starts the resumed parent while its original child awaits parent coordinatio
   const abort = new AbortController()
   let cutoff: ReturnType<typeof setTimeout> | undefined
   try {
-    await createSupervisor<string, unknown>().run(
-      {
-        name: 'root',
-        async act(_task, scope) {
-          const child = scope.spawn(worker(), 'child task', {
-            key: 'child',
-            budget: { maxIterations: 1, maxTokens: 10 },
-          })
-          expect(child.ok).toBe(true)
-          await scope.next()
+    await expect(
+      createSupervisor<string, unknown>().run(
+        {
+          name: 'root',
+          async act(_task, scope) {
+            const child = scope.spawn(worker(), 'child task', {
+              key: 'child',
+              budget: { maxIterations: 1, maxTokens: 10 },
+            })
+            expect(child.ok).toBe(true)
+            await scope.next()
+          },
         },
-      },
-      'task',
-      { ...context, ...common, journal },
-    )
+        'task',
+        { ...context, ...common, journal },
+      ),
+    ).rejects.toThrow('durable state unavailable')
     expect(interrupted).toBe(true)
     expect(creates).toBe(1)
     recovering = true
