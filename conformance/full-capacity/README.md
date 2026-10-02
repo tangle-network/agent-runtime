@@ -101,7 +101,7 @@ Scientific value, novelty, and independent result verification remain separate r
 Run the smallest complete instrument check:
 
 ```bash
-node --test scripts/full-capacity-acceptance.test.mjs
+pnpm run conformance:capacity
 ```
 
 The accepted calibration has 200 logical nodes across 54 roots and real retained-response-shaped payloads.

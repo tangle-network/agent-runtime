@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { assessCapacity, deriveCapacityTarget, digest, nativeProductivity } from './lib/full-capacity-acceptance.mjs'
 import { readNativeResponse, retainAdmission } from './lib/full-capacity-collector.mjs'
 
