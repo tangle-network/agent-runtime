@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.292.3.**
+> **Version 0.292.4.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.201.0 <0.204.0`.
 > `sandbox` must satisfy `>=0.58.4 <0.61.0`.
