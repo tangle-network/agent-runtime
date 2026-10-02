@@ -1,12 +1,3 @@
-## 0.291.1
-
-Keep the OTLP exporter usable after an empty idle flush and continue awaiting an existing in-flight batch when the waiting queue is empty. Treat an interrupted response body as unconfirmed delivery through the existing dropped-span accounting instead of substituting a successful empty acknowledgement. Public APIs, bounded queue behavior and retry policy are unchanged.
-
-Retained provider workers can pause after a capacity refusal while workspace retention is enabled.
-Each continued invocation captures and verifies its own workspace under its exact execution identity.
-Failed captures and incomplete required coverage preserve the source environment.
-Recovery restores the latest committed cumulative spend, so restarting a continuation retains prior usage without double-counting earlier totals.
-
 ## 0.291.0
 
 Admit Sandbox 0.60 in the verified peer window while retaining the supported 0.58 and 0.59 minors.
