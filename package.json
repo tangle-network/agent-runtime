@@ -108,7 +108,7 @@
     "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
     "check:skills": "node scripts/check-skills.mjs",
     "conformance:durability": "node scripts/run-durability-conformance.mjs",
-    "conformance:capacity": "vitest run scripts/full-capacity-acceptance.test.mjs",
+    "conformance:capacity": "vitest run scripts/full-capacity-acceptance.test.mjs scripts/full-capacity-collector.test.mjs",
     "check:model-execution-boundary": "node scripts/check-model-execution-boundary.mjs",
     "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
     "check:upstream-evidence-workflow": "node scripts/check-upstream-evidence-workflow.mjs",
