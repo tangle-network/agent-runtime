@@ -193,6 +193,7 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
   let retained = 0
   let maxDepth = 0
   const verifiedSamples = []
+  const nativeStates = new Map()
   for (const sample of evidence.samples ?? []) {
     const receipt = await verifyArtifact(sample.nativeCapture, read)
     if (!receipt.ok) {
@@ -221,6 +222,7 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
         continue
       }
       verifiedSamples.push(sample)
+      nativeStates.set(nativeKey(sample), { status: sample.status, failureCode: capture.session?.failureReason?.code ?? null })
     } catch {
       add('native-sample-mismatch', key(sample.runId, sample.nodeId))
     }
@@ -314,6 +316,11 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
       if (!positive(contract.recoveryDeadlineMs) || !(duration >= 0 && duration <= contract.recoveryDeadlineMs) || instant(recovery.recoveredAt) > deadline) add('recovery-deadline', logicalId)
     }
   }
+  const nativeFailureClasses = {}
+  for (const state of nativeStates.values()) if (state.status === 'failed') {
+    const code = state.failureCode ?? 'unclassified-native-failure'
+    nativeFailureClasses[code] = (nativeFailureClasses[code] ?? 0) + 1
+  }
   return {
     schema: 'agent-runtime.full-capacity-assessment.v1',
     experimentId: contract.experimentId,
@@ -323,6 +330,12 @@ export async function assessCapacity(contract, capacity, evidence, read = readFi
     plan,
     logicalRuns: { denominator: logical.size, completed, failed, pending, retained },
     attempts: { denominator: attempts.length, extraAttempts: attempts.length - logical.size, failureClasses },
+    nativeExecutions: {
+      observed: nativeStates.size,
+      failed: [...nativeStates.values()].filter((state) => state.status === 'failed').length,
+      failureClasses: nativeFailureClasses,
+      logicalNodesWithoutNativeObservation: [...logical.values()].filter((node) => !verifiedSamples.some((sample) => sample.runId === node.runId && sample.nodeId === node.nodeId)).length,
+    },
     frontiers: { required: contract.frontiers?.length ?? null, observed: frontiers.size },
     recursion: { maxDepth },
     capacity: { productivePeak, longestAtTargetMs: longest, requiredMs: contract.minProductiveOverlapMs },
