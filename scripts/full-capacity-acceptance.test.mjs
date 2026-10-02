@@ -220,3 +220,23 @@ test('native reader uses the SDK session handle paired with the exact session me
   assert.deepEqual(result, { nativeScope: 'sandbox-api', environmentId: 'sandbox', session: info, messages })
   await assert.rejects(readNativeResponse(box, { sessionId: 'different-session' }), /exact Runtime session absent/)
 })
+
+test('installed SDK tool calls count as productive work without requiring assistant prose', () => {
+  const response = { messages: [{ role: 'assistant', parts: [{ type: 'tool', tool: 'bash', state: { status: 'completed', input: { command: 'run-checker' }, output: 'checked', time: { end: 1000 } } }] }] }
+  const first = nativeProductivity(response)
+  assert.ok(first.productiveBytes > 0)
+  response.messages[0].parts.push({ type: 'tool', tool: 'bash', state: { input: { command: 'verify-result' } } })
+  const second = nativeProductivity(response)
+  assert.ok(second.productiveBytes > first.productiveBytes)
+  assert.notEqual(second.productiveDigest, first.productiveDigest)
+})
+
+test('native metadata, tool-result delivery, and empty text cannot fabricate model productivity', () => {
+  const response = { messages: [{ role: 'assistant', timestamp: at(0), parts: [{ type: 'text', id: 'one', text: '' }, { type: 'tool', id: 'call-one', tool: 'bash', state: { status: 'running', input: { command: 'run-checker' }, time: { start: 1000 } } }] }] }
+  const first = nativeProductivity(response)
+  response.messages[0].timestamp = at(10000)
+  response.messages[0].parts[0].id = 'longer-metadata-value'
+  Object.assign(response.messages[0].parts[1].state, { status: 'completed', output: 'a long delayed tool result', time: { start: 1000, end: 10000 } })
+  assert.deepEqual(nativeProductivity(response), first)
+  assert.equal(nativeProductivity({ messages: [{ role: 'assistant', parts: [{ type: 'text', text: '', id: 'metadata' }] }] }).productiveBytes, 0)
+})

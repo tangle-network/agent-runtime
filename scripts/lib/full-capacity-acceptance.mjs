@@ -11,7 +11,19 @@ const nativeKey = (attempt) => attempt.nativeScope && attempt.environmentId && a
 
 export function nativeProductivity(capture) {
   const parts = (capture.messages ?? []).filter((message) => message.role === 'assistant').flatMap((message) => message.parts ?? [])
-  const productiveParts = parts.filter((part) => ['text', 'text_delta', 'reasoning', 'reasoning_delta', 'thinking', 'tool_use', 'tool_call', 'tool-call'].includes(part?.type ?? part?.kind))
+  const productiveParts = parts.flatMap((part) => {
+    const type = part?.type ?? part?.kind
+    if (['text', 'text_delta', 'reasoning', 'reasoning_delta', 'thinking'].includes(type)) {
+      const text = part.text ?? part.delta ?? part.thinking
+      return typeof text === 'string' && text.length ? [{ type, text }] : []
+    }
+    if (['tool', 'tool_use', 'tool_call', 'tool-call'].includes(type)) {
+      const tool = part.tool ?? part.name ?? part.function?.name
+      const input = part.state?.input ?? part.input ?? part.arguments ?? part.function?.arguments
+      return typeof tool === 'string' && tool.length ? [{ type: 'tool-call', tool, input }] : []
+    }
+    return []
+  })
   const bytes = Buffer.from(JSON.stringify(productiveParts))
   return { productiveBytes: productiveParts.length ? bytes.length : 0, productiveDigest: digest(bytes) }
 }
