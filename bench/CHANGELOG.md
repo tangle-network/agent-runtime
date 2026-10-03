@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.2
+
+Use the qualified Eval 0.203 through 0.205, Interface 2.17, and Knowledge 19 cohort.
+Consume Runtime 0.293 through the workspace dependency.
+Benchmark execution and grading remain unchanged.
+
 ## 0.14.1
 
 Require Interface 2.16 and Sandbox 0.60 through the shared catalog.

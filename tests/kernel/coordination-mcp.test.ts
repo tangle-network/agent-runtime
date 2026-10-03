@@ -1,10 +1,12 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer, request } from 'node:http'
 import { connect, type Socket } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { sha256DigestSchema } from '@tangle-network/agent-interface'
 import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
 import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
@@ -675,6 +677,64 @@ function postHttp(
 }
 
 describe('authenticated and bounded coordination HTTP', () => {
+  it('transports Knowledge read digests and refuses a stale conditional write', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'coordination-knowledge-cas-'))
+    try {
+      const stores = createRunScopedStores({ root })
+      await stores.init('native-tools')
+      const nodeTools = createKnowledgeTools({
+        stores,
+        runId: 'native-tools',
+        retrieverVersion: '19',
+      }).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchemaJson!,
+        handler: tool.handler,
+      }))
+      await withBoundHttp(
+        { nodeTools, toolNames: nodeTools.map((tool) => tool.name) },
+        async (mcp) => {
+          const call = (name: string, args: Record<string, unknown>) =>
+            jsonRpc(mcp.url, 'tools/call', { name, arguments: args }, mcp.headers)
+          const proposal = (body: string) =>
+            `---FILE: knowledge/note.md---\n---\nid: note\n---\n\n${body}\n---END FILE---\n`
+          const created = await call('knowledge_record', { proposal: proposal('first value') })
+          expect(created.result).toMatchObject({
+            structuredContent: { written: ['knowledge/note.md'] },
+          })
+          const read = await call('knowledge_read', { pageId: 'note' })
+          const { page } = z
+            .object({
+              structuredContent: z.object({
+                page: z.object({ path: z.string(), pageDigest: sha256DigestSchema }),
+              }),
+            })
+            .parse(read.result).structuredContent
+          expect(page.path).toBe('knowledge/note.md')
+          const updated = await call('knowledge_record', {
+            proposal: proposal('second value'),
+            expectedPageDigests: { [page.path]: page.pageDigest },
+          })
+          expect(updated.result).toMatchObject({
+            structuredContent: { written: ['knowledge/note.md'] },
+          })
+          const path = join(stores.storePath('native-tools'), page.path)
+          const beforeStale = await readFile(path, 'utf8')
+          expect(beforeStale).toContain('second value')
+          const stale = await call('knowledge_record', {
+            proposal: proposal('stale value'),
+            expectedPageDigests: { [page.path]: page.pageDigest },
+          })
+          expect(JSON.stringify(stale)).toContain('knowledge page changed')
+          expect(await readFile(path, 'utf8')).toBe(beforeStale)
+        },
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('preflights the coordination and Knowledge tools independently of the incoming request limit', async () => {
     const root = await mkdtemp(join(tmpdir(), 'coordination-knowledge-'))
     try {

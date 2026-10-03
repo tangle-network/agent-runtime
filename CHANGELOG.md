@@ -1,3 +1,11 @@
+## 0.293.0
+
+Adopt Knowledge 19 conditional page-write tools and the qualified Eval cohort. Native coordination transports the page digest from knowledge_read into knowledge_record and preserves stale-write refusal. Use matching declared dependencies without duplicate evaluation owners.
+
+## 0.292.6
+
+Align the exact Interface release cohort with the typed subscription profile contract required by Runtime.
+
 ## 0.292.7
 
 Stop automatic driver retries when a retained provider result or event violates its contract.
