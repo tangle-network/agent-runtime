@@ -30,7 +30,7 @@ import {
   type RetainedLeafContinuation,
 } from './retained-executor'
 import type { ScopeArgs } from './scope'
-import { detachedSnapshot } from './snapshot'
+import { detachedSnapshot, shareParsedStrings } from './snapshot'
 import { releasedChildPayload, terminalDownEvent } from './terminal-record'
 import { nestedDriverTreeRoot } from './tree-key'
 import type {
@@ -219,6 +219,9 @@ export async function prepareInterruptedExecutors(
       event.kind === 'spawned' && event.parent === parentId && !terminal.has(event.id),
   )
   const recoveries: RetainedChildRecovery[] = []
+  // Interrupted children usually carry the same mounted files. Each blob parses to its own
+  // strings, so share equal ones across this pass instead of holding one copy per child.
+  const parsedStrings = new Map<string, string>()
   const accepted: Array<{
     result: RecordedResult
     fault?: string
@@ -293,8 +296,11 @@ export async function prepareInterruptedExecutors(
         `cannot recover '${node.id}' without exact profile and task bytes`,
       )
     }
-    const profile = agentProfileSchema.parse(await opts.blobs.get(node.profileRef))
-    const task = await opts.blobs.get(taskRef)
+    const profile = shareParsedStrings(
+      agentProfileSchema.parse(await opts.blobs.get(node.profileRef)),
+      parsedStrings,
+    )
+    const task = shareParsedStrings(await opts.blobs.get(taskRef), parsedStrings)
     if (
       canonicalAgentProfileDigest(profile) !== node.identity.profileDigest ||
       canonicalCandidateDigest(task) !== node.identity.taskDigest
