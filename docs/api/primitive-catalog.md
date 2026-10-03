@@ -449,7 +449,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -678,6 +678,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
 | `runIsolatedCheck` | function | Run an untrusted check in Linux Bubblewrap, or in its own Sandbox box when `box` is set. |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
 | `runStrategyEvolution` | function | Evolve a strategy on the search kernel and claim once on the sealed test split. |
+| `runTaskQueue` | function | Admit bounded work and yield settlements for the caller's policy to interpret. |
 | `safeWorkerFile` | function | A worker label reduced to a safe filename stem. Empty labels get a stable fallback. |
 | `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
@@ -1152,6 +1153,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
 | `SurfaceReadBox` | interface | The minimal box surface the box-backed reader needs — structurally typed so the real |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
+| `TaskQueueEntry` | interface | One identified task admitted by a caller-owned ready queue. |
 | `TeamProgress` | interface | The team a worker leads, as its own lead observes it mid-flight: every agent below the worker, |
 | `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
@@ -1303,6 +1305,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
 | `SupervisorSpanAttributes` | type | OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and |
 | `SurfaceReader` | type | The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's |
 | `SurfaceReadOutcome` | type | Outcome of reading one surface back at settle. `missing: true` means the path no longer exists |
+| `TaskQueueSettlement` | type | Native promise settlement, retaining the exact returned or thrown value. |
 | `TerminalDecision` | type | One of the kernel's terminal decision values. |
 | `TokenUsageProvenance` | type | How a token count was obtained. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
@@ -1329,7 +1332,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1044 exports.
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionAuthor`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IntentAudit`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `ProviderWorkspaceCaptureResult`, `PublishOptions`, `ReentryTaskInput`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxEvidenceContext`, `SandboxEvidenceReceipt`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `SqlRunContext`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TournamentRow`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `EdgeDeliveryOutcome`, `GraphEdge`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SpawnEvent`, `UsageEvent`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `ContinuationPanelResult`, `CoordinationAuthentication`, `CoordinationHttpAudit`, `CoordinationMcpHandle`, `CoordinationPublicAddress`, `CoordinationTransportOptions`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionAuthor`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarnessTranscriptArtifact`, `HarnessTranscriptFile`, `HarnessTranscriptUnavailable`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InPlaceCliExecutorOptions`, `InProcessSandboxClientOptions`, `IntentAudit`, `IsolatedCheckOptions`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `ProviderWorkspaceCaptureResult`, `PublishOptions`, `ReentryTaskInput`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxEvidenceContext`, `SandboxEvidenceReceipt`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `SqlRunContext`, `SqlRunContextOptions`, `SqlRunLease`, `SqlRunStoreOptions`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `TaskQueueOptions`, `ToolSpec`, `ToolStepInput`, `TournamentRow`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerdictSummary`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `WorkerSpawnRetryHooks`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `EdgeDeliveryOutcome`, `GraphEdge`, `HarvestCorpusOptions`, `InboxMessage`, `IsolatedCheckResult`, `LoopTraceEvent`, `MakeWorkerAgent`, `ObserveOptions`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `SpawnEvent`, `UsageEvent`, `WorkspaceCommit`.
 
 ### Analyst loop — trace findings on a running loop
 
@@ -1712,6 +1715,18 @@ Import from `@tangle-network/agent-runtime/tui` — 27 exports.
 | `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BudgetStats`, `Distribution`, `RenderedTopFrame`, `RenderOptions`, `RenderTarget`, `SpendStats`, `SupervisorBase`, `SupervisorTotals`, `SupervisorView`, `TopAppOptions`, `WorkerView`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.
+
+### Bounded task admission and native promise settlement
+
+Import from `@tangle-network/agent-runtime/task-queue` — 4 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `runTaskQueue` | function | Admit bounded work and yield settlements for the caller's policy to interpret. |
+| `TaskQueueEntry` | interface | One identified task admitted by a caller-owned ready queue. |
+| `TaskQueueSettlement` | type | Native promise settlement, retaining the exact returned or thrown value. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `TaskQueueOptions`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

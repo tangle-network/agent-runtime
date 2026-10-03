@@ -10,6 +10,7 @@ import type { SandboxInstance } from '@tangle-network/sandbox'
 import { armDeadlineTimer } from './supervise/deadline'
 import { addResourceSpend } from './supervise/resources'
 import type { Spend, TokenUsageProvenance } from './supervise/types'
+import { runTaskQueue } from './task-queue'
 import type { LoopTokenUsage } from './types'
 
 /**
@@ -488,24 +489,18 @@ export async function mapWithConcurrency<T, R>(
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const bound = Math.max(1, Math.floor(limit))
   const results = new Array<R>(items.length)
   let next = 0
-  let failed = false
-  const worker = async (): Promise<void> => {
-    while (!failed) {
-      const i = next
-      next += 1
-      if (i >= items.length) return
-      try {
-        results[i] = await fn(items[i] as T, i)
-      } catch (err) {
-        failed = true
-        throw err
-      }
-    }
+  for await (const settled of runTaskQueue({
+    concurrency: Math.max(1, Math.min(Math.floor(limit), items.length)),
+    take: () => {
+      const index = next++
+      return index < items.length ? { id: String(index), value: index } : undefined
+    },
+    execute: ({ value: index }) => fn(items[index] as T, index),
+  })) {
+    if (settled.status === 'rejected') throw settled.reason
+    results[settled.task.value] = settled.value
   }
-  const workerCount = Math.min(bound, items.length)
-  await Promise.all(Array.from({ length: workerCount }, () => worker()))
   return results
 }

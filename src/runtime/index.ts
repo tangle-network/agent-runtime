@@ -1381,6 +1381,8 @@ export {
   type WatchedSurface,
 } from './surface-diff'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
+export type { TaskQueueEntry, TaskQueueOptions, TaskQueueSettlement } from './task-queue'
+export { runTaskQueue } from './task-queue'
 // Profile-owned supervisor configuration. The raw driver constructor lives only under `/testing`;
 // production model execution enters through `supervise(AgentProfile)` — except the graph's root,
 // where `RunGraphOptions.brain` accepts a caller-owned `ToolLoopChat` (see `runGraph`).
