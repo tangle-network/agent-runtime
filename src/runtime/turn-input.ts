@@ -1,6 +1,7 @@
 import {
   AgentExactRunControlRefSchema,
   type ContextTransferRequest,
+  canonicalAgentProfileDigest,
   type InputPart,
 } from '@tangle-network/agent-interface'
 import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
@@ -27,6 +28,7 @@ export function freshTurnInput(
     ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
     ...(input.parts === undefined ? {} : { parts: input.parts }),
     ...(input.model === undefined ? {} : { model: input.model }),
+    ...(input.profile === undefined ? {} : { profile: input.profile }),
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.context === undefined ? {} : { context: input.context }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
@@ -55,8 +57,19 @@ export function promptOptionsFromAgentTurnInput(input: AgentTurnInput): PromptOp
     !Array.isArray(input.providerOptions.backend)
       ? (input.providerOptions.backend as NonNullable<PromptOptions['backend']>)
       : undefined
+  if (
+    input.profile !== undefined &&
+    providerBackend?.profile !== undefined &&
+    canonicalAgentProfileDigest(input.profile) !==
+      canonicalAgentProfileDigest(providerBackend.profile)
+  ) {
+    throw Object.assign(new Error('provider turn contains conflicting AgentProfiles'), {
+      name: 'ValidationError',
+    })
+  }
   const backend = {
     ...(providerBackend ?? {}),
+    ...(input.profile === undefined ? {} : { profile: input.profile }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
   }
   const runControlRef =

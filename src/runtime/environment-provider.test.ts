@@ -2,6 +2,7 @@ import { estimateCost, HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import {
   type AgentExactRunControlRef,
   type AgentProfile,
+  AgentTurnInputSchema,
   canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
@@ -41,6 +42,29 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it('refuses invalid turn metadata before provisioning any environment', async () => {
+    let creates = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'tangle-sandbox',
+      capabilities: fakeCapabilities,
+      async create() {
+        creates += 1
+        throw new Error('Unexpected environment creation')
+      },
+    }
+    const signal = new AbortController().signal
+    const executor = providerAsExecutor(provider, {
+      taskToTurn: (_task, _profile, turn) => ({
+        ...turn,
+        providerOptions: { opaque: 'x'.repeat(20_000) },
+      }),
+    })({ profile: { name: 'worker' }, harness: null }, { signal, seams: {} })
+    const execution = executor.execute('work', signal)
+    if (!(Symbol.asyncIterator in execution)) throw new Error('Expected streamed execution')
+    await expect(collect(execution)).rejects.toThrow('metadata exceeds')
+    expect(creates).toBe(0)
+  })
+
   it('refuses a substituted subscription profile before creating an environment', async () => {
     let creates = 0
     const profile: AgentProfile = {
@@ -89,9 +113,8 @@ describe('environment provider adapters', () => {
           createdProfile = input.profile
           return fakeEnvironment({
             async *stream(turn) {
-              streamedProfile = (
-                turn.providerOptions?.backend as { profile?: AgentProfile } | undefined
-              )?.profile
+              AgentTurnInputSchema.parse(turn)
+              streamedProfile = turn.profile
               yield { type: 'done', data: { finalText: 'subscription result' } }
             },
           })
@@ -100,6 +123,14 @@ describe('environment provider adapters', () => {
       const profile: AgentProfile = {
         name: 'subscription-worker',
         harness: 'claude-code',
+        resources: {
+          files: [
+            {
+              path: 'research-method.txt',
+              resource: { kind: 'inline', name: 'research-method', content: 'x'.repeat(32_768) },
+            },
+          ],
+        },
         model: {
           provider: 'anthropic',
           default: 'claude-opus-5-5',

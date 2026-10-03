@@ -18,6 +18,7 @@ import {
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type AgentRunControlRef,
+  AgentTurnInputSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   canonicalWorkspaceCwd,
@@ -1838,19 +1839,14 @@ async function* streamProviderExecutor(
 function subscriptionTurnProfile(turn: AgentTurnInput, profile: AgentProfile): AgentTurnInput {
   if (profile.model?.metadata?.credentialSource !== 'subscription') return turn
   const backend = promptOptionsFromAgentTurnInput(turn).backend ?? {}
+  const digest = canonicalAgentProfileDigest(profile)
   if (
-    backend.profile !== undefined &&
-    canonicalAgentProfileDigest(backend.profile) !== canonicalAgentProfileDigest(profile)
+    (turn.profile !== undefined && canonicalAgentProfileDigest(turn.profile) !== digest) ||
+    (backend.profile !== undefined && canonicalAgentProfileDigest(backend.profile) !== digest)
   ) {
     throw new ValidationError('provider subscription turn cannot replace its exact AgentProfile')
   }
-  return {
-    ...turn,
-    providerOptions: {
-      ...turn.providerOptions,
-      backend: { ...backend, profile },
-    },
-  }
+  return { ...turn, profile }
 }
 
 /** One retained dispatch owns creation, replay, result identity, and cancellation. */
@@ -1864,6 +1860,7 @@ async function providerExecutionSource(
   retained: boolean
 }> {
   const selectedTurn = subscriptionTurnProfile(turn, args.profile)
+  AgentTurnInputSchema.parse(selectedTurn)
   const capabilities = args.retention ? await args.provider.capabilities() : undefined
   const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
   if (!useRetained) {
