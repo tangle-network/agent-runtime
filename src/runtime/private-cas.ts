@@ -519,8 +519,9 @@ export function createPrivateCasArtifactPort(
 
   const port: PrivateCasArtifactPort = {
     // A buffered remote store cannot satisfy the streaming capture contract.
-    ...(durable === undefined || (durable.putStream && durable.getStream) ? { putStream } : {}),
-    readStream,
+    ...(durable === undefined || (durable.putStream && durable.getStream)
+      ? { putStream, readStream }
+      : {}),
     async put({ bytes, signal }) {
       signal?.throwIfAborted()
       const digest = sha256(bytes)
