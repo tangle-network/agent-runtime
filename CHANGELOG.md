@@ -1,3 +1,7 @@
+## 0.295.2
+
+Bound overlapping provider workspace captures with optional `workspaceRetention.maxConcurrentCaptures`. Share the retention object across recursive workers to share its FIFO admission bound. The retention timeout includes queueing; timed-out I/O stays charged until it settles, and artifact verification holds the same slot.
+
 ## 0.295.1
 
 A private CAS offload pass no longer copies an object that its own buffered `put` is still uploading, so concurrent puts upload each object once and a buffered store never reads a second copy of the same archive into memory.
