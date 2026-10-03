@@ -1,39 +1,30 @@
 /**
- * Read a sandbox child's own harness transcript out of its environment before the
- * environment is destroyed, and persist it beside the tool-span `trace` receipt.
- *
- * Why this exists: Runtime destroys a child's environment at teardown and nothing read
- * those files first, so a child's Claude Code / Codex / OpenCode session never reached a
- * run record. The settled `trace` receipt covers the supervisor's own tool spans only —
- * `toolName`, `args`, `status`, `callId`, with `startedAt === endedAt` — so it carries no
- * assistant text, no reasoning, and no tool results, and `status: 'available'` never meant
- * the transcript survived. See tangle-network/agent-runtime#1214.
- *
- * The port already has what this needs: `AgentEnvironment.read?(path, { signal })`
- * returns a file's content as a string. Two constraints shape the design:
- *
- *   - `read` is OPTIONAL and, on the Tangle provider, gated behind
- *     `capabilities.workspace.read && box.read`. An environment without it is reported as
- *     `unsupported` rather than silently producing an empty artifact — the whole point of
- *     #1214 is that a receipt must not claim coverage it does not have.
- *   - `read` takes one path and gives no directory listing, so enumeration goes through
- *     `exec`. An environment with `read` but no `exec` cannot be enumerated and is also
- *     reported, not guessed at.
- *
- * Storage is NOT the executor's business. The executor holds the in-memory capture and hands it
- * to the scope through `Executor.harnessTranscript()`; the scope persists it under its own
- * content ref with `persistHarnessTranscript` and settles the receipt. No provider or destroy
- * site learns about storage, the result blob never carries the files, and replay rehydrates a
- * pointer — the bytes are read only by `harnessTranscriptArtifact`, when someone opens them.
- *
- * Credentials are excluded by construction: enumeration lists only the transcript globs
- * for the harness, and any path matching DENY is dropped even if a producer moved a
- * credential file inside a session directory. The helper never reads `auth.json`,
- * `.credentials.json`, `credentials`, or a dotenv file.
+ * Persist a harness transcript receipt beside the supervisor tool trace.
+ * Provider workspace retention supplies an attributed descriptor whose bytes stay in the
+ * original verified archive. Environments without retention use the bounded read/exec
+ * fallback below. Neither path embeds transcript content in settlement events.
+ * Readers request metadata without archive I/O, or explicitly resolve bounded text content.
  */
 import { contentAddress } from '../durable/content-address'
 import { ValidationError } from '../errors'
+import {
+  type HarnessTranscriptMetadata,
+  type HarnessTranscriptReadOptions,
+  parseRetainedHarnessTranscript,
+  type RetainedHarnessTranscriptCapture,
+  resolveHarnessTranscriptCapture,
+} from './retained-harness-transcript'
 import type { ResultBlobStore } from './supervise/types'
+
+export {
+  type HarnessTranscriptMetadata,
+  type HarnessTranscriptReadLimits,
+  type HarnessTranscriptReadOptions,
+  type RetainedHarnessTranscriptCapture,
+  type RetainedHarnessTranscriptDescriptor,
+  resolveHarnessTranscriptCapture,
+  retainHarnessTranscript,
+} from './retained-harness-transcript'
 
 /** Where each harness keeps the session files that hold the conversation. */
 const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -124,6 +115,8 @@ export type HarnessTranscriptUnavailableReason =
   /** The capture succeeded and the blob write did not. The transcript existed in memory and
    *  never reached disk; mirrors `trace-persistence-failed` on the tool-span receipt. */
   | 'transcript-persistence-failed'
+  /** Workspace bytes survived but their transcript descriptor could not be constructed. */
+  | 'retained-projection-failed'
 
 export interface HarnessTranscriptUnavailable {
   readonly status: 'unavailable'
@@ -133,13 +126,14 @@ export interface HarnessTranscriptUnavailable {
 }
 
 /**
- * What the executor holds in memory between the read and the settle: the files, inline.
+ * What the executor holds before settlement: a retained descriptor, inline files, or absence.
  *
- * Never journaled and never inside a result blob. The scope persists it under its own content
+ * Never embedded in a settlement event. The scope persists it under its own content
  * ref and records the {@link HarnessTranscriptEvidence} receipt instead, so the settlement stays
  * small and a replay pays nothing for a transcript nobody opens.
  */
 export type HarnessTranscriptCapture =
+  | RetainedHarnessTranscriptCapture
   | {
       readonly status: 'captured'
       readonly artifact: HarnessTranscriptArtifact
@@ -152,7 +146,7 @@ export type HarnessTranscriptCapture =
 
 /**
  * The durable receipt on a settlement: a content-addressed pointer to a persisted
- * {@link HarnessTranscriptArtifact}, or the exact reason there is none. A SIBLING of the tool-span
+ * {@link HarnessTranscriptArtifact} or a retained descriptor, or the exact reason there is none. A SIBLING of the tool-span
  * `trace` receipt, never nested inside it — a dropped child has zero tool spans and an
  * unavailable trace, and it is precisely the child whose transcript this exists to keep.
  */
@@ -166,6 +160,9 @@ export type HarnessTranscriptEvidence =
       readonly totalBytes: number
       /** Non-zero when some transcript was found but deliberately not carried. */
       readonly skippedCount: number
+      /** Retained source coverage, independent of text projection limits. */
+      readonly coverageComplete?: boolean
+      readonly missing?: readonly string[]
     }
   | HarnessTranscriptUnavailable
 
@@ -223,6 +220,7 @@ export function readHarnessTranscript(executor: {
   if (reported === undefined) return harnessTranscriptUnavailable('capture-did-not-run')
   const capture = reported as HarnessTranscriptCapture
   if (capture.status === 'captured' && capture.artifact) return capture
+  if (capture.status === 'retained' && capture.descriptor) return capture
   if (capture.status === 'unavailable' && capture.reason) return capture
   return harnessTranscriptUnavailable('executor-exposes-no-transcript')
 }
@@ -555,20 +553,31 @@ export async function persistHarnessTranscript(
   capture: HarnessTranscriptCapture,
   blobs: Pick<ResultBlobStore, 'put'>,
 ): Promise<HarnessTranscriptEvidence> {
-  if (capture.status !== 'captured') return capture
-  const transcriptRef = contentAddress(capture.artifact)
+  if (capture.status === 'unavailable') return capture
+  const artifact =
+    capture.status === 'captured'
+      ? capture.artifact
+      : parseRetainedHarnessTranscript(capture.descriptor)
+  const transcriptRef = contentAddress(artifact)
   try {
-    await blobs.put(transcriptRef, capture.artifact)
+    await blobs.put(transcriptRef, artifact)
   } catch {
     return unavailable('transcript-persistence-failed')
   }
   return Object.freeze({
     status: 'available',
     transcriptRef,
-    harness: capture.artifact.harness,
+    harness: artifact.harness,
     fileCount: capture.fileCount,
     totalBytes: capture.totalBytes,
     skippedCount: capture.skippedCount,
+    ...(capture.status === 'retained'
+      ? {
+          coverageComplete:
+            capture.descriptor.source.coverageComplete && capture.descriptor.missing.length === 0,
+          missing: capture.descriptor.missing,
+        }
+      : {}),
   })
 }
 
@@ -577,18 +586,57 @@ export async function persistHarnessTranscript(
  * says there is none. Throws only when the receipt claims a blob the store does not hold — that
  * is corruption, not absence, and must not read as "no transcript".
  */
+export function harnessTranscriptArtifact(
+  evidence: HarnessTranscriptEvidence,
+  blobs: Pick<ResultBlobStore, 'get'>,
+  options: HarnessTranscriptReadOptions & { content: false },
+): Promise<HarnessTranscriptMetadata | undefined>
+export function harnessTranscriptArtifact(
+  evidence: HarnessTranscriptEvidence,
+  blobs: Pick<ResultBlobStore, 'get'>,
+  options?: HarnessTranscriptReadOptions & { content?: true },
+): Promise<HarnessTranscriptArtifact | undefined>
 export async function harnessTranscriptArtifact(
   evidence: HarnessTranscriptEvidence,
   blobs: Pick<ResultBlobStore, 'get'>,
-): Promise<HarnessTranscriptArtifact | undefined> {
+  options: HarnessTranscriptReadOptions = {},
+): Promise<HarnessTranscriptArtifact | HarnessTranscriptMetadata | undefined> {
   if (evidence.status !== 'available') return undefined
   const raw = await blobs.get(evidence.transcriptRef)
-  if (!isHarnessTranscriptArtifact(raw)) {
-    throw new ValidationError(
-      `harnessTranscriptArtifact: blob store has no transcript artifact for '${evidence.transcriptRef}'`,
+  let capture: HarnessTranscriptCapture
+  if (isHarnessTranscriptArtifact(raw)) {
+    capture = {
+      status: 'captured',
+      artifact: raw,
+      fileCount: raw.files.length,
+      totalBytes: raw.files.reduce((sum, file) => sum + file.bytes, 0),
+      skippedCount: raw.skipped.length,
+    }
+  } else {
+    if (
+      raw === null ||
+      typeof raw !== 'object' ||
+      Reflect.get(raw, 'kind') !== 'retained-harness-transcript'
     )
+      throw new ValidationError(
+        `harnessTranscriptArtifact: blob store has no transcript artifact for '${evidence.transcriptRef}'`,
+      )
+    const descriptor = parseRetainedHarnessTranscript(raw)
+    if (contentAddress(descriptor) !== evidence.transcriptRef)
+      throw new ValidationError('Retained transcript descriptor does not match its transcriptRef')
+    capture = {
+      status: 'retained',
+      descriptor,
+      fileCount: descriptor.files.length,
+      totalBytes: descriptor.files.reduce((sum, file) => sum + file.bytes, 0),
+      skippedCount: descriptor.skipped.length,
+    }
   }
-  return raw
+  if (contentAddress(raw) !== evidence.transcriptRef)
+    throw new ValidationError('Transcript artifact does not match its transcriptRef')
+  return options.content === false
+    ? resolveHarnessTranscriptCapture(capture, { ...options, content: false })
+    : resolveHarnessTranscriptCapture(capture, { ...options, content: true })
 }
 
 /** Every entry, not just the arrays: a blob with `files: [null]` is corruption, not a transcript. */

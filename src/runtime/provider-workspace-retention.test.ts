@@ -84,6 +84,67 @@ async function snapshot(
   return captured.snapshot
 }
 
+async function nativeSnapshot(
+  artifacts: AgentCandidateOutputArtifactPort,
+  context: ProviderWorkspaceRetentionContext,
+) {
+  const bytes = Buffer.from('portable workspace\n')
+  return {
+    snapshot: await snapshot(artifacts, context.executionId),
+    provenance: {
+      status: 'reported' as const,
+      environmentId: context.environment.id,
+      executionId: context.executionId,
+      ...(context.controlRef === undefined ? {} : { controlRef: context.controlRef }),
+      workspace: {
+        scannedFiles: 1,
+        scannedDirectories: 0,
+        reportedFiles: 1,
+        reportedDirectories: 0,
+        complete: true,
+      },
+      missing: [],
+      sessions: [
+        {
+          id: context.providerSessionId ?? 'session',
+          executionId: context.executionId,
+          backendType: 'opencode',
+          transportEvents: 'complete' as const,
+          eventCount: 1,
+          messageCount: 1,
+          nativeStore: {
+            scope: 'session' as const,
+            roots: [{ scope: 'session-home' as const, path: '/native-home' }],
+            inventory: {
+              scannedFiles: 1,
+              reportedFiles: 1,
+              scannedDirectories: 0,
+              reportedDirectories: 0,
+              scannedSymlinks: 0,
+              reportedSymlinks: 0,
+              skippedEntries: 0,
+            },
+            complete: true,
+            excludedPaths: [],
+            entries: [
+              {
+                sourceId: 'native-execution',
+                rootScope: 'session-home' as const,
+                path: 'any/transcript.jsonl',
+                kind: 'file' as const,
+                mode: 0o600,
+                sizeBytes: bytes.length,
+                sha256: sha256Bytes(bytes),
+                linkTarget: null,
+              },
+            ],
+          },
+        },
+      ],
+    },
+  }
+}
+
 function capabilities(): AgentEnvironmentCapabilities {
   return {
     profile: {
@@ -1490,6 +1551,82 @@ describe('provider workspace retention', () => {
     expect(destroyed()).toBe(2)
   })
 
+  it.each([true, false])(
+    'projects retained native transcripts after success=%s without scanning HOME',
+    async (success) => {
+      const artifacts = artifactStore()
+      const { provider, environment, destroyed } = providerFor(async function* () {
+        yield {
+          type: 'result',
+          data: { finalText: 'output', success, ...(success ? {} : { error: 'research failed' }) },
+        }
+      })
+      const read = vi.fn(async () => {
+        throw new Error('legacy HOME read forbidden')
+      })
+      const exec = vi.fn(async () => {
+        throw new Error('legacy HOME exec forbidden')
+      })
+      Object.assign(environment, { read, exec })
+      const executor = providerAsExecutor(provider, {
+        workspaceRetention: {
+          timeoutMs: 5_000,
+          artifacts,
+          capture: (context) => nativeSnapshot(artifacts, context),
+        },
+      })(
+        { profile: testProfile('native-retention'), harness: null },
+        { signal: new AbortController().signal, seams: {} },
+      )
+      for await (const _event of executor.execute(
+        'task',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+      }
+      expect(executor.harnessTranscript?.()).toMatchObject({ status: 'retained', fileCount: 1 })
+      const out = executor.resultArtifact().out as ProviderLeafOut
+      expect(out.workspaceSnapshot).toBeDefined()
+      expect(out.workspaceCapture?.executionId).toBeDefined()
+      expect(destroyed()).toBe(1)
+      expect(read).not.toHaveBeenCalled()
+      expect(exec).not.toHaveBeenCalled()
+    },
+  )
+
+  it('keeps verified retention and the successful outcome when transcript projection rejects duplicate identities', async () => {
+    const artifacts = artifactStore()
+    const { provider, destroyed } = providerFor(doneStream())
+    const executor = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture(context) {
+          const result = await nativeSnapshot(artifacts, context)
+          const session = result.provenance.sessions[0]!
+          session.nativeStore.entries.push(session.nativeStore.entries[0]!)
+          return result
+        },
+      },
+    })(
+      { profile: testProfile('native-projection-failure'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    for await (const _event of executor.execute(
+      'task',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+    }
+    expect(executor.harnessTranscript?.()).toMatchObject({
+      status: 'unavailable',
+      reason: 'retained-projection-failed',
+    })
+    const out = executor.resultArtifact().out as ProviderLeafOut
+    expect(out.workspaceSnapshot).toBeDefined()
+    expect(out.workspaceCapture?.snapshot).toEqual(out.workspaceSnapshot)
+    expect(out.content).toBe('done')
+    expect(destroyed()).toBe(1)
+  })
+
   it('keeps a retained failed execution alive through teardown and release', async () => {
     const artifacts = artifactStore()
     const provider = pendingRetainedProvider()
@@ -1507,7 +1644,7 @@ describe('provider workspace retention', () => {
       workspaceRetention: {
         timeoutMs: 5_000,
         artifacts,
-        capture: (context) => snapshot(artifacts, context.executionId),
+        capture: (context) => nativeSnapshot(artifacts, context),
       },
     })(
       { profile: testProfile('retention-retained-release'), harness: null },
@@ -1526,6 +1663,7 @@ describe('provider workspace retention', () => {
       }
     }).rejects.toThrow(/retained result unavailable|requires reconciliation/)
     const receipts = await executor.releaseRetained?.(new AbortController().signal)
+    expect(executor.harnessTranscript?.()).toMatchObject({ status: 'retained', fileCount: 1 })
     expect(receipts).toHaveLength(1)
     expect(receipts?.[0]).toMatchObject({ destroyed: false })
     expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })

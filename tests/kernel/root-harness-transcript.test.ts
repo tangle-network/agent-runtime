@@ -6,7 +6,11 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
+import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
+import { sha256Bytes } from '../../src/candidate-execution/digest'
 import { harnessTranscriptArtifact } from '../../src/runtime/harness-transcript'
+import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
+import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { testContinuation } from '../helpers/continuation'
@@ -34,7 +38,7 @@ const SESSION = {
 }
 
 /** A retained provider-backed opencode root whose one turn submits the deliverable. */
-async function rootRun(runId: string, options: { readable: boolean }) {
+async function rootRun(runId: string, options: { readable: boolean; retained?: boolean }) {
   const directory = await mkdtemp(join(tmpdir(), 'root-harness-transcript-'))
   directories.push(directory)
   const proxy = await coordinationProxy()
@@ -100,6 +104,76 @@ async function rootRun(runId: string, options: { readable: boolean }) {
       return environment ? wrap(environment) : null
     },
   }
+  const artifacts = createPrivateCasArtifactPort(join(directory, 'cas'), runId)
+  const workspaceRetention: ProviderWorkspaceRetentionPort | undefined = options.retained
+    ? {
+        artifacts,
+        timeoutMs: 5_000,
+        async capture(context) {
+          const bytes = Buffer.from(SESSION.content)
+          const { snapshot } = await captureAgentCandidateWorkspaceFiles(
+            [{ path: 'provider/retained/native.jsonl', bytes, mode: 0o600 }],
+            {
+              artifactPersistence: { executionId: context.executionId, outputArtifacts: artifacts },
+            },
+          )
+          return {
+            snapshot,
+            provenance: {
+              status: 'reported',
+              executionId: context.executionId,
+              environmentId: context.environment.id,
+              controlRef: context.controlRef,
+              missing: [],
+              workspace: {
+                scannedFiles: 1,
+                reportedFiles: 1,
+                scannedDirectories: 0,
+                reportedDirectories: 0,
+                complete: true,
+              },
+              sessions: [
+                {
+                  id: context.providerSessionId!,
+                  executionId: context.executionId,
+                  backendType: 'opencode',
+                  transportEvents: 'complete',
+                  eventCount: 1,
+                  messageCount: 1,
+                  nativeStore: {
+                    scope: 'session',
+                    complete: true,
+                    roots: [{ scope: 'session-home', path: '/native-home' }],
+                    excludedPaths: [],
+                    inventory: {
+                      scannedFiles: 1,
+                      reportedFiles: 1,
+                      scannedDirectories: 0,
+                      reportedDirectories: 0,
+                      scannedSymlinks: 0,
+                      reportedSymlinks: 0,
+                      skippedEntries: 0,
+                    },
+                    entries: [
+                      {
+                        sourceId: 'native-execution',
+                        rootScope: 'session-home',
+                        path: SESSION.path,
+                        kind: 'file',
+                        mode: 0o600,
+                        sizeBytes: bytes.length,
+                        sha256: sha256Bytes(bytes),
+                        linkTarget: null,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          }
+        },
+      }
+    : undefined
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error('test run timed out')), 20_000)
   const result = await supervise(
@@ -114,8 +188,8 @@ async function rootRun(runId: string, options: { readable: boolean }) {
       journal: context.journal,
       blobs: context.blobs,
       signal: abort.signal,
-      backend: { backend: 'provider', provider },
-      driverBackend: { backend: 'provider', provider },
+      backend: { backend: 'provider', provider, workspaceRetention },
+      driverBackend: { backend: 'provider', provider, workspaceRetention },
       budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
       driverRetry: { maxAttempts: 1, initialBackoffMs: 0, maxBackoffMs: 0 },
       retainedAtSettlement: 'release',
@@ -136,7 +210,7 @@ async function rootRun(runId: string, options: { readable: boolean }) {
       },
     },
   ).finally(() => clearTimeout(timer))
-  return { result, blobs: context.blobs }
+  return { result, blobs: context.blobs, artifacts }
 }
 
 describe("the root's harness session", () => {
@@ -156,6 +230,25 @@ describe("the root's harness session", () => {
     expect(artifact?.files).toEqual([
       { path: SESSION.path, bytes: SESSION.content.length, content: SESSION.content },
     ])
+  })
+
+  it('settles a retained root descriptor even when HOME is unreadable', async () => {
+    const { result, blobs, artifacts } = await rootRun('root-transcript-retained', {
+      readable: false,
+      retained: true,
+    })
+    expect(result).toMatchObject({ kind: 'winner' })
+    expect(result.rootHarnessTranscript).toMatchObject({
+      status: 'available',
+      harness: 'opencode',
+      fileCount: 1,
+    })
+    const receipt = result.rootHarnessTranscript!
+    const metadata = await harnessTranscriptArtifact(receipt, blobs, { content: false })
+    expect(metadata?.source?.node?.nodeId).toBeDefined()
+    const artifact = await harnessTranscriptArtifact(receipt, blobs, { artifacts })
+    expect(artifact?.files[0]?.content).toBe(SESSION.content)
+    expect(artifact?.files[0]?.bytes).toBe(Buffer.byteLength(SESSION.content))
   })
 
   it('names why when the root box cannot be read', async () => {
