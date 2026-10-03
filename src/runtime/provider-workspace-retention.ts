@@ -20,11 +20,18 @@ import { runAbortable } from './supervise/abortable'
 import { armDeadlineTimer } from './supervise/deadline'
 import { detachedSnapshot } from './supervise/snapshot'
 import type { ExecutorNodeContext } from './supervise/types'
+import { createWorkerSlots, openSlotGroup, type SlotGroup } from './supervise/worker-slots'
 
 /** The caller-owned boundary used to retain an executable provider workspace. */
 export interface ProviderWorkspaceRetentionPort {
-  /** Maximum wall-clock time Runtime gives capture and verification. */
+  /** Maximum wall-clock time Runtime gives queueing, capture, and verification. */
   readonly timeoutMs: number
+  /**
+   * Maximum simultaneous captures and verifications using this exact port object, including
+   * recursive children. Omit for no admission bound. Share the port to share the bound.
+   * Timed-out callbacks keep their slot until they settle, even if they ignore cancellation.
+   */
+  readonly maxConcurrentCaptures?: number
   /** Same explicit archive bounds used by the capture callback. */
   readonly limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
   /** Refuse cleanup while any native session or workspace coverage remains missing. */
@@ -201,11 +208,44 @@ export function assertProviderWorkspaceRetentionPort(
       `${context}: workspaceRetention.timeoutMs must be a positive safe integer`,
     )
   }
+  if (
+    port.maxConcurrentCaptures !== undefined &&
+    (!Number.isSafeInteger(port.maxConcurrentCaptures) || port.maxConcurrentCaptures <= 0)
+  ) {
+    throw new ValidationError(
+      `${context}: workspaceRetention.maxConcurrentCaptures must be a positive safe integer`,
+    )
+  }
   if (port.artifacts === null || typeof port.artifacts?.read !== 'function') {
     throw new ValidationError(`${context}: workspaceRetention.artifacts.read is required`)
   }
   if (typeof port.capture !== 'function') {
     throw new ValidationError(`${context}: workspaceRetention.capture is required`)
+  }
+}
+
+const captureGroups = new WeakMap<ProviderWorkspaceRetentionPort, SlotGroup>()
+
+async function withCaptureSlot<T>(
+  port: ProviderWorkspaceRetentionPort,
+  signal: AbortSignal,
+  capture: () => Promise<T>,
+): Promise<T> {
+  if (port.maxConcurrentCaptures === undefined) return capture()
+  let group = captureGroups.get(port)
+  if (group === undefined) {
+    // A root group never lends slots. Equal depths reuse the maintained allocator's FIFO queue.
+    group = openSlotGroup(createWorkerSlots(port.maxConcurrentCaptures))
+    captureGroups.set(port, group)
+  }
+  const permit = group.acquire(0)
+  try {
+    await runAbortable(() => permit.ready, signal, 'provider workspace retention queue aborted')
+    signal.throwIfAborted()
+    return await capture()
+  } finally {
+    // Release the actual operation, not its outer timeout race: late I/O still consumes capacity.
+    permit.release()
   }
 }
 
@@ -239,136 +279,137 @@ export async function captureProviderWorkspaceSnapshot(
   )
   try {
     const snapshot = await runAbortable(
-      async () => {
-        // Detach before any asynchronous artifact read. The callback owns its return object and
-        // could otherwise mutate the manifest or archive references while verification is in flight.
-        const result = detachedSnapshot(
-          await port.capture({
-            ...context,
-            ...(controlRef === undefined ? {} : { controlRef: Object.freeze({ ...controlRef }) }),
-            signal: controller.signal,
-          }),
-          'provider workspace retention snapshot',
-        )
-        const snapshot = 'snapshot' in result ? result.snapshot : result
-        const provenance =
-          'snapshot' in result
-            ? detachedSnapshot(result.provenance, 'provider workspace retention provenance')
-            : {
-                status: 'unavailable' as const,
-                missing: ['Capture callback returned no coverage metadata'],
-              }
-        if (
-          !Array.isArray(provenance.missing) ||
-          !['reported', 'unavailable'].includes(provenance.status)
-        ) {
-          throw new Error('provider workspace retention provenance is malformed')
-        }
-        if (
-          provenance.status === 'reported' &&
-          provenance.environmentId !== context.environment.id
-        ) {
-          throw new Error('provider workspace retention provenance names another environment')
-        }
-        if (
-          provenance.executionId !== undefined &&
-          provenance.executionId !== context.executionId
-        ) {
-          throw new Error('provider workspace retention provenance names another execution')
-        }
-        if (
-          provenance.controlRef !== undefined &&
-          (controlRef === undefined ||
-            !sameControlCoordinates(
-              AgentExactRunControlRefSchema.parse(provenance.controlRef),
-              controlRef,
-            ))
-        )
-          throw new Error(
-            'provider workspace retention provenance names another admitted execution',
+      () =>
+        withCaptureSlot(port, controller.signal, async () => {
+          // Detach before any asynchronous artifact read. The callback owns its return object and
+          // could otherwise mutate the manifest or archive references while verification is in flight.
+          const result = detachedSnapshot(
+            await port.capture({
+              ...context,
+              ...(controlRef === undefined ? {} : { controlRef: Object.freeze({ ...controlRef }) }),
+              signal: controller.signal,
+            }),
+            'provider workspace retention snapshot',
           )
-        const coverageGaps = [...provenance.missing]
-        if (controlRef !== undefined) {
-          if (provenance.controlRef === undefined)
-            coverageGaps.push('Exact admitted control reference missing')
+          const snapshot = 'snapshot' in result ? result.snapshot : result
+          const provenance =
+            'snapshot' in result
+              ? detachedSnapshot(result.provenance, 'provider workspace retention provenance')
+              : {
+                  status: 'unavailable' as const,
+                  missing: ['Capture callback returned no coverage metadata'],
+                }
           if (
+            !Array.isArray(provenance.missing) ||
+            !['reported', 'unavailable'].includes(provenance.status)
+          ) {
+            throw new Error('provider workspace retention provenance is malformed')
+          }
+          if (
+            provenance.status === 'reported' &&
+            provenance.environmentId !== context.environment.id
+          ) {
+            throw new Error('provider workspace retention provenance names another environment')
+          }
+          if (
+            provenance.executionId !== undefined &&
+            provenance.executionId !== context.executionId
+          ) {
+            throw new Error('provider workspace retention provenance names another execution')
+          }
+          if (
+            provenance.controlRef !== undefined &&
+            (controlRef === undefined ||
+              !sameControlCoordinates(
+                AgentExactRunControlRefSchema.parse(provenance.controlRef),
+                controlRef,
+              ))
+          )
+            throw new Error(
+              'provider workspace retention provenance names another admitted execution',
+            )
+          const coverageGaps = [...provenance.missing]
+          if (controlRef !== undefined) {
+            if (provenance.controlRef === undefined)
+              coverageGaps.push('Exact admitted control reference missing')
+            if (
+              !provenance.sessions?.some(
+                (session) =>
+                  session.id === controlRef.sessionId &&
+                  session.executionIds?.includes(controlRef.executionId),
+              )
+            )
+              coverageGaps.push('Exact admitted provider execution missing from capture')
+          }
+          if (provenance.status !== 'reported') coverageGaps.push('Coverage metadata unavailable')
+          if (provenance.executionId !== context.executionId)
+            coverageGaps.push('Exact execution identity missing')
+          if (provenance.workspace?.complete !== true)
+            coverageGaps.push('Workspace inventory incomplete')
+          if (provenance.sessions === undefined) coverageGaps.push('Session inventory missing')
+          if (
+            context.providerSessionId != null &&
             !provenance.sessions?.some(
               (session) =>
-                session.id === controlRef.sessionId &&
-                session.executionIds?.includes(controlRef.executionId),
+                session.id === context.providerSessionId &&
+                session.executionId === context.executionId,
             )
           )
-            coverageGaps.push('Exact admitted provider execution missing from capture')
-        }
-        if (provenance.status !== 'reported') coverageGaps.push('Coverage metadata unavailable')
-        if (provenance.executionId !== context.executionId)
-          coverageGaps.push('Exact execution identity missing')
-        if (provenance.workspace?.complete !== true)
-          coverageGaps.push('Workspace inventory incomplete')
-        if (provenance.sessions === undefined) coverageGaps.push('Session inventory missing')
-        if (
-          context.providerSessionId != null &&
-          !provenance.sessions?.some(
-            (session) =>
-              session.id === context.providerSessionId &&
-              session.executionId === context.executionId,
+            coverageGaps.push(`Provider session ${context.providerSessionId} missing from capture`)
+          for (const session of provenance.sessions ?? []) {
+            if (session.executionId !== context.executionId)
+              coverageGaps.push(`Session ${session.id} names another execution`)
+            if (session.transportEvents !== 'complete')
+              coverageGaps.push(`Session ${session.id} transport events unavailable`)
+            if (session.backendType !== context.profile.harness)
+              coverageGaps.push(`Session ${session.id} harness identity mismatch`)
+            if (
+              session.nativeStore?.complete !== true ||
+              session.nativeStore.inventory?.skippedEntries !== 0
+            )
+              coverageGaps.push(`Session ${session.id} native store incomplete`)
+            if (session.processStreams?.complete !== true)
+              coverageGaps.push(`Session ${session.id} process streams incomplete`)
+            if (session.nativeEvents?.complete !== true)
+              coverageGaps.push(`Session ${session.id} native events incomplete`)
+            if (!/^sha256:[0-9a-f]{64}$/.test(session.sidecarImageDigest ?? ''))
+              coverageGaps.push(`Session ${session.id} sidecar image digest missing`)
+            if (!/^[0-9a-f]{40}$/.test(session.sidecarBundleRevision ?? ''))
+              coverageGaps.push(`Session ${session.id} sidecar bundle revision missing`)
+          }
+          coverageGaps.push(
+            ...attemptCoverageGaps(provenance, port.requireCompleteProvenance === true),
           )
-        )
-          coverageGaps.push(`Provider session ${context.providerSessionId} missing from capture`)
-        for (const session of provenance.sessions ?? []) {
-          if (session.executionId !== context.executionId)
-            coverageGaps.push(`Session ${session.id} names another execution`)
-          if (session.transportEvents !== 'complete')
-            coverageGaps.push(`Session ${session.id} transport events unavailable`)
-          if (session.backendType !== context.profile.harness)
-            coverageGaps.push(`Session ${session.id} harness identity mismatch`)
-          if (
-            session.nativeStore?.complete !== true ||
-            session.nativeStore.inventory?.skippedEntries !== 0
-          )
-            coverageGaps.push(`Session ${session.id} native store incomplete`)
-          if (session.processStreams?.complete !== true)
-            coverageGaps.push(`Session ${session.id} process streams incomplete`)
-          if (session.nativeEvents?.complete !== true)
-            coverageGaps.push(`Session ${session.id} native events incomplete`)
-          if (!/^sha256:[0-9a-f]{64}$/.test(session.sidecarImageDigest ?? ''))
-            coverageGaps.push(`Session ${session.id} sidecar image digest missing`)
-          if (!/^[0-9a-f]{40}$/.test(session.sidecarBundleRevision ?? ''))
-            coverageGaps.push(`Session ${session.id} sidecar bundle revision missing`)
-        }
-        coverageGaps.push(
-          ...attemptCoverageGaps(provenance, port.requireCompleteProvenance === true),
-        )
-        const coverageComplete = coverageGaps.length === 0
-        requireDurableWorkspaceArtifacts(snapshot)
-        if (port.artifacts.readStream) {
-          await verifyAgentCandidateWorkspaceArtifacts({
-            role: 'candidate',
+          const coverageComplete = coverageGaps.length === 0
+          requireDurableWorkspaceArtifacts(snapshot)
+          if (port.artifacts.readStream) {
+            await verifyAgentCandidateWorkspaceArtifacts({
+              role: 'candidate',
+              snapshot,
+              artifacts: port.artifacts,
+              signal: controller.signal,
+              ...(port.limits === undefined ? {} : { limits: port.limits }),
+            })
+          } else {
+            const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, port.artifacts)
+            await verifyAgentCandidateWorkspaceArchive({
+              role: 'candidate',
+              snapshot,
+              archive,
+              ...(port.limits === undefined ? {} : { limits: port.limits }),
+            })
+          }
+          return {
             snapshot,
-            artifacts: port.artifacts,
-            signal: controller.signal,
-            ...(port.limits === undefined ? {} : { limits: port.limits }),
-          })
-        } else {
-          const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, port.artifacts)
-          await verifyAgentCandidateWorkspaceArchive({
-            role: 'candidate',
-            snapshot,
-            archive,
-            ...(port.limits === undefined ? {} : { limits: port.limits }),
-          })
-        }
-        return {
-          snapshot,
-          provenance,
-          coverageComplete,
-          ...(coverageComplete
-            ? {}
-            : {
-                incompleteReason: `provider workspace retention coverage incomplete: ${coverageGaps.join('; ')}`,
-              }),
-        }
-      },
+            provenance,
+            coverageComplete,
+            ...(coverageComplete
+              ? {}
+              : {
+                  incompleteReason: `provider workspace retention coverage incomplete: ${coverageGaps.join('; ')}`,
+                }),
+          }
+        }),
       controller.signal,
       `provider workspace retention timed out after ${port.timeoutMs}ms`,
     )
