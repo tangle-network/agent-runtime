@@ -400,6 +400,10 @@ function isUpstreamUnavailable(error: unknown): boolean {
  */
 export function classifyDriverFailure(error: unknown, signal?: AbortSignal): DriverFailureClass {
   if (signal?.aborted) return 'terminal'
+  // A failed retained read does not settle or replace its execution. A contract violation
+  // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
+  if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
+    return 'terminal'
   const admission = retainedAdmissionCause(error)
   if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'

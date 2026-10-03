@@ -16,6 +16,7 @@ import {
   selectProviderPlacement,
 } from '../../src/runtime/provider-placement'
 import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
+import { classifyDriverFailure } from '../../src/runtime/supervise/driver-retry'
 import {
   type RetainedExecutorContext,
   retainedExecutorSeamKey,
@@ -53,6 +54,34 @@ describe('provider placement retained restart', () => {
     expect(executor.resultArtifact().out).toMatchObject({ content: 'durable result' })
     expect(fixture.counts).toMatchObject({ creates: 1, dispatches: 1 })
     expect(fixture.counts.gets).toBeGreaterThan(0)
+  })
+
+  it('keeps a completed invocation recoverable after its result violates the provider contract', async () => {
+    const fixture = await interruptAfterDispatch()
+    const before = await readFile(fixture.admissionsFile, 'utf8')
+    fixture.resultFailure = Object.assign(
+      new Error('Tangle prompt result exceeded its JSON bound'),
+      {
+        code: 'JSON_BOUND_VIOLATION',
+      },
+    )
+    const failure = await fixture
+      .recover(structuredClone(placement))
+      .catch((error: unknown) => error)
+    expect(failure).toMatchObject({
+      name: 'RetainedExecutionPendingError',
+      pendingCause: 'provider-contract',
+    })
+    expect(classifyDriverFailure(failure)).toBe('terminal')
+    expect(fixture.counts).toMatchObject({ creates: 1, dispatches: 1, accepted: 0 })
+    expect(await readFile(fixture.admissionsFile, 'utf8')).toBe(before)
+
+    // A fixed reader reconnects from the original durable admissions, not a replacement run.
+    fixture.resultFailure = undefined
+    const recovered = await fixture.recover(structuredClone(placement))
+    expect(recovered.resultArtifact().out).toMatchObject({ content: 'durable result' })
+    expect(fixture.counts).toMatchObject({ creates: 1, dispatches: 1, accepted: 1 })
+    expect(await readFile(fixture.admissionsFile, 'utf8')).toBe(before)
   })
 
   it.each([
@@ -172,7 +201,8 @@ async function interruptAfterDispatch(
   roots.push(root)
   const stateFile = join(root, 'provider.json')
   const admissionsFile = join(root, 'admissions.json')
-  const counts = { creates: 0, gets: 0, dispatches: 0 }
+  const counts = { creates: 0, gets: 0, dispatches: 0, accepted: 0 }
+  let resultFailure: Error | undefined
   const provider = (): AgentEnvironmentProvider => {
     const base = durableRetainedProvider(stateFile)
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
@@ -180,6 +210,16 @@ async function interruptAfterDispatch(
       async dispatch(input) {
         counts.dispatches++
         return environment.dispatch!(input)
+      },
+      session(id, options) {
+        const session = environment.session!(id, options)
+        return {
+          ...session,
+          async result(resultOptions) {
+            if (resultFailure !== undefined) throw resultFailure
+            return session.result(resultOptions)
+          },
+        }
       },
     })
     return {
@@ -227,6 +267,12 @@ async function interruptAfterDispatch(
   return {
     counts,
     admissionsFile,
+    get resultFailure() {
+      return resultFailure
+    },
+    set resultFailure(value: Error | undefined) {
+      resultFailure = value
+    },
     async recover(selected: ProviderPlacement, recoveredDefaults = defaults) {
       // Both durable inputs are read by new objects; no original executor or admission array is reused.
       const reloaded: RetainedRunAdmission[] = JSON.parse(await readFile(admissionsFile, 'utf8'))
@@ -237,7 +283,9 @@ async function interruptAfterDispatch(
           reloaded.push(admission)
           await writeFile(admissionsFile, JSON.stringify(reloaded))
         },
-        async onResult() {},
+        async onResult() {
+          counts.accepted++
+        },
       })
       const resumed = providerAsExecutor(provider(), {
         placements: [selected],

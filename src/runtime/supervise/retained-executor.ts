@@ -109,8 +109,8 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  * One reason string used to cover two situations that call for opposite operator responses
  * (#1204): an execution whose status genuinely cannot be determined — refusing to replace it is
  * correct, and the operator must reconcile before retrying or pay twice for one turn — and a
- * provider that broke its contract, where nothing needs reconciling and the right response is to
- * fix or report the provider. Six exhibits in three days wore the first name for the second fault.
+ * provider that broke its contract, where the reader or provider needs repair before the original
+ * execution can be reconciled. Six exhibits in three days wore the first name for the second fault.
  *
  * - `'unobservable'`: the execution may have run and nothing local can say. The safety refusal.
  *   Anything unclassifiable lands here, and so does a 4xx, a not-found, or a client deadline hit
@@ -150,7 +150,7 @@ export type RetainedPendingCause =
 const causeMessages: Record<RetainedPendingCause, string> = {
   unobservable: 'retained provider execution requires reconciliation before replacement',
   'provider-contract':
-    'retained provider execution ended on a provider contract violation; nothing to reconcile',
+    'retained provider response violated its contract; original execution remains unresolved',
   'request-rejected': 'retained provider execution was refused before it ran; nothing to reconcile',
   transport: 'retained provider execution lost its transport; status in doubt',
   'nested-recovery': 'retained nested execution requires recovery before replacement',

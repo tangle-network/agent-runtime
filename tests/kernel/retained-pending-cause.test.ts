@@ -159,7 +159,9 @@ describe('RetainedExecutionPendingError', () => {
       new RetainedRunProviderContractError('invalid', { code: 'RETAINED_RESULT_SCHEMA_INVALID' }),
     )
     expect(contract.pendingCause).toBe('provider-contract')
-    expect(contract.message).toMatch(/provider contract violation; nothing to reconcile/u)
+    expect(contract.message).toMatch(
+      /response violated its contract; original execution remains unresolved/u,
+    )
     const unknown = new RetainedExecutionPendingError(readFailed(new Error('lost')))
     expect(unknown.pendingCause).toBe('unobservable')
     expect(unknown.message).toBe(
