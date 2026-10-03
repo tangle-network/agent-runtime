@@ -177,7 +177,7 @@ SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
 
 ##### get()
 
@@ -195,7 +195,7 @@ SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
 
 ***
 
@@ -243,7 +243,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
 
 ##### get()
 
@@ -261,7 +261,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
 
 ***
 
@@ -315,7 +315,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-3)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
 
 ##### get()
 
@@ -333,7 +333,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-5)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
 
 ***
 
@@ -8005,6 +8005,227 @@ Max fractional spread (spread/median) per channel for arms to count as equal-k. 
 
 ***
 
+### PrivateCasDurableStore
+
+Off-host storage that holds a private CAS's bytes after the host deletes its local copy.
+Keys are the run namespace and the content digest, so a retry stores the same object again.
+
+#### Properties
+
+##### location
+
+> `readonly` **location**: `string`
+
+Where the bytes live, recorded in every durable receipt, for example `s3://bucket/prefix/`.
+
+#### Methods
+
+##### put()
+
+> **put**(`object`): `Promise`\<`void`\>
+
+Store exactly these bytes. Resolve only after the store confirms that it holds an object of
+this digest and length; storing an object that already exists is a success.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### bytes
+
+`Uint8Array`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### get()
+
+> **get**(`object`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\> \| `undefined`\>
+
+The stored bytes, or undefined when the store holds no object for this digest.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\> \| `undefined`\>
+
+***
+
+### PrivateCasOptions
+
+#### Properties
+
+##### durable?
+
+> `readonly` `optional` **durable?**: [`PrivateCasDurableStore`](#privatecasdurablestore)
+
+Copy every object off the host as it is written.
+
+##### localBudgetBytes?
+
+> `readonly` `optional` **localBudgetBytes?**: `number`
+
+Local bytes to keep. Only objects with a durable receipt are deleted, oldest first, so a
+store outage keeps every byte on the host. Requires `durable`.
+
+***
+
+### PrivateCasOffloadReport
+
+One offload pass: what reached the durable store and what the host still holds.
+
+#### Properties
+
+##### durable
+
+> `readonly` **durable**: `number`
+
+Local and evicted objects with a durable receipt after this pass.
+
+##### uploaded
+
+> `readonly` **uploaded**: `number`
+
+Objects this pass copied to the durable store.
+
+##### pending
+
+> `readonly` **pending**: readonly `object`[]
+
+Objects that exist only on this host, with the store's refusal.
+
+##### evicted
+
+> `readonly` **evicted**: `number`
+
+Local copies this pass deleted; their bytes remain in the durable store.
+
+##### localObjects
+
+> `readonly` **localObjects**: `number`
+
+##### localBytes
+
+> `readonly` **localBytes**: `number`
+
+***
+
+### PrivateCasArtifactPort
+
+**`Experimental`**
+
+Durable content-addressed evidence store controlled only by the evaluator.
+
+#### Extends
+
+- [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+#### Methods
+
+##### read()
+
+> **read**(`ref`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+**`Experimental`**
+
+###### Parameters
+
+###### ref
+
+`AgentCandidateArtifactRef`
+
+###### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### Inherited from
+
+[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport).[`read`](candidate-execution.md#read-1)
+
+##### put()
+
+> **put**(`input`): `Promise`\<`AgentCandidateArtifactRef`\>
+
+Must be idempotent for identical bytes and return only a durable S3/IPFS locator.
+
+###### Parameters
+
+###### input
+
+###### executionId
+
+`string`
+
+###### purpose
+
+[`AgentCandidateOutputPurpose`](candidate-execution.md#agentcandidateoutputpurpose)
+
+###### bytes
+
+`Uint8Array`
+
+###### signal?
+
+`AbortSignal`
+
+Abort must prevent durable publication when it happens before resolution.
+
+###### Returns
+
+`Promise`\<`AgentCandidateArtifactRef`\>
+
+###### Inherited from
+
+[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport).[`put`](candidate-execution.md#put)
+
+##### offload()
+
+> **offload**(`signal?`): `Promise`\<[`PrivateCasOffloadReport`](#privatecasoffloadreport)\>
+
+Copy every local object that has no durable receipt, then delete the oldest durable local
+copies above the budget. Without a durable store this only reports local usage. Store
+refusals are reported, not thrown; local filesystem failures throw.
+
+###### Parameters
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`PrivateCasOffloadReport`](#privatecasoffloadreport)\>
+
+***
+
 ### ProviderPlacement
 
 **`Experimental`**
@@ -10090,6 +10311,68 @@ round branches the parent's live box so the branches share a context prefix.
 The lineage owns every box it starts or
 forks and tears them all down at loop end — so these paths are mutually
 exclusive with `onWorkerBox`, which claims the same box-ownership channel.
+
+***
+
+### S3PrivateCasStoreOptions
+
+An S3-compatible bucket (Amazon S3, Cloudflare R2) addressed with path-style requests.
+
+#### Properties
+
+##### endpoint
+
+> `readonly` **endpoint**: `string`
+
+HTTPS origin of the S3 API, for example `https://<account>.r2.cloudflarestorage.com`.
+
+##### bucket
+
+> `readonly` **bucket**: `string`
+
+##### region?
+
+> `readonly` `optional` **region?**: `string`
+
+Signing region. R2 uses `auto`.
+
+##### accessKeyId
+
+> `readonly` **accessKeyId**: `string`
+
+##### secretAccessKey
+
+> `readonly` **secretAccessKey**: `string`
+
+##### prefix?
+
+> `readonly` `optional` **prefix?**: `string`
+
+Key prefix: empty, or path segments that end in `/`.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Minimum time for one request; large bodies get one more second per MiB.
+
+##### fetch?
+
+> `readonly` `optional` **fetch?**: (`input`, `init?`) => `Promise`\<`Response`\>
+
+###### Parameters
+
+###### input
+
+`string` \| `URL` \| `Request`
+
+###### init?
+
+`RequestInit`
+
+###### Returns
+
+`Promise`\<`Response`\>
 
 ***
 
@@ -37459,9 +37742,13 @@ readonly [`EqualKArm`](#equalkarm)[]
 
 ### createPrivateCasArtifactPort()
 
-> **createPrivateCasArtifactPort**(`root`, `namespace`): [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+> **createPrivateCasArtifactPort**(`root`, `namespace`, `options?`): [`PrivateCasArtifactPort`](#privatecasartifactport)
 
-Private host-local content-addressed storage scoped to one recorded run identity.
+Private content-addressed storage scoped to one recorded run identity.
+
+Bytes are written to the host first. With a durable store, every object is also copied off the
+host as it is written, and `localBudgetBytes` bounds what the host keeps: an object's local copy
+is deleted only after its durable receipt exists, and reads fall back to the durable store.
 
 #### Parameters
 
@@ -37473,9 +37760,13 @@ Private host-local content-addressed storage scoped to one recorded run identity
 
 `string`
 
+##### options?
+
+[`PrivateCasOptions`](#privatecasoptions) = `{}`
+
 #### Returns
 
-[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+[`PrivateCasArtifactPort`](#privatecasartifactport)
 
 ***
 
@@ -37919,6 +38210,28 @@ True when the kernel stops the loop for this decision value.
 #### Returns
 
 decision is "stop" \| "done" \| "pick-winner" \| "fail"
+
+***
+
+### createS3PrivateCasStore()
+
+> **createS3PrivateCasStore**(`options`): [`PrivateCasDurableStore`](#privatecasdurablestore)
+
+Durable private CAS bytes in one S3-compatible bucket under `<prefix><namespace>/sha256/<hex>`.
+
+Every write declares its SHA-256 as the signed payload hash, so the store refuses bytes that
+do not match the digest. A write is confirmed by reading back the object's length and digest
+metadata. Reads return raw bytes; the private CAS port verifies them.
+
+#### Parameters
+
+##### options
+
+[`S3PrivateCasStoreOptions`](#s3privatecasstoreoptions)
+
+#### Returns
+
+[`PrivateCasDurableStore`](#privatecasdurablestore)
 
 ***
 

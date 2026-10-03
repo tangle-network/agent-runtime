@@ -1610,6 +1610,10 @@ Durable content-addressed evidence store controlled only by the evaluator.
 
 - [`AgentCandidateArtifactPort`](#agentcandidateartifactport)
 
+#### Extended by
+
+- [`PrivateCasArtifactPort`](runtime.md#privatecasartifactport)
+
 #### Methods
 
 ##### read()
