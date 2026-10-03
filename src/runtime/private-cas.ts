@@ -255,6 +255,10 @@ export function createPrivateCasArtifactPort(
     return objects
   }
 
+  // Digests a buffered put has linked and is still copying to the durable store with the bytes it
+  // holds. A pass leaves them to that put; copying them again doubles the upload and, for a
+  // buffered store, holds a second copy of the same archive in memory.
+  const uploading = new Map<string, number>()
   const sweep = async (signal?: AbortSignal): Promise<PrivateCasOffloadReport> => {
     const objects = await localObjects()
     const pending: Array<{ digest: Sha256Digest; error: string }> = []
@@ -266,7 +270,7 @@ export function createPrivateCasArtifactPort(
         durableHex.add(object.hex)
         continue
       }
-      if (durable === undefined) continue
+      if (durable === undefined || uploading.has(object.hex)) continue
       const digest = `sha256:${object.hex}` as Sha256Digest
       // After one refusal the store is likely down; the next pass retries instead of this one
       // spending its backoff on every remaining object.
@@ -526,74 +530,96 @@ export function createPrivateCasArtifactPort(
       signal?.throwIfAborted()
       const digest = sha256(bytes)
       const sha = hexOf(digest)
-      const path = destination(digest)
-      const directory = join(store, sha.slice(0, 2))
-      await checkDirectories(directory, true)
-      const temporary = join(directory, `.${sha}.${randomUUID()}.tmp`)
-      const file = await open(
-        temporary,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-        0o600,
-      )
+      if (durable !== undefined) uploading.set(sha, (uploading.get(sha) ?? 0) + 1)
       try {
-        await file.writeFile(bytes)
-        await file.sync()
+        return await putBuffered(bytes, digest, sha, signal)
       } finally {
-        await file.close()
-      }
-      try {
-        signal?.throwIfAborted()
-        try {
-          await link(temporary, path)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        if (durable !== undefined) {
+          const count = (uploading.get(sha) ?? 1) - 1
+          if (count === 0) uploading.delete(sha)
+          else uploading.set(sha, count)
         }
-        await syncDirectory(directory)
-      } finally {
-        await unlink(temporary).catch(() => undefined)
       }
-      const ref: AgentCandidateArtifactRef = {
-        locator: { kind: 'private-cas', namespace, digest },
-        sha256: digest,
-        byteLength: bytes.byteLength,
-      }
-      await port.read(ref)
-      if (durable !== undefined) {
-        // The bytes are already in memory; the pass that follows only evicts and retries others.
-        if (!(await hasReceipt(sha)))
-          await storeDurably(digest, bytes, signal).catch(() => undefined)
-        await offload(signal)
-      }
-      return ref
     },
     async read(ref) {
-      if (
-        ref.locator.kind !== 'private-cas' ||
-        ref.locator.namespace !== namespace ||
-        ref.locator.digest !== ref.sha256
-      ) {
-        throw new Error('private CAS locator does not match its digest and namespace')
-      }
-      const path = destination(ref.sha256)
-      const shard = join(store, hexOf(ref.sha256).slice(0, 2))
-      let local: Uint8Array | undefined
-      try {
-        await checkDirectories(shard, false)
-        local = await readLocal(path)
-      } catch (error) {
-        if (!missing(error)) throw error
-      }
-      if (local !== undefined) return verified(local, ref)
-      if (durable === undefined)
-        throw new Error(`private CAS object is not on this host: ${ref.sha256}`)
-      const stored = await durable.get({ namespace, digest: ref.sha256 })
-      if (stored === undefined)
-        throw new Error(
-          `private CAS object is neither on this host nor in ${durable.location}: ${ref.sha256}`,
-        )
-      return verified(stored, ref)
+      return readRef(ref)
     },
     offload,
+  }
+
+  async function putBuffered(
+    bytes: Uint8Array,
+    digest: Sha256Digest,
+    sha: string,
+    signal?: AbortSignal,
+  ): Promise<AgentCandidateArtifactRef> {
+    const path = destination(digest)
+    const directory = join(store, sha.slice(0, 2))
+    await checkDirectories(directory, true)
+    const temporary = join(directory, `.${sha}.${randomUUID()}.tmp`)
+    const file = await open(
+      temporary,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    )
+    try {
+      await file.writeFile(bytes)
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+    try {
+      signal?.throwIfAborted()
+      try {
+        await link(temporary, path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+      await syncDirectory(directory)
+    } finally {
+      await unlink(temporary).catch(() => undefined)
+    }
+    const ref: AgentCandidateArtifactRef = {
+      locator: { kind: 'private-cas', namespace, digest },
+      sha256: digest,
+      byteLength: bytes.byteLength,
+    }
+    await readRef(ref)
+    if (durable !== undefined) {
+      // The bytes are already in memory, so this put copies them itself; the pass that follows
+      // skips this digest and only evicts and retries others.
+      if (!(await hasReceipt(sha))) await storeDurably(digest, bytes, signal).catch(() => undefined)
+      await offload(signal)
+    }
+    return ref
+  }
+
+  async function readRef(ref: AgentCandidateArtifactRef): Promise<Uint8Array> {
+    if (
+      ref.locator.kind !== 'private-cas' ||
+      ref.locator.namespace !== namespace ||
+      ref.locator.digest !== ref.sha256
+    ) {
+      throw new Error('private CAS locator does not match its digest and namespace')
+    }
+    const path = destination(ref.sha256)
+    const shard = join(store, hexOf(ref.sha256).slice(0, 2))
+    let local: Uint8Array | undefined
+    try {
+      await checkDirectories(shard, false)
+      local = await readLocal(path)
+    } catch (error) {
+      if (!missing(error)) throw error
+    }
+    if (local !== undefined) return verified(local, ref)
+    if (durable === undefined)
+      throw new Error(`private CAS object is not on this host: ${ref.sha256}`)
+    const stored = await durable.get({ namespace, digest: ref.sha256 })
+    if (stored === undefined)
+      throw new Error(
+        `private CAS object is neither on this host nor in ${durable.location}: ${ref.sha256}`,
+      )
+    return verified(stored, ref)
   }
   return port
 }
