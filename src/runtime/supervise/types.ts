@@ -1180,7 +1180,7 @@ export interface Scope<Out> {
    * predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
    * the pool's hard wall-clock ceiling — a wait never extends a budget guard).
    *
-   * NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 15s fence makes
+   * NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 45s fence makes
    * the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
    * and nothing about it survives a restart. See `supervise/wait.ts`.
    */

@@ -25715,7 +25715,7 @@ Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `po
 predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
 the pool's hard wall-clock ceiling — a wait never extends a budget guard).
 
-NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 15s fence makes
+NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 45s fence makes
 the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
 and nothing about it survives a restart. See `supervise/wait.ts`.
 
@@ -34926,11 +34926,14 @@ Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.
 
 ### DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS
 
-> `const` **DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS**: `15000` = `15_000`
+> `const` **DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS**: `45000` = `45_000`
 
-Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote
- MCP client request timeout so the call returns a `pending` liveness snapshot instead of erroring;
- the supervisor re-polls until the worker settles.
+Default ceiling for a single `await_event` block (ms). Every `pending` return costs the driver an
+ inference turn, so the ceiling is as long as the harness clients allow: Claude Code 2.1.287 and
+ Codex both time out an MCP tool call at 60 s by default (measured 2026-10-03: a 150 s HTTP MCP
+ call failed at about 60 s and passed with `MCP_TOOL_TIMEOUT=300000`), and the Sandbox edge held
+ a 200 s response. 45 s leaves 15 s of that minute for transfer and the driver's own latency. At
+ 15 s a Discovery root director spent 303 of its 401 native tool calls (76%) re-polling.
 
 ***
 

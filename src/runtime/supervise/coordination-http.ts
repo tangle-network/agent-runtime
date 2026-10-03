@@ -37,7 +37,9 @@ export function coordinationHttpLimits(options: CoordinationHttpOptions) {
       throw new ConfigError('coordination allowedOrigins must contain canonical HTTP origins')
     }
   }
-  const requestTimeoutMs = positive('requestTimeoutMs', options.requestTimeoutMs, 30_000)
+  // Twice the `await_event` fence (coordinationResponseFenceMs), so a held answer leaves well
+  // before the server's own timeout.
+  const requestTimeoutMs = positive('requestTimeoutMs', options.requestTimeoutMs, 90_000)
   if (requestTimeoutMs > 2_147_483_647)
     throw new ConfigError('coordination requestTimeoutMs exceeds the timer limit')
   return {
