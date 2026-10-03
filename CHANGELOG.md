@@ -1,3 +1,7 @@
+## 0.293.1
+
+`await_event` now holds for up to 45 s before it returns a re-pollable `pending` snapshot, and the coordination server request timeout defaults to 90 s (were 15 s and 30 s). Harness-driven directors spend about 2.7x fewer inference turns re-polling, and the fence stays under the 60 s MCP tool-call timeout that Claude Code and Codex apply by default.
+
 ## 0.293.0
 
 Adopt Knowledge 19 conditional page-write tools and the qualified Eval cohort. Native coordination transports the page digest from knowledge_read into knowledge_record and preserves stale-write refusal. Use matching declared dependencies without duplicate evaluation owners.
