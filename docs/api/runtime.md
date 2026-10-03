@@ -8408,7 +8408,15 @@ The caller-owned boundary used to retain an executable provider workspace.
 
 > `readonly` **timeoutMs**: `number`
 
-Maximum wall-clock time Runtime gives capture and verification.
+Maximum wall-clock time Runtime gives queueing, capture, and verification.
+
+##### maxConcurrentCaptures?
+
+> `readonly` `optional` **maxConcurrentCaptures?**: `number`
+
+Maximum simultaneous captures and verifications using this exact port object, including
+recursive children. Omit for no admission bound. Share the port to share the bound.
+Timed-out callbacks keep their slot until they settle, even if they ignore cancellation.
 
 ##### limits?
 

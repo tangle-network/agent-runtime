@@ -9,7 +9,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
 import type { SandboxInstance } from '@tangle-network/sandbox'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   type AgentCandidateOutputArtifactPort,
   captureAgentCandidateWorkspaceFiles,
@@ -24,6 +24,7 @@ import {
 import {
   captureProviderWorkspaceSnapshot,
   type ProviderWorkspaceCaptureReceipt,
+  type ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 import type { RetainedRunAdmission } from './retained-run-types'
 import { runAgentRounds } from './run-loop'
@@ -1593,4 +1594,194 @@ it('verifies provider retention through the artifact stream when the port suppor
   )
   expect(result.snapshot).toEqual(captured)
   expect(reads).toBe(2)
+})
+
+describe('provider capture admission', () => {
+  function gate() {
+    let open!: () => void
+    const ready = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    return { ready, open }
+  }
+
+  async function fixture() {
+    const artifacts = artifactStore()
+    const captured = await snapshot(artifacts, 'admission-fixture')
+    const { environment } = providerFor(doneStream())
+    const capture = (port: ProviderWorkspaceRetentionPort, executionId: string) =>
+      captureProviderWorkspaceSnapshot(port, {
+        environment: { ...environment, id: `box-${executionId}` },
+        executionId,
+        profile: testProfile(`profile-${executionId}`),
+      })
+    return { artifacts, captured, capture }
+  }
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'refuses invalid capture bound %s before invoking the provider',
+    async (maxConcurrentCaptures) => {
+      const f = await fixture()
+      const capture = vi.fn(async () => f.captured)
+      await expect(
+        f.capture(
+          {
+            timeoutMs: 5_000,
+            maxConcurrentCaptures,
+            artifacts: f.artifacts,
+            capture,
+          },
+          'invalid',
+        ),
+      ).rejects.toThrow('maxConcurrentCaptures must be a positive safe integer')
+      expect(capture).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([undefined, 2])(
+    'bounds separate environments sharing one port, bound=%s',
+    async (bound) => {
+      const f = await fixture()
+      const blocked = gate()
+      const entered: string[] = []
+      let active = 0
+      let peak = 0
+      const port: ProviderWorkspaceRetentionPort = {
+        timeoutMs: 5_000,
+        ...(bound === undefined ? {} : { maxConcurrentCaptures: bound }),
+        artifacts: f.artifacts,
+        async capture({ executionId }) {
+          entered.push(executionId)
+          peak = Math.max(peak, ++active)
+          try {
+            await blocked.ready
+            return f.captured
+          } finally {
+            active--
+          }
+        },
+      }
+      const captures = Array.from({ length: 6 }, (_, index) => f.capture(port, String(index)))
+      await vi.waitFor(() => expect(entered).toHaveLength(bound ?? 6))
+      expect(entered).toEqual(Array.from({ length: bound ?? 6 }, (_, index) => String(index)))
+      blocked.open()
+      await Promise.all(captures)
+      expect(entered).toEqual(['0', '1', '2', '3', '4', '5'])
+      expect(peak).toBe(bound ?? 6)
+    },
+  )
+
+  it('keeps distinct retention objects independent', async () => {
+    const f = await fixture()
+    const blocked = gate()
+    let entered = 0
+    const port: ProviderWorkspaceRetentionPort = {
+      timeoutMs: 5_000,
+      maxConcurrentCaptures: 1,
+      artifacts: f.artifacts,
+      async capture() {
+        entered++
+        await blocked.ready
+        return f.captured
+      },
+    }
+    const first = f.capture(port, 'first')
+    const second = f.capture({ ...port }, 'second')
+    await vi.waitFor(() => expect(entered).toBe(2))
+    blocked.open()
+    await Promise.all([first, second])
+  })
+
+  it('holds the slot through streamed artifact verification after the callback returns', async () => {
+    const f = await fixture()
+    const reading = gate()
+    const verified = gate()
+    let entered = 0
+    const port: ProviderWorkspaceRetentionPort = {
+      timeoutMs: 5_000,
+      maxConcurrentCaptures: 1,
+      artifacts: {
+        ...f.artifacts,
+        async *readStream(ref) {
+          reading.open()
+          await verified.ready
+          yield await f.artifacts.read(ref)
+        },
+      },
+      async capture() {
+        entered++
+        return f.captured
+      },
+    }
+    const first = f.capture(port, 'first')
+    await reading.ready
+    const second = f.capture(port, 'second')
+    await Promise.resolve()
+    expect(entered).toBe(1)
+    verified.open()
+    await Promise.all([first, second])
+    expect(entered).toBe(2)
+  })
+
+  it.each(['capture', 'verification'] as const)(
+    'releases admission after %s failure',
+    async (failure) => {
+      const f = await fixture()
+      let captures = 0
+      let reads = 0
+      const port: ProviderWorkspaceRetentionPort = {
+        timeoutMs: 5_000,
+        maxConcurrentCaptures: 1,
+        artifacts: {
+          ...f.artifacts,
+          async read(ref) {
+            if (failure === 'verification' && reads++ === 0) throw new Error('read failed')
+            return f.artifacts.read(ref)
+          },
+        },
+        async capture() {
+          if (captures++ === 0 && failure === 'capture') throw new Error('capture failed')
+          return f.captured
+        },
+      }
+      const first = f.capture(port, 'first')
+      const second = f.capture(port, 'second')
+      await expect(first).rejects.toThrow(failure === 'capture' ? 'capture failed' : 'read failed')
+      await expect(second).resolves.toMatchObject({ snapshot: f.captured })
+      expect(captures).toBe(2)
+    },
+  )
+
+  it('withdraws timed-out waiters while charging late I/O until its actual settlement', async () => {
+    const f = await fixture()
+    const blocked = gate()
+    const entered: string[] = []
+    const port: ProviderWorkspaceRetentionPort = {
+      timeoutMs: 100,
+      maxConcurrentCaptures: 1,
+      artifacts: f.artifacts,
+      async capture({ executionId }) {
+        entered.push(executionId)
+        if (executionId === 'first') await blocked.ready
+        return f.captured
+      },
+    }
+    vi.useFakeTimers()
+    try {
+      const first = f.capture(port, 'first').catch((error: unknown) => error)
+      const withdrawn = f.capture(port, 'withdrawn').catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(await first).toMatchObject({ message: expect.stringContaining('timed out') })
+      expect(await withdrawn).toMatchObject({ message: expect.stringContaining('timed out') })
+      const next = f.capture(port, 'next')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(entered).toEqual(['first'])
+      blocked.open()
+      await expect(next).resolves.toMatchObject({ snapshot: f.captured })
+      expect(entered).toEqual(['first', 'next'])
+    } finally {
+      blocked.open()
+      vi.useRealTimers()
+    }
+  })
 })
