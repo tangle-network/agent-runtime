@@ -7,6 +7,8 @@ The journal records intent, environment, dispatch, and accepted result in order.
 Child recovery uses the configured executor factory and validates the original request before reconnecting or replaying its idempotent admission.
 Scope restores each live child's original identity, deadline, reservation, and shared worker slot before its manager acts.
 Recovery waits for descendant admission, while managers and children can continue communicating before either finishes.
+A child that resolves before descendant admission, including at its original deadline, reports its outcome through the parent scope without aborting siblings.
+Unresolved executions remain pending; recovery does not extend their deadlines or authorize replacement work.
 An accepted result can be reused after environment deletion.
 A durable-store failure interrupts the controller and revokes further writes from that attempt.
 Runtime joins local observers and preserves retained invocations for recovery using their original identity and deadline.
