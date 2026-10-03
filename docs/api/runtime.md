@@ -31918,8 +31918,8 @@ a typed value rather than a string in a journal.
 One reason string used to cover two situations that call for opposite operator responses
 (#1204): an execution whose status genuinely cannot be determined — refusing to replace it is
 correct, and the operator must reconcile before retrying or pay twice for one turn — and a
-provider that broke its contract, where nothing needs reconciling and the right response is to
-fix or report the provider. Six exhibits in three days wore the first name for the second fault.
+provider that broke its contract, where the reader or provider needs repair before the original
+execution can be reconciled. Six exhibits in three days wore the first name for the second fault.
 
 - `'unobservable'`: the execution may have run and nothing local can say. The safety refusal.
   Anything unclassifiable lands here, and so does a 4xx, a not-found, or a client deadline hit
