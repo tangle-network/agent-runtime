@@ -1,3 +1,7 @@
+## 0.294.0
+
+`createPrivateCasArtifactPort` accepts a durable store and a local byte budget. `createS3PrivateCasStore` copies each object to an S3-compatible bucket (R2 or S3) as it is written, keyed by run and digest, and the bucket refuses bytes that do not match the digest. Local copies are deleted oldest first only after their durable receipt exists, reads fall back to the bucket, and `port.offload()` uploads host-only objects before any eviction.
+
 ## 0.293.4
 
 Preserve healthy retained siblings when an expired child settles during recovery. Deliver the expired child outcome to its parent instead of aborting recovery admission for the whole tree; durable-store and admission failures still reject recovery.
