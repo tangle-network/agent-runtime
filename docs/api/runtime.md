@@ -8180,7 +8180,7 @@ Objects this pass copied to the durable store.
 
 > `readonly` **pending**: readonly `object`[]
 
-Objects that exist only on this host, with the store's refusal.
+Objects without a durable receipt, including in-progress uploads and store refusals.
 
 ##### evicted
 

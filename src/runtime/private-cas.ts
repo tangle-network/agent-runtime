@@ -68,7 +68,7 @@ export interface PrivateCasOffloadReport {
   readonly durable: number
   /** Objects this pass copied to the durable store. */
   readonly uploaded: number
-  /** Objects that exist only on this host, with the store's refusal. */
+  /** Objects without a durable receipt, including in-progress uploads and store refusals. */
   readonly pending: ReadonlyArray<{ readonly digest: Sha256Digest; readonly error: string }>
   /** Local copies this pass deleted; their bytes remain in the durable store. */
   readonly evicted: number
@@ -270,8 +270,12 @@ export function createPrivateCasArtifactPort(
         durableHex.add(object.hex)
         continue
       }
-      if (durable === undefined || uploading.has(object.hex)) continue
+      if (durable === undefined) continue
       const digest = `sha256:${object.hex}` as Sha256Digest
+      if (uploading.has(object.hex)) {
+        pending.push({ digest, error: 'durable upload in progress' })
+        continue
+      }
       // After one refusal the store is likely down; the next pass retries instead of this one
       // spending its backoff on every remaining object.
       if (refusal !== undefined) {
