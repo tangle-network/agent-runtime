@@ -1563,3 +1563,34 @@ describe('provider workspace retention', () => {
     expect(published.digest).not.toBe(callbackSnapshot.digest)
   })
 })
+
+it('verifies provider retention through the artifact stream when the port supports it', async () => {
+  const stored = artifactStore()
+  const captured = await snapshot(stored, 'execution-1')
+  let reads = 0
+  const artifacts: AgentCandidateOutputArtifactPort = {
+    ...stored,
+    async read() {
+      throw new Error('buffered retention read is forbidden')
+    },
+    async *readStream(ref) {
+      reads += 1
+      yield await stored.read(ref)
+    },
+  }
+  const { environment } = providerFor(doneStream())
+  const result = await captureProviderWorkspaceSnapshot(
+    {
+      timeoutMs: 5_000,
+      artifacts,
+      capture: async () => captured,
+    },
+    {
+      environment,
+      executionId: 'execution-1',
+      profile: testProfile('streamed-retention'),
+    },
+  )
+  expect(result.snapshot).toEqual(captured)
+  expect(reads).toBe(2)
+})

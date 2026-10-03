@@ -76,6 +76,7 @@ export class WorkspaceScanLimitError extends Error {}
 
 /** What a workspace scan reads and how it records a file's permission bits. */
 export interface WorkspaceScanOptions {
+  readonly signal?: AbortSignal
   readonly ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
   readonly limits?: WorkspaceScanLimits
   /**
@@ -296,9 +297,11 @@ async function walkWorkspace(
   let totalBytes = 0
 
   async function visit(directory: string): Promise<void> {
+    options.signal?.throwIfAborted()
     const entries = await readdir(directory, { withFileTypes: true })
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     for (const entry of entries) {
+      options.signal?.throwIfAborted()
       if (directory === absoluteRoot && ignoredProtectedRootEntries.has(entry.name)) {
         continue
       }
@@ -350,6 +353,7 @@ async function walkWorkspace(
           limits ? Math.min(limits.maxFileBytes, remainingBytes ?? limits.maxFileBytes) : undefined,
           keepBytes,
           relPath,
+          options.signal,
         )
         totalBytes += read.byteLength
         scanned.push({
@@ -420,12 +424,14 @@ async function readWorkspaceFile(
   maxBytes: number | undefined,
   keepBytes: boolean,
   path: string,
+  signal?: AbortSignal,
 ): Promise<{ sha256: Sha256Digest; byteLength: number; bytes?: Buffer }> {
   const hash = createHash('sha256')
   const buffer = Buffer.allocUnsafe(1024 * 1024)
   const chunks: Buffer[] = []
   let total = 0
   while (true) {
+    signal?.throwIfAborted()
     const { bytesRead } = await descriptor.read(buffer, 0, buffer.byteLength, null)
     if (bytesRead === 0) break
     total += bytesRead

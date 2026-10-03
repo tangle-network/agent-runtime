@@ -43,6 +43,11 @@ export const verifiedTaskOutcomeBrand: unique symbol = Symbol('verifiedTaskOutco
 /** Reads one content-addressed object from the closed S3/IPFS locator set. */
 export interface AgentCandidateArtifactPort {
   read(ref: AgentCandidateArtifactRef): Promise<Uint8Array>
+  /** Stream an artifact without materializing its complete contents. */
+  readStream?(
+    ref: AgentCandidateArtifactRef,
+    options?: { signal?: AbortSignal },
+  ): AsyncIterable<Uint8Array>
 }
 
 export type AgentCandidateOutputPurpose =
@@ -70,6 +75,14 @@ export type AgentCandidateOutputPurpose =
 
 /** Durable content-addressed evidence store controlled only by the evaluator. */
 export interface AgentCandidateOutputArtifactPort extends AgentCandidateArtifactPort {
+  /** Consume all chunks before publishing; preserve put's identity and cancellation guarantees. */
+  putStream?(input: {
+    executionId: string
+    purpose: AgentCandidateOutputPurpose
+    chunks: AsyncIterable<Uint8Array>
+    signal?: AbortSignal
+  }): Promise<AgentCandidateArtifactRef>
+
   /** Must be idempotent for identical bytes and return only a durable S3/IPFS locator. */
   put(input: {
     executionId: string
