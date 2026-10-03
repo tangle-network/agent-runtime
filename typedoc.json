@@ -13,7 +13,8 @@
     "src/candidate-execution/index.ts",
     "src/testing/index.ts",
     "src/mcp/index.ts",
-    "src/tui/index.ts"
+    "src/tui/index.ts",
+    "src/runtime/task-queue.ts"
   ],
   "entryPointStrategy": "resolve",
   "tsconfig": "./tsconfig.json",

@@ -78,6 +78,11 @@
       "types": "./dist/tui/index.d.ts",
       "import": "./dist/tui/index.js",
       "default": "./dist/tui/index.js"
+    },
+    "./task-queue": {
+      "types": "./dist/task-queue.d.ts",
+      "import": "./dist/task-queue.js",
+      "default": "./dist/task-queue.js"
     }
   },
   "bin": {

@@ -51,6 +51,7 @@ import {
 } from './sandbox-lineage'
 import { projectSandboxOutcome } from './sandbox-outcome'
 import { assertExecutableAgentProfile, concreteProfileModel } from './supervise/model-policy'
+import { runTaskQueue } from './task-queue'
 import type {
   AgentRunSpec,
   Driver,
@@ -724,38 +725,16 @@ interface RunBatchArgs<Task, Output> {
 
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
   const queue = args.slice.map((task, offset) => ({ task, index: args.baseIndex + offset }))
-  const inflight = new Set<Promise<void>>()
-  // Every started worker, so a rejecting iteration (abort short-circuit, or a
-  // throwing trace emitter) cannot orphan its still-running siblings: we always
-  // drain ALL of them before propagating the first error.
-  const started: Promise<void>[] = []
-  let firstError: unknown
-  try {
-    while (queue.length > 0 || inflight.size > 0) {
-      while (inflight.size < args.maxConcurrency && queue.length > 0) {
-        const item = queue.shift()!
-        const p = executeIteration({ ...args, item }).finally(() => inflight.delete(p))
-        started.push(p)
-        inflight.add(p)
-      }
-      if (inflight.size === 0) break
-      try {
-        await Promise.race(inflight)
-      } catch (err) {
-        if (firstError === undefined) firstError = err
-        // Stop scheduling new work; drain the rest in the finally below.
-        queue.length = 0
-        break
-      }
-    }
-  } finally {
-    const settled = await Promise.allSettled(started)
-    if (firstError === undefined) {
-      const rejected = settled.find((s) => s.status === 'rejected')
-      if (rejected && rejected.status === 'rejected') firstError = rejected.reason
-    }
+  for await (const settled of runTaskQueue({
+    concurrency: Math.max(1, Math.min(Math.ceil(args.maxConcurrency), queue.length)),
+    take: () => {
+      const item = queue.shift()
+      return item === undefined ? undefined : { id: String(item.index), value: item }
+    },
+    execute: ({ value: item }) => executeIteration({ ...args, item }),
+  })) {
+    if (settled.status === 'rejected') throw settled.reason
   }
-  if (firstError !== undefined) throw firstError
 }
 
 interface ExecuteIterationArgs<Task, Output> extends RunBatchArgs<Task, Output> {

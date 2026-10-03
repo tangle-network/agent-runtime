@@ -16,6 +16,7 @@
 - [platform](platform.md)
 - [profiles](profiles.md)
 - [runtime](runtime.md)
+- [runtime/task-queue](runtime/task-queue.md)
 - [testing](testing.md)
 - [tool-loop](tool-loop.md)
 - [tui](tui.md)
