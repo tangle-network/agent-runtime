@@ -244,6 +244,7 @@ export function createPrivateCasArtifactPort(
     const objects = await localObjects()
     const pending: Array<{ digest: Sha256Digest; error: string }> = []
     let uploaded = 0
+    let refusal: string | undefined
     const durableHex = new Set<string>()
     for (const object of objects) {
       if (await hasReceipt(object.hex)) {
@@ -252,17 +253,29 @@ export function createPrivateCasArtifactPort(
       }
       if (durable === undefined) continue
       const digest = `sha256:${object.hex}` as Sha256Digest
+      // After one refusal the store is likely down; the next pass retries instead of this one
+      // spending its backoff on every remaining object.
+      if (refusal !== undefined) {
+        pending.push({ digest, error: `not attempted after an earlier refusal: ${refusal}` })
+        continue
+      }
+      const bytes = await readLocal(object.path)
+      if (bytes === undefined) continue
+      if (sha256(bytes) !== digest) {
+        pending.push({
+          digest,
+          error: 'local object failed digest verification; it stays on the host',
+        })
+        continue
+      }
       try {
-        const bytes = await readLocal(object.path)
-        if (bytes === undefined) continue
-        if (sha256(bytes) !== digest)
-          throw new Error('local object failed digest verification; it stays on the host')
         await storeDurably(digest, bytes, signal)
         durableHex.add(object.hex)
         uploaded++
       } catch (error) {
         if (signal?.aborted) throw error
-        pending.push({ digest, error: message(error) })
+        refusal = message(error)
+        pending.push({ digest, error: refusal })
       }
     }
     let localBytes = objects.reduce((total, object) => total + object.size, 0)
