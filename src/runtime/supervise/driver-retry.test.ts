@@ -1,6 +1,7 @@
 import { AgentTurnInputSchema } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { BackendTransportError, ConfigError, ValidationError } from '../../errors'
+import { RetainedRunProviderContractError } from '../retained-run-binding'
 import { CheckUnavailableError } from './continuation'
 import {
   classifyDriverFailure,
@@ -255,7 +256,7 @@ describe('classifyDriverFailure', () => {
 })
 
 describe('retained admission classification', () => {
-  it('keeps actual turn-schema refusals terminal only before execution', async () => {
+  it('keeps admission schema refusals and result contract violations terminal', async () => {
     const parsed = AgentTurnInputSchema.safeParse({
       prompt: 'Continue the research',
       providerOptions: { backend: { profile: { files: [{ content: 'x'.repeat(20_000) }] } } },
@@ -275,7 +276,7 @@ describe('retained admission classification', () => {
     expect(upstreamUnavailableSignal(rejected)).toBeUndefined()
     expect(
       classifyDriverFailure(new RetainedExecutionPendingError(parsed.error, 'execution')),
-    ).toBe('transient')
+    ).toBe('terminal')
 
     const script = scriptedDrive([rejected])
     const records: DriverAttemptRecord[] = []
@@ -387,6 +388,55 @@ describe('retained admission classification', () => {
       },
     })
     expect(classifyDriverFailure(unreadable)).toBe('transient')
+  })
+})
+
+describe('retained result contract failures', () => {
+  it.each([
+    new RetainedRunProviderContractError('invalid result', {
+      code: 'RETAINED_RESULT_SCHEMA_INVALID',
+    }),
+    new RetainedRunProviderContractError('wrong execution', {
+      code: 'RETAINED_RESULT_BINDING_INVALID',
+    }),
+    new RetainedRunProviderContractError('large result', {
+      code: 'RETAINED_RESULT_READ_FAILED',
+      cause: Object.assign(new Error('Tangle prompt result exceeded its JSON bound'), {
+        code: 'JSON_BOUND_VIOLATION',
+      }),
+    }),
+  ])('stops unchanged reads while retaining the pending execution: %s', async (cause) => {
+    const pending = new RetainedExecutionPendingError(cause)
+    const script = scriptedDrive([pending])
+    const records: DriverAttemptRecord[] = []
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+      onAttempt: (record) => void records.push(record),
+    }).catch((error: unknown) => error)
+    expect(script.attempts).toEqual([1])
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    expect(error).toMatchObject({ stop: 'terminal-error', cause: pending })
+    expect(records).toMatchObject([{ classification: 'terminal', stop: 'terminal-error' }])
+    expect(pending.pendingCause).toBe('provider-contract')
+    expect(records[0]?.error).toContain('original execution remains unresolved')
+  })
+
+  it.each([
+    Object.assign(new Error('gateway failure'), { status: 502 }),
+    Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }),
+    Object.assign(new Error('result not yet observable'), { status: 404 }),
+  ])('preserves reconciliation retries when the result cannot be observed: %s', (cause) => {
+    const pending = new RetainedExecutionPendingError(
+      new RetainedRunProviderContractError('read failed', {
+        code: 'RETAINED_RESULT_READ_FAILED',
+        cause,
+      }),
+    )
+    expect(classifyDriverFailure(pending)).toBe('transient')
   })
 })
 

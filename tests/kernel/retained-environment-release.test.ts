@@ -380,7 +380,9 @@ describe('retained environments at root settlement', () => {
     if (live?.kind !== 'down') return
     expect(live.retainedExecution).toBe('pending')
     expect(live.retainedPendingCause).toBe('provider-contract')
-    expect(live.reason).toMatch(/provider contract violation; nothing to reconcile/u)
+    expect(live.reason).toMatch(
+      /response violated its contract; original execution remains unresolved/u,
+    )
     expect(live.reason).toContain('provider returned an event for another retained run')
     const events = (await context.journal.loadTree('foreign')) ?? []
     expect(terminalRecords(events, 'foreign:s0')).toMatchObject([

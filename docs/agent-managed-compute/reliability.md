@@ -15,6 +15,10 @@ After restoring storage, resume the same run; Runtime does not start a replaceme
 If retained event observation fails, Runtime reads the exact terminal result before leaving the invocation unresolved.
 Recovered results preserve incomplete event observation and a bounded, redacted error summary.
 Runtime refuses settlement for received events with invalid identities and for unavailable or invalid exact results.
+A retained provider contract violation stops automatic driver retries of the unchanged read.
+It leaves the invocation unresolved, with its original admission and evidence available under the caller's retention policy.
+After repairing the provider or reader, recovery reconnects to that exact execution; it does not dispatch replacement computation.
+Transient transport and unavailable-result observations retain reconciliation retries.
 An execution without sufficient recovery proof stays unresolved; it does not authorize replacement work.
 An intent record proves durable admission intent, not whether the provider created an environment.
 Driver attempt records and final failures preserve bounded, redacted cause chains.
