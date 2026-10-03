@@ -19,7 +19,13 @@ import {
 } from '../../src/runtime/supervise/run-context'
 import { meterRuntimeOwnedAccounting } from '../../src/runtime/supervise/scope'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import type { Agent, SpawnJournal } from '../../src/runtime/supervise/types'
+import type {
+  Agent,
+  AgentSpec,
+  ExecutorFactory,
+  Settled,
+  SpawnJournal,
+} from '../../src/runtime/supervise/types'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { testAgentProfile } from './test-agent-profile'
 
@@ -231,7 +237,7 @@ it.each([
             : {
                 spec: (
                   manager(restarted.journal) as Agent<unknown, unknown> & {
-                    executorSpec: import('../../src/runtime/supervise/types').AgentSpec
+                    executorSpec: AgentSpec
                   }
                 ).executorSpec,
                 factory: driverExecutorFactory,
@@ -395,4 +401,154 @@ it('keeps nested cleanup uncertainty after the driver scope closes', async () =>
   )
   expect(result.kind, JSON.stringify(result)).toBe('winner')
   expect(result.teardownUnconfirmed?.map((node) => node.id)).toContain('root:s0')
+})
+
+it('recovers the parent and healthy sibling when an expired manager settles before adoption', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nested-expired-recovery-'))
+  const runDirectory = join(directory, 'run')
+  let context = createFileRunContext(runDirectory, { withDriver: true })
+  let clock = Date.parse('2026-10-03T01:14:44.139Z')
+  let recovering = false
+  const acted: string[] = []
+  let openParent!: () => void
+  const parentOpened = new Promise<void>((resolve) => {
+    openParent = resolve
+  })
+  let recoveryFactory: ExecutorFactory<unknown>
+  const manager = (name: string): Agent<unknown, unknown> =>
+    driverChild(
+      testAgentProfile(name),
+      {
+        name,
+        async act() {
+          acted.push(`${recovering ? 'recovered' : 'original'}:${name}`)
+          if (!recovering)
+            throw new RetainedExecutionPendingError(new Error('manager observation interrupted'))
+          await parentOpened
+          return name
+        },
+      },
+      context.journal,
+      undefined,
+      undefined,
+      recoveryFactory,
+    )
+  recoveryFactory = registerRetainedExecutorPreparation(
+    () => {
+      throw new Error('recovery must not dispatch a replacement leaf')
+    },
+    ({ profile }) => ({
+      spec: (
+        manager(profile.name!) as Agent<unknown, unknown> & {
+          executorSpec: AgentSpec
+        }
+      ).executorSpec,
+      factory: driverExecutorFactory,
+    }),
+  )
+  const common = {
+    runId: 'root',
+    budget: { maxIterations: 10, maxTokens: 100, deadlineMs: 21_600_000 },
+    now: () => clock,
+    workerSlots: 2,
+    retainedAtSettlement: 'keep' as const,
+    rootIdentity: {
+      profileDigest: canonicalCandidateDigest({ name: 'root' }),
+      taskDigest: canonicalCandidateDigest('task'),
+    },
+  }
+  const abort = new AbortController()
+  let cutoff: ReturnType<typeof setTimeout> | undefined
+  try {
+    await createSupervisor<string, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          for (const [name, deadlineMs] of [
+            ['expired', 10_800_000],
+            ['healthy', 18_000_000],
+          ] as const) {
+            expect(
+              scope.spawn(manager(name), 'manager task', {
+                key: name,
+                budget: { maxIterations: 3, maxTokens: 30, deadlineMs },
+              }).ok,
+            ).toBe(true)
+            expect((await scope.next())?.kind).toBe('down')
+          }
+        },
+      },
+      'task',
+      { ...context, ...common },
+    )
+    const before = (await context.journal.loadTree('root'))!
+    expect(before.filter((event) => event.kind === 'reconciled')).toHaveLength(2)
+    expect(before.filter((event) => event.kind === 'settled')).toHaveLength(0)
+    // The production failure resumed a six-hour root after its three-hour directors expired.
+    // Reopen the actual file stores with the original budgets; do not edit their journal dates.
+    clock = Date.parse('2026-10-03T04:27:00.000Z')
+    context = createFileRunContext(runDirectory, { withDriver: true })
+    recovering = true
+    let parentActed = false
+    const outcomes: Settled<unknown>[] = []
+    cutoff = setTimeout(() => {
+      if (!parentActed) abort.abort(new Error('recovery never reopened the parent'))
+      openParent()
+    }, 2_000)
+    const result = await createSupervisor<string, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          parentActed = true
+          openParent()
+          for (let next = await scope.next(); next; next = await scope.next()) outcomes.push(next)
+          return 'parent continued with its original healthy child'
+        },
+      },
+      'task',
+      {
+        ...context,
+        ...common,
+        resume: true,
+        recoverExecutor: recoveryFactory,
+        signal: abort.signal,
+      },
+    )
+    expect(parentActed, JSON.stringify(result)).toBe(true)
+    expect(outcomes).toHaveLength(2)
+    expect(outcomes.find((outcome) => outcome.handle.id === 'root:s0')).toMatchObject({
+      kind: 'down',
+      reason: 'child deadline exceeded',
+      retainedExecution: 'pending',
+    })
+    expect(outcomes.find((outcome) => outcome.handle.id === 'root:s1')).toMatchObject({
+      kind: 'done',
+      out: 'healthy',
+    })
+    expect(result, JSON.stringify(result)).toMatchObject({
+      kind: 'winner',
+      out: 'parent continued with its original healthy child',
+    })
+    expect(abort.signal.aborted).toBe(false)
+    expect(acted).toEqual(['original:expired', 'original:healthy', 'recovered:healthy'])
+    const after = (await context.journal.loadTree('root'))!
+    expect(after.slice(0, before.length)).toEqual(before)
+    expect(
+      after.filter((event) => event.kind === 'spawned' && event.parent === 'root'),
+    ).toHaveLength(2)
+    expect(after.filter((event) => event.kind === 'settled')).toMatchObject([
+      { id: 'root:s1', status: 'done' },
+    ])
+    expect(after.filter((event) => event.kind === 'reconciled').at(-1)).toMatchObject({
+      id: 'root:s0',
+      reason: 'child deadline exceeded',
+      spent: { tokensKnown: false, usdKnown: false },
+    })
+    expect(JSON.stringify(after)).not.toContain('recovery startup failed')
+  } finally {
+    if (cutoff) clearTimeout(cutoff)
+    openParent()
+    abort.abort()
+    await rm(directory, { recursive: true, force: true })
+  }
 })

@@ -2414,18 +2414,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             )
           adopted.push(children.get(node.id)!)
         }
+        // A recovered child can reach its original deadline before mounting its descendants.
+        // Its resolved outcome belongs to next(); it must not prevent its parent or siblings
+        // from recovering. Rejected settlement/storage operations still fail this barrier.
         await Promise.all(
           adopted.map((child) =>
             child.recoveryReady === undefined
               ? undefined
-              : Promise.race([
-                  child.recoveryReady,
-                  child.settled.then(() => {
-                    throw new ValidationError(
-                      `scope recovery '${child.id}' ended before nested adoption completed`,
-                    )
-                  }),
-                ]),
+              : Promise.race([child.recoveryReady, child.settled]),
           ),
         )
       } catch (error) {
