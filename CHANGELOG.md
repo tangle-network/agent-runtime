@@ -1,3 +1,7 @@
+## 0.295.1
+
+A private CAS offload pass no longer copies an object that its own buffered `put` is still uploading, so concurrent puts upload each object once and a buffered store never reads a second copy of the same archive into memory.
+
 ## 0.295.0
 
 Stream regular-file workspace capture, artifact readback, and restore through the existing private CAS and its S3 offload store.
