@@ -1554,7 +1554,7 @@ describe('method tools on the coordination MCP are single-flight within one fenc
   })
 
   it('derives both response fences from the request timeout so neither can outlive it', () => {
-    expect(coordinationResponseFenceMs(30_000)).toBe(DEFAULT_AWAIT_EVENT_TIMEOUT_MS)
+    expect(coordinationResponseFenceMs(90_000)).toBe(DEFAULT_AWAIT_EVENT_TIMEOUT_MS)
     expect(coordinationResponseFenceMs(10_000)).toBe(5_000)
     // A long transport timeout does not lengthen each wait beyond the await_event default.
     expect(coordinationResponseFenceMs(600_000)).toBe(DEFAULT_AWAIT_EVENT_TIMEOUT_MS)

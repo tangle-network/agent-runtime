@@ -1110,10 +1110,13 @@ export interface WorkerWatchOptions {
   readonly maxFindingsPerWorker?: number
 }
 
-/** Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote
- *  MCP client request timeout so the call returns a `pending` liveness snapshot instead of erroring;
- *  the supervisor re-polls until the worker settles. */
-export const DEFAULT_AWAIT_EVENT_TIMEOUT_MS = 15_000
+/** Default ceiling for a single `await_event` block (ms). Every `pending` return costs the driver an
+ *  inference turn, so the ceiling is as long as the harness clients allow: Claude Code 2.1.287 and
+ *  Codex both time out an MCP tool call at 60 s by default (measured 2026-10-03: a 150 s HTTP MCP
+ *  call failed at about 60 s and passed with `MCP_TOOL_TIMEOUT=300000`), and the Sandbox edge held
+ *  a 200 s response. 45 s leaves 15 s of that minute for transfer and the driver's own latency. At
+ *  15 s a Discovery root director spent 303 of its 401 native tool calls (76%) re-polling. */
+export const DEFAULT_AWAIT_EVENT_TIMEOUT_MS = 45_000
 
 // ── The manager's own journal, read back ────────────────────────────────────────
 //

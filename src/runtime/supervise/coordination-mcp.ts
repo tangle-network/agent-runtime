@@ -207,7 +207,8 @@ const DELIVERABLE_VERB = 'submit_result'
  * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization.
  * Deriving it here means a configured request timeout moves both fences with it. It is capped at
  * {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS} so a long request timeout does not lengthen each wait; at
- * the default 30 s request timeout both values are 15 s.
+ * the default 90 s request timeout both values are 45 s, under the 60 s MCP tool-call timeout that
+ * Claude Code and Codex apply by default.
  */
 export function coordinationResponseFenceMs(requestTimeoutMs: number): number {
   return Math.max(1, Math.min(DEFAULT_AWAIT_EVENT_TIMEOUT_MS, Math.floor(requestTimeoutMs / 2)))
