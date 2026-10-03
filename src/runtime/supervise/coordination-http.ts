@@ -1,6 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ConfigError } from '../../errors'
 import type { JsonRpcMessage, JsonRpcResponse } from '../../mcp/protocol'
+import {
+  declaredAwaitFenceMs,
+  declaredToolTimeoutMs,
+  MCP_TOOL_TIMEOUT_HEADER,
+  withCoordinationAwaitFence,
+} from '../../mcp/tools/coordination-request-context'
 
 export interface CoordinationHttpAudit {
   readonly runId: string
@@ -172,10 +178,18 @@ export function coordinationHttpHandler(input: {
       active++
     }
     admitted = true
-    timer = setTimeout(() => {
-      timedOut = true
-      reject(executing ? 504 : 408)
-    }, limits.requestTimeoutMs)
+    // A caller that declared a raised tool-call timeout may be held longer; its own timeout,
+    // not the default, then bounds the request.
+    const declaredTimeoutMs = declaredToolTimeoutMs(req.headers[MCP_TOOL_TIMEOUT_HEADER])
+    const declaredFenceMs =
+      declaredTimeoutMs === undefined ? undefined : declaredAwaitFenceMs(declaredTimeoutMs)
+    timer = setTimeout(
+      () => {
+        timedOut = true
+        reject(executing ? 504 : 408)
+      },
+      Math.max(limits.requestTimeoutMs, declaredTimeoutMs ?? 0),
+    )
     timer.unref()
     let size = 0
     const chunks: Buffer[] = []
@@ -254,7 +268,9 @@ export function coordinationHttpHandler(input: {
             reject(authorization)
             return
           }
-          const response = await input.handle(message)
+          const response = await withCoordinationAwaitFence(declaredFenceMs, () =>
+            input.handle(message),
+          )
           if (!finished) respond(response === null ? 202 : 200, response ?? undefined)
           await audit(
             timedOut ? 'completed-after-deadline' : 'completed',

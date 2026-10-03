@@ -65,6 +65,7 @@ import {
   workerTraceAnalysisStore,
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
+import { coordinationRequestAwaitFenceMs } from './coordination-request-context'
 import {
   type ResolveSpawnResourcePathsResult,
   resolveSpawnResourcePaths,
@@ -3208,13 +3209,21 @@ export function createCoordinationToolsForManager(
   }
   // Resolve `{ drained }` if the drain wins, or `undefined` if the bound elapses first. A `<= 0`
   // bound restores the prior unbounded block (no timer): the caller opted out of the fence.
+  // A caller whose harness declared its tool-call timeout on the request is held for a fence
+  // derived from that timeout instead of the default (coordination-request-context.ts). A raised
+  // timeout means fewer pending returns and fewer driver turns spent re-polling.
+  const awaitFenceMs = (): number => {
+    const declared = coordinationRequestAwaitFenceMs()
+    return declared !== undefined && awaitTimeoutMs > 0 ? declared : awaitTimeoutMs
+  }
   const raceDrainWithTimeout = async (
     drain: Promise<boolean>,
   ): Promise<{ drained: boolean } | undefined> => {
-    if (awaitTimeoutMs <= 0) return { drained: await drain }
+    const fenceMs = awaitFenceMs()
+    if (fenceMs <= 0) return { drained: await drain }
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<undefined>((resolve) => {
-      timer = setTimeout(() => resolve(undefined), awaitTimeoutMs)
+      timer = setTimeout(() => resolve(undefined), fenceMs)
       // Never let this fence-timer alone keep the process alive (e.g. at teardown).
       if (typeof timer?.unref === 'function') timer.unref()
     })
@@ -3834,7 +3843,8 @@ export function createCoordinationToolsForManager(
         // so a wide team's analysis cannot outlast the caller's request timeout. Then up to `max`
         // queued events are taken. With none queued, the call waits for one as a single read does.
         if (max > 1) {
-          const fenceAt = awaitTimeoutMs > 0 ? Date.now() + awaitTimeoutMs / 2 : Infinity
+          const fenceMs = awaitFenceMs()
+          const fenceAt = fenceMs > 0 ? Date.now() + fenceMs / 2 : Infinity
           if (!inFlightDrain) {
             inFlightDrain = (async () => {
               let drained = false

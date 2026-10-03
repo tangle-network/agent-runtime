@@ -9,6 +9,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
+import {
+  COORDINATION_CLIENT_TOOL_TIMEOUT_MS,
+  declaredAwaitFenceMs,
+  declaredToolTimeoutMs,
+  MAX_DECLARED_AWAIT_FENCE_MS,
+  MCP_TOOL_TIMEOUT_HEADER,
+} from '../../src/mcp/tools/coordination-request-context'
 import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
@@ -1605,6 +1612,85 @@ describe('method tools on the coordination MCP are single-flight within one fenc
     })
     expect(awaited?.error).toBeUndefined()
     expect(awaited?.result).toMatchObject({ structuredContent: { pending: true } })
+  })
+})
+
+describe('a caller that declares its MCP tool-call timeout', () => {
+  async function awaitWith(headers: Readonly<Record<string, string>> | undefined) {
+    const release = deferred<void>()
+    const blobs = new InMemoryResultBlobStore()
+    let awaited: { result?: unknown; error?: unknown } | undefined
+    const root: Agent<unknown, unknown> = {
+      name: 'declared-fence-driver',
+      async act(_task, scope: Scope<unknown>) {
+        const mcp = await serveCoordinationMcp({
+          scope,
+          blobs,
+          makeWorkerAgent: () => blockingLeaf('slow', { answer: 1 }, release.promise),
+          perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+          // A 300 ms request timeout gives undeclared callers a 150 ms fence.
+          requestTimeoutMs: 300,
+          toolNames: ['spawn_worker', 'await_event'],
+        })
+        // The worker settles at 600 ms: after the default fence, inside a declared one.
+        const settle = setTimeout(() => release.resolve(), 600)
+        try {
+          await jsonRpc(mcp.url, 'tools/call', {
+            name: 'spawn_worker',
+            arguments: { profile: {}, task: 'go' },
+          })
+          awaited = await jsonRpc(
+            mcp.url,
+            'tools/call',
+            { name: 'await_event', arguments: { kinds: ['settled'] } },
+            headers,
+          )
+        } finally {
+          clearTimeout(settle)
+          release.resolve()
+          await mcp.close()
+        }
+        return undefined
+      },
+    }
+    await createSupervisor<unknown, unknown>().run(root, 'await', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'declared-fence',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+    })
+    return awaited
+  }
+
+  it('is held for 60% of the declared timeout, so a worker that settles inside it is returned in the same call', async () => {
+    // 2 s declared: a 1.2 s fence and a 2 s request bound.
+    const awaited = await awaitWith({ [MCP_TOOL_TIMEOUT_HEADER]: '2000' })
+    expect(awaited?.error).toBeUndefined()
+    expect(awaited?.result).not.toMatchObject({ structuredContent: { pending: true } })
+    expect(awaited?.result).toMatchObject({
+      structuredContent: { eventSeq: 0, outRef: expect.any(String) },
+    })
+  })
+
+  it('keeps the default fence for a caller that declares nothing or something malformed', async () => {
+    for (const headers of [undefined, { [MCP_TOOL_TIMEOUT_HEADER]: '12.5' }]) {
+      const awaited = await awaitWith(headers)
+      expect(awaited?.error).toBeUndefined()
+      expect(awaited?.result).toMatchObject({ structuredContent: { pending: true } })
+    }
+  })
+
+  it('derives the fence from the declared timeout and caps it at what the Sandbox edge held', () => {
+    expect(declaredToolTimeoutMs('300000')).toBe(300_000)
+    expect(declaredToolTimeoutMs('999')).toBeUndefined()
+    expect(declaredToolTimeoutMs('-1')).toBeUndefined()
+    expect(declaredToolTimeoutMs(['300000'])).toBeUndefined()
+    expect(declaredAwaitFenceMs(300_000)).toBe(MAX_DECLARED_AWAIT_FENCE_MS)
+    expect(declaredAwaitFenceMs(60_000)).toBe(36_000)
+    expect(COORDINATION_CLIENT_TOOL_TIMEOUT_MS).toBe(300_000)
   })
 })
 
