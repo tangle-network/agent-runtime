@@ -10,6 +10,7 @@ import {
   verifyAgentCandidateWorkspaceArtifacts,
 } from '../../src/candidate-execution/workspace-streams'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
+import { diskS3StreamStore } from './disk-s3-stream-store'
 
 const root = await mkdtemp(join(tmpdir(), 'workspace-streaming-memory-'))
 let peakRss = 0
@@ -37,7 +38,11 @@ try {
       await file.close()
     }
   }
-  const store = createPrivateCasArtifactPort(join(root, 'artifacts'), 'memory-proof')
+  const durable = await diskS3StreamStore(join(root, 'offhost'))
+  const store = createPrivateCasArtifactPort(join(root, 'artifacts'), 'memory-proof', {
+    durable: durable.store,
+    localBudgetBytes: 0,
+  })
   let maxReadChunk = 0
   const artifacts = {
     ...store,
@@ -86,8 +91,12 @@ try {
     peakExternal,
     maxReadChunk,
     restoredManifestMatches: true,
+    offload: await store.offload(),
+    transport: durable.counts(),
   }
   console.log(JSON.stringify(receipt))
+  assert((await store.offload()).localBytes === 0)
+  assert(durable.counts().uploads === 2)
   assert(snapshot.archive.byteLength > 3 * 1024 ** 3)
   assert(maxReadChunk <= 64 * 1024)
   assert(peakRss < 384 * 1024 ** 2, `peak RSS exceeded bound: ${peakRss}`)

@@ -424,11 +424,16 @@ export type {
   WidenSpec,
   WinnerStrategy,
 } from './personify/wave-types'
-export { createPrivateCasArtifactPort } from './private-cas'
+export {
+  createPrivateCasArtifactPort,
+  type PrivateCasArtifactPort,
+  type PrivateCasDurableStore,
+  type PrivateCasOffloadReport,
+  type PrivateCasOptions,
+} from './private-cas'
 // Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
 // a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
-// The product-facing backend selector: one call picks sandbox/bridge/router transport.
 export {
   type ResolveSandboxClientOptions,
   resolveSandboxClient,
@@ -504,6 +509,8 @@ export {
   TERMINAL_DECISIONS,
   type TerminalDecision,
 } from './run-loop'
+// The product-facing backend selector: one call picks sandbox/bridge/router transport.
+export { createS3PrivateCasStore, type S3PrivateCasStoreOptions } from './s3-private-cas-store'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,
