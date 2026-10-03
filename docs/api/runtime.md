@@ -24597,7 +24597,7 @@ provider acknowledgement is `{ status: 'unknown', effect: 'cancel_requested' }` 
 
 ##### status
 
-> `readonly` **status**: `"unknown"` \| `"rejected"` \| `"accepted"` \| `"already-terminal"`
+> `readonly` **status**: `"rejected"` \| `"unknown"` \| `"accepted"` \| `"already-terminal"`
 
 ##### effect
 
@@ -42856,3 +42856,27 @@ Re-exports [createOtelExporter](index.md#createotelexporter)
 ### RootStreamReceipt
 
 Re-exports [RootStreamReceipt](durable.md#rootstreamreceipt)
+
+***
+
+### TaskQueueEntry
+
+Re-exports [TaskQueueEntry](runtime/task-queue.md#taskqueueentry)
+
+***
+
+### TaskQueueOptions
+
+Re-exports [TaskQueueOptions](runtime/task-queue.md#taskqueueoptions)
+
+***
+
+### TaskQueueSettlement
+
+Re-exports [TaskQueueSettlement](runtime/task-queue.md#taskqueuesettlement)
+
+***
+
+### runTaskQueue
+
+Re-exports [runTaskQueue](runtime/task-queue.md#runtaskqueue)

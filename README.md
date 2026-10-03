@@ -71,6 +71,12 @@ pnpm i && pnpm build
 pnpm tsx examples/quickstart/minimal.ts
 ```
 
+## Bounded tasks under caller-owned policy
+
+`@tangle-network/agent-runtime/task-queue` exports `runTaskQueue`. Its `take(activeIds)` callback returns a ready task with a stable identity, or `undefined` when no task is currently ready; asynchronous admission can persist a checkpoint before execution starts. The iterator yields native fulfilled/rejected settlements in completion order. Returning or throwing from the consumer stops admission and awaits already-started tasks. The caller owns readiness, cancellation, retry, persistence, and interpretation of failures.
+
+Runtime uses the same primitive for round batches and concurrent sandbox lineage work. It does not turn application tasks into agents or impose a graph policy.
+
 ## The core vocabulary
 
 | Word | Meaning |

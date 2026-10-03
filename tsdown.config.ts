@@ -8,6 +8,7 @@ export default defineConfig({
     'tool-loop': 'src/tool-loop.ts',
     intelligence: 'src/intelligence/index.ts',
     kernel: 'src/runtime/index.ts',
+    'task-queue': 'src/runtime/task-queue.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
     profiles: 'src/profiles/index.ts',
     platform: 'src/platform/index.ts',

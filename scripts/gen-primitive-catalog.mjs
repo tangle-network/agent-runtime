@@ -67,6 +67,7 @@ const ownSurfaceLabels = {
   './tool-loop': 'Bounded tool calls for browser and edge runtimes',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './kernel': 'Execution kernel — recursive atom, supervision, executors, round-synchronous loop',
+  './task-queue': 'Bounded task admission and native promise settlement',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
