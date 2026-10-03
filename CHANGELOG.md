@@ -1,3 +1,9 @@
+## 0.292.7
+
+Stop automatic driver retries when a retained provider result or event violates its contract.
+Keep the original execution unresolved and recoverable under the caller's retention policy; after reader repair, reconnect to its exact recorded identity without replacement computation.
+Correct the diagnostic that incorrectly claimed there was nothing to reconcile.
+
 ## 0.292.6
 
 Align the exact Interface release cohort with the typed subscription profile contract required by Runtime.
