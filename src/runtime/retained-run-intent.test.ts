@@ -1,7 +1,7 @@
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import { retainedCreateMaterial } from './retained-run-intent'
+import { retainedCreateMaterial, retainedTurnMaterial } from './retained-run-intent'
 
 function digestForSecrets(secrets: NonNullable<CreateAgentEnvironmentInput['secrets']>): string {
   return canonicalCandidateDigest(
@@ -113,5 +113,18 @@ describe('retained create admission material', () => {
     expect(digestForSecrets({ API_TOKEN: 'guessable-a' })).not.toBe(
       digestForSecrets({ OTHER_TOKEN: 'guessable-a' }),
     )
+  })
+})
+
+describe('retained turn admission material', () => {
+  it('binds a typed profile even when the prompt and environment are unchanged', () => {
+    const original = { name: 'certificate-checker' }
+    const changed = { ...original, name: 'certificate-generator' }
+    const first = retainedTurnMaterial({ prompt: 'Continue', profile: original }, undefined)
+    const second = retainedTurnMaterial({ prompt: 'Continue', profile: changed }, undefined)
+    expect(canonicalCandidateDigest(first)).not.toBe(canonicalCandidateDigest(second))
+    expect(first).toHaveProperty('profileDigest')
+    expect(first).not.toHaveProperty('profile')
+    expect(retainedTurnMaterial({ prompt: 'Continue' }, undefined)).toEqual({ prompt: 'Continue' })
   })
 })

@@ -119,6 +119,12 @@ const profile: AgentProfile = {
 The shared materializer normalizes the fetched markdown and mounts it in the selected agent's native skill directory.
 The original profile remains unchanged, and the exact mounted bytes are covered by the materialization receipt.
 
+Provider turns carry an exact inline profile in `AgentTurnInput.profile`.
+Large profile resources do not belong in bounded `providerOptions` metadata.
+Runtime validates the turn before environment creation and binds its profile digest into retained admission identity.
+A request-schema refusal ends the driver attempt without repeated provisioning.
+Post-admission uncertainty still requires reconciliation.
+
 Author persistent agent configuration through its profile.
 Use existing steering and execution controls for changes during work.
 Self-verification can use instructions, skills, or supported native hooks that run checks and feed failures back.

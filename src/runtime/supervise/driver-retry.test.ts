@@ -1,3 +1,4 @@
+import { AgentTurnInputSchema } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { BackendTransportError, ConfigError, ValidationError } from '../../errors'
 import { CheckUnavailableError } from './continuation'
@@ -254,6 +255,67 @@ describe('classifyDriverFailure', () => {
 })
 
 describe('retained admission classification', () => {
+  it('keeps actual turn-schema refusals terminal only before execution', async () => {
+    const parsed = AgentTurnInputSchema.safeParse({
+      prompt: 'Continue the research',
+      providerOptions: { backend: { profile: { files: [{ content: 'x'.repeat(20_000) }] } } },
+    })
+    expect(parsed.success).toBe(false)
+    if (parsed.success)
+      throw new Error('Expected the unchanged metadata bound to refuse this input')
+    const rejected = new RetainedExecutionPendingError(parsed.error, 'admission')
+    const wrapped = new RetainedExecutionPendingError(
+      new Error('provider wrapper', { cause: parsed.error }),
+      'admission',
+    )
+    expect(rejected.pendingCause).toBe('request-rejected')
+    expect(classifyDriverFailure(parsed.error)).toBe('terminal')
+    expect(classifyDriverFailure(rejected)).toBe('terminal')
+    expect(classifyDriverFailure(wrapped)).toBe('terminal')
+    expect(upstreamUnavailableSignal(rejected)).toBeUndefined()
+    expect(
+      classifyDriverFailure(new RetainedExecutionPendingError(parsed.error, 'execution')),
+    ).toBe('transient')
+
+    const script = scriptedDrive([rejected])
+    const records: DriverAttemptRecord[] = []
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+      onAttempt: (record) => void records.push(record),
+    }).catch((error: unknown) => error)
+    expect(script.attempts).toEqual([1])
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(error instanceof DriverAttemptsExhaustedError)) return
+    expect(error.stop).toBe('terminal-error')
+    expect(records).toHaveLength(1)
+    expect(records[0]?.classification).toBe('terminal')
+    expect(records[0]?.retryInMs).toBeUndefined()
+    expect(records[0]?.error).toContain('providerOptions')
+  })
+
+  it('recognizes typed JSON bounds without reading hostile schema properties', () => {
+    expect(
+      classifyDriverFailure(
+        Object.assign(new Error('profile changed'), { name: 'ValidationError' }),
+      ),
+    ).toBe('terminal')
+    const bounded = Object.assign(new Error('payload rejected'), { code: 'JSON_BOUND_VIOLATION' })
+    expect(classifyDriverFailure(new RetainedExecutionPendingError(bounded, 'admission'))).toBe(
+      'terminal',
+    )
+    const hostile = new Error('unreadable schema')
+    Object.defineProperty(hostile, 'issues', {
+      get() {
+        throw new Error('cannot read issues')
+      },
+    })
+    expect(classifyDriverFailure(hostile)).toBe('transient')
+  })
+
   const refused = () =>
     new RetainedExecutionPendingError(
       Object.assign(new Error('dispatch refused'), { status: 400 }),

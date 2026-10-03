@@ -2,6 +2,7 @@ import type { ContextTransferRequest, Sha256Digest } from '@tangle-network/agent
 import {
   AgentEnvironmentCapabilitiesSchema,
   AgentExactRunControlRefSchema,
+  AgentTurnInputSchema,
   ContextTransferRequestSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
@@ -97,6 +98,14 @@ export async function startRetainedRun(
   assertStableText(identity.sessionId, 'retained session id')
   assertStableText(identity.executionId, 'retained execution id')
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
+  AgentTurnInputSchema.parse(
+    freshTurnInput(options.turn, {
+      turnId: options.turn.turnId,
+      detach: true,
+      ...identity,
+      contextTransfer,
+    }),
+  )
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
@@ -225,6 +234,14 @@ export async function startRetainedRunInEnvironment(
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
+  AgentTurnInputSchema.parse(
+    freshTurnInput(options.turn, {
+      turnId: options.turn.turnId,
+      detach: true,
+      ...identity,
+      contextTransfer,
+    }),
+  )
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)

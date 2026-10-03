@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { providerMessageText } from './turn-input'
+import { freshTurnInput, promptOptionsFromAgentTurnInput, providerMessageText } from './turn-input'
 
 describe('providerMessageText', () => {
   it('keeps the last-user-message preference for messages-only turns', () => {
@@ -23,5 +23,23 @@ describe('providerMessageText', () => {
         ],
       }),
     ).toBe('usable request')
+  })
+})
+
+describe('typed turn profile transport', () => {
+  it('preserves the exact profile across fresh retained turns and SDK projection', () => {
+    const profile = { name: 'independent-verifier' }
+    const fresh = freshTurnInput(
+      { profile, prompt: 'Continue', providerOptions: { backend: { type: 'claude-code' } } },
+      { turnId: 'next-turn', detach: true, sessionId: 'same-session' },
+    )
+    expect(fresh.profile).toEqual(profile)
+    expect(promptOptionsFromAgentTurnInput(fresh).backend).toEqual({ type: 'claude-code', profile })
+    expect(() =>
+      promptOptionsFromAgentTurnInput({
+        profile,
+        providerOptions: { backend: { profile: { ...profile, name: 'substituted-verifier' } } },
+      }),
+    ).toThrow('conflicting AgentProfiles')
   })
 })
