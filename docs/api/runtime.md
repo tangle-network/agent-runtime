@@ -8020,6 +8020,66 @@ Where the bytes live, recorded in every durable receipt, for example `s3://bucke
 
 #### Methods
 
+##### putStream()?
+
+> `optional` **putStream**(`object`): `Promise`\<`void`\>
+
+Store a known digest and length without retaining all bytes.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### byteLength
+
+`number`
+
+###### chunks
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### getStream()?
+
+> `optional` **getStream**(`object`): `Promise`\<`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>, `any`, `any`\> \| `undefined`\>
+
+Open stored bytes without materializing the object.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>, `any`, `any`\> \| `undefined`\>
+
 ##### put()
 
 > **put**(`object`): `Promise`\<`void`\>
@@ -8169,6 +8229,66 @@ Durable content-addressed evidence store controlled only by the evaluator.
 ###### Inherited from
 
 [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport).[`read`](candidate-execution.md#read-1)
+
+##### readStream()?
+
+> `optional` **readStream**(`ref`, `options?`): `AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+Stream an artifact without materializing its complete contents.
+
+###### Parameters
+
+###### ref
+
+`AgentCandidateArtifactRef`
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### Inherited from
+
+[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport).[`readStream`](candidate-execution.md#readstream-1)
+
+##### putStream()?
+
+> `optional` **putStream**(`input`): `Promise`\<`AgentCandidateArtifactRef`\>
+
+Consume all chunks before publishing; preserve put's identity and cancellation guarantees.
+
+###### Parameters
+
+###### input
+
+###### executionId
+
+`string`
+
+###### purpose
+
+[`AgentCandidateOutputPurpose`](candidate-execution.md#agentcandidateoutputpurpose)
+
+###### chunks
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AgentCandidateArtifactRef`\>
+
+###### Inherited from
+
+[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport).[`putStream`](candidate-execution.md#putstream)
 
 ##### put()
 

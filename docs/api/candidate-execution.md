@@ -395,6 +395,12 @@ What a workspace scan reads and how it records a file's permission bits.
 
 #### Properties
 
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+**`Experimental`**
+
 ##### ignoredProtectedRootEntries?
 
 > `readonly` `optional` **ignoredProtectedRootEntries?**: readonly (`".git"` \| `".sidecar"`)[]
@@ -1598,6 +1604,30 @@ Reads one content-addressed object from the closed S3/IPFS locator set.
 
 `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
+##### readStream()?
+
+> `optional` **readStream**(`ref`, `options?`): `AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+**`Experimental`**
+
+Stream an artifact without materializing its complete contents.
+
+###### Parameters
+
+###### ref
+
+`AgentCandidateArtifactRef`
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
 ***
 
 ### AgentCandidateOutputArtifactPort
@@ -1635,6 +1665,66 @@ Durable content-addressed evidence store controlled only by the evaluator.
 ###### Inherited from
 
 [`AgentCandidateArtifactPort`](#agentcandidateartifactport).[`read`](#read)
+
+##### readStream()?
+
+> `optional` **readStream**(`ref`, `options?`): `AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+**`Experimental`**
+
+Stream an artifact without materializing its complete contents.
+
+###### Parameters
+
+###### ref
+
+`AgentCandidateArtifactRef`
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### Inherited from
+
+[`AgentCandidateArtifactPort`](#agentcandidateartifactport).[`readStream`](#readstream)
+
+##### putStream()?
+
+> `optional` **putStream**(`input`): `Promise`\<`AgentCandidateArtifactRef`\>
+
+**`Experimental`**
+
+Consume all chunks before publishing; preserve put's identity and cancellation guarantees.
+
+###### Parameters
+
+###### input
+
+###### executionId
+
+`string`
+
+###### purpose
+
+[`AgentCandidateOutputPurpose`](#agentcandidateoutputpurpose)
+
+###### chunks
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AgentCandidateArtifactRef`\>
 
 ##### put()
 
@@ -3397,6 +3487,76 @@ Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
 
 ***
 
+### CaptureAgentCandidateWorkspaceToArtifactsOptions
+
+**`Experimental`**
+
+#### Properties
+
+##### limits?
+
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+**`Experimental`**
+
+##### artifactPersistence
+
+> **artifactPersistence**: `object`
+
+**`Experimental`**
+
+###### executionId
+
+> **executionId**: `string`
+
+###### outputArtifacts
+
+> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](#agentcandidateoutputartifactport)
+
+###### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+***
+
+### AgentCandidateWorkspaceArtifactsOptions
+
+**`Experimental`**
+
+#### Properties
+
+##### role
+
+> **role**: `"task"` \| `"knowledge"` \| `"memory"` \| `"candidate"`
+
+**`Experimental`**
+
+##### snapshot
+
+> **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+**`Experimental`**
+
+##### artifacts
+
+> **artifacts**: [`AgentCandidateArtifactPort`](#agentcandidateartifactport)
+
+**`Experimental`**
+
+##### limits?
+
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+**`Experimental`**
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+**`Experimental`**
+
+***
+
 ### WorkspaceTreeExclusion
 
 **`Experimental`**
@@ -4856,6 +5016,70 @@ Create the standard bounded materializer for candidate execution ports.
 #### Returns
 
 [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
+
+***
+
+### captureAgentCandidateWorkspaceToArtifacts()
+
+> **captureAgentCandidateWorkspaceToArtifacts**(`rootInput`, `options`): `Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; \}\>
+
+**`Experimental`**
+
+Capture regular files to durable artifacts with memory bounded by the manifest and stream buffers.
+
+#### Parameters
+
+##### rootInput
+
+`string`
+
+##### options
+
+[`CaptureAgentCandidateWorkspaceToArtifactsOptions`](#captureagentcandidateworkspacetoartifactsoptions)
+
+#### Returns
+
+`Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; \}\>
+
+***
+
+### verifyAgentCandidateWorkspaceArtifacts()
+
+> **verifyAgentCandidateWorkspaceArtifacts**(`input`): `Promise`\<`void`\>
+
+**`Experimental`**
+
+Verify durable regular-file workspace evidence without retaining archive or file contents.
+
+#### Parameters
+
+##### input
+
+[`AgentCandidateWorkspaceArtifactsOptions`](#agentcandidateworkspaceartifactsoptions)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### materializeAgentCandidateWorkspaceFromArtifacts()
+
+> **materializeAgentCandidateWorkspaceFromArtifacts**(`input`): `Promise`\<`void`\>
+
+**`Experimental`**
+
+Restore regular-file artifacts into an empty destination, publishing only after complete verification.
+
+#### Parameters
+
+##### input
+
+[`AgentCandidateWorkspaceArtifactsOptions`](#agentcandidateworkspaceartifactsoptions) & `object`
+
+#### Returns
+
+`Promise`\<`void`\>
 
 ***
 

@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto'
+import { Readable } from 'node:stream'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
 import type { PrivateCasDurableStore } from './private-cas'
 
@@ -74,11 +75,13 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): Priv
     objectKey: string,
     {
       body,
+      byteLength,
       payloadHash = EMPTY_PAYLOAD,
       headers = {},
       signal,
     }: {
-      body?: Uint8Array
+      body?: Uint8Array | ReadableStream<Uint8Array>
+      byteLength?: number
       payloadHash?: string
       headers?: Record<string, string>
       signal?: AbortSignal
@@ -115,7 +118,11 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): Priv
       .digest('hex')
     const { host: _host, ...sent } = signed
     const deadline = AbortSignal.timeout(
-      timeoutMs + Math.ceil((body?.byteLength ?? 0) / (1024 * 1024)) * 1_000,
+      timeoutMs +
+        Math.ceil(
+          (byteLength ?? (body instanceof Uint8Array ? body.byteLength : 0)) / (1024 * 1024),
+        ) *
+          1_000,
     )
     return await send(url, {
       method,
@@ -124,12 +131,26 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): Priv
         authorization: `AWS4-HMAC-SHA256 Credential=${options.accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${signature}`,
       },
       ...(body === undefined ? {} : { body }),
+      ...(body instanceof ReadableStream ? { duplex: 'half' as const } : {}),
       signal: signal === undefined ? deadline : AbortSignal.any([signal, deadline]),
     })
   }
 
   const refusal = async (response: Response, action: string): Promise<Error> => {
-    const detail = (await response.text().catch(() => '')).replace(/\s+/gu, ' ').slice(0, 300)
+    const reader = response.body?.getReader()
+    let detail = ''
+    try {
+      while (reader && detail.length < 300) {
+        const { done, value } = await reader.read()
+        if (done) break
+        detail += new TextDecoder().decode(value.subarray(0, 300))
+      }
+    } catch {
+      /* A refused response may close before its diagnostic body arrives. */
+    } finally {
+      await reader?.cancel().catch(() => undefined)
+    }
+    detail = detail.replace(/\s+/gu, ' ').slice(0, 300)
     return new Error(
       `S3 private CAS ${action} returned ${response.status}${detail ? `: ${detail}` : ''}`,
     )
@@ -154,6 +175,70 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): Priv
 
   return {
     location: `s3://${options.bucket}/${prefix}`,
+    async putStream({ namespace, digest, byteLength, chunks, signal }) {
+      const objectKey = key(namespace, digest)
+      if (await holds(objectKey, digest, byteLength, signal)) return
+      async function* checked(): AsyncGenerator<Uint8Array> {
+        const hash = createHash('sha256')
+        let total = 0
+        for await (const chunk of chunks) {
+          signal?.throwIfAborted()
+          total += chunk.byteLength
+          if (total > byteLength)
+            throw new Error('S3 private CAS stream exceeds its declared length')
+          hash.update(chunk)
+          yield chunk
+        }
+        if (total !== byteLength || `sha256:${hash.digest('hex')}` !== digest)
+          throw new Error('S3 private CAS stream failed digest or length verification')
+      }
+      const body = Readable.from(checked())
+      try {
+        const response = await request('PUT', objectKey, {
+          body: Readable.toWeb(body) as ReadableStream<Uint8Array>,
+          byteLength,
+          payloadHash: DIGEST.exec(digest)![1]!,
+          headers: {
+            'content-type': CONTENT_TYPE,
+            'content-length': String(byteLength),
+            [METADATA_DIGEST]: digest,
+          },
+          ...(signal === undefined ? {} : { signal }),
+        })
+        if (!response.ok) throw await refusal(response, 'PUT')
+        await response.body?.cancel().catch(() => undefined)
+        if (!(await holds(objectKey, digest, byteLength, signal)))
+          throw new Error(`S3 private CAS object ${objectKey} is absent after its write`)
+      } finally {
+        body.destroy()
+      }
+    },
+    async getStream({ namespace, digest, signal }) {
+      const response = await request(
+        'GET',
+        key(namespace, digest),
+        signal === undefined ? {} : { signal },
+      )
+      if (response.status === 404) {
+        await response.body?.cancel().catch(() => undefined)
+        return undefined
+      }
+      if (!response.ok) throw await refusal(response, 'GET')
+      if (!response.body) throw new Error('S3 private CAS GET returned no body')
+      return (async function* () {
+        const reader = response.body!.getReader()
+        try {
+          while (true) {
+            signal?.throwIfAborted()
+            const { done, value } = await reader.read()
+            if (done) break
+            yield value
+          }
+        } finally {
+          await reader.cancel().catch(() => undefined)
+        }
+      })()
+    },
     async put({ namespace, digest, bytes, signal }) {
       const objectKey = key(namespace, digest)
       if (await holds(objectKey, digest, bytes.byteLength, signal)) return
@@ -164,7 +249,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): Priv
         ...(signal === undefined ? {} : { signal }),
       })
       if (!response.ok) throw await refusal(response, 'PUT')
-      await response.arrayBuffer().catch(() => undefined)
+      await response.body?.cancel().catch(() => undefined)
       if (!(await holds(objectKey, digest, bytes.byteLength, signal)))
         throw new Error(`S3 private CAS object ${objectKey} is absent after its write`)
     },
@@ -175,7 +260,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): Priv
         signal === undefined ? {} : { signal },
       )
       if (response.status === 404) {
-        await response.arrayBuffer().catch(() => undefined)
+        await response.body?.cancel().catch(() => undefined)
         return undefined
       }
       if (!response.ok) throw await refusal(response, 'GET')

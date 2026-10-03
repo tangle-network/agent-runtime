@@ -605,17 +605,7 @@ async function writeTarEntry(
 ): Promise<void> {
   await new Promise<void>((resolveEntry, rejectEntry) => {
     archive.entry(
-      {
-        name,
-        mode,
-        uid: 0,
-        gid: 0,
-        size: bytes.byteLength,
-        mtime: fixedTarTime,
-        type: 'file',
-        uname: '',
-        gname: '',
-      },
+      workspaceTarHeader(name, mode, bytes.byteLength),
       Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
       (error) => (error ? rejectEntry(error) : resolveEntry()),
     )
@@ -687,7 +677,7 @@ async function streamEqualsBytes(
   return equal && offset === expectedBuffer.byteLength
 }
 
-async function prepareEmptyDestination(destination: string): Promise<void> {
+export async function prepareEmptyDestination(destination: string): Promise<void> {
   await mkdir(destination, { recursive: true, mode: 0o700 })
   const stats = await lstat(destination)
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
@@ -883,7 +873,7 @@ function isWorkspaceFileMode(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 0o777
 }
 
-function workspaceLimits(
+export function workspaceLimits(
   overrides: Partial<AgentCandidateWorkspaceArchiveLimits> | undefined,
 ): AgentCandidateWorkspaceArchiveLimits {
   const limits = { ...defaultLimits, ...overrides }
@@ -895,7 +885,7 @@ function workspaceLimits(
   return Object.freeze(limits)
 }
 
-function safeArchivePath(value: unknown, maxPathBytes: number): string {
+export function safeArchivePath(value: unknown, maxPathBytes: number): string {
   if (
     typeof value !== 'string' ||
     !value ||
@@ -914,7 +904,7 @@ function safeArchivePath(value: unknown, maxPathBytes: number): string {
   return value
 }
 
-function assertWorkspacePathOrder(
+export function assertWorkspacePathOrder(
   path: string,
   previousPath: string | undefined,
   observedPaths: Set<string>,
@@ -961,7 +951,7 @@ function detachWorkspaceBytes(input: {
   return copy
 }
 
-function workspacePath(root: string, relativePath: string): string {
+export function workspacePath(root: string, relativePath: string): string {
   const path = resolve(root, relativePath)
   if (!path.startsWith(`${root}${sep}`)) {
     throw new Error(`candidate workspace archive path escapes its destination: ${relativePath}`)
@@ -999,3 +989,18 @@ function requireTypedArrayGetter(name: 'buffer' | 'byteOffset' | 'byteLength'): 
 const typedArrayBufferGetter = requireTypedArrayGetter('buffer')
 const typedArrayByteOffsetGetter = requireTypedArrayGetter('byteOffset')
 const typedArrayByteLengthGetter = requireTypedArrayGetter('byteLength')
+
+/** Shared canonical header for both archive encoders. */
+export function workspaceTarHeader(name: string, mode: number, size: number) {
+  return {
+    name,
+    mode,
+    uid: 0,
+    gid: 0,
+    size,
+    mtime: fixedTarTime,
+    type: 'file' as const,
+    uname: '',
+    gname: '',
+  }
+}

@@ -158,6 +158,13 @@ export {
   createAgentCandidateWorkspacePort,
 } from './workspace-archive'
 export {
+  type AgentCandidateWorkspaceArtifactsOptions,
+  type CaptureAgentCandidateWorkspaceToArtifactsOptions,
+  captureAgentCandidateWorkspaceToArtifacts,
+  materializeAgentCandidateWorkspaceFromArtifacts,
+  verifyAgentCandidateWorkspaceArtifacts,
+} from './workspace-streams'
+export {
   type DescribeWorkspaceTreeOptions,
   describeWorkspaceTree,
   type SeedWorkspaceTreeInput,

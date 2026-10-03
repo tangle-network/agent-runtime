@@ -13,6 +13,7 @@ import {
   type AgentCandidateWorkspaceArchiveLimits,
   verifyAgentCandidateWorkspaceArchive,
 } from '../candidate-execution/workspace-archive'
+import { verifyAgentCandidateWorkspaceArtifacts } from '../candidate-execution/workspace-streams'
 import { ValidationError } from '../errors'
 import { sameControlCoordinates } from './retained-run-binding'
 import { runAbortable } from './supervise/abortable'
@@ -340,13 +341,23 @@ export async function captureProviderWorkspaceSnapshot(
         )
         const coverageComplete = coverageGaps.length === 0
         requireDurableWorkspaceArtifacts(snapshot)
-        const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, port.artifacts)
-        await verifyAgentCandidateWorkspaceArchive({
-          role: 'candidate',
-          snapshot,
-          archive,
-          ...(port.limits === undefined ? {} : { limits: port.limits }),
-        })
+        if (port.artifacts.readStream) {
+          await verifyAgentCandidateWorkspaceArtifacts({
+            role: 'candidate',
+            snapshot,
+            artifacts: port.artifacts,
+            signal: controller.signal,
+            ...(port.limits === undefined ? {} : { limits: port.limits }),
+          })
+        } else {
+          const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, port.artifacts)
+          await verifyAgentCandidateWorkspaceArchive({
+            role: 'candidate',
+            snapshot,
+            archive,
+            ...(port.limits === undefined ? {} : { limits: port.limits }),
+          })
+        }
         return {
           snapshot,
           provenance,

@@ -17,6 +17,21 @@ const DURABLE_ATTEMPTS = 3
  * Keys are the run namespace and the content digest, so a retry stores the same object again.
  */
 export interface PrivateCasDurableStore {
+  /** Store a known digest and length without retaining all bytes. */
+  putStream?(object: {
+    namespace: string
+    digest: Sha256Digest
+    byteLength: number
+    chunks: AsyncIterable<Uint8Array>
+    signal?: AbortSignal
+  }): Promise<void>
+  /** Open stored bytes without materializing the object. */
+  getStream?(object: {
+    namespace: string
+    digest: Sha256Digest
+    signal?: AbortSignal
+  }): Promise<AsyncIterable<Uint8Array> | undefined>
+
   /** Where the bytes live, recorded in every durable receipt, for example `s3://bucket/prefix/`. */
   readonly location: string
   /**
@@ -259,17 +274,50 @@ export function createPrivateCasArtifactPort(
         pending.push({ digest, error: `not attempted after an earlier refusal: ${refusal}` })
         continue
       }
-      const bytes = await readLocal(object.path)
-      if (bytes === undefined) continue
-      if (sha256(bytes) !== digest) {
-        pending.push({
-          digest,
-          error: 'local object failed digest verification; it stays on the host',
-        })
-        continue
-      }
       try {
-        await storeDurably(digest, bytes, signal)
+        if (durable.putStream && durable.getStream) {
+          const ref: AgentCandidateArtifactRef = {
+            locator: { kind: 'private-cas', namespace, digest },
+            sha256: digest,
+            byteLength: object.size,
+          }
+          let failure: unknown
+          for (let attempt = 1; attempt <= DURABLE_ATTEMPTS; attempt++) {
+            signal?.throwIfAborted()
+            const chunks = readObject(object.path, ref, signal)
+            try {
+              await durable.putStream({
+                namespace,
+                digest,
+                byteLength: object.size,
+                chunks,
+                signal,
+              })
+              await writeReceipt(digest, object.size)
+              failure = undefined
+              break
+            } catch (error) {
+              failure = error
+              if (signal?.aborted) throw error
+              if (attempt < DURABLE_ATTEMPTS)
+                await new Promise((settle) => setTimeout(settle, 1_000 * 4 ** (attempt - 1)))
+            } finally {
+              await chunks.return(undefined)
+            }
+          }
+          if (failure !== undefined) throw failure
+        } else {
+          const bytes = await readLocal(object.path)
+          if (bytes === undefined) continue
+          if (sha256(bytes) !== digest) {
+            pending.push({
+              digest,
+              error: 'local object failed digest verification; it stays on the host',
+            })
+            continue
+          }
+          await storeDurably(digest, bytes, signal)
+        }
         durableHex.add(object.hex)
         uploaded++
       } catch (error) {
@@ -323,7 +371,157 @@ export function createPrivateCasArtifactPort(
     return bytes
   }
 
+  async function* readStream(
+    ref: AgentCandidateArtifactRef,
+    options: { signal?: AbortSignal } = {},
+  ): AsyncGenerator<Uint8Array> {
+    const { signal } = options
+    signal?.throwIfAborted()
+    if (
+      ref.locator.kind !== 'private-cas' ||
+      ref.locator.namespace !== namespace ||
+      ref.locator.digest !== ref.sha256
+    )
+      throw new Error('private CAS locator does not match its digest and namespace')
+    const path = destination(ref.sha256)
+    try {
+      await checkDirectories(join(store, hexOf(ref.sha256).slice(0, 2)), false)
+      yield* readObject(path, ref, signal)
+      return
+    } catch (error) {
+      if (!missing(error)) throw error
+    }
+    if (!durable?.getStream)
+      throw new Error(
+        `private CAS object is not on this host; streaming durable reads are unavailable: ${ref.sha256}`,
+      )
+    const chunks = await durable.getStream({ namespace, digest: ref.sha256, signal })
+    if (!chunks)
+      throw new Error(
+        `private CAS object is neither on this host nor in ${durable.location}: ${ref.sha256}`,
+      )
+    yield* checkedChunks(chunks, ref, signal)
+  }
+
+  async function* readObject(
+    path: string,
+    ref: AgentCandidateArtifactRef,
+    signal?: AbortSignal,
+  ): AsyncGenerator<Uint8Array> {
+    signal?.throwIfAborted()
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const stats = await file.stat()
+      if (!stats.isFile() || stats.size !== ref.byteLength)
+        throw new Error('private CAS object failed digest or length verification')
+      yield* checkedChunks(
+        file.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 }),
+        ref,
+        signal,
+      )
+    } finally {
+      await file.close()
+    }
+  }
+
+  async function* checkedChunks(
+    chunks: AsyncIterable<Uint8Array>,
+    ref: AgentCandidateArtifactRef,
+    signal?: AbortSignal,
+  ): AsyncGenerator<Uint8Array> {
+    const hash = createHash('sha256')
+    let byteLength = 0
+    for await (const chunk of chunks) {
+      signal?.throwIfAborted()
+      if (!(chunk instanceof Uint8Array)) throw new Error('private CAS emitted a non-byte chunk')
+      byteLength += chunk.byteLength
+      if (byteLength > ref.byteLength)
+        throw new Error('private CAS object failed digest or length verification')
+      hash.update(chunk)
+      yield chunk
+    }
+    signal?.throwIfAborted()
+    if (`sha256:${hash.digest('hex')}` !== ref.sha256 || byteLength !== ref.byteLength)
+      throw new Error('private CAS object failed digest or length verification')
+  }
+
+  async function putStream(input: {
+    chunks: AsyncIterable<Uint8Array>
+    signal?: AbortSignal
+  }): Promise<AgentCandidateArtifactRef> {
+    const { signal } = input
+    signal?.throwIfAborted()
+    await checkDirectories(store, true)
+    const temporary = join(store, `.${randomUUID()}.tmp`)
+    try {
+      const file = await open(
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      )
+      const hash = createHash('sha256')
+      let byteLength = 0
+      try {
+        for await (const chunk of input.chunks) {
+          signal?.throwIfAborted()
+          if (!(chunk instanceof Uint8Array))
+            throw new Error('private CAS received a non-byte chunk')
+          hash.update(chunk)
+          byteLength += chunk.byteLength
+          if (!Number.isSafeInteger(byteLength)) throw new Error('private CAS object is too large')
+          await file.writeFile(chunk)
+        }
+        signal?.throwIfAborted()
+        await file.sync()
+      } finally {
+        await file.close()
+      }
+      const sha = hash.digest('hex')
+      const digest = `sha256:${sha}` as AgentCandidateArtifactRef['sha256']
+      const ref: AgentCandidateArtifactRef = {
+        locator: { kind: 'private-cas', namespace, digest },
+        sha256: digest,
+        byteLength,
+      }
+      for await (const _chunk of readObject(temporary, ref, signal)) {
+        // Verify the staged inode before it can become another writer's deduplicated object.
+      }
+      const path = destination(digest)
+      const directory = join(store, sha.slice(0, 2))
+      await checkDirectories(directory, true)
+      signal?.throwIfAborted()
+      try {
+        // The link commits publication. Later cancellation must not delete a shared CAS object.
+        await link(temporary, path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        for await (const _chunk of readStream(ref, { signal })) {
+          // An existing object must independently match, even when our staged bytes were valid.
+        }
+      }
+      const dir = await open(
+        directory,
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      )
+      try {
+        await dir.sync()
+      } finally {
+        await dir.close()
+      }
+      if (durable !== undefined) await offload(signal)
+      return ref
+    } finally {
+      await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error
+      })
+    }
+  }
+
   const port: PrivateCasArtifactPort = {
+    // A buffered remote store cannot satisfy the streaming capture contract.
+    ...(durable === undefined || (durable.putStream && durable.getStream)
+      ? { putStream, readStream }
+      : {}),
     async put({ bytes, signal }) {
       signal?.throwIfAborted()
       const digest = sha256(bytes)
