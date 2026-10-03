@@ -1,5 +1,8 @@
 import type { ContextTransferRequest } from '@tangle-network/agent-interface'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type {
   AgentTurnInput,
   CreateAgentEnvironmentInput,
@@ -111,6 +114,9 @@ export function retainedTurnMaterial(
     ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
     ...(input.parts === undefined ? {} : { parts: input.parts }),
     ...(input.model === undefined ? {} : { model: input.model }),
+    ...(input.profile === undefined
+      ? {}
+      : { profileDigest: canonicalAgentProfileDigest(input.profile) }),
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.context === undefined ? {} : { context: input.context }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),

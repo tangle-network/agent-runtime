@@ -333,6 +333,20 @@ export class HarnessTurnFailedError extends Error {
  */
 export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
 
+/** Provider schemas and JSON bounds reject the request deterministically. */
+function isProviderSchemaRejection(error: Error): boolean {
+  try {
+    return (
+      error.name === 'ZodError' ||
+      error.name === 'ValidationError' ||
+      Reflect.get(error, 'code') === 'JSON_BOUND_VIOLATION' ||
+      Array.isArray(Reflect.get(error, 'issues'))
+    )
+  } catch {
+    return false
+  }
+}
+
 /**
  * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
  *
@@ -344,6 +358,7 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   const admission = retainedAdmissionCause(error)
   if (admission !== undefined) return upstreamUnavailableSignal(admission)
   if (!(error instanceof Error)) return undefined
+  if (isProviderSchemaRejection(error)) return undefined
   // The check could not run. It is not a verdict on the director, so the loop pauses as it does
   // for an upstream out of capacity and never counts the turn for or against the run.
   if (error instanceof CheckUnavailableError) return 'check-unavailable'
@@ -388,6 +403,7 @@ export function classifyDriverFailure(error: unknown, signal?: AbortSignal): Dri
   const admission = retainedAdmissionCause(error)
   if (admission !== undefined) return classifyDriverFailure(admission, signal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') return 'terminal'
+  if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
@@ -458,7 +474,11 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
           ? value
           : undefined
       }
-      if (error.pendingCause === 'request-rejected' && value instanceof AgentEvalError) return value
+      if (
+        error.pendingCause === 'request-rejected' &&
+        (value instanceof AgentEvalError || isProviderSchemaRejection(value))
+      )
+        return value
       const members: unknown = Reflect.get(value, 'errors')
       if (Array.isArray(members)) queue.push(...members.slice(0, 12 - steps))
       queue.push(value.cause)

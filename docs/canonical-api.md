@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.292.4.**
+> **Version 0.292.5.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.203.0 <0.206.0`.
 > `sandbox` must satisfy `>=0.58.4 <0.61.0`.
@@ -118,6 +118,12 @@ const profile: AgentProfile = {
 
 The shared materializer normalizes the fetched markdown and mounts it in the selected agent's native skill directory.
 The original profile remains unchanged, and the exact mounted bytes are covered by the materialization receipt.
+
+Provider turns carry an exact inline profile in `AgentTurnInput.profile`.
+Large profile resources do not belong in bounded `providerOptions` metadata.
+Runtime validates the turn before environment creation and binds its profile digest into retained admission identity.
+A request-schema refusal ends the driver attempt without repeated provisioning.
+Post-admission uncertainty still requires reconciliation.
 
 Author persistent agent configuration through its profile.
 Use existing steering and execution controls for changes during work.

@@ -1,3 +1,9 @@
+## 0.292.5
+
+Carry exact subscription AgentProfiles through the typed turn profile instead of bounded provider metadata. Bind profile content to retained request identity, validate fresh turns before environment creation, and settle deterministic provider schema refusals without retrying new sandboxes. Requires Agent Interface 2.17 or later.
+
+Expose runTaskQueue for caller-owned bounded admission and settlement, and reuse it for Runtime batch execution and concurrent lineage operations. Completed failures stop further batch admission, and failed or interrupted consumers await already-started work without changing the original rejection.
+
 ## 0.292.4
 
 Carry the exact subscription AgentProfile through new provider turns, including quota continuations that reconnect to an existing environment. Reject a substituted turn profile before provisioning, and preserve the original digest when replaying an older retained admission.
