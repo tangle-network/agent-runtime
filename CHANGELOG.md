@@ -1,3 +1,7 @@
+## 0.295.3
+
+Report in-progress private CAS durable uploads in `offload().pending`. A streamed put that reuses a buffered upload's digest can no longer produce a clean offload receipt before the remote copy is acknowledged. Local-only stores and configured cache budgets retain their existing behavior.
+
 ## 0.295.2
 
 Bound overlapping provider workspace captures with optional `workspaceRetention.maxConcurrentCaptures`. Share the retention object across recursive workers to share its FIFO admission bound. The retention timeout includes queueing; timed-out I/O stays charged until it settles, and artifact verification holds the same slot.
