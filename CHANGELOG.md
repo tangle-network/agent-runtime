@@ -1,3 +1,7 @@
+## 0.293.3
+
+The profile-authoring skill tells authors to state a node's role in `prompt.appendSystemPrompt` so the harness's own system prompt stays in force, to put procedure in `prompt.instructions`, and to set `prompt.systemPrompt` only to replace the harness prompt on purpose.
+
 ## 0.293.2
 
 `await_event` holds a caller whose harness declares a raised MCP tool-call timeout (`X-Mcp-Tool-Timeout-Ms`, written by the Tangle sidecar when an attachment declares `metadata.toolTimeoutMs`) for 60% of that timeout, up to 180 s, instead of 45 s. Runtime now asks harnesses for a 300 s timeout on its coordination attachment. Callers that declare nothing keep the 45 s fence, so older sidecars are unaffected.
