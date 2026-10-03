@@ -1377,6 +1377,9 @@
       "SurfaceWorkerConfig": "type aa81f15e750c",
       "SurfaceWorkerOut": "type d80466ec4f6c",
       "TERMINAL_DECISIONS": "value 373728f5643d",
+      "TaskQueueEntry": "type 8f47e4e3c2dc",
+      "TaskQueueOptions": "type 8c4e202c723c",
+      "TaskQueueSettlement": "type c8f2c50f0803",
       "TeamProgress": "type 860dc9f47bd2",
       "TerminalDecision": "type 1a822915f49f",
       "TokenUsageProvenance": "type 4ce5b69b2e4d",
@@ -1713,6 +1716,7 @@
       "runIsolatedCheck": "value ebb5d56a353b",
       "runPersonified": "value ae3721ec4630",
       "runStrategyEvolution": "value 7eede9ec610e",
+      "runTaskQueue": "value 8934bbf8c4eb",
       "safeWorkerFile": "value 1df4f8c8e4cc",
       "sample": "value 373728f5643d",
       "sampleFromSettled": "value e785ac68b5fd",
@@ -2108,6 +2112,12 @@
       "researcherProfile": "value 658961ea088c",
       "summarizeRegistry": "value d95f88adb69c",
       "writeAuditIndex": "value 23b2df8d0de2"
+    },
+    "./task-queue": {
+      "TaskQueueEntry": "value 8f47e4e3c2dc",
+      "TaskQueueOptions": "value 8c4e202c723c",
+      "TaskQueueSettlement": "value c8f2c50f0803",
+      "runTaskQueue": "value 8934bbf8c4eb"
     },
     "./testing": {
       "AgentProfileImprovementFixture": "value 8a79d0f5c646",
