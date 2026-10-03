@@ -1,3 +1,10 @@
+## 0.295.0
+
+Stream regular-file workspace capture, artifact readback, and restore through the existing private CAS and its S3 offload store.
+Large retained workspaces no longer require complete file or tar buffers in the controller.
+Provider retention selects streaming verification when the artifact port supports it.
+Legacy buffered capture and repository archive APIs keep their existing byte format.
+
 ## 0.294.0
 
 `createPrivateCasArtifactPort` accepts a durable store and a local byte budget. `createS3PrivateCasStore` copies each object to an S3-compatible bucket (R2 or S3) as it is written, keyed by run and digest, and the bucket refuses bytes that do not match the digest. Local copies are deleted oldest first only after their durable receipt exists, reads fall back to the bucket, and `port.offload()` uploads host-only objects before any eviction.
