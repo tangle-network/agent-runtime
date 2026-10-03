@@ -123,6 +123,7 @@ export interface ProviderWorkspaceCaptureProvenance {
       } | null
       readonly complete: boolean
       readonly entries: ReadonlyArray<{
+        readonly sourceId?: string
         readonly rootScope: 'session-home' | 'workspace-session'
         readonly path: string
         readonly kind: 'file' | 'directory' | 'symlink'
@@ -132,6 +133,7 @@ export interface ProviderWorkspaceCaptureProvenance {
         readonly linkTarget: string | null
       }>
       readonly excludedPaths: ReadonlyArray<{
+        readonly sourceId?: string
         readonly rootScope: 'session-home' | 'workspace-session'
         readonly path: string
         readonly kind: 'file' | 'directory' | 'symlink'
@@ -188,7 +190,7 @@ export interface ProviderWorkspaceCaptureReceipt {
   readonly controlRef?: AgentExactRunControlRef
   readonly node?: ExecutorNodeContext
   readonly environmentId: string
-  /** Immutable authored AgentProfile identity; run records retain its content. */
+  /** Exact provider-create profile identity; materialization receipts bind it to the authored profile. */
   readonly profileDigest: string
   readonly providerSessionId: string | null
   readonly nativeSessionId: string | null

@@ -3,6 +3,7 @@ import {
   captureHarnessTranscript,
   type HarnessTranscriptCapture,
   harnessTranscriptUnavailable,
+  retainHarnessTranscript,
 } from './harness-transcript'
 import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
 import { promptOptionsFromAgentTurnInput } from './turn-input'
@@ -773,6 +774,41 @@ function createProviderExecutor(
           workspaceProvenance = provenance
           workspaceCoverageComplete = coverageComplete ?? false
           workspaceIncompleteReason = incompleteReason
+          try {
+            harnessTranscript =
+              createProfile.harness === undefined
+                ? harnessTranscriptUnavailable('unknown-harness')
+                : retainHarnessTranscript(
+                    providerWorkspaceCaptureReceipt(
+                      {
+                        executionId: workspaceExecutionId,
+                        profile: createProfile,
+                        ...(node === undefined ? {} : { node }),
+                        workspaceControlRef: () => workspaceControlRef,
+                        workspaceProvenance: () => provenance,
+                        workspaceCoverage: () => ({
+                          complete: coverageComplete ?? false,
+                          incompleteReason,
+                        }),
+                      },
+                      next,
+                      snapshot,
+                      providerSessionId,
+                    ),
+                    createProfile.harness,
+                  )
+          } catch (error) {
+            harnessTranscript = {
+              status: 'unavailable',
+              reason: 'retained-projection-failed',
+              skipped: [
+                {
+                  path: workspaceExecutionId,
+                  reason: error instanceof Error ? error.message : String(error),
+                },
+              ],
+            }
+          }
           if (workspaceRetention.requireCompleteProvenance && !coverageComplete) {
             workspacePreservationRequired = true
           }
@@ -1230,7 +1266,11 @@ function createProviderExecutor(
           // the earlier receipt; a second failure keeps the reason the first one named. One try
           // per executor: the read shares the release's bound, and a retry of a refused destroy
           // must not wait on a box that already failed to answer.
-          if (harnessTranscript.status !== 'captured' && !releaseReadTried) {
+          if (
+            options.workspaceRetention === undefined &&
+            harnessTranscript.status !== 'captured' &&
+            !releaseReadTried
+          ) {
             releaseReadTried = true
             const capture = await captureHarnessTranscript(
               target as Parameters<typeof captureHarnessTranscript>[0],
@@ -1341,7 +1381,15 @@ interface StreamProviderExecutorArgs {
 }
 
 function providerWorkspaceCaptureReceipt(
-  args: StreamProviderExecutorArgs,
+  args: Pick<
+    StreamProviderExecutorArgs,
+    | 'executionId'
+    | 'profile'
+    | 'node'
+    | 'workspaceProvenance'
+    | 'workspaceCoverage'
+    | 'workspaceControlRef'
+  >,
   environment: AgentEnvironment,
   snapshot: AgentCandidateWorkspaceSnapshotEvidence,
   fallbackSessionId: string | null,
@@ -1521,25 +1569,17 @@ async function* streamProviderExecutor(
     }
     // Continuations share one iteration; recovery restores it from the prior committed spend.
     if (args.carried === undefined) yield { kind: 'iteration' }
-    // Read the child's own harness transcript while the environment is still live. The
-    // `finally` below destroys it, and nothing used to read these files first, so a child's
-    // Claude Code / Codex / OpenCode session never reached a run record: the `trace` receipt
-    // carries the supervisor's tool spans only (toolName, args, status, callId, with
-    // startedAt === endedAt), never assistant text or tool results. #1214.
-    //
-    // It rides inside the settled result, so supervise blobs it under this child's outRef in
-    // its own ResultBlobStore and replay rehydrates it. No destroy site learns about storage.
-    const harnessTranscript = await captureHarnessTranscript(
-      environment as Parameters<typeof captureHarnessTranscript>[0],
-      args.profile.harness,
-      // The run's linked abort, so a cancelled run stops mid-enumeration instead of reading
-      // up to MAX_FILES out of an environment that is already being torn down.
-      linked,
-    )
-    // Reported to the executor, NOT spliced into the result. The scope persists it under its
-    // own content ref and settles a receipt, so the result blob every replay rehydrates never
-    // carries the files, and the one channel serves the settled path and the drop path alike.
-    args.onHarnessTranscript(harnessTranscript)
+    // Retention captures once below and exposes that verified archive through the transcript port.
+    // Environments without retention keep the existing bounded live-read path.
+    if (args.options.workspaceRetention === undefined) {
+      args.onHarnessTranscript(
+        await captureHarnessTranscript(
+          environment as Parameters<typeof captureHarnessTranscript>[0],
+          args.profile.harness,
+          linked,
+        ),
+      )
+    }
     const outcome = failures.finish()
     const result: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...resultFromEvents(archive.events(), text),
@@ -1673,23 +1713,15 @@ async function* streamProviderExecutor(
         failure = captureError
       }
     }
-    // THE LAST POINT THE ENVIRONMENT IS STILL LIVE. The `finally` below destroys it for a
-    // non-retained source, and a retained one is released later by `releaseRetained` — either
-    // way nothing downstream can read it again. Measured 2026-09-15 on the
-    // capability-per-parameter pursuits: 45 children in one evening executed, reasoned, and
-    // settled `down` with no artifact for a transcript to ride in (#1244). These are the
-    // children an operator most wants to read, because they are the ones that failed.
-    //
-    // `linked` is already aborted when the drop was a cancellation; the capture then names
-    // every remaining path `aborted` rather than making doomed reads into a dying box.
-    // It never throws, so this cannot convert a stream failure into a teardown failure.
-    args.onHarnessTranscript(
-      await captureHarnessTranscript(
-        environment as Parameters<typeof captureHarnessTranscript>[0],
-        args.profile.harness,
-        linked,
-      ),
-    )
+    if (args.options.workspaceRetention === undefined) {
+      args.onHarnessTranscript(
+        await captureHarnessTranscript(
+          environment as Parameters<typeof captureHarnessTranscript>[0],
+          args.profile.harness,
+          linked,
+        ),
+      )
+    }
   } finally {
     if (
       (!source.retained || (settled !== undefined && !failed)) &&

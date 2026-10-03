@@ -88,6 +88,31 @@ export async function verifyAgentCandidateWorkspaceArtifacts(
   await consumeWorkspaceArtifacts(input)
 }
 
+/** Read selected files only after the existing verifier has accepted the entire archive. */
+export async function readAgentCandidateWorkspaceArtifactFiles(
+  input: AgentCandidateWorkspaceArtifactsOptions & {
+    readonly paths: readonly string[]
+    readonly maxReadBytes: number
+  },
+): Promise<ReadonlyMap<string, Uint8Array>> {
+  if (!Number.isSafeInteger(input.maxReadBytes) || input.maxReadBytes < 0)
+    throw new Error('workspace selective read requires a non-negative safe maxReadBytes')
+  const selected = new Map<string, Uint8Array[]>()
+  const files = new Map(input.snapshot.material.files.map((file) => [file.path, file]))
+  let bytes = 0
+  for (const path of input.paths) {
+    if (selected.has(path)) throw new Error('workspace selective read repeats a path')
+    const file = files.get(path)
+    if (!file) throw new Error(`workspace selective read names a missing file: ${path}`)
+    bytes += file.byteLength
+    if (!Number.isSafeInteger(bytes) || bytes > input.maxReadBytes)
+      throw new Error('workspace selective read exceeds maxReadBytes')
+    selected.set(path, [])
+  }
+  await consumeWorkspaceArtifacts(input, undefined, selected)
+  return new Map([...selected].map(([path, chunks]) => [path, Buffer.concat(chunks)]))
+}
+
 /** Restore regular-file artifacts into an empty destination, publishing only after complete verification. */
 export async function materializeAgentCandidateWorkspaceFromArtifacts(
   input: AgentCandidateWorkspaceArtifactsOptions & { destination: string },
@@ -111,6 +136,7 @@ export async function materializeAgentCandidateWorkspaceFromArtifacts(
 async function consumeWorkspaceArtifacts(
   input: AgentCandidateWorkspaceArtifactsOptions,
   destination?: string,
+  selected?: Map<string, Uint8Array[]>,
 ): Promise<void> {
   const { artifacts, signal } = input
   const snapshot = deepFreezeCandidate(structuredClone(input.snapshot))
@@ -180,6 +206,7 @@ async function consumeWorkspaceArtifacts(
               throw new Error('workspace entry exceeds its manifest length')
             hash.update(chunk)
             if (file) await file.writeFile(chunk)
+            selected?.get(expected!.path)?.push(Uint8Array.from(chunk))
             yield chunk
           }
           if (

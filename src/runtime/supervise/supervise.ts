@@ -1528,7 +1528,9 @@ function driveHarnessFromBackend(
       const capture = executor.harnessTranscript?.()
       if (
         capture !== undefined &&
-        (capture.status === 'captured' || managerTranscript?.status !== 'captured')
+        (capture.status !== 'unavailable' ||
+          managerTranscript?.status === 'unavailable' ||
+          managerTranscript === undefined)
       ) {
         managerTranscript = capture
       }

@@ -1417,7 +1417,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-21)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-22)
 
 ##### runtime
 
@@ -8734,7 +8734,7 @@ Durable provider-native identity, separate from the Runtime invocation identity.
 
 > `readonly` **profileDigest**: `string`
 
-Immutable authored AgentProfile identity; run records retain its content.
+Exact provider-create profile identity; materialization receipts bind it to the authored profile.
 
 ##### providerSessionId
 
@@ -8820,6 +8820,256 @@ Per-turn deadline (ms).
 
 `local` backend: same-host pseudo-box — the router brain drives a tool loop
  with the profile's stdio MCP servers spawned as local children.
+
+***
+
+### RetainedHarnessTranscriptDescriptor
+
+Inventory and source identity only; native bytes remain in the original workspace archive.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"retained-harness-transcript"`
+
+##### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+##### harness
+
+> `readonly` **harness**: `string`
+
+##### source
+
+> `readonly` **source**: `object`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+###### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+###### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+###### environmentId
+
+> `readonly` **environmentId**: `string`
+
+###### profileDigest
+
+> `readonly` **profileDigest**: `` `sha256:${string}` ``
+
+###### providerSessionId
+
+> `readonly` **providerSessionId**: `string` \| `null`
+
+###### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string` \| `null`
+
+###### coverageComplete
+
+> `readonly` **coverageComplete**: `boolean`
+
+###### incompleteReason?
+
+> `readonly` `optional` **incompleteReason?**: `string`
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+##### capturedAt?
+
+> `readonly` `optional` **capturedAt?**: `string`
+
+##### snapshot
+
+> `readonly` **snapshot**: `object`
+
+###### kind
+
+> `readonly` **kind**: `"agent-candidate-workspace-snapshot"`
+
+###### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+###### manifest
+
+> `readonly` **manifest**: `AgentCandidateArtifactRef`
+
+###### archive
+
+> `readonly` **archive**: `AgentCandidateArtifactRef`
+
+##### files
+
+> `readonly` **files**: readonly `object`[]
+
+##### skipped
+
+> `readonly` **skipped**: readonly `object`[]
+
+##### missing
+
+> `readonly` **missing**: readonly `string`[]
+
+***
+
+### RetainedHarnessTranscriptCapture
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: `"retained"`
+
+##### descriptor
+
+> `readonly` **descriptor**: [`RetainedHarnessTranscriptDescriptor`](#retainedharnesstranscriptdescriptor)
+
+##### fileCount
+
+> `readonly` **fileCount**: `number`
+
+##### totalBytes
+
+> `readonly` **totalBytes**: `number`
+
+##### skippedCount
+
+> `readonly` **skippedCount**: `number`
+
+***
+
+### HarnessTranscriptMetadata
+
+#### Properties
+
+##### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+##### harness
+
+> `readonly` **harness**: `string`
+
+##### files
+
+> `readonly` **files**: readonly `object`[]
+
+##### skipped
+
+> `readonly` **skipped**: readonly `object`[]
+
+##### source?
+
+> `readonly` `optional` **source?**: `object`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+###### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+###### node?
+
+> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
+
+###### environmentId
+
+> `readonly` **environmentId**: `string`
+
+###### profileDigest
+
+> `readonly` **profileDigest**: `` `sha256:${string}` ``
+
+###### providerSessionId
+
+> `readonly` **providerSessionId**: `string` \| `null`
+
+###### nativeSessionId
+
+> `readonly` **nativeSessionId**: `string` \| `null`
+
+###### coverageComplete
+
+> `readonly` **coverageComplete**: `boolean`
+
+###### incompleteReason?
+
+> `readonly` `optional` **incompleteReason?**: `string`
+
+##### missing?
+
+> `readonly` `optional` **missing?**: readonly `string`[]
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+##### capturedAt?
+
+> `readonly` `optional` **capturedAt?**: `string`
+
+***
+
+### HarnessTranscriptReadLimits
+
+Projection limits do not change what the original archive retained.
+
+#### Properties
+
+##### maxFileBytes
+
+> `readonly` **maxFileBytes**: `number`
+
+##### maxTotalBytes
+
+> `readonly` **maxTotalBytes**: `number`
+
+##### maxFiles
+
+> `readonly` **maxFiles**: `number`
+
+##### maxManifestBytes
+
+> `readonly` **maxManifestBytes**: `number`
+
+***
+
+### HarnessTranscriptReadOptions
+
+#### Properties
+
+##### content?
+
+> `readonly` `optional` **content?**: `boolean`
+
+##### artifacts?
+
+> `readonly` `optional` **artifacts?**: [`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
+
+##### limits?
+
+> `readonly` `optional` **limits?**: `Partial`\<[`HarnessTranscriptReadLimits`](#harnesstranscriptreadlimits)\>
+
+##### workspaceLimits?
+
+> `readonly` `optional` **workspaceLimits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](candidate-execution.md#agentcandidateworkspacearchivelimits)\>
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
 
 ***
 
@@ -17660,7 +17910,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-26)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-27)
 
 ##### execution?
 
@@ -27358,7 +27608,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-32)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-33)
 
 ##### abort()
 
@@ -30765,7 +31015,7 @@ mapper it already uses in the other direction, so a sandbox-shaped provider read
 
 ### HarnessTranscriptUnavailableReason
 
-> **HarnessTranscriptUnavailableReason** = `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"` \| `"execution-never-started"` \| `"capture-did-not-run"` \| `"executor-exposes-no-transcript"` \| `"nothing-carried"` \| `"transcript-persistence-failed"`
+> **HarnessTranscriptUnavailableReason** = `"unsupported-environment"` \| `"unknown-harness"` \| `"no-transcript"` \| `"enumeration-failed"` \| `"execution-never-started"` \| `"capture-did-not-run"` \| `"executor-exposes-no-transcript"` \| `"nothing-carried"` \| `"transcript-persistence-failed"` \| `"retained-projection-failed"`
 
 Why no transcript reached a record, from either the capture or the settle path.
 
@@ -30773,15 +31023,19 @@ Why no transcript reached a record, from either the capture or the settle path.
 
 ### HarnessTranscriptCapture
 
-> **HarnessTranscriptCapture** = \{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+> **HarnessTranscriptCapture** = [`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture) \| \{ `status`: `"captured"`; `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
 
-What the executor holds in memory between the read and the settle: the files, inline.
+What the executor holds before settlement: a retained descriptor, inline files, or absence.
 
-Never journaled and never inside a result blob. The scope persists it under its own content
+Never embedded in a settlement event. The scope persists it under its own content
 ref and records the [HarnessTranscriptEvidence](#harnesstranscriptevidence) receipt instead, so the settlement stays
 small and a replay pays nothing for a transcript nobody opens.
 
 #### Union Members
+
+[`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture)
+
+***
 
 ##### Type Literal
 
@@ -30817,10 +31071,10 @@ Non-zero when some transcript was found but deliberately not carried.
 
 ### HarnessTranscriptEvidence
 
-> **HarnessTranscriptEvidence** = \{ `status`: `"available"`; `transcriptRef`: `string`; `harness`: `string`; `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
+> **HarnessTranscriptEvidence** = \{ `status`: `"available"`; `transcriptRef`: `string`; `harness`: `string`; `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; `coverageComplete?`: `boolean`; `missing?`: readonly `string`[]; \} \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
 
 The durable receipt on a settlement: a content-addressed pointer to a persisted
-[HarnessTranscriptArtifact](#harnesstranscriptartifact), or the exact reason there is none. A SIBLING of the tool-span
+[HarnessTranscriptArtifact](#harnesstranscriptartifact) or a retained descriptor, or the exact reason there is none. A SIBLING of the tool-span
 `trace` receipt, never nested inside it — a dropped child has zero tool spans and an
 unavailable trace, and it is precisely the child whose transcript this exists to keep.
 
@@ -30828,7 +31082,7 @@ unavailable trace, and it is precisely the child whose transcript this exists to
 
 ##### Type Literal
 
-\{ `status`: `"available"`; `transcriptRef`: `string`; `harness`: `string`; `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; \}
+\{ `status`: `"available"`; `transcriptRef`: `string`; `harness`: `string`; `fileCount`: `number`; `totalBytes`: `number`; `skippedCount`: `number`; `coverageComplete?`: `boolean`; `missing?`: readonly `string`[]; \}
 
 ###### status
 
@@ -30857,6 +31111,16 @@ Content-addressed pointer to a persisted `HarnessTranscriptArtifact` in the run'
 > `readonly` **skippedCount**: `number`
 
 Non-zero when some transcript was found but deliberately not carried.
+
+###### coverageComplete?
+
+> `readonly` `optional` **coverageComplete?**: `boolean`
+
+Retained source coverage, independent of text projection limits.
+
+###### missing?
+
+> `readonly` `optional` **missing?**: readonly `string`[]
 
 ***
 
@@ -36735,23 +36999,55 @@ source that collected it. A capture that is already unavailable passes through u
 
 ### harnessTranscriptArtifact()
 
-> **harnessTranscriptArtifact**(`evidence`, `blobs`): `Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
+#### Call Signature
+
+> **harnessTranscriptArtifact**(`evidence`, `blobs`, `options`): `Promise`\<[`HarnessTranscriptMetadata`](#harnesstranscriptmetadata) \| `undefined`\>
 
 Rehydrate the exact persisted transcript a receipt points at, or `undefined` when the receipt
 says there is none. Throws only when the receipt claims a blob the store does not hold — that
 is corruption, not absence, and must not read as "no transcript".
 
-#### Parameters
+##### Parameters
 
-##### evidence
+###### evidence
 
 [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
 
-##### blobs
+###### blobs
 
 `Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
 
-#### Returns
+###### options
+
+[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions) & `object`
+
+##### Returns
+
+`Promise`\<[`HarnessTranscriptMetadata`](#harnesstranscriptmetadata) \| `undefined`\>
+
+#### Call Signature
+
+> **harnessTranscriptArtifact**(`evidence`, `blobs`, `options?`): `Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
+
+Rehydrate the exact persisted transcript a receipt points at, or `undefined` when the receipt
+says there is none. Throws only when the receipt claims a blob the store does not hold — that
+is corruption, not absence, and must not read as "no transcript".
+
+##### Parameters
+
+###### evidence
+
+[`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+###### blobs
+
+`Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+###### options?
+
+[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions) & `object`
+
+##### Returns
 
 `Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
 
@@ -37979,6 +38275,72 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 #### Returns
 
 [`SandboxClient`](#sandboxclient-5)
+
+***
+
+### retainHarnessTranscript()
+
+> **retainHarnessTranscript**(`receipt`, `harness`): [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable) \| [`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture)
+
+Describe already-verified retention, without reading the environment or copying archive bytes.
+
+#### Parameters
+
+##### receipt
+
+[`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)
+
+##### harness
+
+`string`
+
+#### Returns
+
+[`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable) \| [`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture)
+
+***
+
+### resolveHarnessTranscriptCapture()
+
+#### Call Signature
+
+> **resolveHarnessTranscriptCapture**(`capture`, `options`): `Promise`\<[`HarnessTranscriptMetadata`](#harnesstranscriptmetadata) \| `undefined`\>
+
+Read native metadata without archive I/O, or verify retained bytes before projecting bounded text.
+
+##### Parameters
+
+###### capture
+
+[`HarnessTranscriptCapture`](#harnesstranscriptcapture)
+
+###### options
+
+[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions) & `object`
+
+##### Returns
+
+`Promise`\<[`HarnessTranscriptMetadata`](#harnesstranscriptmetadata) \| `undefined`\>
+
+#### Call Signature
+
+> **resolveHarnessTranscriptCapture**(`capture`, `options?`): `Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
+
+Read native metadata without archive I/O, or verify retained bytes before projecting bounded text.
+
+##### Parameters
+
+###### capture
+
+[`HarnessTranscriptCapture`](#harnesstranscriptcapture)
+
+###### options?
+
+[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions) & `object`
+
+##### Returns
+
+`Promise`\<[`HarnessTranscriptArtifact`](#harnesstranscriptartifact) \| `undefined`\>
 
 ***
 
@@ -43061,7 +43423,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-35), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-36), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
