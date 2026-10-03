@@ -1,3 +1,7 @@
+## 0.293.0
+
+Adopt Knowledge 19 conditional page-write tools and the qualified Eval cohort. Native coordination transports the page digest from knowledge_read into knowledge_record and preserves stale-write refusal. Use matching declared dependencies without duplicate evaluation owners.
+
 ## 0.292.5
 
 Carry exact subscription AgentProfiles through the typed turn profile instead of bounded provider metadata. Bind profile content to retained request identity, validate fresh turns before environment creation, and settle deterministic provider schema refusals without retrying new sandboxes. Requires Agent Interface 2.17 or later.

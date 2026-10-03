@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.292.5` and `@tangle-network/agent-eval@0.203.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.293.0` and `@tangle-network/agent-eval@0.205.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -2011,7 +2011,7 @@ Import from `@tangle-network/agent-eval/campaign` — 529 exports.
 | `SearchStateView` | class | A read of `SearchState` at one ledger position. Header, head, audit and |
 | `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
-| `CampaignCellFailureReceipt` | interface | Durable `<cell>/failure-receipt.json` written before a failed cell can |
+| `CampaignCellFailureReceipt` | interface | Durable `<attempt>/failure-receipt.json` written before a failed cell can |
 | `CampaignCellRetryPolicy` | interface | Bounded in-run retry of failed cells. Every attempt dispatches the same |
 | `CampaignCostMeter` | interface | Cell-scoped paid-call entry point. The dispatch places every paid operation |
 | `CampaignScenarioIdentity` | interface | Redacted identity of a complete scenario payload retained in campaign results. |
