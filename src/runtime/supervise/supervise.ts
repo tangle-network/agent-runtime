@@ -59,6 +59,7 @@ import {
   type WorkerSpawnContext,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
@@ -977,10 +978,13 @@ function driveHarnessFromBackend(
         : stopSignal === undefined
           ? turnStop.signal
           : AbortSignal.any([stopSignal, turnStop.signal])
+    // The harness is asked for a 300 s tool-call timeout so await_event can hold for up to
+    // 180 s per call instead of 45 s; a sidecar that applies it says so on each request.
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
       ...(coordinationMcpHeaders ? { headers: coordinationMcpHeaders } : {}),
+      metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
     }
     let factory = baseFactory
     if (boundBackend.backend === 'provider') {
@@ -1022,6 +1026,7 @@ function driveHarnessFromBackend(
                 headers: {
                   Authorization: { kind: 'secret-ref', key: credentialName, format: 'bearer' },
                 },
+                metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
               },
             },
           },
