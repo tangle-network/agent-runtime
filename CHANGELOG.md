@@ -1,3 +1,7 @@
+## 0.293.2
+
+`await_event` holds a caller whose harness declares a raised MCP tool-call timeout (`X-Mcp-Tool-Timeout-Ms`, written by the Tangle sidecar when an attachment declares `metadata.toolTimeoutMs`) for 60% of that timeout, up to 180 s, instead of 45 s. Runtime now asks harnesses for a 300 s timeout on its coordination attachment. Callers that declare nothing keep the 45 s fence, so older sidecars are unaffected.
+
 ## 0.293.1
 
 `await_event` now holds for up to 45 s before it returns a re-pollable `pending` snapshot, and the coordination server request timeout defaults to 90 s (were 15 s and 30 s). Harness-driven directors spend about 2.7x fewer inference turns re-polling, and the fence stays under the 60 s MCP tool-call timeout that Claude Code and Codex apply by default.
