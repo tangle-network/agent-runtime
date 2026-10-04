@@ -24502,6 +24502,16 @@ Optional capture of the manager's own harness session from its newest attempt.
 
 [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
 
+##### harnessTranscriptSettled()?
+
+> `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
+
+Resolves once [harnessTranscript](#harnesstranscript) is final (`Executor.harnessTranscriptSettled`).
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ***
 
 ### SupervisorAgentDeps
@@ -25288,6 +25298,14 @@ receipt a leaf gets instead of `executor-exposes-no-transcript`.
 
 [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
 
+##### harnessTranscriptSettled()?
+
+> `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ***
 
 ### Executor
@@ -25611,6 +25629,14 @@ content ref and settles the receipt, so no executor ever learns about storage.
 ###### Returns
 
 [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
+##### harnessTranscriptSettled()?
+
+> `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ***
 
