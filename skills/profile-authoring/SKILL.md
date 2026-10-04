@@ -1,11 +1,12 @@
 ---
 name: profile-authoring
-description: Author an AgentProfile from its audience's acceptance test, a probed proxy gap, and a control.
+description: Author AgentProfiles for new, continued, or multi-director work with checked acceptance.
 ---
 
 # Profile authoring
 
-Use this before a run that matters, and before you author an agent that another agent spawns.
+Use this before a run that matters, when continuing with a changed profile, and before authoring a child.
+For research directors, read and mount [research director authoring](references/research-directors.md) before choosing capabilities or revising the team.
 A profile is right when its result survives the people the result is for.
 Do not constrain agents with prohibitions.
 Change what is rewarded and who is in the room, so the honest path is the path that pays.
@@ -136,7 +137,10 @@ Report reviewed-claim precision, canary pass rate, how many proxy passes the aud
 
 ## 9. Record what makes a hack visible
 
-Record the authored profile, the task and the materialization receipt, with each mounted file's sha256.
+Record the authored profile and task, the effective profile after composition, and the materialization receipt with each mounted file's sha256.
+Distinguish declared, delivered, accessed, and applied capabilities; a mounted skill or listed tool proves only availability.
+Retain profile changes through existing proposal, fork, and execution records: actor, time, reason, evidence, previous and new digests, and parent execution.
+An unavailable provenance field remains a named gap; an operator's later reconstruction stays a separate amendment.
 Record every proxy verdict, the held-back verdict, and the referee's instrument and attempts.
 Record each claim with its artifact, the quoted statement it answers and its outcome class.
 Keep dated live notes that separate observation from inference and name the next check.
@@ -208,14 +212,14 @@ Stop: installed check/continuation policy, deadline, maxBarren, budget, cancella
 Known traps handed to agents:
 Budget, caps, key and its dollar cap:
 Arms, control, measures, threshold, refuting result:
-Records that expose a hack:
+Records that expose a hack, profile revisions, and unavailable observations:
 ```
 
 ## Examples
 
 For acceptance gaps and null certificates, read [acceptance examples](references/acceptance-examples.md).
-The core instructions above are complete when only this file is mounted.
-Mount the reference as well when the assignment needs its worked examples.
+Mount the acceptance reference when the assignment needs its worked examples.
+Research directors also require the research authoring reference named above.
 
 ## Then consider
 

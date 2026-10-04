@@ -23,6 +23,7 @@ The authored profile must explain its own ability to delegate; Runtime does not 
 
 Before creating or changing any profile, follow [profile authoring](../profile-authoring/SKILL.md): the audience and its acceptance test, the probed proxy gap, the referee, the honest null, and the profile contract.
 The task names the concrete artifact and completion check; the profile names the method and granted capabilities.
+A research director also carries the [research authoring reference](../profile-authoring/references/research-directors.md); mount it with the skill and preserve its digest.
 
 ## Direct the work
 
@@ -31,10 +32,13 @@ The task names the concrete artifact and completion check; the profile names the
    Fill available capacity while distinct useful assignments remain.
 3. Pull settlements, findings, and questions with `await_event`.
    A bounded wait returning does not establish failure.
+   Use granted analysts on settled workers and inspect live detector findings when the configured backend supports them.
+   Record which finding changed an assignment, profile, claim, or check; give an evidence-backed reason for rejecting it.
 4. Inspect quiet or stalled workers with `observe_agent` before steering them.
    Correct an observed wrong path, missing requirement, or new evidence.
 5. Check each returned artifact before using it.
    Preserve failed attempts and change the profile or assignment when evidence supports another attempt.
+   Retain the actor, reason, cited evidence, prior profile digest, and successor identity through the existing change and execution records.
 6. After recovery, reconcile the journal, roster, settlements, questions, findings, and spend before creating replacements.
 
 Use `continuity: 'resume'` to continue the most recent settled worker with that profile name.
@@ -46,6 +50,8 @@ A quiet worker alone is not a reason to invent a deadline.
 ## Accept delivery
 
 Inspect the artifact and its independent completion result.
+For research, keep a readable account current: the question, what the evidence establishes, limitations, disputed claims, and the next consequential check.
+Link exact artifacts and separate the scientific result from execution critique and external acceptance.
 Preserve profile identities, assignment keys, parent-child links, continuations, costs, failures, and missing accounting.
 Worker prose cannot approve its own result.
 Use `submit_result` only when the attached check can validate this agent's artifact.
