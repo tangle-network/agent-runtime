@@ -14,6 +14,10 @@ import {
   type ProviderWorkspaceRetentionPort,
   providerAsExecutor,
 } from '../../src/runtime/environment-provider'
+import {
+  describeRetainedNativeStops,
+  stopRetainedNativeExecution,
+} from '../../src/runtime/retained-native-stop'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { cancelRun } from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
@@ -68,7 +72,14 @@ function running(child: ChildProcess): boolean {
  * stop it. Only the exact cancellation does, by signalling the whole group, as the sidecar's
  * `/agents/run/cancel` does.
  */
-function liveProcessProvider(stateFile: string) {
+function liveProcessProvider(
+  stateFile: string,
+  options: {
+    /** Acknowledge a stop as `cancel_requested` and end the process this much later, the way an
+     *  asynchronous provider does. Its status reads `running` until the process exits. */
+    readonly asynchronousStopMs?: number
+  } = {},
+) {
   const processes = new Map<string, ChildProcess>()
   // Executions whose event stream Runtime opened: it is observing the native process.
   const observed = new Set<string>()
@@ -116,13 +127,20 @@ function liveProcessProvider(stateFile: string) {
           await exited(harness())
           return { ...(await session.result()), success: false, error: 'native process stopped' }
         },
-        cancelRun: async (request, options) => {
+        status: async (statusOptions) =>
+          running(harness()) ? 'running' : await session.status(statusOptions),
+        cancelRun: async (request, cancelOptions) => {
           const child = harness()
+          if (options.asynchronousStopMs !== undefined) {
+            const acknowledgement = await session.cancelRun!(request, cancelOptions)
+            setTimeout(() => killGroup(child, 'SIGTERM'), options.asynchronousStopMs)
+            return { ...acknowledgement, effect: 'cancel_requested' }
+          }
           if (running(child)) {
             killGroup(child, 'SIGTERM')
             await exited(child)
           }
-          return await session.cancelRun!(request, options)
+          return await session.cancelRun!(request, cancelOptions)
         },
       }
     },
@@ -363,5 +381,78 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     expect(stoppedWhileLive).toBe(true)
     expect(result.kind).toBe('winner')
     expect(live.destroys()).toBe(0)
+  })
+  it('waits for a stop the provider accepts asynchronously before the run settles', async () => {
+    const directory = await scratch('native-stop-async-')
+    const runDir = join(directory, 'run')
+    const live = liveProcessProvider(join(directory, 'provider.json'), {
+      asynchronousStopMs: 1_500,
+    })
+    const cancel = new AbortController()
+    const settling = createSupervisor<string, string>().run(
+      {
+        name: 'root',
+        act: async (_task, scope) => {
+          scope.spawn(retainedLeaf(live.provider), 'child task', {
+            key: 'work',
+            budget: { maxIterations: 1, maxTokens: 100 },
+          })
+          await scope.next()
+          return 'root done'
+        },
+      },
+      'root-task',
+      {
+        ...createFileRunContext(runDir),
+        runId: 'root',
+        budget: { maxIterations: 10, maxTokens: 100 },
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+          taskDigest: canonicalCandidateDigest('root-task'),
+        },
+        retainedAtSettlement: 'release',
+        signal: cancel.signal,
+      },
+    )
+    await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
+    const [harness] = [...live.processes.values()]
+
+    cancel.abort('operator cancelled the run')
+    const result = await settling
+
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
+    expect(live.destroys()).toBe(0)
+    expect(running(harness!)).toBe(false)
+    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
+    expect(
+      ofKind(events, 'environment-teardown')
+        .filter((event) => event.id === 'root:s0')
+        .at(-1),
+    ).toMatchObject({ detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /) })
+  })
+
+  it('answers within its deadline when the provider cannot be reached to reconnect', async () => {
+    const stalled: AgentEnvironmentProvider = {
+      name: 'stalled',
+      capabilities: () => new Promise(() => {}),
+      create: () => new Promise(() => {}),
+      get: () => new Promise(() => {}),
+    }
+    const started = Date.now()
+    const stop = await stopRetainedNativeExecution({
+      provider: stalled,
+      controlRef: {
+        runId: 'run-1',
+        provider: 'stalled',
+        environmentId: 'environment-1',
+        sessionId: 'session-1',
+        executionId: 'execution-1',
+        requestDigest: canonicalCandidateDigest('request-1'),
+      },
+      signal: AbortSignal.timeout(200),
+    })
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(stop).toMatchObject({ executionId: 'execution-1', effect: 'unknown' })
+    expect(describeRetainedNativeStops([stop])).toContain('stop unconfirmed')
   })
 })
