@@ -1,3 +1,7 @@
+## 0.299.1
+
+A provider turn that its deadline or an explicit cancellation ends now stops its retained harness, and waits within the 30 s stop bound for the provider to report it stopped, before the failure capture and the final native copy read its session. Those captures previously read a session the harness was still writing, so they were stored partial, and the harness kept running until teardown.
+
 ## 0.299.0
 
 A native session copy no longer waits for an admitted reference or a session id. A one-shot provider turn on the default turn mapping has neither, so every copy of such a turn was skipped and an aborted turn could still lose its whole session. The provider attributes the copy by the execution id it recorded when the stream started. A copy that finds no session file, because it was taken before attribution or after the box stopped answering, never replaces a copy that holds the session.
