@@ -1,3 +1,7 @@
+## 0.297.6
+
+A settled provider turn whose workspace retention fails or exceeds `workspaceRetention.timeoutMs` now keeps its result. The result carries `workspaceCaptureFailure` with the reason and no `workspaceSnapshot`, the source environment stays preserved as evidence, and the turn is not re-run. Before, the capture's `AbortError` became the turn's outcome: a worker settled `down`, and a provider-placed root driver classified it terminal and ended the whole run `no-winner`.
+
 ## 0.297.5
 
 A native-harness stop that the provider accepts asynchronously now ends on any terminal run status. A `stopped` status counts as the stop, as `cancelled` does; before, the stop waited out its deadline and recorded the harness as possibly still running.
