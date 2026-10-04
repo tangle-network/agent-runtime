@@ -8574,6 +8574,10 @@ at most one interval of the session, and a workspace too large to capture no lon
 the session. Measured before this existed: 85 of the 116 Discovery nodes that ran on Runtime
 0.297.x kept no session because their turn ended on an abort path, which never captured.
 
+When a deadline or an explicit cancellation ends a retained turn, Runtime stops its harness
+and waits for the provider to report it stopped, within a 30 s bound, before the failure
+capture and the final native copy, so both read a session that has stopped changing.
+
 Its captures use their own queue and bound, so they never wait behind workspace captures.
 
 ###### Parameters

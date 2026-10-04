@@ -95,6 +95,7 @@ import {
 import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort, RunCancellationReason } from './supervise/abortable'
 import { priceUnreceiptedWork } from './supervise/cost-estimate'
+import { isDeadlineAbortReason } from './supervise/deadline'
 import { errorText } from './supervise/error-message'
 import {
   attestRuntimeOwnedPendingExecutor,
@@ -1070,6 +1071,17 @@ function createProviderExecutor(
     return stopping
   }
   /**
+   * A turn that its deadline or an explicit cancellation ended stops its harness, and waits within
+   * the stop's bound for the provider to report it stopped, before the turn's final native copy.
+   * Nothing else stops a retained execution before teardown, so that copy read a session the
+   * harness was still writing and was stored partial (2026-10-04 trace proof:
+   * `native_snapshot_live`, `events_not_settled`), and the harness spent past its deadline.
+   */
+  const stopEndedHarness = async (signal: AbortSignal): Promise<void> => {
+    if (!isDeadlineAbortReason(signal.reason) && !cancelledExplicitly()) return
+    await stopNativeExecution()
+  }
+  /**
    * A release that keeps an environment keeps its files, never its running harness. The root has
    * settled and no process will reconcile this execution, so its native process stops before the
    * release records what it kept.
@@ -1265,6 +1277,7 @@ function createProviderExecutor(
           },
           captureWorkspace,
           startNativeMirror,
+          stopEndedHarness,
           finishNativeMirror,
           workspaceControlRef: () => workspaceControlRef,
           workspaceProvenance: () => workspaceProvenance,
@@ -1606,6 +1619,9 @@ interface StreamProviderExecutorArgs {
   ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
   /** Start copying the harness session to durable artifacts on an interval. */
   startNativeMirror: (environment: AgentEnvironment) => void
+  /** Stop the harness of a turn its deadline or a cancellation ended, before its final copy.
+   *  Bounded; never throws. */
+  stopEndedHarness: (signal: AbortSignal) => Promise<void>
   /** Stop the interval and copy once more, on every way the turn ends. Never throws. */
   finishNativeMirror: (
     environment: AgentEnvironment,
@@ -1738,6 +1754,14 @@ async function* streamProviderExecutor(
   let failed = false
   // Set when the turn was refused for capacity and the caller will continue in this environment.
   let unavailable: ProviderInvocationEnd['unavailable']
+  // A deadline or a cancellation stops the harness once, before any capture of its session, so
+  // the failure capture and the final copy read a session that has stopped changing.
+  let harnessStop: Promise<void> | undefined
+  const stopEndedHarness = (): Promise<void> => {
+    if (settled !== undefined || !linked.aborted) return Promise.resolve()
+    harnessStop ??= args.stopEndedHarness(linked)
+    return harnessStop
+  }
   try {
     const toolParts = createSandboxToolPartState()
     for await (const event of source.events) {
@@ -1937,6 +1961,7 @@ async function* streamProviderExecutor(
         error: error instanceof Error ? error.message : String(error),
         ...(linked.aborted ? { errorCode: 'cancelled' } : {}),
       } satisfies AgentRunOutcome)
+    await stopEndedHarness()
     try {
       const retainedWorkspace = await args.captureWorkspace(environment, failureOutcome)
       if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {
@@ -1977,6 +2002,7 @@ async function* streamProviderExecutor(
       )
     }
   } finally {
+    await stopEndedHarness()
     // Before any teardown: the final copy reads the session from the live environment. This is
     // the only capture that runs when the stream was closed by an abort or a deadline.
     await args.finishNativeMirror(
