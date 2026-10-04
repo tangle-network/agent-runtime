@@ -1,3 +1,7 @@
+## 0.298.0
+
+Extend native analyst routes to assess failed workers and manager completion. Agent analysts receive original output and trace coverage even when tool spans are missing. Manager-end reviews use the same scope, resource limits and durable assignments; both driver paths retain final findings before closing, and replay reuses an identical completed review without new analyst spend. Managed reviewer profiles that grant `observe_agent` can fetch their full assignment evidence through its existing bounded artifact reader; profiles without the grant explicitly retain partial coverage.
+
 ## 0.297.7
 
 Raise the Knowledge dependency floor for play-scoped memory and QMD source admission. Add a checked consumer example using the existing node tool resolver, with exact profile grants, checkpoint reconstruction, and isolated forks; no new Runtime execution API is introduced.
