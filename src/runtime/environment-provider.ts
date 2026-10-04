@@ -56,6 +56,8 @@ import { defaultRedactor } from '../redact'
 import {
   assertProviderWorkspaceRetentionPort,
   captureProviderWorkspaceSnapshot,
+  DEFAULT_NATIVE_CAPTURE_INTERVAL_MS,
+  type ProviderNativeCapturePhase,
   type ProviderWorkspaceCaptureProvenance,
   type ProviderWorkspaceCaptureReceipt,
   type ProviderWorkspaceRetentionPort,
@@ -170,6 +172,7 @@ export type {
 } from '@tangle-network/agent-interface/environment-provider'
 
 export type {
+  ProviderNativeCapturePhase,
   ProviderWorkspaceAttemptProvenance,
   ProviderWorkspaceCaptureProvenance,
   ProviderWorkspaceCaptureReceipt,
@@ -668,6 +671,7 @@ function createProviderExecutor(
   let workspaceCleanupPromise: Promise<TeardownAnswer> | undefined
   let retainedReleasePromise: Promise<ReadonlyArray<EnvironmentTeardownReceipt>> | undefined
   let releaseReadTried = false
+  let releaseNativeTried = false
   let workspaceOutcome: AgentRunOutcome | undefined
   let workspacePreservationRequired = false
   let workspaceRunActive = false
@@ -776,7 +780,10 @@ function createProviderExecutor(
     if (workspaceSnapshot !== undefined) return workspaceSnapshot
     if (workspaceCapturePromise === undefined) {
       workspaceOutcome = outcome
-      workspaceCapturePromise = captureProviderWorkspaceSnapshot(workspaceRetention, {
+      // The workspace capture reads the session too; an interval copy must not race it.
+      if (nativeTimer !== undefined) clearTimeout(nativeTimer)
+      nativeTimer = undefined
+      const captureContext = {
         environment: next,
         executionId: workspaceExecutionId,
         ...(workspaceControlRef === undefined ? {} : { controlRef: workspaceControlRef }),
@@ -785,7 +792,9 @@ function createProviderExecutor(
         nativeSessionId: null,
         profile: createProfile,
         ...(outcome === undefined ? {} : { outcome }),
-      })
+      }
+      workspaceCapturePromise = (nativeInFlight ?? Promise.resolve())
+        .then(() => captureProviderWorkspaceSnapshot(workspaceRetention, captureContext))
         .then(({ snapshot, provenance, coverageComplete, incompleteReason }) => {
           workspaceSnapshot = snapshot
           workspaceProvenance = provenance
@@ -814,16 +823,20 @@ function createProviderExecutor(
                     ),
                     createProfile.harness,
                   )
+            nativeHoldsTranscript = false
           } catch (error) {
-            harnessTranscript = {
-              status: 'unavailable',
-              reason: 'retained-projection-failed',
-              skipped: [
-                {
-                  path: workspaceExecutionId,
-                  reason: error instanceof Error ? error.message : String(error),
-                },
-              ],
+            // A native copy already stored stays the transcript; only its absence is reported.
+            if (!nativeHoldsTranscript) {
+              harnessTranscript = {
+                status: 'unavailable',
+                reason: 'retained-projection-failed',
+                skipped: [
+                  {
+                    path: workspaceExecutionId,
+                    reason: error instanceof Error ? error.message : String(error),
+                  },
+                ],
+              }
             }
           }
           if (workspaceRetention.requireCompleteProvenance && !coverageComplete) {
@@ -845,6 +858,112 @@ function createProviderExecutor(
         ? workspaceCaptureFailure.message
         : String(workspaceCaptureFailure ?? 'capture was not accepted')
     return `providerAsExecutor(${provider.name}): workspace retention failed — ${reason}; source environment preserved`
+  }
+
+  // THE NATIVE SESSION, DURABLE AS IT HAPPENS. A turn's workspace capture runs once, when the
+  // turn settles or fails; a deadline, cancel or cascade closes the stream with `return()`,
+  // which reaches neither, and a workspace over its byte bound fails the whole capture. On
+  // Runtime 0.297.x that left 85 of 116 Discovery nodes that ran with no session at all. With a
+  // port that offers `captureNative`, the harness's own session is copied to durable artifacts on
+  // an interval while the turn runs and once more however the turn ends, so its transcript is
+  // the latest stored copy rather than whatever the end of the turn managed to read.
+  const nativePort =
+    options.workspaceRetention?.captureNative === undefined ? undefined : options.workspaceRetention
+  let nativeInFlight: Promise<void> | undefined
+  let nativeTimer: ReturnType<typeof setTimeout> | undefined
+  // Whether `harnessTranscript` currently holds a native copy. A settled workspace capture is the
+  // fuller record and replaces it; a native copy never replaces a settled workspace capture.
+  let nativeHoldsTranscript = false
+  const stopNativeMirror = async (): Promise<void> => {
+    if (nativeTimer !== undefined) clearTimeout(nativeTimer)
+    nativeTimer = undefined
+    await nativeInFlight
+  }
+  const captureNative = (
+    next: AgentEnvironment,
+    phase: ProviderNativeCapturePhase,
+    admitted?: AgentExactRunControlRef,
+  ): Promise<void> => {
+    if (nativePort === undefined || createProfile.harness === undefined) return Promise.resolve()
+    const harness = createProfile.harness
+    const run = (nativeInFlight ?? Promise.resolve()).then(async () => {
+      const controlRef = workspaceControlRef ?? admitted
+      const sessionId = providerSessionId ?? admitted?.sessionId ?? null
+      // Nothing can be attributed until the provider names the execution or its session.
+      if (controlRef === undefined && sessionId == null) return
+      // A settled workspace capture of this execution already holds the session.
+      if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
+      const invocationId = workspaceExecutionId
+      try {
+        const captured = await captureProviderWorkspaceSnapshot(
+          nativePort,
+          {
+            environment: next,
+            executionId: invocationId,
+            ...(controlRef === undefined ? {} : { controlRef }),
+            ...(node === undefined ? {} : { node }),
+            providerSessionId: sessionId,
+            nativeSessionId: null,
+            profile: createProfile,
+            phase,
+          },
+          'native',
+        )
+        if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
+        harnessTranscript = retainHarnessTranscript(
+          providerWorkspaceCaptureReceipt(
+            {
+              executionId: invocationId,
+              profile: createProfile,
+              ...(node === undefined ? {} : { node }),
+              workspaceControlRef: () => controlRef,
+              workspaceProvenance: () => captured.provenance,
+              workspaceCoverage: () => ({
+                complete: captured.coverageComplete ?? false,
+                incompleteReason: captured.incompleteReason,
+              }),
+            },
+            next,
+            captured.snapshot,
+            sessionId,
+          ),
+          harness,
+        )
+        nativeHoldsTranscript = true
+      } catch {
+        // A failed copy keeps the previous one. The final copy at the end of the turn, or the
+        // settled workspace capture, is the next chance; the transcript names what was kept.
+      }
+    })
+    const tracked = run.finally(() => {
+      if (nativeInFlight === tracked) nativeInFlight = undefined
+    })
+    nativeInFlight = tracked
+    return tracked
+  }
+  const startNativeMirror = (next: AgentEnvironment): void => {
+    if (nativePort === undefined) return
+    if (nativeTimer !== undefined) clearTimeout(nativeTimer)
+    const interval = nativePort.nativeIntervalMs ?? DEFAULT_NATIVE_CAPTURE_INTERVAL_MS
+    const schedule = (): void => {
+      nativeTimer = setTimeout(() => {
+        // A copy still running when the next falls due is not doubled; the schedule continues.
+        if (nativeInFlight === undefined) void captureNative(next, 'running')
+        schedule()
+      }, interval)
+      nativeTimer.unref?.()
+    }
+    schedule()
+  }
+  // Every way a turn ends: stop the interval, then copy once more unless a settled workspace
+  // capture of this execution already holds the session.
+  const finishNativeMirror = async (
+    next: AgentEnvironment,
+    phase: ProviderNativeCapturePhase,
+  ): Promise<void> => {
+    await stopNativeMirror()
+    if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
+    await captureNative(next, phase)
   }
 
   const destroyEnvironment = async (cleanupSignal?: AbortSignal): Promise<TeardownAnswer> => {
@@ -1141,6 +1260,8 @@ function createProviderExecutor(
             }
           },
           captureWorkspace,
+          startNativeMirror,
+          finishNativeMirror,
           workspaceControlRef: () => workspaceControlRef,
           workspaceProvenance: () => workspaceProvenance,
           workspaceCoverage: () => ({
@@ -1355,6 +1476,25 @@ function createProviderExecutor(
             )
             if (capture.status === 'captured') harnessTranscript = capture
           }
+          // A retained execution this process never streamed, such as one a resumed coordinator
+          // reconciles, has no stored copy of its session; its workspace capture below can still
+          // fail on size. Copy the session first, attributed by its durable admission.
+          if (
+            nativePort !== undefined &&
+            harnessTranscript.status !== 'retained' &&
+            !releaseNativeTried
+          ) {
+            releaseNativeTried = true
+            const admitted = retained?.controlRef ?? admittedControlRef(retention)
+            await awaitAbortable(
+              captureNative(
+                target,
+                'interrupted',
+                admitted === undefined ? undefined : freezeControlRef(admitted),
+              ),
+              signal,
+            ).catch(() => undefined)
+          }
           const result = await destroyEnvironment(signal)
           if (!result.destroyed) return [receipt(false, result.detail, result.permanent)]
           pending = false
@@ -1460,6 +1600,13 @@ interface StreamProviderExecutorArgs {
     environment: AgentEnvironment,
     outcome: AgentRunOutcome | undefined,
   ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
+  /** Start copying the harness session to durable artifacts on an interval. */
+  startNativeMirror: (environment: AgentEnvironment) => void
+  /** Stop the interval and copy once more, on every way the turn ends. Never throws. */
+  finishNativeMirror: (
+    environment: AgentEnvironment,
+    phase: ProviderNativeCapturePhase,
+  ) => Promise<void>
   workspaceControlRef: () => AgentExactRunControlRef | undefined
   workspaceProvenance: () => ProviderWorkspaceCaptureProvenance | undefined
   workspaceCoverage: () => { complete: boolean; incompleteReason?: string }
@@ -1557,6 +1704,7 @@ async function* streamProviderExecutor(
   const source = await providerExecutionSource(args, turn, linked)
   const environment = source.environment
   args.onEnvironment(environment)
+  args.startNativeMirror(environment)
   const archive = createTurnEventArchive()
   const seenTraceCalls = new Set<string>()
   let tokens = zeroTokenUsage()
@@ -1825,6 +1973,12 @@ async function* streamProviderExecutor(
       )
     }
   } finally {
+    // Before any teardown: the final copy reads the session from the live environment. This is
+    // the only capture that runs when the stream was closed by an abort or a deadline.
+    await args.finishNativeMirror(
+      environment,
+      failed ? 'failed' : settled !== undefined ? 'settled' : 'interrupted',
+    )
     if (
       (!source.retained || (settled !== undefined && !failed)) &&
       !(source.retained && args.retention?.preserveEnvironment) &&
