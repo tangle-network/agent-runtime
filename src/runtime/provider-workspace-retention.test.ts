@@ -1112,6 +1112,65 @@ describe('provider workspace retention', () => {
     expect(destroyed()).toBe(1)
   })
 
+  it('copies the native session while a turn runs and once more when an abort closes its stream', async () => {
+    const artifacts = artifactStore()
+    const { provider } = providerFor(async function* () {
+      yield {
+        type: 'usage',
+        data: { usageMode: 'delta' },
+        usage: { inputTokens: 5, outputTokens: 7 },
+      }
+      // The turn never ends on its own: the deadline closes the stream at this yield.
+      await new Promise<never>(() => {})
+    })
+    const phases: string[] = []
+    let workspaceCaptures = 0
+    const executor = providerAsExecutor(provider, {
+      taskToTurn: (_task, _profile, turn) => ({ ...turn, sessionId: 'native-session' }),
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture() {
+          workspaceCaptures += 1
+          throw new Error('Tangle workspace exceeds evidence byte limit')
+        },
+        nativeIntervalMs: 5,
+        async captureNative(context) {
+          phases.push(context.phase ?? 'none')
+          const captured = await nativeSnapshot(artifacts, context)
+          return {
+            ...captured,
+            provenance: { ...captured.provenance, workspaceScope: 'none' as const },
+          }
+        },
+      },
+    })(
+      { profile: testProfile('native-mirror'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const iterator = (
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+    )[Symbol.asyncIterator]()
+    await iterator.next()
+    for (let waited = 0; !phases.includes('running') && waited < 2_000; waited += 5) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(phases).toContain('running')
+    // `return()` runs the generator's `finally` and skips its `catch`: the path that kept no
+    // session before. The workspace here is over its byte bound, so its capture at teardown
+    // fails too, and the native copy is the only record of the session.
+    await iterator.return?.(undefined)
+    expect(workspaceCaptures).toBe(1)
+    expect(phases.at(-1)).toBe('interrupted')
+    const transcript = executor.harnessTranscript?.()
+    expect(transcript).toMatchObject({ status: 'retained' })
+    if (transcript?.status !== 'retained') throw new Error('expected a retained native transcript')
+    expect(transcript.descriptor.source.providerSessionId).toBe('native-session')
+    expect(transcript.descriptor.files.map((file) => file.attribution.nativePath)).toEqual([
+      'any/transcript.jsonl',
+    ])
+  })
+
   it('refuses executor reuse while a retained source environment is still live', async () => {
     const artifacts = artifactStore()
     let creates = 0
