@@ -83,6 +83,7 @@ export interface CoordinationMcpHandle {
   /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
    *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
+  finishAnalysis: CoordinationTools['finishAnalysis']
   isStopped(): boolean
   /** The full ordered bus-event log for current-process observability and audit evidence. */
   history: CoordinationTools['history']
@@ -690,6 +691,7 @@ export async function serveCoordinationMcpForManager(
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
+    finishAnalysis: (input) => coord.finishAnalysis(input),
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),

@@ -22,6 +22,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { registry } from 'zod'
+import { contentAddress } from '../../durable/content-address'
 import { type Redactor, resolveRedactor } from '../../redact'
 import type {
   AgentExecutionRef,
@@ -340,6 +341,11 @@ export function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFind
  * (the audit trail), routing adds delivery, never replaces the record.
  */
 export interface AnalyzeOnSettleRoute {
+  /** Analyze this manager's final output and settled-child references before it closes.
+   * Requires an agent route; omitted means each eligible worker settlement. */
+  readonly at?: 'worker' | 'manager-end'
+  /** Worker outcomes admitted to this route. Defaults to done; down includes failed attempts. */
+  readonly statuses?: ReadonlyArray<'done' | 'down'>
   /** The analyst id: a lens id resolved against the `analysts` registry, or — when `agent` is
    *  present — the AGENT analyst's stable identity carried on its finding/steer events (it need
    *  not exist in any registry). */
@@ -561,7 +567,22 @@ export function parseAuthoredAnalystDefinition(
 export function normalizeAnalyzeOnSettle(
   entry: string | AnalyzeOnSettleRoute,
 ): AnalyzeOnSettleRoute {
-  return typeof entry === 'string' ? { kind: entry } : entry
+  const route = typeof entry === 'string' ? { kind: entry } : entry
+  if (route.at !== undefined && route.at !== 'worker' && route.at !== 'manager-end') {
+    throw new TypeError('analyzeOnSettle.at must be worker or manager-end')
+  }
+  if (route.at === 'manager-end' && route.agent === undefined) {
+    throw new TypeError('manager-end analysis requires an agent profile')
+  }
+  if (
+    route.statuses !== undefined &&
+    (!Array.isArray(route.statuses) ||
+      route.statuses.length === 0 ||
+      route.statuses.some((status) => status !== 'done' && status !== 'down'))
+  ) {
+    throw new TypeError('analyzeOnSettle.statuses must contain done or down')
+  }
+  return route
 }
 
 /**
@@ -1315,6 +1336,13 @@ export interface CoordinationTools {
    * nobody is left to read a finding, and analysts spend real compute). Returns the count.
    */
   drainResolved(): Promise<number>
+  /** Await opted-in manager-end analyst agents inside the original scope and resource limits.
+   * Their findings remain evidence and never replace the manager's output or enter its ledger. */
+  finishAnalysis(input: {
+    status: 'done' | 'down'
+    output?: unknown
+    reason?: string
+  }): Promise<void>
   /** Mark the start of one driver attempt, so deliveries are attributed to the turn that got them. */
   beginDriverAttempt(attempt: number): void
   /** Mark the end of the current driver attempt. A completed turn acknowledges what it received;
@@ -1884,6 +1912,8 @@ export function createCoordinationToolsForManager(
     readonly sourceWorker: string
     readonly assignmentId: string
   }
+  const analysisRoutes = (opts.analyzeOnSettle ?? []).map(normalizeAnalyzeOnSettle)
+  let finishingAnalysis = false
   const analystAssignments = new Map<string, AnalystAssignmentRecord>()
   for (const record of opts.priorJournal ?? []) {
     if (record.event.type !== 'analyst-assignment') continue
@@ -2171,11 +2201,40 @@ export function createCoordinationToolsForManager(
         spansText = '' // degraded evidence is stated below, never a thrown settle path
       }
     }
+    let output: unknown = null
+    let outputError: string | undefined
+    if (worker.outRef !== undefined) {
+      try {
+        output = await opts.blobs.get(worker.outRef)
+      } catch (error) {
+        outputError = error instanceof Error ? error.message : String(error)
+      }
+    }
     const task = [
       ...(route.directive === undefined || route.directive.length === 0 ? [] : [route.directive]),
+      `Evidence source: ${safeJsonText({ worker, output, ...(outputError ? { outputError } : {}) })}`,
+      ...(route.at === 'manager-end'
+        ? [
+            `Manager checkpoint: ${safeJsonText({ managerId: opts.scope.view.root, nodes: opts.scope.view.nodes.filter((node) => !node.assignmentId?.startsWith('analyst:')).map((node) => ({ id: node.id, parent: node.parent, assignmentId: node.assignmentId, status: node.status })), settled: ledger })}`,
+          ]
+        : []),
       `Evidence — settled worker '${worker.id}' tool trace (${spanCount} spans):`,
       spansText.length === 0 ? '(no tool spans available)' : spansText,
     ].join('\n\n')
+    // Reuse an exact durable assignment after a coordinator restart or repeated finalization.
+    // A changed checkpoint is a different investigation and retains its own identity.
+    const taskDigest = canonicalCandidateDigest(task)
+    if (
+      route.at === 'manager-end' &&
+      [...analystAssignments.values()].some(
+        (assignment) =>
+          assignment.sourceWorker === worker.id &&
+          assignment.kind === route.kind &&
+          assignment.taskDigest === taskDigest &&
+          assignment.profileDigest === canonicalAgentProfileDigest(route.agent as AgentProfile),
+      )
+    )
+      return
     const assignmentId = `analyst:${route.kind}:o${analystRunOrdinal++}`
     const label = `analyst:${route.kind}`
     const assignment: AnalystAssignmentRecord = detachedFrozen({
@@ -2185,7 +2244,7 @@ export function createCoordinationToolsForManager(
       sourceTrace: worker.trace,
       ...(worker.outRef === undefined ? {} : { sourceOutRef: worker.outRef }),
       profileDigest: canonicalAgentProfileDigest(route.agent as AgentProfile),
-      taskDigest: canonicalCandidateDigest(task),
+      taskDigest,
       ...(route.directive === undefined ? {} : { directive: route.directive }),
       ...(route.to === undefined ? {} : { to: route.to }),
     })
@@ -2454,21 +2513,18 @@ export function createCoordinationToolsForManager(
     }
     commitSettled(pending.worker)
     pendingSettlement = undefined
-    if (
-      pending.analyze &&
-      pending.worker.status === 'done' &&
-      pending.worker.trace.status === 'available' &&
-      opts.analyzeOnSettle?.length
-    ) {
-      const routes = opts.analyzeOnSettle.map(normalizeAnalyzeOnSettle)
+    if (pending.analyze && !finishingAnalysis && analysisRoutes.length) {
       const sourceNames = workerRouteNames(pending.worker.id)
-      const applicable = routes.filter(
-        (route) => route.over === undefined || route.over.some((name) => sourceNames.has(name)),
+      const applicable = analysisRoutes.filter(
+        (route) =>
+          route.at !== 'manager-end' &&
+          (route.statuses ?? ['done']).includes(pending.worker.status) &&
+          (route.over === undefined || route.over.some((name) => sourceNames.has(name))),
       )
       // Registry lenses run in-process over the trace store; agent analysts spawn as workers.
       const lensRoutes = applicable.filter((route) => route.agent === undefined)
       const agentRoutes = applicable.filter((route) => route.agent !== undefined)
-      if (lensRoutes.length > 0 && opts.analysts) {
+      if (lensRoutes.length > 0 && opts.analysts && pending.worker.trace.status === 'available') {
         const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
         for (const route of lensRoutes) {
           const findings = await opts.analysts.run(route.kind, trace)
@@ -3290,6 +3346,37 @@ export function createCoordinationToolsForManager(
       })
     return inFlightDrain
   }
+  let managerAnalysis: Promise<void> | undefined
+  const finishAnalysis: CoordinationTools['finishAnalysis'] = (input) => {
+    if (managerAnalysis) return managerAnalysis
+    managerAnalysis = (async () => {
+      const routes = analysisRoutes.filter(
+        (route) =>
+          route.at === 'manager-end' && (route.statuses ?? ['done', 'down']).includes(input.status),
+      )
+      if (routes.length === 0) return
+      finishingAnalysis = true
+      await ready()
+      const outRef = input.output === undefined ? undefined : contentAddress(input.output)
+      if (outRef !== undefined) await opts.blobs.put(outRef, input.output)
+      const worker: SettledWorker = detachedFrozen({
+        id: opts.scope.view.root,
+        status: input.status,
+        trace: { status: 'unavailable', reason: 'trace-source-unavailable' },
+        ...(outRef === undefined ? {} : { outRef }),
+        ...(input.reason === undefined ? {} : { reason: input.reason }),
+      })
+      for (const route of routes) await spawnAnalystRun(route, worker)
+      // The original Scope bounds every review, including deadline and cancellation.
+      // Existing research settlements can arrive first; they are retained without spawning
+      // more reviews. Analyst output never enters the candidate ledger.
+      while (analystRuns.size > 0) {
+        if (!(await ensureDrain())) break
+      }
+    })()
+    return managerAnalysis
+  }
+
   // Resolve `{ drained }` if the drain wins, or `undefined` if the bound elapses first. A `<= 0`
   // bound restores the prior unbounded block (no timer): the caller opted out of the fence.
   // A caller whose harness declared its tool-call timeout on the request is held for a fence
@@ -4681,6 +4768,7 @@ export function createCoordinationToolsForManager(
     escalations: () => escalations,
     definedAnalysts: () => definedAnalysts,
     drainResolved,
+    finishAnalysis,
     abortWorker,
     beginDriverAttempt: (attempt) => {
       driverAttempt = attempt

@@ -268,6 +268,7 @@ A thrown parent check reports a validation error through the existing driver fai
 | Ship traces to an OTLP collector | `createOtelExporter()` + `buildLoopOtelSpans()`: root export | your own OTLP serializer or pulling the OTEL SDK |
 | See a **supervised tree** in a trace viewer (one span per node, opened at spawn, closed at settle, parented to its parent node; driver turns as LLM child spans) | `supervise(profile, task, { otel: { exporter } })`, or `createSupervisorSpanRecorder({ runId, … }).hooks` on `SupervisorOpts.hooks`: `/kernel` — OPT-IN, and omitting `otel` installs no hook at all | parsing the spawn journal to reconstruct the tree; a second exporter; routing replay/resume through telemetry (the journal stays the only durable record) |
 | Run agent-eval's CALIBRATED trace analysts (the `DEFAULT_TRACE_ANALYST_KINDS` lenses) inside a supervised run | `supervise(profile, task, { analysts: analystsFromRegistry(registry) })`: `/kernel` — adapts an eval `AnalystRegistry` (`list()` + `run(runId, inputs, opts)`) to the lens shape (`kinds` + `run(kindId, trace)`), routing each call to exactly one kind and returning its validated `AnalystFinding[]` | hand-rolling a lens per consumer (the shape mismatch is why they exist), passing the eval registry directly (`'kinds' in registry` is false), or widening the lens return to `unknown` |
+| Automatically assess failed children or a manager's final output within its original resource limits | Native agent entries in `analyzeOnSettle` accept `statuses: ['done', 'down']` and `at: 'manager-end'`; assignment and finding evidence stays in the coordination journal | a post-run Lab scheduler, treating reviewer output as a candidate, or granting fresh resources after cancellation |
 | Run an ordered analyst pass where later analysts use findings from earlier analysts | `runAnalystLoop({ chainFindings: true })`: `/analyst-loop`; registration order defines the dependency order, while omission keeps analysts independent | manually invoke each analyst and pipe findings between calls |
 | Analyze completed runs with a selected registry and retain findings in a corpus | `observe` / `harvestCorpus` with `analysis: observationFromRegistry(registry, options)`: `/kernel` | a second corpus writer for each analyst engine or losing usage when analysis fails |
 | Know **what got mounted into a run** / **why a candidate won** | `result.provenance.mounts` / `result.provenance.selectionReceipts` (`MountManifestEntry`/`SelectionReceipt`/`RunProvenance`); declare mounts via the `recordMount` recorder in `prepareBox`: root export | re-reading box contents to reconstruct what was mounted, or re-deriving which candidate the selector picked |
@@ -338,6 +339,16 @@ Truncation adds an explicit marker after the bounded JSON prefix.
 Nonserializable evidence fails before the model request; omit unsupported values or supply custom analysis.
 Custom analysis receives the original context without truncation.
 Keep final grading outside this context and retain provenance through `evidenceRefs`.
+
+An agent analyst route receives the source output reference, available output, status and
+trace coverage, including an explicit missing-trace record. A manager-end route also receives
+the observed subtree and settled-child references. Both driver paths await those final native
+analysts before closing the manager. Reviewers retain their authored profiles and spend from the
+same scope; a refusal or failed review is a finding, never an accepted research result.
+Manager-end routes default to both done and down outcomes. Worker routes retain the done-only
+default unless statuses are explicit. A final review can be incomplete when the original budget,
+deadline or cancellation prevents it. An interrupted coordinator must resume before further
+analysis can execute; existing assignments and findings remain durable.
 
 For the full export inventory (every primitive, its import path, its summary: generated, never stale), see `docs/api/primitive-catalog.md`; for per-symbol signatures, the per-module `docs/api/` pages. For the recursive atom (recursion · isolated-or-collaborative artifact · conserved budget · analysts) and the two-timescale architecture, see `docs/architecture.md`. For the profile→run→optimize→ship spine in depth, `docs/concepts.md` + `docs/learning-flywheel.md`. For the Intelligence SDK (Observe + the provable-OFF billing boundary), `docs/intelligence-sdk.md`.
 

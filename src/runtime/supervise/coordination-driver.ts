@@ -1305,6 +1305,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           }
         : undefined
 
+      const analysisFailed = async (error: unknown): Promise<never> => {
+        await coord.finishAnalysis({
+          status: 'down',
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
       await runBrainLoop({
         chat,
         tools: toolSpecs,
@@ -1390,7 +1397,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             return true
           },
         },
-      })
+      }).catch(analysisFailed)
       // Drain every already-settled child the brain never pulled — a gate-verified delivery must
       // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
       // without awaiting). Non-blocking: live children are the supervisor's to tear down.
@@ -1409,15 +1416,18 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const submitted = coord.submittedResult()
       if (submitted) {
         opts.onAcceptedSubmission?.(submitted.result)
+        await coord.finishAnalysis({ status: 'done', output: submitted.result })
         return submitted.result
       }
-      return runFinalizer(opts.finalizer ?? bestDelivered, {
+      const result = await runFinalizer(opts.finalizer ?? bestDelivered, {
         settled: coord.settled(),
         blobs: opts.blobs,
         tree: runTree(scope),
         budget: scope.budget,
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-      })
+      }).catch(analysisFailed)
+      await coord.finishAnalysis({ status: 'done', output: result })
+      return result
     },
   }
 }

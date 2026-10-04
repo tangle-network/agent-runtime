@@ -1386,11 +1386,18 @@ function buildSupervisorAgent(
         const submitted = mcp.submittedResult()
         if (submitted) {
           deps.onAcceptedSubmission?.(submitted.result)
+          await mcp.finishAnalysis({ status: 'done', output: submitted.result })
           return submitted.result
         }
-        if (contractDeclared) return candidate
+        if (contractDeclared) {
+          await mcp.finishAnalysis({ status: 'done', output: candidate })
+          return candidate
+        }
         const finalized = await finalize()
-        if (finalized !== undefined) return finalized
+        if (finalized !== undefined) {
+          await mcp.finishAnalysis({ status: 'done', output: finalized })
+          return finalized
+        }
         // An unchecked child may do direct work. Retain its terminal report through the same
         // settlement and blob reader, without treating native completion as quality acceptance.
         const harnessResult = driveHarness.resultArtifact?.()
@@ -1401,9 +1408,17 @@ function buildSupervisorAgent(
           harnessResult.out !== null
         ) {
           deps.onUnassessedOutput?.(harnessResult.out)
+          await mcp.finishAnalysis({ status: 'done', output: harnessResult.out })
           return harnessResult.out
         }
+        await mcp.finishAnalysis({ status: 'done' })
         return undefined
+      } catch (error) {
+        await mcp.finishAnalysis({
+          status: 'down',
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        throw error
       } finally {
         coordinationLifetime.abort(new Error('supervisor manager stopped'))
         try {
