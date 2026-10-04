@@ -1,3 +1,7 @@
+## 0.297.1
+
+Restore release verification for native analyst recovery: MCP-only fixtures now provide the required empty Scope view. Runtime behavior is unchanged.
+
 ## 0.297.0
 
 Native analyzeOnSettle assignments now retain source evidence, exact profile/task digests and destination in the existing coordination journal. Controller recovery restores the analyst role, keeps reviews outside research completion and prevents recursive reviewer spawning. Finding events identify the analyst execution and assignment. Missing legacy assignment provenance fails explicitly. Canonical profile-authoring and supervise skills now cover research director composition and attributed critique.
