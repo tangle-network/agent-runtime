@@ -1,3 +1,7 @@
+## 0.297.4
+
+A native-harness stop at release now has one deadline that covers reconnecting to the provider, so an unanswered provider can no longer hold up settlement. When the provider accepts a stop asynchronously (`cancel_requested`), Runtime waits within that deadline until the run's status shows it ended, and records the stop as unconfirmed if it does not.
+
 ## 0.297.3
 
 A cancelled or settled run that keeps a retained provider environment, for evidence or after a failed delete, now stops the native harness inside it before the run settles. Runtime asks the provider's exact run cancellation to stop each unsettled execution and records the outcome in the `environment-teardown` detail, including `usage unknown: killed at <time>` for a stopped turn. A worker cancelled through its handle stops its native harness at cancellation. The kept environment and its files are unchanged. Before this, a kept Tangle box went on running `claude` and charging its subscription until an operator stopped the box.
