@@ -76,7 +76,8 @@ function liveProcessProvider(
   stateFile: string,
   options: {
     /** Acknowledge a stop as `cancel_requested` and end the process this much later, the way an
-     *  asynchronous provider does. Its status reads `running` until the process exits. */
+     *  asynchronous provider does. Its status reads `running` until the process exits, then
+     *  `stopped`. */
     readonly asynchronousStopMs?: number
   } = {},
 ) {
@@ -127,8 +128,12 @@ function liveProcessProvider(
           await exited(harness())
           return { ...(await session.result()), success: false, error: 'native process stopped' }
         },
-        status: async (statusOptions) =>
-          running(harness()) ? 'running' : await session.status(statusOptions),
+        status: async (statusOptions) => {
+          if (running(harness())) return 'running'
+          return options.asynchronousStopMs === undefined
+            ? await session.status(statusOptions)
+            : 'stopped'
+        },
         cancelRun: async (request, cancelOptions) => {
           const child = harness()
           if (options.asynchronousStopMs !== undefined) {
