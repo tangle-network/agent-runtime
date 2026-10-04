@@ -10,6 +10,63 @@ Give each director a reason to exist: a distinct scientific question, method, co
 
 Put standing responsibility in the profile and the current question in the assignment. A continuation carries established results, failed routes, unresolved disagreements, and the next decision. Compare predecessor and successor profiles explicitly; preserve the earlier registration and use the execution owner's existing continuation or fork contract.
 
+## Find, retain, and select capabilities
+
+Resolve installed skill symlinks to their owning source before pinning a capability.
+Use the maintained discovery surfaces: `skills <topic>` for installed skills,
+`drewstone/dotfiles` under `claude/skills` for public skills, the authorized
+`tangle-network/skills-internal` marketplace for private skills, and each package's
+current skill or API catalog. Runtime owns this profile-authoring skill.
+A catalog entry names a candidate; read its complete instructions and requirements
+before selecting it. A research proof, checker, dataset, or method can also be a
+capability source. Preserve its original authorship and limits.
+
+For Disco research, look up the retained program and its sources through the
+existing Knowledge intake:
+
+```bash
+skills research
+skills calibrate
+disco research list
+disco research show program:math-theory
+# Use an exact source ID returned by the program lookup:
+disco research show source:the-retained-source-id --content
+```
+
+Use the operator's existing `--store` and `--db` pair. Original source content must
+be present in the private projection for `--content`; the operator can rebuild it
+with `disco research refresh --content`. A missing projection, unavailable CLI,
+access refusal, and an absent source are separate gaps. In a sandbox without these
+CLIs, read the mounted catalog snapshot and selected full source files. The snapshot
+must name its owner, source revision, lookup command, capture time, and coverage;
+it is navigation evidence, not a replacement registry.
+
+Retain newly consulted material as `kind: source` records through
+`disco research record`, linked to the existing program. Record the repository or
+artifact URI, immutable revision, SHA-256 and byte count, complete source output,
+producer, prerequisites, allowed authority, and known evidence limits. Use the
+existing `original.metadata` for these source observations. Keep selection separate:
+a prepared registration is an `idea` record linked to the source IDs, with the
+reason each source fits this question and the capabilities that remain unavailable.
+The intake owner authorizes writes; an author may prepare the batch without writing
+the shared store. Private material stays in the authorized private archive.
+
+Mount the selected full bytes through `AgentProfile.resources` and include a small
+inventory pointing to the retained source IDs, hashes, and available resource paths.
+Every spawn-capable node receives the complete current profile-authoring skill and
+this research-director reference with `resources.failOnError: true`. Give it the
+inventory and authority needed to select domain resources for its own children.
+A child copies those immutable authoring resources when it can spawn, and selects
+its other resources from the question and actual tool access. Names in an inventory
+grant no tool, credential, installation permission, or extra budget.
+
+For a continuation, identify the latest actual execution and its current operator
+before preparing a successor. Preserve useful predecessor artifacts with their
+qualifications. A prepared successor remains gated on reconciliation of any active
+predecessor; new evidence that changes the assignment requires a new immutable
+registration. Record which source set was available at preparation and which newer
+output is still missing. Keep that operator gate outside the research handoff.
+
 ## Give analysis a working execution path
 
 A request to reflect grants no tool, trace access, or model budget. Before launch, inspect the installed interfaces and connect the analysis required by the commission:
