@@ -48,8 +48,8 @@ producer, prerequisites, allowed authority, and known evidence limits. Use the
 existing `original.metadata` for these source observations. Keep selection separate:
 a prepared registration is an `idea` record linked to the source IDs, with the
 reason each source fits this question and the capabilities that remain unavailable.
-The intake owner authorizes writes; an author may prepare the batch without writing
-the shared store. Private material stays in the authorized private archive.
+Use the existing intake owner and configured write authority; prepare a batch when
+write authority is absent. Private material stays in the authorized private archive.
 
 Mount the selected full bytes through `AgentProfile.resources` and include a small
 inventory pointing to the retained source IDs, hashes, and available resource paths.
