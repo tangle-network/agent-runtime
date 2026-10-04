@@ -331,6 +331,9 @@ Deliberate re-prompts retain the manager's environment and conversation, with a 
 Retrying an interrupted turn retains its original identities and does not create replacement work.
 The scope's existing `retainedAtSettlement` policy releases or preserves the environment after all manager turns.
 An unconfirmed release remains explicit in the journal and final result.
+A release that keeps an environment, for evidence or after a failed delete, first stops the native harness of every unsettled execution inside it through the provider's exact cancellation.
+Its `environment-teardown` detail names each stop and records the killed turn's usage as unknown.
+An explicitly cancelled worker stops its native harness at cancellation, without waiting for root settlement.
 
 The HTTP adapter bounds request bytes, body and action deadlines, concurrent work, and request rates.
 A timed-out action keeps its admission slot until execution settles.

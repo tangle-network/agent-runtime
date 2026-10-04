@@ -62,6 +62,11 @@ import {
 } from './provider-workspace-retention'
 import { environmentGone } from './retained-interactive-lifecycle'
 import {
+  describeRetainedNativeStops,
+  type RetainedNativeStop,
+  stopRetainedNativeExecution,
+} from './retained-native-stop'
+import {
   assertEventBinding,
   awaitAbortable,
   exactSession,
@@ -86,7 +91,7 @@ import {
   sandboxTerminalUsageField,
 } from './sandbox-events'
 import type { SandboxOutcomeCarrier } from './sandbox-outcome'
-import { linkAbort } from './supervise/abortable'
+import { linkAbort, RunCancellationReason } from './supervise/abortable'
 import { priceUnreceiptedWork } from './supervise/cost-estimate'
 import { errorText } from './supervise/error-message'
 import {
@@ -663,6 +668,13 @@ function createProviderExecutor(
   let workspaceRunActive = false
   let providerSessionId: string | null = null
   let workspaceControlRef: AgentExactRunControlRef | undefined
+  // A cancellation teardown and the release share one stop; only an unconfirmed answer is retried.
+  let nativeStop: Promise<RetainedNativeStop | undefined> | undefined
+  // The latest invocation's combined abort signal, which keeps the reason it was aborted with.
+  let runSignal: AbortSignal | undefined
+  const cancelledExplicitly = (): boolean =>
+    ctx.signal?.reason instanceof RunCancellationReason ||
+    runSignal?.reason instanceof RunCancellationReason
 
   const runtime = options.runtime ?? (provider.name as Runtime)
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
@@ -906,6 +918,60 @@ function createProviderExecutor(
     workspaceCleanupPromise = cleanupReference
     return await cleanupReference
   }
+  /**
+   * Stop the native harness of this executor's retained execution. Local observation ending does
+   * not stop a retained execution, so an environment kept after it keeps its harness spending
+   * unless the provider is asked to stop it. Undefined when nothing was dispatched.
+   */
+  const stopNativeExecution = (): Promise<RetainedNativeStop | undefined> => {
+    if (nativeStop !== undefined) return nativeStop
+    const controlRef = retained?.controlRef ?? admittedControlRef(retention)
+    if (controlRef === undefined) return Promise.resolve(undefined)
+    const stopping = stopRetainedNativeExecution({
+      provider,
+      controlRef,
+      ...(retained === undefined ? {} : { handle: retained }),
+      signal: AbortSignal.timeout(NATIVE_STOP_TIMEOUT_MS),
+    }).then((stop) => {
+      if (stop.effect !== 'cancelled' && stop.effect !== 'not_live' && nativeStop === stopping) {
+        nativeStop = undefined
+      }
+      return stop
+    })
+    nativeStop = stopping
+    return stopping
+  }
+  /**
+   * A release that keeps an environment keeps its files, never its running harness. The root has
+   * settled and no process will reconcile this execution, so its native process stops before the
+   * release records what it kept.
+   */
+  const withoutRunningHarness =
+    (release: (signal: AbortSignal) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>) =>
+    async (signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> => {
+      const receipts = await release(signal)
+      if (receipts.every((receipt) => receipt.destroyed)) return receipts
+      const stop = await awaitAbortable(stopNativeExecution(), signal).catch(
+        (error: unknown): RetainedNativeStop | undefined => {
+          const controlRef = retained?.controlRef ?? admittedControlRef(retention)
+          return controlRef === undefined
+            ? undefined
+            : {
+                executionId: controlRef.executionId,
+                effect: 'unknown',
+                at: new Date().toISOString(),
+                error: errorText(error instanceof Error ? error.message : error),
+              }
+        },
+      )
+      if (stop === undefined) return receipts
+      const stopped = describeRetainedNativeStops([stop])
+      return receipts.map((receipt) =>
+        receipt.destroyed
+          ? receipt
+          : { ...receipt, detail: receipt.detail ? `${receipt.detail}; ${stopped}` : stopped },
+      )
+    }
   const attemptId = node?.attemptId ?? newExecutionAttemptId(executionId)
   const trace = createPushTraceSource({ runId: executionId })
   const providerModel = concreteProfileModel(createProfile)
@@ -960,6 +1026,7 @@ function createProviderExecutor(
   ): AsyncIterable<UsageEvent> {
     beginWorkspaceExecution()
     const linked = linkAbort(ctx.signal, signal, controller.signal)
+    runSignal = linked.signal
     try {
       // One execution is one or more invocations: the first runs `task`; a later one continues it
       // in the same environment after the upstream refused a turn for capacity.
@@ -1158,6 +1225,10 @@ function createProviderExecutor(
     },
     async teardown(_grace): Promise<TeardownAnswer> {
       controller.abort()
+      // A cancelled execution is not kept for a resume to reconcile, so its harness stops now
+      // rather than at root release. Not awaited: teardown acknowledges within a short window,
+      // and the release awaits this same stop before it records what it kept.
+      if (pending && cancelledExplicitly()) void stopNativeExecution()
       if (options.workspaceRetention !== undefined && workspaceRunActive) {
         return {
           destroyed: false,
@@ -1193,7 +1264,7 @@ function createProviderExecutor(
         },
       ]
     },
-    async releaseRetained(signal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
+    releaseRetained: withoutRunningHarness(async (signal) => {
       controller.abort()
       // `teardown` keeps a pending retained execution alive so a resumed process can reconcile the
       // paid work inside it. The supervisor calls this once no process will: the root has settled.
@@ -1306,7 +1377,7 @@ function createProviderExecutor(
       })
       retainedReleasePromise = releaseReference
       return await releaseReference
-    },
+    }),
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
         throw new ValidationError(
@@ -1324,6 +1395,19 @@ function createProviderExecutor(
 /** One teardown answer; `permanent` marks one that asking again cannot change (see
  *  `Executor.teardown`). */
 type TeardownAnswer = { destroyed: boolean; detail?: string; permanent?: boolean }
+
+/** The exact run the latest durable dispatch names, when dispatch got that far. */
+function admittedControlRef(
+  retention: RetainedExecutorContext | undefined,
+): AgentExactRunControlRef | undefined {
+  for (const admission of [...(retention?.admissions ?? [])].reverse()) {
+    if (admission.phase === 'dispatched') return admission.controlRef
+  }
+  return undefined
+}
+
+/** Bounds one provider stop: a reconnect, the exact cancellation and its status read. */
+const NATIVE_STOP_TIMEOUT_MS = 30_000
 
 /** The environment id the latest durable admission names, when creation got that far. */
 function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): string | undefined {

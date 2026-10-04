@@ -12,6 +12,7 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { environmentReader, type SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
+import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
@@ -775,6 +776,25 @@ export async function releaseScopeRetainedOwnerEnvironment(
         if (!permanent) retriable = true
       }
     }
+    if (!destroyed) {
+      // A kept environment keeps its files, never its running harness: the run has settled, so
+      // nothing will observe or reconcile an owner turn still executing inside it.
+      const runs = unsettledOwnerRuns(events, args.nodeId, environmentId)
+      if (runs.length > 0) {
+        const stops = await Promise.all(
+          runs.map((controlRef) =>
+            stopRetainedNativeExecution({
+              provider,
+              controlRef,
+              signal: AbortSignal.timeout(30_000),
+              now: args.now,
+            }),
+          ),
+        )
+        detail = `${detail}; ${describeRetainedNativeStops(stops)}`
+        lastDetail = detail
+      }
+    }
     await args.journal.appendEvent(args.rootId, {
       kind: 'environment-teardown',
       id: args.nodeId,
@@ -836,6 +856,37 @@ export async function releaseScopeRetainedOwnerEnvironment(
         ...checkpointTeardowns,
       ]
     : checkpointTeardowns
+}
+
+/**
+ * The owner's dispatched executions in one environment whose turn committed no result. A turn
+ * with a result has ended; one without may still be running even after a later turn started.
+ */
+function unsettledOwnerRuns(
+  events: readonly SpawnEvent[],
+  nodeId: NodeId,
+  environmentId: string,
+): AgentExactRunControlRef[] {
+  const runs = new Map<string, AgentExactRunControlRef>()
+  let turn: AgentExactRunControlRef[] = []
+  const close = (): void => {
+    for (const controlRef of turn) runs.set(contentAddress(controlRef), controlRef)
+    turn = []
+  }
+  for (const event of events) {
+    if (!('id' in event) || event.id !== nodeId) continue
+    if (event.kind === 'execution-input') close()
+    else if (event.kind === 'execution-result') turn = []
+    else if (
+      event.kind === 'execution-admitted' &&
+      event.admission.phase === 'dispatched' &&
+      event.admission.controlRef.environmentId === environmentId
+    ) {
+      turn.push(event.admission.controlRef)
+    }
+  }
+  close()
+  return [...runs.values()]
 }
 
 interface OwnerAttempt {
