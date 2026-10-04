@@ -5,6 +5,16 @@ import type { Executor } from './types'
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 export const DEFAULT_SUCCESSFUL_SHUTDOWN_MS = 5_000
+
+/** The abort reason a child's own deadline carries. */
+export const CHILD_DEADLINE_REASON = 'child deadline exceeded'
+/** The abort reason the root's budget deadline cascades to every node. */
+export const ROOT_DEADLINE_REASON = 'root budget deadline exceeded'
+
+/** Whether an abort reason is a deadline: the child's own or the root budget's. */
+export function isDeadlineAbortReason(reason: unknown): boolean {
+  return reason === CHILD_DEADLINE_REASON || reason === ROOT_DEADLINE_REASON
+}
 const TEARDOWN_ACKNOWLEDGEMENT_MS = 250
 
 /** Arm a finite wall-clock deadline in safe chunks. Resource deadlines unref by default;

@@ -49,7 +49,7 @@ import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { addSpend } from '../util'
 import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
-import { armDeadlineTimer } from './deadline'
+import { armDeadlineTimer, ROOT_DEADLINE_REASON } from './deadline'
 import { DriverAttemptsExhaustedError } from './driver-retry'
 import { errMessage, errorProperty } from './error-message'
 import { runTree } from './finalizer'
@@ -694,13 +694,13 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       let deadlineExceeded = false
       const rootDeadlineAtMs = pool.readout().deadlineMs
       if (rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
-        deadlineExceeded = cascadeAbort('root budget deadline exceeded')
+        deadlineExceeded = cascadeAbort(ROOT_DEADLINE_REASON)
       }
       const clearRootDeadline =
         opts.budget.deadlineMs === undefined
           ? undefined
           : armDeadlineTimer(Math.max(0, rootDeadlineAtMs - now()), () => {
-              deadlineExceeded = cascadeAbort('root budget deadline exceeded')
+              deadlineExceeded = cascadeAbort(ROOT_DEADLINE_REASON)
             })
       let actOutcome: { ok: true; out: Out } | { ok: false; error: unknown } = {
         ok: false,
