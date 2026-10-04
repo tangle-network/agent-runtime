@@ -100,7 +100,10 @@ export interface Agent<Task, Out> {
    * manager. A driver child forwards it to its executor, so the manager settles with the same
    * receipt a leaf gets instead of `executor-exposes-no-transcript`.
    */
-  harnessTranscript?(): HarnessTranscriptCapture | undefined
+  harnessTranscript?():
+    | HarnessTranscriptCapture
+    | undefined /** Forwarded the same way: resolves once {@link harnessTranscript} is final (see `Executor`). */
+  harnessTranscriptSettled?(): Promise<void>
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
@@ -273,7 +276,16 @@ export interface Executor<Out> {
    * coverage. Never throws. Returns the in-memory capture; the SCOPE persists it under its own
    * content ref and settles the receipt, so no executor ever learns about storage.
    */
-  harnessTranscript?(): HarnessTranscriptCapture | undefined
+  harnessTranscript?(): HarnessTranscriptCapture | undefined /**
+   * Resolves once {@link harnessTranscript} holds this execution's final capture. A streaming
+   * executor whose turn an abort ends finishes that turn after the abort has reached the scope: it
+   * stops the harness and copies its session, while the scope settles the node. The scope awaits
+   * this, bounded, before it reads the transcript or tears the executor down, so a deadline or a
+   * cancellation settles with the stopped session rather than the last running copy (2026-10-04
+   * trace proof: a deadline node settled 3 ms after its deadline with `native_snapshot_live`).
+   * Never rejects. An executor whose transcript is final when `execute` ends omits it.
+   */
+  harnessTranscriptSettled?(): Promise<void>
 }
 
 /** Why Runtime cannot provide structured tool-call evidence for one settled execution. */

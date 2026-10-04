@@ -99,6 +99,8 @@ interface DriverSpec extends AgentSpec {
   readonly progress?: () => ExecutorProgress | undefined
   /** The manager's own harness session, when its driver captures one. */
   readonly harnessTranscript?: () => HarnessTranscriptCapture | undefined
+  /** Resolves once {@link harnessTranscript} is final (`Executor.harnessTranscriptSettled`). */
+  readonly harnessTranscriptSettled?: () => Promise<void>
 }
 
 /**
@@ -129,6 +131,7 @@ export function driverChild<Out>(
     }
   ).progress
   const harnessTranscript = driver.harnessTranscript?.bind(driver)
+  const harnessTranscriptSettled = driver.harnessTranscriptSettled?.bind(driver)
   const rawSpec: DriverSpec = {
     profile,
     harness: null,
@@ -142,6 +145,7 @@ export function driverChild<Out>(
     ...(traceSource ? { traceSource } : {}),
     ...(progress ? { progress } : {}),
     ...(harnessTranscript ? { harnessTranscript } : {}),
+    ...(harnessTranscriptSettled ? { harnessTranscriptSettled } : {}),
   }
   const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
   const deliver = driver.deliver?.bind(driver)
@@ -244,6 +248,9 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     ...(spec.traceSource ? { traceSource: spec.traceSource } : {}),
     ...(spec.progress ? { progress: spec.progress } : {}),
     ...(spec.harnessTranscript ? { harnessTranscript: spec.harnessTranscript } : {}),
+    ...(spec.harnessTranscriptSettled
+      ? { harnessTranscriptSettled: spec.harnessTranscriptSettled }
+      : {}),
     ...(deliver
       ? {
           deliver(message: unknown): boolean {

@@ -1553,6 +1553,8 @@ function driveHarnessFromBackend(
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
     drive.harnessTranscript = () => managerTranscript ?? activeExecutor?.harnessTranscript?.()
+    drive.harnessTranscriptSettled = () =>
+      activeExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
   }
   return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
 }

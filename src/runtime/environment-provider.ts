@@ -680,6 +680,12 @@ function createProviderExecutor(
   let workspaceControlRef: AgentExactRunControlRef | undefined
   // A cancellation teardown and the release share one stop; only an unconfirmed answer is retried.
   let nativeStop: Promise<RetainedNativeStop | undefined> | undefined
+  // Whether the provider confirmed this execution's harness stopped.
+  let harnessStopped = false
+  // Settles when `harnessTranscript` is final for the running invocation
+  // (`Executor.harnessTranscriptSettled`); settled between invocations.
+  let transcriptSettled: Promise<void> = Promise.resolve()
+  let settleTranscript: () => void = () => {}
   // The latest invocation's combined abort signal, which keeps the reason it was aborted with.
   let runSignal: AbortSignal | undefined
   const cancelledExplicitly = (): boolean =>
@@ -884,6 +890,8 @@ function createProviderExecutor(
     next: AgentEnvironment,
     phase: ProviderNativeCapturePhase,
     admitted?: AgentExactRunControlRef,
+    /** The harness was stopped: copy again, briefly, until the provider records how it ended. */
+    afterStop = false,
   ): Promise<void> => {
     if (nativePort === undefined || createProfile.harness === undefined) return Promise.resolve()
     const harness = createProfile.harness
@@ -896,20 +904,36 @@ function createProviderExecutor(
       if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
       const invocationId = workspaceExecutionId
       try {
-        const captured = await captureProviderWorkspaceSnapshot(
-          nativePort,
-          {
-            environment: next,
-            executionId: invocationId,
-            ...(controlRef === undefined ? {} : { controlRef }),
-            ...(node === undefined ? {} : { node }),
-            providerSessionId: sessionId,
-            nativeSessionId: null,
-            profile: createProfile,
-            phase,
-          },
-          'native',
-        )
+        const takeCopy = () =>
+          captureProviderWorkspaceSnapshot(
+            nativePort,
+            {
+              environment: next,
+              executionId: invocationId,
+              ...(controlRef === undefined ? {} : { controlRef }),
+              ...(node === undefined ? {} : { node }),
+              providerSessionId: sessionId,
+              nativeSessionId: null,
+              profile: createProfile,
+              phase,
+            },
+            'native',
+          )
+        let captured = await takeCopy()
+        // A provider confirms a stop as soon as the process is gone and records how the execution
+        // ended a moment later; until then its copy reports the session live. On the 2026-10-04
+        // trace re-proof the copy 0.3 s after a deadline stop was `native_snapshot_live` with the
+        // attempt outcome `unknown`, and a capture 1 s later was complete.
+        const settleBy = Date.now() + NATIVE_SETTLE_WINDOW_MS
+        while (
+          afterStop &&
+          captured.coverageComplete !== true &&
+          (captured.provenance.attempts ?? []).some((attempt) => attempt.outcome === 'unknown') &&
+          Date.now() < settleBy
+        ) {
+          await sleep(NATIVE_SETTLE_POLL_MS)
+          captured = await takeCopy()
+        }
         if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
         const copy = retainHarnessTranscript(
           providerWorkspaceCaptureReceipt(
@@ -968,7 +992,7 @@ function createProviderExecutor(
   ): Promise<void> => {
     await stopNativeMirror()
     if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
-    await captureNative(next, phase)
+    await captureNative(next, phase, undefined, harnessStopped)
   }
 
   const destroyEnvironment = async (cleanupSignal?: AbortSignal): Promise<TeardownAnswer> => {
@@ -1062,9 +1086,8 @@ function createProviderExecutor(
       ...(retained === undefined ? {} : { handle: retained }),
       signal: AbortSignal.timeout(NATIVE_STOP_TIMEOUT_MS),
     }).then((stop) => {
-      if (stop.effect !== 'cancelled' && stop.effect !== 'not_live' && nativeStop === stopping) {
-        nativeStop = undefined
-      }
+      if (stop.effect === 'cancelled' || stop.effect === 'not_live') harnessStopped = true
+      else if (nativeStop === stopping) nativeStop = undefined
       return stop
     })
     nativeStop = stopping
@@ -1167,6 +1190,10 @@ function createProviderExecutor(
     beginWorkspaceExecution()
     const linked = linkAbort(ctx.signal, signal, controller.signal)
     runSignal = linked.signal
+    harnessStopped = false
+    transcriptSettled = new Promise<void>((resolve) => {
+      settleTranscript = resolve
+    })
     try {
       // One execution is one or more invocations: the first runs `task`; a later one continues it
       // in the same environment after the upstream refused a turn for capacity.
@@ -1262,6 +1289,7 @@ function createProviderExecutor(
           onHarnessTranscript: (next) => {
             harnessTranscript = next
           },
+          onTranscriptSettled: () => settleTranscript(),
           onUnsettledFailure: () => {
             workspacePreservationRequired = true
           },
@@ -1329,6 +1357,7 @@ function createProviderExecutor(
     } finally {
       linked.release()
       workspaceRunActive = false
+      settleTranscript()
     }
   }
   executor = {
@@ -1375,8 +1404,9 @@ function createProviderExecutor(
       if (options.workspaceRetention !== undefined && workspaceRunActive) {
         return {
           destroyed: false,
-          detail:
-            'provider workspace retention: source preserved while the execution is still active',
+          detail: harnessStopped
+            ? 'provider workspace retention: source preserved while the stopped execution writes its failure capture'
+            : 'provider workspace retention: source preserved while the execution is still active',
         }
       }
       if (pending) {
@@ -1550,6 +1580,7 @@ function createProviderExecutor(
     },
     traceSource: (): TraceSource => trace.source,
     harnessTranscript: (): HarnessTranscriptCapture | undefined => harnessTranscript,
+    harnessTranscriptSettled: (): Promise<void> => transcriptSettled,
   }
   return attestRuntimeOwnedPendingExecutor(executor, runtime, plannedDeclaration, plannedBinding)
 }
@@ -1570,6 +1601,9 @@ function admittedControlRef(
 
 /** Bounds one provider stop: a reconnect, the exact cancellation and its status read. */
 const NATIVE_STOP_TIMEOUT_MS = 30_000
+/** How long the final copy of a stopped harness waits for the provider to record how it ended. */
+const NATIVE_SETTLE_WINDOW_MS = 15_000
+const NATIVE_SETTLE_POLL_MS = 1_000
 
 /** The environment id the latest durable admission names, when creation got that far. */
 function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): string | undefined {
@@ -1634,6 +1668,9 @@ interface StreamProviderExecutorArgs {
   /** The harness transcript read out of the live environment, reported on the settled path AND
    *  on the drop path. One channel for both, so a reader never has to know which path ran. */
   onHarnessTranscript: (capture: HarnessTranscriptCapture) => void
+  /** The transcript is final for this turn: an aborted turn's harness stopped and its session's
+   *  final copy is taken. */
+  onTranscriptSettled: () => void
 }
 
 function providerWorkspaceCaptureReceipt(
@@ -1962,6 +1999,12 @@ async function* streamProviderExecutor(
         ...(linked.aborted ? { errorCode: 'cancelled' } : {}),
       } satisfies AgentRunOutcome)
     await stopEndedHarness()
+    // The scope settles an aborted node as soon as the abort reaches it and reads the transcript
+    // this executor holds then. The stopped harness's final session copy is taken here, before the
+    // capture of the whole workspace, which can run for minutes; the 2026-10-04 trace proof
+    // settled a deadline node with its last running copy, `native_snapshot_live`.
+    if (linked.aborted) await args.finishNativeMirror(environment, 'failed')
+    args.onTranscriptSettled()
     try {
       const retainedWorkspace = await args.captureWorkspace(environment, failureOutcome)
       if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {

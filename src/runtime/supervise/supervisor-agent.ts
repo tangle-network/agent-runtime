@@ -476,6 +476,8 @@ export interface DriveHarness {
   resultArtifact?(): ExecutorResult<unknown> | undefined
   /** Optional capture of the manager's own harness session from its newest attempt. */
   harnessTranscript?(): HarnessTranscriptCapture | undefined
+  /** Resolves once {@link harnessTranscript} is final (`Executor.harnessTranscriptSettled`). */
+  harnessTranscriptSettled?(): Promise<void>
 }
 
 /** Trusted manager identity available before its external harness starts. A product uses this to
@@ -952,6 +954,12 @@ function buildSupervisorAgent(
     // `executor-exposes-no-transcript` rather than as a capture that did not run.
     ...(driveHarness.harnessTranscript
       ? { harnessTranscript: () => driveHarness.harnessTranscript?.() }
+      : {}),
+    ...(driveHarness.harnessTranscriptSettled
+      ? {
+          harnessTranscriptSettled: () =>
+            driveHarness.harnessTranscriptSettled?.() ?? Promise.resolve(),
+        }
       : {}),
     async act(task, scope) {
       const context = nodeContextSeed

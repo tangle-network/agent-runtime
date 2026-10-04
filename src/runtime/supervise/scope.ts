@@ -37,6 +37,7 @@ import {
   type HarnessTranscriptEvidence,
   persistHarnessTranscript,
   readHarnessTranscript,
+  settleHarnessTranscript,
 } from '../harness-transcript'
 import type {
   RetainedInteractiveAdmission,
@@ -3799,6 +3800,10 @@ async function runChild<C>(
     }
   } catch (cause) {
     let err = cause
+    // An abort reaches here while a streaming executor still ends its turn: it stops the harness
+    // and copies the session after the abort. Everything below reads that transcript or tears the
+    // executor down, so wait (bounded) for the copy first.
+    await settleHarnessTranscript(executor)
     await closeRetainedWrites()
     if (
       live.acceptedResult !== undefined &&
