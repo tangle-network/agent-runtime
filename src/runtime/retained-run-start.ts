@@ -136,7 +136,7 @@ export async function startRetainedRun(
     }
     await assertRetainedEnvironmentOwnership(
       options.provider,
-      existing.id,
+      existing,
       options.environment.idempotencyKey,
     )
     environment = existing
@@ -270,7 +270,7 @@ export async function startRetainedRunInEnvironment(
   }
   await assertRetainedEnvironmentOwnership(
     options.provider,
-    environment.id,
+    environment,
     options.environment.idempotencyKey,
   )
 
@@ -288,11 +288,30 @@ export async function startRetainedRunInEnvironment(
   })
 }
 
+/**
+ * Bind an existing environment to the retained key it was created under.
+ *
+ * The record `provider.get` just returned carries that environment's metadata, and it is the
+ * same record a metadata-filtered `list` would match. Reading it costs one request. Listing
+ * costs a walk of the caller's whole inventory, and on Tangle Sandbox that walk cannot finish
+ * past 2,000 sandboxes: the list route caps `offset` at 1,000 and answers 400. Measured
+ * 2026-10-04: 17 of 20 archived Discovery runs hit that 400 (46 times), each on a later turn in
+ * an environment that had already done work, and each attempt ended terminally. The listing remains for a provider whose
+ * `get` returns no metadata.
+ */
 async function assertRetainedEnvironmentOwnership(
   provider: AgentEnvironmentProvider,
-  environmentId: string,
+  environment: AgentEnvironment,
   idempotencyKey: string,
 ): Promise<void> {
+  const unbound = () =>
+    new Error(
+      `provider "${provider.name}" could not bind environment "${environment.id}" to its retained idempotency key`,
+    )
+  if (environment.metadata !== undefined) {
+    if (environment.metadata.retainedIdempotencyKey !== idempotencyKey) throw unbound()
+    return
+  }
   if (!provider.list) {
     throw new Error(
       `provider "${provider.name}" cannot prove retained environment ownership by metadata`,
@@ -302,12 +321,10 @@ async function assertRetainedEnvironmentOwnership(
     metadata: { retainedIdempotencyKey: idempotencyKey },
   })
   const matches = summaries.filter(
-    (summary) => summary.id === environmentId && summary.provider === provider.name,
+    (summary) => summary.id === environment.id && summary.provider === provider.name,
   )
   if (matches.length !== 1 || matches[0]?.metadata?.retainedIdempotencyKey !== idempotencyKey) {
-    throw new Error(
-      `provider "${provider.name}" could not bind environment "${environmentId}" to its retained idempotency key`,
-    )
+    throw unbound()
   }
 }
 
