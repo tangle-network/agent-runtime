@@ -3,7 +3,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
-import { awaitAbortable } from './retained-run-binding'
+import { awaitAbortable, isTerminalSessionStatus } from './retained-run-binding'
 import { reconnectRetainedRun } from './retained-run-start'
 import type { RetainedRunEffect, RetainedRunHandle } from './retained-run-types'
 import { errorText } from './supervise/error-message'
@@ -72,7 +72,12 @@ export async function stopRetainedNativeExecution(options: {
     while (effect === 'cancel_requested') {
       await sleep(STOP_STATUS_POLL_MS, options.signal)
       const current = await handle.status({ signal: options.signal })
-      if (current.effect === 'cancelled' || current.effect === 'not_live') effect = current.effect
+      // Any terminal status ends the run. After an accepted stop, `cancelled` or `stopped` is that
+      // stop; `completed`, `failed` and `expired` say the run ended on its own first.
+      if (isTerminalSessionStatus(current.status)) {
+        effect =
+          current.status === 'cancelled' || current.status === 'stopped' ? 'cancelled' : 'not_live'
+      }
     }
     return effect
   }
