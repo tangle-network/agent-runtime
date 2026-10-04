@@ -887,10 +887,10 @@ function createProviderExecutor(
     if (nativePort === undefined || createProfile.harness === undefined) return Promise.resolve()
     const harness = createProfile.harness
     const run = (nativeInFlight ?? Promise.resolve()).then(async () => {
+      // Without an admitted reference or a session id the provider attributes the copy by this
+      // execution's id, which it records as the stream starts; a one-shot turn has neither.
       const controlRef = workspaceControlRef ?? admitted
       const sessionId = providerSessionId ?? admitted?.sessionId ?? null
-      // Nothing can be attributed until the provider names the execution or its session.
-      if (controlRef === undefined && sessionId == null) return
       // A settled workspace capture of this execution already holds the session.
       if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
       const invocationId = workspaceExecutionId
@@ -910,7 +910,7 @@ function createProviderExecutor(
           'native',
         )
         if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
-        harnessTranscript = retainHarnessTranscript(
+        const copy = retainHarnessTranscript(
           providerWorkspaceCaptureReceipt(
             {
               executionId: invocationId,
@@ -929,6 +929,10 @@ function createProviderExecutor(
           ),
           harness,
         )
+        // A copy that found no session file, taken before the provider attributed the session or
+        // after the box stopped answering, never replaces one that holds the session.
+        if (nativeHoldsTranscript && !(copy.status === 'retained' && copy.fileCount > 0)) return
+        harnessTranscript = copy
         nativeHoldsTranscript = true
       } catch {
         // A failed copy keeps the previous one. The final copy at the end of the turn, or the

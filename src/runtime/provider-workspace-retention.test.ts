@@ -1125,8 +1125,9 @@ describe('provider workspace retention', () => {
     })
     const phases: string[] = []
     let workspaceCaptures = 0
+    // The default turn mapping names no session: a one-shot turn's copy is attributed by its
+    // execution id, which the provider records as the stream starts.
     const executor = providerAsExecutor(provider, {
-      taskToTurn: (_task, _profile, turn) => ({ ...turn, sessionId: 'native-session' }),
       workspaceRetention: {
         timeoutMs: 5_000,
         artifacts,
@@ -1165,7 +1166,7 @@ describe('provider workspace retention', () => {
     const transcript = executor.harnessTranscript?.()
     expect(transcript).toMatchObject({ status: 'retained' })
     if (transcript?.status !== 'retained') throw new Error('expected a retained native transcript')
-    expect(transcript.descriptor.source.providerSessionId).toBe('native-session')
+    expect(transcript.descriptor.source.executionId).toBeTruthy()
     expect(transcript.descriptor.files.map((file) => file.attribution.nativePath)).toEqual([
       'any/transcript.jsonl',
     ])
