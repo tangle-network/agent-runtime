@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.297.7.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.203.0 <0.206.0`.
+> `agent-eval` must satisfy `>=0.205.0 <0.208.0`.
 > `sandbox` must satisfy `>=0.58.4 <0.61.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.19.0`.
 >
@@ -353,6 +353,23 @@ default unless statuses are explicit. A final review can be incomplete when the 
 deadline or cancellation prevents it. An interrupted coordinator must resume before further
 analysis can execute; existing assignments and findings remain durable.
 
+Native analyst assignments retain `sourceEvidenceRef` and pass trusted `sourceEvidenceRefs` to the worker factory. A managed reviewer whose authored profile grants `observe_agent` can read these exact envelope, output, and trace refs through the existing paged `observe_agent({outRef})` reader. Other refs remain denied. Profiles without that grant receive bounded excerpts and must leave claims about omitted evidence unassessed. No tool is added to an authored profile implicitly.
+
+For a new scientific play, register the hypotheses with Eval’s native sealed experiment or
+signed manifest and retain those immutable definitions with the play input. Compose an explicit
+`analyzeOnSettle` agent route with `at: 'manager-end'` to assess them at completion;
+add a worker route with `statuses: ['done', 'down']` for assessments during the play.
+Pass relevant scoped questions, registration digests and immutable source references in the
+route directive. Keep large registries in retained Knowledge and grant the reviewer the
+retrieval tools needed to discover further relevant questions; route composition does not
+automatically traverse every registration. The reviewer profile
+selects its harness, provider, model and reasoning and explicitly grants
+`agent_runtime_coordination_observe_agent` when full source inspection is required.
+Allocate reviewer capacity within the play’s existing budget and deadline. Require source-linked
+findings that distinguish execution of the registered Eval rule from interpretation, and retain
+unassessed questions when evidence, retrieval or capacity is missing. Only composed routes run.
+Keep historical registered inputs and profiles unchanged; author a new registration for a changed play.
+
 For the full export inventory (every primitive, its import path, its summary: generated, never stale), see `docs/api/primitive-catalog.md`; for per-symbol signatures, the per-module `docs/api/` pages. For the recursive atom (recursion · isolated-or-collaborative artifact · conserved budget · analysts) and the two-timescale architecture, see `docs/architecture.md`. For the profile→run→optimize→ship spine in depth, `docs/concepts.md` + `docs/learning-flywheel.md`. For the Intelligence SDK (Observe + the provable-OFF billing boundary), `docs/intelligence-sdk.md`.
 
 ### A run-level fork starts from the parent's sealed root
@@ -576,5 +593,3 @@ Forward this reference to provider capture without replacing the Runtime artifac
 Runtime verifies both identities before accepting captured provenance.
 A pre-harness failure can retain partial evidence with an unknown native session.
 Incomplete required coverage preserves the source environment.
-
-Native analyst assignments retain `sourceEvidenceRef` and pass trusted `sourceEvidenceRefs` to the worker factory. A managed reviewer whose authored profile grants `observe_agent` can read these exact envelope, output, and trace refs through the existing paged `observe_agent({outRef})` reader. Other refs remain denied. Profiles without that grant receive bounded excerpts and must leave claims about omitted evidence unassessed. No tool is added to an authored profile implicitly.
