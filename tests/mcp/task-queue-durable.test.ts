@@ -175,32 +175,92 @@ describe('DelegationTaskQueue durable mode', () => {
     expect(third.status(taskId)?.status).toBe('failed')
   })
 
-  it('settles a resumed record as failed when the driver tick throws', async () => {
-    const first = await DelegationTaskQueue.restore({
-      store: new FileDelegationStore({ filePath }),
-    })
-    const { taskId } = first.submit({
-      profile: 'coder',
-      args: codeArgs,
-      detachedSessionRef: 'sess-err',
-      run: neverResolves,
-    })
-    await until(() => first.status(taskId)?.status === 'running')
-    await first.flush()
+  it.each([false, true])(
+    'settles a resumed record as failed when the driver tick throws (assertion throws: %s)',
+    async (assertionThrows) => {
+      const first = await DelegationTaskQueue.restore({
+        store: new FileDelegationStore({ filePath }),
+      })
+      const { taskId } = first.submit({
+        profile: 'coder',
+        args: codeArgs,
+        detachedSessionRef: 'sess-err',
+        run: neverResolves,
+      })
+      await until(() => first.status(taskId)?.status === 'running')
+      await first.flush()
 
-    const second = await DelegationTaskQueue.restore({
-      store: new FileDelegationStore({ filePath }),
-      resumeDelegate: {
-        intervalMs: 1,
-        async tick() {
-          throw new Error('detached session evaporated')
+      // Hold the terminal write so an in-memory failure cannot masquerade as
+      // a drained journal. The real FileDelegationStore still performs the I/O.
+      let releaseWrite!: () => void
+      const writeGate = new Promise<void>((resolve) => {
+        releaseWrite = resolve
+      })
+      let failedWriteStarted = false
+      const store = new FileDelegationStore({ filePath })
+      const upsert = store.upsert.bind(store)
+      const writeSpy = vi.spyOn(store, 'upsert').mockImplementation(async (record) => {
+        if (record.status === 'failed') {
+          failedWriteStarted = true
+          await writeGate
+        }
+        await upsert(record)
+      })
+      const second = await DelegationTaskQueue.restore({
+        store,
+        resumeDelegate: {
+          intervalMs: 1,
+          async tick() {
+            throw new Error('detached session evaporated')
+          },
         },
-      },
-    })
-    await until(() => second.status(taskId)?.status === 'failed')
-    expect(second.status(taskId)?.error?.message).toBe('detached session evaporated')
-    await second.flush()
-  })
+      })
+      const assertionError = new Error('simulated test assertion failure')
+      let testBodySettled = false
+      const runAssertions = async () => {
+        try {
+          await until(() => second.status(taskId)?.status === 'failed')
+          expect(second.status(taskId)?.error?.message).toBe('detached session evaporated')
+          if (assertionThrows) throw assertionError
+        } finally {
+          // A failed assertion or status wait must not bypass the write drain.
+          // cancel is a no-op once failed, but stops a still-running resume loop.
+          second.cancel(taskId)
+          await second.flush()
+        }
+      }
+      // Observe rejection immediately, but retain it for the assertion below.
+      const outcome = runAssertions().then(
+        () => {
+          testBodySettled = true
+          return undefined
+        },
+        (error: unknown) => {
+          testBodySettled = true
+          return error
+        },
+      )
+      try {
+        await until(() => failedWriteStarted)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(testBodySettled).toBe(false)
+      } finally {
+        // Release and drain even when the regression assertion itself fails,
+        // keeping the suite's tmpdir-removal hook behind every pending write.
+        releaseWrite()
+        await outcome
+        second.cancel(taskId)
+        await second.flush()
+        writeSpy.mockRestore()
+      }
+      expect(await outcome).toBe(assertionThrows ? assertionError : undefined)
+      const persisted = await new FileDelegationStore({ filePath }).loadAll()
+      expect(persisted.find((record) => record.taskId === taskId)).toMatchObject({
+        status: 'failed',
+        error: { message: 'detached session evaporated' },
+      })
+    },
+  )
 
   it('cancel() aborts an in-progress resume loop', async () => {
     const first = await DelegationTaskQueue.restore({
