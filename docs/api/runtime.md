@@ -4843,6 +4843,15 @@ Portable executable workspace evidence accepted before the source environment wa
 
 Exact provider and supervisor identities bound to the retained bytes.
 
+##### workspaceCaptureFailure?
+
+> `optional` **workspaceCaptureFailure?**: `string`
+
+**`Experimental`**
+
+Why workspace retention produced no receipt for this settled turn. The source environment is
+preserved as evidence and the turn's result stands.
+
 ##### supersededPartUpdates?
 
 > `optional` **supersededPartUpdates?**: `number`
