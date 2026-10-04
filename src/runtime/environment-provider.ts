@@ -890,6 +890,8 @@ function createProviderExecutor(
     next: AgentEnvironment,
     phase: ProviderNativeCapturePhase,
     admitted?: AgentExactRunControlRef,
+    /** The harness was stopped: copy again, briefly, until the provider records how it ended. */
+    afterStop = false,
   ): Promise<void> => {
     if (nativePort === undefined || createProfile.harness === undefined) return Promise.resolve()
     const harness = createProfile.harness
@@ -902,20 +904,36 @@ function createProviderExecutor(
       if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
       const invocationId = workspaceExecutionId
       try {
-        const captured = await captureProviderWorkspaceSnapshot(
-          nativePort,
-          {
-            environment: next,
-            executionId: invocationId,
-            ...(controlRef === undefined ? {} : { controlRef }),
-            ...(node === undefined ? {} : { node }),
-            providerSessionId: sessionId,
-            nativeSessionId: null,
-            profile: createProfile,
-            phase,
-          },
-          'native',
-        )
+        const takeCopy = () =>
+          captureProviderWorkspaceSnapshot(
+            nativePort,
+            {
+              environment: next,
+              executionId: invocationId,
+              ...(controlRef === undefined ? {} : { controlRef }),
+              ...(node === undefined ? {} : { node }),
+              providerSessionId: sessionId,
+              nativeSessionId: null,
+              profile: createProfile,
+              phase,
+            },
+            'native',
+          )
+        let captured = await takeCopy()
+        // A provider confirms a stop as soon as the process is gone and records how the execution
+        // ended a moment later; until then its copy reports the session live. On the 2026-10-04
+        // trace re-proof the copy 0.3 s after a deadline stop was `native_snapshot_live` with the
+        // attempt outcome `unknown`, and a capture 1 s later was complete.
+        const settleBy = Date.now() + NATIVE_SETTLE_WINDOW_MS
+        while (
+          afterStop &&
+          captured.coverageComplete !== true &&
+          (captured.provenance.attempts ?? []).some((attempt) => attempt.outcome === 'unknown') &&
+          Date.now() < settleBy
+        ) {
+          await sleep(NATIVE_SETTLE_POLL_MS)
+          captured = await takeCopy()
+        }
         if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
         const copy = retainHarnessTranscript(
           providerWorkspaceCaptureReceipt(
@@ -974,7 +992,7 @@ function createProviderExecutor(
   ): Promise<void> => {
     await stopNativeMirror()
     if (workspaceSnapshot !== undefined && !nativeHoldsTranscript) return
-    await captureNative(next, phase)
+    await captureNative(next, phase, undefined, harnessStopped)
   }
 
   const destroyEnvironment = async (cleanupSignal?: AbortSignal): Promise<TeardownAnswer> => {
@@ -1583,6 +1601,9 @@ function admittedControlRef(
 
 /** Bounds one provider stop: a reconnect, the exact cancellation and its status read. */
 const NATIVE_STOP_TIMEOUT_MS = 30_000
+/** How long the final copy of a stopped harness waits for the provider to record how it ended. */
+const NATIVE_SETTLE_WINDOW_MS = 15_000
+const NATIVE_SETTLE_POLL_MS = 1_000
 
 /** The environment id the latest durable admission names, when creation got that far. */
 function admittedEnvironmentId(retention: RetainedExecutorContext | undefined): string | undefined {
