@@ -1,3 +1,11 @@
+## 0.299.0
+
+A native session copy no longer waits for an admitted reference or a session id. A one-shot provider turn on the default turn mapping has neither, so every copy of such a turn was skipped and an aborted turn could still lose its whole session. The provider attributes the copy by the execution id it recorded when the stream started. A copy that finds no session file, because it was taken before attribution or after the box stopped answering, never replaces a copy that holds the session.
+
+A provider workspace retention port can now offer `captureNative`, which copies only the harness's native session, without the workspace, into the same durable artifacts. Runtime calls it every `nativeIntervalMs` (default 2 minutes) while a turn runs and once more on every way the turn ends. That includes an abort or deadline that closes the stream with `return()`, which never reached the workspace capture, and the release of a retained execution this process never streamed. The executor's harness transcript is then the latest stored copy, unless a settled workspace capture holds the session. Native captures use their own queue and timeout (`nativeTimeoutMs`, default 2 minutes), so they never wait behind workspace captures. On Runtime 0.297.x, 85 of the 116 Discovery nodes that ran kept no session at all: 38 were stopped by the driver, 30 were cascaded by a failed root, and 14 timed out in the capture queue. A workspace over its byte bound also no longer costs the session.
+
+`createS3PrivateCasStore` now returns an `S3PrivateCasStore`. It adds `putPointer` and `getPointer` for small named objects at `<prefix><namespace>/<name>` beside the content-addressed tree, so a reader can find the latest of a changing set of objects, such as a run's controller manifest, with one GET.
+
 ## 0.298.1
 
 The v0.298.0 tag was never published: its release verification failed on the two graph tests this fix repairs. 0.298.1 ships everything listed under 0.298.0.
