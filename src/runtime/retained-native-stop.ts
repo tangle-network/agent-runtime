@@ -3,13 +3,17 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import { awaitAbortable } from './retained-run-binding'
 import { reconnectRetainedRun } from './retained-run-start'
 import type { RetainedRunEffect, RetainedRunHandle } from './retained-run-types'
 import { errorText } from './supervise/error-message'
+import { sleep } from './util'
 
 /** One request per run: every caller that stops the same execution replays one provider operation,
  *  so the operation id and its reason never disagree across a teardown and a release. */
 const NATIVE_STOP_REASON = 'Runtime stopped the native harness: its execution is no longer observed'
+/** How often a stop the provider accepted asynchronously reads the run's status. */
+const STOP_STATUS_POLL_MS = 1_000
 
 /** What one attempt to stop a retained execution's native harness process established. */
 export interface RetainedNativeStop {
@@ -39,7 +43,8 @@ export async function stopRetainedNativeExecution(options: {
   readonly controlRef: AgentExactRunControlRef
   /** The live handle, when this process holds one; otherwise the reference is reconnected. */
   readonly handle?: RetainedRunHandle
-  readonly signal?: AbortSignal
+  /** Bounds the whole stop, so an unanswered provider cannot hold up a release. */
+  readonly signal: AbortSignal
   readonly now?: () => number
 }): Promise<RetainedNativeStop> {
   const now = options.now ?? Date.now
@@ -48,28 +53,38 @@ export async function stopRetainedNativeExecution(options: {
     kind: 'runtime-native-stop.v1',
     run: options.controlRef,
   }).slice('sha256:'.length)}`
-  try {
+  // The last effect the provider confirmed, kept when the deadline cuts the stop short.
+  let effect: RetainedRunEffect = 'unknown'
+  const stop = async (): Promise<RetainedRunEffect> => {
     const handle =
       options.handle ??
       (await reconnectRetainedRun({ provider: options.provider, controlRef: options.controlRef }))
     // The provider no longer holds the environment, so nothing inside it can still run.
-    if (handle === null) {
-      return { executionId, effect: 'not_live', at: new Date(now()).toISOString() }
-    }
+    if (handle === null) return 'not_live'
     const cancellation = await handle.cancel({
       operationId,
       reason: NATIVE_STOP_REASON,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      signal: options.signal,
     })
-    return {
-      executionId,
-      effect: cancellation.status === 'conflict' ? 'unknown' : cancellation.effect,
-      at: new Date(now()).toISOString(),
+    effect = cancellation.status === 'conflict' ? 'unknown' : cancellation.effect
+    // An asynchronous provider acknowledges the request before the process ends. Only a terminal
+    // status proves it stopped, so the stop waits for one within its deadline.
+    while (effect === 'cancel_requested') {
+      await sleep(STOP_STATUS_POLL_MS, options.signal)
+      const current = await handle.status({ signal: options.signal })
+      if (current.effect === 'cancelled' || current.effect === 'not_live') effect = current.effect
     }
+    return effect
+  }
+  try {
+    // The deadline covers the reconnect too: its capability and environment reads are provider
+    // calls, and a release that awaits this stop must not wait on a stalled one.
+    effect = await awaitAbortable(stop(), options.signal)
+    return { executionId, effect, at: new Date(now()).toISOString() }
   } catch (error) {
     return {
       executionId,
-      effect: 'unknown',
+      effect: effect === 'cancel_requested' ? effect : 'unknown',
       at: new Date(now()).toISOString(),
       error: errorText(error instanceof Error ? error.message : error).slice(0, 512),
     }
