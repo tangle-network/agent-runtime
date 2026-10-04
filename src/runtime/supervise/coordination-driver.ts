@@ -1516,7 +1516,7 @@ function hasPriorCoordination(prior?: PriorCoordination): boolean {
       prior.findings.length > 0 ||
       prior.continuations.length > 0 ||
       prior.deliveryEvidence.length > 0 ||
-      prior.records.some((record) => record.event.type === 'submission'))
+      prior.records.length > 0)
   )
 }
 

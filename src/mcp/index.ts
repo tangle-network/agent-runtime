@@ -159,6 +159,7 @@ export {
 } from './tool-server'
 export {
   ANALYST_DEFINITION_BOUNDS,
+  type AnalystAssignmentRecord,
   type AnalystDefinitionIssue,
   type AnalystFindingEvent,
   type AnalystKind,
