@@ -1918,6 +1918,19 @@ graph expressed at the coordination layer; the finding is ALWAYS also published 
 
 #### Properties
 
+##### at?
+
+> `readonly` `optional` **at?**: `"worker"` \| `"manager-end"`
+
+Analyze this manager's final output and settled-child references before it closes.
+Requires an agent route; omitted means each eligible worker settlement.
+
+##### statuses?
+
+> `readonly` `optional` **statuses?**: readonly (`"done"` \| `"down"`)[]
+
+Worker outcomes admitted to this route. Defaults to done; down includes failed attempts.
+
 ##### kind
 
 > `readonly` **kind**: `string`
@@ -1989,6 +2002,12 @@ profile and task bytes; these digests bind the review to those bytes and its sou
 ##### sourceWorker
 
 > `readonly` **sourceWorker**: `string`
+
+##### sourceEvidenceRef?
+
+> `readonly` `optional` **sourceEvidenceRef?**: `string`
+
+Complete retained source envelope behind the analyst task's bounded excerpt.
 
 ##### sourceTrace
 
@@ -2388,6 +2407,13 @@ Present (as the analyst id) ONLY when this spawn is an analyst-AGENT run initiat
  runtime's analyst-on-settle hook ([AnalyzeOnSettleRoute.agent](#agent)) — authored by the
  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
  reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Runtime-authorized immutable evidence for this analyst assignment. Only these refs extend
+its existing observe_agent capability; callers never supply them through tool arguments.
 
 ##### continuity?
 
@@ -16492,6 +16518,33 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 
 `Promise`\<`number`\>
 
+##### finishAnalysis
+
+> **finishAnalysis**: (`input`) => `Promise`\<`void`\>
+
+Await opted-in manager-end analyst agents inside the original scope and resource limits.
+Their findings remain evidence and never replace the manager's output or enter its ledger.
+
+###### Parameters
+
+###### input
+
+###### status
+
+`"done"` \| `"down"`
+
+###### output?
+
+`unknown`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ##### history
 
 > **history**: () => readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[]
@@ -24425,6 +24478,12 @@ Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_p
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
+
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Trusted source refs for this manager’s existing observe_agent capability.
 
 ##### watchWorkers?
 

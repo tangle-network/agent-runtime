@@ -119,6 +119,12 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`.
 
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Trusted source refs for this manager’s existing observe_agent capability.
+
 ##### watchWorkers?
 
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
@@ -2848,6 +2854,16 @@ Analyst kinds run on each worker-settle → a `finding` the driver composes its 
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`analyzeOnSettle`](runtime.md#analyzeonsettle-1)
+
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Trusted source refs for this manager’s existing observe_agent capability.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`sourceEvidenceRefs`](runtime.md#sourceevidencerefs-1)
 
 ##### watchWorkers?
 
