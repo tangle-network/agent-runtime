@@ -951,6 +951,98 @@ describe('retained runtime run control', () => {
     })
   })
 
+  it('binds an existing environment from its own metadata instead of walking an inventory past offset 1000', async () => {
+    // Tangle Sandbox's list route caps `offset` at 1,000 and answers 400 beyond it, so a
+    // metadata-filtered list over an account of more than 2,000 sandboxes cannot finish. This
+    // provider pages the way agent-provider-tangle does and refuses the third page the way
+    // the deployed route does.
+    const inventory = Array.from({ length: 2_500 }, (_, index) => ({
+      id: index === 2_400 ? 'environment-1' : `other-${index}`,
+      provider: 'test-provider',
+      metadata: { retainedIdempotencyKey: index === 2_400 ? 'owned-key' : `other-${index}` },
+    }))
+    const offsets: number[] = []
+    const pagedList = async (query?: { metadata?: Record<string, unknown> }) => {
+      const matches = []
+      for (let offset = 0; ; offset += 1_000) {
+        offsets.push(offset)
+        if (offset > 1_000) {
+          throw Object.assign(new Error('HTTP 400: Too big: expected number to be <=1000'), {
+            name: 'ValidationError',
+            status: 400,
+          })
+        }
+        const page = inventory.slice(offset, offset + 1_000)
+        matches.push(
+          ...page.filter(
+            (summary) =>
+              summary.metadata.retainedIdempotencyKey === query?.metadata?.retainedIdempotencyKey,
+          ),
+        )
+        if (page.length < 1_000) return matches
+      }
+    }
+    const identity = { sessionId: 'large-session', executionId: 'large-execution' }
+    const controlRef = {
+      runId: 'large-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      ...identity,
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: identity.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({
+        text: 'continued in place',
+        success: true,
+        sessionId: identity.sessionId,
+        metadata: { runId: controlRef.runId, ...identity, requestDigest: controlRef.requestDigest },
+      }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const start = (metadata: Record<string, unknown> | undefined) => {
+      const provider = providerWithEnvironment({
+        ...(metadata === undefined ? {} : { metadata }),
+        async dispatch() {
+          return { id: identity.sessionId, provider: 'test-provider', controlRef }
+        },
+        session: () => session,
+      })
+      provider.list = pagedList
+      return startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'owned-key' },
+        existingEnvironmentId: 'environment-1',
+        turn: { prompt: 'next turn', turnId: 'large-turn' },
+        identity,
+        onAdmission: recordedAdmissions().onAdmission,
+      })
+    }
+
+    // Without metadata on the read, only the listing can bind it, and the listing fails.
+    await expect(start(undefined)).rejects.toThrow('expected number to be <=1000')
+    expect(offsets).toEqual([0, 1_000, 2_000])
+
+    offsets.length = 0
+    const run = await start({ tenant: 'acme', retainedIdempotencyKey: 'owned-key' })
+    await expect(run.result()).resolves.toMatchObject({ text: 'continued in place' })
+    expect(offsets).toEqual([])
+
+    await expect(start({ retainedIdempotencyKey: 'someone-else' })).rejects.toThrow(
+      'could not bind environment "environment-1"',
+    )
+    await expect(start({ tenant: 'acme' })).rejects.toThrow(
+      'could not bind environment "environment-1"',
+    )
+    expect(offsets).toEqual([])
+  })
+
   it('replays an existing-environment intent exactly and rejects changed reuse material', async () => {
     const identity = { sessionId: 'replay-session', executionId: 'replay-execution' }
     const controlRef = {
