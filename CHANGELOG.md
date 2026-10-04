@@ -1,3 +1,7 @@
+## 0.299.2
+
+A node that a deadline or a cancellation ends now settles with the session copy taken after its harness stopped, not its last running copy; that copy is retaken every second, for at most 15 s, until the provider records how the stopped execution ended. The provider executor takes that copy before the failure capture of the whole workspace and exposes `Executor.harnessTranscriptSettled()`, which the scope awaits (bounded at 6 minutes) before it reads the transcript or tears the executor down; retry, completion-gate and driver wrappers forward it.
+
 ## 0.299.1
 
 A provider turn that its deadline or an explicit cancellation ends now stops its retained harness, and waits within the 30 s stop bound for the provider to report it stopped, before the failure capture and the final native copy read its session. Those captures previously read a session the harness was still writing, so they were stored partial, and the harness kept running until teardown.
