@@ -92,7 +92,24 @@ export function unavailablePauseMs(
   consecutive: number,
   policy: UnavailablePausePolicy = {},
 ): number {
-  const first = Math.max(0, policy.unavailablePauseMs ?? DEFAULT_UNAVAILABLE_PAUSE_MS)
-  const ceiling = Math.max(first, policy.maxUnavailablePauseMs ?? DEFAULT_MAX_UNAVAILABLE_PAUSE_MS)
-  return Math.min(ceiling, first * 2 ** Math.max(0, consecutive - 1))
+  return cappedDoublingMs(
+    consecutive,
+    policy.unavailablePauseMs ?? DEFAULT_UNAVAILABLE_PAUSE_MS,
+    policy.maxUnavailablePauseMs ?? DEFAULT_MAX_UNAVAILABLE_PAUSE_MS,
+  )
+}
+
+/** `first` doubled per earlier consecutive wait (`consecutive` is 1-based), up to `ceiling`. */
+export function cappedDoublingMs(consecutive: number, first: number, ceiling: number): number {
+  const start = Math.max(0, first)
+  return Math.min(Math.max(start, ceiling), start * 2 ** Math.max(0, consecutive - 1))
+}
+
+/**
+ * Spread a wait over `[ms / 2, ms]`. Every driver a Platform restart cut off fails within the same
+ * seconds; without jitter their doubling schedules stay aligned and they all re-enter together
+ * when the service returns. `random` returns a value in `[0, 1)`; 0 keeps the full wait.
+ */
+export function jitteredMs(ms: number, random: () => number): number {
+  return ms - Math.floor((ms / 2) * Math.min(1, Math.max(0, random())))
 }

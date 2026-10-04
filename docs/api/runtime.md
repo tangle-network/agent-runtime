@@ -16991,7 +16991,8 @@ How hard the root driver is retried after a transient failure. The defaults retr
 > `readonly` `optional` **maxConsecutiveFailures?**: `number`
 
 Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
- before the run gives up. Default 3. A failure that made progress resets the count.
+ before the run gives up. Default 3. A failure that made progress resets the count. Not
+ enforced on a transient streak younger than `transientOutageMs`.
 
 ##### maxAttempts?
 
@@ -17000,7 +17001,8 @@ Consecutive failures that changed NOTHING (no metered spend, no settlement, no s
 Ceiling on failed invocations across this driver run, regardless of progress. Default: no
  ceiling, minimum 1. A failure that made no progress is bounded by `maxConsecutiveFailures`;
  failures that each made progress are bounded by the budget and the deadline, like the work
- they did. Successful continuations do not consume this allowance or reset it.
+ they did. Successful continuations do not consume this allowance or reset it, and neither
+ does a transient failure inside the outage window.
 
 ##### initialBackoffMs?
 
@@ -17013,6 +17015,16 @@ Backoff before the first retry, doubling per consecutive failure. Default 2000ms
 > `readonly` `optional` **maxBackoffMs?**: `number`
 
 Ceiling on the doubling. Default 30000ms.
+
+##### transientOutageMs?
+
+> `readonly` `optional` **transientOutageMs?**: `number`
+
+How long a streak of transient failures that spent nothing, settled nothing, and made no
+ progress is retried as an infrastructure outage, from the streak's first failure, before
+ `maxAttempts` and
+ `maxConsecutiveFailures` apply to it. Default 900000ms (15 minutes), longer than a routine
+ Platform restart.
 
 ##### unavailablePauseMs?
 
@@ -32450,7 +32462,9 @@ The code or status that classified the refusal, such as `provider_quota_exhauste
 How one driver failure is answered.
 
  - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
- - `transient`: a foreign accident. It is retried under `maxAttempts` and the barren streak.
+ - `transient`: a foreign accident. A streak in which nothing ran is retried as an outage for
+   `transientOutageMs`; after that, and for a failure that did work, `maxAttempts` and the
+   barren streak bound it.
  - `unavailable`: the upstream cannot serve now (quota, rate limit, overload, or the router's
    own provider credential refused). The driver pauses and re-enters, and only the deadline, the
    budget, and cancellation bound the pauses.

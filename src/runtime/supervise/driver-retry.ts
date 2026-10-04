@@ -26,8 +26,9 @@
  * The one loop the budget alone cannot bound is a driver that dies INSTANTLY and repeatedly — a
  * dead-on-arrival credential, a harness that refuses to start. Spending nothing, it would retry
  * until the deadline hours later. So progress is measured between attempts, and a run of attempts
- * that changes nothing stops at `maxConsecutiveFailures`. A failure that made progress resets that
- * counter: a long run may be rescued many times, a hopeless one gives up in seconds.
+ * that changes nothing stops at `maxConsecutiveFailures` once it has outlasted the outage window
+ * described below. A failure that made progress resets that counter: a long run may be rescued
+ * many times, a hopeless one gives up after the window.
  *
  * WHAT COUNTS AS PROGRESS is the part this module got wrong first, and the correction is measured.
  * The original mark read metered spend, settled children, and an accepted submission — the
@@ -69,6 +70,20 @@
  * five lead lanes ended `driver-failed` between minutes 101 and 118, after 12 to 13 attempts, while
  * the router answered some turns in between (one lead spent 1.7M and 3.3M input tokens on two of
  * them) and each run's budget and 8-hour deadline were almost untouched.
+ *
+ * A TRANSIENT failure that spent nothing, settled nothing, and made no progress is an
+ * infrastructure outage until its streak has lasted `transientOutageMs`: nothing ran, so nothing
+ * is being burned. Within that window it consumes neither `maxAttempts` nor the barren streak,
+ * exactly like a pause, and only the deadline, the budget, and cancellation bound it. After the
+ * window the failure bounds apply again, so a dead-on-arrival driver still stops, in minutes
+ * rather than hours. A failure that spent tokens without delivering keeps the bounds above,
+ * because that is the burn the progress rule exists to stop. Measured 2026-10-04 on Discovery run research-nqs-20261003system2: a Platform
+ * restart answered `HTTP 502 ... Platform key verification unavailable` from 03:04:34 to 03:09:41Z,
+ * and the coordinator's twelve attempts ran out at 03:07:12Z with no token spent, while a sibling
+ * that kept retrying survived.
+ *
+ * Every wait, a failure backoff or a pause, is jittered over its upper half so drivers that one
+ * outage cut off together do not re-enter together.
  */
 
 import {
@@ -88,6 +103,8 @@ import { errMessage, errorHttpStatus, errorProperty, errorText } from './error-m
 import { RetainedExecutionPendingError } from './retained-executor'
 import type { Scope } from './types'
 import {
+  cappedDoublingMs,
+  jitteredMs,
   UNAVAILABLE_CODES,
   UNAVAILABLE_STATUSES,
   type UnavailablePausePolicy,
@@ -110,17 +127,25 @@ export interface DriverRetryPolicy extends UnavailablePausePolicy {
   /** `false` restores the historical behavior: the first driver failure ends the run. */
   readonly enabled?: boolean
   /** Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
-   *  before the run gives up. Default 3. A failure that made progress resets the count. */
+   *  before the run gives up. Default 3. A failure that made progress resets the count. Not
+   *  enforced on a transient streak younger than `transientOutageMs`. */
   readonly maxConsecutiveFailures?: number
   /** Ceiling on failed invocations across this driver run, regardless of progress. Default: no
    *  ceiling, minimum 1. A failure that made no progress is bounded by `maxConsecutiveFailures`;
    *  failures that each made progress are bounded by the budget and the deadline, like the work
-   *  they did. Successful continuations do not consume this allowance or reset it. */
+   *  they did. Successful continuations do not consume this allowance or reset it, and neither
+   *  does a transient failure inside the outage window. */
   readonly maxAttempts?: number
   /** Backoff before the first retry, doubling per consecutive failure. Default 2000ms. */
   readonly initialBackoffMs?: number
   /** Ceiling on the doubling. Default 30000ms. */
   readonly maxBackoffMs?: number
+  /** How long a streak of transient failures that spent nothing, settled nothing, and made no
+   *  progress is retried as an infrastructure outage, from the streak's first failure, before
+   *  `maxAttempts` and
+   *  `maxConsecutiveFailures` apply to it. Default 900000ms (15 minutes), longer than a routine
+   *  Platform restart. */
+  readonly transientOutageMs?: number
 }
 
 /** Why the retry loop stopped. `completed` is the only non-failure. */
@@ -265,12 +290,15 @@ export interface DriverRetryRun {
   readonly onAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   readonly now?: () => number
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+  /** The jitter source, in `[0, 1)`. Default `Math.random`. */
+  readonly random?: () => number
 }
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3
 const DEFAULT_MAX_ATTEMPTS = Number.POSITIVE_INFINITY
 const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
+const DEFAULT_TRANSIENT_OUTAGE_MS = 900_000
 /**
  * Bridge error classes the bridge itself never retries: a request that fails identically on
  * every attempt, mapped below 5xx on its HTTP path (`parse_error` 400, the other two 501). On the
@@ -326,7 +354,9 @@ export class HarnessTurnFailedError extends Error {
  * How one driver failure is answered.
  *
  *  - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
- *  - `transient`: a foreign accident. It is retried under `maxAttempts` and the barren streak.
+ *  - `transient`: a foreign accident. A streak in which nothing ran is retried as an outage for
+ *    `transientOutageMs`; after that, and for a failure that did work, `maxAttempts` and the
+ *    barren streak bound it.
  *  - `unavailable`: the upstream cannot serve now (quota, rate limit, overload, or the router's
  *    own provider credential refused). The driver pauses and re-enters, and only the deadline, the
  *    budget, and cancellation bound the pauses.
@@ -701,6 +731,7 @@ async function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
 export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const now = run.now ?? Date.now
   const sleep = run.sleep ?? defaultSleep
+  const random = run.random ?? Math.random
   const policy = run.policy ?? {}
   const retryEnabled = policy.enabled !== false
   const maxConsecutive = Math.max(
@@ -710,6 +741,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const maxAttempts = Math.max(1, policy.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
   const initialBackoff = Math.max(0, policy.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS)
   const maxBackoff = Math.max(initialBackoff, policy.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS)
+  const transientOutage = Math.max(0, policy.transientOutageMs ?? DEFAULT_TRANSIENT_OUTAGE_MS)
 
   const continuation = run.continuation
   if (continuation !== undefined) {
@@ -730,6 +762,11 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   // failed drive as well as a completed one; never by a completion alone.
   let barrenReentries = 0
   let failures = 0
+  // Failures charged against `maxAttempts`: every failure except a transient one inside an outage.
+  let chargedFailures = 0
+  // When the current streak of transient failures in which nothing ran began. Cleared by any
+  // attempt that did work, failed or completed.
+  let outageSince: number | undefined
   // Consecutive `unavailable` attempts, for the pause doubling only. Any other outcome, or an
   // unavailable attempt that still made progress, resets it: the upstream served in between.
   let consecutivePauses = 0
@@ -809,7 +846,8 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     } catch (error) {
       const durationMs = now() - startedAt
       const classification = classifyDriverFailure(error, run.signal)
-      const progressed = madeProgress(before, run.progress())
+      const after = run.progress()
+      const progressed = madeProgress(before, after)
       if (classification === 'unavailable') {
         // A pause, not a failure: neither `failures` nor the barren streak moves, so an outage of
         // any length ends the run only at the deadline, the budget, or a cancellation.
@@ -834,7 +872,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
         }
         pauses += 1
         consecutivePauses = progressed ? 1 : consecutivePauses + 1
-        const pause = unavailablePauseMs(consecutivePauses, policy)
+        const pause = jitteredMs(unavailablePauseMs(consecutivePauses, policy), random)
         await emit({
           attempt,
           durationMs,
@@ -859,13 +897,26 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       }
       consecutivePauses = 0
       failures += 1
+      const failedAt = now()
+      const idle =
+        classification === 'transient' &&
+        !progressed &&
+        after.poolTokensSpent === before.poolTokensSpent &&
+        after.settledCount === before.settledCount
+      if (!idle) outageSince = undefined
+      else outageSince ??= failedAt
+      // A transient streak in which nothing ran is an outage while it is young: it is retried like
+      // a pause, and the failure bounds apply only once it outlasts `transientOutageMs`.
+      const inOutage = idle && failedAt - (outageSince ?? failedAt) < transientOutage
+      if (!inOutage) chargedFailures += 1
       const stop = ((): DriverAttemptStop | undefined => {
         if (classification === 'terminal') return 'terminal-error'
         if (!retryEnabled) return 'retry-disabled'
         if (run.signal.aborted) return 'aborted'
-        const byBudget = budgetStop(run.budget(), now())
+        const byBudget = budgetStop(run.budget(), failedAt)
         if (byBudget) return byBudget
-        if (failures >= maxAttempts) return 'max-attempts'
+        if (inOutage) return undefined
+        if (chargedFailures >= maxAttempts) return 'max-attempts'
         // Progress resets the barren counter: a driver that is doing real work between crashes
         // has earned another attempt, and the budget remains the bound on how many.
         if (progressed) return undefined
@@ -886,7 +937,10 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
       }
 
       consecutiveBarren = progressed ? 0 : consecutiveBarren + 1
-      const backoff = Math.min(maxBackoff, initialBackoff * 2 ** Math.max(0, consecutiveBarren - 1))
+      const backoff = jitteredMs(
+        cappedDoublingMs(consecutiveBarren, initialBackoff, maxBackoff),
+        random,
+      )
       await emit({
         attempt,
         durationMs,
@@ -916,6 +970,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     // barren re-entry count is a different fact and a completion alone never resets it.
     consecutiveBarren = 0
     consecutivePauses = 0
+    outageSince = undefined
     const durationMs = now() - startedAt
     const after = run.progress()
     const progressed = madeProgress(before, after)
