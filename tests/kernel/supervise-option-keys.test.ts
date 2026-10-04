@@ -152,7 +152,7 @@ describe('supervise profileGuidance composes the root profile', () => {
     const profile = testAgentProfile('root', { harness: 'cli-base' })
     const root = {
       ...profile,
-      model: { ...profile.model, default: 'deepseek/deepseek-v4.1-flash' },
+      model: { ...profile.model, default: 'anthropic/claude-opus-5-5' },
     }
     const brain = async (...args: unknown[]) => {
       seen.push(JSON.stringify(args))
@@ -176,6 +176,6 @@ describe('supervise profileGuidance composes the root profile', () => {
       makeWorkerAgent,
       profileGuidance: 'profile-kb',
     })
-    expect(seen.join('')).toContain('source=\\"model\\" id=\\"deepseek-v4.1-flash\\"')
+    expect(seen.join('')).toContain('source=\\"model\\" id=\\"claude-opus-5-5\\"')
   })
 })
