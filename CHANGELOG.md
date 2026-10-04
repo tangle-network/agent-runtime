@@ -1,3 +1,7 @@
+## 0.297.5
+
+A native-harness stop that the provider accepts asynchronously now ends on any terminal run status. A `stopped` status counts as the stop, as `cancelled` does; before, the stop waited out its deadline and recorded the harness as possibly still running.
+
 ## 0.297.4
 
 A native-harness stop at release now has one deadline that covers reconnecting to the provider, so an unanswered provider can no longer hold up settlement. When the provider accepts a stop asynchronously (`cancel_requested`), Runtime waits within that deadline until the run's status shows it ended, and records the stop as unconfirmed if it does not.
