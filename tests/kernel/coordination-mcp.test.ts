@@ -311,7 +311,10 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     // to fire before listen; a bind moved after it would leave the first caller with no verbs.
     let boundNames: ReadonlyArray<string> | undefined
     let boundBeforeFirstCall: boolean | undefined
-    const scope = { signal: new AbortController().signal, view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 } } as Scope<unknown>
+    const scope = {
+      signal: new AbortController().signal,
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+    } as Scope<unknown>
     const mcp = await serveCoordinationMcp({
       scope,
       blobs: new InMemoryResultBlobStore(),
@@ -348,7 +351,10 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
 
   it('serves product-owned node tools beside coordination tools over the same HTTP MCP', async () => {
     const calls: unknown[] = []
-    const scope = { signal: new AbortController().signal, view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 } } as Scope<unknown>
+    const scope = {
+      signal: new AbortController().signal,
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+    } as Scope<unknown>
     const mcp = await serveCoordinationMcp({
       scope,
       blobs: new InMemoryResultBlobStore(),
@@ -394,7 +400,10 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
   it('refuses a product tool that shadows spawn_worker before opening a listener', async () => {
     await expect(
       serveCoordinationMcp({
-        scope: { signal: new AbortController().signal, view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 } } as Scope<unknown>,
+        scope: {
+          signal: new AbortController().signal,
+          view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+        } as Scope<unknown>,
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
         perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -414,7 +423,10 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
   it('refuses duplicate explicit tool grants before opening a listener', async () => {
     await expect(
       serveCoordinationMcp({
-        scope: { signal: new AbortController().signal, view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 } } as Scope<unknown>,
+        scope: {
+          signal: new AbortController().signal,
+          view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+        } as Scope<unknown>,
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
         perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -1439,7 +1451,10 @@ async function withMethodTool<T>(
   let calls = 0
   const runs: Array<ReturnType<typeof deferred<unknown>>> = []
   const mcp = await serveCoordinationMcp({
-    scope: { signal: new AbortController().signal, view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 } } as Scope<unknown>,
+    scope: {
+      signal: new AbortController().signal,
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+    } as Scope<unknown>,
     blobs: new InMemoryResultBlobStore(),
     makeWorkerAgent: () => deliveringLeaf('unused', {}),
     perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -1712,7 +1727,10 @@ async function withSlowCheck<T>(
   let checks = 0
   const verdicts: Array<ReturnType<typeof deferred<boolean | CheckVerdict>>> = []
   const mcp = await serveCoordinationMcp({
-    scope: { signal: new AbortController().signal, view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 } } as Scope<unknown>,
+    scope: {
+      signal: new AbortController().signal,
+      view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
+    } as Scope<unknown>,
     blobs: new InMemoryResultBlobStore(),
     makeWorkerAgent: () => deliveringLeaf('unused', {}),
     perWorker: { maxIterations: 1, maxTokens: 1 },
