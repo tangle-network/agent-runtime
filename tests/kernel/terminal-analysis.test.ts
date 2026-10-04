@@ -5,6 +5,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import { type CoordinationEvent, createCoordinationTools } from '../../src/mcp/tools/coordination'
 import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import { supervisorAgent } from '../../src/runtime/supervise/supervisor-agent'
 import type { Agent } from '../../src/runtime/supervise/types'
@@ -59,7 +60,7 @@ describe('terminal native analysis', () => {
     })
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 42 } })
     expect(received.map((p) => p.name)).toEqual(['reviewer'])
-    expect(tasks[0]).toContain('"answer":42')
+    expect(tasks[0]).toContain('Complete source envelope:')
     expect(events.filter((event) => event.type === 'analyst-assignment')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'finding')).toMatchObject([
       {
@@ -284,5 +285,180 @@ describe('terminal native analysis', () => {
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 7 } })
     expect(received).toHaveLength(1)
     expect(events.filter((event) => event.type === 'finding')).toHaveLength(1)
+  })
+  it.each(['blob', 'assignment'])(
+    'preserves accepted research output when terminal %s persistence fails',
+    async (failure) => {
+      let failed = false
+      const blobs = new InMemoryResultBlobStore(),
+        received: AgentProfile[] = [],
+        events: CoordinationEvent[] = []
+      const originalPut = blobs.put.bind(blobs)
+      blobs.put = async (ref, artifact) => {
+        if (failure === 'blob' && !failed) {
+          failed = true
+          throw new Error('assessment blob unavailable')
+        }
+        return originalPut(ref, artifact)
+      }
+      const root = driverAgent({
+        name: 'root',
+        blobs,
+        perWorker,
+        toolNames: ['submit_result'],
+        maxTurns: 1,
+        deliverable: { check: () => true },
+        brain: scriptedBrain([
+          { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
+        ]),
+        makeWorkerAgent: leafSeam(received),
+        analyzeOnSettle: [route],
+        onEvent: (event) => {
+          if (failure === 'assignment' && event.type === 'analyst-assignment')
+            throw new Error('assignment write unavailable')
+          events.push(event)
+        },
+      })
+      const result = await createSupervisor().run(root, 'task', {
+        runId: 'analysis-write-failure',
+        journal: new InMemorySpawnJournal(),
+        blobs,
+        executors: createExecutorRegistry(),
+        budget: { maxIterations: 20, maxTokens: 50000 },
+        maxDepth: 2,
+        rootIdentity: identity,
+      })
+      expect(result).toMatchObject({ kind: 'winner', out: { answer: 42 } })
+      expect(received).toHaveLength(0)
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'finding',
+          finding: expect.objectContaining({
+            findings: { analystRunFailed: expect.stringContaining('unavailable') },
+          }),
+        }),
+      )
+    },
+  )
+
+  it('preserves the original driver error when the final review cannot provision', async () => {
+    const blobs = new InMemoryResultBlobStore(),
+      events: CoordinationEvent[] = []
+    const root = driverAgent({
+      name: 'root',
+      blobs,
+      perWorker,
+      toolNames: [],
+      maxTurns: 1,
+      brain: async () => {
+        throw new Error('original research failure')
+      },
+      makeWorkerAgent: () => {
+        throw new Error('reviewer provisioning unavailable')
+      },
+      analyzeOnSettle: [route],
+      onEvent: (event) => {
+        events.push(event)
+      },
+    })
+    const result = await createSupervisor().run(root, 'task', {
+      runId: 'failed-root-review',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+      budget: { maxIterations: 20, maxTokens: 50000 },
+      maxDepth: 2,
+      rootIdentity: identity,
+    })
+    expect(result).toMatchObject({
+      reason: 'driver-failed',
+      error: { message: 'original research failure' },
+    })
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'finding',
+        finding: expect.objectContaining({
+          findings: { analystSpawnRefused: 'reviewer provisioning unavailable' },
+        }),
+      }),
+    )
+  })
+
+  it('bounds task excerpts while retaining the complete source envelope', async () => {
+    const blobs = new InMemoryResultBlobStore(),
+      tasks: string[] = [],
+      events: CoordinationEvent[] = []
+    const output = { report: 'x'.repeat(200000) }
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      act: async (_task, scope) => {
+        const coord = createCoordinationTools({
+          scope,
+          blobs,
+          perWorker,
+          makeWorkerAgent: leafSeam(
+            [],
+            {},
+            { onSpawnContext: (_name, context) => tasks.push(String(context?.task)) },
+          ),
+          analyzeOnSettle: [route],
+          onEvent: (event) => {
+            events.push(event)
+          },
+        })
+        await coord.finishAnalysis({ status: 'done', output })
+        return output
+      },
+    }
+    await createSupervisor().run(root, 'task', {
+      runId: 'bounded-review',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+      budget: { maxIterations: 20, maxTokens: 50000 },
+      maxDepth: 2,
+      rootIdentity: identity,
+    })
+    expect(tasks[0]?.length).toBeLessThan(22000)
+    const assignment = events.find((event) => event.type === 'analyst-assignment')
+    expect(assignment?.assignment.sourceEvidenceRef).toBeDefined()
+    expect(await blobs.get(assignment?.assignment.sourceEvidenceRef ?? '')).toMatchObject({
+      output,
+    })
+  })
+
+  it('does not recursively auto-review a manager spawned as an analyst', async () => {
+    const calls: string[] = []
+    const profile = {
+      ...offlineProfile('root', 'Research.'),
+      harness: 'opencode',
+      tools: {
+        agent_runtime_coordination_spawn_worker: true,
+        agent_runtime_coordination_stop: true,
+      },
+    }
+    const result = await supervise(profile, 'task', {
+      budget: { maxIterations: 100, maxTokens: 100000 },
+      perWorker,
+      maxDepth: 5,
+      makeLeafAgent: leafSeam([]),
+      analyzeOnSettle: [{ ...route, agent: { ...profile, name: 'managed-reviewer' } }],
+      driveHarness: async ({ profile: current, coordinationMcpUrl }) => {
+        calls.push(current.name ?? 'unknown')
+        const response = await fetch(coordinationMcpUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'stop', arguments: {} },
+          }),
+        })
+        expect(response.ok).toBe(true)
+      },
+    })
+    expect(result.kind).toBe('no-winner')
+    expect(calls).toEqual(['root', 'managed-reviewer'])
   })
 })

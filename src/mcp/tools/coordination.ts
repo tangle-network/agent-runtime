@@ -387,6 +387,8 @@ export interface AnalystAssignmentRecord {
   readonly assignmentId: string
   readonly kind: string
   readonly sourceWorker: string
+  /** Complete retained source envelope behind the analyst task's bounded excerpt. */
+  readonly sourceEvidenceRef?: string
   readonly sourceTrace: WorkerTraceEvidence
   readonly sourceOutRef?: string
   readonly profileDigest: string
@@ -2210,16 +2212,45 @@ export function createCoordinationToolsForManager(
         outputError = error instanceof Error ? error.message : String(error)
       }
     }
+    if (worker.outRef !== undefined && output === undefined && outputError === undefined) {
+      outputError = 'referenced output blob unavailable'
+    }
+    const sourceEvidence = JSON.parse(
+      safeJsonText({
+        worker,
+        output: output ?? null,
+        ...(outputError ? { outputError } : {}),
+        ...(route.at === 'manager-end'
+          ? {
+              managerCheckpoint: {
+                managerId: opts.scope.view.root,
+                nodes: opts.scope.view.nodes
+                  .filter((node) => !node.assignmentId?.startsWith('analyst:'))
+                  .map((node) => ({
+                    id: node.id,
+                    parent: node.parent,
+                    assignmentId: node.assignmentId,
+                    status: node.status,
+                  })),
+                settled: ledger.map(({ resumed: _resumed, ...row }) => row),
+              },
+            }
+          : {}),
+      }),
+    ) as unknown
+    const sourceEvidenceRef = contentAddress(sourceEvidence)
+    await opts.blobs.put(sourceEvidenceRef, sourceEvidence)
+    const excerpt = (text: string, limit: number) => ({
+      text: text.slice(0, limit),
+      totalChars: text.length,
+      omittedChars: Math.max(0, text.length - limit),
+    })
     const task = [
       ...(route.directive === undefined || route.directive.length === 0 ? [] : [route.directive]),
-      `Evidence source: ${safeJsonText({ worker, output, ...(outputError ? { outputError } : {}) })}`,
-      ...(route.at === 'manager-end'
-        ? [
-            `Manager checkpoint: ${safeJsonText({ managerId: opts.scope.view.root, nodes: opts.scope.view.nodes.filter((node) => !node.assignmentId?.startsWith('analyst:')).map((node) => ({ id: node.id, parent: node.parent, assignmentId: node.assignmentId, status: node.status })), settled: ledger })}`,
-          ]
-        : []),
-      `Evidence — settled worker '${worker.id}' tool trace (${spanCount} spans):`,
-      spansText.length === 0 ? '(no tool spans available)' : spansText,
+      `Complete source envelope: ${sourceEvidenceRef}. Source output: ${worker.outRef ?? '(unavailable)'}.`,
+      `Bounded source excerpt (omitted evidence is not inspected): ${safeJsonText(excerpt(safeJsonText(sourceEvidence), 12000))}`,
+      `Source tool trace: ${safeJsonText(worker.trace)} (${spanCount} spans).`,
+      spansText.length === 0 ? '(no tool spans available)' : safeJsonText(excerpt(spansText, 8000)),
     ].join('\n\n')
     // Reuse an exact durable assignment after a coordinator restart or repeated finalization.
     // A changed checkpoint is a different investigation and retains its own identity.
@@ -2242,6 +2273,7 @@ export function createCoordinationToolsForManager(
       kind: route.kind,
       sourceWorker: worker.id,
       sourceTrace: worker.trace,
+      sourceEvidenceRef,
       ...(worker.outRef === undefined ? {} : { sourceOutRef: worker.outRef }),
       profileDigest: canonicalAgentProfileDigest(route.agent as AgentProfile),
       taskDigest,
@@ -3373,7 +3405,27 @@ export function createCoordinationToolsForManager(
       while (analystRuns.size > 0) {
         if (!(await ensureDrain())) break
       }
-    })()
+    })().catch(async (error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error)
+      try {
+        await bus.publish({
+          type: 'finding',
+          finding: canonicalFindingEvent({
+            fromWorker: opts.scope.view.root,
+            analyst: 'manager-end',
+            findings: { analystRunFailed: detail },
+          }),
+        })
+      } catch (recordError) {
+        // A failed evidence store cannot certify its own receipt. Preserve the research
+        // outcome and surface the unavailable analysis record to the controller log.
+        console.error('Runtime terminal analysis evidence unavailable', {
+          managerId: opts.scope.view.root,
+          analysisError: detail,
+          recordError: recordError instanceof Error ? recordError.message : String(recordError),
+        })
+      }
+    })
     return managerAnalysis
   }
 

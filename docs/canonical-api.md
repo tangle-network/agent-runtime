@@ -340,11 +340,14 @@ Nonserializable evidence fails before the model request; omit unsupported values
 Custom analysis receives the original context without truncation.
 Keep final grading outside this context and retain provenance through `evidenceRefs`.
 
-An agent analyst route receives the source output reference, available output, status and
+An agent analyst route receives immutable source envelope and output references, bounded excerpts, status and
 trace coverage, including an explicit missing-trace record. A manager-end route also receives
 the observed subtree and settled-child references. Both driver paths await those final native
 analysts before closing the manager. Reviewers retain their authored profiles and spend from the
 same scope; a refusal or failed review is a finding, never an accepted research result.
+An analysis failure preserves the original research result or error. If the coordination
+writer itself fails, the controller reports the unavailable analysis record explicitly.
+Managed analyst subtrees do not inherit automatic analysis routes.
 Manager-end routes default to both done and down outcomes. Worker routes retain the done-only
 default unless statuses are explicit. A final review can be incomplete when the original budget,
 deadline or cancellation prevents it. An interrupted coordinator must resume before further
