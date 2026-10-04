@@ -1343,20 +1343,21 @@ describe('provider workspace retention', () => {
         { signal: new AbortController().signal, seams: {} },
       )
 
-      await expect(async () => {
-        for await (const _event of executor.execute(
-          'task',
-          new AbortController().signal,
-        ) as AsyncIterable<UsageEvent>) {
-          // Verification fails before source destruction.
-        }
-      }).rejects.toThrow(/artifact|archive|digest|length/)
+      for await (const _event of executor.execute(
+        'task',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        // Verification fails before source destruction; the settled turn stands.
+      }
+      const out = executor.resultArtifact().out as ProviderLeafOut
+      expect(out.workspaceCaptureFailure).toMatch(/artifact|archive|digest|length/)
+      expect(out).not.toHaveProperty('workspaceSnapshot')
       expect(destroyed()).toBe(0)
       await expect(executor.teardown('brutalKill')).resolves.toMatchObject({ destroyed: false })
     },
   )
 
-  it('bounds a late capture and never lets its completion authorize destruction', async () => {
+  it('settles the turn with a failed capture and never lets a late capture authorize destruction', async () => {
     const artifacts = artifactStore()
     const { provider, destroyed } = providerFor(doneStream())
     const executor = providerAsExecutor(provider, {
@@ -1373,14 +1374,19 @@ describe('provider workspace retention', () => {
       { signal: new AbortController().signal, seams: {} },
     )
 
-    await expect(async () => {
-      for await (const _event of executor.execute(
-        'task',
-        new AbortController().signal,
-      ) as AsyncIterable<UsageEvent>) {
-        // The capture barrier times out after the stream has settled.
-      }
-    }).rejects.toThrow(/timed out|aborted/)
+    for await (const _event of executor.execute(
+      'task',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      // The capture barrier times out after the stream has settled.
+    }
+    // A capture deadline is evidence about the workspace, never the settled turn's outcome.
+    const out = executor.resultArtifact().out as ProviderLeafOut
+    expect(out.workspaceCaptureFailure).toBe(
+      'provider workspace retention timed out after 10ms; source environment preserved',
+    )
+    expect(out).not.toHaveProperty('workspaceSnapshot')
+    expect(executor.heldEnvironments?.()).toMatchObject([{ keptFor: 'evidence' }])
     expect(destroyed()).toBe(0)
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(destroyed()).toBe(0)
