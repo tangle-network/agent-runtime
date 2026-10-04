@@ -1040,7 +1040,9 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
     const task = String(inspectorContext?.task)
     expect(task).toContain(analyzesFindingsReportPrompt.text)
     expect(task).toContain('write_file') // the worker's recorded tool span crossed as evidence
-    expect(task).toContain("settled worker 'gan:s0'")
+    // The source worker is named inside the bounded excerpt of its retained evidence envelope.
+    expect(task).toContain('Complete source envelope: sha256:')
+    expect(task).toContain('\\"id\\":\\"gan:s0\\"')
 
     // The analyzes traversal is ledgered exactly like a registry analyst's: driver-destined
     // finding, source worker as the workerId, directive + findings bytes.

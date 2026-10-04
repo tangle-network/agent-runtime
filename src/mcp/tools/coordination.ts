@@ -2335,13 +2335,14 @@ export function createCoordinationToolsForManager(
 
   // The names an analyst route may know a worker by: its authored profile name (the stable node
   // identity) and its spawn label (the driver's free-text choice).
+  // A named profile is the worker's route identity. The label is the driver's free text and
+  // defaults to 'worker', so matching it for a named profile would make a route over a node
+  // named 'worker' cover every unlabelled worker. It names only a worker without a profile name.
   const workerRouteNames = (workerId: string): Set<string> => {
-    const names = new Set<string>()
     const profileName = profileNameByWorker.get(workerId)
-    if (profileName !== undefined) names.add(profileName)
+    if (profileName !== undefined) return new Set([profileName])
     const label = nodeForWorker(workerId)?.label
-    if (label !== undefined) names.add(label)
-    return names
+    return new Set(label === undefined ? [] : [label])
   }
 
   /** The LIVE worker a route destination names, by profile name first, label second. */
