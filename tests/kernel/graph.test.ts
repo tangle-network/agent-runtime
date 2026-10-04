@@ -1073,28 +1073,42 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
   it('profileGuidance reaches a caller authorizeSpawn and an analyst node as composed profiles', async () => {
     const received: AgentProfile[] = []
     const authorized: AgentProfile[] = []
-    const res = await runGraph(inspectorGraph('driver'), {
-      makeLeafAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }),
-      profileGuidance: 'profile-kb',
-      authorizeSpawn: (input) => {
-        authorized.push(input.profile)
-        return { profile: input.profile }
+    const graph = inspectorGraph('driver')
+    const nodes = graph.nodes.map((node) => ({
+      ...node,
+      profile: {
+        ...node.profile,
+        model: { ...node.profile.model, default: 'claude-opus-5-5' },
       },
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
-          ],
+    }))
+    const res = await runGraph(
+      { ...graph, nodes },
+      {
+        makeLeafAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }),
+        profileGuidance: 'profile-kb',
+        authorizeSpawn: (input) => {
+          authorized.push(input.profile)
+          return { profile: input.profile }
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { content: 'done' },
-      ]),
-    })
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              {
+                name: 'spawn_worker',
+                arguments: { profile: { name: 'worker' }, task: 'build it' },
+              },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ]),
+      },
+    )
     expect(res.result.kind).toBe('winner')
     expect(received.map((profile) => profile.name)).toEqual(['worker', 'inspector'])
     for (const profile of [...received, ...authorized]) {
-      expect(profile.prompt?.appendSystemPrompt).toContain('source="harness" id="opencode"')
+      expect(profile.prompt?.appendSystemPrompt).toContain('source="model" id="claude-opus-5-5"')
     }
     expect(authorized.map((profile) => profile.name)).toEqual(['worker', 'inspector'])
     expect(received[1]!.prompt?.systemPrompt).toBe('Inspect.')
