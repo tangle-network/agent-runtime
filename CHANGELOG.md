@@ -1,3 +1,9 @@
+## 0.298.1
+
+The v0.298.0 tag was never published: its release verification failed on the two graph tests this fix repairs. 0.298.1 ships everything listed under 0.298.0.
+
+An analyzes route now matches a worker that has a named profile by that profile name only. A worker's label is free text that defaults to `worker`, so a route over a node named `worker` also matched every other worker that had no label. Before 0.298.0, an agent analyst ran only over workers that had a tool trace, which hid this. Once that requirement was removed, a graph `analyzes` edge over `worker` also launched a paid analyst over its fixer.
+
 ## 0.298.0
 
 A later turn in a retained environment now binds the environment to its retained key from the record `provider.get` returns, and lists the provider's inventory only when that record carries no metadata. Before, every such turn listed the caller's whole inventory. On Tangle Sandbox, whose list route rejects an `offset` above 1,000, an account with more than 2,000 sandboxes got a 400 on that walk, and Runtime ended the run terminally with "refused before it ran". The turn had not run, but the environment's earlier work was lost. On 2026-10-04 this 400 appeared in 17 of 20 archived Discovery runs, 46 times.
