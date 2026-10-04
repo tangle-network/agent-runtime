@@ -277,12 +277,14 @@ export interface Executor<Out> {
    * content ref and settles the receipt, so no executor ever learns about storage.
    */
   harnessTranscript?(): HarnessTranscriptCapture | undefined /**
-   * Resolves once {@link harnessTranscript} holds this execution's final capture. A streaming
-   * executor whose turn an abort ends finishes that turn after the abort has reached the scope: it
-   * stops the harness and copies its session, while the scope settles the node. The scope awaits
-   * this, bounded, before it reads the transcript or tears the executor down, so a deadline or a
-   * cancellation settles with the stopped session rather than the last running copy (2026-10-04
-   * trace proof: a deadline node settled 3 ms after its deadline with `native_snapshot_live`).
+   * Resolves once {@link harnessTranscript} holds a copy of the session taken after this
+   * execution's turn ended. A streaming executor whose turn an abort ends finishes that turn after
+   * the abort has reached the scope: it stops the harness and copies its session, while the scope
+   * settles the node. The scope awaits this, bounded, before it reads the transcript or tears the
+   * executor down, so a deadline or a cancellation settles with the stopped session rather than the
+   * last running copy (2026-10-04 trace proof: a deadline node settled 3 ms after its deadline with
+   * `native_snapshot_live`). The executor may still replace the transcript afterwards with a fuller
+   * record, such as its failure capture of the whole workspace; the scope keeps the one it read.
    * Never rejects. An executor whose transcript is final when `execute` ends omits it.
    */
   harnessTranscriptSettled?(): Promise<void>
