@@ -1,3 +1,0 @@
-type: patch
----
-A later turn in a retained environment now binds the environment to its retained key from the record `provider.get` returns, and lists the provider's inventory only when that record carries no metadata. Before, every such turn listed the caller's whole inventory. On Tangle Sandbox, whose list route rejects an `offset` above 1,000, an account with more than 2,000 sandboxes got a 400 on that walk, and Runtime ended the run terminally with "refused before it ran". The turn had not run, but the environment's earlier work was lost. On 2026-10-04 this 400 appeared in 17 of 20 archived Discovery runs, 46 times.

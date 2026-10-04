@@ -3925,6 +3925,12 @@ One rejected field of an authored analyst definition: which field, and what is w
 
 > `readonly` **blobs**: [`ResultBlobStore`](runtime.md#resultblobstore)
 
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Trusted immutable source refs this manager may read using its granted observe_agent tool.
+
 ##### makeWorkerAgent
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
@@ -4484,6 +4490,33 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 ###### Returns
 
 `Promise`\<`number`\>
+
+##### finishAnalysis()
+
+> **finishAnalysis**(`input`): `Promise`\<`void`\>
+
+Await opted-in manager-end analyst agents inside the original scope and resource limits.
+Their findings remain evidence and never replace the manager's output or enter its ledger.
+
+###### Parameters
+
+###### input
+
+###### status
+
+`"done"` \| `"down"`
+
+###### output?
+
+`unknown`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ##### beginDriverAttempt()
 
