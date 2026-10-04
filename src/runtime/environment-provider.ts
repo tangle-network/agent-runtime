@@ -381,6 +381,11 @@ export interface ProviderLeafOut {
   workspaceSnapshot?: AgentCandidateWorkspaceSnapshotEvidence
   /** Exact provider and supervisor identities bound to the retained bytes. */
   workspaceCapture?: ProviderWorkspaceCaptureReceipt
+  /**
+   * Why workspace retention produced no receipt for this settled turn. The source environment is
+   * preserved as evidence and the turn's result stands.
+   */
+  workspaceCaptureFailure?: string
   /** How many streamed part updates the archive left out because a later frame superseded them. */
   supersededPartUpdates?: number
 }
@@ -1701,10 +1706,23 @@ async function* streamProviderExecutor(
       }),
       signal: linked,
     })
-    const retainedWorkspace = await args.captureWorkspace(environment, outcome)
+    // The turn has settled, so a capture that fails or exceeds its deadline is a fact about the
+    // evidence, never the turn's outcome. Measured 2026-10-03 on Runtime 0.295.4: one capture that
+    // waited past its 1,200,000 ms deadline behind a two-slot queue shared by 34 workers threw an
+    // AbortError, the driver classified it terminal, and two research roots ended with 13 and 0 of
+    // their children settled. The source stays preserved because no receipt exists, the retained
+    // owner reads the receipt-less result as a retention failure, and the turn is not re-run.
+    let retainedWorkspace: AgentCandidateWorkspaceSnapshotEvidence | undefined
+    let workspaceCaptureFailure: string | undefined
+    try {
+      retainedWorkspace = await args.captureWorkspace(environment, outcome)
+    } catch (error) {
+      workspaceCaptureFailure = `${errorText(error instanceof Error ? error.message : error)}; source environment preserved`
+    }
     args.onPublishedSnapshot(retainedWorkspace)
     const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...result,
+      ...(workspaceCaptureFailure === undefined ? {} : { workspaceCaptureFailure }),
       ...(retainedWorkspace === undefined
         ? {}
         : {

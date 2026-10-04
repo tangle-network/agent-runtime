@@ -637,14 +637,18 @@ describe('provider executable workspace retention', () => {
       { signal, seams: {} },
     )
 
-    await expect(async () => {
-      for await (const _event of executor.execute('execute', signal)) {
-        // Drain until the capture barrier settles or fails.
-      }
-    }).rejects.toBe(captureFailure)
-    expect(captureFailure.cause).not.toBe(captureFailure)
-    expect(captureFailure.cause).toMatchObject({
-      message: expect.stringContaining('source preserved because execution failed'),
+    for await (const _event of executor.execute('execute', signal)) {
+      // Drain until the capture barrier fails; the settled turn's result stands.
+    }
+    const settled = executor.resultArtifact()
+    expect(settled.out).toMatchObject({
+      content: 'finished',
+      workspaceCaptureFailure: 'portable archive unavailable; source environment preserved',
+    })
+    expect(settled.out).not.toHaveProperty('workspaceSnapshot')
+    expect(settled.teardown).toMatchObject({
+      failed: true,
+      error: expect.stringContaining('workspace retention failed — portable archive unavailable'),
     })
     expect(existsSync(workspace)).toBe(true)
     expect(destroyed).toBe(0)
