@@ -18,6 +18,7 @@ import type { SealedExperiment } from '@tangle-network/agent-eval/experiment'
 import {
   type AgentProfile,
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { registry } from 'zod'
@@ -296,6 +297,9 @@ export interface AnalystRegistry {
 export interface AnalystFindingEvent {
   readonly fromWorker: string
   readonly analyst: string
+  /** Native analyst execution that produced this review, when this is an agent route. */
+  readonly analystWorkerId?: string
+  readonly assignmentId?: string
   /** The analyst's result. ABSENT when the analyst returned `undefined` (no findings); any other
    *  value is canonicalized to finite RFC 8785 JSON at publish (`canonicalFindingEvent`), so
    *  digesting subscribers (the coordination-event id) never throw on analyst-shaped data. */
@@ -369,6 +373,20 @@ export interface AnalyzeOnSettleRoute {
   /** Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
    *  every settled `done` worker. */
   readonly over?: ReadonlyArray<string>
+}
+
+/** Exact analyst assignment recorded before execution. The existing spawn journal retains the
+ * profile and task bytes; these digests bind the review to those bytes and its source evidence. */
+export interface AnalystAssignmentRecord {
+  readonly assignmentId: string
+  readonly kind: string
+  readonly sourceWorker: string
+  readonly sourceTrace: WorkerTraceEvidence
+  readonly sourceOutRef?: string
+  readonly profileDigest: string
+  readonly taskDigest: string
+  readonly directive?: string
+  readonly to?: string
 }
 
 /** One rejected field of an authored analyst definition: which field, and what is wrong with it. */
@@ -729,6 +747,8 @@ export type CoordinationEvent =
    *  run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
    *  owner the durable log stamps beside them. */
   | { readonly type: 'analyst-defined'; readonly analyst: DefinedAnalystRecord }
+  /** Persisted before a native analyst can spend; restored by assignment id after restart. */
+  | { readonly type: 'analyst-assignment'; readonly assignment: AnalystAssignmentRecord }
   /** The manager processed events `await_event` delivered to it. Record-only, and separate from
    *  delivery on purpose: an event delivered to a turn that then FAILED stays unacknowledged, and
    *  the manager's next re-entry names it again instead of losing it with the dead turn. */
@@ -1163,6 +1183,7 @@ export const journalEventKinds = [
   'mail',
   'escalation',
   'analyst-defined',
+  'analyst-assignment',
   'acknowledgement',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
@@ -1858,10 +1879,84 @@ export function createCoordinationToolsForManager(
     )
   }
 
-  // A resumed scope's replayed settlements enter the ledger AT CONSTRUCTION, so `settled()` — and
-  // therefore the finalize that reads it — spans processes exactly as the journal does.
+  interface AnalystRunInFlight {
+    readonly route: Pick<AnalyzeOnSettleRoute, 'kind' | 'to'>
+    readonly sourceWorker: string
+    readonly assignmentId: string
+  }
+  const analystAssignments = new Map<string, AnalystAssignmentRecord>()
+  for (const record of opts.priorJournal ?? []) {
+    if (record.event.type !== 'analyst-assignment') continue
+    const assignment = record.event.assignment
+    const prior = analystAssignments.get(assignment.assignmentId)
+    if (prior && canonicalCandidateDigest(prior) !== canonicalCandidateDigest(assignment)) {
+      throw new Error(`coordination: conflicting analyst assignment '${assignment.assignmentId}'`)
+    }
+    analystAssignments.set(assignment.assignmentId, detachedFrozen(assignment))
+  }
+  const analystRuns = new Map<string, AnalystRunInFlight>()
+  const flushedAnalystRuns = new Set<string>()
+  let analystRunOrdinal = 0
+  for (const assignment of analystAssignments.values()) {
+    const ordinal = Number(/:o(\d+)$/.exec(assignment.assignmentId)?.[1])
+    if (!Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal === Number.MAX_SAFE_INTEGER) {
+      throw new Error(`coordination: invalid analyst assignment '${assignment.assignmentId}'`)
+    }
+    analystRunOrdinal = Math.max(analystRunOrdinal, ordinal + 1)
+  }
+  for (const node of [...(opts.scope.resume?.view.nodes ?? []), ...opts.scope.view.nodes]) {
+    if (node.parent !== opts.scope.view.root || !node.assignmentId?.startsWith('analyst:')) continue
+    const assignment = analystAssignments.get(node.assignmentId)
+    if (!assignment) {
+      throw new Error(
+        `coordination: analyst assignment '${node.assignmentId}' has no durable source record; refusing to treat its review as a worker result`,
+      )
+    }
+    if (
+      node.identity &&
+      (node.identity.profileDigest !== assignment.profileDigest ||
+        node.identity.taskDigest !== assignment.taskDigest)
+    ) {
+      throw new Error(
+        `coordination: analyst assignment '${node.assignmentId}' conflicts with its journaled execution identity`,
+      )
+    }
+    analystRuns.set(node.id, {
+      route: {
+        kind: assignment.kind,
+        ...(assignment.to === undefined ? {} : { to: assignment.to }),
+      },
+      sourceWorker: assignment.sourceWorker,
+      assignmentId: assignment.assignmentId,
+    })
+  }
+  const analystRunFinding = (
+    run: AnalystRunInFlight,
+    settled: Settled<unknown>,
+  ): CoordinationEvent =>
+    detachedFrozen<CoordinationEvent>({
+      type: 'finding',
+      finding: canonicalFindingEvent({
+        fromWorker: run.sourceWorker,
+        analyst: run.route.kind,
+        analystWorkerId: settled.handle.id,
+        assignmentId: run.assignmentId,
+        findings: settled.kind === 'done' ? settled.out : { analystRunFailed: settled.reason },
+      }),
+    })
+
+  // Replayed reviews remain findings. They cannot enter the completion pool or recursively
+  // trigger another analyst, even when the resumed configuration changes its analyst routes.
   const resumedWorkers: SettledWorker[] = []
+  const resumedFindings: CoordinationEvent[] = []
   for (const s of opts.scope.resume?.settled ?? []) {
+    const analyst = analystRuns.get(s.handle.id)
+    if (analyst) {
+      resumedFindings.push(analystRunFinding(analyst, s))
+      analystRuns.delete(s.handle.id)
+      flushedAnalystRuns.add(s.handle.id)
+      continue
+    }
     const worker = projectSettled(s, true)
     resumedWorkers.push(worker)
     ledger.push(worker)
@@ -1878,7 +1973,12 @@ export function createCoordinationToolsForManager(
   // observer acknowledges it. Opted-in high-level callers replay those events at least once. Keep
   // each frozen event object across an in-process retry so EventBus reuses its exact BusRecord.
   const resumeEvents = opts.replaySettlements
-    ? resumedWorkers.map((worker) => detachedFrozen<CoordinationEvent>({ type: 'settled', worker }))
+    ? [
+        ...resumedWorkers.map((worker) =>
+          detachedFrozen<CoordinationEvent>({ type: 'settled', worker }),
+        ),
+        ...resumedFindings,
+      ]
     : []
   let resumeEventIndex = 0
   let readyInFlight: Promise<void> | undefined
@@ -1929,9 +2029,6 @@ export function createCoordinationToolsForManager(
     checkReads.push(entry)
     return entry
   }
-  // An analyst-agent run's settlement becomes its finding and never enters the settled ledger, so
-  // the closure check below needs its own record that the run's settlement was taken.
-  const flushedAnalystRuns = new Set<string>()
   const eventWorker = (event: CoordinationEvent): string | undefined =>
     event.type === 'settled'
       ? event.worker.id
@@ -2050,36 +2147,6 @@ export function createCoordinationToolsForManager(
       }
     | undefined
 
-  // Analyst-AGENT runs in flight (`AnalyzeOnSettleRoute.agent`): worker id → the route that
-  // spawned it + the settled source worker whose evidence it analyzes. A member's settlement is a
-  // FINDING, not a worker settle: it never enters the settled ledger, never feeds the finalizer,
-  // and never re-fires the analyst-on-settle hook — so an analyst cannot cascade onto itself.
-  interface AnalystRunInFlight {
-    readonly route: AnalyzeOnSettleRoute
-    readonly sourceWorker: string
-  }
-  // PROCESS-LOCAL by design: a durable-run RESUME does not repopulate this map, so an
-  // analyst spawn from a PRIOR process settles as an ordinary worker on resume (it re-enters
-  // the settled ledger instead of being intercepted as a finding). Journal-level marking of
-  // analyst assignments is the fix; until then resume + analyst-node graphs do not compose.
-  const analystRuns = new Map<string, AnalystRunInFlight>()
-  let analystRunOrdinal = 0
-
-  /** The `finding` event an analyst-agent settlement becomes: its settle OUTPUT is the findings
-   *  (a failed run publishes the failure as findings — degraded beats vanished). */
-  const analystRunFinding = (
-    run: AnalystRunInFlight,
-    settled: Settled<unknown>,
-  ): CoordinationEvent =>
-    detachedFrozen<CoordinationEvent>({
-      type: 'finding',
-      finding: canonicalFindingEvent({
-        fromWorker: run.sourceWorker,
-        analyst: run.route.kind,
-        findings: settled.kind === 'done' ? settled.out : { analystRunFailed: settled.reason },
-      }),
-    })
-
   /**
    * Spawn one analyst-AGENT run over a settled worker's evidence, through the SAME spawn
    * machinery a driver spawn uses (`scope.spawn` + `makeWorkerAgent`): the analyst's spend
@@ -2111,6 +2178,20 @@ export function createCoordinationToolsForManager(
     ].join('\n\n')
     const assignmentId = `analyst:${route.kind}:o${analystRunOrdinal++}`
     const label = `analyst:${route.kind}`
+    const assignment: AnalystAssignmentRecord = detachedFrozen({
+      assignmentId,
+      kind: route.kind,
+      sourceWorker: worker.id,
+      sourceTrace: worker.trace,
+      ...(worker.outRef === undefined ? {} : { sourceOutRef: worker.outRef }),
+      profileDigest: canonicalAgentProfileDigest(route.agent as AgentProfile),
+      taskDigest: canonicalCandidateDigest(task),
+      ...(route.directive === undefined ? {} : { directive: route.directive }),
+      ...(route.to === undefined ? {} : { to: route.to }),
+    })
+    // Persist before spawn: a crash after admission must not leave an unclassified child.
+    await bus.publish({ type: 'analyst-assignment', assignment }, { queue: false })
+    analystAssignments.set(assignmentId, assignment)
     const context: WorkerSpawnContext = Object.freeze({
       assignmentId,
       parentNodeId: opts.scope.view.root,
@@ -2145,7 +2226,8 @@ export function createCoordinationToolsForManager(
       })
       return
     }
-    analystRuns.set(spawnedId, { route, sourceWorker: worker.id })
+    analystRuns.set(spawnedId, { route, sourceWorker: worker.id, assignmentId })
+    if (route.agent?.name) profileNameByWorker.set(spawnedId, route.agent.name)
     watchWorker(spawnedId)
   }
 
@@ -2655,6 +2737,7 @@ export function createCoordinationToolsForManager(
     if (ev.type === 'escalation') return { type: 'escalation', ...ev.escalation }
     // A definition is record-only for the same reason, and carries no `down` leg either.
     if (ev.type === 'analyst-defined') return { type: 'analyst-defined', ...ev.analyst }
+    if (ev.type === 'analyst-assignment') return { type: 'analyst-assignment', ...ev.assignment }
     // Record-only as well: the manager already holds what it acknowledged.
     if (ev.type === 'acknowledgement') return { type: 'acknowledgement', ...ev.acknowledgement }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project

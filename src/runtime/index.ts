@@ -55,6 +55,7 @@ export {
 // alongside it: the worker-seam type `supervise`/`workerFromBackend` traffic in, so a host authoring
 // its own seam types it from the loop layer rather than the `/mcp` subpath.
 export type {
+  AnalystAssignmentRecord,
   AnalystFindingEvent,
   AnalystKind,
   AnalystLensOutput,
