@@ -847,6 +847,9 @@ export interface WorkerSpawnContext {
    *  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
    *  reads it to admit the analyst node it would refuse as a driver-authored spawn. */
   readonly analyst?: string
+  /** Runtime-authorized immutable evidence for this analyst assignment. Only these refs extend
+   * its existing observe_agent capability; callers never supply them through tool arguments. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   /** The EFFECTIVE continuity mode of this spawn — the spawn tool's per-call argument when given,
    *  else the profile name's declared default ({@link CoordinationToolsOptions.continuityByProfile}),
    *  else `'fresh'`. Absent only from producers that predate continuity — read absence as
@@ -904,6 +907,8 @@ export interface SuperviseProfileEntry {
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
   readonly blobs: ResultBlobStore
+  /** Trusted immutable source refs this manager may read using its granted observe_agent tool. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
   /** Called once when this manager declares completion through `stop` or an accepted submission. */
@@ -1856,7 +1861,7 @@ export function createCoordinationToolsForManager(
     opts.scope.resume?.view.nodes.find((node) => node.id === id)
 
   // Outputs of descendants this manager learned by content address from a team summary.
-  const descendantOutRefs = new Set<string>()
+  const descendantOutRefs = new Set<string>(opts.sourceEvidenceRefs ?? [])
   const projectSettled = (settled: Settled<unknown>, resumed = false): SettledWorker => {
     const node = nodeForWorker(settled.handle.id)
     const assignmentId = settled.handle.assignmentId ?? node?.assignmentId
@@ -2248,6 +2253,7 @@ export function createCoordinationToolsForManager(
     const task = [
       ...(route.directive === undefined || route.directive.length === 0 ? [] : [route.directive]),
       `Complete source envelope: ${sourceEvidenceRef}. Source output: ${worker.outRef ?? '(unavailable)'}.`,
+      'When your profile grants observe_agent, fetch authorized source refs with {outRef}, following outputPage.nextOffset to read all pages. Without that tool or before fetching all pages, coverage is excerpt-only: leave claims requiring omitted evidence unassessed.',
       `Bounded source excerpt (omitted evidence is not inspected): ${safeJsonText(excerpt(safeJsonText(sourceEvidence), 12000))}`,
       `Source tool trace: ${safeJsonText(worker.trace)} (${spanCount} spans).`,
       spansText.length === 0 ? '(no tool spans available)' : safeJsonText(excerpt(spansText, 8000)),
@@ -2290,6 +2296,11 @@ export function createCoordinationToolsForManager(
       task,
       label,
       analyst: route.kind,
+      sourceEvidenceRefs: Object.freeze([
+        sourceEvidenceRef,
+        ...(worker.outRef === undefined ? [] : [worker.outRef]),
+        ...(worker.trace.status === 'available' ? [worker.trace.traceRef] : []),
+      ]),
       // An analyst run is always a brand-new session over settled evidence — never a resume.
       continuity: 'fresh' as const,
     })
@@ -3835,7 +3846,7 @@ export function createCoordinationToolsForManager(
             type: 'string',
             description:
               'Instead of workerId: the content address of a result listed in a settled ' +
-              "worker's `subtree.results`, to read one of its team's outputs in full.",
+              "worker's `subtree.results` or authorized for your analyst assignment, to read it in full.",
           },
           outputPath: {
             type: 'array',
@@ -3865,7 +3876,7 @@ export function createCoordinationToolsForManager(
             return {
               error: 'unknown-result' as const,
               reason:
-                'this outRef was not listed in any subtree summary you received; pass the outRef of an entry in a settled worker’s subtree.results, or observe your own worker by workerId',
+                'this outRef was not authorized as assignment evidence or listed in a subtree summary; pass an authorized source ref, a subtree.results outRef, or observe your own worker by workerId',
             }
           }
           return { outRef, ...(await readWorkerOutput(outRef, outputRead)) }

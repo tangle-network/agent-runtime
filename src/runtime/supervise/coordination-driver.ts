@@ -141,6 +141,8 @@ export interface DriverAgentOptions {
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Trusted source refs for this manager’s existing observe_agent capability. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   /** Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
    *  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
    *  Omit = no online watching. */
@@ -1009,6 +1011,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+        ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
         ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),

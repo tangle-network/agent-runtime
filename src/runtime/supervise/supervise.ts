@@ -3639,6 +3639,9 @@ function superviseInternal(
           },
           ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
           makeWorkerAgent: childFactory,
+          ...(spawnContext.sourceEvidenceRefs
+            ? { sourceEvidenceRefs: spawnContext.sourceEvidenceRefs }
+            : {}),
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
           ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),

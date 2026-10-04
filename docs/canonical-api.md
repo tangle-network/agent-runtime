@@ -576,3 +576,5 @@ Forward this reference to provider capture without replacing the Runtime artifac
 Runtime verifies both identities before accepting captured provenance.
 A pre-harness failure can retain partial evidence with an unknown native session.
 Incomplete required coverage preserves the source environment.
+
+Native analyst assignments retain `sourceEvidenceRef` and pass trusted `sourceEvidenceRefs` to the worker factory. A managed reviewer whose authored profile grants `observe_agent` can read these exact envelope, output, and trace refs through the existing paged `observe_agent({outRef})` reader. Other refs remain denied. Profiles without that grant receive bounded excerpts and must leave claims about omitted evidence unassessed. No tool is added to an authored profile implicitly.

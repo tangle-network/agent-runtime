@@ -427,6 +427,81 @@ describe('terminal native analysis', () => {
     })
   })
 
+  it('lets a native reviewer read full authorized source evidence through the existing paged tool', async () => {
+    const output = { analysis: 'e'.repeat(200000), finalFact: 'retained beyond excerpt' }
+    const profile = {
+      ...offlineProfile('root', 'Research.'),
+      harness: 'opencode',
+      tools: { agent_runtime_coordination_submit_result: true },
+    }
+    let inspected: unknown
+    let pages = 0
+    const result = await supervise(profile, 'task', {
+      budget: { maxIterations: 100, maxTokens: 100000 },
+      perWorker,
+      maxDepth: 3,
+      makeLeafAgent: leafSeam([]),
+      continuation: testContinuation(),
+      deliverable: { check: () => true },
+      analyzeOnSettle: [
+        {
+          ...route,
+          agent: {
+            ...profile,
+            name: 'reviewer',
+            tools: {
+              ...profile.tools,
+              agent_runtime_coordination_observe_agent: true,
+            },
+          },
+        },
+      ],
+      driveHarness: async ({ profile: current, task, coordinationMcpUrl }) => {
+        const call = async (name: string, args: Record<string, unknown>) => {
+          const response = await fetch(coordinationMcpUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tools/call',
+              params: { name, arguments: args },
+            }),
+          })
+          expect(response.ok).toBe(true)
+          const body = await response.json()
+          return JSON.parse(body.result.content[0].text)
+        }
+        if (current.name === 'root') {
+          await call('submit_result', { result: output })
+          return
+        }
+        const sourceRef = /Complete source envelope: ([^. ]+)/.exec(String(task))?.[1]
+        expect(sourceRef).toBeDefined()
+        expect(await call('observe_agent', { outRef: 'unrelated-ref' })).toMatchObject({
+          error: 'unknown-result',
+        })
+        let text = '',
+          offset: number | null = 0
+        do {
+          const page = await call('observe_agent', {
+            outRef: sourceRef,
+            outputOffset: offset,
+            outputLimit: 8000,
+          })
+          text += page.outputPage.text
+          offset = page.outputPage.nextOffset
+          pages += 1
+        } while (offset !== null)
+        inspected = JSON.parse(text).output
+        await call('submit_result', { result: { reviewed: true } })
+      },
+    })
+    expect(pages).toBeGreaterThan(20)
+    expect(inspected).toEqual(output)
+    expect(result).toMatchObject({ kind: 'winner', out: output })
+  })
+
   it('does not recursively auto-review a manager spawned as an analyst', async () => {
     const calls: string[] = []
     const profile = {

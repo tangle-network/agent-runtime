@@ -243,6 +243,8 @@ export async function serveCoordinationMcp(
     analysts?: AnalystRegistry
     /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
     analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+    /** Trusted source refs for this manager’s existing observe_agent capability. */
+    sourceEvidenceRefs?: ReadonlyArray<string>
     /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
     watchWorkers?: WorkerWatchOptions
     /** Idle time after which `observe_agent` reports a worker as stalled. */
@@ -463,6 +465,7 @@ export async function serveCoordinationMcpForManager(
       awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+      ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
       ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),

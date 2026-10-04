@@ -562,6 +562,8 @@ export interface SupervisorAgentDeps {
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Trusted source refs for this manager’s existing observe_agent capability. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
    *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
   readonly watchWorkers?: WorkerWatchOptions
@@ -866,6 +868,7 @@ function buildSupervisorAgent(
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
@@ -1033,6 +1036,7 @@ function buildSupervisorAgent(
           },
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+          ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
           ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
           ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
