@@ -18,9 +18,12 @@ A request to reflect grants no tool, trace access, or model budget. Before launc
 | --- | --- |
 | Analyze a settled child's execution | Eval registry through Runtime `analystsFromRegistry`; explicitly grant the served `list_analysts` and `run_analyst` coordination tools. |
 | Author a new analysis question | `define_analyst`, when the registry was constructed with authoring and an authorized engine resolver. Definitions, model requests, evidence rules, and limits are data retained by Runtime. |
-| Receive analysis automatically | Runtime `analyzeOnSettle` routes. Select matching workers and the recipient; verify its `finding` events reach the director. |
+| Run a native, subscription-backed analysis agent | Runtime `analyzeOnSettle: [{ kind, agent, directive, over?, to? }]` with a complete analyst `AgentProfile`. This uses the existing worker execution path, budget, identity, and finding delivery. |
+| Receive registry analysis automatically | Runtime `analyzeOnSettle` routes naming a configured lens. Select matching workers and the recipient; verify its `finding` events reach the director. |
 | Detect trouble during execution | Runtime `watchWorkers` with a backend that supplies live traces; directors inspect findings and choose interventions. `run_analyst` accepts settled workers only. |
 | Reassess retained runs | Runtime observation/corpus integration with Eval's registry, using the same retained evidence and analyst definitions. |
+
+Choose the analysis route the configured provider can execute. A native analyst profile uses worker execution; registry tools require an actual configured investigation engine. A provider chat client that rejects tool-bearing requests cannot serve a recursive tool-using analyst merely by selecting a model. Keep that capability gap explicit; use the native agent route when appropriate.
 
 Use the actual coordination names exposed by the chosen harness when authoring grants. Inspect the analyst menu: generic failure and efficiency summaries do not assess the commission's scientific claims. Select or author analyses for the particular uncertainty, with access to original artifacts and sources where the question requires them. A trace-only reviewer cannot establish physical validity or field novelty from a researcher's assertion.
 
