@@ -1,3 +1,9 @@
+## 0.297.7
+
+Raise the Knowledge dependency floor for play-scoped memory and QMD source admission. Add a checked consumer example using the existing node tool resolver, with exact profile grants, checkpoint reconstruction, and isolated forks; no new Runtime execution API is introduced.
+
+Require agent-interface 2.19 for source-backed profile guidance that separates operational capabilities from model advice and omits unsupported generic prompt mandates.
+
 ## 0.297.6
 
 A settled provider turn whose workspace retention fails or exceeds `workspaceRetention.timeoutMs` now keeps its result. The result carries `workspaceCaptureFailure` with the reason and no `workspaceSnapshot`, the source environment stays preserved as evidence, and the turn is not re-run. Before, the capture's `AbortError` became the turn's outcome: a worker settled `down`, and a provider-placed root driver classified it terminal and ended the whole run `no-winner`.
