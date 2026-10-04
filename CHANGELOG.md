@@ -1,3 +1,7 @@
+## 0.297.2
+
+Format the corrected MCP Scope fixtures so the native analyst recovery release passes publication verification. Production behavior is unchanged.
+
 ## 0.297.1
 
 Restore release verification for native analyst recovery: MCP-only fixtures now provide the required empty Scope view. Runtime behavior is unchanged.
