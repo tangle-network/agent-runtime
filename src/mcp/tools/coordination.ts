@@ -22,6 +22,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { registry } from 'zod'
+import { contentAddress } from '../../durable/content-address'
 import { type Redactor, resolveRedactor } from '../../redact'
 import type {
   AgentExecutionRef,
@@ -340,6 +341,11 @@ export function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFind
  * (the audit trail), routing adds delivery, never replaces the record.
  */
 export interface AnalyzeOnSettleRoute {
+  /** Analyze this manager's final output and settled-child references before it closes.
+   * Requires an agent route; omitted means each eligible worker settlement. */
+  readonly at?: 'worker' | 'manager-end'
+  /** Worker outcomes admitted to this route. Defaults to done; down includes failed attempts. */
+  readonly statuses?: ReadonlyArray<'done' | 'down'>
   /** The analyst id: a lens id resolved against the `analysts` registry, or — when `agent` is
    *  present — the AGENT analyst's stable identity carried on its finding/steer events (it need
    *  not exist in any registry). */
@@ -381,6 +387,8 @@ export interface AnalystAssignmentRecord {
   readonly assignmentId: string
   readonly kind: string
   readonly sourceWorker: string
+  /** Complete retained source envelope behind the analyst task's bounded excerpt. */
+  readonly sourceEvidenceRef?: string
   readonly sourceTrace: WorkerTraceEvidence
   readonly sourceOutRef?: string
   readonly profileDigest: string
@@ -561,7 +569,22 @@ export function parseAuthoredAnalystDefinition(
 export function normalizeAnalyzeOnSettle(
   entry: string | AnalyzeOnSettleRoute,
 ): AnalyzeOnSettleRoute {
-  return typeof entry === 'string' ? { kind: entry } : entry
+  const route = typeof entry === 'string' ? { kind: entry } : entry
+  if (route.at !== undefined && route.at !== 'worker' && route.at !== 'manager-end') {
+    throw new TypeError('analyzeOnSettle.at must be worker or manager-end')
+  }
+  if (route.at === 'manager-end' && route.agent === undefined) {
+    throw new TypeError('manager-end analysis requires an agent profile')
+  }
+  if (
+    route.statuses !== undefined &&
+    (!Array.isArray(route.statuses) ||
+      route.statuses.length === 0 ||
+      route.statuses.some((status) => status !== 'done' && status !== 'down'))
+  ) {
+    throw new TypeError('analyzeOnSettle.statuses must contain done or down')
+  }
+  return route
 }
 
 /**
@@ -824,6 +847,9 @@ export interface WorkerSpawnContext {
    *  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
    *  reads it to admit the analyst node it would refuse as a driver-authored spawn. */
   readonly analyst?: string
+  /** Runtime-authorized immutable evidence for this analyst assignment. Only these refs extend
+   * its existing observe_agent capability; callers never supply them through tool arguments. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   /** The EFFECTIVE continuity mode of this spawn — the spawn tool's per-call argument when given,
    *  else the profile name's declared default ({@link CoordinationToolsOptions.continuityByProfile}),
    *  else `'fresh'`. Absent only from producers that predate continuity — read absence as
@@ -881,6 +907,8 @@ export interface SuperviseProfileEntry {
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
   readonly blobs: ResultBlobStore
+  /** Trusted immutable source refs this manager may read using its granted observe_agent tool. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
   /** Called once when this manager declares completion through `stop` or an accepted submission. */
@@ -1315,6 +1343,13 @@ export interface CoordinationTools {
    * nobody is left to read a finding, and analysts spend real compute). Returns the count.
    */
   drainResolved(): Promise<number>
+  /** Await opted-in manager-end analyst agents inside the original scope and resource limits.
+   * Their findings remain evidence and never replace the manager's output or enter its ledger. */
+  finishAnalysis(input: {
+    status: 'done' | 'down'
+    output?: unknown
+    reason?: string
+  }): Promise<void>
   /** Mark the start of one driver attempt, so deliveries are attributed to the turn that got them. */
   beginDriverAttempt(attempt: number): void
   /** Mark the end of the current driver attempt. A completed turn acknowledges what it received;
@@ -1826,7 +1861,7 @@ export function createCoordinationToolsForManager(
     opts.scope.resume?.view.nodes.find((node) => node.id === id)
 
   // Outputs of descendants this manager learned by content address from a team summary.
-  const descendantOutRefs = new Set<string>()
+  const descendantOutRefs = new Set<string>(opts.sourceEvidenceRefs ?? [])
   const projectSettled = (settled: Settled<unknown>, resumed = false): SettledWorker => {
     const node = nodeForWorker(settled.handle.id)
     const assignmentId = settled.handle.assignmentId ?? node?.assignmentId
@@ -1884,6 +1919,8 @@ export function createCoordinationToolsForManager(
     readonly sourceWorker: string
     readonly assignmentId: string
   }
+  const analysisRoutes = (opts.analyzeOnSettle ?? []).map(normalizeAnalyzeOnSettle)
+  let finishingAnalysis = false
   const analystAssignments = new Map<string, AnalystAssignmentRecord>()
   for (const record of opts.priorJournal ?? []) {
     if (record.event.type !== 'analyst-assignment') continue
@@ -2171,11 +2208,70 @@ export function createCoordinationToolsForManager(
         spansText = '' // degraded evidence is stated below, never a thrown settle path
       }
     }
+    let output: unknown = null
+    let outputError: string | undefined
+    if (worker.outRef !== undefined) {
+      try {
+        output = await opts.blobs.get(worker.outRef)
+      } catch (error) {
+        outputError = error instanceof Error ? error.message : String(error)
+      }
+    }
+    if (worker.outRef !== undefined && output === undefined && outputError === undefined) {
+      outputError = 'referenced output blob unavailable'
+    }
+    const sourceEvidence = JSON.parse(
+      safeJsonText({
+        worker,
+        output: output ?? null,
+        ...(outputError ? { outputError } : {}),
+        ...(route.at === 'manager-end'
+          ? {
+              managerCheckpoint: {
+                managerId: opts.scope.view.root,
+                nodes: opts.scope.view.nodes
+                  .filter((node) => !node.assignmentId?.startsWith('analyst:'))
+                  .map((node) => ({
+                    id: node.id,
+                    parent: node.parent,
+                    assignmentId: node.assignmentId,
+                    status: node.status,
+                  })),
+                settled: ledger.map(({ resumed: _resumed, ...row }) => row),
+              },
+            }
+          : {}),
+      }),
+    ) as unknown
+    const sourceEvidenceRef = contentAddress(sourceEvidence)
+    await opts.blobs.put(sourceEvidenceRef, sourceEvidence)
+    const excerpt = (text: string, limit: number) => ({
+      text: text.slice(0, limit),
+      totalChars: text.length,
+      omittedChars: Math.max(0, text.length - limit),
+    })
     const task = [
       ...(route.directive === undefined || route.directive.length === 0 ? [] : [route.directive]),
-      `Evidence — settled worker '${worker.id}' tool trace (${spanCount} spans):`,
-      spansText.length === 0 ? '(no tool spans available)' : spansText,
+      `Complete source envelope: ${sourceEvidenceRef}. Source output: ${worker.outRef ?? '(unavailable)'}.`,
+      'When your profile grants observe_agent, fetch authorized source refs with {outRef}, following outputPage.nextOffset to read all pages. Without that tool or before fetching all pages, coverage is excerpt-only: leave claims requiring omitted evidence unassessed.',
+      `Bounded source excerpt (omitted evidence is not inspected): ${safeJsonText(excerpt(safeJsonText(sourceEvidence), 12000))}`,
+      `Source tool trace: ${safeJsonText(worker.trace)} (${spanCount} spans).`,
+      spansText.length === 0 ? '(no tool spans available)' : safeJsonText(excerpt(spansText, 8000)),
     ].join('\n\n')
+    // Reuse an exact durable assignment after a coordinator restart or repeated finalization.
+    // A changed checkpoint is a different investigation and retains its own identity.
+    const taskDigest = canonicalCandidateDigest(task)
+    if (
+      route.at === 'manager-end' &&
+      [...analystAssignments.values()].some(
+        (assignment) =>
+          assignment.sourceWorker === worker.id &&
+          assignment.kind === route.kind &&
+          assignment.taskDigest === taskDigest &&
+          assignment.profileDigest === canonicalAgentProfileDigest(route.agent as AgentProfile),
+      )
+    )
+      return
     const assignmentId = `analyst:${route.kind}:o${analystRunOrdinal++}`
     const label = `analyst:${route.kind}`
     const assignment: AnalystAssignmentRecord = detachedFrozen({
@@ -2183,9 +2279,10 @@ export function createCoordinationToolsForManager(
       kind: route.kind,
       sourceWorker: worker.id,
       sourceTrace: worker.trace,
+      sourceEvidenceRef,
       ...(worker.outRef === undefined ? {} : { sourceOutRef: worker.outRef }),
       profileDigest: canonicalAgentProfileDigest(route.agent as AgentProfile),
-      taskDigest: canonicalCandidateDigest(task),
+      taskDigest,
       ...(route.directive === undefined ? {} : { directive: route.directive }),
       ...(route.to === undefined ? {} : { to: route.to }),
     })
@@ -2199,6 +2296,11 @@ export function createCoordinationToolsForManager(
       task,
       label,
       analyst: route.kind,
+      sourceEvidenceRefs: Object.freeze([
+        sourceEvidenceRef,
+        ...(worker.outRef === undefined ? [] : [worker.outRef]),
+        ...(worker.trace.status === 'available' ? [worker.trace.traceRef] : []),
+      ]),
       // An analyst run is always a brand-new session over settled evidence — never a resume.
       continuity: 'fresh' as const,
     })
@@ -2454,21 +2556,18 @@ export function createCoordinationToolsForManager(
     }
     commitSettled(pending.worker)
     pendingSettlement = undefined
-    if (
-      pending.analyze &&
-      pending.worker.status === 'done' &&
-      pending.worker.trace.status === 'available' &&
-      opts.analyzeOnSettle?.length
-    ) {
-      const routes = opts.analyzeOnSettle.map(normalizeAnalyzeOnSettle)
+    if (pending.analyze && !finishingAnalysis && analysisRoutes.length) {
       const sourceNames = workerRouteNames(pending.worker.id)
-      const applicable = routes.filter(
-        (route) => route.over === undefined || route.over.some((name) => sourceNames.has(name)),
+      const applicable = analysisRoutes.filter(
+        (route) =>
+          route.at !== 'manager-end' &&
+          (route.statuses ?? ['done']).includes(pending.worker.status) &&
+          (route.over === undefined || route.over.some((name) => sourceNames.has(name))),
       )
       // Registry lenses run in-process over the trace store; agent analysts spawn as workers.
       const lensRoutes = applicable.filter((route) => route.agent === undefined)
       const agentRoutes = applicable.filter((route) => route.agent !== undefined)
-      if (lensRoutes.length > 0 && opts.analysts) {
+      if (lensRoutes.length > 0 && opts.analysts && pending.worker.trace.status === 'available') {
         const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
         for (const route of lensRoutes) {
           const findings = await opts.analysts.run(route.kind, trace)
@@ -3290,6 +3389,57 @@ export function createCoordinationToolsForManager(
       })
     return inFlightDrain
   }
+  let managerAnalysis: Promise<void> | undefined
+  const finishAnalysis: CoordinationTools['finishAnalysis'] = (input) => {
+    if (managerAnalysis) return managerAnalysis
+    managerAnalysis = (async () => {
+      const routes = analysisRoutes.filter(
+        (route) =>
+          route.at === 'manager-end' && (route.statuses ?? ['done', 'down']).includes(input.status),
+      )
+      if (routes.length === 0) return
+      finishingAnalysis = true
+      await ready()
+      const outRef = input.output === undefined ? undefined : contentAddress(input.output)
+      if (outRef !== undefined) await opts.blobs.put(outRef, input.output)
+      const worker: SettledWorker = detachedFrozen({
+        id: opts.scope.view.root,
+        status: input.status,
+        trace: { status: 'unavailable', reason: 'trace-source-unavailable' },
+        ...(outRef === undefined ? {} : { outRef }),
+        ...(input.reason === undefined ? {} : { reason: input.reason }),
+      })
+      for (const route of routes) await spawnAnalystRun(route, worker)
+      // The original Scope bounds every review, including deadline and cancellation.
+      // Existing research settlements can arrive first; they are retained without spawning
+      // more reviews. Analyst output never enters the candidate ledger.
+      while (analystRuns.size > 0) {
+        if (!(await ensureDrain())) break
+      }
+    })().catch(async (error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error)
+      try {
+        await bus.publish({
+          type: 'finding',
+          finding: canonicalFindingEvent({
+            fromWorker: opts.scope.view.root,
+            analyst: 'manager-end',
+            findings: { analystRunFailed: detail },
+          }),
+        })
+      } catch (recordError) {
+        // A failed evidence store cannot certify its own receipt. Preserve the research
+        // outcome and surface the unavailable analysis record to the controller log.
+        console.error('Runtime terminal analysis evidence unavailable', {
+          managerId: opts.scope.view.root,
+          analysisError: detail,
+          recordError: recordError instanceof Error ? recordError.message : String(recordError),
+        })
+      }
+    })
+    return managerAnalysis
+  }
+
   // Resolve `{ drained }` if the drain wins, or `undefined` if the bound elapses first. A `<= 0`
   // bound restores the prior unbounded block (no timer): the caller opted out of the fence.
   // A caller whose harness declared its tool-call timeout on the request is held for a fence
@@ -3696,7 +3846,7 @@ export function createCoordinationToolsForManager(
             type: 'string',
             description:
               'Instead of workerId: the content address of a result listed in a settled ' +
-              "worker's `subtree.results`, to read one of its team's outputs in full.",
+              "worker's `subtree.results` or authorized for your analyst assignment, to read it in full.",
           },
           outputPath: {
             type: 'array',
@@ -3726,7 +3876,7 @@ export function createCoordinationToolsForManager(
             return {
               error: 'unknown-result' as const,
               reason:
-                'this outRef was not listed in any subtree summary you received; pass the outRef of an entry in a settled worker’s subtree.results, or observe your own worker by workerId',
+                'this outRef was not authorized as assignment evidence or listed in a subtree summary; pass an authorized source ref, a subtree.results outRef, or observe your own worker by workerId',
             }
           }
           return { outRef, ...(await readWorkerOutput(outRef, outputRead)) }
@@ -4681,6 +4831,7 @@ export function createCoordinationToolsForManager(
     escalations: () => escalations,
     definedAnalysts: () => definedAnalysts,
     drainResolved,
+    finishAnalysis,
     abortWorker,
     beginDriverAttempt: (attempt) => {
       driverAttempt = attempt

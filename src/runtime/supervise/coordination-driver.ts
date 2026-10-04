@@ -141,6 +141,8 @@ export interface DriverAgentOptions {
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Trusted source refs for this manager’s existing observe_agent capability. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   /** Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
    *  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
    *  Omit = no online watching. */
@@ -1009,6 +1011,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+        ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
         ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
@@ -1305,6 +1308,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           }
         : undefined
 
+      const analysisFailed = async (error: unknown): Promise<never> => {
+        await coord.finishAnalysis({
+          status: 'down',
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
       await runBrainLoop({
         chat,
         tools: toolSpecs,
@@ -1390,7 +1400,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             return true
           },
         },
-      })
+      }).catch(analysisFailed)
       // Drain every already-settled child the brain never pulled — a gate-verified delivery must
       // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
       // without awaiting). Non-blocking: live children are the supervisor's to tear down.
@@ -1409,15 +1419,18 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const submitted = coord.submittedResult()
       if (submitted) {
         opts.onAcceptedSubmission?.(submitted.result)
+        await coord.finishAnalysis({ status: 'done', output: submitted.result })
         return submitted.result
       }
-      return runFinalizer(opts.finalizer ?? bestDelivered, {
+      const result = await runFinalizer(opts.finalizer ?? bestDelivered, {
         settled: coord.settled(),
         blobs: opts.blobs,
         tree: runTree(scope),
         budget: scope.budget,
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-      })
+      }).catch(analysisFailed)
+      await coord.finishAnalysis({ status: 'done', output: result })
+      return result
     },
   }
 }
