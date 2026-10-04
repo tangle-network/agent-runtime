@@ -2012,7 +2012,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-19)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-20)
 
 ##### sandboxId?
 
@@ -8352,6 +8352,12 @@ Re-exports [mcpToolsForRuntimeMcp](index.md#mcptoolsforruntimemcp)
 ### mcpToolsForRuntimeMcpSubset
 
 Re-exports [mcpToolsForRuntimeMcpSubset](index.md#mcptoolsforruntimemcpsubset)
+
+***
+
+### AnalystAssignmentRecord
+
+Re-exports [AnalystAssignmentRecord](runtime.md#analystassignmentrecord)
 
 ***
 

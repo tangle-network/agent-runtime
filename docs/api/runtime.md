@@ -1453,7 +1453,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`assignmentId`](#assignmentid-7)
+[`NodeSnapshot`](#nodesnapshot).[`assignmentId`](#assignmentid-9)
 
 ##### identity?
 
@@ -1887,6 +1887,16 @@ A trace-analyst result re-entered as a message on the bus (the `finding` event k
 
 > `readonly` **analyst**: `string`
 
+##### analystWorkerId?
+
+> `readonly` `optional` **analystWorkerId?**: `string`
+
+Native analyst execution that produced this review, when this is an agent route.
+
+##### assignmentId?
+
+> `readonly` `optional` **assignmentId?**: `string`
+
 ##### findings?
 
 > `readonly` `optional` **findings?**: `unknown`
@@ -1958,6 +1968,51 @@ Standing instruction wrapped around the findings on a routed delivery — what t
 
 Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
  every settled `done` worker.
+
+***
+
+### AnalystAssignmentRecord
+
+Exact analyst assignment recorded before execution. The existing spawn journal retains the
+profile and task bytes; these digests bind the review to those bytes and its source evidence.
+
+#### Properties
+
+##### assignmentId
+
+> `readonly` **assignmentId**: `string`
+
+##### kind
+
+> `readonly` **kind**: `string`
+
+##### sourceWorker
+
+> `readonly` **sourceWorker**: `string`
+
+##### sourceTrace
+
+> `readonly` **sourceTrace**: [`WorkerTraceEvidence`](#workertraceevidence)
+
+##### sourceOutRef?
+
+> `readonly` `optional` **sourceOutRef?**: `string`
+
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+##### taskDigest
+
+> `readonly` **taskDigest**: `string`
+
+##### directive?
+
+> `readonly` `optional` **directive?**: `string`
+
+##### to?
+
+> `readonly` `optional` **to?**: `string`
 
 ***
 
@@ -23826,7 +23881,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`assignmentId`](#assignmentid-3)
+[`SupervisorNodeContext`](#supervisornodecontext).[`assignmentId`](#assignmentid-5)
 
 ##### profile
 
@@ -30667,7 +30722,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -30769,6 +30824,14 @@ A manager DEFINED a trace analyst (`define_analyst`). Record-only: the manager a
  result in its tool return, so queueing it would put its own action in its own inbox. It is the
  run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
  owner the durable log stamps beside them.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \}
+
+Persisted before a native analyst can spend; restored by assignment id after restart.
 
 ***
 

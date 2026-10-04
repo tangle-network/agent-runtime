@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.296.0` and `@tangle-network/agent-eval@0.205.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.297.0` and `@tangle-network/agent-eval@0.205.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -449,7 +449,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1061 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1062 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -830,6 +830,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1061 exports.
 | `AgentRunSpec` | interface | Sandbox-SDK-shaped agent specification. |
 | `AgentSpec` | interface | `AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling |
 | `AgentTurnUsage` | interface | Metered usage of one turn, summed over every cost-bearing event the backend |
+| `AnalystAssignmentRecord` | interface | Exact analyst assignment recorded before execution. The existing spawn journal retains the |
 | `AnalystAuthoring` | interface | What `analystsFromRegistry` needs before a manager may define its own lens. |
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
@@ -1543,7 +1544,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 245 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1643,6 +1644,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 | `InMemoryDelegationStore` | class | In-memory `DelegationStore` — suitable for single-process use and tests. |
 | `InMemoryFeedbackStore` | class | In-memory `FeedbackStore` — suitable for single-process use and tests. |
 | `AgentMemorySpec` | interface | The `memory` artifact payload — HOW a profile's memory is stored and served: |
+| `AnalystAssignmentRecord` | interface | Exact analyst assignment recorded before execution. The existing spawn journal retains the |
 | `AnalystDefinitionIssue` | interface | One rejected field of an authored analyst definition: which field, and what is wrong with it. |
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
 | `AnalystKind` | interface | One lens on the menu `list_analysts` shows and `run_analyst` resolves. |

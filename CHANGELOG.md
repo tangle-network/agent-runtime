@@ -1,3 +1,7 @@
+## 0.297.0
+
+Native analyzeOnSettle assignments now retain source evidence, exact profile/task digests and destination in the existing coordination journal. Controller recovery restores the analyst role, keeps reviews outside research completion and prevents recursive reviewer spawning. Finding events identify the analyst execution and assignment. Missing legacy assignment provenance fails explicitly. Canonical profile-authoring and supervise skills now cover research director composition and attributed critique.
+
 ## 0.296.0
 
 Project provider-native transcripts from existing verified workspace archives through the existing transcript receipt.
