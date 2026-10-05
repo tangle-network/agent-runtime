@@ -71,10 +71,15 @@ export interface SupervisorSpanOptions {
   readonly exportConfig?: OtelExportConfig
   /**
    * Trace id (32 hex chars). Pass the caller's own to JOIN an outer trace. Default: derived
-   * deterministically from `runId`, so a resumed run lands in the SAME trace as the process that
-   * started it.
+   * deterministically from `namespace` and `runId`, so a resumed run lands in the SAME trace as the
+   * process that started it while two copies of one run id in different places never share one.
    */
   readonly traceId?: string
+  /**
+   * The run's storage identity. `supervise()` supplies its run namespace: the run context's own,
+   * or a digest of `runDir` and `runId` for a durable run. Absent, the trace derives from `runId`.
+   */
+  readonly namespace?: string
   /** Parent span id (16 hex chars) to hang the run's root span under — an inherited delegation span. */
   readonly parentSpanId?: string
   /** `agent.name` on the root span. Default `'supervisor'`. */
@@ -142,7 +147,7 @@ export function createSupervisorSpanRecorder(
   const ownsExporter = opts.exporter === undefined
 
   const now = opts.now ?? Date.now
-  const traceId = normalizeTraceId(opts.traceId, opts.runId)
+  const traceId = normalizeTraceId(opts.traceId, opts.runId, opts.namespace)
   const rootSpanId = generateSpanId()
   const rootStartMs = now()
   const base: Attrs = {
@@ -540,12 +545,18 @@ function assignBudget(attrs: Attrs, value: unknown): void {
 
 /**
  * A trace id must be 32 hex characters. A caller-supplied one is used verbatim when it already is;
- * anything else (and the default) is DERIVED from the run id by content address — deterministic, so
- * a resumed run rejoins the trace its first process opened rather than forking a new one.
+ * anything else (and the default) is DERIVED by content address — deterministic, so a resumed run
+ * rejoins the trace its first process opened rather than forking a new one. The default covers the
+ * namespace as well as the run id, because run ids repeat across copies of a run.
  */
-function normalizeTraceId(traceId: string | undefined, runId: string): string {
+function normalizeTraceId(
+  traceId: string | undefined,
+  runId: string,
+  namespace: string | undefined,
+): string {
   if (traceId && /^[0-9a-f]{32}$/i.test(traceId)) return traceId.toLowerCase()
-  return contentAddress(traceId ?? runId).slice('sha256:'.length, 'sha256:'.length + 32)
+  const source = traceId ?? (namespace === undefined ? runId : `${namespace}\u0000${runId}`)
+  return contentAddress(source).slice('sha256:'.length, 'sha256:'.length + 32)
 }
 
 function msToNano(ms: number): string {

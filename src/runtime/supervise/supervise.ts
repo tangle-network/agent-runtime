@@ -2231,7 +2231,7 @@ export interface SuperviseOptions {
    * `OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
    * spans are telemetry, never the replay/resume record.
    */
-  readonly otel?: Omit<SupervisorSpanOptions, 'runId' | 'now'>
+  readonly otel?: Omit<SupervisorSpanOptions, 'runId' | 'now' | 'namespace'>
 }
 
 /**
@@ -3961,7 +3961,9 @@ function superviseInternal(
 
     // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
     // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
-    spans = options.otel ? createSupervisorSpanRecorder({ runId, ...options.otel, now }) : undefined
+    spans = options.otel
+      ? createSupervisorSpanRecorder({ runId, namespace: runNamespace, ...options.otel, now })
+      : undefined
     const recorder = spans
     const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks
 

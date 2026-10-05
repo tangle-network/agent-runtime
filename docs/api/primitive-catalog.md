@@ -234,13 +234,14 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 69 exports.
+Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock`, or refuse. |
 | `assertPursuitVersions` | function | Validate a `versions` option before any compute. The same check runs inside `supervisePursuit`; |
 | `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
+| `deliverPursuitObserver` | function | POST one projection. Never throws; the outcome says whether Intelligence accepted it. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
@@ -258,6 +259,7 @@ Import from `@tangle-network/agent-runtime/durable` — 69 exports.
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
 | `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
+| `PURSUIT_OBSERVER_DELIVERY_PATH` | const | The Intelligence route that persists a delivered projection on its run spine. |
 | `REVIEW_DIR` | const | Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
 | `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
@@ -280,6 +282,7 @@ Import from `@tangle-network/agent-runtime/durable` — 69 exports.
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
 | `PursuitNodeTiming` | interface | One node's clock. `wallMs` is `settledAt - startedAt` and is deliberately distinct from the |
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
+| `PursuitObserverDelivery` | interface | Where a pursuit's observer projection is delivered while it runs, so a run started anywhere is |
 | `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
 | `PursuitVersionChain` | interface | The chain as its search ledger records it, returned beside the kept version's result. |
@@ -295,10 +298,11 @@ Import from `@tangle-network/agent-runtime/durable` — 69 exports.
 | `NextPursuitVersion` | type | Build the one change the next version applies to `best.profile`. Its `id` must be non-empty. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
 | `PursuitNodePlacement` | type | Where and how a node's execution was placed, read off its execution-binding receipt. |
+| `PursuitObserverState` | type | The execution state Runtime reports. It never claims the pursuit's semantic success. |
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
 | `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`, `PursuitObserverDeliveryOutcome`.
 
 ### Bounded tool calls for browser and edge runtimes
 

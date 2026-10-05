@@ -1401,7 +1401,7 @@ How the settled-worker ledger becomes the run's output. Default `bestDelivered` 
 
 ##### otel?
 
-> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"`\>
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"` \| `"namespace"`\>
 
 OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
 parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
@@ -2483,7 +2483,7 @@ Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into eve
 
 ##### otel?
 
-> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"`\>
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"` \| `"namespace"`\>
 
 OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
 parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
