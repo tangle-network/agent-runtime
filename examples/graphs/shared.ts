@@ -45,10 +45,24 @@ export interface ScriptedTurn {
   content?: string
   toolCalls?: Array<{ id?: string; name: string; arguments: Record<string, unknown> }>
   /** A turn with no tool call ends the driver's turn, and Runtime wakes it with what happened.
-   *  With `until`, the turn repeats on every wake until the conversation contains this text (the
-   *  event the next scripted decision depends on), so a script cannot move on early when its
-   *  events arrive in different wakes. End a script with a turn that has no `until`. */
-  until?: string
+   *  With `until`, the turn repeats on every wake until the condition holds (the events the next
+   *  scripted decision depends on), so a script cannot move on early when those events arrive in
+   *  different wakes. End a script with a turn that has no `until`. */
+  until?: (messages: ReadonlyArray<Record<string, unknown>>) => boolean
+}
+
+/** A `ScriptedTurn.until` condition: the conversation holds at least `count` occurrences of
+ *  `text`. A wake lists each event as one JSON line, so `text` names the event. */
+export function seen(
+  text: string,
+  count = 1,
+): (messages: ReadonlyArray<Record<string, unknown>>) => boolean {
+  return (messages) =>
+    messages.reduce(
+      (found, message) =>
+        found + (typeof message.content === 'string' ? message.content.split(text).length - 1 : 0),
+      0,
+    ) >= count
 }
 
 /** Build a scripted `ToolLoopChat` brain from a fixed turn sequence: converts parsed tool args to
@@ -57,12 +71,8 @@ export interface ScriptedTurn {
 export function scriptedBrain(turns: ScriptedTurn[]): ToolLoopChat {
   let i = 0
   return async (messages) => {
-    const arrived = (text: string): boolean =>
-      messages.some(
-        (message) => typeof message.content === 'string' && message.content.includes(text),
-      )
-    // A waiting turn whose event has arrived is over: the next scripted turn answers it.
-    while (turns[i]?.until !== undefined && arrived(turns[i]?.until ?? '')) i += 1
+    // A waiting turn whose events have arrived is over: the next scripted turn answers them.
+    while (turns[i]?.until?.(messages) === true) i += 1
     const turn = turns[Math.min(i, turns.length - 1)] ?? {}
     if (turn.until === undefined) i += 1
     return {

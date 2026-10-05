@@ -201,10 +201,10 @@ class OpenCodeSupervisorAgent(OpenCodeRouterAgent):
             supervised_instruction = (
                 "You are the supervisor. You have an MCP server named \"coordination\" with "
                 "tools including spawn_worker(profile, task), observe_agent(workerId), "
-                "await_event(), and stop(). A spawned worker runs a full coding agent INSIDE "
+                "and stop(). A spawned worker runs a full coding agent INSIDE "
                 "THIS SAME container and its file changes persist here, so you may delegate "
                 "concrete sub-tasks (e.g. \"install perl and 7z\", \"crack the hash with john\") "
-                "to workers via spawn_worker, then observe_agent/await_event for their results. "
+                "to workers via spawn_worker, then observe_agent and check the container for their results. "
                 "Delegate independent or heavy sub-tasks to workers when useful; do the rest "
                 "yourself. Complete the task fully.\n\n"
                 f"TASK:\n{instruction}"

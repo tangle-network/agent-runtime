@@ -61,14 +61,20 @@ export function resolveWakePolicy(policy: ManagerWakePolicy | undefined): Resolv
   }
 }
 
-/** The deadline warning, at most once per manager: the epoch ms to wake at, or undefined. */
+/**
+ * The deadline warning, at most once per manager: the epoch ms to wake at, or undefined. The lead
+ * is at most a quarter of the manager's whole time to its deadline, so a short run is not warned
+ * the moment it starts.
+ */
 export function deadlineWarningAt(
   deadlineMs: number,
   policy: ResolvedWakePolicy,
   warned: boolean,
+  startedAtMs: number,
 ): number | undefined {
   if (warned || deadlineMs <= 0 || policy.deadlineWarningMs <= 0) return undefined
-  return deadlineMs - policy.deadlineWarningMs
+  const lead = Math.min(policy.deadlineWarningMs, Math.max(0, deadlineMs - startedAtMs) / 4)
+  return deadlineMs - lead
 }
 
 /** The input a woken manager's next turn receives. */
@@ -80,13 +86,14 @@ export function composeWakeInput(
     readonly now: number
   },
 ): string {
-  const minutes = (ms: number) => Math.max(0, Math.round(ms / 60_000))
+  const span = (ms: number) =>
+    ms < 120_000 ? `${Math.max(0, Math.round(ms / 1_000))} s` : `${Math.round(ms / 60_000)} min`
   const lines: string[] = []
-  const waited = `You waited ${minutes(wake.idleMs)} min without spending a turn.`
+  const waited = `You waited ${span(wake.idleMs)} without spending a turn.`
   if (wake.reason === 'deadline') {
     const left = context.deadlineMs === undefined ? undefined : context.deadlineMs - context.now
     lines.push(
-      `The run's deadline is ${left === undefined ? 'near' : `in ${minutes(left)} min`}. ${waited}`,
+      `The run's deadline is ${left === undefined ? 'near' : `in ${span(left)}`}. ${waited}`,
       context.tools?.includes('submit_result') === true
         ? 'Submit your best result now with submit_result. A run that reaches its deadline without an accepted result delivers nothing.'
         : 'Finish now with your best result.',

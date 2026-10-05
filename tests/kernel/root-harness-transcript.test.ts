@@ -217,7 +217,6 @@ describe("the root's harness session", () => {
   it('reaches the result as a persisted receipt, like a child settlement', async () => {
     const { result, blobs } = await rootRun('root-transcript', { readable: true })
 
-    console.log('RHT', JSON.stringify(result.rootHarnessTranscript))
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'done' } })
     expect(result.rootHarnessTranscript).toMatchObject({
       status: 'available',

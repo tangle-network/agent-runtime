@@ -115,18 +115,17 @@ const supervisorProfile: AgentProfile = {
   name: 'provider-supervisor',
   tools: {
     agent_runtime_coordination_spawn_worker: true,
-    agent_runtime_coordination_await_event: true,
   },
   harness: 'cli-base',
   model: { provider: 'offline', default: 'offline-test-model', metadata: { maxTurns: 8 } },
   prompt: {
     systemPrompt:
-      'You are a supervisor. Spawn both workers, await each with await_event, and stop once they deliver.',
+      'You are a supervisor. Spawn both workers, end your turn to wait for them, and stop once they deliver.',
   },
 }
 
 /**
- * A scripted driver: spawn two workers, await them, stop. It ignores the folded messages and
+ * A scripted driver: spawn two workers, end its turn to wait for them, stop. It ignores the folded messages and
  * advances a fixed plan, so it exercises the wiring without inference. A real supervisor READS
  * the worker output and composes its next move from it — see `examples/driver-loop/`.
  */
@@ -158,8 +157,7 @@ function scriptedBrain(): ToolLoopChat {
         },
       ],
     },
-    { content: 'awaiting the worker', toolCalls: [{ name: 'await_event', arguments: {} }] },
-    { content: 'awaiting the other worker', toolCalls: [{ name: 'await_event', arguments: {} }] },
+    { content: 'waiting for the workers', toolCalls: [] },
     { content: 'workers delivered', toolCalls: [] },
   ]
   let index = 0

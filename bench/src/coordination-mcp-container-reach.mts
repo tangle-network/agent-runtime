@@ -118,7 +118,7 @@ async function main(): Promise<void> {
         blobs,
         makeWorkerAgent: () => trivialWorker('w'),
         perWorker: { maxIterations: 4, maxTokens: 2000 },
-        toolNames: ['spawn_worker', 'await_event'],
+        toolNames: ['spawn_worker', 'observe_agent'],
         host: HOST_BIND,
       })
       // Docker containers reach the host through the bridge gateway, not the 0.0.0.0 bind URL.
@@ -141,10 +141,10 @@ async function main(): Promise<void> {
 
         const toolNames = (parsed.result?.tools ?? []).map((t) => t.name)
         const hasSpawn = toolNames.includes('spawn_worker')
-        const hasAwait = toolNames.includes('await_event')
+        const hasObserve = toolNames.includes('observe_agent')
         console.error(`[probe] tools advertised: ${toolNames.join(', ')}`)
-        console.error(`[probe] spawn_worker present = ${hasSpawn}; await_event present = ${hasAwait}`)
-        ok = hasSpawn && hasAwait
+        console.error(`[probe] spawn_worker present = ${hasSpawn}; observe_agent present = ${hasObserve}`)
+        ok = hasSpawn && hasObserve
 
         if (ok) {
           console.error('')
@@ -170,7 +170,7 @@ async function main(): Promise<void> {
 
   console.error(
     ok
-      ? 'CONTAINER-REACHABLE: docker tools/list returned spawn_worker and await_event.'
+      ? 'CONTAINER-REACHABLE: docker tools/list returned spawn_worker and observe_agent.'
       : 'NOT reachable from container; see output above.',
   )
   process.exit(ok ? 0 : 1)

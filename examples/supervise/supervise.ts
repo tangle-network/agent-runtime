@@ -30,11 +30,10 @@ async function main(): Promise<void> {
   const result = await supervise(
     {
       name: 'supervisor',
-      harness: 'cli-base', // in-process router brain (the supervisor calls spawn/await/stop)
+      harness: 'cli-base', // in-process router brain (the supervisor calls spawn/stop and ends its turn to wait)
       model: { provider: 'tangle-router', default: model },
       tools: {
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
         agent_runtime_coordination_stop: true,
       },
       prompt: {
@@ -43,8 +42,8 @@ async function main(): Promise<void> {
           '1. Call spawn_worker with a worker profile and the task.\n' +
           `   The worker profile must use harness="cli-base", model.provider="tangle-router", ` +
           `model.default=${JSON.stringify(model)}, and model.metadata.maxTurns=6.\n` +
-          '2. Then call await_event and WAIT for that worker to settle — never call stop while a ' +
-          'worker is still running, or its result is lost.\n' +
+          '2. Then end your turn and WAIT for that worker: Runtime wakes you when it settles. Never ' +
+          'call stop while a worker is still running, or its result is lost.\n' +
           '3. Once a worker has delivered, call stop.\n' +
           "Do not answer the task yourself — only a spawned worker's output counts as delivered.",
       },

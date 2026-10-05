@@ -33,11 +33,11 @@ export const demoGoal = `Produce the exact line "${expectedAnswer}".`
 
 /**
  * A SCRIPTED `ToolLoopChat`: spawn `workerCount` workers (the "drive N workers"
- * shape), await each settlement, then stop. This is the exact contract
+ * shape), end its turn to wait for the settlements, then stop. This is the exact contract
  * Runtime derives from the supervisor's exact profile in production; here the chat
  * function returns a fixed turn sequence so the brain runs with no inference (the
  * same offline seam the driver's own unit tests use). The brain still REASONS the
- * loop (spawn → await → stop) against a live `Scope`; only the driver-LLM call is mocked.
+ * loop (spawn → wait → stop) against a live `Scope`; only the driver-LLM call is mocked.
  *
  * The canonical loop parses `toolCalls[].arguments` itself, so each scripted call
  * serializes its arguments to a JSON string; the loop JSON.parses them before
@@ -72,12 +72,7 @@ export function scriptedSupervisorChat(
       ],
     })
   }
-  for (let i = 0; i < workerCount; i += 1) {
-    turns.push({
-      content: 'awaiting a worker',
-      toolCalls: [{ name: 'await_event', arguments: {} }],
-    })
-  }
+  turns.push({ content: 'waiting for the workers', toolCalls: [] })
   turns.push({ content: 'all workers delivered — stopping', toolCalls: [] })
 
   let i = 0
@@ -178,7 +173,7 @@ export function resolveSupervisorBrain(
     },
     prompt: {
       systemPrompt:
-        'You are a supervisor. Spawn one worker session, await it with await_event, and stop once ' +
+        'You are a supervisor. Spawn one worker session, end your turn to wait for it, and stop once ' +
         'it delivered. The worker profile must use the exact execution identity supplied in the task.',
     },
   }

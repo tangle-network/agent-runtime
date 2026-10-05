@@ -70,7 +70,7 @@ describe('retained external supervisor recovery', () => {
             result: async () => ({
               ...(await session.result()),
               usage:
-                sessionOptions?.controlRef?.executionId === turns[0]?.executionId
+                sessionOptions?.controlRef?.executionId === turns[1]?.executionId
                   ? { inputTokens: 5, outputTokens: 5 }
                   : { inputTokens: 0, outputTokens: 0 },
             }),
@@ -329,9 +329,8 @@ describe('retained external supervisor recovery', () => {
       expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(expectedTurns)
       expect(destroys).toBe(cleanup === 'keep' ? 0 : 1)
       const events = (await context.journal.loadTree('reprompt-root')) ?? []
-      // The submission on the last turn ends the manager at once, so that turn reports no result.
       expect(events.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        expectedTurns - 1,
+        expectedTurns,
       )
       expect(events.filter((event) => event.kind === 'environment-teardown')).toMatchObject(
         cleanup === 'keep'
@@ -346,7 +345,7 @@ describe('retained external supervisor recovery', () => {
             runtime: provider.name,
             status: 'done',
             environments: [{ provider: provider.name, environmentId: turns[0]?.environmentId }],
-            detail: expect.stringContaining('retained owner environment cleanup was not confirmed'),
+            detail: 'retained owner environment cleanup was not confirmed',
           },
         ])
         expect(events.filter((event) => event.kind === 'teardown-unconfirmed')).toHaveLength(1)
@@ -355,6 +354,117 @@ describe('retained external supervisor recovery', () => {
       }
     },
   )
+
+  it('asks the provider to cancel the retained turn as soon as the manager is accepted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-stop-'))
+    directories.push(directory)
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
+    const context = createFileRunContext(join(directory, 'run'))
+    const cancellations: Array<{ operationId: string; reason?: string }> = []
+    let endTurn!: () => void
+    const turnRunning = new Promise<void>((resolve) => {
+      endTurn = resolve
+    })
+    // The harness keeps running until it is cancelled. The timer only keeps a missing cancellation
+    // from hanging the test.
+    const failsafe = setTimeout(endTurn, 5_000)
+    let port = 0
+    let token = ''
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      session: (id, sessionOptions) => {
+        const session = environment.session!(id, sessionOptions)
+        return {
+          ...session,
+          result: async () => {
+            await turnRunning
+            return { ...(await session.result()), usage: { inputTokens: 3, outputTokens: 2 } }
+          },
+          cancelRun: async (request, options) => {
+            cancellations.push({ operationId: request.operationId, reason: request.reason })
+            endTurn()
+            return session.cancelRun!(request, options)
+          },
+        }
+      },
+      dispatch: async (turn) => {
+        const dispatched = await environment.dispatch(turn)
+        const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'submit',
+            method: 'tools/call',
+            params: { name: 'submit_result', arguments: { result: { answer: 'accepted' } } },
+          }),
+        })
+        if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+        return dispatched
+      },
+    })
+    const base = durableRetainedProvider(join(directory, 'provider.json'))
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      capabilities: async () => ({
+        ...(await base.capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => {
+        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+        return wrap(await base.create(input))
+      },
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+
+    try {
+      const result = await supervise(
+        testAgentProfile('root', {
+          harness: 'opencode',
+          tools: runtimeToolDeclarations('submit_result'),
+        }),
+        'Produce the answer.',
+        {
+          runDir: join(directory, 'run'),
+          journal: context.journal,
+          blobs: context.blobs,
+          runId: 'stop-cancels-retained-turn',
+          backend: { backend: 'provider', provider },
+          driverBackend: { backend: 'provider', provider },
+          budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
+          driverRetry: { enabled: false },
+          retainedAtSettlement: 'release',
+          deliverable: {
+            describe: 'the accepted answer',
+            check: (value) => (value as { answer?: unknown }).answer === 'accepted',
+          },
+          continuation: testContinuation(),
+          coordination: {
+            authentication: {
+              signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+            },
+            publicUrl: (address) => {
+              port = address.port
+              proxy.forwardTo(port)
+              return `${proxy.url}/manager`
+            },
+          },
+        },
+      )
+      expect(result).toMatchObject({ kind: 'winner', out: { answer: 'accepted' } })
+      // The acceptance ended the turn: one cancellation, asked for by the manager's stop, and the
+      // run's own signal was never the thing that ended it.
+      expect(cancellations).toHaveLength(1)
+      expect(cancellations[0]?.operationId).toMatch(/^manager-stop:/u)
+    } finally {
+      clearTimeout(failsafe)
+      endTurn()
+    }
+  })
 
   it('keeps historical unclassified root usage incomplete when replay supplies a cache split', async () => {
     const fixture = await setup('metered', false, false, true)

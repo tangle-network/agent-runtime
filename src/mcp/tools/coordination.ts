@@ -2119,6 +2119,10 @@ export function createCoordinationToolsForManager(
   // Lead messages accepted and still being published. The sender is told `delivered` the moment the
   // message is accepted, so a manager that ends its turn then must still count it as open work.
   let leadPublishing = 0
+  // Set once a wake has told this manager the deadline is near. From then on open work does not
+  // refuse its `submit_result` or `stop`: the notice asks for the best result now, and the workers
+  // still running are torn down when the manager settles.
+  let deadlineNoticeDelivered = false
   let driverAttempt: number | undefined
   let journalReadTo = 0
   let lastRejection: { readonly at: number; readonly reason: string } | undefined
@@ -3350,10 +3354,13 @@ export function createCoordinationToolsForManager(
         !flushedAnalystRuns.has(node.id),
     )
     // Questions have their own closure rule (`questionPolicy`), so only results count here.
-    const queued = bus.queued(['settled', 'finding'])
+    // A steer the manager has not read is as unread as a result. The outcome of its own earlier tool
+    // call is not work it commissioned, so it never refuses a submission.
+    const queued = bus.queued(['settled', 'finding', 'lead-message'])
     return { running, unqueued, queued }
   }
   const openWorkRefusal = (verb: 'submit_result' | 'stop'): Record<string, unknown> | undefined => {
+    if (deadlineNoticeDelivered) return undefined
     const { running, unqueued, queued } = openWork()
     if (running.length === 0 && unqueued.length === 0 && queued.length === 0) return undefined
     const parts: string[] = []
@@ -3578,7 +3585,7 @@ export function createCoordinationToolsForManager(
       })
       const elapsed = new Promise<void>((resolve) => {
         timer = setTimeout(resolve, Math.max(0, wakeAt - Date.now()))
-        if (typeof timer?.unref === 'function') timer.unref()
+        // Held: a manager waiting for its workers is live work, and must keep its process up.
       })
       const aborted = new Promise<void>((resolve) => {
         onAbort = () => resolve()
@@ -3625,8 +3632,7 @@ export function createCoordinationToolsForManager(
       ) {
         await Promise.race([
           new Promise<void>((resolve) => {
-            const debounce = setTimeout(resolve, input.debounceMs)
-            if (typeof debounce?.unref === 'function') debounce.unref()
+            setTimeout(resolve, input.debounceMs)
           }),
           aborted,
         ])
@@ -3648,13 +3654,15 @@ export function createCoordinationToolsForManager(
       events.push({ ...projectEvent(next.event), eventSeq: next.seq })
     }
     if (events.length === 0 && !outsideWake && !hasOpenWork()) return undefined
+    const reason =
+      events.length > 0 || outsideWake
+        ? 'events'
+        : Date.now() >= deadlineAt
+          ? 'deadline'
+          : 'heartbeat'
+    if (reason === 'deadline') deadlineNoticeDelivered = true
     return detachedFrozen<ManagerWake>({
-      reason:
-        events.length > 0 || outsideWake
-          ? 'events'
-          : Date.now() >= deadlineAt
-            ? 'deadline'
-            : 'heartbeat',
+      reason,
       events,
       live: liveSnapshot(),
       freeSlots: freeWorkerSlots(),

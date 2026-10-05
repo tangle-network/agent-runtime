@@ -1175,7 +1175,7 @@ describe('coordination tools', () => {
     expect(analystCalls).toBe(0)
   })
 
-  it('a wake delivers a blocking question ahead of a non-blocking one (urgency→priority)', async () => {
+  it("a manager's own ask_parent is recorded with its urgency, and never wakes it", async () => {
     const { scope } = mockScope({ children: false })
     const tb = createCoordinationTools({
       scope,
@@ -1183,7 +1183,6 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    // A low-urgency question is raised first...
     await tool(tb, 'ask_parent').handler({
       from: 'w-a',
       level: 'worker',
@@ -1191,7 +1190,6 @@ describe('coordination tools', () => {
       reason: 'minor',
       urgency: 'continue-without',
     })
-    // ...then a blocking one. It arrives later but must be delivered FIRST.
     await tool(tb, 'ask_parent').handler({
       from: 'w-b',
       level: 'driver',
@@ -1199,23 +1197,18 @@ describe('coordination tools', () => {
       reason: 'blocks the run',
       urgency: 'blocks-run',
     })
-    const wake = await tb.awaitWake(wakeInput())
-    expect(wake?.events).toMatchObject([
-      { type: 'question', question: { question: 'which API version?', urgency: 'blocks-run' } },
-      { type: 'question', question: { question: 'nice-to-know?' } },
-    ])
+    // The question already went up through the escalation; its answer arrives as a lead message.
+    // Nothing else is open, so ending the turn is not a wait.
+    expect(tb.hasOpenWork()).toBe(false)
+    expect(await tb.awaitWake(wakeInput())).toBeUndefined()
     // The history audit trail recorded both, in publish order, with the bumped priority stamped.
-    // Each ask_parent also writes its escalation outcome (record-only, priority 0).
     expect(
       tb
         .history()
         .filter((r) => r.event.type === 'question')
         .map((r) => r.priority),
     ).toEqual([0, 20])
-    expect(tb.stats()).toMatchObject({
-      pulled: 2,
-      byKind: { question: 2, escalation: 2 },
-    })
+    expect(tb.stats()).toMatchObject({ byKind: { question: 2, escalation: 2 } })
   })
 
   it('steer_agent routes down + records in history but is never delivered back', async () => {
@@ -1599,19 +1592,10 @@ describe('coordination tools', () => {
 })
 
 describe('a manager that ends its turn waits in Runtime and is woken', () => {
-  const askParent = (tb: ReturnType<typeof createCoordinationTools>, question: string) =>
-    tool(tb, 'ask_parent').handler({
-      from: 'w-a',
-      level: 'worker',
-      question,
-      reason: 'needed',
-      urgency: 'continue-without',
-    })
-
   it('coalesces events that land within the debounce while other workers still run', async () => {
     const { scope } = mockScope()
     const settlements = [settledWorker('w7')]
-    // `onEvent` raises a question 20 ms after the settlement lands: inside the 150 ms debounce.
+    // `onEvent` sends a steer 20 ms after the settlement lands: inside the 150 ms debounce.
     let tb!: ReturnType<typeof createCoordinationTools>
     tb = createCoordinationTools({
       scope: {
@@ -1625,13 +1609,15 @@ describe('a manager that ends its turn waits in Runtime and is woken', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
       onEvent: (event) => {
-        if (event.type === 'settled') setTimeout(() => void askParent(tb, 'still there?'), 20)
+        if (event.type === 'settled') {
+          setTimeout(() => void tb.receiveLeadMessage({ steer: 'still there?' }), 20)
+        }
       },
     })
     const wake = await tb.awaitWake(wakeInput({ debounceMs: 150 }))
-    expect(wake?.events.map((event) => event.type)).toEqual(['settled', 'question'])
+    expect(wake?.events.map((event) => event.type)).toEqual(['settled', 'lead-message'])
     expect(wake?.idleMs).toBeGreaterThanOrEqual(140)
-    // Everything rode one wake: the question is not left for another.
+    // Everything rode one wake: the steer is not left for another.
     expect(tb.stats()).toMatchObject({ pulled: 2 })
   })
 

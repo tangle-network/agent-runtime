@@ -661,20 +661,26 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
         },
       ],
     })
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(graph, {
       runId: 'g3',
       analysts,
       makeLeafAgent: leafSeam([], { withTrace: true }),
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
-          ],
-        },
-        { content: 'waiting for the workers' },
-        { content: 'waiting for the workers' },
-        { content: 'done' },
-      ]),
+      brain: scriptedBrain(
+        [
+          {
+            toolCalls: [
+              {
+                name: 'spawn_worker',
+                arguments: { profile: { name: 'worker' }, task: 'build it' },
+              },
+            ],
+          },
+          { content: 'waiting for the workers' },
+          { content: 'done' },
+        ],
+        seen,
+      ),
     })
     expect(res.result.kind).toBe('winner')
     const analyzed = res.ledger.filter((row) => row.kind === 'analyzes')
@@ -683,6 +689,13 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     expect(analyzed[0]!.outcome).toBe('delivered')
     expect(analyzed[0]!.workerId).toBe('g3:s0')
     expect(analyzed[0]!.bytes).toBeGreaterThan(0)
+    // The finding reached the driver in a wake.
+    const wokenWith = (seen.at(-1) ?? [])
+      .filter((message) => message.role === 'user')
+      .map((message) => String(message.content))
+      .join('\n')
+    expect(wokenWith).toContain('"type":"finding"')
+    expect(wokenWith).toContain('"analyst":"convergence"')
   })
 
   it('routes findings to a live WORKER as an authorized steer — the destination is generalized', async () => {
@@ -751,7 +764,6 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
           ],
         },
         { content: 'waiting for the workers' },
-        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -798,7 +810,6 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { content: 'waiting for the workers' },
         { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
@@ -862,7 +873,6 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
           ],
         },
         { content: 'waiting for the workers' },
-        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -911,7 +921,6 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { content: 'waiting for the workers' },
         { content: 'waiting for the workers' },
         { content: 'give up' },
       ]),
@@ -1024,8 +1033,8 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { content: 'waiting for the workers' }, // settled(worker)
-        { content: 'waiting for the workers' }, // finding(inspector output)
+        // Woken with settled(worker), then the finding the inspector's output becomes.
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1105,7 +1114,6 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
             ],
           },
           { content: 'waiting for the workers' },
-          { content: 'waiting for the workers' },
           { content: 'done' },
         ]),
       },
@@ -1140,9 +1148,9 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
             { name: 'spawn_worker', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
           ],
         },
-        { content: 'waiting for the workers' }, // settled(worker)
-        { content: 'waiting for the workers' }, // finding (audit copy)
-        { content: 'waiting for the workers' }, // settled(fixer, released by the steer)
+        // Woken with settled(worker), the finding (audit copy), and settled(fixer, released by
+        // the steer).
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1787,7 +1795,7 @@ describe('runGraph — driverBackend selects WHERE the root harness brain runs',
 })
 
 describe('runGraph — the caller-brain seam on the production surface (#694 option A)', () => {
-  /** The driver's three decisions, identical across both arms: spawn, end the turn to wait for the settle, stop. */
+  /** The driver's three decisions, identical across both arms: spawn, end the turn to wait, stop. */
   const driverDecisions = [
     {
       toolCalls: [
@@ -2241,7 +2249,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
         runId: 'gc7',
         analysts,
         makeLeafAgent: leafSeam([], { withTrace: true }),
-        brain: scriptedBrain([spawnTurn('build it'), waitTurn, waitTurn, { content: 'done' }]),
+        brain: scriptedBrain([spawnTurn('build it'), waitTurn, { content: 'done' }]),
       },
     )
     expect(res.result.kind).toBe('winner')

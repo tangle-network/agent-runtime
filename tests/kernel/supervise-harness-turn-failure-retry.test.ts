@@ -355,14 +355,14 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
     expect(fixture.dispatches()).toBe(2)
 
-    // The failed turn stays on the record: its own input, its failed outcome, and its spend. The
-    // turn that submitted ends at once, so it reports no result.
+    // The failed turn stays on the record: its own input, its failed outcome, and its spend.
     expect(ofKind(events, 'execution-input')).toHaveLength(2)
     const results = ofKind(events, 'execution-result')
-    expect(results).toHaveLength(1)
+    expect(results).toHaveLength(2)
     expect(results[0]?.outcome).toEqual({ success: false, error: UPSTREAM_TIMEOUT })
-    // The failed turn's 5 tokens are metered once: the retry does not re-charge it.
-    expect(meteredTokens(events)).toBe(5)
+    expect(results[1]?.outcome).toBeUndefined()
+    // 5 tokens per turn, each metered once: the retry does not re-charge the failed turn.
+    expect(meteredTokens(events)).toBe(10)
 
     expect(attempts).toHaveLength(2)
     expect(attempts[0]).toMatchObject({ attempt: 1, classification: 'transient', retryInMs: 0 })
@@ -412,7 +412,7 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(pauses[0]?.cause).toContain('provider_quota_exhausted')
     expect(pauses.every((pause) => pause.pauseMs === 0 && pause.attemptMs >= 0)).toBe(true)
     // The refused turns keep their own records and the environment is reused throughout.
-    expect(ofKind(events, 'execution-result')).toHaveLength(4)
+    expect(ofKind(events, 'execution-result')).toHaveLength(5)
     expect(fixture.creates()).toBe(1)
     expect(fixture.destroys()).toBe(1)
   })
@@ -511,12 +511,11 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
     expect(attempts.some((attempt) => attempt.stop === 'terminal-error')).toBe(false)
     expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
-    // Each turn ran once: the failed capture neither re-ran a turn nor replaced its result, and the
-    // root's continuation was the only reason for the second turn. That turn submitted, so it ended
-    // at once and kept no result.
+    // Each turn ran once and kept its own result: the failed capture neither re-ran a turn nor
+    // replaced its result, and the root's continuation was the only reason for the second turn.
     expect(fixture.dispatches()).toBe(2)
     const results = ofKind(events, 'execution-result')
-    expect(results).toHaveLength(1)
+    expect(results).toHaveLength(2)
     for (const settled of results) {
       const out = (await fixture.blobs.get(settled.outRef)) as Record<string, unknown>
       expect(out.workspaceCaptureFailure).toMatch(
@@ -544,8 +543,9 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(fixture.dispatches()).toBe(1)
     expect(attempts).toMatchObject([{ attempt: 1, stop: 'completed', contract: 'met' }])
     expect(attempts[0]?.classification).toBeUndefined()
-    // The turn ended at once on the acceptance, before its failure was read.
-    expect(ofKind(events, 'execution-result')).toHaveLength(0)
+    expect(ofKind(events, 'execution-result').map((event) => event.outcome)).toEqual([
+      { success: false, error: UPSTREAM_TIMEOUT },
+    ])
   })
 
   it('replays a committed failed turn as a failure on resume and runs a new turn', async () => {
@@ -587,8 +587,9 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(events, 'execution-input')).toHaveLength(2)
     expect(ofKind(events, 'execution-result').map((event) => event.outcome)).toEqual([
       { success: false, error: UPSTREAM_TIMEOUT },
+      undefined,
     ])
-    expect(meteredTokens(events)).toBe(5)
+    expect(meteredTokens(events)).toBe(10)
     expect(fixture.creates()).toBe(1)
     expect(new Set(fixture.environmentIds).size).toBe(1)
     expect(fixture.destroys()).toBe(1)

@@ -362,7 +362,7 @@ function liveBackends(
       bearer: env.bearer,
       router: { routerBaseUrl: env.routerUrl, routerKey: env.routerKey },
       shotPassed,
-      // Spawns + awaits + a final reply for the shot budget, with slack for re-reads; the
+      // Spawns + wake turns + a final reply for the shot budget, with slack for re-reads; the
       // delegates cap, not this, owns the shot budget.
       maxTurns: cell.shots * 6 + 6,
     },

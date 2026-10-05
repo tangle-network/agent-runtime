@@ -1147,6 +1147,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       let progressStopReason: string | undefined
       const wakePolicy = resolveWakePolicy(opts.wake)
       let deadlineWarned = false
+      const startedAt = now()
 
       // Meter the driver's OWN inference on EVERY turn into the conserved pool — the largest single
       // token consumer in the loop, and what makes maxTurns=0 genuinely bounded (a thinking driver
@@ -1393,7 +1394,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             }
             if (inbox.pending() === 0 && !coord.hasOpenWork()) return undefined
             const deadlineMs = scope.budget.deadlineMs
-            const warnAt = deadlineWarningAt(deadlineMs, wakePolicy, deadlineWarned)
+            const warnAt = deadlineWarningAt(deadlineMs, wakePolicy, deadlineWarned, startedAt)
             // Operator controls are applied at turn boundaries; while the driver waits between turns,
             // apply them on a short clock instead. A cancelled worker then settles into the wake, and
             // a root steer reaches the inbox, which ends the wait.

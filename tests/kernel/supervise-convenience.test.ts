@@ -1748,3 +1748,124 @@ describe('supervise — peerMail threads from options through both supervisor ar
     )
   })
 })
+
+describe('supervise — the deadline warning wakes a waiting manager', () => {
+  async function coordinationCall(
+    url: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: name,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    })
+    const reply = (await response.json()) as {
+      result?: { structuredContent?: Record<string, unknown> }
+    }
+    return reply.result?.structuredContent ?? {}
+  }
+
+  /** A worker that never settles on its own: it ends only when its signal aborts. */
+  function neverSettlingLeaf(): Agent<unknown, unknown> {
+    const executor: Executor<unknown> = {
+      runtime: 'router',
+      execute(_task, signal): Promise<ExecutorResult<unknown>> {
+        return new Promise((_, reject) => {
+          const abort = (): void => reject(new Error('aborted'))
+          if (signal.aborted) abort()
+          else signal.addEventListener('abort', abort, { once: true })
+        })
+      },
+      teardown: () => Promise.resolve({ destroyed: true }),
+      resultArtifact: () => {
+        throw new Error('an aborted worker has no terminal artifact')
+      },
+    }
+    const spec: AgentSpec = { profile: workerProfile('stuck'), harness: null, executor }
+    return { name: 'stuck', act: async () => undefined, executorSpec: spec } as Agent<
+      unknown,
+      unknown
+    > & { executorSpec: AgentSpec }
+  }
+
+  // Small numbers: a 1 200 ms deadline warned 800 ms ahead is woken about 400 ms in. The heartbeat
+  // is far past the deadline, so nothing but the warning can wake the manager.
+  const timing = { deadlineMs: 1_200, deadlineWarningMs: 800 }
+
+  async function runStuckManager(
+    secondTurn: (url: string, notice: string) => Promise<void>,
+  ): Promise<{
+    result: Awaited<ReturnType<typeof supervise>>
+    turns: Array<{ at: number; task: string }>
+    refusedBeforeWarning: Record<string, unknown>
+  }> {
+    const started = Date.now()
+    const turns: Array<{ at: number; task: string }> = []
+    let refusedBeforeWarning: Record<string, unknown> = {}
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+      }),
+      'solve it',
+      {
+        budget: { maxIterations: 10, maxTokens: 10_000, deadlineMs: timing.deadlineMs },
+        makeWorkerAgent: neverSettlingLeaf,
+        wake: { deadlineWarningMs: timing.deadlineWarningMs, heartbeatMs: 60_000 },
+        deliverable: { check: () => true },
+        continuation: testContinuation({ deadline: 1 }),
+        driveHarness: async ({ coordinationMcpUrl, task }) => {
+          turns.push({ at: Date.now() - started, task: String(task) })
+          if (turns.length === 1) {
+            await coordinationCall(coordinationMcpUrl, 'spawn_worker', {
+              profile: workerProfile('stuck'),
+              task: 'never finishes',
+            })
+            // A submission with the worker still running is refused until the warning arrives.
+            refusedBeforeWarning = await coordinationCall(coordinationMcpUrl, 'submit_result', {
+              result: { answer: 'early' },
+            })
+            return
+          }
+          await secondTurn(coordinationMcpUrl, String(task))
+        },
+      },
+    )
+    return { result, turns, refusedBeforeWarning }
+  }
+
+  it('wakes the manager once with the deadline notice, and not again before the deadline', async () => {
+    const { result, turns, refusedBeforeWarning } = await runStuckManager(async () => {
+      // Ends its turn with the worker still running, and is not woken a second time.
+    })
+
+    expect(refusedBeforeWarning).toMatchObject({ accepted: false, error: 'open-work' })
+    expect(turns).toHaveLength(2)
+    // deadline - deadlineWarningMs after the start, with room for a loaded host.
+    expect(turns[1]?.at).toBeGreaterThanOrEqual(300)
+    expect(turns[1]?.at).toBeLessThan(timing.deadlineMs - 100)
+    expect(turns[1]?.task).toContain("The run's deadline is in")
+    expect(turns[1]?.task).toContain('Submit your best result now with submit_result')
+    expect(turns[1]?.task).toMatch(/Workers running: .+:s0\./u)
+    expect(result.kind).toBe('no-winner')
+  })
+
+  it('accepts a submission with the worker still running once the deadline notice was delivered', async () => {
+    const { result, turns } = await runStuckManager(async (url) => {
+      const accepted = await coordinationCall(url, 'submit_result', {
+        result: { answer: 'best so far' },
+      })
+      expect(accepted).toMatchObject({ accepted: true })
+    })
+
+    expect(turns).toHaveLength(2)
+    expect(turns[1]?.task).toContain("The run's deadline is in")
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'best so far' } })
+  })
+})

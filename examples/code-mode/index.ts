@@ -5,8 +5,8 @@
  * program's calls cross the same kernel path the MCP verbs cross — pool, authorization, journal.
  *
  * The run below is offline and $0 (a scripted brain plays the model): it searches the API, then
- * ONE `execute` call spawns two workers, awaits both settlements, and returns the merged result —
- * work that costs five tool-calling round trips (spawn, spawn, await, await, compose) in one
+ * ONE `execute` call spawns two workers, waits in code for both settlements, and returns the merged
+ * result — work that costs five tool-calling round trips (spawn, spawn, wait, wait, compose) in one
  * model turn. The printed journal excerpt is the proof that the program's spawns were real
  * kernel spawns, not a bypass.
  *
@@ -22,7 +22,7 @@ import {
 import { superviseWithTestBrain } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
 import { scriptedBrain } from '../../tests/kernel/scripted-brain'
-import { testAgentProfile } from '../../tests/kernel/test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from '../../tests/kernel/test-agent-profile'
 
 /** Offline leaf: each worker settles `{ built: <name> }`, valid, through the kernel's own gate. */
 function leafSeam(profileRaw: unknown): Agent<unknown, unknown> {
@@ -56,22 +56,28 @@ function leafSeam(profileRaw: unknown): Agent<unknown, unknown> {
 /** What a competent model writes after reading `search`'s answer. */
 const PROGRAM = `
   const parts = ['api-server', 'web-client']
+  const ids = []
   for (const name of parts) {
-    await api.spawn_worker({ profile: { name }, task: 'build the ' + name })
+    ids.push((await api.spawn_worker({ profile: { name }, task: 'build the ' + name })).workerId)
   }
-  const settled = []
-  while (settled.length < parts.length) {
-    const event = await api.await_event({})
-    if (event && event.type === 'settled') settled.push(event)
+  const settled = new Set()
+  while (settled.size < ids.length) {
+    const waiting = ids.filter((id) => !settled.has(id))
+    for (const id of (await api.await_settlement({ workerIds: waiting })).settled) settled.add(id)
   }
-  console.log('all', settled.length, 'workers settled')
-  return { built: parts, statuses: settled.map((event) => event.status) }
+  console.log('all', settled.size, 'workers settled')
+  const statuses = []
+  for (const workerId of ids) statuses.push((await api.observe_agent({ workerId })).status)
+  return { built: parts, statuses }
 `
 
 export async function main(): Promise<void> {
   const journal = new InMemorySpawnJournal()
   const result = await superviseWithTestBrain(
-    testAgentProfile('coordinator', { harness: 'cli-base' }),
+    testAgentProfile('coordinator', {
+      harness: 'cli-base',
+      tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'search', 'execute'),
+    }),
     'build both halves of the service',
     {
       budget: { maxIterations: 30, maxTokens: 100_000 },

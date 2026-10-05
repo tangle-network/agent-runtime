@@ -25,7 +25,7 @@ import {
   promptHandle,
 } from '@tangle-network/agent-runtime/kernel'
 import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
-import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain, seen } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -117,7 +117,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
       // implementer settles → critique steers the live reviewer → reviewer settles → verdict
       // finding reaches the driver. Four bus events: settled, finding, settled, finding. The
       // driver ends its turn and is woken with them; it re-briefs once the verdict is in.
-      { content: 'waiting for the verdict', until: '"analyst":"verdict"' },
+      { content: 'waiting for the verdict', until: seen('"analyst":"verdict"') },
       // The re-brief: the driver folds the verdict into a second implementer spawn.
       {
         toolCalls: [
@@ -130,7 +130,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
           },
         ],
       },
-      { content: 'waiting for the revision', until: '"settled":"collab:s2"' },
+      { content: 'waiting for the revision', until: seen('"settled":"collab:s2"') },
       { content: 'done' },
     ]),
   }

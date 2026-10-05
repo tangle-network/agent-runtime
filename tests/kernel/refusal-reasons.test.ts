@@ -235,14 +235,9 @@ describe('ask_parent at the top of the chain', () => {
         (entry) => (entry.event as Extract<CoordinationEvent, { type: 'escalation' }>).escalation,
       )
     expect(journaled).toEqual([record])
-    // The question reaches the manager in its wake; its own escalation record does not.
-    const wake = await tb.awaitWake({
-      signal: new AbortController().signal,
-      heartbeatMs: 60_000,
-      debounceMs: 0,
-    })
-    expect(wake?.events).toMatchObject([{ type: 'question' }])
-    expect(wake?.events).toHaveLength(1)
+    // The question is on the record. It never wakes the manager that asked it (coordination.test.ts
+    // proves that): it already went up, and an answer would come back as a lead message.
+    expect(tb.history().filter((entry) => entry.event.type === 'question')).toHaveLength(1)
   })
 
   it('the seam reaches a manager through the coordination MCP mount, not only the direct toolbox', async () => {

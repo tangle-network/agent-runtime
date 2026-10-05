@@ -108,8 +108,8 @@ describe('durable root steering through the existing operation protocol', () => 
     const received: unknown[] = []
     const tasks: string[] = []
     const driveHarness: DriveHarness = Object.assign(
-      async ({ task }: { task: string }) => {
-        tasks.push(task)
+      async ({ task }: { task: unknown }) => {
+        tasks.push(String(task))
         if (tasks.length === 1) await acknowledged(runDir, 'delayed-root')
       },
       {
@@ -149,9 +149,9 @@ describe('durable root steering through the existing operation protocol', () => 
     const received: unknown[] = []
     const tasks: string[] = []
     const driveHarness: DriveHarness = Object.assign(
-      async ({ task }: { task: string }) => {
+      async ({ task }: { task: unknown }) => {
         attempt += 1
-        tasks.push(task)
+        tasks.push(String(task))
         if (attempt === 1) throw new Error('transient startup failure')
       },
       {
@@ -201,7 +201,7 @@ describe('durable root steering through the existing operation protocol', () => 
       {
         ...options,
         driveHarness: async ({ task }) => {
-          tasks.push(task)
+          tasks.push(String(task))
           if (tasks.length > 1) return
           write('queued-root')
           await acknowledged(runDir, 'queued-root')

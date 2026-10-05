@@ -1309,6 +1309,7 @@ function buildSupervisorAgent(
         }
         const loopRecords: DriverAttemptRecord[] = []
         let deadlineWarned = false
+        const managerStartedAt = Date.now()
         let environmentReplacements = 0
         let workspaceRestores = 0
         const describe = deps.deliverable?.describe
@@ -1418,7 +1419,12 @@ function buildSupervisorAgent(
                 controls.hasOpenWork(),
               wake: async (nextAttempt) => {
                 const deadlineMs = scope.budget.deadlineMs
-                const warnAt = deadlineWarningAt(deadlineMs, wakePolicy, deadlineWarned)
+                const warnAt = deadlineWarningAt(
+                  deadlineMs,
+                  wakePolicy,
+                  deadlineWarned,
+                  managerStartedAt,
+                )
                 waitingOn = scope.view.nodes.filter(
                   (node) => node.id !== scope.view.root && isLiveNodeStatus(node.status),
                 ).length

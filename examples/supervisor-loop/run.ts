@@ -4,7 +4,7 @@
  * the local cli-bridge (real harness CLIs on your machine) or inside real Tangle sandbox boxes; flipping
  * `WORKER_BACKEND` is the whole difference.
  *
- * The supervisor brain must emit `spawn_worker`/`await_event` via OpenAI tool-calling, so it runs on the
+ * The supervisor brain must emit `spawn_worker` via OpenAI tool-calling and end its turn to wait, so it runs on the
  * router (real, tool-calling) when a key is present, else the scripted $0/offline brain — NOT cli-bridge
  * (full-agent harnesses don't return raw tool_calls). All of that is in `shared.ts`.
  *

@@ -88,7 +88,10 @@ describe('supervise delivers parent questions, not just callback configuration',
         coordinationMcpHeaders,
       }) => {
         // The root's second drive is its wake with the specialist's result; it has nothing to ask.
-        if (profile.name === 'root' && (rootDrives += 1) > 1) return
+        if (profile.name === 'root') {
+          rootDrives += 1
+          if (rootDrives > 1) return
+        }
         const response = await call(
           coordinationMcpUrl,
           coordinationMcpHeaders,

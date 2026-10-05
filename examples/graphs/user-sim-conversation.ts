@@ -26,7 +26,7 @@ import {
   runGraph,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
-import { offlineProfile, printLedger, scriptedBrain } from './shared'
+import { offlineProfile, printLedger, scriptedBrain, seen } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
@@ -129,7 +129,7 @@ export function userSimConversation(): {
             { name: 'spawn_worker', arguments: { profile: { name: 'product-agent' }, task: turn } },
           ],
         },
-        { content: 'waiting for the reply', until: `"settled":"usim:s${index}"` },
+        { content: 'waiting for the reply', until: seen(`"settled":"usim:s${index}"`) },
       ]),
       { content: 'done' },
     ]),
