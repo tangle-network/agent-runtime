@@ -1,3 +1,45 @@
+## 0.299.2
+
+A node that a deadline or a cancellation ends now settles with the session copy taken after its harness stopped, not its last running copy; that copy is retaken every second, for at most 15 s, until the provider records how the stopped execution ended. The provider executor takes that copy before the failure capture of the whole workspace and exposes `Executor.harnessTranscriptSettled()`, which the scope awaits (bounded at 6 minutes) before it reads the transcript or tears the executor down; retry, completion-gate and driver wrappers forward it.
+
+## 0.299.1
+
+A provider turn that its deadline or an explicit cancellation ends now stops its retained harness, and waits within the 30 s stop bound for the provider to report it stopped, before the failure capture and the final native copy read its session. Those captures previously read a session the harness was still writing, so they were stored partial, and the harness kept running until teardown.
+
+## 0.299.0
+
+A native session copy no longer waits for an admitted reference or a session id. A one-shot provider turn on the default turn mapping has neither, so every copy of such a turn was skipped and an aborted turn could still lose its whole session. The provider attributes the copy by the execution id it recorded when the stream started. A copy that finds no session file, because it was taken before attribution or after the box stopped answering, never replaces a copy that holds the session.
+
+A provider workspace retention port can now offer `captureNative`, which copies only the harness's native session, without the workspace, into the same durable artifacts. Runtime calls it every `nativeIntervalMs` (default 2 minutes) while a turn runs and once more on every way the turn ends. That includes an abort or deadline that closes the stream with `return()`, which never reached the workspace capture, and the release of a retained execution this process never streamed. The executor's harness transcript is then the latest stored copy, unless a settled workspace capture holds the session. Native captures use their own queue and timeout (`nativeTimeoutMs`, default 2 minutes), so they never wait behind workspace captures. On Runtime 0.297.x, 85 of the 116 Discovery nodes that ran kept no session at all: 38 were stopped by the driver, 30 were cascaded by a failed root, and 14 timed out in the capture queue. A workspace over its byte bound also no longer costs the session.
+
+`createS3PrivateCasStore` now returns an `S3PrivateCasStore`. It adds `putPointer` and `getPointer` for small named objects at `<prefix><namespace>/<name>` beside the content-addressed tree, so a reader can find the latest of a changing set of objects, such as a run's controller manifest, with one GET.
+
+## 0.298.1
+
+The v0.298.0 tag was never published: its release verification failed on the two graph tests this fix repairs. 0.298.1 ships everything listed under 0.298.0.
+
+An analyzes route now matches a worker that has a named profile by that profile name only. A worker's label is free text that defaults to `worker`, so a route over a node named `worker` also matched every other worker that had no label. Before 0.298.0, an agent analyst ran only over workers that had a tool trace, which hid this. Once that requirement was removed, a graph `analyzes` edge over `worker` also launched a paid analyst over its fixer.
+
+## 0.298.0
+
+A later turn in a retained environment now binds the environment to its retained key from the record `provider.get` returns, and lists the provider's inventory only when that record carries no metadata. Before, every such turn listed the caller's whole inventory. On Tangle Sandbox, whose list route rejects an `offset` above 1,000, an account with more than 2,000 sandboxes got a 400 on that walk, and Runtime ended the run terminally with "refused before it ran". The turn had not run, but the environment's earlier work was lost. On 2026-10-04 this 400 appeared in 17 of 20 archived Discovery runs, 46 times.
+
+Extend native analyst routes to assess failed workers and manager completion. Agent analysts receive original output and trace coverage even when tool spans are missing. Manager-end reviews use the same scope, resource limits and durable assignments; both driver paths retain final findings before closing, and replay reuses an identical completed review without new analyst spend. Managed reviewer profiles that grant `observe_agent` can fetch their full assignment evidence through its existing bounded artifact reader; profiles without the grant explicitly retain partial coverage.
+
+## 0.297.7
+
+Raise the Knowledge dependency floor for play-scoped memory and QMD source admission. Add a checked consumer example using the existing node tool resolver, with exact profile grants, checkpoint reconstruction, and isolated forks; no new Runtime execution API is introduced.
+
+Require agent-interface 2.19 for source-backed profile guidance that separates operational capabilities from model advice and omits unsupported generic prompt mandates.
+
+## 0.297.6
+
+A settled provider turn whose workspace retention fails or exceeds `workspaceRetention.timeoutMs` now keeps its result. The result carries `workspaceCaptureFailure` with the reason and no `workspaceSnapshot`, the source environment stays preserved as evidence, and the turn is not re-run. Before, the capture's `AbortError` became the turn's outcome: a worker settled `down`, and a provider-placed root driver classified it terminal and ended the whole run `no-winner`.
+
+## 0.297.5
+
+A native-harness stop that the provider accepts asynchronously now ends on any terminal run status. A `stopped` status counts as the stop, as `cancelled` does; before, the stop waited out its deadline and recorded the harness as possibly still running.
+
 ## 0.297.4
 
 A native-harness stop at release now has one deadline that covers reconnecting to the provider, so an unanswered provider can no longer hold up settlement. When the provider accepts a stop asynchronously (`cancel_requested`), Runtime waits within that deadline until the run's status shows it ended, and records the stop as unconfirmed if it does not.

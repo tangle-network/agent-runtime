@@ -223,6 +223,7 @@ export {
   type ProviderAsSandboxClientOptions,
   type ProviderExecutorOptions,
   type ProviderLeafOut,
+  type ProviderNativeCapturePhase,
   type ProviderPlacement,
   type ProviderPromptOptions,
   type ProviderWorkspaceAttemptProvenance,
@@ -518,7 +519,11 @@ export {
   type TerminalDecision,
 } from './run-loop'
 // The product-facing backend selector: one call picks sandbox/bridge/router transport.
-export { createS3PrivateCasStore, type S3PrivateCasStoreOptions } from './s3-private-cas-store'
+export {
+  createS3PrivateCasStore,
+  type S3PrivateCasStore,
+  type S3PrivateCasStoreOptions,
+} from './s3-private-cas-store'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,

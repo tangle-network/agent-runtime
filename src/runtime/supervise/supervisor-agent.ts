@@ -476,6 +476,8 @@ export interface DriveHarness {
   resultArtifact?(): ExecutorResult<unknown> | undefined
   /** Optional capture of the manager's own harness session from its newest attempt. */
   harnessTranscript?(): HarnessTranscriptCapture | undefined
+  /** Resolves once {@link harnessTranscript} is final (`Executor.harnessTranscriptSettled`). */
+  harnessTranscriptSettled?(): Promise<void>
 }
 
 /** Trusted manager identity available before its external harness starts. A product uses this to
@@ -562,6 +564,8 @@ export interface SupervisorAgentDeps {
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+  /** Trusted source refs for this manager’s existing observe_agent capability. */
+  readonly sourceEvidenceRefs?: ReadonlyArray<string>
   /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
    *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
   readonly watchWorkers?: WorkerWatchOptions
@@ -866,6 +870,7 @@ function buildSupervisorAgent(
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
@@ -950,6 +955,12 @@ function buildSupervisorAgent(
     ...(driveHarness.harnessTranscript
       ? { harnessTranscript: () => driveHarness.harnessTranscript?.() }
       : {}),
+    ...(driveHarness.harnessTranscriptSettled
+      ? {
+          harnessTranscriptSettled: () =>
+            driveHarness.harnessTranscriptSettled?.() ?? Promise.resolve(),
+        }
+      : {}),
     async act(task, scope) {
       const context = nodeContextSeed
         ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
@@ -1033,6 +1044,7 @@ function buildSupervisorAgent(
           },
           ...(deps.analysts ? { analysts: deps.analysts } : {}),
           ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+          ...(deps.sourceEvidenceRefs ? { sourceEvidenceRefs: deps.sourceEvidenceRefs } : {}),
           ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
           ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
           ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
@@ -1386,11 +1398,18 @@ function buildSupervisorAgent(
         const submitted = mcp.submittedResult()
         if (submitted) {
           deps.onAcceptedSubmission?.(submitted.result)
+          await mcp.finishAnalysis({ status: 'done', output: submitted.result })
           return submitted.result
         }
-        if (contractDeclared) return candidate
+        if (contractDeclared) {
+          await mcp.finishAnalysis({ status: 'done', output: candidate })
+          return candidate
+        }
         const finalized = await finalize()
-        if (finalized !== undefined) return finalized
+        if (finalized !== undefined) {
+          await mcp.finishAnalysis({ status: 'done', output: finalized })
+          return finalized
+        }
         // An unchecked child may do direct work. Retain its terminal report through the same
         // settlement and blob reader, without treating native completion as quality acceptance.
         const harnessResult = driveHarness.resultArtifact?.()
@@ -1401,9 +1420,17 @@ function buildSupervisorAgent(
           harnessResult.out !== null
         ) {
           deps.onUnassessedOutput?.(harnessResult.out)
+          await mcp.finishAnalysis({ status: 'done', output: harnessResult.out })
           return harnessResult.out
         }
+        await mcp.finishAnalysis({ status: 'done' })
         return undefined
+      } catch (error) {
+        await mcp.finishAnalysis({
+          status: 'down',
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        throw error
       } finally {
         coordinationLifetime.abort(new Error('supervisor manager stopped'))
         try {

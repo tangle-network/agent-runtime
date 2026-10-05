@@ -261,6 +261,9 @@ export function retryPreSpawnRefusals<Out>(
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
     ...(inner.harnessTranscript ? { harnessTranscript: () => inner.harnessTranscript?.() } : {}),
+    ...(inner.harnessTranscriptSettled
+      ? { harnessTranscriptSettled: () => inner.harnessTranscriptSettled?.() ?? Promise.resolve() }
+      : {}),
     ...(inner.interactive === undefined
       ? {}
       : { interactive: (): WorkerInteractiveSession => interactiveOf(inner) }),

@@ -76,7 +76,8 @@ function liveProcessProvider(
   stateFile: string,
   options: {
     /** Acknowledge a stop as `cancel_requested` and end the process this much later, the way an
-     *  asynchronous provider does. Its status reads `running` until the process exits. */
+     *  asynchronous provider does. Its status reads `running` until the process exits, then
+     *  `stopped`. */
     readonly asynchronousStopMs?: number
   } = {},
 ) {
@@ -127,8 +128,12 @@ function liveProcessProvider(
           await exited(harness())
           return { ...(await session.result()), success: false, error: 'native process stopped' }
         },
-        status: async (statusOptions) =>
-          running(harness()) ? 'running' : await session.status(statusOptions),
+        status: async (statusOptions) => {
+          if (running(harness())) return 'running'
+          return options.asynchronousStopMs === undefined
+            ? await session.status(statusOptions)
+            : 'stopped'
+        },
         cancelRun: async (request, cancelOptions) => {
           const child = harness()
           if (options.asynchronousStopMs !== undefined) {
@@ -455,4 +460,240 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     expect(stop).toMatchObject({ executionId: 'execution-1', effect: 'unknown' })
     expect(describeRetainedNativeStops([stop])).toContain('stop unconfirmed')
   })
+})
+
+describe('a deadline that ends a retained turn', () => {
+  // 2026-10-04 trace proof: the capture of a turn its deadline ended read a session the harness was
+  // still writing, so it was stored partial, and the harness ran on until teardown.
+  it('stops the harness before any capture of its session', async () => {
+    const directory = await scratch('native-stop-deadline-')
+    const runDir = join(directory, 'run')
+    const live = liveProcessProvider(join(directory, 'provider.json'))
+    const retention = evidenceRetention()
+    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
+    const captures: Array<{ scope: string; harnessRunning: boolean }> = []
+    const workspaceRetention: ProviderWorkspaceRetentionPort = {
+      ...retention,
+      async capture(context) {
+        captures.push({ scope: 'workspace', harnessRunning: harnessRunning() })
+        return await retention.capture(context)
+      },
+      async captureNative(context) {
+        captures.push({ scope: `native:${context.phase}`, harnessRunning: harnessRunning() })
+        return await retention.capture(context)
+      },
+    }
+    const profile = testAgentProfile('leaf')
+    const worker: Agent<unknown, string> = Object.assign(
+      { name: 'leaf', act: async () => 'unused' },
+      {
+        executorSpec: {
+          profile,
+          harness: profile.harness,
+          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
+        },
+      },
+    )
+    let ended: unknown
+    await createSupervisor<string, string>().run(
+      {
+        name: 'root',
+        act: async (_task, scope) => {
+          scope.spawn(worker, 'child task', {
+            key: 'work',
+            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
+          })
+          ended = await scope.next()
+          return 'root done'
+        },
+      },
+      'root-task',
+      {
+        ...createFileRunContext(runDir),
+        runId: 'root',
+        budget: { maxIterations: 10, maxTokens: 100 },
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+          taskDigest: canonicalCandidateDigest('root-task'),
+        },
+        retainedAtSettlement: 'release',
+      },
+    )
+    expect(ended).toMatchObject({ kind: 'down', reason: 'child deadline exceeded' })
+    expect(captures.length).toBeGreaterThan(0)
+    expect(captures.filter((capture) => capture.harnessRunning)).toEqual([])
+  })
+  // 2026-10-04 trace proof, second round: the scope settled the deadline node 3 ms after its
+  // deadline with the transcript of its last running copy (`native_snapshot_live`), and the
+  // harness stopped about 0.1 s later, so the node's settled record stayed partial.
+  it('settles the node only after the stopped harness session is copied', async () => {
+    const directory = await scratch('native-stop-deadline-settle-')
+    const runDir = join(directory, 'run')
+    const live = liveProcessProvider(join(directory, 'provider.json'))
+    const retention = evidenceRetention()
+    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
+    const copies: Array<{ scope: string; harnessRunning: boolean; storedAt: number }> = []
+    const workspaceRetention: ProviderWorkspaceRetentionPort = {
+      ...retention,
+      // A copy taken while the turn runs, so the node holds a running copy when its deadline hits.
+      nativeIntervalMs: 200,
+      async capture(context) {
+        const running = harnessRunning()
+        const snapshot = await retention.capture(context)
+        copies.push({ scope: 'workspace', harnessRunning: running, storedAt: Date.now() })
+        return snapshot
+      },
+      async captureNative(context) {
+        const running = harnessRunning()
+        const snapshot = await retention.capture(context)
+        copies.push({
+          scope: `native:${context.phase}`,
+          harnessRunning: running,
+          storedAt: Date.now(),
+        })
+        return snapshot
+      },
+    }
+    const profile = testAgentProfile('leaf')
+    const worker: Agent<unknown, string> = Object.assign(
+      { name: 'leaf', act: async () => 'unused' },
+      {
+        executorSpec: {
+          profile,
+          harness: profile.harness,
+          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
+        },
+      },
+    )
+    await createSupervisor<string, string>().run(
+      {
+        name: 'root',
+        act: async (_task, scope) => {
+          scope.spawn(worker, 'child task', {
+            key: 'work',
+            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
+          })
+          await scope.next()
+          return 'root done'
+        },
+      },
+      'root-task',
+      {
+        ...createFileRunContext(runDir),
+        runId: 'root',
+        budget: { maxIterations: 10, maxTokens: 100 },
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+          taskDigest: canonicalCandidateDigest('root-task'),
+        },
+        retainedAtSettlement: 'release',
+      },
+    )
+    expect(copies.some((copy) => copy.harnessRunning)).toBe(true)
+    const stopped = copies.find((copy) => !copy.harnessRunning)
+    expect(stopped).toBeDefined()
+    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
+    const settles = events.filter(
+      (event) =>
+        event.id === 'root:s0' && (event.kind === 'settled' || event.kind === 'reconciled'),
+    )
+    expect(settles.length).toBeGreaterThan(0)
+    for (const event of settles) {
+      expect(Date.parse((event as { at: string }).at)).toBeGreaterThanOrEqual(stopped!.storedAt)
+    }
+  })
+
+  // 2026-10-04 trace re-proof: the copy 0.3 s after the stop reported the session live (attempt
+  // outcome `unknown`, `native_snapshot_live`), and a capture 1 s later was complete. The provider
+  // confirms a stop when the process is gone and records how the execution ended a moment after.
+  it('copies a stopped harness again until the provider records how it ended', async () => {
+    const directory = await scratch('native-stop-deadline-ended-')
+    const runDir = join(directory, 'run')
+    const live = liveProcessProvider(join(directory, 'provider.json'))
+    const retention = evidenceRetention()
+    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
+    let stoppedAt: number | undefined
+    const copies: Array<{ phase: string; outcome: string; storedAt: number }> = []
+    const workspaceRetention: ProviderWorkspaceRetentionPort = {
+      ...retention,
+      async captureNative(context) {
+        if (!harnessRunning()) stoppedAt ??= Date.now()
+        // The provider records the outcome 1.2 s after the process is gone.
+        const outcome =
+          stoppedAt !== undefined && Date.now() - stoppedAt >= 1_200 ? 'cancelled' : 'unknown'
+        const snapshot = await retention.capture(context)
+        copies.push({ phase: context.phase ?? 'none', outcome, storedAt: Date.now() })
+        return {
+          snapshot,
+          provenance: {
+            status: 'reported' as const,
+            environmentId: context.environment.id,
+            executionId: context.executionId,
+            workspaceScope: 'none' as const,
+            attempts: [
+              {
+                executionId: context.controlRef?.executionId ?? context.executionId,
+                ordinal: 1,
+                providerSessionId: context.providerSessionId ?? 'session',
+                nativeSessionIds: [],
+                processIds: [],
+                outcome,
+                missingReasons: [],
+              },
+            ],
+            missing: outcome === 'unknown' ? ['native_snapshot_live'] : [],
+          },
+        }
+      },
+    }
+    const profile = testAgentProfile('leaf')
+    const worker: Agent<unknown, string> = Object.assign(
+      { name: 'leaf', act: async () => 'unused' },
+      {
+        executorSpec: {
+          profile,
+          harness: profile.harness,
+          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
+        },
+      },
+    )
+    await createSupervisor<string, string>().run(
+      {
+        name: 'root',
+        act: async (_task, scope) => {
+          scope.spawn(worker, 'child task', {
+            key: 'work',
+            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
+          })
+          await scope.next()
+          return 'root done'
+        },
+      },
+      'root-task',
+      {
+        ...createFileRunContext(runDir),
+        runId: 'root',
+        budget: { maxIterations: 10, maxTokens: 100 },
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+          taskDigest: canonicalCandidateDigest('root-task'),
+        },
+        retainedAtSettlement: 'release',
+      },
+    )
+    const final = copies.filter((copy) => copy.phase === 'failed')
+    expect(final.map((copy) => copy.outcome)).toContain('unknown')
+    expect(final.at(-1)?.outcome).toBe('cancelled')
+    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
+    const settles = events.filter(
+      (event) =>
+        event.id === 'root:s0' && (event.kind === 'settled' || event.kind === 'reconciled'),
+    )
+    expect(settles.length).toBeGreaterThan(0)
+    for (const event of settles) {
+      expect(Date.parse((event as { at: string }).at)).toBeGreaterThanOrEqual(
+        final.at(-1)!.storedAt,
+      )
+    }
+  }, 30_000)
 })

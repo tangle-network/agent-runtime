@@ -1553,6 +1553,8 @@ function driveHarnessFromBackend(
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
     drive.harnessTranscript = () => managerTranscript ?? activeExecutor?.harnessTranscript?.()
+    drive.harnessTranscriptSettled = () =>
+      activeExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
   }
   return attestRuntimeOwnedScopeOwner(drive, ownerRuntime)
 }
@@ -3473,6 +3475,7 @@ function superviseInternal(
       parentIdentity: NodeExecutionIdentity,
       depth: number,
       parentOwnerId: string,
+      analystLineage = false,
     ): MakeWorkerAgent => {
       const makeRecursiveWorker = (
         authoredProfile: AgentProfile,
@@ -3623,6 +3626,9 @@ function superviseInternal(
           childExecution.identity,
           depth + 1,
           ownerId,
+          analystLineage ||
+            spawnContext.analyst !== undefined ||
+            spawnContext.assignmentId.startsWith('analyst:'),
         )
         const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
         const authorizeNestedMessage = authorizeDownFor(authorized, depth + 1)
@@ -3635,6 +3641,9 @@ function superviseInternal(
           },
           ...(spawnResourceRoot === undefined ? {} : { spawnResourceRoot }),
           makeWorkerAgent: childFactory,
+          ...(spawnContext.sourceEvidenceRefs
+            ? { sourceEvidenceRefs: spawnContext.sourceEvidenceRefs }
+            : {}),
           ...(authorizeNestedMessage ? { authorizeDownMessage: authorizeNestedMessage } : {}),
           perWorker: nestedPerWorker,
           ...(ownerShare > 0 ? { preserveOwnerTurns: true } : {}),
@@ -3657,7 +3666,12 @@ function superviseInternal(
           ...(observeNodeEvent ? { observeNodeEvent, replaySettlements: true } : {}),
           ...(analysts ? { analysts } : {}),
           ...(options.escalateQuestion ? { escalateQuestion: options.escalateQuestion } : {}),
-          ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
+          ...(!analystLineage &&
+          spawnContext.analyst === undefined &&
+          !spawnContext.assignmentId.startsWith('analyst:') &&
+          options.analyzeOnSettle
+            ? { analyzeOnSettle: options.analyzeOnSettle }
+            : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
           ...(options.awaitTimeoutMs !== undefined

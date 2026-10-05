@@ -42,7 +42,39 @@ export interface ProviderWorkspaceRetentionPort {
   capture(
     context: ProviderWorkspaceRetentionContext,
   ): Promise<AgentCandidateWorkspaceSnapshotEvidence | ProviderWorkspaceCaptureResult>
+  /**
+   * Capture only the harness's native session evidence, without the workspace, into the same
+   * durable artifacts, reporting `workspaceScope: 'none'`.
+   *
+   * Runtime calls it every {@link nativeIntervalMs} while a turn runs and once more on every way
+   * the turn ends: settled, failed, and an abort or deadline that closes the stream without
+   * reaching either. A crash, deadline, credential renewal, reap or coordinator loss then loses
+   * at most one interval of the session, and a workspace too large to capture no longer costs
+   * the session. Measured before this existed: 85 of the 116 Discovery nodes that ran on Runtime
+   * 0.297.x kept no session because their turn ended on an abort path, which never captured.
+   *
+   * When a deadline or an explicit cancellation ends a retained turn, Runtime stops its harness
+   * and waits for the provider to report it stopped, within a 30 s bound, before the failure
+   * capture and the final native copy, so both read a session that has stopped changing.
+   *
+   * Its captures use their own queue and bound, so they never wait behind workspace captures.
+   */
+  captureNative?(
+    context: ProviderWorkspaceRetentionContext,
+  ): Promise<ProviderWorkspaceCaptureResult>
+  /** Milliseconds between native captures of a running turn. Default 120,000. */
+  readonly nativeIntervalMs?: number
+  /** Bound on one native capture, including its queue wait. Default 120,000. */
+  readonly nativeTimeoutMs?: number
 }
+
+/** When {@link ProviderWorkspaceRetentionPort.captureNative} runs relative to its turn. */
+export type ProviderNativeCapturePhase = 'running' | 'settled' | 'failed' | 'interrupted'
+
+/** Default {@link ProviderWorkspaceRetentionPort.nativeIntervalMs}. */
+export const DEFAULT_NATIVE_CAPTURE_INTERVAL_MS = 120_000
+/** Default {@link ProviderWorkspaceRetentionPort.nativeTimeoutMs}. */
+export const DEFAULT_NATIVE_CAPTURE_TIMEOUT_MS = 120_000
 
 /** Source inventory metadata for a workspace entry. */
 export interface ProviderWorkspaceEntryMetadata {
@@ -76,7 +108,8 @@ export interface ProviderWorkspaceCaptureProvenance {
   readonly executionId?: string
   /** Exact admitted provider execution; executionId above remains the Runtime artifact identity. */
   readonly controlRef?: AgentExactRunControlRef
-  readonly workspaceScope?: 'environment'
+  /** `none` marks a native-only capture: no workspace was scanned. */
+  readonly workspaceScope?: 'environment' | 'none'
   readonly workspaceRoot?: string
   readonly capturedAt?: string
   readonly entries?: ReadonlyArray<ProviderWorkspaceEntryMetadata>
@@ -179,6 +212,8 @@ export interface ProviderWorkspaceRetentionContext {
   readonly profile: AgentProfile
   /** The provider-derived outcome, when one was available before cleanup. */
   readonly outcome?: AgentRunOutcome
+  /** Set on native captures only: whether the turn was still running or how it ended. */
+  readonly phase?: ProviderNativeCapturePhase
   /** A fresh signal bounded by {@link ProviderWorkspaceRetentionPort.timeoutMs}. */
   readonly signal: AbortSignal
 }
@@ -224,12 +259,35 @@ export function assertProviderWorkspaceRetentionPort(
   if (typeof port.capture !== 'function') {
     throw new ValidationError(`${context}: workspaceRetention.capture is required`)
   }
+  if (port.captureNative !== undefined && typeof port.captureNative !== 'function') {
+    throw new ValidationError(`${context}: workspaceRetention.captureNative must be a function`)
+  }
+  for (const key of ['nativeIntervalMs', 'nativeTimeoutMs'] as const) {
+    const value = port[key]
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
+      throw new ValidationError(
+        `${context}: workspaceRetention.${key} must be a positive safe integer`,
+      )
+    }
+  }
 }
 
-const captureGroups = new WeakMap<ProviderWorkspaceRetentionPort, SlotGroup>()
+type CaptureSlots = Pick<ProviderWorkspaceRetentionPort, 'maxConcurrentCaptures'>
+const captureGroups = new WeakMap<CaptureSlots, SlotGroup>()
+// Native captures are small and frequent; their own queue keeps them out from behind
+// multi-gigabyte workspace captures at a deadline wave. One stable key per port shares it.
+const nativeSlotKeys = new WeakMap<ProviderWorkspaceRetentionPort, CaptureSlots>()
+function nativeSlots(port: ProviderWorkspaceRetentionPort): CaptureSlots {
+  let key = nativeSlotKeys.get(port)
+  if (key === undefined) {
+    key = Object.freeze({ maxConcurrentCaptures: port.maxConcurrentCaptures })
+    nativeSlotKeys.set(port, key)
+  }
+  return key
+}
 
 async function withCaptureSlot<T>(
-  port: ProviderWorkspaceRetentionPort,
+  port: CaptureSlots,
   signal: AbortSignal,
   capture: () => Promise<T>,
 ): Promise<T> {
@@ -251,12 +309,24 @@ async function withCaptureSlot<T>(
   }
 }
 
-/** Capture, require durable refs, and verify every returned manifest/archive byte. */
+/**
+ * Capture, require durable refs, and verify every returned manifest/archive byte.
+ * `native` calls {@link ProviderWorkspaceRetentionPort.captureNative} under its own queue and
+ * bound, and judges coverage by the sessions alone.
+ */
 export async function captureProviderWorkspaceSnapshot(
   port: ProviderWorkspaceRetentionPort,
   context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
+  scope: 'environment' | 'native' = 'environment',
 ): Promise<ProviderWorkspaceCaptureResult> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
+  const native = scope === 'native'
+  if (native && port.captureNative === undefined) {
+    throw new ValidationError('provider workspace retention: the port has no captureNative')
+  }
+  const timeoutMs = native
+    ? (port.nativeTimeoutMs ?? DEFAULT_NATIVE_CAPTURE_TIMEOUT_MS)
+    : port.timeoutMs
   const controlRef =
     context.controlRef === undefined
       ? undefined
@@ -272,25 +342,24 @@ export async function captureProviderWorkspaceSnapshot(
     )
   const controller = new AbortController()
   const clearDeadline = armDeadlineTimer(
-    port.timeoutMs,
+    timeoutMs,
     () =>
-      controller.abort(
-        new Error(`provider workspace retention timed out after ${port.timeoutMs}ms`),
-      ),
+      controller.abort(new Error(`provider workspace retention timed out after ${timeoutMs}ms`)),
     true,
   )
   try {
     const snapshot = await runAbortable(
       () =>
-        withCaptureSlot(port, controller.signal, async () => {
+        withCaptureSlot(native ? nativeSlots(port) : port, controller.signal, async () => {
           // Detach before any asynchronous artifact read. The callback owns its return object and
           // could otherwise mutate the manifest or archive references while verification is in flight.
+          const input = {
+            ...context,
+            ...(controlRef === undefined ? {} : { controlRef: Object.freeze({ ...controlRef }) }),
+            signal: controller.signal,
+          }
           const result = detachedSnapshot(
-            await port.capture({
-              ...context,
-              ...(controlRef === undefined ? {} : { controlRef: Object.freeze({ ...controlRef }) }),
-              signal: controller.signal,
-            }),
+            native ? await port.captureNative!(input) : await port.capture(input),
             'provider workspace retention snapshot',
           )
           const snapshot = 'snapshot' in result ? result.snapshot : result
@@ -346,7 +415,10 @@ export async function captureProviderWorkspaceSnapshot(
           if (provenance.status !== 'reported') coverageGaps.push('Coverage metadata unavailable')
           if (provenance.executionId !== context.executionId)
             coverageGaps.push('Exact execution identity missing')
-          if (provenance.workspace?.complete !== true)
+          if (native) {
+            if (provenance.workspaceScope !== 'none')
+              coverageGaps.push('Native capture did not report a native-only scope')
+          } else if (provenance.workspace?.complete !== true)
             coverageGaps.push('Workspace inventory incomplete')
           if (provenance.sessions === undefined) coverageGaps.push('Session inventory missing')
           if (
@@ -413,7 +485,7 @@ export async function captureProviderWorkspaceSnapshot(
           }
         }),
       controller.signal,
-      `provider workspace retention timed out after ${port.timeoutMs}ms`,
+      `provider workspace retention timed out after ${timeoutMs}ms`,
     )
     return snapshot
   } finally {

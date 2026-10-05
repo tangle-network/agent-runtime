@@ -1112,6 +1112,66 @@ describe('provider workspace retention', () => {
     expect(destroyed()).toBe(1)
   })
 
+  it('copies the native session while a turn runs and once more when an abort closes its stream', async () => {
+    const artifacts = artifactStore()
+    const { provider } = providerFor(async function* () {
+      yield {
+        type: 'usage',
+        data: { usageMode: 'delta' },
+        usage: { inputTokens: 5, outputTokens: 7 },
+      }
+      // The turn never ends on its own: the deadline closes the stream at this yield.
+      await new Promise<never>(() => {})
+    })
+    const phases: string[] = []
+    let workspaceCaptures = 0
+    // The default turn mapping names no session: a one-shot turn's copy is attributed by its
+    // execution id, which the provider records as the stream starts.
+    const executor = providerAsExecutor(provider, {
+      workspaceRetention: {
+        timeoutMs: 5_000,
+        artifacts,
+        async capture() {
+          workspaceCaptures += 1
+          throw new Error('Tangle workspace exceeds evidence byte limit')
+        },
+        nativeIntervalMs: 5,
+        async captureNative(context) {
+          phases.push(context.phase ?? 'none')
+          const captured = await nativeSnapshot(artifacts, context)
+          return {
+            ...captured,
+            provenance: { ...captured.provenance, workspaceScope: 'none' as const },
+          }
+        },
+      },
+    })(
+      { profile: testProfile('native-mirror'), harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    const iterator = (
+      executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>
+    )[Symbol.asyncIterator]()
+    await iterator.next()
+    for (let waited = 0; !phases.includes('running') && waited < 2_000; waited += 5) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(phases).toContain('running')
+    // `return()` runs the generator's `finally` and skips its `catch`: the path that kept no
+    // session before. The workspace here is over its byte bound, so its capture at teardown
+    // fails too, and the native copy is the only record of the session.
+    await iterator.return?.(undefined)
+    expect(workspaceCaptures).toBe(1)
+    expect(phases.at(-1)).toBe('interrupted')
+    const transcript = executor.harnessTranscript?.()
+    expect(transcript).toMatchObject({ status: 'retained' })
+    if (transcript?.status !== 'retained') throw new Error('expected a retained native transcript')
+    expect(transcript.descriptor.source.executionId).toBeTruthy()
+    expect(transcript.descriptor.files.map((file) => file.attribution.nativePath)).toEqual([
+      'any/transcript.jsonl',
+    ])
+  })
+
   it('refuses executor reuse while a retained source environment is still live', async () => {
     const artifacts = artifactStore()
     let creates = 0
@@ -1343,20 +1403,21 @@ describe('provider workspace retention', () => {
         { signal: new AbortController().signal, seams: {} },
       )
 
-      await expect(async () => {
-        for await (const _event of executor.execute(
-          'task',
-          new AbortController().signal,
-        ) as AsyncIterable<UsageEvent>) {
-          // Verification fails before source destruction.
-        }
-      }).rejects.toThrow(/artifact|archive|digest|length/)
+      for await (const _event of executor.execute(
+        'task',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>) {
+        // Verification fails before source destruction; the settled turn stands.
+      }
+      const out = executor.resultArtifact().out as ProviderLeafOut
+      expect(out.workspaceCaptureFailure).toMatch(/artifact|archive|digest|length/)
+      expect(out).not.toHaveProperty('workspaceSnapshot')
       expect(destroyed()).toBe(0)
       await expect(executor.teardown('brutalKill')).resolves.toMatchObject({ destroyed: false })
     },
   )
 
-  it('bounds a late capture and never lets its completion authorize destruction', async () => {
+  it('settles the turn with a failed capture and never lets a late capture authorize destruction', async () => {
     const artifacts = artifactStore()
     const { provider, destroyed } = providerFor(doneStream())
     const executor = providerAsExecutor(provider, {
@@ -1373,14 +1434,19 @@ describe('provider workspace retention', () => {
       { signal: new AbortController().signal, seams: {} },
     )
 
-    await expect(async () => {
-      for await (const _event of executor.execute(
-        'task',
-        new AbortController().signal,
-      ) as AsyncIterable<UsageEvent>) {
-        // The capture barrier times out after the stream has settled.
-      }
-    }).rejects.toThrow(/timed out|aborted/)
+    for await (const _event of executor.execute(
+      'task',
+      new AbortController().signal,
+    ) as AsyncIterable<UsageEvent>) {
+      // The capture barrier times out after the stream has settled.
+    }
+    // A capture deadline is evidence about the workspace, never the settled turn's outcome.
+    const out = executor.resultArtifact().out as ProviderLeafOut
+    expect(out.workspaceCaptureFailure).toBe(
+      'provider workspace retention timed out after 10ms; source environment preserved',
+    )
+    expect(out).not.toHaveProperty('workspaceSnapshot')
+    expect(executor.heldEnvironments?.()).toMatchObject([{ keptFor: 'evidence' }])
     expect(destroyed()).toBe(0)
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(destroyed()).toBe(0)

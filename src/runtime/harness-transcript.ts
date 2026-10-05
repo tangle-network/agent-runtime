@@ -205,6 +205,37 @@ export function harnessTranscriptUnavailable(
  * Mirrors the supervise scope's `readInteractiveSession`: an absence is always a named reason,
  * never `undefined`. The scope reads each child with it, and `supervise` reads the root with it.
  */
+/**
+ * The longest a settle waits for an executor's final transcript. The provider executor's own
+ * steps are bounded (the harness stop at 30 s, each native copy by its port's `nativeTimeoutMs`,
+ * 120 s by default), so this guards only an executor that never answers.
+ */
+export const HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS = 6 * 60_000
+
+/**
+ * Wait, bounded, until the executor's transcript is final (`Executor.harnessTranscriptSettled`).
+ * Never throws: on a timeout or a failure the read that follows reports what was kept.
+ */
+export async function settleHarnessTranscript(
+  executor: { harnessTranscriptSettled?: () => Promise<void> },
+  timeoutMs: number = HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS,
+): Promise<void> {
+  if (!executor.harnessTranscriptSettled) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => executor.harnessTranscriptSettled?.()),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+  } catch {
+    // The transcript read that follows names what was kept.
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 export function readHarnessTranscript(executor: {
   harnessTranscript?: () => unknown
 }): HarnessTranscriptCapture {

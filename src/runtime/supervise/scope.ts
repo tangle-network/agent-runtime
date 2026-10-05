@@ -37,6 +37,7 @@ import {
   type HarnessTranscriptEvidence,
   persistHarnessTranscript,
   readHarnessTranscript,
+  settleHarnessTranscript,
 } from '../harness-transcript'
 import type {
   RetainedInteractiveAdmission,
@@ -59,6 +60,7 @@ import {
 import {
   armDeadlineTimer,
   boundedChildDeadlineAt,
+  CHILD_DEADLINE_REASON,
   DEFAULT_SUCCESSFUL_SHUTDOWN_MS,
   singleFlightTeardown,
   type TeardownAnswer,
@@ -1135,7 +1137,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       else args.signal.addEventListener('abort', cascadeAbort, { once: true })
       if (childDeadlineAtMs !== undefined) {
         clearChildDeadline = armDeadlineTimer(Math.max(0, childDeadlineAtMs - now()), () =>
-          controller.abort('child deadline exceeded'),
+          controller.abort(CHILD_DEADLINE_REASON),
         )
       }
 
@@ -2771,9 +2773,26 @@ interface OwnerMaterializationState {
   receipt?: ProfileMaterializationReceipt
   bindingPublished: boolean
   publishedThisProcess: boolean
+  /** The latest owner materialization write; the next one starts after it settles. */
+  writes?: Promise<unknown>
 }
 
 const ownerMaterializationStates = new WeakMap<Scope<unknown>, OwnerMaterializationState>()
+
+/**
+ * One owner materialization write at a time. A cancelled run settles without waiting for its root
+ * driver, so the driver's late receipt and the settlement's finalization could each read no
+ * receipt before the other's journal append returned, and both appended one: the journal then
+ * refused the run as corrupted (duplicate materialization receipt).
+ */
+function serializedOwnerWrite<T>(
+  state: OwnerMaterializationState,
+  write: () => Promise<T>,
+): Promise<T> {
+  const next = (state.writes ?? Promise.resolve()).then(write, write)
+  state.writes = next.catch(() => undefined)
+  return next
+}
 
 /**
  * @internal Publish exact root-manager materialization from a runtime-owned adapter after dynamic
@@ -2787,6 +2806,17 @@ export async function recordScopeOwnerMaterialization(
   bindingInput: ExecutorExecutionBinding,
 ): Promise<void> {
   const state = ownerMaterializationState(scope)
+  await serializedOwnerWrite(state, () =>
+    publishOwnerMaterialization(state, runtime, declaration, bindingInput),
+  )
+}
+
+async function publishOwnerMaterialization(
+  state: OwnerMaterializationState,
+  runtime: NodeSnapshot['runtime'],
+  declaration: import('./types').ExecutorMaterialization,
+  bindingInput: ExecutorExecutionBinding,
+): Promise<void> {
   if (runtime !== state.runtime) {
     await rejectOwnerMaterialization(state)
     throw new ValidationError(
@@ -2956,9 +2986,14 @@ export async function restoreScopeOwnerAcceptedExecution(scope: Scope<unknown>):
 /** @internal Ensure a deferred root that never published evidence remains visibly unknown. */
 export async function finalizeScopeOwnerMaterialization(scope: Scope<unknown>): Promise<void> {
   const state = ownerMaterializationStates.get(scope)
+  if (state === undefined) return
+  await serializedOwnerWrite(state, () => finalizeOwnerMaterialization(state))
+}
+
+async function finalizeOwnerMaterialization(state: OwnerMaterializationState): Promise<void> {
   // Rejection paths publish an unknown binding before returning the original validation error.
   // Finalization still runs after that error, so it must not append the same attempt again.
-  if (state === undefined || state.publishedThisProcess || state.bindingPublished) return
+  if (state.publishedThisProcess || state.bindingPublished) return
   if (state.prior !== undefined) {
     await appendUnknownOwnerBinding(state, state.prior, 'root-agent-did-not-report')
     throw new ValidationError(
@@ -3765,6 +3800,10 @@ async function runChild<C>(
     }
   } catch (cause) {
     let err = cause
+    // An abort reaches here while a streaming executor still ends its turn: it stops the harness
+    // and copies the session after the abort. Everything below reads that transcript or tears the
+    // executor down, so wait (bounded) for the copy first.
+    await settleHarnessTranscript(executor)
     await closeRetainedWrites()
     if (
       live.acceptedResult !== undefined &&

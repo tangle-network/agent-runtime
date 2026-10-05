@@ -177,7 +177,7 @@ SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-6)
 
 ##### get()
 
@@ -195,7 +195,7 @@ SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-7)
 
 ***
 
@@ -243,7 +243,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-6)
 
 ##### get()
 
@@ -261,7 +261,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-7)
 
 ***
 
@@ -315,7 +315,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-6)
 
 ##### get()
 
@@ -333,7 +333,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-7)
 
 ***
 
@@ -1918,6 +1918,19 @@ graph expressed at the coordination layer; the finding is ALWAYS also published 
 
 #### Properties
 
+##### at?
+
+> `readonly` `optional` **at?**: `"worker"` \| `"manager-end"`
+
+Analyze this manager's final output and settled-child references before it closes.
+Requires an agent route; omitted means each eligible worker settlement.
+
+##### statuses?
+
+> `readonly` `optional` **statuses?**: readonly (`"done"` \| `"down"`)[]
+
+Worker outcomes admitted to this route. Defaults to done; down includes failed attempts.
+
 ##### kind
 
 > `readonly` **kind**: `string`
@@ -1989,6 +2002,12 @@ profile and task bytes; these digests bind the review to those bytes and its sou
 ##### sourceWorker
 
 > `readonly` **sourceWorker**: `string`
+
+##### sourceEvidenceRef?
+
+> `readonly` `optional` **sourceEvidenceRef?**: `string`
+
+Complete retained source envelope behind the analyst task's bounded excerpt.
 
 ##### sourceTrace
 
@@ -2388,6 +2407,13 @@ Present (as the analyst id) ONLY when this spawn is an analyst-AGENT run initiat
  runtime's analyst-on-settle hook ([AnalyzeOnSettleRoute.agent](#agent)) — authored by the
  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
  reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Runtime-authorized immutable evidence for this analyst assignment. Only these refs extend
+its existing observe_agent capability; callers never supply them through tool arguments.
 
 ##### continuity?
 
@@ -4842,6 +4868,15 @@ Portable executable workspace evidence accepted before the source environment wa
 **`Experimental`**
 
 Exact provider and supervisor identities bound to the retained bytes.
+
+##### workspaceCaptureFailure?
+
+> `optional` **workspaceCaptureFailure?**: `string`
+
+**`Experimental`**
+
+Why workspace retention produced no receipt for this settled turn. The source environment is
+preserved as evidence and the turn's result stands.
 
 ##### supersededPartUpdates?
 
@@ -8065,6 +8100,10 @@ Max fractional spread (spread/median) per channel for arms to count as equal-k. 
 Off-host storage that holds a private CAS's bytes after the host deletes its local copy.
 Keys are the run namespace and the content digest, so a retry stores the same object again.
 
+#### Extended by
+
+- [`S3PrivateCasStore`](#s3privatecasstore)
+
 #### Properties
 
 ##### location
@@ -8491,6 +8530,18 @@ Refuse cleanup while any native session or workspace coverage remains missing.
 
 Reads the durable manifest and archive after capture returns.
 
+##### nativeIntervalMs?
+
+> `readonly` `optional` **nativeIntervalMs?**: `number`
+
+Milliseconds between native captures of a running turn. Default 120,000.
+
+##### nativeTimeoutMs?
+
+> `readonly` `optional` **nativeTimeoutMs?**: `number`
+
+Bound on one native capture, including its queue wait. Default 120,000.
+
 #### Methods
 
 ##### capture()
@@ -8508,6 +8559,36 @@ Capture the live environment into the standard candidate workspace evidence shap
 ###### Returns
 
 `Promise`\<`AgentCandidateWorkspaceSnapshotEvidence` \| [`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
+
+##### captureNative()?
+
+> `optional` **captureNative**(`context`): `Promise`\<[`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
+
+Capture only the harness's native session evidence, without the workspace, into the same
+durable artifacts, reporting `workspaceScope: 'none'`.
+
+Runtime calls it every [nativeIntervalMs](#nativeintervalms) while a turn runs and once more on every way
+the turn ends: settled, failed, and an abort or deadline that closes the stream without
+reaching either. A crash, deadline, credential renewal, reap or coordinator loss then loses
+at most one interval of the session, and a workspace too large to capture no longer costs
+the session. Measured before this existed: 85 of the 116 Discovery nodes that ran on Runtime
+0.297.x kept no session because their turn ended on an abort path, which never captured.
+
+When a deadline or an explicit cancellation ends a retained turn, Runtime stops its harness
+and waits for the provider to report it stopped, within a 30 s bound, before the failure
+capture and the final native copy, so both read a session that has stopped changing.
+
+Its captures use their own queue and bound, so they never wait behind workspace captures.
+
+###### Parameters
+
+###### context
+
+[`ProviderWorkspaceRetentionContext`](#providerworkspaceretentioncontext)
+
+###### Returns
+
+`Promise`\<[`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
 
 ***
 
@@ -8621,7 +8702,9 @@ Exact admitted provider execution; executionId above remains the Runtime artifac
 
 ##### workspaceScope?
 
-> `readonly` `optional` **workspaceScope?**: `"environment"`
+> `readonly` `optional` **workspaceScope?**: `"none"` \| `"environment"`
+
+`none` marks a native-only capture: no workspace was scanned.
 
 ##### workspaceRoot?
 
@@ -8752,6 +8835,12 @@ The exact profile used to create the provider environment.
 > `readonly` `optional` **outcome?**: `AgentRunOutcome`
 
 The provider-derived outcome, when one was available before cleanup.
+
+##### phase?
+
+> `readonly` `optional` **phase?**: [`ProviderNativeCapturePhase`](#providernativecapturephase)
+
+Set on native captures only: whether the turn was still running or how it ended.
 
 ##### signal
 
@@ -10806,6 +10895,221 @@ Minimum time for one request; large bodies get one more second per MiB.
 ###### Returns
 
 `Promise`\<`Response`\>
+
+***
+
+### S3PrivateCasStore
+
+The S3 store also holds small named pointers beside its content-addressed objects. A pointer
+names the latest of a changing set of CAS objects, such as a run's controller manifest, so a
+reader finds the newest copy with one GET instead of listing and opening every object.
+
+#### Extends
+
+- [`PrivateCasDurableStore`](#privatecasdurablestore)
+
+#### Properties
+
+##### location
+
+> `readonly` **location**: `string`
+
+Where the bytes live, recorded in every durable receipt, for example `s3://bucket/prefix/`.
+
+###### Inherited from
+
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`location`](#location)
+
+#### Methods
+
+##### putStream()?
+
+> `optional` **putStream**(`object`): `Promise`\<`void`\>
+
+Store a known digest and length without retaining all bytes.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### byteLength
+
+`number`
+
+###### chunks
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Inherited from
+
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`putStream`](#putstream)
+
+##### getStream()?
+
+> `optional` **getStream**(`object`): `Promise`\<`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>, `any`, `any`\> \| `undefined`\>
+
+Open stored bytes without materializing the object.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>, `any`, `any`\> \| `undefined`\>
+
+###### Inherited from
+
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`getStream`](#getstream)
+
+##### put()
+
+> **put**(`object`): `Promise`\<`void`\>
+
+Store exactly these bytes. Resolve only after the store confirms that it holds an object of
+this digest and length; storing an object that already exists is a success.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### bytes
+
+`Uint8Array`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Inherited from
+
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`put`](#put-3)
+
+##### get()
+
+> **get**(`object`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\> \| `undefined`\>
+
+The stored bytes, or undefined when the store holds no object for this digest.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### digest
+
+`` `sha256:${string}` ``
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\> \| `undefined`\>
+
+###### Inherited from
+
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`get`](#get-5)
+
+##### putPointer()
+
+> **putPointer**(`object`): `Promise`\<`void`\>
+
+Replace the pointer at `<prefix><namespace>/<name>`. Resolves after the bucket confirms its length and digest.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### name
+
+`string`
+
+###### bytes
+
+`Uint8Array`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### getPointer()
+
+> **getPointer**(`object`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\> \| `undefined`\>
+
+The pointer's bytes, or undefined when none was written.
+
+###### Parameters
+
+###### object
+
+###### namespace
+
+`string`
+
+###### name
+
+`string`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\> \| `undefined`\>
 
 ***
 
@@ -16482,6 +16786,33 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 ###### Returns
 
 `Promise`\<`number`\>
+
+##### finishAnalysis
+
+> **finishAnalysis**: (`input`) => `Promise`\<`void`\>
+
+Await opted-in manager-end analyst agents inside the original scope and resource limits.
+Their findings remain evidence and never replace the manager's output or enter its ledger.
+
+###### Parameters
+
+###### input
+
+###### status
+
+`"done"` \| `"down"`
+
+###### output?
+
+`unknown`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ##### history
 
@@ -24183,6 +24514,16 @@ Optional capture of the manager's own harness session from its newest attempt.
 
 [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
 
+##### harnessTranscriptSettled()?
+
+> `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
+
+Resolves once [harnessTranscript](#harnesstranscript) is final (`Executor.harnessTranscriptSettled`).
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ***
 
 ### SupervisorAgentDeps
@@ -24428,6 +24769,12 @@ Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_p
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
+
+##### sourceEvidenceRefs?
+
+> `readonly` `optional` **sourceEvidenceRefs?**: readonly `string`[]
+
+Trusted source refs for this manager’s existing observe_agent capability.
 
 ##### watchWorkers?
 
@@ -24963,6 +25310,14 @@ receipt a leaf gets instead of `executor-exposes-no-transcript`.
 
 [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
 
+##### harnessTranscriptSettled()?
+
+> `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ***
 
 ### Executor
@@ -25286,6 +25641,14 @@ content ref and settles the receipt, so no executor ever learns about storage.
 ###### Returns
 
 [`HarnessTranscriptCapture`](#harnesstranscriptcapture) \| `undefined`
+
+##### harnessTranscriptSettled()?
+
+> `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ***
 
@@ -31913,6 +32276,14 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 #### Returns
 
 [`EqualKVerdict`](#equalkverdict)
+
+***
+
+### ProviderNativeCapturePhase
+
+> **ProviderNativeCapturePhase** = `"running"` \| `"settled"` \| `"failed"` \| `"interrupted"`
+
+When [ProviderWorkspaceRetentionPort.captureNative](#capturenative) runs relative to its turn.
 
 ***
 
@@ -38782,7 +39153,7 @@ decision is "stop" \| "done" \| "pick-winner" \| "fail"
 
 ### createS3PrivateCasStore()
 
-> **createS3PrivateCasStore**(`options`): [`PrivateCasDurableStore`](#privatecasdurablestore)
+> **createS3PrivateCasStore**(`options`): [`S3PrivateCasStore`](#s3privatecasstore)
 
 Durable private CAS bytes in one S3-compatible bucket under `<prefix><namespace>/sha256/<hex>`.
 
@@ -38798,7 +39169,7 @@ metadata. Reads return raw bytes; the private CAS port verifies them.
 
 #### Returns
 
-[`PrivateCasDurableStore`](#privatecasdurablestore)
+[`S3PrivateCasStore`](#s3privatecasstore)
 
 ***
 

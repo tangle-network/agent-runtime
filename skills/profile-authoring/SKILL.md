@@ -188,6 +188,7 @@ Hand a file by path in `resources.files`, and compare the returned sha256 with y
 
 The outer `path` is the child's mount; the nested `resource.path` is a UTF-8 source file in your workspace, under 4 MiB.
 Every profile that can spawn carries this complete skill as an immutable inline `resources.skills` entry, with `resources.failOnError: true`.
+For research work, carry the complete research-director reference and the mounted capability inventory as well; it gives children the lookup and source selection procedure.
 Copy the mounted bytes; never retype them.
 
 ## Checklist
