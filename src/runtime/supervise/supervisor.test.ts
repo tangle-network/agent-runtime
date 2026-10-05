@@ -152,7 +152,7 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
             progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
             budget: () => scope.budget,
             signal: scope.signal,
-            policy: { maxAttempts: 2 },
+            policy: { maxAttempts: 2, transientOutageMs: 0 },
             sleep: async () => {},
           }),
         ),

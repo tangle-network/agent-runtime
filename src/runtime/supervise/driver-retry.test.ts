@@ -452,7 +452,7 @@ describe('retained driver failure evidence', () => {
       progress: () => noProgress,
       budget: () => budget(),
       signal: new AbortController().signal,
-      policy: { maxAttempts: 2 },
+      policy: { maxAttempts: 2, transientOutageMs: 0 },
       onAttempt: (record) => void records.push(record),
       sleep: instantSleep,
     }).catch((error: unknown) => error)
@@ -477,6 +477,7 @@ describe('runDriverWithRetry', () => {
       signal: new AbortController().signal,
       onAttempt: (r) => void records.push(r),
       sleep: instantSleep,
+      random: () => 0,
     })
 
     expect(script.attempts).toEqual([1, 2])
@@ -530,7 +531,8 @@ describe('runDriverWithRetry', () => {
 
   it('gives up in three attempts when the driver is dead on arrival', async () => {
     // The dotenvx-race shape: the harness dies instantly, spends nothing, settles nothing. Without
-    // the no-progress ceiling this would retry against a 6-hour deadline.
+    // the no-progress ceiling this would retry against a 6-hour deadline. With no outage window the
+    // ceiling applies from the first failure; 'an infrastructure outage' covers the default window.
     const dead = () => new Error('pi exit unknown')
     const script = scriptedDrive([dead(), dead(), dead()])
     const records: DriverAttemptRecord[] = []
@@ -539,8 +541,10 @@ describe('runDriverWithRetry', () => {
       progress: () => noProgress,
       budget: () => budget(),
       signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
       onAttempt: (r) => void records.push(r),
       sleep: instantSleep,
+      random: () => 0,
     }).catch((e: unknown) => e)
 
     expect(script.attempts).toEqual([1, 2, 3])
@@ -699,6 +703,7 @@ describe('runDriverWithRetry', () => {
       progress: () => noProgress,
       budget: () => budget(),
       signal: new AbortController().signal,
+      policy: { transientOutageMs: 0 },
       sleep: instantSleep,
     }).catch((e: unknown) => e)
     expect((error as DriverAttemptsExhaustedError).cause).toBe(fault)
@@ -1224,6 +1229,7 @@ describe('long-run retry streaks', () => {
         records.push(record)
       },
       sleep: instantSleep,
+      random: () => 0,
     })
     expect(calls).toBe(12)
     expect(records.filter((record) => record.error).map((record) => record.retryInMs)).toEqual([
@@ -1243,7 +1249,7 @@ describe('long-run retry streaks', () => {
         progress: () => mark(),
         budget: () => budget(),
         signal: new AbortController().signal,
-        policy: { maxAttempts: 20, maxConsecutiveFailures: 3 },
+        policy: { maxAttempts: 20, maxConsecutiveFailures: 3, transientOutageMs: 0 },
         continuation: continuation(),
         sleep: instantSleep,
       }),
@@ -1263,7 +1269,7 @@ describe('long-run retry streaks', () => {
         progress: () => mark(),
         budget: () => budget(),
         signal: new AbortController().signal,
-        policy: { maxAttempts: 4, maxConsecutiveFailures: 3 },
+        policy: { maxAttempts: 4, maxConsecutiveFailures: 3, transientOutageMs: 0 },
         continuation: continuation({ maxBarren: 99 }),
         onAttempt: (record) => {
           records.push(record)
@@ -1380,6 +1386,7 @@ describe('an unavailable upstream', () => {
       policy: { maxAttempts: 1, maxConsecutiveFailures: 1 },
       onAttempt: (record) => void records.push(record),
       sleep: instantSleep,
+      random: () => 0,
     })
     expect(script.attempts).toHaveLength(21)
     const pauses = records.filter((record) => record.classification === 'unavailable')
@@ -1414,6 +1421,7 @@ describe('an unavailable upstream', () => {
       sleep: async (ms) => {
         clock += ms
       },
+      random: () => 0,
     })
     expect(entered).toEqual([
       undefined,
@@ -1457,6 +1465,7 @@ describe('an unavailable upstream', () => {
       sleep: async (ms) => {
         clock += ms
       },
+      random: () => 0,
     })
     // Pauses of 15 s and 30 s, plus the 60 s refused drive; the 8 working minutes are not counted.
     expect(summarizeDriverAttempts(records)).toMatchObject({
@@ -1499,7 +1508,7 @@ describe('an unavailable upstream', () => {
         progress: () => noProgress,
         budget: () => budget(),
         signal: new AbortController().signal,
-        policy: { maxAttempts: 3, maxConsecutiveFailures: 10 },
+        policy: { maxAttempts: 3, maxConsecutiveFailures: 10, transientOutageMs: 0 },
         sleep: instantSleep,
       }),
     ).rejects.toMatchObject({ stop: 'max-attempts' })
@@ -1526,6 +1535,7 @@ describe('an unavailable upstream', () => {
       signal: new AbortController().signal,
       onAttempt: (record) => void records.push(record),
       sleep: instantSleep,
+      random: () => 0,
     })
     expect(records.slice(0, 5).map((record) => record.retryInMs)).toEqual([
       15_000, 30_000, 60_000, 15_000, 30_000,
@@ -1582,5 +1592,143 @@ describe('an unavailable upstream', () => {
         sleep: instantSleep,
       }),
     ).rejects.toMatchObject({ stop: 'retry-disabled' })
+  })
+})
+
+// The failure that ended Discovery run research-nqs-20261003system2 on 2026-10-04 after 12 attempts
+// in two minutes, while a Platform restart lasted five.
+function platformRestart502(): RetainedExecutionPendingError {
+  const server = Object.assign(
+    new Error(
+      'HTTP 502: GET /v1/backends: Platform key verification unavailable: platform_error_response',
+    ),
+    { name: 'ServerError', status: 502 },
+  )
+  return new RetainedExecutionPendingError(server)
+}
+
+/** A fake clock the drive and the sleeps both advance, and the start time of every attempt. */
+function outageClock() {
+  let clock = 0
+  const starts: number[] = []
+  return {
+    starts,
+    now: () => clock,
+    advance: (ms: number) => {
+      clock += ms
+    },
+    begin: () => void starts.push(clock),
+    sleep: async (ms: number) => {
+      clock += ms
+    },
+  }
+}
+
+describe('an infrastructure outage', () => {
+  it('classifies the Platform restart failure as transient', () => {
+    expect(classifyDriverFailure(platformRestart502())).toBe('transient')
+  })
+
+  it('survives a ten-minute Platform outage at a bounded cadence, then completes', async () => {
+    const outageMs = 10 * 60_000
+    const time = outageClock()
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => {
+        time.begin()
+        // Each refused attempt takes ten seconds, as the production attempts did.
+        time.advance(10_000)
+        if (time.now() < outageMs) throw platformRestart502()
+      },
+      progress: () => mark(),
+      budget: () => budget({ deadlineMs: 8 * 3_600_000 }),
+      signal: new AbortController().signal,
+      // The incident run's bounds: twelve attempts ended it two minutes into the outage.
+      policy: { maxAttempts: 12, maxConsecutiveFailures: 12 },
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0.5,
+      onAttempt: (record) => void records.push(record),
+    })
+    expect(records.at(-1)?.stop).toBe('completed')
+    const failures = records.filter((record) => record.error !== undefined)
+    expect(failures.every((record) => record.classification === 'transient')).toBe(true)
+    expect(time.now()).toBeGreaterThanOrEqual(outageMs)
+    // Bounded cadence: the backoff doubles to the 30 s ceiling (jittered to 22.5 s here), so ten
+    // minutes cost about two dozen attempts rather than one every ten seconds.
+    expect(records.length).toBeLessThanOrEqual(25)
+    expect(failures.every((record) => (record.retryInMs ?? 0) <= 30_000)).toBe(true)
+    const gaps = time.starts.slice(1).map((start, index) => start - (time.starts[index] ?? 0))
+    expect(Math.min(...gaps.slice(4))).toBeGreaterThanOrEqual(25_000)
+  })
+
+  it('still gives up on a driver that never recovers, once the outage window has passed', async () => {
+    const time = outageClock()
+    const error = await runDriverWithRetry({
+      drive: async () => {
+        time.begin()
+        time.advance(1_000)
+        throw new Error('pi exit unknown')
+      },
+      progress: () => noProgress,
+      budget: () => budget({ deadlineMs: 8 * 3_600_000 }),
+      signal: new AbortController().signal,
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0,
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DriverAttemptsExhaustedError)
+    if (!(error instanceof DriverAttemptsExhaustedError)) return
+    expect(error.stop).toBe('no-progress')
+    // The 15-minute default window, plus at most one capped backoff and one attempt past it.
+    expect(time.now()).toBeGreaterThanOrEqual(15 * 60_000)
+    expect(time.now()).toBeLessThanOrEqual(15 * 60_000 + 31_000)
+    expect(error.attempts.length).toBeLessThanOrEqual(40)
+  })
+
+  it('stops a terminal failure at once, even inside an outage', async () => {
+    const time = outageClock()
+    const outcomes: Error[] = [
+      platformRestart502(),
+      platformRestart502(),
+      new BackendTransportError('bridge', 'invalid_api_key', { status: 401 }),
+    ]
+    const error = await runDriverWithRetry({
+      drive: async (attempt) => {
+        time.advance(10_000)
+        throw outcomes[attempt - 1] ?? new Error('drive called past the script')
+      },
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      now: time.now,
+      sleep: time.sleep,
+      random: () => 0,
+    }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ stop: 'terminal-error' })
+    expect((error as DriverAttemptsExhaustedError).attempts).toHaveLength(3)
+  })
+
+  it('jitters every wait over its upper half', async () => {
+    const waits: number[] = []
+    for (const random of [0, 0.5, 0.999]) {
+      const records: DriverAttemptRecord[] = []
+      await runDriverWithRetry({
+        drive: scriptedDrive([
+          new Error('stream closed'),
+          new HarnessTurnFailedError('tangle-sandbox', { error: ROUTER_QUOTA }),
+          null,
+        ]).drive,
+        progress: () => noProgress,
+        budget: () => budget(),
+        signal: new AbortController().signal,
+        sleep: instantSleep,
+        random: () => random,
+        onAttempt: (record) => void records.push(record),
+      })
+      waits.push(...records.flatMap((record) => record.retryInMs ?? []))
+    }
+    // A 2 s failure backoff and a 15 s pause, each drawn from [half, full].
+    expect(waits).toEqual([2_000, 15_000, 1_500, 11_250, 1_001, 7_508])
   })
 })

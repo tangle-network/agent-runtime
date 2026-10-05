@@ -82,6 +82,10 @@ A harness that prints the router's refusal as text keeps the code in it, so the 
 An `unavailable` failure pauses the driver, then re-enters it with the original task.
 The pause starts at `driverRetry.unavailablePauseMs` (15 s) and doubles to `maxUnavailablePauseMs` (5 min).
 A pause consumes neither `maxAttempts` nor `maxConsecutiveFailures`; only the deadline, the budget, cancellation and `enabled: false` end it.
+A transient failure in which nothing ran (no tokens spent, no child settled, no progress) is an infrastructure outage, such as a Platform 502 during a restart.
+Its streak is retried under the same rule until it has lasted `driverRetry.transientOutageMs` (15 min); after that `maxAttempts` and `maxConsecutiveFailures` apply.
+A transient failure that spent tokens keeps those bounds from its first occurrence.
+Every failure backoff and pause is jittered over the upper half of its value, so drivers cut off by one outage do not re-enter together.
 Each pause is journaled as a `paused` event on the manager node, with the refused attempt's duration and the pause, as infrastructure time.
 A provider-backed leaf whose turn is refused this way keeps its environment and pauses by the same rule.
 It then continues in the same environment and harness session, with an instruction to pick up where it stopped.
