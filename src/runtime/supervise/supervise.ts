@@ -116,6 +116,7 @@ import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
 import {
+  beginScopeRetainedOwnerDrive,
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
@@ -125,6 +126,7 @@ import {
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerRestorePoint,
   scopeRetainedOwnerResult,
+  scopeRetainedOwnerTurnEnded,
 } from './retained-scope-owner'
 import { createRootStreamSink, ROOT_STREAM_FILE, type RootStreamSink } from './root-stream'
 import { watchRunCancellation } from './run-cancellation'
@@ -933,6 +935,9 @@ function driveHarnessFromBackend(
         const execution = runtimeOwnedExecutorMaterialization(activeExecutor)?.execution
         return execution?.kind === 'environment' ? execution.id : undefined
       })
+      // The workspace capture the previous turn handed over reads the environment this turn
+      // would change, and its receipt belongs to that turn's invocation: it finishes first.
+      await scopeRetainedOwnerTurnEnded(scope)
     }
     // What this drive continues decides what a re-entered driver must be told. Only a proven
     // same-session turn gets the unmet items alone; a replacement environment gets the objective
@@ -1224,6 +1229,9 @@ function driveHarnessFromBackend(
         },
       )
       if (retainedOwner) committedOwnerSpend = addRetainedSpend(committedOwnerSpend, charge)
+      // The check stops a driver that would run on past its budget or deadline. A stopped manager
+      // is already ending this turn, and throwing here would discard the result it committed.
+      if (effectiveStopSignal?.aborted === true) return
       const budget = scope.budget
       if (
         budget.tokensLeft <= 0 ||
@@ -1311,6 +1319,8 @@ function driveHarnessFromBackend(
       await retainedOwner!.onResult(result)
       terminalAccountingCaptured = true
     }
+    // The owner's release waits for this drive to end its turn, so it reads the turn's receipt.
+    const endDrive = retainedOwner ? beginScopeRetainedOwnerDrive(scope) : () => {}
     try {
       // Construction transfers cleanup ownership immediately. Even a rejected receipt or an
       // unmetered runtime reaches the single bounded teardown path below.
@@ -1576,6 +1586,7 @@ function driveHarnessFromBackend(
         managerTranscript = capture
       }
       if (activeExecutor === executor) activeExecutor = undefined
+      endDrive()
     }
     if (failed) throw failure
     if (turnFailure !== undefined) throw turnFailure

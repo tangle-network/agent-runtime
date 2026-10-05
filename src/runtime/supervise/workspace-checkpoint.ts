@@ -28,6 +28,10 @@ export const WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS = 60_000
 /** Bound on one checkpoint: environment lookup, marker write, and the provider operation. */
 export const WORKSPACE_CHECKPOINT_TIMEOUT_MS = 120_000
 
+/** After this long, a checkpoint request the provider answers `not_found` for was never created:
+ *  ten times the bound on the request itself, so nothing it started can still be in flight. */
+export const WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS = 10 * WORKSPACE_CHECKPOINT_TIMEOUT_MS
+
 /** Checkpoints kept per source environment; older ones are deleted once a newer one is journaled. */
 export const WORKSPACE_CHECKPOINTS_KEPT = 2
 

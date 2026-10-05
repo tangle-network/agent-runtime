@@ -1037,6 +1037,7 @@ const outsideCursorNamespaceKinds = [
   'workspace-checkpoint',
   'workspace-checkpoint-cleanup',
   'workspace-restored',
+  'workspace-capture',
   'trace-unpropagated',
   'paused',
   'driver-attempt',
@@ -1148,6 +1149,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'workspace-checkpoint') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-checkpoint-cleanup') continue // workspace receipt, not a settlement
     if (ev.kind === 'workspace-restored') continue // workspace receipt, not a settlement
+    if (ev.kind === 'workspace-capture') continue // capture timing, not a settlement
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
     if (ev.kind === 'paused') continue // an unavailable upstream's pause, not a settlement
     if (ev.kind === 'driver-attempt') continue // driver diagnosis, not a settlement

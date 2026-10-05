@@ -977,11 +977,15 @@ function buildSupervisorAgent(
   let managerInbox: ((message: unknown) => boolean) | undefined
   // The workers this manager is waiting on, while it waits between turns.
   let waitingOn: number | undefined
+  // The coordinator of the running `act`. Its submission is set only once the accepted result is
+  // durable, so it is what `resultAccepted` reads.
+  let liveCoordinator: { submittedResult(): unknown } | undefined
   const externalAgent: Agent<unknown, unknown> = {
     name,
     deliver(message: unknown): boolean {
       return managerInbox?.(message) ?? false
     },
+    resultAccepted: () => Boolean(liveCoordinator?.submittedResult()),
     traceSource: () => driveHarness.traceSource?.(),
     progress: () => {
       const harnessProgress = driveHarness.progress?.()
@@ -1129,6 +1133,7 @@ function buildSupervisorAgent(
         throw error
       })
       ledger = mcp
+      liveCoordinator = mcp
       managerInbox = (message) => {
         if (
           deliver !== undefined &&

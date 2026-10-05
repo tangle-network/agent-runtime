@@ -12,18 +12,21 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { environmentReader, type SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
+import { HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS } from '../harness-transcript'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { assertValidSpend } from './budget'
+import { errorText } from './error-message'
 import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
   type RetainedExecutorContext,
   type RetainedWorkspaceRestore,
   type RetainedWorkspaceRestoreReceipt,
+  workspaceCaptureWriter,
 } from './retained-executor'
 import { detachedSnapshot } from './snapshot'
 import type {
@@ -37,6 +40,7 @@ import type {
   WorkspaceCheckpointMarker,
 } from './types'
 import {
+  WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS,
   WORKSPACE_CHECKPOINT_MARKER_PATH,
   WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS,
   WORKSPACE_CHECKPOINT_TIMEOUT_MS,
@@ -74,6 +78,12 @@ interface OwnerState {
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
+  /** The drive in progress: from before its executor exists until its turn has ended. */
+  drive?: Promise<void>
+  /** End-of-turn work a turn handed over: its workspace capture and the evidence of its receipt. */
+  turnEnd?: Promise<void>
+  /** The release in progress, so a second caller joins it instead of destroying twice. */
+  releasing?: Promise<readonly UnconfirmedTeardown[]>
 }
 interface OwnerRegistration {
   readonly rootId: NodeId
@@ -182,6 +192,18 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         nextSequence: () => state.nextSequence(),
         now: args.now,
       }),
+      onWorkspaceCapture: workspaceCaptureWriter({
+        journal: args.journal,
+        rootId: args.rootId,
+        nodeId: args.nodeId,
+        nextSequence: () => state.nextSequence(),
+        now: args.now,
+      }),
+      onEndOfTurnWork: (work) => {
+        const prior = state.turnEnd
+        const settled = work.catch(() => undefined)
+        state.turnEnd = prior === undefined ? settled : Promise.all([prior, settled]).then(() => {})
+      },
       onResult: async (result) => {
         scope.signal.throwIfAborted()
         assertValidSpend(result.spent, 'retained owner result')
@@ -481,11 +503,24 @@ async function checkpointHandle(
   }
 }
 
-/** An aborted observation cannot prove that the provider never created a snapshot. */
+/** A checkpoint request whose outcome a lookup could not establish, and what the lookup said. */
+interface UnresolvedCheckpointRequest {
+  readonly event: CheckpointRequestEvent
+  readonly reason: string
+}
+
+/**
+ * An aborted observation cannot prove that the provider never created a snapshot, so a request
+ * whose lookup does not find it keeps its source alive for a later lookup, with one exception: a
+ * provider that answers `not_found` for a request older than {@link WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS}
+ * never created it. No operation that request started can still be in flight, and keeping the
+ * source then holds a sandbox for nothing: on Discovery Lab runs terraform-economics-20261005e and
+ * f, each root was kept after its run settled over requests made hours earlier.
+ */
 async function reconcileCheckpointRequests(
   state: OwnerState,
   events: SpawnEvent[],
-): Promise<CheckpointRequestEvent[]> {
+): Promise<UnresolvedCheckpointRequest[]> {
   const operationKey = (operation: { idempotencyKey: string; requestDigest: string }): string =>
     JSON.stringify([operation.idempotencyKey, operation.requestDigest])
   const resolved = new Set(
@@ -504,7 +539,7 @@ async function reconcileCheckpointRequests(
       event.provider === state.provider?.name &&
       !resolved.has(operationKey(event.request)),
   )
-  const unconfirmed: CheckpointRequestEvent[] = []
+  const unconfirmed: UnresolvedCheckpointRequest[] = []
   for (const event of pending) {
     const signal = AbortSignal.timeout(30_000)
     try {
@@ -522,11 +557,27 @@ async function reconcileCheckpointRequests(
         signal,
         'retained owner checkpoint lookup timed out',
       )
-      if (
-        result.status !== 'found' ||
-        !workspaceCheckpointResultMatchesRequest(event.request, result)
-      )
-        throw new Error('checkpoint operation outcome is unresolved')
+      if (result.status === 'not_found') {
+        const requestedAt = Date.parse(event.at)
+        if (
+          Number.isFinite(requestedAt) &&
+          state.args.now() - requestedAt >= WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS
+        )
+          continue
+        unconfirmed.push({ event, reason: 'lookup not_found while the request may be in flight' })
+        continue
+      }
+      if (result.status !== 'found') {
+        unconfirmed.push({
+          event,
+          reason: `lookup ${result.status}${'message' in result && result.message ? `: ${result.message}` : ''}`,
+        })
+        continue
+      }
+      if (!workspaceCheckpointResultMatchesRequest(event.request, result)) {
+        unconfirmed.push({ event, reason: 'lookup found a checkpoint for another request' })
+        continue
+      }
       const recovered: CheckpointEvent = {
         kind: 'workspace-checkpoint',
         id: event.id,
@@ -539,9 +590,11 @@ async function reconcileCheckpointRequests(
       }
       await state.args.journal.appendEvent(state.args.rootId, recovered)
       events.push(recovered)
-    } catch {
-      // Even not_found may race an in-flight effect. Keep its source and durable request.
-      unconfirmed.push(event)
+    } catch (error) {
+      unconfirmed.push({
+        event,
+        reason: `lookup failed: ${errorText(error instanceof Error ? error.message : error)}`,
+      })
     }
   }
   return unconfirmed
@@ -667,19 +720,109 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
   return owners.get(scope)?.releaseRetriable ?? false
 }
 
-/** The existing scope settlement barrier releases the owner's environment after all its turns. */
-export async function releaseScopeRetainedOwnerEnvironment(
+/**
+ * Mark one drive of the owner in progress until the returned function is called. An abort settles
+ * the node while the drive is still ending its turn: stopping the harness, copying its session and
+ * handing its workspace capture over. A release that ran then would find no receipt for the turn
+ * and keep the source alive, as on terraform-economics-20261005f, where the root's last attempt was
+ * recorded two minutes after its environment's release.
+ */
+export function beginScopeRetainedOwnerDrive(scope: Scope<unknown>): () => void {
+  const state = owners.get(scope)
+  if (state === undefined) return () => {}
+  let end!: () => void
+  const drive = new Promise<void>((resolve) => {
+    end = resolve
+  })
+  state.drive = drive
+  return () => {
+    end()
+    if (state.drive === drive) delete state.drive
+  }
+}
+
+/** Wait, bounded like a turn's own ending, for the owner's drive in progress to end. */
+async function ownerDriveEnded(state: OwnerState): Promise<void> {
+  const drive = state.drive
+  if (drive === undefined) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      drive,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/**
+ * Wait for the end-of-turn work the owner's last turn handed over: its workspace capture and the
+ * evidence record of its receipt. A turn hands it over so that its node settles without it; the
+ * owner's next turn and its environment's release wait for it here.
+ */
+export async function scopeRetainedOwnerTurnEnded(scope: Scope<unknown>): Promise<void> {
+  const state = owners.get(scope)
+  if (state === undefined) return
+  for (;;) {
+    const pending = state.turnEnd
+    if (pending === undefined) return
+    await pending
+    if (state.turnEnd === pending) {
+      delete state.turnEnd
+      return
+    }
+  }
+}
+
+/** @internal Wait for everything this owner still has in flight: the drive ending its turn, the
+ *  work that turn handed over, and a release. */
+export async function scopeRetainedOwnerSettled(scope: Scope<unknown>): Promise<void> {
+  const state = owners.get(scope)
+  if (state === undefined) return
+  await ownerDriveEnded(state)
+  await scopeRetainedOwnerTurnEnded(scope)
+  await state.releasing?.catch(() => undefined)
+}
+
+/**
+ * Release the owner's environment once no turn of it will run again: at the run's final
+ * settlement for the root, and when a nested manager's own scope has finished. A second call while
+ * one is in flight joins it. The release first waits for the end-of-turn capture of the owner's
+ * last turn, so the capture always precedes the destroy.
+ */
+export function releaseScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
 ): Promise<readonly UnconfirmedTeardown[]> {
   const state = owners.get(scope)
-  if (!state?.provider) return []
-  const { provider, args } = state
+  const provider = state?.provider
+  if (state === undefined || provider === undefined) return Promise.resolve([])
+  if (state.releasing !== undefined) return state.releasing
+  const releasing = (async () => {
+    await ownerDriveEnded(state)
+    await scopeRetainedOwnerTurnEnded(scope)
+    return await releaseOwnerEnvironment(state, provider)
+  })()
+  const tracked = releasing.finally(() => {
+    if (state.releasing === tracked) delete state.releasing
+  })
+  state.releasing = tracked
+  return tracked
+}
+
+async function releaseOwnerEnvironment(
+  state: OwnerState,
+  provider: AgentEnvironmentProvider,
+): Promise<readonly UnconfirmedTeardown[]> {
+  const { args } = state
   // No checkpoint may race the destroy below, and none is needed after it.
   state.checkpointsUnavailable ??= 'released'
   await state.checkpointing?.catch(() => undefined)
   const events = [...((await args.journal.loadTree(args.rootId)) ?? [])]
   const requestFailures = await reconcileCheckpointRequests(state, events)
-  const pendingSources = new Set(requestFailures.map((event) => event.environmentId))
+  const pendingSources = new Set(requestFailures.map(({ event }) => event.environmentId))
   const released = new Set(
     events.flatMap((event) =>
       event.kind === 'environment-teardown' &&
@@ -818,12 +961,12 @@ export async function releaseScopeRetainedOwnerEnvironment(
       }),
     ),
     ...requestFailures.map(
-      (event): UnconfirmedTeardown => ({
+      ({ event, reason }): UnconfirmedTeardown => ({
         id: args.nodeId,
         label: 'scope owner checkpoint request',
         runtime: provider.name,
         status: 'done',
-        detail: `checkpoint request unresolved: ${event.request.idempotencyKey} from ${event.environmentId}`,
+        detail: `checkpoint request unresolved: ${event.request.idempotencyKey} from ${event.environmentId} (${reason})`,
       }),
     ),
   ]
@@ -894,9 +1037,20 @@ interface OwnerAttempt {
   readonly executionId?: string
   readonly controlByEnvironment: Map<string, AgentExactRunControlRef>
   result?: Extract<SpawnEvent, { kind: 'execution-result' }>
+  /** Captures retained as evidence of this attempt: the capture a turn handed over after its
+   *  result, or the capture of a turn that failed. */
+  readonly evidence: Array<Extract<SpawnEvent, { kind: 'execution-evidence' }>>
 }
 
-/** Group owner admissions by input and require a verified workspace receipt before deletion. */
+/**
+ * Group owner admissions by input and require a verified workspace receipt before deletion.
+ *
+ * The receipt is the attempt's committed result, or an evidence record of the same attempt: a
+ * turn its manager stopped commits its result first and journals its capture as evidence after
+ * it, and a turn that failed journals the capture it took of the stopped session. This runs only
+ * at a release no process will resume, so a complete, verified capture of the exact execution is
+ * the whole of what keeping the source would preserve.
+ */
 async function ownerWorkspaceRetentionFailures(
   events: readonly SpawnEvent[],
   nodeId: NodeId,
@@ -908,18 +1062,20 @@ async function ownerWorkspaceRetentionFailures(
     if (current !== undefined) attempts.push(current)
     current = undefined
   }
+  const fresh = (executionId?: string): OwnerAttempt => ({
+    ...(executionId === undefined ? {} : { executionId }),
+    environmentIds: new Set<string>(),
+    controlByEnvironment: new Map(),
+    evidence: [],
+  })
   for (const event of events) {
     if (!('id' in event) || event.id !== nodeId) continue
     if (event.kind === 'execution-input') {
       flush()
-      current = {
-        executionId: `${nodeId}:input:${event.seq}`,
-        environmentIds: new Set<string>(),
-        controlByEnvironment: new Map(),
-      }
+      current = fresh(`${nodeId}:input:${event.seq}`)
     } else if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
       if (current?.result !== undefined) flush()
-      current ??= { environmentIds: new Set<string>(), controlByEnvironment: new Map() }
+      current ??= fresh()
       current.environmentIds.add(event.admission.environmentId)
     } else if (event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
       current?.controlByEnvironment.set(
@@ -927,8 +1083,10 @@ async function ownerWorkspaceRetentionFailures(
         event.admission.controlRef,
       )
     } else if (event.kind === 'execution-result') {
-      current ??= { environmentIds: new Set<string>(), controlByEnvironment: new Map() }
+      current ??= fresh()
       current.result = event
+    } else if (event.kind === 'execution-evidence') {
+      current?.evidence.push(event)
     }
   }
   flush()
@@ -942,31 +1100,39 @@ async function ownerWorkspaceRetentionFailures(
       for (const environmentId of attempt.environmentIds) failures.add(environmentId)
       continue
     }
-    const result = attempt.result
-    if (result === undefined) {
-      for (const environmentId of attempt.environmentIds) failures.add(environmentId)
-      continue
-    }
-    let output: unknown | undefined
-    try {
-      output = await blobs.get(result.outRef)
-      if (output === undefined || contentAddress(output) !== result.outRef) throw new Error()
-    } catch {
-      output = undefined
-    }
-    const snapshot =
-      output !== null && typeof output === 'object'
-        ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
-        : undefined
     const environmentId = [...attempt.environmentIds][0]!
     const controlRef = attempt.controlByEnvironment.get(environmentId)
-    if (
-      !hasDurableWorkspaceCapture(output, snapshot, environmentId, attempt.executionId, controlRef)
-    ) {
-      failures.add(environmentId)
+    const receipts = [
+      ...(attempt.result === undefined ? [] : [attempt.result.outRef]),
+      ...attempt.evidence.map((event) => event.outRef),
+    ]
+    let verified = false
+    for (const outRef of receipts) {
+      const output = await storedOutput(blobs, outRef)
+      const snapshot =
+        output !== null && typeof output === 'object'
+          ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
+          : undefined
+      if (
+        hasDurableWorkspaceCapture(output, snapshot, environmentId, attempt.executionId, controlRef)
+      ) {
+        verified = true
+        break
+      }
     }
+    if (!verified) failures.add(environmentId)
   }
   return failures
+}
+
+/** A stored output whose bytes match its content reference, or undefined. */
+async function storedOutput(blobs: ResultBlobStore, outRef: string): Promise<unknown | undefined> {
+  try {
+    const output = await blobs.get(outRef)
+    return output === undefined || contentAddress(output) !== outRef ? undefined : output
+  } catch {
+    return undefined
+  }
 }
 
 /** A stored result authorizes cleanup only for the exact source and complete capture. */

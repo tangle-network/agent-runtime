@@ -18,6 +18,7 @@ import {
   scopeRetainedOwnerContext,
 } from '../../src/runtime/supervise/retained-scope-owner'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
+import { WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS } from '../../src/runtime/supervise/workspace-checkpoint'
 
 type Boundary = 'unknown-outcome' | 'late-after-cancel' | 'journal-append-failure'
 type Lookup = 'found' | 'unknown' | 'not_found' | 'foreign'
@@ -43,6 +44,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
   let failAppend = boundary === 'journal-append-failure'
   let lookup = initialLookup
   let cleanupUnknown = false
+  let clock = 0
   let lateResult: (() => void) | undefined
   let checkpointStarted: (() => void) | undefined
   const started = new Promise<void>((resolve) => {
@@ -152,7 +154,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
       rootId: source.runId,
       nodeId: source.runId,
       priorEvents: [...events],
-      now: () => 0,
+      now: () => clock,
       blobs: new InMemoryResultBlobStore(),
       journal: {
         beginTree: async () => {},
@@ -177,6 +179,9 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     },
     setCleanupUnknown: (next: boolean) => {
       cleanupUnknown = next
+    },
+    setNow: (next: number) => {
+      clock = next
     },
     state: () => ({ checkpoint, deletes, destroys, live, durableBeforeEffect }),
     async checkpoint() {
@@ -272,4 +277,28 @@ describe('retained checkpoint effects with unresolved outcomes', () => {
       expect(probe.state()).toMatchObject({ deletes: 1, destroys: 1, live: false })
     },
   )
+
+  it('releases the source when the provider answers not_found for a request no operation can still serve', async () => {
+    const probe = fixture('unknown-outcome', 'not_found')
+    await probe.checkpoint()
+    probe.setNow(WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS)
+    expect(await releaseScopeRetainedOwnerEnvironment(probe.scope)).toEqual([])
+    expect(probe.state()).toMatchObject({ destroys: 1, live: false })
+    expect(probe.events).toContainEqual(
+      expect.objectContaining({ kind: 'environment-teardown', destroyed: true }),
+    )
+  })
+
+  it('names what the lookup answered for a request it keeps the source for', async () => {
+    const probe = fixture('unknown-outcome', 'unknown')
+    await probe.checkpoint()
+    probe.setNow(WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS)
+    const cleanup = await releaseScopeRetainedOwnerEnvironment(probe.scope)
+    expect(cleanup).toContainEqual(
+      expect.objectContaining({
+        detail: expect.stringContaining('(lookup unknown: inventory unavailable)'),
+      }),
+    )
+    expect(probe.state()).toMatchObject({ destroys: 0, live: true })
+  })
 })
