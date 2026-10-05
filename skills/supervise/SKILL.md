@@ -30,8 +30,8 @@ A research director also carries the [research authoring reference](../profile-a
 1. Split the objective into independent artifacts with checkable outcomes.
 2. Start each assignment with a stable semantic key and a deliberate budget.
    Fill available capacity while distinct useful assignments remain.
-3. Pull settlements, findings, and questions with `await_event`.
-   A bounded wait returning does not establish failure.
+3. When you are waiting for workers, end your turn. You will be woken with what happened: each settlement and finding, a message from your lead, and a notice before your deadline.
+   A heartbeat wake with nothing new does not establish failure.
    Use granted analysts on settled workers and inspect live detector findings when the configured backend supports them.
    Record which finding changed an assignment, profile, claim, or check; give an evidence-backed reason for rejecting it.
 4. Inspect quiet or stalled workers with `observe_agent` before steering them.

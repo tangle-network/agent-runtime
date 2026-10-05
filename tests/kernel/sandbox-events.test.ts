@@ -2,8 +2,8 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   assertSandboxServedModel,
-  extractLlmCallEvent,
   createSandboxToolPartState,
+  extractLlmCallEvent,
   mapSandboxEvent,
   mapSandboxToolEvent,
   sandboxEventServedBackend,

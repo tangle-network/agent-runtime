@@ -12,7 +12,7 @@ import {
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
-} from '../../src/runtime/retained-run'
+} from '../../src/runtime/retained-run-start'
 import type {
   RetainedRunAdmission,
   RetainedRunIntentAdmission,

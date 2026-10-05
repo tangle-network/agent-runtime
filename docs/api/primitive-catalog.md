@@ -453,7 +453,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1069 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -767,12 +767,15 @@ Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
 | `CONTINUATION_FACTS` | const | The facts a profile template may name. |
 | `CONTINUATIONS_DIR` | const | A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested |
 | `DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY` | const | Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and |
+| `DEFAULT_DEADLINE_WARNING_MS` | const | How long before its deadline a manager is woken once to submit its best result: 15 min. |
 | `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
 | `DEFAULT_SHARED_BOX_RESOURCES` | const | The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus |
 | `DEFAULT_SHARED_BOX_WORKERS` | const | The most workers one default box carries at once. |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
+| `DEFAULT_WAKE_DEBOUNCE_MS` | const | How long a wake waits for more events after its first, while other workers still run: 2 s. |
+| `DEFAULT_WAKE_HEARTBEAT_MS` | const | How long a waiting manager hears nothing before Runtime wakes it to reconsider: 15 min. |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
 | `defaultAuditorInstruction` | const | Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. |
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
@@ -845,6 +848,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
 | `AuthorizedDownMessage` | interface | Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed |
 | `AuthorizedSpawn` | interface | The product-authorized result for one complete spawn request. Attribution is never accepted |
 | `AuthorizedSpawnContext` | interface | Exact trusted context after a manager-authored spawn has passed product authorization. |
+| `AwaitWakeInput` | interface | What a manager waits for, from `awaitWake`. |
 | `BenchmarkCell` | interface | One strategy's outcome on one task — the per-task cell an optimizer consumes. |
 | `BenchmarkReport` | interface | Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. |
 | `BoxSurfaceReaderOptions` | interface | Retry and cancellation controls for {@link boxSurfaceReader}. |
@@ -978,6 +982,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
 | `LeaderboardScenario` | interface | The campaign scenario a case is wrapped into: the case rides along so |
 | `LeaderboardScore` | interface | Structured per-case verdict a `score` function may return (a bare number is |
 | `LeaderboardSpec` | interface | The declarative leaderboard spec. `TArtifact` is the artifact channel the |
+| `LeadMessage` | interface | A steer or an answer this manager received from its lead. |
 | `LeakedReservation` | interface | One reservation still open when a run reached its join barrier — a conserved-pool leak, |
 | `LocalMcpMaterialization` | interface | The live same-host materialization of a profile's `mcp` surface. |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into Runtime cells. |
@@ -989,6 +994,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
 | `LoopUntilSpec` | interface | `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step` |
 | `LoopUntilState` | interface | The accumulated state `loopUntil` threads across rounds — the running candidate + the round |
 | `ManagerReentryState` | interface | What a manager's coordinator knows about its run, read when the manager is entered again. |
+| `ManagerWake` | interface | One wake of a manager that ended its turn with work open. |
+| `ManagerWakePolicy` | interface | How Runtime wakes a manager that ended its turn with work open. |
 | `MaterializedExecutionIdentity` | interface | External execution identity that operators can use to join this node to its backend. |
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
@@ -1170,6 +1177,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
 | `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |
+| `ToolOutcomeEvent` | interface | A tool call that outlived its response fence, and its outcome once it settled. |
 | `TournamentCell` | interface | One strategy on one task at one repeat: the settled cell's final attempt. |
 | `TrajectoryNode` | interface | One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the |
 | `TrajectoryReport` | interface | The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The |
@@ -1548,7 +1556,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 248 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1654,6 +1662,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 | `AuthoredAnalystDefinition` | interface | A trace analyst a MANAGER authored at run time: the research question, the policy for answering |
 | `AuthoredAnalystLimits` | interface | Bounds on the recursive investigation a defined analyst may run. Each field is optional and is |
 | `AuthorizedDownMessage` | interface | Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed |
+| `AwaitWakeInput` | interface | What a manager waits for, from `awaitWake`. |
 | `CodexExecutionEvidence` | interface | Zero-model-call evidence for the exact Codex process about to run. |
 | `CodexExecutionFailureDiagnostic` | interface | Bounded, credential-redacted process context attached when reproducible Codex output fails |
 | `CodexExecutionPolicy` | interface | Isolation settings asserted before a reproducible Codex run is allowed to start. |
@@ -1678,7 +1687,9 @@ Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
+| `LeadMessage` | interface | A steer or an answer this manager received from its lead. |
 | `ManagerReentryState` | interface | What a manager's coordinator knows about its run, read when the manager is entered again. |
+| `ManagerWake` | interface | One wake of a manager that ended its turn with work open. |
 | `McpToolAnnotations` | interface | MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads |
 | `McpToolDescriptor` | interface | A callable MCP tool exposed by either stdio server. |
 | `McpTransport` | interface | Stdio-shaped transport used by the shared JSON-RPC server implementation. |
@@ -1689,6 +1700,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 | `SettledWorker` | interface | A worker whose settlement reached the manager's inbox. |
 | `SpawnResourceBytes` | interface | One successful read: the bytes as a string plus the identity the journal records. |
 | `SpawnResourceReader` | interface | Where a by-path resource's bytes come from. `describe` names the source in a refusal so a |
+| `ToolOutcomeEvent` | interface | A tool call that outlived its response fence, and its outcome once it settled. |
 | `UiAuditorDelegationOutput` | interface | Wire-shape of a completed UI-audit delegation. The `findings` array |
 | `WorkerSpawnContext` | interface | Immutable task, allocation, identity attribution, and semantic key supplied while a manager's |
 | `WorkerWatchOptions` | interface | Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). |

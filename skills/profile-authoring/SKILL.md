@@ -98,9 +98,9 @@ Choose `maxBarren` from the task's measured feedback cadence; pending assessment
 
 For managers, state how they wait for descendants and collect their artifacts before returning.
 A nested manager returning can end its scope and cancel live descendants.
-Use the granted `await_event` tool while required descendant work remains live.
-A bounded event wait can return before the worker finishes; inspect its state and continue waiting when appropriate.
-A background shell timer does not establish Runtime re-entry.
+A manager waits by ending its turn while required descendant work remains live: Runtime wakes it with each settlement, finding, or message from its lead, and with a notice before its deadline.
+Ending a turn with work open is not completion; only an accepted `submit_result`, `report_blocked`, or a turn that ends with nothing open ends a manager.
+A background shell timer or a polling loop does not establish Runtime re-entry, and it spends turns.
 Require each descendant to retain partial work where its parent can recover it after interruption.
 
 Retain certificates and partial work where the outside assessor can read exact bytes.

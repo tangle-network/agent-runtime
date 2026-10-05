@@ -27,8 +27,11 @@ export interface ManagerWakePolicy {
   readonly deadlineWarningMs?: number
 }
 
+/** How long a waiting manager hears nothing before Runtime wakes it to reconsider: 15 min. */
 export const DEFAULT_WAKE_HEARTBEAT_MS = 15 * 60_000
+/** How long a wake waits for more events after its first, while other workers still run: 2 s. */
 export const DEFAULT_WAKE_DEBOUNCE_MS = 2_000
+/** How long before its deadline a manager is woken once to submit its best result: 15 min. */
 export const DEFAULT_DEADLINE_WARNING_MS = 15 * 60_000
 
 /** The instruction every manager receives about waiting. */

@@ -1518,7 +1518,7 @@ Conserved spend so far for this node.
 > `readonly` `optional` **settlementPending?**: `object`
 
 The node's executor has FINISHED and its settlement is queued for the manager to drain with
-`await_event`/`next()`, but `status` still reads as it did while running because the settle
+its next wake/`next()`, but `status` still reads as it did while running because the settle
 transition happens at drain time. Present only in that window; absent once drained or while
 the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
 can tell "still working" from "finished, waiting for you to read it".
@@ -2276,7 +2276,7 @@ Bus `seq` of each acknowledged event, in this process's sequence space.
 
 > `readonly` **by**: `"manager"` \| `"turn-completed"` \| `"result-accepted"`
 
-`manager`: the manager named them in `await_event`'s `acknowledge`. `turn-completed`: the
+`manager`: legacy rows from a manager that named them. `turn-completed`: the
  driver turn that received them ended normally. `result-accepted`: a submission passed the
  completion check after they were delivered.
 
@@ -2317,13 +2317,13 @@ Workers still running.
 
 > `readonly` **settled**: readonly `object`[]
 
-Workers that settled, with whether their settlement reached the manager through `await_event`.
+Workers that settled, with whether their settlement reached the manager in a wake.
 
 ##### waiting
 
 > `readonly` **waiting**: readonly `object`[]
 
-Events queued for `await_event` and not yet delivered, including settlements the coordinator
+Events queued for the next wake and not yet delivered, including settlements the coordinator
  holds but has not queued yet.
 
 ##### unacknowledged
@@ -2591,6 +2591,153 @@ Detector panel; omit for the default stuck-loop + error-streak pair.
 
 Raise at most this many findings per worker, so one pathological worker cannot flood the
  driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited.
+
+***
+
+### AwaitWakeInput
+
+What a manager waits for, from `awaitWake`.
+
+#### Properties
+
+##### attempt?
+
+> `readonly` `optional` **attempt?**: `number`
+
+The driver attempt the wake will start: its deliveries are acknowledged when that turn
+ completes, and named again on re-entry when it fails. Omit for the current attempt.
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+##### heartbeatMs
+
+> `readonly` **heartbeatMs**: `number`
+
+Wake with no event after this long, so a waiting manager can reconsider.
+
+##### debounceMs
+
+> `readonly` **debounceMs**: `number`
+
+After the first event, wait this long for more and deliver them together.
+
+##### deadlineAt?
+
+> `readonly` `optional` **deadlineAt?**: `number`
+
+Epoch ms of a deadline warning: wake once then, with or without an event.
+
+##### alsoWakeOn?
+
+> `readonly` `optional` **alsoWakeOn?**: `Promise`\<`unknown`\>
+
+Something outside the bus that also ends the wait, such as a delivery to the manager's own
+ inbox.
+
+***
+
+### ManagerWake
+
+One wake of a manager that ended its turn with work open.
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"deadline"` \| `"events"` \| `"heartbeat"`
+
+`events`: something reached the inbox. `heartbeat`: the heartbeat elapsed with nothing new.
+ `deadline`: the deadline warning came due.
+
+##### events
+
+> `readonly` **events**: readonly `Record`\<`string`, `unknown`\> & `object`[]
+
+Everything that reached the inbox since the last turn, in bus order.
+
+##### live
+
+> `readonly` **live**: readonly `Record`\<`string`, `unknown`\>[]
+
+Workers still running.
+
+##### freeSlots
+
+> `readonly` **freeSlots**: `number` \| `null`
+
+How many more workers can start now; `null` when uncapped.
+
+##### idleMs
+
+> `readonly` **idleMs**: `number`
+
+How long the manager waited, with no model turn, before this wake.
+
+***
+
+### LeadMessage
+
+A steer or an answer this manager received from its lead.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"steer"` \| `"answer"`
+
+##### text
+
+> `readonly` **text**: `string`
+
+##### questionId?
+
+> `readonly` `optional` **questionId?**: `string`
+
+##### interrupt
+
+> `readonly` **interrupt**: `boolean`
+
+The lead asked for the message to interrupt; it is delivered at the next wake either way.
+
+***
+
+### ToolOutcomeEvent
+
+A tool call that outlived its response fence, and its outcome once it settled.
+
+#### Properties
+
+##### receipt
+
+> `readonly` **receipt**: `string`
+
+The receipt the caller was given when the fence elapsed.
+
+##### tool
+
+> `readonly` **tool**: `string`
+
+##### ok
+
+> `readonly` **ok**: `boolean`
+
+##### value?
+
+> `readonly` `optional` **value?**: `unknown`
+
+The tool's result, when it succeeded.
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+The tool's error message, when it failed.
+
+##### elapsedMs
+
+> `readonly` **elapsedMs**: `number`
 
 ***
 
@@ -16851,7 +16998,7 @@ Raise a `finding` on the bus from an online detector watching a worker's live pi
 
 Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
- moment it happens, instead of only at settle. Queued for `await_event` + pass-through.
+ moment it happens, instead of only at settle. Queued for the next wake + pass-through.
 
 ###### Parameters
 
@@ -17428,7 +17575,7 @@ Set when another attempt follows. For an `unavailable` attempt this is the pause
 
 ##### reentry?
 
-> `readonly` `optional` **reentry?**: `"unmet-contract"` \| `"driver-failure"` \| `"upstream-unavailable"`
+> `readonly` `optional` **reentry?**: `"wake"` \| `"unmet-contract"` \| `"driver-failure"` \| `"upstream-unavailable"`
 
 How this attempt was entered. Absent on the first attempt.
 
@@ -17450,6 +17597,13 @@ The completion check's verdict after this attempt. Absent when the caller declar
 > `readonly` `optional` **reprompted?**: `boolean`
 
 True when this COMPLETED attempt's unmet contract sent the loop back with a continuation.
+
+##### waitedMs?
+
+> `readonly` `optional` **waitedMs?**: `number`
+
+For a completed attempt that left work open: how long the manager then waited, with no
+ model turn, before the wake that started the next attempt.
 
 ##### repromptRefusedBy?
 
@@ -17567,6 +17721,18 @@ Infrastructure time the unavailable upstream cost this loop: every pause, plus e
 
 Re-entered drives, in a row at the end, that completed without a delivery.
 
+##### wakes
+
+> `readonly` **wakes**: `number`
+
+Turns started by a wake: the manager ended its turn with work open and Runtime resumed it.
+
+##### waitedMs
+
+> `readonly` **waitedMs**: `number`
+
+Time the manager waited between turns with no model turn, summed over its wakes.
+
 ##### ended
 
 > `readonly` **ended**: [`DriverAttemptStop`](#driverattemptstop) \| `"unrecorded"`
@@ -17654,6 +17820,26 @@ Re-entered drives, in a row at the end, that completed without a delivery.
 ###### Inherited from
 
 [`DriverLoopRecord`](#driverlooprecord).[`barrenReentries`](#barrenreentries-1)
+
+##### wakes
+
+> `readonly` **wakes**: `number`
+
+Turns started by a wake: the manager ended its turn with work open and Runtime resumed it.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`wakes`](#wakes)
+
+##### waitedMs
+
+> `readonly` **waitedMs**: `number`
+
+Time the manager waited between turns with no model turn, summed over its wakes.
+
+###### Inherited from
+
+[`DriverLoopRecord`](#driverlooprecord).[`waitedMs`](#waitedms-1)
 
 ##### ended
 
@@ -17912,6 +18098,25 @@ Register a pass-through handler; it receives the stamped record of every event p
 ###### handler
 
 (`record`) => `void` \| `Promise`\<`void`\>
+
+###### Returns
+
+() => `void`
+
+##### onQueued()
+
+> **onQueued**(`handler`): () => `void`
+
+**`Experimental`**
+
+Register a handler called once an event has entered the pull queue, after every subscriber
+ acknowledged it — the moment a waiting consumer can pull it. Returns an unsubscribe fn.
+
+###### Parameters
+
+###### handler
+
+(`record`) => `void`
 
 ###### Returns
 
@@ -18308,7 +18513,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-27)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-28)
 
 ##### execution?
 
@@ -18820,7 +19025,7 @@ Bound on concurrently WORKING agents across the whole recursive tree: a number, 
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
-moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
 instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
 is the correction. Requires a backend whose executor exposes a trace source (the steerable
 sandbox worker and the pi wrapper do); other runtimes are simply not watched.
@@ -18842,18 +19047,17 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 [`SuperviseOptions`](#superviseoptions).[`stallAfterMs`](#stallafterms-3)
 
-##### awaitTimeoutMs?
+##### wake?
 
-> `readonly` `optional` **awaitTimeoutMs?**: `number`
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](#managerwakepolicy)
 
-Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
- re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
- workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
- supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
+ that coalesces events into one wake, and the deadline warning. Omit = the defaults in
+ `./wake` (15 min, 2 s, 15 min).
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`awaitTimeoutMs`](#awaittimeoutms-1)
+[`SuperviseOptions`](#superviseoptions).[`wake`](#wake-1)
 
 ##### runDir?
 
@@ -18891,13 +19095,13 @@ resumable run per directory but collides across concurrent runs sharing one `run
 > `readonly` `optional` **resume?**: `boolean`
 
 Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-8)
+[`SuperviseOptions`](#superviseoptions).[`resume`](#resume-7)
 
 ##### steerDir?
 
@@ -19274,6 +19478,16 @@ therefore was not queued; callers must not acknowledge a message this inbox disc
 ###### Returns
 
 `boolean`
+
+##### nextDelivery()
+
+> **nextDelivery**(): `Promise`\<`void`\>
+
+Resolves at the next accepted delivery, so a manager waiting between turns wakes for it.
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ##### drain()
 
@@ -20779,30 +20993,6 @@ Coordination tools served to this manager. Absent means none are proven availabl
 > `readonly` **attempt**: `number`
 
 1-based driver attempt this task starts.
-
-***
-
-### SqlRunContext
-
-#### Properties
-
-##### journal
-
-> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
-
-##### blobs
-
-> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
-
-##### executors
-
-> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
-
-##### resume
-
-> `readonly` **resume**: `true`
-
-Always `true` — a SQL context is durable by construction, so runs resume-first.
 
 ***
 
@@ -23342,7 +23532,7 @@ OPT-IN standing guidance from the profile knowledge base
 > `readonly` `optional` **inheritSpawnRights?**: `boolean`
 
 Whether a spawned profile that declares no Runtime coordination tool receives its manager's
- coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+ coordination grants (`spawn_worker`, `observe_agent`, and the rest, plus `submit_result` so it
  can still deliver work it does itself), so every child can lead children of its own. Default
  `true`. A child whose author wrote any coordination entry, true or false, keeps what was
  written (a `false` entry is dropped once it has kept the child a leaf). A child this run
@@ -23616,7 +23806,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 > `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
- the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
+ the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
  Omit/empty = status quo (no analyst feed). Requires `analysts`.
 
@@ -23625,7 +23815,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
-moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
 instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
 is the correction. Requires a backend whose executor exposes a trace source (the steerable
 sandbox worker and the pi wrapper do); other runtimes are simply not watched.
@@ -23639,14 +23829,13 @@ Omit = off (status quo — no online watching, no extra events).
 Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
  at observation time — nothing is killed or retried. Omit = the runtime default.
 
-##### awaitTimeoutMs?
+##### wake?
 
-> `readonly` `optional` **awaitTimeoutMs?**: `number`
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](#managerwakepolicy)
 
-Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
- re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
- workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
- supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
+ that coalesces events into one wake, and the deadline warning. Omit = the defaults in
+ `./wake` (15 min, 2 s, 15 min).
 
 ##### continuityByProfile?
 
@@ -23698,7 +23887,7 @@ resumable run per directory but collides across concurrent runs sharing one `run
 > `readonly` `optional` **resume?**: `boolean`
 
 Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
@@ -24035,9 +24224,12 @@ Arguments and results are the same JSON shapes the MCP tools take and return.
 
 `Promise`\<`unknown`\>
 
-##### awaitEvent()
+##### awaitSettlement()
 
-> **awaitEvent**(`args`): `Promise`\<`unknown`\>
+> **awaitSettlement**(`args`): `Promise`\<`unknown`\>
+
+Wait in code until at least one of `{ workerIds }` has settled; returns `{ settled: ids }`.
+ Takes nothing from the manager's inbox, so the manager still hears of each settlement.
 
 ###### Parameters
 
@@ -24363,14 +24555,14 @@ Published in `tools/list` when present.
 How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_worker / await_event / stop as native tools over the live scope.
+ so the harness calls spawn_worker / observe_agent / submit_result as native tools over the live scope.
 
 > **DriveHarness**(`args`): `Promise`\<`void`\>
 
 How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_worker / await_event / stop as native tools over the live scope.
+ so the harness calls spawn_worker / observe_agent / submit_result as native tools over the live scope.
 
 #### Parameters
 
@@ -24796,12 +24988,12 @@ Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so 
 
 Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default.
 
-##### awaitTimeoutMs?
+##### wake?
 
-> `readonly` `optional` **awaitTimeoutMs?**: `number`
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](#managerwakepolicy)
 
-Router-driver arm only: max ms one `await_event` blocks before returning `{ pending }`. The
- harness arm keeps the fence derived from its MCP request timeout. Omit = runtime default.
+How Runtime wakes this manager after it ends a turn with work open (both arms). Omit = the
+ defaults in `./wake`.
 
 ##### continuityByProfile?
 
@@ -25325,6 +25517,19 @@ receipt a leaf gets instead of `executor-exposes-no-transcript`.
 
 `Promise`\<`void`\>
 
+##### resultAccepted()?
+
+> `optional` **resultAccepted**(): `boolean`
+
+True once this agent's result is committed: its completion check accepted a submission and
+the coordination record holds it. `act` then resolves with that result once the turn that
+submitted it has ended, so an abort that arrives after acceptance waits for it, bounded,
+instead of discarding it (see `Executor.resultAccepted`).
+
+###### Returns
+
+`boolean`
+
 ***
 
 ### Executor
@@ -25656,6 +25861,21 @@ content ref and settles the receipt, so no executor ever learns about storage.
 ###### Returns
 
 `Promise`\<`void`\>
+
+##### resultAccepted()?
+
+> `optional` **resultAccepted**(): `boolean`
+
+True once this execution's result is committed and `execute` will resolve with it: a
+manager whose completion check accepted its submission. The scope does not settle such a node
+`down` when its deadline or an abort arrives while the accepted turn is still ending; it waits
+for `execute` to resolve, and the executor bounds that wait itself. Measured on Discovery Lab
+run terraform-economics-20261005f: 5 of 20 nodes with accepted results were settled `down` by
+deadlines that fell while their turns were still ending.
+
+###### Returns
+
+`boolean`
 
 ***
 
@@ -26813,9 +27033,8 @@ Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `po
 predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
 the pool's hard wall-clock ceiling — a wait never extends a budget guard).
 
-NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 45s fence makes
-the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
-and nothing about it survives a restart. See `supervise/wait.ts`.
+NOT a manager's wake: that is an in-run rendezvous on the coordination bus in a process that
+must stay up, and nothing about it survives a restart. See `supervise/wait.ts`.
 
 ###### Parameters
 
@@ -27199,7 +27418,7 @@ Conserved spend so far for this node.
 > `readonly` `optional` **settlementPending?**: `object`
 
 The node's executor has FINISHED and its settlement is queued for the manager to drain with
-`await_event`/`next()`, but `status` still reads as it did while running because the settle
+its next wake/`next()`, but `status` still reads as it did while running because the settle
 transition happens at drain time. Present only in that window; absent once drained or while
 the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
 can tell "still working" from "finished, waiting for you to read it".
@@ -28045,7 +28264,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-33)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-34)
 
 ##### abort()
 
@@ -28322,6 +28541,32 @@ The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides
 > `readonly` **ordinal**: `number`
 
 The wait ordinal in its parent scope, so a resumed scope continues past it.
+
+***
+
+### ManagerWakePolicy
+
+How Runtime wakes a manager that ended its turn with work open.
+
+#### Properties
+
+##### heartbeatMs?
+
+> `readonly` `optional` **heartbeatMs?**: `number`
+
+Wake with no event after this long, so a waiting manager can reconsider. Default 15 min.
+
+##### debounceMs?
+
+> `readonly` `optional` **debounceMs?**: `number`
+
+After the first event, wait this long for more and deliver them together. Default 2 s.
+
+##### deadlineWarningMs?
+
+> `readonly` `optional` **deadlineWarningMs?**: `number`
+
+Wake once this long before the deadline and ask for the best result now. Default 15 min.
 
 ***
 
@@ -31104,7 +31349,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -31221,9 +31466,28 @@ Persisted before a native analyst can spend; restored by assignment id after res
 
 \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \}
 
-The manager processed events `await_event` delivered to it. Record-only, and separate from
+The manager processed events a wake delivered to it. Record-only, and separate from
  delivery on purpose: an event delivered to a turn that then FAILED stays unacknowledged, and
  the manager's next re-entry names it again instead of losing it with the dead turn.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \}
+
+A tool call that outlived its response fence settled. Queued: the manager's next wake
+ carries it, so the caller never re-calls to collect it.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \}
+
+This manager's lead (its parent manager, or the operator for a root) sent it a steer or an
+ answer. Queued: a manager's harness has no live inbox between turns, so the message is the
+ input of its next wake instead of a refused delivery.
 
 ***
 
@@ -32752,7 +33016,7 @@ Why a completed drive with an unmet contract was not re-entered. `no-progress` m
 
 ### DriverReentry
 
-> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
+> **DriverReentry** = \{ `reason`: `"unmet-contract"`; `steer`: `string`; `continuation`: `number`; \} \| \{ `reason`: `"driver-failure"`; `failure`: `string`; `retry`: `number`; \} \| \{ `reason`: `"wake"`; `input`: `string`; `wake`: `number`; \} \| \{ `reason`: `"upstream-unavailable"`; `signal`: `string`; `pause`: `number`; \}
 
 Why the loop is entering the driver again. Absent on the first attempt only.
 
@@ -32804,6 +33068,31 @@ The failure that ended the previous drive, as recorded.
 > `readonly` **retry**: `number`
 
 1-based: which failure retry this is.
+
+***
+
+##### Type Literal
+
+\{ `reason`: `"wake"`; `input`: `string`; `wake`: `number`; \}
+
+###### reason
+
+> `readonly` **reason**: `"wake"`
+
+The previous turn ended with work open, and Runtime woke the manager when something
+ happened. Not a continuation: the manager chose to wait, and `input` is what it waited for.
+
+###### input
+
+> `readonly` **input**: `string`
+
+The wake input: every event since the last turn, or the heartbeat or deadline notice.
+
+###### wake
+
+> `readonly` **wake**: `number`
+
+1-based: which wake this is.
 
 ***
 
@@ -33907,7 +34196,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-8); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-8); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-8); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-8); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-8); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-8); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-8); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-8); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-8); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-8); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-8); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-8); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-8); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-8); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-8); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-8); `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-8); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-8); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-8); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\> & `object`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `spent`: [`Spend`](#spend-1); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-8); `outRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-8); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-8); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-8); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-8); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-8); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-8); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-8); `parent?`: [`NodeId`](#nodeid-8); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-8); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-8); `spend`: [`Spend`](#spend-1); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-8); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](#retainedpendingcause-1); `infra?`: `boolean`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-3); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-8); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-8); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-8); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-8); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-8); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-8); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-8); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -35192,6 +35481,73 @@ The environment the checkpoint was taken from.
 
 ##### Type Literal
 
+\{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-8); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"workspace-capture"`
+
+One end-of-turn workspace capture of this node's environment and where its time went.
+ Captures queue on one port that every recursive environment shares, so `queuedMs` is
+ the wait behind other nodes' captures and `captureMs` the capture and its verification.
+ Informational, like `workspace-checkpoint`; `seq` counts this node's records.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-8)
+
+###### executionId
+
+> **executionId**: `string`
+
+The Runtime invocation the capture belongs to.
+
+###### environmentId
+
+> **environmentId**: `string`
+
+###### ahead
+
+> **ahead**: `number`
+
+Captures holding or waiting for a slot when this one was requested.
+
+###### queuedMs
+
+> **queuedMs**: `number`
+
+###### captureMs?
+
+> `optional` **captureMs?**: `number`
+
+Absent when the capture never held a slot.
+
+###### archiveBytes?
+
+> `optional` **archiveBytes?**: `number`
+
+Bytes of the verified workspace archive.
+
+###### outcome
+
+> **outcome**: `"captured"` \| `"failed"`
+
+###### error?
+
+> `optional` **error?**: `string`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
 \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-8); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
@@ -36054,19 +36410,6 @@ Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.
 
 ## Variables
 
-### DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS
-
-> `const` **DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS**: `45000` = `45_000`
-
-Default ceiling for a single `await_event` block (ms). Every `pending` return costs the driver an
- inference turn, so the ceiling is as long as the harness clients allow: Claude Code 2.1.287 and
- Codex both time out an MCP tool call at 60 s by default (measured 2026-10-03: a 150 s HTTP MCP
- call failed at about 60 s and passed with `MCP_TOOL_TIMEOUT=300000`), and the Sandbox edge held
- a 200 s response. 45 s leaves 15 s of that minute for transfer and the driver's own latency. At
- 15 s a Discovery root director spent 303 of its 401 native tool calls (76%) re-polling.
-
-***
-
 ### defaultAuditorInstruction
 
 > `const` **defaultAuditorInstruction**: `string`
@@ -36445,6 +36788,30 @@ The default recursion-depth ceiling. The conserved pool is what bounds a tree's 
 > `const` **WORKER\_TOOL\_TRACE\_SCHEMA\_VERSION**: `1`
 
 Schema version for content-addressed worker tool-trace artifacts.
+
+***
+
+### DEFAULT\_WAKE\_HEARTBEAT\_MS
+
+> `const` **DEFAULT\_WAKE\_HEARTBEAT\_MS**: `number`
+
+How long a waiting manager hears nothing before Runtime wakes it to reconsider: 15 min.
+
+***
+
+### DEFAULT\_WAKE\_DEBOUNCE\_MS
+
+> `const` **DEFAULT\_WAKE\_DEBOUNCE\_MS**: `2000` = `2_000`
+
+How long a wake waits for more events after its first, while other workers still run: 2 s.
+
+***
+
+### DEFAULT\_DEADLINE\_WARNING\_MS
+
+> `const` **DEFAULT\_DEADLINE\_WARNING\_MS**: `number`
+
+How long before its deadline a manager is woken once to submit its best result: 15 min.
 
 ***
 
@@ -41781,24 +42148,6 @@ Compose the task for one re-entered drive.
 
 ***
 
-### createSqlRunContext()
-
-> **createSqlRunContext**(`db`): [`SqlRunContext`](#sqlruncontext)
-
-Build a durable run context over one SQL statement seam. Tables are created on first use.
-
-#### Parameters
-
-##### db
-
-[`SqlStatements`](#sqlstatements)
-
-#### Returns
-
-[`SqlRunContext`](#sqlruncontext)
-
-***
-
 ### withRunContext()
 
 > **withRunContext**\<`T`\>(`context`, `signal`, `run`): `Promise`\<`T`\>
@@ -43878,7 +44227,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-36), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-37), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

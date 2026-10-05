@@ -2012,7 +2012,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-20)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-21)
 
 ##### sandboxId?
 
@@ -3674,7 +3674,7 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ### SettledWorker
 
-A worker the driver has drained via `await_event`.
+A worker whose settlement reached the manager's inbox.
 
 #### Properties
 
@@ -4029,7 +4029,7 @@ detached, recorded durably through `onEvent`, and only then delivered.
 
 Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle hook).
  A bare string names a lens whose findings go to THE DRIVER: published as a `finding` event on
- the bus — pass-through to subscribers and queued for `await_event`. An
+ the bus — pass-through to subscribers and queued for the driver's next wake. An
  [AnalyzeOnSettleRoute](runtime.md#analyzeonsettleroute) generalizes the DESTINATION: findings can be delivered to a
  named live WORKER (wrapped in the route's directive, through the same authorized steer
  machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
@@ -4039,27 +4039,13 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
  the driver can still run lenses on demand via `run_analyst`). Lens routes require
  `analysts`; agent routes do not.
 
-##### awaitTimeoutMs?
-
-> `readonly` `optional` **awaitTimeoutMs?**: `number`
-
-Max wall-clock ms a single `await_event` call may block waiting on a live worker to settle
- before it returns a non-error `{ pending: true, live }` snapshot and lets the caller re-poll.
- The underlying `scope.next()` blocks for the WHOLE (multi-minute) worker run; over a remote MCP
- transport that block outlives the client's per-request timeout, so an unbounded await surfaces
- to the supervisor as a hard tool ERROR on every call — the exact failure that leaves it flying
- blind. Bounding the wait converts that error into a re-pollable liveness signal. The background
- drain keeps running, so a settlement that lands after the bound is published to the bus and
- pulled by the next call — nothing is lost. Omit = [DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS](runtime.md#default_await_event_timeout_ms); `<= 0`
- restores the prior UNBOUNDED block (only safe for in-process drivers with no transport timeout).
-
 ##### watchWorkers?
 
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
 
 OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
 `finding` on the bus the moment a detector fires — so the driver learns "this worker is
-looping" mid-run, from `await_event`, instead of at settle.
+looping" mid-run, in its next wake, instead of at settle.
 
 This closes the `watchTrace` → `raiseFinding` wire whose own docstring already described it
 ("the seam an ONLINE detector uses to tell the driver 'this worker is looping/erroring' the
@@ -4412,7 +4398,7 @@ Bus throughput counters (published / pulled / by-kind) for live dashboards, plus
 
 Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
- moment it happens, instead of only at settle. Queued for `await_event` + pass-through.
+ moment it happens, instead of only at settle. Queued for the next wake + pass-through.
 
 ###### Parameters
 
@@ -4546,6 +4532,112 @@ Mark the end of the current driver attempt. A completed turn acknowledges what i
 ###### outcome
 
 `"completed"` \| `"failed"`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### hasOpenWork()
+
+> **hasOpenWork**(): `boolean`
+
+True while this manager has work it must hear back about: a worker running, a result or
+ question not yet delivered, or a tool call still running past its response fence. A turn
+ that ends with open work is a wait, not a completion.
+
+###### Returns
+
+`boolean`
+
+##### awaitWake()
+
+> **awaitWake**(`input`): `Promise`\<[`ManagerWake`](runtime.md#managerwake) \| `undefined`\>
+
+Wait, with no model turn, until something reaches this manager's inbox, the heartbeat
+ elapses, or the deadline warning comes due; then deliver everything that arrived. Undefined
+ when no work is open or the signal aborted.
+
+###### Parameters
+
+###### input
+
+[`AwaitWakeInput`](runtime.md#awaitwakeinput)
+
+###### Returns
+
+`Promise`\<[`ManagerWake`](runtime.md#managerwake) \| `undefined`\>
+
+##### awaitSettlement()
+
+> **awaitSettlement**(`workerIds`, `signal?`): `Promise`\<readonly `string`[]\>
+
+Wait in code, with no model turn, until at least one of `workerIds` has settled into this
+ manager's ledger; returns the ids that have. Nothing is taken from the inbox: the manager
+ still receives each settlement in its own wake. Empty when none of them is live or settled.
+
+###### Parameters
+
+###### workerIds
+
+readonly `string`[]
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<readonly `string`[]\>
+
+##### receiveLeadMessage()
+
+> **receiveLeadMessage**(`message`): `boolean`
+
+Queue a steer or answer from this manager's lead for its next wake. False when the message
+ is neither. The publish is in-process; a durable subscriber records it.
+
+###### Parameters
+
+###### message
+
+`unknown`
+
+###### Returns
+
+`boolean`
+
+##### openToolReceipt()
+
+> **openToolReceipt**(`tool`): `string`
+
+Register a tool call that outlived its response fence; returns the receipt its caller is
+ given. The call is open work until [CoordinationTools.settleToolReceipt](#settletoolreceipt).
+
+###### Parameters
+
+###### tool
+
+`string`
+
+###### Returns
+
+`string`
+
+##### settleToolReceipt()
+
+> **settleToolReceipt**(`receipt`, `outcome`): `Promise`\<`void`\>
+
+Publish the outcome of a receipted tool call to the inbox, where the next wake delivers it.
+
+###### Parameters
+
+###### receipt
+
+`string`
+
+###### outcome
+
+\{ `ok`: `true`; `value`: `unknown`; \} \| \{ `ok`: `false`; `error`: `unknown`; \}
 
 ###### Returns
 
@@ -8436,6 +8528,12 @@ Re-exports [AuthorizedDownMessage](runtime.md#authorizeddownmessage)
 
 ***
 
+### AwaitWakeInput
+
+Re-exports [AwaitWakeInput](runtime.md#awaitwakeinput)
+
+***
+
 ### ContinuationInstruction
 
 Re-exports [ContinuationInstruction](runtime.md#continuationinstruction)
@@ -8445,12 +8543,6 @@ Re-exports [ContinuationInstruction](runtime.md#continuationinstruction)
 ### CoordinationEvent
 
 Re-exports [CoordinationEvent](runtime.md#coordinationevent)
-
-***
-
-### DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS
-
-Re-exports [DEFAULT_AWAIT_EVENT_TIMEOUT_MS](runtime.md#default_await_event_timeout_ms)
 
 ***
 
@@ -8496,6 +8588,12 @@ Re-exports [EventAcknowledgement](runtime.md#eventacknowledgement)
 
 ***
 
+### LeadMessage
+
+Re-exports [LeadMessage](runtime.md#leadmessage)
+
+***
+
 ### MakeWorkerAgent
 
 Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
@@ -8508,6 +8606,12 @@ Re-exports [ManagerReentryState](runtime.md#managerreentrystate)
 
 ***
 
+### ManagerWake
+
+Re-exports [ManagerWake](runtime.md#managerwake)
+
+***
+
 ### QuestionEscalationOutcome
 
 Re-exports [QuestionEscalationOutcome](runtime.md#questionescalationoutcome)
@@ -8517,6 +8621,12 @@ Re-exports [QuestionEscalationOutcome](runtime.md#questionescalationoutcome)
 ### QuestionEscalationRecord
 
 Re-exports [QuestionEscalationRecord](runtime.md#questionescalationrecord)
+
+***
+
+### ToolOutcomeEvent
+
+Re-exports [ToolOutcomeEvent](runtime.md#tooloutcomeevent)
 
 ***
 

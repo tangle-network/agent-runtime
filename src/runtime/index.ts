@@ -65,6 +65,7 @@ export type {
   AuthoredAnalystLimits,
   AuthorizeDownMessage,
   AuthorizedDownMessage,
+  AwaitWakeInput,
   ContinuationInstruction,
   ContinuityMode,
   CoordinationEvent,
@@ -76,8 +77,10 @@ export type {
   DownMessageEvent,
   EscalateQuestion,
   EventAcknowledgement,
+  LeadMessage,
   MakeWorkerAgent,
   ManagerReentryState,
+  ManagerWake,
   QuestionEscalationOutcome,
   QuestionEscalationRecord,
   SpawnPreflight,
@@ -85,6 +88,7 @@ export type {
   SpawnRefusal,
   SpawnRefusalCause,
   SuperviseProfileEntry,
+  ToolOutcomeEvent,
   WorkerResumeContext,
   WorkerSpawnContext,
   WorkerWatchOptions,
@@ -1311,6 +1315,13 @@ export {
   type WaitSpec,
   waitUntil,
 } from './supervise/wait'
+// How a manager that ended its turn with work open is woken: heartbeat, debounce, deadline notice.
+export {
+  DEFAULT_DEADLINE_WARNING_MS,
+  DEFAULT_WAKE_DEBOUNCE_MS,
+  DEFAULT_WAKE_HEARTBEAT_MS,
+  type ManagerWakePolicy,
+} from './supervise/wake'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
 // blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
 // Promoted from the loops repo (#4519).

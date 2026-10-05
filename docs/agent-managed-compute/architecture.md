@@ -166,7 +166,6 @@ Coordination tools act inside one live run:
 - `spawn_worker`
 - `observe_agent`
 - `steer_agent`
-- `await_event`
 - `ask_parent`
 - `answer_question`
 - `stop`

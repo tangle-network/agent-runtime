@@ -2,8 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { recoverRetainedRun, startRetainedRun } from '../../src/runtime/retained-run'
-import { mintRetainedIdentity } from '../../src/runtime/retained-run-start'
+import {
+  mintRetainedIdentity,
+  recoverRetainedRun,
+  startRetainedRun,
+} from '../../src/runtime/retained-run-start'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { tangleShapedProvider } from '../helpers/tangle-shaped-provider'
 
