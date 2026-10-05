@@ -938,6 +938,11 @@ export function mapSandboxToolEvent(
     if (String(part.type ?? '') !== 'tool') return []
     return projectToolPart(part, state, typeof event.id === 'string' ? event.id : undefined)
   }
+  // `tool-heartbeat` and `tool-slow` report that a call is STILL RUNNING. They carry the call's
+  // `partId`, not a call id, so projecting them as calls recorded a new `tool_call` every 5 s of
+  // every long call: measured 2026-10-05, 432 of a root's 448 recorded `await_event` calls were
+  // heartbeats of 16 real ones.
+  if (CANONICAL_STREAM_EVENT_TYPES.has(type)) return []
 
   if (type.includes('tool')) {
     const callId =
