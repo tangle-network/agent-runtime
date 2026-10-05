@@ -1144,6 +1144,79 @@ Digest-chain tip for this concrete execution journal.
 
 ***
 
+### PursuitObserverDelivery
+
+Where a pursuit's observer projection is delivered while it runs, so a run started anywhere is
+findable in one place by its pursuit id.
+
+Intelligence persists the projection on its run spine (`runtime-observer:pursuit:<pursuitId>`)
+and records the id of the API key that delivered it, which joins the run to that key's spend.
+Delivery is an observation, never a dependency: a refused, slow or unreachable endpoint is
+reported once and the run continues exactly as it would without it.
+
+#### Properties
+
+##### baseUrl
+
+> `readonly` **baseUrl**: `string`
+
+Intelligence base URL, e.g. `https://intelligence.tangle.tools`.
+
+##### apiKey
+
+> `readonly` **apiKey**: `string`
+
+Platform API key presented as the Bearer; Intelligence resolves the tenant from it.
+
+##### subjectKey
+
+> `readonly` **subjectKey**: `string`
+
+The Intelligence subject (project) the pursuit belongs to.
+
+##### subjectName?
+
+> `readonly` `optional` **subjectName?**: `string`
+
+##### attributes?
+
+> `readonly` `optional` **attributes?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Flat facts the caller owns about the run, recorded on the pursuit row unchanged, such as the
+program and idea a registration names. Runtime neither reads nor validates their meaning.
+
+##### intervalMs?
+
+> `readonly` `optional` **intervalMs?**: `number`
+
+How often a live run re-delivers its projection. Default 60 s; the last delivery is liveness.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Per-request bound. Default 10 s.
+
+##### fetch?
+
+> `readonly` `optional` **fetch?**: (`input`, `init?`) => `Promise`\<`Response`\>
+
+###### Parameters
+
+###### input
+
+`string` \| `URL` \| `Request`
+
+###### init?
+
+`RequestInit`
+
+###### Returns
+
+`Promise`\<`Response`\>
+
+***
+
 ### PursuitVersions
 
 Continue a pursuit across versions: after each version settles, an outside judge scores it, and
@@ -1798,6 +1871,15 @@ every run and verdict as a cell; it is the chain's only record and checkpoint. A
 closed chain reads it back; a call on an open chain continues it without re-running or
 re-judging a settled version. Aborting `signal` pauses the chain: the call rejects and a later
 call continues it. The call returns the kept version's result with the chain.
+
+##### observerDelivery?
+
+> `readonly` `optional` **observerDelivery?**: [`PursuitObserverDelivery`](#pursuitobserverdelivery)
+
+Deliver this run's observer projection to Intelligence at start, every `intervalMs` while it
+runs, and at settlement or failure, so the run is findable by its pursuit id from wherever it
+was started. Optional and fail-open: a delivery that fails is reported once and never changes
+the run. Each version of a `versions` chain delivers its own run under the same pursuit.
 
 ##### runContext?
 
@@ -2808,7 +2890,7 @@ Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into eve
 
 ##### otel?
 
-> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"`\>
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"` \| `"namespace"`\>
 
 OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
 parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
@@ -2981,6 +3063,20 @@ Where and how a node's execution was placed, read off its execution-binding rece
 
 ***
 
+### PursuitObserverState
+
+> **PursuitObserverState** = `"running"` \| `"done"` \| `"failed"`
+
+The execution state Runtime reports. It never claims the pursuit's semantic success.
+
+***
+
+### PursuitObserverDeliveryOutcome
+
+> **PursuitObserverDeliveryOutcome** = \{ `succeeded`: `true`; `status`: `number`; \} \| \{ `succeeded`: `false`; `reason`: `string`; \}
+
+***
+
 ### NextPursuitVersion
 
 > **NextPursuitVersion** = (`input`, `signal`) => `AgentProfileDiff` \| `Promise`\<`AgentProfileDiff`\>
@@ -3031,6 +3127,14 @@ The 1-based drive attempt of the root that produced it: a driver retry or re-pro
  re-enters the harness and continues the same file with the next attempt number.
 
 ## Variables
+
+### PURSUIT\_OBSERVER\_DELIVERY\_PATH
+
+> `const` **PURSUIT\_OBSERVER\_DELIVERY\_PATH**: `"/v1/ingest/pursuit-observer"` = `'/v1/ingest/pursuit-observer'`
+
+The Intelligence route that persists a delivered projection on its run spine.
+
+***
 
 ### REVIEW\_DIR
 
@@ -3265,6 +3369,32 @@ readonly [`ObserverRecord`](#observerrecord)[]
 #### Returns
 
 [`PursuitProjection`](#pursuitprojection)
+
+***
+
+### deliverPursuitObserver()
+
+> **deliverPursuitObserver**(`delivery`, `state`, `projection`): `Promise`\<[`PursuitObserverDeliveryOutcome`](#pursuitobserverdeliveryoutcome)\>
+
+POST one projection. Never throws; the outcome says whether Intelligence accepted it.
+
+#### Parameters
+
+##### delivery
+
+[`PursuitObserverDelivery`](#pursuitobserverdelivery)
+
+##### state
+
+[`PursuitObserverState`](#pursuitobserverstate)
+
+##### projection
+
+[`PursuitProjection`](#pursuitprojection)
+
+#### Returns
+
+`Promise`\<[`PursuitObserverDeliveryOutcome`](#pursuitobserverdeliveryoutcome)\>
 
 ***
 

@@ -75,6 +75,13 @@ export {
   projectPursuit,
 } from './observer-projection'
 export {
+  deliverPursuitObserver,
+  PURSUIT_OBSERVER_DELIVERY_PATH,
+  type PursuitObserverDelivery,
+  type PursuitObserverDeliveryOutcome,
+  type PursuitObserverState,
+} from './pursuit-observer-delivery'
+export {
   assertPursuitVersions,
   type JudgedPursuitVersion,
   type NextPursuitVersion,

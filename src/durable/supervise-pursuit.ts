@@ -7,6 +7,11 @@ import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 import {
+  type PursuitObserverDeliverer,
+  type PursuitObserverDelivery,
+  startPursuitObserverDelivery,
+} from './pursuit-observer-delivery'
+import {
   type PursuitVersionChain,
   type PursuitVersions,
   runPursuitVersions,
@@ -59,6 +64,13 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * call continues it. The call returns the kept version's result with the chain.
    */
   readonly versions?: PursuitVersions
+  /**
+   * Deliver this run's observer projection to Intelligence at start, every `intervalMs` while it
+   * runs, and at settlement or failure, so the run is findable by its pursuit id from wherever it
+   * was started. Optional and fail-open: a delivery that fails is reported once and never changes
+   * the run. Each version of a `versions` chain delivers its own run under the same pursuit.
+   */
+  readonly observerDelivery?: PursuitObserverDelivery
 }
 
 export interface SupervisedPursuitResult<Result> {
@@ -143,7 +155,14 @@ export async function supervisePursuit(
   const observerPath = resolve(runDir, 'observer.jsonl')
   const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
   const failurePath = resolve(runDir, FAILURE_RECORD_FILE)
-  const { pursuitId: _pursuitId, hooks, fork, versions: _versions, ...superviseOptions } = opts
+  const {
+    pursuitId: _pursuitId,
+    hooks,
+    fork,
+    versions: _versions,
+    observerDelivery,
+    ...superviseOptions
+  } = opts
   const runId = superviseOptions.runId ?? 'supervise'
   const now = superviseOptions.now ?? Date.now
 
@@ -156,6 +175,8 @@ export async function supervisePursuit(
   // The lock is taken before the settle record is read so a run that settles between the read
   // and the lock cannot be re-entered; both refusals happen before the observer journal is touched.
   const lock = await acquireRunDirectoryLock(runDir, runId, now)
+  let delivery: PursuitObserverDeliverer | undefined
+  let terminalState: 'done' | 'failed' = 'failed'
   try {
     const settled = await readSettleRecord(runDir)
     if (settled !== undefined) {
@@ -167,6 +188,12 @@ export async function supervisePursuit(
     // Root lifecycle is an observer-plane fact, not something the manager has to
     // narrate about itself. This also makes a zero-spawn/single-agent run observable.
     await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
+    delivery =
+      observerDelivery === undefined
+        ? undefined
+        : startPursuitObserverDelivery(observerDelivery, async () =>
+            projectPursuit(await observer.journal.read()),
+          )
 
     let result: Awaited<ReturnType<typeof supervise>>
     try {
@@ -243,6 +270,7 @@ export async function supervisePursuit(
     await observer.journal.appendEvent(
       rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
     )
+    terminalState = 'done'
     return Object.freeze({
       result,
       pursuit: projectPursuit(await observer.journal.read()),
@@ -250,6 +278,9 @@ export async function supervisePursuit(
       settlePath,
     })
   } finally {
+    // The terminal delivery reads the journal after its last fact, and is bounded so an
+    // unreachable Intelligence delays the return by at most twice its timeout.
+    await delivery?.close(terminalState)
     await lock.release()
   }
 }

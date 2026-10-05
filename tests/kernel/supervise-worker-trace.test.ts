@@ -16,10 +16,17 @@
  * the environment that process actually observed — not on the options object we built for it.
  */
 
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { deriveHexId } from '@tangle-network/agent-trace-contract'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  contentAddress,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/spawn-journal'
 import type { OtelExporter, OtelSpan } from '../../src/otel-export'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import {
@@ -484,7 +491,7 @@ describe('the sandbox arm carries the context onto the box itself', () => {
  * this whole change exists to remove. This case is the guard on that.
  */
 describe('supervise({ backend, otel }) stamps its workers too', () => {
-  async function superviseOnce(exporter?: OtelExporter) {
+  async function superviseOnce(exporter?: OtelExporter, runDir?: string) {
     const fake = fakeSandboxClient()
     const result = await supervise(
       testAgentProfile('root', {
@@ -513,6 +520,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
           { content: 'done' },
         ]),
         ...(exporter ? { otel: { exporter } } : {}),
+        ...(runDir ? { runDir } : {}),
       },
     )
     return { result, created: fake.created }
@@ -537,5 +545,38 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
     const { result, created } = await superviseOnce()
     expect(result.kind).toBe('winner')
     expect(created[0]?.env).toBeUndefined()
+  })
+
+  it('gives two copies of one run id in different run directories different traces', async () => {
+    const roots: string[] = []
+    for (const name of ['copy-a', 'copy-b']) {
+      const runDir = await mkdtemp(join(tmpdir(), `trace-namespace-${name}-`))
+      try {
+        const { exporter, spans } = recordingExporter()
+        const { result } = await superviseOnce(exporter, runDir)
+        expect(result.kind).toBe('winner')
+        const root = spans.find((s) => s.name === 'supervisor.run')
+        expect(root?.traceId).toMatch(/^[0-9a-f]{32}$/)
+        roots.push(root?.traceId as string)
+      } finally {
+        await rm(runDir, { recursive: true, force: true })
+      }
+    }
+    expect(roots[0]).not.toBe(roots[1])
+  })
+})
+
+describe('trace identity covers the run namespace', () => {
+  it('derives one trace per namespace and run id, and the bare run id without one', () => {
+    const { exporter } = recordingExporter()
+    const traceOf = (namespace?: string) =>
+      createSupervisorSpanRecorder({
+        runId: 'run',
+        exporter,
+        ...(namespace === undefined ? {} : { namespace }),
+      })?.traceId
+    expect(traceOf('ns-a')).toBe(traceOf('ns-a'))
+    expect(traceOf('ns-a')).not.toBe(traceOf('ns-b'))
+    expect(traceOf()).toBe(contentAddress('run').slice('sha256:'.length, 'sha256:'.length + 32))
   })
 })

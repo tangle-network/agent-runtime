@@ -19059,7 +19059,7 @@ How the settled-worker ledger becomes the run's output. Default `bestDelivered` 
 
 ##### otel?
 
-> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"`\>
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"` \| `"namespace"`\>
 
 OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
 parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
@@ -19525,8 +19525,15 @@ Otherwise build one with [createOtelExporter](index.md#createotelexporter). With
 > `readonly` `optional` **traceId?**: `string`
 
 Trace id (32 hex chars). Pass the caller's own to JOIN an outer trace. Default: derived
-deterministically from `runId`, so a resumed run lands in the SAME trace as the process that
-started it.
+deterministically from `namespace` and `runId`, so a resumed run lands in the SAME trace as the
+process that started it while two copies of one run id in different places never share one.
+
+##### namespace?
+
+> `readonly` `optional` **namespace?**: `string`
+
+The run's storage identity. `supervise()` supplies its run namespace: the run context's own,
+or a digest of `runDir` and `runId` for a durable run. Absent, the trace derives from `runId`.
 
 ##### parentSpanId?
 
@@ -23834,7 +23841,7 @@ Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into eve
 
 ##### otel?
 
-> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"`\>
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"` \| `"namespace"`\>
 
 OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
 parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
