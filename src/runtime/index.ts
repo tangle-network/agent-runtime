@@ -448,50 +448,58 @@ export {
   resolveSandboxClient,
 } from './resolve-sandbox-client'
 export {
+  reconnectRetainedInteractiveRun,
+  recoverRetainedInteractiveRun,
+  startRetainedInteractiveRun,
+} from './retained-interactive'
+export {
   type ClaimRetainedInteractiveControlOptions,
   claimRetainedInteractiveControl,
-  type NativeContextContinuationExecution,
-  type NativeContextContinuationHandle,
-  type NativeContextContinuationInput,
-  type ReconnectRetainedInteractiveRunOptions,
-  type ReconnectRetainedRunOptions,
-  type RecoverRetainedInteractiveRunOptions,
-  type RecoverRetainedRunIntentOptions,
-  type RecoverRetainedRunOptions,
-  type RecoverRetainedRunResult,
-  type RetainedInteractiveAdmission,
-  type RetainedInteractiveAdmissionHook,
-  type RetainedInteractiveEnvironmentAdmission,
-  type RetainedInteractiveEnvironmentInput,
-  type RetainedInteractiveIntentAdmission,
-  type RetainedInteractiveRunHandle,
-  type RetainedInteractiveStartedAdmission,
-  type RetainedInteractiveStartMaterial,
-  type RetainedRunAdmission,
-  type RetainedRunAdmissionHook,
-  type RetainedRunCancellation,
-  type RetainedRunCancelOptions,
-  type RetainedRunDispatchedAdmission,
-  type RetainedRunEffect,
-  type RetainedRunEnvironmentAdmission,
-  type RetainedRunEventOptions,
-  type RetainedRunHandle,
-  type RetainedRunIntentAdmission,
-  type RetainedRunReplayPoint,
-  type RetainedRunSnapshot,
-  type RetainedRunStartMaterial,
-  type RetainedRunTurnInput,
-  reconnectRetainedInteractiveRun,
+} from './retained-interactive-control'
+export type {
+  ReconnectRetainedInteractiveRunOptions,
+  RecoverRetainedInteractiveRunOptions,
+  RetainedInteractiveAdmissionHook,
+  RetainedInteractiveEnvironmentInput,
+  RetainedInteractiveRunHandle,
+  RetainedInteractiveStartMaterial,
+  StartRetainedInteractiveRunOptions,
+} from './retained-interactive-types'
+export {
   reconnectRetainedRun,
-  recoverRetainedInteractiveRun,
   recoverRetainedRun,
-  type StartRetainedInteractiveRunOptions,
-  type StartRetainedRunInEnvironmentOptions,
-  type StartRetainedRunOptions,
-  startRetainedInteractiveRun,
   startRetainedRun,
   startRetainedRunInEnvironment,
-} from './retained-run'
+} from './retained-run-start'
+export type {
+  NativeContextContinuationExecution,
+  NativeContextContinuationHandle,
+  NativeContextContinuationInput,
+  ReconnectRetainedRunOptions,
+  RecoverRetainedRunIntentOptions,
+  RecoverRetainedRunOptions,
+  RecoverRetainedRunResult,
+  RetainedInteractiveAdmission,
+  RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveIntentAdmission,
+  RetainedInteractiveStartedAdmission,
+  RetainedRunAdmission,
+  RetainedRunAdmissionHook,
+  RetainedRunCancellation,
+  RetainedRunCancelOptions,
+  RetainedRunDispatchedAdmission,
+  RetainedRunEffect,
+  RetainedRunEnvironmentAdmission,
+  RetainedRunEventOptions,
+  RetainedRunHandle,
+  RetainedRunIntentAdmission,
+  RetainedRunReplayPoint,
+  RetainedRunSnapshot,
+  RetainedRunStartMaterial,
+  RetainedRunTurnInput,
+  StartRetainedRunInEnvironmentOptions,
+  StartRetainedRunOptions,
+} from './retained-run-types'
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
 // endpoint/auth transport used by that path.
@@ -1028,7 +1036,6 @@ export {
   type RunContextLease,
   withRunContext,
 } from './supervise/run-context'
-export { createSqlRunContext, type SqlRunContext } from './supervise/run-context-sql'
 // The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
 // published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
 // readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the

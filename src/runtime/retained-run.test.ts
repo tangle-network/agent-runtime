@@ -36,13 +36,12 @@ import type {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RetainedRunAdmissionError, RetainedRunDispatchBindingError } from '../errors'
 import {
-  type RetainedRunAdmission,
-  type RetainedRunAdmissionHook,
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
   startRetainedRunInEnvironment,
-} from './retained-run'
+} from './retained-run-start'
+import type { RetainedRunAdmission, RetainedRunAdmissionHook } from './retained-run-types'
 import { createRetainedRunHandle } from './retained-run-handle'
 import { assertRetainedRunReplayMaterial, mintRetainedIdentity } from './retained-run-start'
 
