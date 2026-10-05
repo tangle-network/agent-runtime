@@ -303,7 +303,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'workerSlots',
   'watchWorkers',
   'stallAfterMs',
-  'awaitTimeoutMs',
+  'wake',
   'runDir',
   'resume',
   'runContext',

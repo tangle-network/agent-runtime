@@ -91,7 +91,6 @@ export type {
 } from './../mcp/tools/coordination'
 export {
   canonicalFindingEvent,
-  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   normalizeAnalyzeOnSettle,
 } from './../mcp/tools/coordination'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
@@ -1289,8 +1288,8 @@ export {
 export type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
 // (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
-// deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
-// an in-run rendezvous whose re-polls each cost a driver turn and vanish with the process.
+// deadline, so a killed run resumes still waiting to the same instant. Not a manager's wake: that
+// is an in-run rendezvous on the coordination bus that vanishes with the process.
 export {
   createWaitProbes,
   isWaitOutcome,

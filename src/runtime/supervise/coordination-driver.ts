@@ -37,6 +37,7 @@ import {
   type AuthorizeDownMessage,
   type ContinuityMode,
   type CoordinationEvent,
+  type CoordinationTools,
   coordinationVerbNames,
   createCoordinationTools,
   type DownMessageEvent,
@@ -106,6 +107,12 @@ import type {
   Spend,
   TreeView,
 } from './types'
+import {
+  composeWakeInput,
+  deadlineWarningAt,
+  type ManagerWakePolicy,
+  resolveWakePolicy,
+} from './wake'
 
 export interface DriverAgentOptions {
   readonly name: string
@@ -150,11 +157,9 @@ export interface DriverAgentOptions {
   /** Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
    *  killed). Omit = the runtime default. */
   readonly stallAfterMs?: number
-  /** Max wall-clock ms one `await_event` blocks before it returns a re-pollable `{ pending, live }`
-   *  snapshot. Every return is one driver turn, so a driver whose workers run for hours spends a
-   *  turn per interval. This driver runs in process with no transport timeout; a larger value
-   *  trades liveness reads for fewer turns. Omit = `DEFAULT_AWAIT_EVENT_TIMEOUT_MS`. */
-  readonly awaitTimeoutMs?: number
+  /** How Runtime wakes this driver after a turn that ends with work open. Omit = the defaults in
+   *  `./wake`. */
+  readonly wake?: ManagerWakePolicy
   /** Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
    *  to the node's latest settled worker (see
    *  `CoordinationToolsOptions.continuityByProfile`); `spawn_worker`'s per-call `continuity`
@@ -294,7 +299,10 @@ export interface DriverAgentOptions {
   /** Called with this driver's coordination tool descriptors once they exist and before the brain
    *  loop starts — the seam a node tool uses to call the same verbs in code
    *  (`SupervisorToolInvocationContext.verbs`). */
-  readonly onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
+  readonly onCoordinationTools?: (
+    tools: ReadonlyArray<McpToolDescriptor>,
+    coordination: Pick<CoordinationTools, 'awaitSettlement'>,
+  ) => void
   readonly controlScope?: 'run' | 'subtree'
   /**
    * Abort the WHOLE run — the seam a run-scoped cancel request (`cancelRun`) is applied through.
@@ -382,7 +390,7 @@ const UNMETERED_DRIVER_TURNS = 16
  *
  * `poolStarved` lets a manager keep taking turns while its workers run, because those workers hold
  * the pool its turns would otherwise be refused from. With no turn cap and no deadline, a manager
- * waiting on a worker that never settles would take a metered turn per `await_event` fence forever.
+ * waiting on a worker that never settles would take a metered turn per heartbeat wake forever.
  * Money bounds that: a manager that has overdrawn its pool by as much again as the whole pool stops.
  * A brain that reports no usage cannot be bounded by money, so without a deadline or dollar cap it
  * keeps the historical 16-turn bound. A caller's explicit `maxTurns` or a deadline replaces both.
@@ -1014,7 +1022,6 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-        ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
@@ -1067,7 +1074,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       )
       // Before the first brain turn: a node tool invoked on turn one must already be able to call
       // these verbs.
-      opts.onCoordinationTools?.(modelTools)
+      opts.onCoordinationTools?.(modelTools, coord)
       // The worker-cancel acknowledger, mounted only for a durable run that named its layout dir.
       // It runs inside this existing turn loop — the one place that already runs every turn and
       // already holds the child handles — so external cancellation needs no second lifetime.
@@ -1096,7 +1103,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
-      // (they settle through the same cursor `await_event` drains). Fail loud on a wait that
+      // (they settle through the same cursor a wake drains). Fail loud on a wait that
       // cannot be re-armed: silently dropping supervision state is worse than stopping.
       for (const w of scope.resume?.waits ?? []) {
         const rearmed = scope.wait(w.spec, { label: w.label })
@@ -1135,6 +1142,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const poolTokens = scope.budget.tokensLeft + scope.budget.reservedTokens
       let driverTurns = 0
       let progressStopReason: string | undefined
+      const wakePolicy = resolveWakePolicy(opts.wake)
+      let deadlineWarned = false
 
       // Meter the driver's OWN inference on EVERY turn into the conserved pool — the largest single
       // token consumer in the loop, and what makes maxTurns=0 genuinely bounded (a thinking driver
@@ -1369,6 +1378,36 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             // Before a compaction can fold them away: the previous turn's tool results and this inbox.
             transcript.observe(messages)
           },
+          // A turn without a tool call ends the turn, not the manager: while work is open, wait
+          // with no model turn and continue with what happened.
+          afterFinal: async () => {
+            if (
+              coord.isStopped() ||
+              coord.submittedResult() !== undefined ||
+              scope.signal.aborted
+            ) {
+              return undefined
+            }
+            if (inbox.pending() === 0 && !coord.hasOpenWork()) return undefined
+            const deadlineMs = scope.budget.deadlineMs
+            const warnAt = deadlineWarningAt(deadlineMs, wakePolicy, deadlineWarned)
+            const wake = await coord.awaitWake({
+              signal: scope.signal,
+              heartbeatMs: wakePolicy.heartbeatMs,
+              debounceMs: wakePolicy.debounceMs,
+              ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
+              alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),
+            })
+            if (wake === undefined) return undefined
+            if (wake.reason === 'deadline') deadlineWarned = true
+            return composeWakeInput(wake, {
+              tools: selectedTools.map((selected) =>
+                selected.kind === 'descriptor' ? selected.descriptor.name : selected.extra.name,
+              ),
+              deadlineMs,
+              now: now(),
+            })
+          },
           stopBefore: () => {
             // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
             // past one, so they are not folded into the same expression.
@@ -1482,7 +1521,7 @@ function resumeBrief(
   if (recovered.length > 0) {
     lines.push(
       '',
-      'Recovered keys are attached to this scope. Use await_event to receive their results and coordinate with their original workers:',
+      'Recovered keys are attached to this scope. Their results arrive when you are woken; coordinate with their original workers:',
       ...recovered.map(([key, value]) => `- ${key} → ${value.id} (${value.label})`),
     )
   }
@@ -1503,7 +1542,7 @@ function resumeBrief(
   if (resume.waits.length > 0) {
     lines.push(
       '',
-      'Pending waits RE-ARMED on their original deadlines (they settle through await_event):',
+      'Pending waits RE-ARMED on their original deadlines (they settle into your next wake):',
       ...resume.waits.map((w) => `- ${w.label} (${w.spec.kind})`),
     )
   }

@@ -23,7 +23,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
-import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { type ScriptedTurn, scriptedBrain, wakeEvents } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 type SeenMessages = Array<ReadonlyArray<Record<string, unknown>>>
@@ -36,7 +36,7 @@ interface WorkerScript {
   readonly score: number
 }
 
-function workerExecutor(s: WorkerScript, onTeardown?: () => void): Executor<unknown> {
+function workerExecutor(s: WorkerScript, onTeardown?: () => void, delayMs = 0): Executor<unknown> {
   const events: UsageEvent[] = []
   for (let i = 0; i < s.iterations; i += 1) events.push({ kind: 'iteration' })
   events.push({ kind: 'tokens', input: s.tokens.input, output: s.tokens.output })
@@ -44,6 +44,7 @@ function workerExecutor(s: WorkerScript, onTeardown?: () => void): Executor<unkn
     runtime: 'router',
     execute() {
       return (async function* () {
+        if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
         for (const ev of events) yield ev
       })()
     },
@@ -66,11 +67,12 @@ function workerLeaf(
   name: string,
   s: WorkerScript,
   onTeardown?: () => void,
+  delayMs = 0,
 ): Agent<unknown, unknown> {
   const spec: AgentSpec = {
     profile: testAgentProfile(name),
     harness: null,
-    executor: workerExecutor(s, onTeardown),
+    executor: workerExecutor(s, onTeardown, delayMs),
   }
   return { name, act: async () => s.out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
@@ -110,7 +112,6 @@ function hangingWorkerLeaf(name: string): Agent<unknown, unknown> {
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
-const spawnAndAwait = ['spawn_worker', 'await_event'] as const
 const spawnOnly = ['spawn_worker'] as const
 const listQuestionsOnly = ['list_questions'] as const
 
@@ -125,7 +126,7 @@ function driverOpts(
     blobs: SHARED_BLOBS,
     makeWorkerAgent,
     perWorker,
-    toolNames: spawnAndAwait,
+    toolNames: spawnOnly,
     systemPrompt: `drive the worker to do: <task>`,
     maxTurns: 8,
   }
@@ -135,7 +136,7 @@ function driverOpts(
 let SHARED_BLOBS = new InMemoryResultBlobStore()
 
 describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', () => {
-  it('the tool-loop spawns a worker, awaits it, and folds the settled result back', async () => {
+  it('the tool-loop spawns a worker, ends its turn, and is woken with the settled result', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const seen: SeenMessages = []
@@ -149,7 +150,8 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     // The makeWorkerAgent the spawn_worker tool dispatches: this test only spawns the worker leaf.
     const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> => worker
 
-    // Scripted driver LLM: turn 0 spawns a worker, turn 1 awaits it, turn 2 stops (no calls).
+    // Scripted driver LLM: turn 0 spawns a worker, turn 1 ends the turn to wait, turn 2 (the wake)
+    // stops with nothing open.
     const chat = scriptedBrain(
       [
         {
@@ -160,7 +162,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the worker' },
         { content: 'done' },
       ],
       seen,
@@ -181,14 +183,11 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     // spawn_worker → Scope.spawn → settle actually ran inside the tool-loop.
     expect(result.kind).toBe('winner')
 
-    // Feed-back proof: by turn 2 (the 3rd chat call), the conversation the driver saw contains
-    // `tool` messages carrying the spawn_worker + await_event settlements — i.e. the tool RESULTS
-    // were folded back. The OpenAI tool message is `{ role:'tool', tool_call_id, content }`; the
-    // await_event settlement serializes the done worker, so its content carries 'done'.
-    const turn2Convo = seen[2]!
-    const toolMsgs = turn2Convo.filter((m) => m.role === 'tool')
-    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_worker result + await_event result
-    expect(toolMsgs.some((m) => String(m.content).includes('done'))).toBe(true)
+    // Feed-back proof: turn 2 (the 3rd chat call) is the wake. Its input carries the settlement of
+    // the done worker, delivered with no turn spent while the worker ran.
+    expect(seen).toHaveLength(3)
+    const settled = wakeEvents(seen[2]!).find((event) => event.type === 'settled')
+    expect(settled).toMatchObject({ status: 'done' })
 
     // A real worker spawn is recorded in the journal (not a mock-bypassed result).
     const root_tree = (await journal.loadTree('cd')) as SpawnEvent[]
@@ -196,7 +195,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     expect(root_tree.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
   })
 
-  it('shows a worker overspend to the driver on await_event and again in a resume brief', async () => {
+  it('shows a worker overspend to the driver in its wake and again in a resume brief', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const runId = 'cd-overspend'
@@ -223,7 +222,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the worker' },
         { content: 'done' },
       ],
       seen,
@@ -244,10 +243,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       runOpts,
     )
     expect(first.kind).toBe('winner')
-    const awaited = seen[2]!
-      .filter((message) => message.role === 'tool')
-      .map((message) => JSON.parse(String(message.content)) as Record<string, unknown>)
-      .find((content) => content.type === 'settled')
+    const awaited = wakeEvents(seen[2]!).find((content) => content.type === 'settled')
     expect(awaited).toMatchObject({ status: 'done', budgetViolation: violation })
 
     const resumedSeen: SeenMessages = []
@@ -285,9 +281,8 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     )
     const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> => worker
 
-    // Scripted driver LLM: spawns a worker then STOPS — it never calls await_event, the exact
-    // pull-discipline failure a live LLM brain exhibits. The worker still delivers; losing it
-    // to an empty ledger was the bug.
+    // Scripted driver LLM: spawns a worker then ends its turn without reading anything. Runtime
+    // wakes it with the settlement; the delivery wins.
     const scripted = scriptedBrain([
       {
         toolCalls: [
@@ -347,13 +342,13 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
           { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
         ],
       },
-      // Await once so the two hanging workers are torn down at run end, but the brain stops
-      // before pulling the good one — the drain must still surface it.
-      { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+      // End the turn once (the wake delivers the good worker), then stop on the last turn the
+      // bound allows; the two hanging workers are torn down at run end.
+      { content: 'waiting for the workers' },
       { content: 'stopping' },
     ])
 
-    const root = driverAgent({ ...driverOpts('root', chat, makeAgent), maxTurns: 4 })
+    const root = driverAgent({ ...driverOpts('root', chat, makeAgent), maxTurns: 3 })
     const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cd-mixed',
@@ -393,7 +388,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'mid done' },
     ]
 
@@ -422,7 +417,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the worker' },
         { content: 'root done' },
       ],
       rootSeen,
@@ -442,12 +437,10 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
 
     expect(result.kind).toBe('winner')
 
-    // The mid driver actually ran its OWN tool-loop inside its nested scope: its conversation
-    // recorded the worker's settlement fed back — proof the inner agent reasoned, not scripted-bypassed.
-    // The await_event tool result serializes the done worker, so its OpenAI `tool` message carries 'done'.
+    // The mid driver actually ran its OWN tool-loop inside its nested scope: its wake carried the
+    // worker's settlement — proof the inner agent reasoned, not scripted-bypassed.
     expect(midSeen.length).toBeGreaterThanOrEqual(2)
-    const midToolMsgs = midSeen[midSeen.length - 1]!.filter((m) => m.role === 'tool')
-    expect(midToolMsgs.some((m) => String(m.content).includes('done'))).toBe(true)
+    expect(wakeEvents(midSeen.at(-1)!).some((event) => event.status === 'done')).toBe(true)
 
     // A SEPARATE nested tree exists under the root — the mid driver's sub-tree, holding the
     // worker spawn. A non-recursive build (mid as a leaf) could not produce a nested tree.
@@ -499,6 +492,8 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       ...driverOpts('root', chat, () => worker),
       toolNames: spawnOnly,
       compaction: { thresholdTokens: 1 },
+      // Two turns: a third would only follow a wake for a worker that never settles.
+      maxTurns: 2,
     })
     const result = await createSupervisor<unknown, unknown>().run(root, 'keep track of work', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -531,61 +526,74 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     expect(driverTurns).toEqual([0, 1])
   })
 
-  it('awaitTimeoutMs sets how long one await_event waits for a running worker', async () => {
-    // A worker that settles after 150 ms. With a 20 ms wait the first await_event returns a
-    // pending snapshot; with a 5 s wait the same call returns the worker's settlement.
-    const slowWorker = (): Agent<unknown, unknown> => {
-      const spec: AgentSpec = {
-        profile: testAgentProfile('slow'),
-        harness: null,
-        executor: {
-          runtime: 'router',
-          execute: () => new Promise((resolve) => setTimeout(resolve, 150)),
-          teardown: () => Promise.resolve({ destroyed: true }),
-          resultArtifact: (): ExecutorResult<unknown> => ({
-            outRef: 'slow:done',
-            out: { answer: 'slow' },
-            verdict: { valid: true, score: 1 },
-            spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
-          }),
-        },
-      }
-      return { name: 'slow', act: async () => ({}), executorSpec: spec } as Agent<
-        unknown,
-        unknown
-      > & {
-        executorSpec: AgentSpec
-      }
-    }
-    const firstAwait = async (awaitTimeoutMs: number): Promise<string> => {
-      SHARED_BLOBS = new InMemoryResultBlobStore()
-      const seen: SeenMessages = []
-      const chat = scriptedBrain(
-        [
-          { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }] },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
-          { content: 'done' },
-        ],
-        seen,
-      )
-      const root = driverAgent({ ...driverOpts('root', chat, slowWorker), awaitTimeoutMs })
-      await createSupervisor<unknown, unknown>().run(root, 'wait for it', {
-        budget: { maxIterations: 100, maxTokens: 100_000 },
-        runId: `cd-await-${awaitTimeoutMs}`,
-        journal: new InMemorySpawnJournal(),
-        blobs: SHARED_BLOBS,
-        executors: createExecutorRegistry(),
-        maxDepth: 2,
-        now: () => 0,
-      })
-      const tools = seen[2]!.filter((m) => m.role === 'tool')
-      return String(tools[tools.length - 1]?.content ?? '')
-    }
+  it('a driver that ends its turn spends no turn until its worker settles, then is woken with it', async () => {
+    // A worker that delivers after 150 ms. The driver ends its turn at once; the next chat call is
+    // the wake, and it carries the settlement. Nothing runs the model in between.
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const seen: SeenMessages = []
+    const worker = workerLeaf(
+      'slow',
+      { out: { answer: 'slow' }, tokens: { input: 1, output: 1 }, iterations: 1, score: 1 },
+      undefined,
+      150,
+    )
+    const chat = scriptedBrain(
+      [
+        { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }] },
+        { content: 'waiting' },
+      ],
+      seen,
+    )
+    const root = driverAgent({ ...driverOpts('root', chat, () => worker), wake: { debounceMs: 0 } })
+    const result = await createSupervisor<unknown, unknown>().run(root, 'wait for it', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-wake',
+      journal: new InMemorySpawnJournal(),
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+    expect(result.kind).toBe('winner')
+    // spawn, end turn, then exactly one wake: the settlement, then the final turn found nothing open.
+    expect(seen).toHaveLength(3)
+    expect(wakeEvents(seen[2]!)).toEqual([
+      expect.objectContaining({ type: 'settled', status: 'done' }),
+    ])
+  })
 
-    expect(await firstAwait(20)).toContain('"pending":true')
-    const settled = await firstAwait(5_000)
-    expect(settled).not.toContain('"pending":true')
-    expect(settled).toContain('"type":"settled"')
+  it('a heartbeat wakes a driver whose worker has not reported, so it can reconsider', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const seen: SeenMessages = []
+    const chat = scriptedBrain(
+      [
+        { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }] },
+        { content: 'waiting' },
+      ],
+      seen,
+    )
+    const root = driverAgent({
+      ...driverOpts('root', chat, () => hangingWorkerLeaf('hang')),
+      wake: { heartbeatMs: 30, debounceMs: 0 },
+      maxTurns: 3,
+    })
+    await createSupervisor<unknown, unknown>().run(root, 'wait for it', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-heartbeat',
+      journal: new InMemorySpawnJournal(),
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+    expect(seen).toHaveLength(3)
+    // `seen` holds the loop's one live conversation, so read the wake from its messages.
+    expect(
+      seen[2]!.some(
+        (message) =>
+          message.role === 'user' && String(message.content).includes('Nothing reached your inbox'),
+      ),
+    ).toBe(true)
   })
 })
 

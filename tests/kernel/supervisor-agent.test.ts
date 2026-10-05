@@ -121,7 +121,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const worker = deliveringLeaf('w', { answer: 42 })
-    // A scripted brain stands in for routerBrain (no creds): spawn → await → stop.
+    // A scripted brain stands in for routerBrain (no creds): spawn → end the turn → woken → stop.
     const brain = scriptedBrain([
       {
         toolCalls: [
@@ -131,14 +131,14 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     const root = supervisorAgent(
       testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       { brain, blobs, makeWorkerAgent: () => worker, perWorker, maxTurns: 8 },
     )
@@ -151,24 +151,31 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const journal = new InMemorySpawnJournal()
     // The stub harness drives the coordination MCP over REAL HTTP — exactly what an in-box
     // opencode/claude-code supervisor does via mcp.mcpServers. No router brain, no hand-built loop.
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_worker',
-        arguments: { profile: testAgentProfile('worker'), task: 'go' },
-      })
-      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+    // Turn 1 spawns and ends; Runtime wakes the harness with the settlement; turn 2 stops.
+    const tasks: unknown[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      tasks.push(task)
+      if (tasks.length === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: testAgentProfile('worker'), task: 'go' },
+        })
+        return
+      }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
       }),
       { blobs, makeWorkerAgent: () => deliveringLeaf('w', { answer: 7 }), perWorker, driveHarness },
     )
     const result = await runSupervisor(root, blobs, journal)
     expect(result.kind).toBe('winner')
+    expect(tasks).toHaveLength(2)
+    expect(String(tasks[1])).toContain('"type":"settled"')
   })
 
   it('refuses an enabled unknown Runtime declaration before dispatching the provider', () => {

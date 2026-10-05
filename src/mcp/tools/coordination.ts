@@ -67,7 +67,6 @@ import {
   workerTraceAnalysisStore,
 } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
-import { coordinationRequestAwaitFenceMs } from './coordination-request-context'
 import {
   type ResolveSpawnResourcePathsResult,
   resolveSpawnResourcePaths,
@@ -79,7 +78,7 @@ import {
   workerOutputReadOptions,
 } from './worker-output'
 
-/** A worker the driver has drained via `await_event`. */
+/** A worker whose settlement reached the manager's inbox. */
 export interface SettledWorker {
   readonly id: string
   readonly status: 'done' | 'down'
@@ -772,16 +771,23 @@ export type CoordinationEvent =
   | { readonly type: 'analyst-defined'; readonly analyst: DefinedAnalystRecord }
   /** Persisted before a native analyst can spend; restored by assignment id after restart. */
   | { readonly type: 'analyst-assignment'; readonly assignment: AnalystAssignmentRecord }
-  /** The manager processed events `await_event` delivered to it. Record-only, and separate from
+  /** The manager processed events a wake delivered to it. Record-only, and separate from
    *  delivery on purpose: an event delivered to a turn that then FAILED stays unacknowledged, and
    *  the manager's next re-entry names it again instead of losing it with the dead turn. */
   | { readonly type: 'acknowledgement'; readonly acknowledgement: EventAcknowledgement }
+  /** A tool call that outlived its response fence settled. Queued: the manager's next wake
+   *  carries it, so the caller never re-calls to collect it. */
+  | { readonly type: 'tool-outcome'; readonly outcome: ToolOutcomeEvent }
+  /** This manager's lead (its parent manager, or the operator for a root) sent it a steer or an
+   *  answer. Queued: a manager's harness has no live inbox between turns, so the message is the
+   *  input of its next wake instead of a refused delivery. */
+  | { readonly type: 'lead-message'; readonly message: LeadMessage }
 
 /** One acknowledgement record: which delivered events are now processed, and on whose word. */
 export interface EventAcknowledgement {
   /** Bus `seq` of each acknowledged event, in this process's sequence space. */
   readonly seqs: ReadonlyArray<number>
-  /** `manager`: the manager named them in `await_event`'s `acknowledge`. `turn-completed`: the
+  /** `manager`: legacy rows from a manager that named them. `turn-completed`: the
    *  driver turn that received them ended normally. `result-accepted`: a submission passed the
    *  completion check after they were delivered. */
   readonly by: 'manager' | 'turn-completed' | 'result-accepted'
@@ -802,14 +808,14 @@ export interface ManagerReentryState {
     readonly label: string
     readonly status: string
   }>
-  /** Workers that settled, with whether their settlement reached the manager through `await_event`. */
+  /** Workers that settled, with whether their settlement reached the manager in a wake. */
   readonly settled: ReadonlyArray<{
     readonly id: string
     readonly status: 'done' | 'down'
     readonly valid?: boolean
     readonly delivered: boolean
   }>
-  /** Events queued for `await_event` and not yet delivered, including settlements the coordinator
+  /** Events queued for the next wake and not yet delivered, including settlements the coordinator
    *  holds but has not queued yet. */
   readonly waiting: ReadonlyArray<{ readonly type: string; readonly worker?: string }>
   /** Events delivered to a turn that did not complete, and not acknowledged since. */
@@ -938,7 +944,7 @@ export interface CoordinationToolsOptions {
   readonly questionPolicy?: QuestionPolicy
   /** Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle hook).
    *  A bare string names a lens whose findings go to THE DRIVER: published as a `finding` event on
-   *  the bus — pass-through to subscribers and queued for `await_event`. An
+   *  the bus — pass-through to subscribers and queued for the driver's next wake. An
    *  {@link AnalyzeOnSettleRoute} generalizes the DESTINATION: findings can be delivered to a
    *  named live WORKER (wrapped in the route's directive, through the same authorized steer
    *  machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
@@ -948,20 +954,10 @@ export interface CoordinationToolsOptions {
    *  the driver can still run lenses on demand via `run_analyst`). Lens routes require
    *  `analysts`; agent routes do not. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
-  /** Max wall-clock ms a single `await_event` call may block waiting on a live worker to settle
-   *  before it returns a non-error `{ pending: true, live }` snapshot and lets the caller re-poll.
-   *  The underlying `scope.next()` blocks for the WHOLE (multi-minute) worker run; over a remote MCP
-   *  transport that block outlives the client's per-request timeout, so an unbounded await surfaces
-   *  to the supervisor as a hard tool ERROR on every call — the exact failure that leaves it flying
-   *  blind. Bounding the wait converts that error into a re-pollable liveness signal. The background
-   *  drain keeps running, so a settlement that lands after the bound is published to the bus and
-   *  pulled by the next call — nothing is lost. Omit = {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0`
-   *  restores the prior UNBOUNDED block (only safe for in-process drivers with no transport timeout). */
-  readonly awaitTimeoutMs?: number
   /**
    * OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
    * `finding` on the bus the moment a detector fires — so the driver learns "this worker is
-   * looping" mid-run, from `await_event`, instead of at settle.
+   * looping" mid-run, in its next wake, instead of at settle.
    *
    * This closes the `watchTrace` → `raiseFinding` wire whose own docstring already described it
    * ("the seam an ONLINE detector uses to tell the driver 'this worker is looping/erroring' the
@@ -1159,13 +1155,59 @@ export interface WorkerWatchOptions {
   readonly maxFindingsPerWorker?: number
 }
 
-/** Default ceiling for a single `await_event` block (ms). Every `pending` return costs the driver an
- *  inference turn, so the ceiling is as long as the harness clients allow: Claude Code 2.1.287 and
- *  Codex both time out an MCP tool call at 60 s by default (measured 2026-10-03: a 150 s HTTP MCP
- *  call failed at about 60 s and passed with `MCP_TOOL_TIMEOUT=300000`), and the Sandbox edge held
- *  a 200 s response. 45 s leaves 15 s of that minute for transfer and the driver's own latency. At
- *  15 s a Discovery root director spent 303 of its 401 native tool calls (76%) re-polling. */
-export const DEFAULT_AWAIT_EVENT_TIMEOUT_MS = 45_000
+/** What a manager waits for, from `awaitWake`. */
+export interface AwaitWakeInput {
+  /** The driver attempt the wake will start: its deliveries are acknowledged when that turn
+   *  completes, and named again on re-entry when it fails. Omit for the current attempt. */
+  readonly attempt?: number
+  readonly signal: AbortSignal
+  /** Wake with no event after this long, so a waiting manager can reconsider. */
+  readonly heartbeatMs: number
+  /** After the first event, wait this long for more and deliver them together. */
+  readonly debounceMs: number
+  /** Epoch ms of a deadline warning: wake once then, with or without an event. */
+  readonly deadlineAt?: number
+  /** Something outside the bus that also ends the wait, such as a delivery to the manager's own
+   *  inbox. */
+  readonly alsoWakeOn?: Promise<unknown>
+}
+
+/** One wake of a manager that ended its turn with work open. */
+export interface ManagerWake {
+  /** `events`: something reached the inbox. `heartbeat`: the heartbeat elapsed with nothing new.
+   *  `deadline`: the deadline warning came due. */
+  readonly reason: 'events' | 'heartbeat' | 'deadline'
+  /** Everything that reached the inbox since the last turn, in bus order. */
+  readonly events: ReadonlyArray<Record<string, unknown> & { readonly eventSeq: number }>
+  /** Workers still running. */
+  readonly live: ReadonlyArray<Record<string, unknown>>
+  /** How many more workers can start now; `null` when uncapped. */
+  readonly freeSlots: number | null
+  /** How long the manager waited, with no model turn, before this wake. */
+  readonly idleMs: number
+}
+
+/** A steer or an answer this manager received from its lead. */
+export interface LeadMessage {
+  readonly kind: 'steer' | 'answer'
+  readonly text: string
+  readonly questionId?: string
+  /** The lead asked for the message to interrupt; it is delivered at the next wake either way. */
+  readonly interrupt: boolean
+}
+
+/** A tool call that outlived its response fence, and its outcome once it settled. */
+export interface ToolOutcomeEvent {
+  /** The receipt the caller was given when the fence elapsed. */
+  readonly receipt: string
+  readonly tool: string
+  readonly ok: boolean
+  /** The tool's result, when it succeeded. */
+  readonly value?: unknown
+  /** The tool's error message, when it failed. */
+  readonly error?: string
+  readonly elapsedMs: number
+}
 
 // ── The manager's own journal, read back ────────────────────────────────────────
 //
@@ -1213,6 +1255,8 @@ export const journalEventKinds = [
   'analyst-defined',
   'analyst-assignment',
   'acknowledgement',
+  'tool-outcome',
+  'lead-message',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 export type JournalEventKind = (typeof journalEventKinds)[number]
@@ -1313,7 +1357,7 @@ export interface CoordinationTools {
   readonly peerMail?: PeerMailbox
   /** Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
    *  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
-   *  moment it happens, instead of only at settle. Queued for `await_event` + pass-through. */
+   *  moment it happens, instead of only at settle. Queued for the next wake + pass-through. */
   raiseFinding(finding: AnalystFindingEvent): Promise<void>
   /** Authorize, durably record, and attempt one external steer through the same down-leg used by
    * `steer_agent`. The returned outcome is exact and is never inferred from queue admission. */
@@ -1355,6 +1399,34 @@ export interface CoordinationTools {
   /** Mark the end of the current driver attempt. A completed turn acknowledges what it received;
    *  a failed one leaves its deliveries unacknowledged for the next re-entry to name. */
   endDriverAttempt(outcome: 'completed' | 'failed'): Promise<void>
+  /** True while this manager has work it must hear back about: a worker running, a result or
+   *  question not yet delivered, or a tool call still running past its response fence. A turn
+   *  that ends with open work is a wait, not a completion. */
+  hasOpenWork(): boolean
+  /** Wait, with no model turn, until something reaches this manager's inbox, the heartbeat
+   *  elapses, or the deadline warning comes due; then deliver everything that arrived. Undefined
+   *  when no work is open or the signal aborted. */
+  awaitWake(input: AwaitWakeInput): Promise<ManagerWake | undefined>
+  /** Wait in code, with no model turn, until at least one of `workerIds` has settled into this
+   *  manager's ledger; returns the ids that have. Nothing is taken from the inbox: the manager
+   *  still receives each settlement in its own wake. Empty when none of them is live or settled. */
+  awaitSettlement(
+    workerIds: ReadonlyArray<string>,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyArray<string>>
+  /** Queue a steer or answer from this manager's lead for its next wake. False when the message
+   *  is neither. The publish is in-process; a durable subscriber records it. */
+  receiveLeadMessage(message: unknown): boolean
+  /** Register a tool call that outlived its response fence; returns the receipt its caller is
+   *  given. The call is open work until {@link CoordinationTools.settleToolReceipt}. */
+  openToolReceipt(tool: string): string
+  /** Publish the outcome of a receipted tool call to the inbox, where the next wake delivers it. */
+  settleToolReceipt(
+    receipt: string,
+    outcome:
+      | { readonly ok: true; readonly value: unknown }
+      | { readonly ok: false; readonly error: unknown },
+  ): Promise<void>
   /** The run state a re-entered manager is told, read from this coordinator's own records. */
   reentryState(): ManagerReentryState
   /** Every time this manager's completion check ran, oldest first: each `submit_result`, and each
@@ -1389,7 +1461,6 @@ export const coordinationVerbNames = [
   'cancel_worker',
   'observe_agent',
   'steer_agent',
-  'await_event',
   'list_questions',
   'answer_question',
   'ask_parent',
@@ -1404,23 +1475,17 @@ export const coordinationVerbNames = [
 ] as const
 
 /**
- * The `CoordinationEvent` kinds a driver may name in `await_event`. The pull queue carries the
- * UP-leg only: `steer` / `answer` / `instruction` / `delivery-attempt` are recorded `queue: false`
- * (history and subscribers, never pulled back), and `mail` is delivered to its addressee's inbox.
- *
- * Declared once because the tool advertises this list in its JSON Schema AND filters on it at
- * dispatch. Written twice, the two drift and the schema promises a kind the filter drops — a
- * driver then blocks on a queue that already holds its event.
+ * The `CoordinationEvent` kinds that wake a waiting manager. The queue carries the UP-leg only:
+ * `steer` / `answer` / `instruction` / `delivery-attempt` are recorded `queue: false` (history and
+ * subscribers, never delivered back), and `mail` is delivered to its addressee's inbox.
  */
-const awaitableEventKinds = ['settled', 'question', 'finding'] as const satisfies ReadonlyArray<
-  CoordinationEvent['type']
->
-
-type AwaitableEventKind = (typeof awaitableEventKinds)[number]
-
-function isAwaitableEventKind(value: unknown): value is AwaitableEventKind {
-  return (awaitableEventKinds as ReadonlyArray<unknown>).includes(value)
-}
+const wakeEventKinds = [
+  'settled',
+  'question',
+  'finding',
+  'tool-outcome',
+  'lead-message',
+] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
 
@@ -2035,7 +2100,7 @@ export function createCoordinationToolsForManager(
     return readyInFlight
   }
 
-  // Delivery is not processing. `await_event` records what it handed the manager, and a separate
+  // Delivery is not processing. A wake records what it handed the manager, and a separate
   // acknowledgement record says the manager processed it. An event delivered to a turn that then
   // failed stays unacknowledged, and the next re-entry names it. Measured in Autopsy A
   // (2026-09-16): a root whose turns kept dying consumed neither of two analyst findings nor the
@@ -2046,6 +2111,10 @@ export function createCoordinationToolsForManager(
     acknowledged: boolean
   }
   const deliveries: Delivery[] = []
+  // Tool calls that outlived their response fence, by receipt. Each is open work: its outcome
+  // reaches the manager as a `tool-outcome` event on the next wake.
+  const openReceipts = new Map<string, { readonly tool: string; readonly startedAt: number }>()
+  let receiptSeq = 0
   let driverAttempt: number | undefined
   let journalReadTo = 0
   let lastRejection: { readonly at: number; readonly reason: string } | undefined
@@ -2840,6 +2909,8 @@ export function createCoordinationToolsForManager(
     if (ev.type === 'analyst-assignment') return { type: 'analyst-assignment', ...ev.assignment }
     // Record-only as well: the manager already holds what it acknowledged.
     if (ev.type === 'acknowledgement') return { type: 'acknowledgement', ...ev.acknowledgement }
+    if (ev.type === 'tool-outcome') return { type: 'tool-outcome', ...ev.outcome }
+    if (ev.type === 'lead-message') return { type: 'lead-message', ...ev.message }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
@@ -2847,8 +2918,8 @@ export function createCoordinationToolsForManager(
 
   // The sibling channel, when this run enabled it. Publishing is record-only (`queue: false`) for
   // the same reason a steer is: the parent audits and can stop a thread, but peer traffic must not
-  // enter the queue the driver pulls from — a busy channel would otherwise starve `await_event` of
-  // the settlements and questions it exists to deliver.
+  // enter the queue a wake delivers — a busy channel would otherwise bury the settlements and
+  // questions a wake exists to deliver.
   const peerMail: PeerMailbox | undefined = opts.peerMail
     ? createPeerMailbox({
         scope: opts.scope,
@@ -3217,7 +3288,7 @@ export function createCoordinationToolsForManager(
   const queuedWorkerCount = (): number =>
     opts.scope.view.nodes.filter((n) => n.status === 'queued').length
 
-  // A snapshot of every still-in-flight worker — the liveness signal a bounded `await_event`
+  // A snapshot of every still-in-flight worker — the liveness signal a wake
   // returns when its wait elapses, so the supervisor can tell "worker still running, keep waiting"
   // apart from "nothing is happening" (the distinction it lost when the unbounded await erred out).
   const projectNodeEvidence = (
@@ -3245,7 +3316,7 @@ export function createCoordinationToolsForManager(
   // ── closure ──────────────────────────────────────────────────────────────────
   //
   // A manager may not close its run while work it commissioned is unread: a worker still running,
-  // a settlement or finding queued for `await_event`, or a settlement the coordinator holds and
+  // a settlement or finding queued for the next wake, or a settlement the coordinator holds and
   // has not queued yet. Measured in Autopsy C (2026-09-03): a root stopped 15 to 45 s after its
   // children returned without reading them, and the verification it had commissioned sat
   // unclaimed. The refusal names the open work so the manager can go and read it. A wait-state
@@ -3277,13 +3348,11 @@ export function createCoordinationToolsForManager(
       )
     const waiting = unqueued.length + queued.length
     if (waiting > 0)
-      parts.push(
-        `${waiting} event${waiting === 1 ? ' is' : 's are'} waiting for you in await_event`,
-      )
+      parts.push(`${waiting} event${waiting === 1 ? ' is' : 's are'} waiting for you`)
     return {
       error: 'open-work' as const,
       reason:
-        `${parts.join(' and ')}. Call await_event until it returns idle, read each settled ` +
+        `${parts.join(' and ')}. End your turn to wait: you will be woken with each result. Read each settled ` +
         `worker's output, and then call ${verb} again. Nothing was ${verb === 'stop' ? 'stopped' : 'checked'}.`,
       running: running.map((node) => ({ id: node.id, label: node.label, status: node.status })),
       waiting: [
@@ -3320,7 +3389,7 @@ export function createCoordinationToolsForManager(
   }
 
   // ONLINE detection: subscribe the streaming detector panel to a freshly-spawned worker's live
-  // tool trace, and turn each signal into a `finding` the driver pulls from `await_event`. The
+  // tool trace, and turn each signal into a `finding` the driver receives in its next wake. The
   // unsubscribe fires on the worker's settle (its trace source is dead from then on) and the
   // per-worker cap stops one looping worker from flooding the bus.
   const watchers = new Map<string, () => void>()
@@ -3378,10 +3447,9 @@ export function createCoordinationToolsForManager(
   }
 
   // The blocking `scope.next()` (via `drainSettlement`) waits on a LIVE worker for its whole run.
-  // Keep at most ONE such drain in flight and let every concurrent `await_event` race THAT single
-  // promise against a timeout — so a bounded call never starts a second unbounded block, and the
-  // one drain still delivers the settlement (exactly-once via the scope cursor) whenever it lands.
-  const awaitTimeoutMs = opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS
+  // Keep at most ONE such drain in flight, so a wake that ends on its heartbeat never starts a
+  // second block, and the one drain still delivers the settlement (exactly-once via the scope
+  // cursor) whenever it lands.
   let inFlightDrain: Promise<boolean> | null = null
   const ensureDrain = (): Promise<boolean> => {
     if (!inFlightDrain)
@@ -3441,31 +3509,134 @@ export function createCoordinationToolsForManager(
     return managerAnalysis
   }
 
-  // Resolve `{ drained }` if the drain wins, or `undefined` if the bound elapses first. A `<= 0`
-  // bound restores the prior unbounded block (no timer): the caller opted out of the fence.
-  // A caller whose harness declared its tool-call timeout on the request is held for a fence
-  // derived from that timeout instead of the default (coordination-request-context.ts). A raised
-  // timeout means fewer pending returns and fewer driver turns spent re-polling.
-  const awaitFenceMs = (): number => {
-    const declared = coordinationRequestAwaitFenceMs()
-    return declared !== undefined && awaitTimeoutMs > 0 ? declared : awaitTimeoutMs
-  }
-  const raceDrainWithTimeout = async (
-    drain: Promise<boolean>,
-  ): Promise<{ drained: boolean } | undefined> => {
-    const fenceMs = awaitFenceMs()
-    if (fenceMs <= 0) return { drained: await drain }
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<undefined>((resolve) => {
-      timer = setTimeout(() => resolve(undefined), fenceMs)
-      // Never let this fence-timer alone keep the process alive (e.g. at teardown).
-      if (typeof timer?.unref === 'function') timer.unref()
+  // ── waiting ─────────────────────────────────────────────────────────────────────
+  //
+  // A manager with nothing to do ends its turn, and Runtime waits for it. Measured 2026-10-05 on
+  // two Discovery roots: when the manager did the waiting through a bounded poll, 18 of 88 model
+  // turns did nothing but wait, each re-reading the whole cached context. The wait below spends
+  // no model turn: it blocks on the bus, and its result becomes the input of the next turn.
+  const settledWithoutDrain = async (): Promise<void> => {
+    // Move children that already settled onto the bus. Only when no blocking drain holds the
+    // cursor: that drain publishes whatever it takes itself.
+    if (inFlightDrain) return
+    inFlightDrain = (async () => {
+      let drained = false
+      while (await drainSettlement('nextResolved')) drained = true
+      return drained
+    })().finally(() => {
+      inFlightDrain = null
     })
+    await inFlightDrain
+  }
+  const hasOpenWork = (): boolean => {
+    const { running, unqueued, queued } = openWork()
+    return (
+      running.length > 0 ||
+      unqueued.length > 0 ||
+      queued.length > 0 ||
+      bus.pending(wakeEventKinds) > 0 ||
+      openReceipts.size > 0
+    )
+  }
+  const awaitWake = async (input: AwaitWakeInput): Promise<ManagerWake | undefined> => {
+    const startedAt = Date.now()
+    await ready()
+    await settledWithoutDrain()
+    if (!hasOpenWork() || input.signal.aborted) return undefined
+    const heartbeatAt = startedAt + Math.max(0, input.heartbeatMs)
+    const deadlineAt = input.deadlineAt ?? Number.POSITIVE_INFINITY
+    const wakeAt = Math.min(heartbeatAt, deadlineAt)
+    let unsubscribe: (() => void) | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
+    let outsideWake = false
     try {
-      return await Promise.race([drain.then((drained) => ({ drained })), timeout])
+      const queuedEvent = new Promise<void>((resolve) => {
+        unsubscribe = bus.subscribe(() => {
+          if (bus.pending(wakeEventKinds) > 0) resolve()
+        })
+      })
+      const elapsed = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, Math.max(0, wakeAt - Date.now()))
+        if (typeof timer?.unref === 'function') timer.unref()
+      })
+      const aborted = new Promise<void>((resolve) => {
+        onAbort = () => resolve()
+        input.signal.addEventListener('abort', onAbort, { once: true })
+      })
+      const outside = (input.alsoWakeOn ?? new Promise<never>(() => undefined)).then(() => {
+        outsideWake = true
+      })
+      // Set once the cursor reports no child it can wait on, so a node it does not drain cannot
+      // turn this loop into a spin.
+      let cursorIdle = false
+      while (
+        bus.pending(wakeEventKinds) === 0 &&
+        !outsideWake &&
+        !input.signal.aborted &&
+        Date.now() < wakeAt
+      ) {
+        const running = !cursorIdle && openWork().running.length > 0
+        // A live worker can only reach the bus through the blocking drain. With none live, the
+        // open work is a question or a tool outcome, which publishes itself.
+        const drained = running ? ensureDrain() : new Promise<boolean>(() => undefined)
+        const done = await Promise.race([
+          drained.then((value) => (value ? 'drained' : 'idle')),
+          queuedEvent.then(() => 'queued' as const),
+          elapsed.then(() => 'elapsed' as const),
+          aborted.then(() => 'aborted' as const),
+          outside.then(() => 'outside' as const),
+        ])
+        if (done === 'idle') {
+          cursorIdle = true
+          if (!hasOpenWork()) break
+        }
+      }
+      if (input.signal.aborted) return undefined
+      // Coalesce: whatever else lands within the debounce rides the same wake. Only while other
+      // workers still run: with none, nothing else is coming.
+      if (
+        bus.pending(wakeEventKinds) > 0 &&
+        input.debounceMs > 0 &&
+        openWork().running.length > 0
+      ) {
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            const debounce = setTimeout(resolve, input.debounceMs)
+            if (typeof debounce?.unref === 'function') debounce.unref()
+          }),
+          aborted,
+        ])
+        if (input.signal.aborted) return undefined
+        await settledWithoutDrain()
+      }
     } finally {
+      unsubscribe?.()
       if (timer) clearTimeout(timer)
+      if (onAbort) input.signal.removeEventListener('abort', onAbort)
     }
+    const events: Array<Record<string, unknown> & { readonly eventSeq: number }> = []
+    for (let next = bus.pullRecord(wakeEventKinds); next; next = bus.pullRecord(wakeEventKinds)) {
+      deliveries.push({
+        record: next,
+        attempt: input.attempt ?? driverAttempt,
+        acknowledged: false,
+      })
+      events.push({ ...projectEvent(next.event), eventSeq: next.seq })
+    }
+    if (events.length === 0 && !outsideWake && !hasOpenWork()) return undefined
+    return detachedFrozen<ManagerWake>({
+      reason:
+        events.length > 0 || outsideWake
+          ? 'events'
+          : Date.now() >= deadlineAt
+            ? 'deadline'
+            : 'heartbeat',
+      events,
+      live: liveSnapshot(),
+      freeSlots: freeWorkerSlots(),
+      idleMs: Date.now() - startedAt,
+    })
   }
 
   const tools: McpToolDescriptor[] = [
@@ -3481,7 +3652,7 @@ export function createCoordinationToolsForManager(
         'every worker slot is busy, or the pool cannot cover the budget until your running workers ' +
         'return what they hold, the worker is admitted with `status: "queued"` and starts on its ' +
         'own when a slot and its budget free — it is never refused for concurrency, so spawn all ' +
-        'the work you want done and await_event for the results. A queued worker whose budget ' +
+        'the work you want done, then end your turn: you are woken with each result. A queued worker whose budget ' +
         'never frees settles down as budget-exhausted. ' +
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
@@ -3535,7 +3706,7 @@ export function createCoordinationToolsForManager(
               'example one that failed, stalled, or finished with a weak result, restarted with a ' +
               'changed profile or task. The run record then names the predecessor on the new ' +
               'worker. Refused for an id you did not spawn (`error: "successor-unknown"`) and for ' +
-              'a worker still live (`error: "successor-live"` — await_event until it settles). ' +
+              'a worker still live (`error: "successor-live"` — end your turn until it settles). ' +
               'Put what the successor needs from its predecessor in `task`.',
           },
           budget: {
@@ -3645,7 +3816,7 @@ export function createCoordinationToolsForManager(
           if (isLiveNodeStatus(predecessor.status)) {
             return {
               error: 'successor-live' as const,
-              reason: `worker '${successorOf}' has not settled — await_event until it does, then spawn its successor (steer_agent redirects a live worker instead)`,
+              reason: `worker '${successorOf}' has not settled — end your turn until it does, then spawn its successor (steer_agent redirects a live worker instead)`,
               live: liveWorkerCount(),
               freeSlots: freeWorkerSlots(),
             }
@@ -3708,7 +3879,7 @@ export function createCoordinationToolsForManager(
         })
         // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
         // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
-        // cursor yielded it), so the driver folds it in without an await_event round-trip.
+        // cursor yielded it), so the driver folds it in without waiting for a wake.
         if (res.ok && res.prior?.state === 'completed') {
           const s = res.prior.settled
           const { id, status, resumed: _resumed, ...evidence } = projectSettled(s)
@@ -3830,8 +4001,8 @@ export function createCoordinationToolsForManager(
         'is not stalled. A queued worker waits for a worker slot and is never stalled. ' +
         'A worker whose executor has FINISHED ' +
         'but whose settlement you have not yet drained reports `settlementPending` with its ' +
-        'terminal kind; its `status` still reads running until await_event ' +
-        'delivers it, so call await_event, not observe_agent again. The settled output ' +
+        'terminal kind; its `status` still reads running until your next wake ' +
+        'delivers it, so end your turn rather than observing again. The settled output ' +
         'artifact is returned once drained. Select a field with `outputPath`, for example ["content"] ' +
         'to read a provider result without its event history. Omit it to read the complete artifact. ' +
         'Large outputs return a bounded JSON `outputPage`; ' +
@@ -3913,7 +4084,7 @@ export function createCoordinationToolsForManager(
           ...(pending
             ? {
                 settlementPending: pending,
-                hint: `this worker has finished (${pending.kind}); its settlement is queued — call await_event to receive it, observing again will not change this`,
+                hint: `this worker has finished (${pending.kind}); its settlement is queued for your next wake — end your turn to receive it, observing again will not change this`,
               }
             : {}),
         }
@@ -3966,7 +4137,7 @@ export function createCoordinationToolsForManager(
         'it leads. Its unspent budget returns to your pool when it settles, so this is how you ' +
         'take back what a stalled or no-longer-needed worker holds (for example when spawn_worker ' +
         'is refused budget-exhausted while workers you no longer need hold the budget). The ' +
-        'cancelled worker still settles `down` through await_event with what it spent. ' +
+        'cancelled worker still settles `down`, delivered in your next wake with what it spent. ' +
         'Refused (`error: "not-live"`) for a worker that already settled or is not yours.',
       inputSchema: {
         type: 'object',
@@ -4002,132 +4173,6 @@ export function createCoordinationToolsForManager(
           label: cancelled.label,
           live: liveWorkerCount(),
           queued: queuedWorkerCount(),
-        }
-      },
-    },
-    {
-      name: 'await_event',
-      description:
-        'Wait for and pull the next message a worker, sub-driver, or analyst sent up — the unified ' +
-        'inbox. Read a settled artifact with the returned `outputRead` call; the receipt carries its reference, not its bytes. ' +
-        "An event is one of: a settled worker output ('settled'), a question needing your " +
-        "answer ('question', from ask_parent / the worker's ask-user), or a trace-analyst finding " +
-        "('finding', from analyze-on-settle). Pass kinds:['settled'] for just the next finished " +
-        'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +
-        'nothing is queued and no workers are live. If a worker is still running when the wait ' +
-        'elapses, returns { pending: true, live: [...] } (the workers still in flight) instead of ' +
-        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost. ' +
-        'Every reply carries `freeSlots`: how many more workers you can start right now (`null` = ' +
-        'uncapped). A settled worker frees its slot, so `freeSlots > 0` means capacity is sitting ' +
-        'idle — spawn into it before waiting again. Each event carries `eventSeq`; pass the ones ' +
-        'you have processed in `acknowledge` on a later call. An event delivered to a turn that ' +
-        'ends in failure is named again when you are re-entered, until it is acknowledged. ' +
-        'Pass `max` above 1 to read a whole team at once: the reply is `{ events: [...] }` with ' +
-        'the first event it waited for plus every other event already waiting, up to `max`, so ' +
-        'a lead of hundreds of workers reads their receipts in a few turns instead of one each.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          kinds: {
-            type: 'array',
-            items: { type: 'string', enum: [...awaitableEventKinds] },
-            description: 'Restrict to these event kinds (any if omitted).',
-          },
-          acknowledge: {
-            type: 'array',
-            items: { type: 'integer', minimum: 0 },
-            description: 'The eventSeq of each earlier event you have now processed.',
-          },
-          max: {
-            type: 'integer',
-            minimum: 1,
-            description:
-              'Most events to return in one reply. Omit or 1 for one event; above 1 returns `{ events }`.',
-          },
-        },
-      },
-      handler: async (raw) => {
-        const args = raw === undefined ? {} : obj(raw)
-        const max = args.max === undefined ? 1 : args.max
-        if (typeof max !== 'number' || !Number.isSafeInteger(max) || max < 1) {
-          throw new Error('coordination tools: "max" must be a positive integer')
-        }
-        const k = args.kinds
-        const kinds = Array.isArray(k) ? k.filter(isAwaitableEventKind) : undefined
-        if (Array.isArray(args.acknowledge)) {
-          const named = new Set(
-            args.acknowledge.filter(
-              (value): value is number => typeof value === 'number' && Number.isInteger(value),
-            ),
-          )
-          await acknowledge(
-            deliveries.filter((delivery) => named.has(delivery.record.seq)),
-            'manager',
-          )
-        }
-        const deliver = (
-          record: BusRecord<CoordinationEvent>,
-        ): Record<string, unknown> & { readonly eventSeq: number } => {
-          deliveries.push({ record, attempt: driverAttempt, acknowledged: false })
-          return { ...projectEvent(record.event), eventSeq: record.seq }
-        }
-        // A batch read. Settlements that already happened are drained into the queue FIRST, while
-        // nothing has been taken off it, so a drain that throws loses no event; the drain holds the
-        // in-flight slot so no blocking drain runs beside it, and it stops at half the wait fence
-        // so a wide team's analysis cannot outlast the caller's request timeout. Then up to `max`
-        // queued events are taken. With none queued, the call waits for one as a single read does.
-        if (max > 1) {
-          const fenceMs = awaitFenceMs()
-          const fenceAt = fenceMs > 0 ? Date.now() + fenceMs / 2 : Infinity
-          if (!inFlightDrain) {
-            inFlightDrain = (async () => {
-              let drained = false
-              while (bus.pending(kinds) < max && Date.now() < fenceAt) {
-                if (!(await drainSettlement('nextResolved'))) break
-                drained = true
-              }
-              return drained
-            })().finally(() => {
-              inFlightDrain = null
-            })
-            await inFlightDrain
-          }
-          const events: Array<Record<string, unknown>> = []
-          const takeQueued = () => {
-            for (let next = bus.pullRecord(kinds); next; next = bus.pullRecord(kinds)) {
-              events.push(deliver(next))
-              if (events.length >= max) return
-            }
-          }
-          takeQueued()
-          if (events.length === 0) {
-            const first = await pullOne()
-            if (!('eventSeq' in first)) return first
-            const { freeSlots: _slots, ...head } = first
-            events.push(head)
-            takeQueued()
-          }
-          return { events, freeSlots: freeWorkerSlots() }
-        }
-        return pullOne()
-        async function pullOne(): Promise<Record<string, unknown>> {
-          // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
-          let ev = bus.pullRecord(kinds)
-          // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
-          // capacity frees up, so the answer travels with the event that freed it.
-          if (ev) return { ...deliver(ev), freeSlots: freeWorkerSlots() }
-          // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
-          // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
-          // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
-          // no working "wait for the worker" primitive. Race the single in-flight drain against the
-          // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
-          // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
-          const raced = await raceDrainWithTimeout(ensureDrain())
-          if (raced === undefined)
-            return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
-          ev = bus.pullRecord(kinds)
-          if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
-          return { ...deliver(ev), freeSlots: freeWorkerSlots() }
         }
       },
     },
@@ -4670,7 +4715,7 @@ export function createCoordinationToolsForManager(
         if (isLiveNodeStatus(node.status)) {
           return {
             error: 'worker-not-settled' as const,
-            reason: `worker ${JSON.stringify(id)} has not settled, so it has no trace to analyze yet — await_event until it settles, then run the lens`,
+            reason: `worker ${JSON.stringify(id)} has not settled, so it has no trace to analyze yet — end your turn until it settles, then run the lens`,
           }
         }
         const trace =
@@ -4846,6 +4891,69 @@ export function createCoordinationToolsForManager(
         )
       }
     },
+    hasOpenWork,
+    awaitWake,
+    awaitSettlement: async (workerIds, signal) => {
+      const wanted = new Set(workerIds)
+      const settledIds = () => ledger.filter((worker) => wanted.has(worker.id)).map((w) => w.id)
+      await ready()
+      for (;;) {
+        await settledWithoutDrain()
+        const hit = settledIds()
+        if (hit.length > 0) return hit
+        signal?.throwIfAborted()
+        const live = ((opts.scope as Partial<Scope<unknown>>).view?.nodes ?? []).some(
+          (node) => wanted.has(node.id) && isLiveNodeStatus(node.status),
+        )
+        if (!live) return []
+        const drained = await (signal === undefined
+          ? ensureDrain()
+          : Promise.race([
+              ensureDrain(),
+              new Promise<never>((_resolve, reject) => {
+                signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+              }),
+            ]))
+        if (!drained && settledIds().length === 0) return []
+      }
+    },
+    receiveLeadMessage: (message) => {
+      const parsed = leadMessageOf(message)
+      if (parsed === undefined) return false
+      bus.publish({ type: 'lead-message', message: parsed }).catch((error: unknown) => {
+        console.error('Runtime could not queue a lead message for its manager', {
+          manager: opts.scope.view.root,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+      return true
+    },
+    openToolReceipt: (tool) => {
+      receiptSeq += 1
+      const receipt = `${tool}#${receiptSeq}`
+      openReceipts.set(receipt, { tool, startedAt: Date.now() })
+      return receipt
+    },
+    settleToolReceipt: async (receipt, outcome) => {
+      const open = openReceipts.get(receipt)
+      if (open === undefined) return
+      openReceipts.delete(receipt)
+      await bus.publish({
+        type: 'tool-outcome',
+        outcome: detachedFrozen<ToolOutcomeEvent>({
+          receipt,
+          tool: open.tool,
+          ...(outcome.ok
+            ? { ok: true, value: outcome.value }
+            : {
+                ok: false,
+                error:
+                  outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
+              }),
+          elapsedMs: Date.now() - open.startedAt,
+        }),
+      })
+    },
     reentryState: () => {
       const { unqueued, queued } = openWork()
       const deliveredSettled = new Set(
@@ -4987,4 +5095,20 @@ function safeJsonText(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function leadMessageOf(message: unknown): LeadMessage | undefined {
+  if (message === null || typeof message !== 'object') return undefined
+  const m = message as Record<string, unknown>
+  const interrupt = m.interrupt === true
+  if (typeof m.steer === 'string') return { kind: 'steer', text: m.steer, interrupt }
+  if (typeof m.answer === 'string') {
+    return {
+      kind: 'answer',
+      text: m.answer,
+      ...(typeof m.questionId === 'string' ? { questionId: m.questionId } : {}),
+      interrupt,
+    }
+  }
+  return undefined
 }

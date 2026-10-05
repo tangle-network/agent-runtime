@@ -39,3 +39,17 @@ export function scriptedBrain(
     }
   }
 }
+
+/** The events a woken driver received: the JSON lines of the newest wake input in `messages`. */
+export function wakeEvents(
+  messages: ReadonlyArray<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const wake = [...messages]
+    .reverse()
+    .find((message) => message.role === 'user' && String(message.content).includes('## Events'))
+  if (wake === undefined) return []
+  return String(wake.content)
+    .split('\n')
+    .filter((line) => line.startsWith('- {'))
+    .map((line) => JSON.parse(line.slice(2)) as Record<string, unknown>)
+}

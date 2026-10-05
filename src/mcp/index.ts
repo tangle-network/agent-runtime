@@ -175,7 +175,6 @@ export {
   type CoordinationTools,
   type CoordinationToolsOptions,
   createCoordinationTools,
-  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   type DefinedAnalystRecord,
   type DownMessageAuthorizationInput,
   type DownMessageDeliveryAttempt,

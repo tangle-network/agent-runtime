@@ -453,7 +453,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1064 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1063 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -768,7 +768,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1064 exports.
 | `CONTINUATION_FACTS` | const | The facts a profile template may name. |
 | `CONTINUATIONS_DIR` | const | A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested |
 | `DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY` | const | Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and |
-| `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Every `pending` return costs the driver an |
 | `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
 | `DEFAULT_PEER_MAIL_LIMITS` | const | Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
@@ -1550,7 +1549,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 245 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 244 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1611,7 +1610,6 @@ Import from `@tangle-network/agent-runtime/mcp` — 245 exports.
 | `validateDelegationStatusArgs` | function | Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input. |
 | `ANALYST_DEFINITION_BOUNDS` | const | Every bound `define_analyst` enforces before a definition reaches a registry. |
 | `analystToolGroupNames` | const | The trace-tool sets a DEFINED analyst may ask for — the exact group names agent-eval's |
-| `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Every `pending` return costs the driver an |
 | `DEFAULT_LOCAL_HARNESS` | const | The harness a caller gets when it expresses no preference. A composition-root default, not a |
 | `DELEGATE_DESCRIPTION` | const | Human-readable description of the `delegate` MCP tool, injected into the tool manifest. |
 | `DELEGATE_FEEDBACK_DESCRIPTION` | const | Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest. |
@@ -1689,7 +1687,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 245 exports.
 | `QuestionEscalationRecord` | interface | The operator-facing artifact written for every `ask_parent`: which question left, whether |
 | `ResearchOutputShape` | interface | Provider-neutral research output carried over the MCP boundary. The MCP |
 | `ResolvedMemoryEnv` | interface | What the memory bin resolved from its environment. |
-| `SettledWorker` | interface | A worker the driver has drained via `await_event`. |
+| `SettledWorker` | interface | A worker whose settlement reached the manager's inbox. |
 | `SpawnResourceBytes` | interface | One successful read: the bytes as a string plus the identity the journal records. |
 | `SpawnResourceReader` | interface | Where a by-path resource's bytes come from. `describe` names the source in a refusal so a |
 | `UiAuditorDelegationOutput` | interface | Wire-shape of a completed UI-audit delegation. The `findings` array |

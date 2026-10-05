@@ -198,14 +198,9 @@ export async function provisionSupervisor(
         blobs: context.blobs,
         makeWorkerAgent,
         perWorker: workerBudget(),
-        // Keep each supervisor turn bounded so control requests are observed while the remote
-        // worker is running. The coordination tool keeps one settlement drain in flight, so a
-        // timeout only ends this turn; it cannot lose the eventual worker event.
-        awaitTimeoutMs: input.pollMs,
       })
       await coord.ready()
       const spawn = findTool(coord.tools, 'spawn_worker')
-      const awaitEvent = findTool(coord.tools, 'await_event')
       const result = await spawn.handler({
         profile: workerProfile,
         task: input.task,
@@ -247,19 +242,22 @@ export async function provisionSupervisor(
         while (true) {
           await steerAcknowledger.pass('turn')
           cancelAcknowledger.pass('turn')
-          // `await_event` owns the single scope cursor drain. Calling `scope.next()` directly here
-          // would bypass the coordination ledger and make a real cancellation look unknown.
-          const event = await awaitEvent.handler({ kinds: ['settled'] })
-          if (isSettledEvent(event)) {
+          // The wake owns the single scope cursor drain. Calling `scope.next()` directly here
+          // would bypass the coordination ledger and make a real cancellation look unknown. Its
+          // heartbeat bounds each pass so control requests are observed while the worker runs.
+          const wake = await coord.awaitWake({
+            attempt: 1,
+            signal: scope.signal,
+            heartbeatMs: input.pollMs,
+            debounceMs: 0,
+          })
+          if (wake?.events.some((event) => event.type === 'settled')) {
             await steerAcknowledger.pass('final')
             cancelAcknowledger.pass('final')
             return undefined
           }
-          if (isIdleEvent(event)) {
+          if (wake === undefined) {
             throw new Error(`Runtime supervisor worker '${childId}' ended without a settlement`)
-          }
-          if (!isPendingEvent(event)) {
-            throw new Error(`Runtime supervisor returned an invalid settlement response`)
           }
         }
       } finally {
@@ -521,22 +519,6 @@ function workerIdFromSpawn(value: unknown): string {
     throw new Error('Runtime supervisor spawn did not return a worker id')
   }
   return workerId
-}
-
-function isSettledEvent(value: unknown): boolean {
-  return isObject(value) && value.type === 'settled'
-}
-
-function isIdleEvent(value: unknown): boolean {
-  return isObject(value) && value.idle === true
-}
-
-function isPendingEvent(value: unknown): boolean {
-  return isObject(value) && value.pending === true
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 async function waitForWorkerSpawn(

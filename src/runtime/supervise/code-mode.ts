@@ -45,7 +45,6 @@ import type {
 /** The coordination verbs callable in code, and the `context.verbs` member each maps to. */
 const CODE_CALLABLE_VERBS = {
   spawn_worker: 'spawnAgent',
-  await_event: 'awaitEvent',
   steer_agent: 'steerAgent',
   observe_agent: 'observeAgent',
   list_questions: 'listQuestions',
@@ -356,6 +355,13 @@ export function codeModeSupervisorTools(
               )
             }
             return detach(await context.verbs[member](args))
+          }
+        }
+        // A program that spawns may join what it spawned: wait in code until named workers settle.
+        if (bindings.spawn_worker !== undefined) {
+          bindings.await_settlement = async (args: unknown) => {
+            if (execution.signal.aborted) throw abortReason(execution.signal)
+            return detach(await context.verbs.awaitSettlement(args))
           }
         }
         try {

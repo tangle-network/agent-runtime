@@ -1194,9 +1194,8 @@ export interface Scope<Out> {
    * predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
    * the pool's hard wall-clock ceiling — a wait never extends a budget guard).
    *
-   * NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 45s fence makes
-   * the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
-   * and nothing about it survives a restart. See `supervise/wait.ts`.
+   * NOT a manager's wake: that is an in-run rendezvous on the coordination bus in a process that
+   * must stay up, and nothing about it survives a restart. See `supervise/wait.ts`.
    */
   wait(
     spec: WaitSpec,
@@ -1380,7 +1379,7 @@ export interface NodeSnapshot {
   readonly spent: Spend
   /**
    * The node's executor has FINISHED and its settlement is queued for the manager to drain with
-   * `await_event`/`next()`, but `status` still reads as it did while running because the settle
+   * its next wake/`next()`, but `status` still reads as it did while running because the settle
    * transition happens at drain time. Present only in that window; absent once drained or while
    * the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
    * can tell "still working" from "finished, waiting for you to read it".

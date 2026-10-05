@@ -111,6 +111,7 @@ import {
   type SupervisorSpanRecorder,
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
+import { createActivityLog } from './progress'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
@@ -187,6 +188,7 @@ import type {
   ExecutorExecutionBinding,
   ExecutorFactory,
   ExecutorMaterialization,
+  ExecutorProgressEvent,
   ExecutorResult,
   NodeExecutionIdentity,
   ProviderModelAttemptEvidence,
@@ -203,6 +205,7 @@ import type {
   UsageEvent,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
+import type { ManagerWakePolicy } from './wake'
 import {
   type WorkerSpawnRetryAttempt,
   type WorkerSpawnRetryPolicy,
@@ -870,6 +873,26 @@ function driveHarnessFromBackend(
         resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
       : 'cli'
   let activeExecutor: Executor<unknown> | undefined
+  // What this manager's harness has been doing, from the progress events its drives stream. An
+  // executor that keeps no activity log of its own (a provider) otherwise reads as idle to the
+  // lead that observes it: measured 2026-10-05, a director mid-turn read `turns: 0`, `idleMs`
+  // 463967, `stalled: true`.
+  const driveActivity = createActivityLog()
+  let driveTurns = 0
+  const noteDriveProgress = (event: ExecutorProgressEvent): void => {
+    const at = Date.now()
+    if (event.kind === 'tool_call') {
+      driveActivity.push({ at, kind: 'tool', label: event.toolName })
+    } else if (event.kind === 'tool_result') {
+      driveActivity.push({ at, kind: 'tool', label: event.toolName, status: 'ok' })
+    } else if (event.kind === 'text_delta' || event.kind === 'reasoning_delta') {
+      const last = driveActivity.last()
+      // One note per stretch of model output, refreshed every 30 s, so deltas cannot flood the ring.
+      if (last === undefined || last.kind !== 'turn' || at - last.at > 30_000) {
+        driveActivity.push({ at, kind: 'turn', label: 'model output' })
+      }
+    }
+  }
   // The manager's own harness session, as the newest attempt captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
   let managerArtifact: ExecutorResult<unknown> | undefined
@@ -978,8 +1001,8 @@ function driveHarnessFromBackend(
         : stopSignal === undefined
           ? turnStop.signal
           : AbortSignal.any([stopSignal, turnStop.signal])
-    // The harness is asked for a 300 s tool-call timeout so await_event can hold for up to
-    // 180 s per call instead of 45 s; a sidecar that applies it says so on each request.
+    // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
+    // longer than the 60 s harness default; a sidecar that applies it says so on each request.
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
@@ -1318,15 +1341,24 @@ function driveHarnessFromBackend(
       // The stream file opens at the first attempt that actually runs an executor, so a resumed
       // owner whose accepted result was restored above leaves it untouched.
       await rootStream?.beginAttempt()
+      // Only the bridge executor reads the stop seam and ends at its next turn boundary. Any other
+      // executor ends its execution on the stop: an accepted `submit_result` ends the manager. Before,
+      // a provider-placed director ran its harness on after acceptance; measured 2026-10-05,
+      // accepted directors settled 13 to 29 minutes after their submissions.
+      const executeSignal =
+        boundBackend.backend === 'bridge' || stopSignal === undefined
+          ? scope.signal
+          : AbortSignal.any([scope.signal, stopSignal])
       const run = retainedOwner?.admissions.length
-        ? executor.recover!(originalTask, scope.signal)
-        : executor.execute(originalTask, scope.signal)
+        ? executor.recover!(originalTask, executeSignal)
+        : executor.execute(originalTask, executeSignal)
       if (isAsyncIterable<UsageEvent>(run)) {
         let turns = 0
         for await (const event of run) {
           if (event.kind === 'iteration') {
             await meterPending()
             turns += 1
+            driveTurns += 1
             if (turnStop !== undefined && turns >= turnCap && !turnStop.signal.aborted) {
               turnStop.abort(`supervise: maxTurns ${turnCap} reached`)
             }
@@ -1334,6 +1366,7 @@ function driveHarnessFromBackend(
             // A progress event carries the driver's observed output, never accounting: it is
             // retained in the run directory as it arrives and never reaches a meter.
             rootStream?.append(event.progress)
+            noteDriveProgress(event.progress)
           } else {
             pendingUsage.push(event)
           }
@@ -1548,7 +1581,18 @@ function driveHarnessFromBackend(
   }
   drive.deliverReady = (): boolean => activeExecutor !== undefined
   drive.traceSource = () => activeExecutor?.traceSource?.()
-  drive.progress = () => activeExecutor?.progress?.()
+  drive.progress = () => {
+    const fromExecutor = activeExecutor?.progress?.()
+    const own = driveActivity.read()
+    const recentActivity = [...(fromExecutor?.recentActivity ?? []), ...own]
+      .sort((a, b) => a.at - b.at)
+      .slice(-12)
+    return {
+      ...fromExecutor,
+      turns: Math.max(fromExecutor?.turns ?? 0, driveTurns),
+      ...(recentActivity.length > 0 ? { recentActivity } : {}),
+    }
+  }
   // Only the provider backend has a transcript port. Any other backend leaves the method off, so
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
@@ -1921,7 +1965,7 @@ export interface SuperviseOptions {
    *  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself. */
   readonly profileGuidance?: 'profile-kb'
   /** Whether a spawned profile that declares no Runtime coordination tool receives its manager's
-   *  coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+   *  coordination grants (`spawn_worker`, `observe_agent`, and the rest, plus `submit_result` so it
    *  can still deliver work it does itself), so every child can lead children of its own. Default
    *  `true`. A child whose author wrote any coordination entry, true or false, keeps what was
    *  written (a `false` entry is dropped once it has kept the child a leaf). A child this run
@@ -2084,13 +2128,13 @@ export interface SuperviseOptions {
    *  `registry.analysts`. */
   readonly analysts?: AnalystRegistry | string
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
-   *  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
+   *  the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
    *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /**
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
-   * moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+   * moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
    * instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
    * is the correction. Requires a backend whose executor exposes a trace source (the steerable
    * sandbox worker and the pi wrapper do); other runtimes are simply not watched.
@@ -2101,11 +2145,10 @@ export interface SuperviseOptions {
   /** Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
    *  at observation time — nothing is killed or retried. Omit = the runtime default. */
   readonly stallAfterMs?: number
-  /** Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
-   *  re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
-   *  workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
-   *  supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default. */
-  readonly awaitTimeoutMs?: number
+  /** How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
+   *  that coalesces events into one wake, and the deadline warning. Omit = the defaults in
+   *  `./wake` (15 min, 2 s, 15 min). */
+  readonly wake?: ManagerWakePolicy
   /** Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
    *  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
    *  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
@@ -2305,7 +2348,7 @@ const superviseOptionKeys = [
   'runId',
   'signal',
   'stallAfterMs',
-  'awaitTimeoutMs',
+  'wake',
   'steerDir',
   'stopRule',
   'watchWorkers',
@@ -3674,9 +3717,7 @@ function superviseInternal(
             : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
-          ...(options.awaitTimeoutMs !== undefined
-            ? { awaitTimeoutMs: options.awaitTimeoutMs }
-            : {}),
+          ...(options.wake !== undefined ? { wake: options.wake } : {}),
           ...(options.continuityByProfile
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
@@ -3922,7 +3963,7 @@ function superviseInternal(
       ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
-      ...(options.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: options.awaitTimeoutMs } : {}),
+      ...(options.wake !== undefined ? { wake: options.wake } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
       ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),

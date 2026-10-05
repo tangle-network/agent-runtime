@@ -63,6 +63,8 @@ export function composeReentryTask(input: ReentryTaskInput): string {
     const changes = stateLines(state, false, input.tools)
     return [reentry.steer, ...(changes.length > 0 ? ['', ...changes] : [])].join('\n')
   }
+  // A woken manager in the same session already holds everything but what happened.
+  if (reentry.reason === 'wake' && continuity.session === 'continued') return reentry.input
   const lines: string[] = [
     `You are re-entering a run that is already in progress (driver attempt ${input.attempt}). ` +
       'This is the same run and the same objective, not a new one.',
@@ -84,6 +86,7 @@ export function composeReentryTask(input: ReentryTaskInput): string {
       ? 'No completion requirement was described.'
       : `The declared completion requirement is: ${input.contract.trim()}`,
     ...(reentry.reason === 'unmet-contract' ? ['', 'What is still unmet:', '', reentry.steer] : []),
+    ...(reentry.reason === 'wake' ? ['', '## What woke you', '', reentry.input] : []),
     '',
     '## Run state, from the coordinator',
     '',
@@ -99,9 +102,6 @@ export function composeReentryTask(input: ReentryTaskInput): string {
       ? [
           'Read the files you already wrote before you repeat any step of the task. A step whose file is there is done, and its content stands.',
         ]
-      : []),
-    ...(input.tools?.includes('await_event') === true
-      ? ['Receive the waiting events with await_event before starting new work.']
       : []),
     ...(input.tools?.includes('observe_agent') === true
       ? [
@@ -123,6 +123,9 @@ export function composeReentryTask(input: ReentryTaskInput): string {
 function whyLine(reentry: DriverReentry): string {
   if (reentry.reason === 'unmet-contract') {
     return `Your previous turn ended with the completion check unmet (continuation ${reentry.continuation}).`
+  }
+  if (reentry.reason === 'wake') {
+    return 'Your previous turn ended while your workers ran, and Runtime woke you with what happened.'
   }
   // A pause names no provider and no code: the operator owns the upstream, and the driver's
   // budget belongs to the objective.
@@ -198,15 +201,12 @@ function stateLines(
   }
   if (state.unacknowledged.length > 0) {
     lines.push(
-      `Events delivered to a turn that did not finish, so treat them as unread: ${state.unacknowledged
+      `Events delivered to a turn that has not finished, so treat them as unread: ${state.unacknowledged
         .map(
           (event) =>
             `#${event.seq} ${event.type}${event.worker === undefined ? '' : ` from ${event.worker}`}`,
         )
-        .join('; ')}.` +
-        (tools?.includes('await_event') === true
-          ? " Pass their numbers in await_event's acknowledge once you have processed them."
-          : ''),
+        .join('; ')}.`,
     )
   }
   if (state.lastRejection !== undefined) {

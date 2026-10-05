@@ -68,6 +68,9 @@ export interface ToolLoopHooks {
   stopBefore?(turn: number): boolean
   /** Each turn's usage, for metering into a conserved budget pool. */
   onUsage?(usage: { input: number; output: number }): void
+  /** Called when a turn ends without a tool call. Return the input of the next turn to keep the
+   *  conversation going (a manager woken with what its workers did), or undefined to finish. */
+  afterFinal?(turn: number): Promise<string | undefined>
 }
 
 /** Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop
@@ -230,6 +233,13 @@ export async function runBrainLoop(opts: {
       // solution the model can't see, and candidate extraction (structural-rollout's
       // fenced-code fallback) reads an empty conversation on non-tool-calling models.
       if (r.content) messages.push({ role: 'assistant', content: r.content })
+      // Only when another turn may follow: a wait whose wake no turn could read is wasted.
+      const next =
+        maxTurns === 0 || turn < maxTurns ? await opts.hooks?.afterFinal?.(turn) : undefined
+      if (next !== undefined) {
+        messages.push({ role: 'user', content: next })
+        continue
+      }
       return {
         final: lastText,
         turns: turn,
