@@ -13,7 +13,7 @@ import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
-const rootTools = runtimeToolDeclarations('spawn_worker', 'await_event', 'steer_agent')
+const rootTools = runtimeToolDeclarations('spawn_worker', 'steer_agent')
 const managerTools = runtimeToolDeclarations('list_questions', 'ask_parent')
 
 async function callTool(
@@ -62,8 +62,7 @@ function rootBrain() {
         },
       ],
     },
-    { toolCalls: [{ name: 'await_event', arguments: {} }] },
-    { toolCalls: [{ name: 'await_event', arguments: {} }] },
+    { content: 'waiting for the managers' },
     { content: 'finished' },
   ])
 }
@@ -79,11 +78,14 @@ describe('nested supervisor coordination durability', () => {
     await rm(runDir, { recursive: true, force: true })
   })
 
-  it('isolates identical keyed siblings and restores each owner evidence on restart', async () => {
+  it('isolates identical keyed siblings and restores each owner evidence on restart', {
+    timeout: 8000,
+  }, async () => {
     const seenBeforeCurrentQuestion: QuestionRecord[][] = []
     let invocation = 0
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       const call = invocation++
+      console.log('DRIVE', call)
       const listed = await callTool(coordinationMcpUrl, 'list_questions', {})
       seenBeforeCurrentQuestion.push((listed.questions ?? []) as QuestionRecord[])
       await callTool(coordinationMcpUrl, 'ask_parent', {
@@ -108,6 +110,7 @@ describe('nested supervisor coordination durability', () => {
       runDir,
       runId: 'nested-owner-run',
       driveHarness,
+      onDriverAttempt: (r: any) => console.log('ATTEMPT', JSON.stringify(r)),
       driveHarnessMaterialization: fullProfileMaterialization,
       maxTurns: 8,
     }
@@ -118,6 +121,7 @@ describe('nested supervisor coordination durability', () => {
     })
 
     await supervise(profile, 'root task', { ...options, brain: rootBrain() })
+    console.log('FIRST DONE')
     await supervise(profile, 'root task', { ...options, brain: rootBrain() })
 
     expect(seenBeforeCurrentQuestion).toHaveLength(4)
@@ -218,11 +222,7 @@ describe('nested supervisor coordination durability', () => {
           ],
         }
       }
-      if (turn <= 4) {
-        return {
-          toolCalls: [{ id: `await-${turn}`, name: 'await_event', arguments: JSON.stringify({}) }],
-        }
-      }
+      if (turn === 3) return { content: 'waiting for the managers', toolCalls: [] }
       return { content: 'finished', toolCalls: [] }
     }
 

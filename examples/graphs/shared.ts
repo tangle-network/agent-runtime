@@ -3,7 +3,7 @@
  * use (`tests/kernel/graph.test.ts`):
  *
  *   • `scriptedBrain` — a `ToolLoopChat` that plays a fixed sequence of driver turns, so the
- *     driver's tool calls (spawn / steer / await) are deterministic and cost $0.
+ *     driver's tool calls (spawn / steer) and its waits are deterministic and cost $0.
  *   • `leafSeam` — a `MakeWorkerAgent` whose leaf executors settle instantly with configurable
  *     per-shot outputs and verdicts, optionally block until a steer arrives (`awaitSteer`), and
  *     optionally expose a live tool trace (`withTrace` / `storm`) for analysts and detectors.
@@ -44,6 +44,11 @@ export function offlineProfile(name: string, systemPrompt: string): AgentProfile
 export interface ScriptedTurn {
   content?: string
   toolCalls?: Array<{ id?: string; name: string; arguments: Record<string, unknown> }>
+  /** A turn with no tool call ends the driver's turn, and Runtime wakes it with what happened.
+   *  With `until`, the turn repeats on every wake until the conversation contains this text (the
+   *  event the next scripted decision depends on), so a script cannot move on early when its
+   *  events arrive in different wakes. End a script with a turn that has no `until`. */
+  until?: string
 }
 
 /** Build a scripted `ToolLoopChat` brain from a fixed turn sequence: converts parsed tool args to
@@ -51,9 +56,15 @@ export interface ScriptedTurn {
  *  the last). */
 export function scriptedBrain(turns: ScriptedTurn[]): ToolLoopChat {
   let i = 0
-  return async () => {
+  return async (messages) => {
+    const arrived = (text: string): boolean =>
+      messages.some(
+        (message) => typeof message.content === 'string' && message.content.includes(text),
+      )
+    // A waiting turn whose event has arrived is over: the next scripted turn answers it.
+    while (turns[i]?.until !== undefined && arrived(turns[i]?.until ?? '')) i += 1
     const turn = turns[Math.min(i, turns.length - 1)] ?? {}
-    i += 1
+    if (turn.until === undefined) i += 1
     return {
       ...(turn.content !== undefined ? { content: turn.content } : {}),
       toolCalls: (turn.toolCalls ?? []).map((tc, j) => ({

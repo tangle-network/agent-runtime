@@ -78,7 +78,7 @@ function options(
     blobs,
     makeWorkerAgent,
     perWorker: { maxIterations: 2, maxTokens: 100 },
-    toolNames: ['spawn_worker', 'await_event', 'list_questions'],
+    toolNames: ['spawn_worker', 'list_questions'],
     systemPrompt: 'drive',
     maxTurns: 8,
     controlDir,
@@ -103,7 +103,7 @@ describe('durable external worker steer', () => {
         ],
       },
       { toolCalls: [{ name: 'list_questions', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ] satisfies ScriptedTurn[])
     let turn = 0

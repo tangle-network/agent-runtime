@@ -497,7 +497,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
       testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'solve it',
       {
@@ -516,7 +516,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the worker' },
           { content: 'done' },
         ]),
         ...(exporter ? { otel: { exporter } } : {}),

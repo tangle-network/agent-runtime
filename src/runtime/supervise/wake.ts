@@ -9,7 +9,7 @@
  * Now ending a turn is waiting, not completion. Only an accepted `submit_result`, `report_blocked`,
  * or a turn that ends with no open work ends a manager. When a turn ends with open work, Runtime
  * blocks on the coordination bus with no model turn, and starts the next turn when something
- * happens: a worker settled, a question or finding arrived, the lead sent a message, a tool call
+ * happens: a worker settled, a finding arrived, the lead sent a message or an answer, a tool call
  * that outlived its response fence finished, or the deadline warning came due. Everything that
  * arrived within the debounce rides one input. A heartbeat wakes a manager that heard nothing, so
  * it can reconsider.
@@ -34,7 +34,7 @@ export const DEFAULT_DEADLINE_WARNING_MS = 15 * 60_000
 /** The instruction every manager receives about waiting. */
 export const WAIT_BY_ENDING_TURN =
   'When you are waiting for workers, end your turn. You will be woken with what happened: a ' +
-  'worker settled, a question, a message from your lead, or the deadline approaching.'
+  'worker settled, a finding, a message or answer from your lead, or the deadline approaching.'
 
 export interface ResolvedWakePolicy {
   readonly heartbeatMs: number

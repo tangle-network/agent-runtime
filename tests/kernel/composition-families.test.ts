@@ -155,7 +155,7 @@ describe('model-decided composition — the graph family', () => {
         profile: testAgentProfile('driver', {
           harness: 'cli-base',
           prompt: { systemPrompt: 'Drive the worker until it delivers.' },
-          tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+          tools: runtimeToolDeclarations('spawn_worker'),
         }),
       },
       {
@@ -236,7 +236,7 @@ describe('model-decided composition — the graph family', () => {
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the worker' },
         { content: 'done' },
       ]),
     })

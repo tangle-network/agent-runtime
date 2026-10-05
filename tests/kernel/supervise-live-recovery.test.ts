@@ -153,7 +153,7 @@ it('starts the resumed parent while its original child awaits parent coordinatio
           const promptDriver = driverAgent({
             name: 'resumed-coordinator',
             systemPrompt: 'Continue the existing workers.',
-            toolNames: ['await_event'],
+            toolNames: ['observe_agent'],
             blobs: context.blobs,
             perWorker: { maxIterations: 1, maxTokens: 10 },
             makeWorkerAgent: worker,

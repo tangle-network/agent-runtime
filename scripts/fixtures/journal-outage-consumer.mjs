@@ -24,7 +24,7 @@ const rootProfile = { ...profile, name: 'local-controller' }
 const controllerProfile = {
   ...rootProfile,
   tools: Object.fromEntries(
-    ['spawn_worker', 'await_event', 'stop'].map((name) => [
+    ['spawn_worker', 'stop'].map((name) => [
       `agent_runtime_coordination_${name}`,
       true,
     ]),
@@ -164,6 +164,7 @@ if (mode === 'controller') {
     if (!response.ok || body.error || body.result?.isError) throw new Error(JSON.stringify(body))
   }
   let outcome
+  let drives = 0
   try {
     const result = await durable.supervisePursuit(
       rootOwner ? rootProfile : controllerProfile,
@@ -198,7 +199,14 @@ if (mode === 'controller') {
         ...(rootOwner
           ? {}
           : {
+              // The first drive spawns the child (resume recovers it) and ends its turn; the wake
+              // that carries its settlement stops.
               driveHarness: async ({ coordinationMcpUrl }) => {
+                drives += 1
+                if (drives > 1) {
+                  await tool(coordinationMcpUrl, 'stop', {})
+                  return
+                }
                 if (phase === 'interrupt')
                   await tool(coordinationMcpUrl, 'spawn_worker', {
                     profile,
@@ -206,8 +214,6 @@ if (mode === 'controller') {
                     key: 'one-computation',
                     label: 'native child',
                   })
-                await tool(coordinationMcpUrl, 'await_event', { kinds: ['settled'] })
-                await tool(coordinationMcpUrl, 'stop', {})
               },
             }),
         finalizer: async () => {

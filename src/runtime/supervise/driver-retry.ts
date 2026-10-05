@@ -678,6 +678,10 @@ export interface DriverLoopRecord {
   readonly unavailableMs: number
   /** Re-entered drives, in a row at the end, that completed without a delivery. */
   readonly barrenReentries: number
+  /** Turns started by a wake: the manager ended its turn with work open and Runtime resumed it. */
+  readonly wakes: number
+  /** Time the manager waited between turns with no model turn, summed over its wakes. */
+  readonly waitedMs: number
   /** Why the loop ended: its last record's stop, or `unrecorded` when it ended without one (an
    *  admission refusal before the first attempt, or a throw from outside the loop). */
   readonly ended: DriverAttemptStop | 'unrecorded'
@@ -714,6 +718,7 @@ export function summarizeDriverAttempts(
     else if (
       record.error === undefined &&
       record.reentry !== undefined &&
+      record.reentry !== 'wake' &&
       record.contract === 'unmet'
     )
       barren += 1
@@ -736,6 +741,8 @@ export function summarizeDriverAttempts(
       0,
     ),
     barrenReentries: barren,
+    wakes: records.filter((record) => record.reentry === 'wake').length,
+    waitedMs: records.reduce((sum, record) => sum + (record.waitedMs ?? 0), 0),
     ended: last?.stop ?? 'unrecorded',
     ...(last?.repromptRefusedBy === undefined ? {} : { repromptRefusedBy: last.repromptRefusedBy }),
   }

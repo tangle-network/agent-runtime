@@ -123,6 +123,15 @@ async function call(url: string, name: string, args: unknown = {}) {
   return result
 }
 
+/** The harness's turns in order. A turn past the last one does nothing: Runtime woke the manager
+ *  and it has nothing more to do. */
+function turns(...steps: DriveHarness[]): DriveHarness {
+  let next = 0
+  return async (input) => {
+    await steps[next++]?.(input)
+  }
+}
+
 async function runHarness(
   dir: string,
   drive: DriveHarness,
@@ -146,7 +155,7 @@ async function runHarness(
   const root = supervisorAgent(
     testAgentProfile('root', {
       harness: 'opencode',
-      tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      tools: runtimeToolDeclarations('spawn_worker'),
     }),
     {
       blobs,
@@ -202,44 +211,60 @@ describe('durable worker controls during a native harness invocation', () => {
         interrupt: true,
       })
       worker.completed.resolve()
-      await call(coordinationMcpUrl, 'await_event')
     })
-    const result = await runHarness(dir, drive, () => worker.agent)
+    const woken: string[] = []
+    const result = await runHarness(
+      dir,
+      turns(drive, async ({ task }) => {
+        woken.push(task)
+      }),
+      () => worker.agent,
+    )
     expect(result.kind).toBe('winner')
+    // The harness returned with its worker open; Runtime woke it once, with the settlement.
     expect(drive).toHaveBeenCalledTimes(1)
+    expect(woken).toHaveLength(1)
+    expect(woken[0]).toContain('"type":"settled"')
   })
 
   it('cancels one worker while a sibling remains live, then acknowledges the terminal result', async () => {
     const { dir } = layout()
     const worker = controlledLeaf('cancelled')
     const sibling = controlledLeaf('sibling')
+    let cancelledId = ''
     await runHarness(
       dir,
-      async ({ coordinationMcpUrl }) => {
-        const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
-          profile: testAgentProfile('cancelled'),
-          task: 'wait',
-        })
-        await call(coordinationMcpUrl, 'spawn_worker', {
-          profile: testAgentProfile('sibling'),
-          task: 'wait',
-        })
-        await Promise.all([worker.started.promise, sibling.started.promise])
-        cancelWorker(dir, spawned.workerId, 'external-cancel')
-        cancelWorker(dir, spawned.workerId, 'external-cancel')
-        await expect
-          .poll(() => readWorkerCancellation(dir, 'external-cancel'), { timeout: 2000 })
-          .toMatchObject({ effect: 'cancel_requested', terminated: [] })
-        expect(worker.aborted).toHaveBeenCalledTimes(1)
-        expect(sibling.aborted).not.toHaveBeenCalled()
-        await call(coordinationMcpUrl, 'await_event')
-        await expect
-          .poll(() => readWorkerCancellation(dir, 'external-cancel'), { timeout: 2000 })
-          .toMatchObject({ effect: 'cancelled', terminated: [spawned.workerId] })
-        sibling.completed.resolve()
-        await call(coordinationMcpUrl, 'await_event')
-      },
+      turns(
+        async ({ coordinationMcpUrl }) => {
+          const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
+            profile: testAgentProfile('cancelled'),
+            task: 'wait',
+          })
+          cancelledId = spawned.workerId
+          await call(coordinationMcpUrl, 'spawn_worker', {
+            profile: testAgentProfile('sibling'),
+            task: 'wait',
+          })
+          await Promise.all([worker.started.promise, sibling.started.promise])
+          cancelWorker(dir, spawned.workerId, 'external-cancel')
+          cancelWorker(dir, spawned.workerId, 'external-cancel')
+          await expect
+            .poll(() => readWorkerCancellation(dir, 'external-cancel'), { timeout: 2000 })
+            .toMatchObject({ effect: 'cancel_requested', terminated: [] })
+          expect(worker.aborted).toHaveBeenCalledTimes(1)
+          expect(sibling.aborted).not.toHaveBeenCalled()
+        },
+        // Woken with the cancelled worker's terminal result while the sibling still runs.
+        async () => {
+          await expect
+            .poll(() => readWorkerCancellation(dir, 'external-cancel'), { timeout: 2000 })
+            .toMatchObject({ effect: 'cancelled', terminated: [cancelledId] })
+          expect(sibling.completed.resolved).toBe(false)
+          sibling.completed.resolve()
+        },
+      ),
       (profile: AgentProfile) => (profile.name === 'cancelled' ? worker.agent : sibling.agent),
+      { wake: { debounceMs: 0 } },
     )
     expect(sibling.aborted).not.toHaveBeenCalled()
   })
@@ -249,7 +274,7 @@ describe('durable worker controls during a native harness invocation', () => {
     const worker = controlledLeaf('worker', false)
     await runHarness(
       dir,
-      async ({ coordinationMcpUrl }) => {
+      turns(async ({ coordinationMcpUrl }) => {
         const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
           profile: testAgentProfile('worker'),
           task: 'wait',
@@ -263,8 +288,7 @@ describe('durable worker controls during a native harness invocation', () => {
           .poll(() => readWorkerSteerAcknowledgement(dir, 'unsupported'), { timeout: 2000 })
           .toMatchObject({ effect: 'unsupported' })
         worker.completed.resolve()
-        await call(coordinationMcpUrl, 'await_event')
-      },
+      }),
       () => worker.agent,
     )
     expect(worker.delivered).not.toHaveBeenCalled()
@@ -278,7 +302,7 @@ describe('durable worker controls during a native harness invocation', () => {
     try {
       await runHarness(
         dir,
-        async ({ coordinationMcpUrl }) => {
+        turns(async ({ coordinationMcpUrl }) => {
           const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
             profile: testAgentProfile('worker'),
             task: 'wait',
@@ -293,8 +317,7 @@ describe('durable worker controls during a native harness invocation', () => {
           await expect
             .poll(() => readWorkerCancellation(dir, 'cancel-after-steer'), { timeout: 2000 })
             .toMatchObject({ effect: 'cancel_requested', terminated: [] })
-          await call(coordinationMcpUrl, 'await_event')
-        },
+        }),
         () => worker.agent,
         {
           onEvent: async (event) => {
@@ -339,7 +362,7 @@ describe('durable worker controls during a native harness invocation', () => {
           controlDir: dir,
           controlScope: 'subtree',
           driverRetry: { enabled: false },
-          driveHarness: async ({ coordinationMcpUrl }) => {
+          driveHarness: turns(async ({ coordinationMcpUrl }) => {
             const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
               profile: testAgentProfile('nested-worker'),
               task: 'wait',
@@ -348,19 +371,18 @@ describe('durable worker controls during a native harness invocation', () => {
             nestedId = spawned.workerId
             await nestedWorker.started.promise
             nestedReady.resolve()
-            await call(coordinationMcpUrl, 'await_event')
-          },
+          }),
         }),
         journal,
       )
     }
     await runHarness(
       dir,
-      async ({ coordinationMcpUrl }) => {
+      turns(async ({ coordinationMcpUrl }) => {
         await call(coordinationMcpUrl, 'spawn_worker', {
           profile: testAgentProfile('lead', {
             harness: 'opencode',
-            tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+            tools: runtimeToolDeclarations('spawn_worker'),
           }),
           task: 'manage a child',
         })
@@ -391,9 +413,7 @@ describe('durable worker controls during a native harness invocation', () => {
         await expect
           .poll(() => readWorkerCancellation(dir, 'nested-cancel'), { timeout: 2000 })
           .toMatchObject({ effect: 'cancelled', workerId: nestedId, terminated: [nestedId] })
-        await call(coordinationMcpUrl, 'await_event')
-        await call(coordinationMcpUrl, 'await_event')
-      },
+      }),
       makeWorker,
       { blobs, journal },
     )
@@ -410,19 +430,20 @@ describe('durable worker controls during a native harness invocation', () => {
       let workerId = ''
       await runHarness(
         dir,
-        async ({ coordinationMcpUrl }) => {
+        turns(async ({ coordinationMcpUrl }) => {
           const spawned = await call(coordinationMcpUrl, 'spawn_worker', {
             profile: testAgentProfile('worker'),
             task: 'wait',
           })
           workerId = spawned.workerId
           await worker.started.promise
+          worker.completed.resolve()
           cancelWorker(dir, workerId, 'late-cancel')
           writeWorkerSteer(root, runId, workerId, {
             operationId: 'late-steer',
             message: 'too late',
           })
-        },
+        }),
         () => worker.agent,
       )
       expect(readWorkerCancellation(dir, 'late-cancel')).toMatchObject({

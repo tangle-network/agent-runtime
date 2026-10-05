@@ -54,7 +54,6 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
           ...offlineProfile('driver', 'Drive the loop.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
       },
@@ -116,11 +115,9 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
         ],
       },
       // implementer settles → critique steers the live reviewer → reviewer settles → verdict
-      // finding reaches the driver. Four bus events: settled, finding, settled, finding.
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      // finding reaches the driver. Four bus events: settled, finding, settled, finding. The
+      // driver ends its turn and is woken with them; it re-briefs once the verdict is in.
+      { content: 'waiting for the verdict', until: '"analyst":"verdict"' },
       // The re-brief: the driver folds the verdict into a second implementer spawn.
       {
         toolCalls: [
@@ -133,8 +130,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the revision', until: '"settled":"collab:s2"' },
       { content: 'done' },
     ]),
   }

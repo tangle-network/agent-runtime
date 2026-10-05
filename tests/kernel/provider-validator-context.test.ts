@@ -42,32 +42,37 @@ async function callTool(
 }
 
 it('scopes a live product check to the root across a provider director and its leaf', async () => {
-  const tools = runtimeToolDeclarations('spawn_worker', 'await_event')
+  const tools = runtimeToolDeclarations('spawn_worker')
   const root = testAgentProfile('root', { harness: 'codex', tools })
   const director = testAgentProfile('director', { harness: 'codex', tools })
   const leaf = testAgentProfile('leaf', { harness: 'codex' })
   const checked: Array<{ name: string; node: ExecutorNodeContext }> = []
   const commands: string[] = []
   const destroyed = new Set<string>()
+  const spawners = new Set<string>()
+  let environments = 0
   const provider: AgentEnvironmentProvider = {
     name: 'recursive-validation-fixture',
     capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
     async create(input) {
       const name = input.profile?.name ?? 'missing'
+      const id = `env-${name}-${environments++}`
       return {
-        id: `env-${name}`,
+        id,
         provider: 'recursive-validation-fixture',
         status: async () => 'running',
         destroy: async () => {
-          destroyed.add(name)
+          destroyed.add(id)
         },
         exec: async (command) => {
-          expect(destroyed.has(name)).toBe(false)
+          expect(destroyed.has(id)).toBe(false)
           commands.push(`${name}:${command}`)
           return { exitCode: name === 'root' ? 0 : 1, stdout: '', stderr: '' }
         },
         async *stream() {
-          if (name !== 'leaf') {
+          // A manager spawns on its first turn and ends it; its wake finds nothing left to start.
+          if (name !== 'leaf' && !spawners.has(name)) {
+            spawners.add(name)
             const spawned = await callTool(input, 'spawn_worker', {
               profile: name === 'root' ? director : leaf,
               task: 'Complete this assignment.',
@@ -77,7 +82,6 @@ it('scopes a live product check to the root across a provider director and its l
               },
             })
             expect(typeof spawned.workerId, JSON.stringify(spawned)).toBe('string')
-            await callTool(input, 'await_event', { timeoutMs: 5000 })
           }
           yield { type: 'text', data: { text: name } }
           yield { type: 'done', data: { outcome: { type: 'completed' } } }
@@ -110,17 +114,15 @@ it('scopes a live product check to the root across a provider director and its l
     },
   })
 
+  // Every manager drive is checked: the turn that spawns, and the turn Runtime wakes with the
+  // result. The check still scopes to the root's live box and to each node's own depth.
   expect(
-    checked.map(({ name, node }) => ({ name, depth: node.depth })),
+    checked.map(({ name, node }) => `${name}:${node.depth}`).sort(),
     JSON.stringify(result),
-  ).toEqual([
-    { name: 'leaf', depth: 2 },
-    { name: 'director', depth: 1 },
-    { name: 'root', depth: 0 },
-  ])
+  ).toEqual(['director:1', 'director:1', 'leaf:2', 'root:0', 'root:0'])
   expect(new Set(checked.map(({ node }) => node.nodeId)).size).toBe(3)
-  expect(new Set(checked.map(({ node }) => node.attemptId)).size).toBe(3)
+  expect(new Set(checked.map(({ node }) => node.attemptId)).size).toBe(checked.length)
   expect(checked.every(({ node }) => Object.isFrozen(node))).toBe(true)
-  expect(commands).toEqual(['root:verify-product'])
-  expect([...destroyed]).toEqual(['leaf', 'director', 'root'])
+  expect(commands).toEqual(['root:verify-product', 'root:verify-product'])
+  expect(destroyed.size).toBe(environments)
 })

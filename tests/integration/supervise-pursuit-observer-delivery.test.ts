@@ -58,22 +58,26 @@ async function jsonRpc(url: string, method: string, params: unknown): Promise<vo
   await response.json()
 }
 
-const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-    name: 'spawn_worker',
-    arguments: { profile: testAgentProfile('worker'), task: 'answer', label: 'worker' },
-  })
-  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-    name: 'await_event',
-    arguments: { kinds: ['settled'] },
-  })
-  await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+/** Spawns one worker and ends its turn; the wake that carries its settlement stops. */
+function delegateOnce(): DriveHarness {
+  let drives = 0
+  return async ({ coordinationMcpUrl }) => {
+    drives += 1
+    if (drives === 1) {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: testAgentProfile('worker'), task: 'answer', label: 'worker' },
+      })
+      return
+    }
+    await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+  }
 }
 
 const rootProfile = testAgentProfile('root', {
   harness: 'opencode',
   prompt: { systemPrompt: 'Delegate once, wait, then stop.' },
-  tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+  tools: runtimeToolDeclarations('spawn_worker', 'stop'),
 })
 
 interface Delivered {
@@ -113,7 +117,7 @@ describe('supervisePursuit observer delivery', () => {
       runDir,
       budget,
       perWorker,
-      driveHarness,
+      driveHarness: delegateOnce(),
       makeWorkerAgent: () => deliveringLeaf('worker'),
       observerDelivery: {
         baseUrl: 'https://intelligence.example/',
@@ -155,7 +159,7 @@ describe('supervisePursuit observer delivery', () => {
         runDir,
         budget,
         perWorker,
-        driveHarness,
+        driveHarness: delegateOnce(),
         makeWorkerAgent: () => deliveringLeaf('worker'),
         observerDelivery: {
           baseUrl: 'https://intelligence.example',

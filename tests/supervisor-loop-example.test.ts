@@ -73,16 +73,16 @@ describe('supervisor-loop example — supervise() on the scripted brain (offline
         harness: 'cli-base',
         model: { provider: 'tangle-router', default: 'offline-supervisor-model' },
         prompt: {
-          systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
+          systemPrompt:
+            'You are a supervisor. Spawn a worker, end your turn to wait for it, and stop on delivery.',
         },
         tools: {
           agent_runtime_coordination_spawn_worker: true,
-          agent_runtime_coordination_await_event: true,
         },
       },
       demoGoal,
       {
-        // The example's offline brain (a fixed spawn → await → stop plan) + an injected worker
+        // The example's offline brain (a fixed spawn → wait → stop plan) + an injected worker
         // seam — exactly the no-creds wiring the runners default to.
         brain: scriptedSupervisorChat(1, 'solver', workerProfile),
         makeWorkerAgent,

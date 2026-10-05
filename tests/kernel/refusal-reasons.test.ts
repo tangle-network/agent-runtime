@@ -38,6 +38,7 @@ function mockScope(options: { admit?: boolean; children?: boolean } = {}) {
             handle: { id: 'w0', label: opts.label, status: 'running' as const, abort() {} },
           },
     next: async () => null,
+    nextResolved: async () => null,
     send: (id: string) => id === 'w0',
     get view() {
       return { root: 'root', nodes, inFlight: 1 }
@@ -140,7 +141,7 @@ describe('every coordination refusal names its unmet condition', () => {
 
     const live = await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })
     expect(live).toMatchObject({ error: 'worker-not-settled' })
-    expectReason(live, /await_event/)
+    expectReason(live, /end your turn/)
   })
 
   it('steer_agent keeps the outcome CODE and adds the sentence, one per outcome', async () => {
@@ -234,10 +235,14 @@ describe('ask_parent at the top of the chain', () => {
         (entry) => (entry.event as Extract<CoordinationEvent, { type: 'escalation' }>).escalation,
       )
     expect(journaled).toEqual([record])
-    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toMatchObject({
-      type: 'question',
+    // The question reaches the manager in its wake; its own escalation record does not.
+    const wake = await tb.awaitWake({
+      signal: new AbortController().signal,
+      heartbeatMs: 60_000,
+      debounceMs: 0,
     })
-    expect(await tool(tb, 'await_event').handler({})).toMatchObject({ idle: true })
+    expect(wake?.events).toMatchObject([{ type: 'question' }])
+    expect(wake?.events).toHaveLength(1)
   })
 
   it('the seam reaches a manager through the coordination MCP mount, not only the direct toolbox', async () => {
@@ -466,7 +471,7 @@ describe('ask_parent at the top of the chain', () => {
       error: 'open-work',
       running: [{ id: 'w0', status: 'running' }],
     })
-    expectReason(submitted, /await_event/)
+    expectReason(submitted, /End your turn to wait/)
     expect(tb.isStopped()).toBe(false)
     expect(tb.submittedResult()).toBeUndefined()
   })

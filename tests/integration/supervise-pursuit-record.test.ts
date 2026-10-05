@@ -51,14 +51,14 @@ const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
 
 it.each([true, false])(
-  'records durable cancellation after director return with teardown confirmed=%s',
+  'records durable cancellation while a director waits on its child with teardown confirmed=%s',
   async (destroyed) => {
     const dir = await mkdtemp(join(tmpdir(), 'cancel-after-director-'))
     const cleanup = new AbortController()
     let started!: () => void
-    let finalized!: () => void
-    const directorFinalized = new Promise<void>((resolve) => {
-      finalized = resolve
+    let ended!: () => void
+    const directorEnded = new Promise<void>((resolve) => {
+      ended = resolve
     })
     const childStarted = new Promise<void>((resolve) => {
       started = resolve
@@ -69,10 +69,6 @@ it.each([true, false])(
       childSettleGraceMs: 5_000,
       // An unconfirmed leaf never confirms, so a short retry window ends where one attempt did.
       teardownConfirmMs: 30,
-      finalizer: async () => {
-        finalized()
-        return undefined
-      },
       makeWorkerAgent: () =>
         deliveringLeaf(
           'waiting-child',
@@ -89,16 +85,18 @@ it.each([true, false])(
           },
           destroyed,
         ),
+      // The director ends its turn with the child running, so Runtime waits for the child.
       driveHarness: async ({ coordinationMcpUrl }: Parameters<DriveHarness>[0]) => {
         await jsonRpc(coordinationMcpUrl, 'tools/call', {
           name: 'spawn_worker',
           arguments: { profile: testAgentProfile('worker'), task: 'wait', label: 'worker' },
         })
+        ended()
       },
     })
     try {
       await childStarted
-      await directorFinalized
+      await directorEnded
       await new Promise<void>((resolve) => setImmediate(resolve))
       cancelRun(dir, 'cancel-drain', { reason: 'operator', source: 'test' })
       await expect.poll(() => aborted, { timeout: 2_000 }).toBe(true)
@@ -135,8 +133,11 @@ it('fences a nested driver retry when durable cancellation races a backend failu
       driverRetry: { initialBackoffMs: 0, maxBackoffMs: 0 },
       childSettleGraceMs: 5_000,
       resolveDriveHarness: (context: DriveHarnessOwnerContext): DriveHarness => {
-        if (context.depth === 0)
+        if (context.depth === 0) {
+          let drives = 0
           return async ({ coordinationMcpUrl }) => {
+            drives += 1
+            if (drives > 1) return
             await jsonRpc(coordinationMcpUrl, 'tools/call', {
               name: 'spawn_worker',
               arguments: {
@@ -146,6 +147,7 @@ it('fences a nested driver retry when durable cancellation races a backend failu
               },
             })
           }
+        }
         return async () => {
           attempts += 1
           cancelRun(dir, 'retry-race', { reason: 'operator', source: 'test' })
@@ -202,23 +204,27 @@ async function jsonRpc(url: string, method: string, params: unknown): Promise<vo
   if (body.error || body.result?.isError) throw new Error(JSON.stringify(body))
 }
 
-const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-    name: 'spawn_worker',
-    arguments: { profile: testAgentProfile('worker'), task: 'deliver', label: 'worker' },
-  })
-  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-    name: 'await_event',
-    arguments: { kinds: ['settled'] },
-  })
-  await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+/** Spawns one worker and ends its turn; the wake that carries its settlement stops. */
+function delegateOnce(): DriveHarness {
+  let drives = 0
+  return async ({ coordinationMcpUrl }) => {
+    drives += 1
+    if (drives === 1) {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: testAgentProfile('worker'), task: 'deliver', label: 'worker' },
+      })
+      return
+    }
+    await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+  }
 }
 
 function run(runDir: string, runId: string, overrides: Record<string, unknown> = {}) {
   return supervisePursuit(
     testAgentProfile('record-root', {
       prompt: { systemPrompt: 'Delegate once, wait, then stop.' },
-      tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+      tools: runtimeToolDeclarations('spawn_worker', 'stop'),
     }),
     'record one settled run',
     {
@@ -227,7 +233,7 @@ function run(runDir: string, runId: string, overrides: Record<string, unknown> =
       runDir,
       budget,
       perWorker,
-      driveHarness,
+      driveHarness: delegateOnce(),
       makeWorkerAgent: () => deliveringLeaf('worker'),
       ...overrides,
     },
@@ -709,37 +715,45 @@ describe('supervisePursuit successor record', () => {
     })
     const contexts = new Map<string, WorkerSpawnContext | undefined>()
     const replies: Record<string, Record<string, unknown>> = {}
+    let drives = 0
+    let predecessorId = ''
     const executed = await run(runDir, runId, {
       makeWorkerAgent: (profile: { name?: string }, context?: WorkerSpawnContext) => {
         const name = profile.name ?? 'worker'
         contexts.set(name, context)
         return deliveringLeaf(name, name === 'first' ? () => gate : undefined)
       },
+      // Drive 1 spawns the predecessor and the refused successors, then ends its turn. Drive 2 is
+      // woken by the predecessor's settlement and spawns the successor. Drive 3 is woken by the
+      // successor's settlement and stops.
       driveHarness: (async ({ coordinationMcpUrl: url }) => {
-        const first = await callTool(url, 'spawn_worker', {
-          profile: testAgentProfile('first'),
-          task: 'attempt',
-        })
-        const predecessor = first.workerId as string
-        replies.live = await callTool(url, 'spawn_worker', {
-          profile: testAgentProfile('second'),
-          task: 'replace',
-          successorOf: predecessor,
-        })
-        replies.unknown = await callTool(url, 'spawn_worker', {
-          profile: testAgentProfile('second'),
-          task: 'replace',
-          successorOf: `${runId}:s99`,
-        })
-        release()
-        await callTool(url, 'await_event', { kinds: ['settled'] })
-        replies.successor = await callTool(url, 'spawn_worker', {
-          profile: testAgentProfile('second'),
-          task: 'replace',
-          successorOf: predecessor,
-        })
-        await callTool(url, 'await_event', { kinds: ['settled'] })
-        await callTool(url, 'stop')
+        drives += 1
+        if (drives === 1) {
+          const first = await callTool(url, 'spawn_worker', {
+            profile: testAgentProfile('first'),
+            task: 'attempt',
+          })
+          predecessorId = first.workerId as string
+          replies.live = await callTool(url, 'spawn_worker', {
+            profile: testAgentProfile('second'),
+            task: 'replace',
+            successorOf: predecessorId,
+          })
+          replies.unknown = await callTool(url, 'spawn_worker', {
+            profile: testAgentProfile('second'),
+            task: 'replace',
+            successorOf: `${runId}:s99`,
+          })
+          release()
+        } else if (drives === 2) {
+          replies.successor = await callTool(url, 'spawn_worker', {
+            profile: testAgentProfile('second'),
+            task: 'replace',
+            successorOf: predecessorId,
+          })
+        } else {
+          await callTool(url, 'stop')
+        }
       }) as DriveHarness,
     })
 

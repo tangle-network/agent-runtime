@@ -3006,7 +3006,6 @@ describe('declared provider placements', () => {
         name: 'lead',
         tools: {
           agent_runtime_coordination_spawn_worker: true,
-          agent_runtime_coordination_await_event: true,
         },
         harness: 'cli-base',
         model: { provider: 'fixture', default: 'fixture/model' },
@@ -3035,11 +3034,7 @@ describe('declared provider placements', () => {
                 },
               ],
             }
-          if (turn < 4)
-            return {
-              content: 'await',
-              toolCalls: [{ id: `a${turn}`, name: 'await_event', arguments: '{}' }],
-            }
+          if (turn < 3) return { content: 'waiting for the workers', toolCalls: [] }
           return { content: 'done', toolCalls: [] }
         },
       },

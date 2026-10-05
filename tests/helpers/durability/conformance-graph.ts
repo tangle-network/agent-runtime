@@ -76,7 +76,6 @@ export function conformanceGraph(): AgentGraph {
           ...offlineProfile('conductor', 'Drive the workers to the committed artifact.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
             agent_runtime_coordination_submit_result: true,
             agent_runtime_coordination_commit_artifact: true,
           },
@@ -197,7 +196,7 @@ interface NodePlanState {
 
 interface PendingCall {
   readonly id: string
-  readonly tool: 'spawn_worker' | 'await_event' | 'commit' | 'submit'
+  readonly tool: 'spawn_worker' | 'commit' | 'submit'
   readonly node?: WorkerNode
 }
 
@@ -209,10 +208,11 @@ export interface PlannerReport {
 }
 
 /**
- * The conductor's deterministic plan: spawn every node (batched, under its semantic key), wait for
- * each spawned worker's settle (matched by worker id — never inferred from `idle`), commit the
- * artifact under the stable idempotency key, submit. Every decision folds ONLY from tool results
- * in the message history (correlated by tool_call_id), so the same planner drives a fresh run, a
+ * The conductor's deterministic plan: spawn every node (batched, under its semantic key), end its
+ * turn while workers run and read each spawned worker's settle (matched by worker id) from the
+ * wake that delivers it, commit the artifact under the stable idempotency key, submit. Every
+ * decision folds ONLY from tool results and wake inputs in the message history (tool results
+ * correlated by tool_call_id), so the same planner drives a fresh run, a
  * resumed run whose keys completed (they come back `resumed: "completed"`), and a resumed run that
  * must escalate in-doubt keys (`error: "in-doubt"`) to replacements exactly the way the
  * spawn_worker contract tells a driver to.
@@ -226,8 +226,9 @@ export class ConductorPlanner {
   private submitted = false
   private fatal: string | undefined
   private idleStreak = 0
+  private wakesFolded = 0
   private replayedCompletions = false
-  private drainedIdle = false
+  private replayDelivered = false
   turns = 0
 
   constructor(private readonly options: { forbidInDoubt?: boolean } = {}) {
@@ -263,8 +264,6 @@ export class ConductorPlanner {
       if (call === undefined) continue
       if (call.tool === 'spawn_worker' && call.node !== undefined) {
         this.foldSpawn(call.node, r)
-      } else if (call.tool === 'await_event') {
-        this.foldAwait(r)
       } else if (call.tool === 'commit') {
         this.committed = true
       } else if (call.tool === 'submit') {
@@ -273,6 +272,36 @@ export class ConductorPlanner {
           this.fatal = `submit_result refused: ${JSON.stringify(r).slice(0, 200)}`
         }
       }
+    }
+    this.foldWakes(messages)
+  }
+
+  /** Each wake is one user message listing the events that arrived as `- {json}` lines. */
+  private foldWakes(messages: ReadonlyArray<Record<string, unknown>>): void {
+    const wakes = messages.filter(
+      (m) =>
+        m.role === 'user' &&
+        String(m.content).includes('You waited ') &&
+        String(m.content).includes(' without spending a turn.'),
+    )
+    for (const wake of wakes.slice(this.wakesFolded)) {
+      this.wakesFolded += 1
+      const events = String(wake.content)
+        .split('\n')
+        .filter((line) => line.startsWith('- {'))
+        .map((line) => JSON.parse(line.slice(2)) as Record<string, unknown>)
+      // A wake delivers the settlements a resumed ledger re-published, so the completion gate has
+      // nothing unread.
+      if (this.replayedCompletions) this.replayDelivered = true
+      if (events.length === 0) {
+        this.idleStreak += 1
+        if (this.idleStreak >= 8) {
+          this.fatal ??= 'woken repeatedly with no event while spawned workers never settled'
+        }
+        continue
+      }
+      this.idleStreak = 0
+      for (const event of events) this.foldEvent(event)
     }
   }
 
@@ -308,7 +337,7 @@ export class ConductorPlanner {
     if (r.resumed === 'completed') {
       state.status = 'done'
       // The resumed ledger re-publishes committed settlements as waiting events; the driver must
-      // drain them (await until idle) before submit_result will accept (`open-work` refusal).
+      // be woken with them before submit_result will accept (`open-work` refusal).
       this.replayedCompletions = true
       return
     }
@@ -320,9 +349,8 @@ export class ConductorPlanner {
     this.fatal ??= `spawn of ${node} returned neither a worker nor a refusal: ${JSON.stringify(r).slice(0, 200)}`
   }
 
-  private foldAwait(r: Record<string, unknown>): void {
+  private foldEvent(r: Record<string, unknown>): void {
     if (r.type === 'settled') {
-      this.idleStreak = 0
       const id = typeof r.settled === 'string' ? r.settled : undefined
       if (r.status === 'done') {
         const byId = this.nodes.find((n) => n.workerId !== undefined && n.workerId === id)
@@ -338,33 +366,16 @@ export class ConductorPlanner {
       } else if (this.fatal === undefined) {
         this.fatal = `worker ${id ?? '?'} settled down: ${JSON.stringify(r).slice(0, 200)}`
       }
-      return
-    }
-    if (r.idle === true || r.pending === true) {
-      const live = Array.isArray(r.live) ? (r.live as unknown[]).length : 0
-      if (r.pending === true && live > 0) {
-        this.idleStreak = 0
-        return
-      }
-      // `idle` can fire while an executor is still STARTING UP (not yet registered live), so it is
-      // never read as "settled" — only as a signal to re-ask, bounded by idleStreak. During a
-      // post-resume drain it is the completion signal: nothing waiting, nothing live.
-      this.idleStreak += 1
-      this.drainedIdle = true
-      if (this.idleStreak >= 8) {
-        this.fatal ??= 'await_event repeatedly idle while spawned workers never settled'
-      }
-      return
     }
   }
 
   nextTurn(messages: ReadonlyArray<Record<string, unknown>>): {
     content?: string
-    toolCalls?: Array<{ id: string; name: string; arguments: string }>
+    toolCalls: Array<{ id: string; name: string; arguments: string }>
   } {
     this.turns += 1
     // Retained-provider resumes attach live workers before the first brain turn. Read the
-    // ordinary driver-visible resume brief and await their ORIGINAL ids instead of asking
+    // ordinary driver-visible resume brief and wait for their ORIGINAL ids instead of asking
     // spawn_worker to duplicate a live key. Completion still requires a real settled event.
     if (this.turns === 1) {
       for (const message of messages) {
@@ -382,7 +393,7 @@ export class ConductorPlanner {
       }
     }
     this.fold(messages)
-    if (this.fatal !== undefined) return { content: `planner-fatal: ${this.fatal}` }
+    if (this.fatal !== undefined) return { content: `planner-fatal: ${this.fatal}`, toolCalls: [] }
     const pending = this.nodes.filter((n) => n.status === 'pending')
     if (pending.length > 0) {
       const turn = this.turns
@@ -402,33 +413,14 @@ export class ConductorPlanner {
       })
       return { toolCalls: calls }
     }
+    // Ending the turn is the wait: Runtime wakes the planner with each settle.
     if (this.nodes.some((n) => n.status === 'spawned')) {
-      const id = `call-${this.turns}-0`
-      this.pending.push({ id, tool: 'await_event' })
-      return {
-        toolCalls: [
-          {
-            id,
-            name: 'await_event',
-            arguments: JSON.stringify({ kinds: ['settled'] }),
-          },
-        ],
-      }
+      return { content: 'waiting for the workers', toolCalls: [] }
     }
-    // A resumed run that folded replayed completions must DRAIN the re-published settles before
-    // submitting — the completion gate refuses `open-work` while events wait unread.
-    if (this.replayedCompletions && !this.drainedIdle) {
-      const id = `call-${this.turns}-0`
-      this.pending.push({ id, tool: 'await_event' })
-      return {
-        toolCalls: [
-          {
-            id,
-            name: 'await_event',
-            arguments: JSON.stringify({}),
-          },
-        ],
-      }
+    // A resumed run that folded replayed completions must be WOKEN with the re-published settles
+    // before submitting — the completion gate refuses `open-work` while events wait unread.
+    if (this.replayedCompletions && !this.replayDelivered) {
+      return { content: 'waiting for the replayed settlements', toolCalls: [] }
     }
     if (!this.committed) {
       const id = `call-${this.turns}-0`
@@ -459,7 +451,7 @@ export class ConductorPlanner {
         ],
       }
     }
-    return { content: 'done' }
+    return { content: 'done', toolCalls: [] }
   }
 
   report(): PlannerReport {
@@ -513,6 +505,9 @@ export async function runGraphPhase(dir: string, phase: string, killAt?: string)
     runDir: dir,
     workerSlots: 3,
     maxTurns: 24,
+    // Workers settle within milliseconds; a heartbeat wake means one never will, and the planner
+    // gives up after eight of them instead of waiting 15 minutes per wake.
+    wake: { heartbeatMs: 1_000 },
     perWorker: { maxIterations: 60, maxTokens: 500_000 },
     brain,
     makeLeafAgent: instrumentedLeafSeam({ dir, phase, kill }),

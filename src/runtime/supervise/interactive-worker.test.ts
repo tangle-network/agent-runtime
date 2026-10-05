@@ -240,9 +240,7 @@ describe('workerFromInteractiveProvider', () => {
         }
       }
       if (turn === 2) {
-        return {
-          toolCalls: [{ id: 'wait-worker', name: 'await_event', arguments: '{}' }],
-        }
+        return { content: 'waiting for the worker', toolCalls: [] }
       }
       return { content: 'worker stopped', toolCalls: [] }
     }
@@ -254,7 +252,6 @@ describe('workerFromInteractiveProvider', () => {
           model: { provider: 'openai', default: 'openai/gpt-5' },
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
         'coordinate one interactive worker',

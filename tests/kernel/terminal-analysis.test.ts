@@ -125,8 +125,18 @@ describe('terminal native analysis', () => {
             task: 'measure',
           }),
         ).toMatchObject({ workerId: expect.any(String) })
-        await call('await_event')
-        await call('await_event')
+        // The settlement wakes first; the analyst's finding follows in a later wake.
+        const woken: unknown[] = []
+        while (!woken.includes('finding')) {
+          const wake = await coord.awaitWake({
+            signal: new AbortController().signal,
+            heartbeatMs: 1_000,
+            debounceMs: 0,
+          })
+          if (wake === undefined) break
+          woken.push(...wake.events.map((event) => event.type))
+        }
+        expect(woken).toEqual(['settled', 'finding'])
         expect(coord.settled()).toHaveLength(1)
         return { complete: true }
       },

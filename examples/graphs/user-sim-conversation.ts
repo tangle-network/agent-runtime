@@ -65,7 +65,6 @@ export function userSimConversation(): {
           ),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
       },
@@ -124,13 +123,13 @@ export function userSimConversation(): {
       return seam(profile, context)
     },
     brain: scriptedBrain([
-      ...USER_TURNS.flatMap((turn) => [
+      ...USER_TURNS.flatMap((turn, index) => [
         {
           toolCalls: [
             { name: 'spawn_worker', arguments: { profile: { name: 'product-agent' }, task: turn } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the reply', until: `"settled":"usim:s${index}"` },
       ]),
       { content: 'done' },
     ]),

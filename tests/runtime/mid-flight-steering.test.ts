@@ -45,17 +45,11 @@ const rootProfile = {
   harness: 'cli-base' as const,
   model: { provider: 'offline', default: 'offline/supervisor' },
   prompt: { systemPrompt: 'drive one coder and correct it' },
-  tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'steer_agent', 'await_event'),
+  tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'steer_agent'),
 }
 const messageAuthorityRootProfile = {
   ...rootProfile,
-  tools: runtimeToolDeclarations(
-    'spawn_worker',
-    'steer_agent',
-    'ask_parent',
-    'answer_question',
-    'await_event',
-  ),
+  tools: runtimeToolDeclarations('spawn_worker', 'steer_agent', 'ask_parent', 'answer_question'),
 }
 const coderProfile = {
   name: 'coder',
@@ -170,7 +164,7 @@ interface BrainRecord {
 
 /**
  * A REACTIVE brain (not a fixed script): it spawns, waits until the worker is genuinely mid-flight,
- * observes it through `observe_agent`, steers on what it saw, releases the worker, and drains.
+ * observes it through `observe_agent`, steers on what it saw, releases the worker, and ends its turn to wait for it.
  * Reactive because a fixed script cannot prove "observed a running worker" — it could just as
  * easily have run before the worker started or after it settled.
  */
@@ -202,7 +196,7 @@ function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat 
       record.steerResult = parsed as Record<string, unknown>
       // The steer is queued in the worker's inbox; let its held turn finish so it can fold it.
       harness.releaseFirstTurn()
-      return call('await_event', {})
+      return { toolCalls: [], content: 'waiting for the worker' }
     }
     return { toolCalls: [], content: 'done' }
   }
@@ -250,7 +244,7 @@ function missingMessageAuthorityBrain(
     if (turn === 5) {
       record.answer = parsed
       harness.releaseFirstTurn()
-      return call('await_event', {})
+      return { toolCalls: [], content: 'waiting for the worker' }
     }
     return { toolCalls: [], content: 'done' }
   }

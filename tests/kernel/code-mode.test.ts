@@ -98,15 +98,15 @@ describe('the generated API — rendered from schemas, never prose', () => {
   it('renders declare-function blocks and filters by query; lifecycle verbs are named as excluded', () => {
     const faces = [
       { name: 'spawn_worker', description: 'Start a worker.', inputSchema: { type: 'object' } },
-      { name: 'await_event', description: 'Wait for the next event.' },
+      { name: 'observe_agent', description: 'Read a worker.' },
     ]
     const all = renderCodeModeApi(faces)
     expect(all).toContain('declare function spawn_worker(')
-    expect(all).toContain('declare function await_event(')
+    expect(all).toContain('declare function observe_agent(')
     expect(all).toContain('NOT callable from code: submit_result, stop, ask_parent')
     const filtered = renderCodeModeApi(faces, 'spawn')
     expect(filtered).toContain('spawn_worker')
-    expect(filtered).not.toContain('declare function await_event')
+    expect(filtered).not.toContain('declare function observe_agent')
   })
 })
 
@@ -169,7 +169,11 @@ describe('the sandbox — bindings are the only capability', () => {
 describe('caller-authored execution deadlines and manager cancellation', () => {
   /** A minimal invocation context: a call-counting `verbs`, a live signal, a coordinationTools
    *  face. Enough to drive the execute handler without a full supervise run. */
-  function fakeContext(signal: AbortSignal, onSpawn: () => void) {
+  function fakeContext(
+    signal: AbortSignal,
+    onSpawn: () => void,
+    granted: ReadonlyArray<string> = ['spawn_worker'],
+  ) {
     const noop = async () => ({ ok: true })
     return {
       runId: 'r',
@@ -189,14 +193,16 @@ describe('caller-authored execution deadlines and manager cancellation', () => {
           await new Promise((resolve) => setTimeout(resolve, 1))
           return { workerId: 'w' }
         },
-        awaitEvent: noop,
+        awaitSettlement: async (args: unknown) => ({
+          settled: (args as { workerIds: string[] }).workerIds,
+        }),
         steerAgent: noop,
         observeAgent: noop,
         listQuestions: noop,
         answerQuestion: noop,
         runAnalyst: noop,
       },
-      coordinationTools: () => [{ name: 'spawn_worker', inputSchema: { type: 'object' } }],
+      coordinationTools: () => granted.map((name) => ({ name, inputSchema: { type: 'object' } })),
     } as unknown as Parameters<
       Extract<
         ReturnType<ReturnType<typeof codeModeSupervisorTools>>[number],
@@ -204,6 +210,30 @@ describe('caller-authored execution deadlines and manager cancellation', () => {
       >['handler']
     >[1]
   }
+
+  it('binds api.await_settlement beside spawn_worker, and only then', async () => {
+    const tools = codeModeSupervisorTools(unsafeInProcessRunner())([] as never)
+    const execute = tools.find((tool) => tool.name === 'execute')
+    if (!execute) throw new Error('no execute tool')
+    const program = `
+      const { workerId } = await api.spawn_worker({ profile: { name: 'w' }, task: 't' })
+      return await api.await_settlement({ workerIds: [workerId] })
+    `
+    await expect(
+      execute.handler(
+        { code: program },
+        fakeContext(new AbortController().signal, () => {}),
+      ),
+    ).resolves.toMatchObject({ result: { settled: ['w'] } })
+
+    // A program with no spawn grant has no workers of its own to join.
+    await expect(
+      execute.handler(
+        { code: 'return await api.await_settlement({ workerIds: ["w"] })' },
+        fakeContext(new AbortController().signal, () => {}, ['observe_agent']),
+      ),
+    ).rejects.toThrow(/not in the granted API/)
+  })
 
   it('an omitted deadline keeps running until the manager cancels', async () => {
     vi.useFakeTimers()
@@ -287,22 +317,24 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
   it('ONE execute call spawns two workers, awaits both, and the JOURNAL proves the kernel path', async () => {
     const journal = new InMemorySpawnJournal()
     const program = `
-      const spawned = []
+      const ids = []
       for (const name of ['builder-a', 'builder-b']) {
-        spawned.push(await api.spawn_worker({ profile: { name }, task: 'build ' + name }))
+        ids.push((await api.spawn_worker({ profile: { name }, task: 'build ' + name })).workerId)
       }
-      const settled = []
-      while (settled.length < 2) {
-        const event = await api.await_event({})
-        if (event && event.type === 'settled') settled.push(event)
+      const settled = new Set()
+      while (settled.size < ids.length) {
+        const waiting = ids.filter((id) => !settled.has(id))
+        for (const id of (await api.await_settlement({ workerIds: waiting })).settled) settled.add(id)
       }
       console.log('both settled')
-      return { workers: spawned.length, outputs: settled.map((event) => event.status) }
+      const outputs = []
+      for (const workerId of ids) outputs.push((await api.observe_agent({ workerId })).status)
+      return { workers: ids.length, outputs }
     `
     const res = await superviseWithTestBrain(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'search', 'execute'),
+        tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'search', 'execute'),
       }),
       'coordinate the build',
       {

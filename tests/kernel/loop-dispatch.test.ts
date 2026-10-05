@@ -1121,16 +1121,7 @@ describe('superviseDispatch', () => {
       if (rootTurns === 2) {
         return {
           model,
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  { id: 'await-child', function: { name: 'await_event', arguments: '{}' } },
-                ],
-              },
-            },
-          ],
+          choices: [{ message: { content: 'waiting for the child' } }],
           usage: { prompt_tokens: 10, completion_tokens: 1, cost_usd: 0.01 },
         }
       }
@@ -1190,7 +1181,7 @@ describe('superviseDispatch', () => {
           name: 'glm-root',
           harness: 'cli-base',
           model: { provider: 'zai', default: 'glm-root@2026-08-11' },
-          tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'submit_result'),
+          tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
         },
         { id: 'mixed-model', kind: 'task' },
         fake.ctx,

@@ -217,6 +217,7 @@ describe("the root's harness session", () => {
   it('reaches the result as a persisted receipt, like a child settlement', async () => {
     const { result, blobs } = await rootRun('root-transcript', { readable: true })
 
+    console.log('RHT', JSON.stringify(result.rootHarnessTranscript))
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'done' } })
     expect(result.rootHarnessTranscript).toMatchObject({
       status: 'available',
@@ -268,7 +269,7 @@ describe("the root's harness session", () => {
     const result = await superviseWithBrain(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'Answer.',
       {

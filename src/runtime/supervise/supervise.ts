@@ -844,6 +844,16 @@ async function providerAcceptsCoordinationAttachments(
   )
 }
 
+/**
+ * A manager waits between turns, and a wake can come much later than five minutes after its last
+ * turn. Claude Code 2.1.289 writes its prompt cache with a five-minute lifetime unless this variable
+ * is set; a wake after the cache expired re-writes the manager's whole context, about 140K tokens
+ * per turn on a Discovery root measured 2026-10-05. That root ran on a subscription and already
+ * wrote one-hour entries; the variable makes the hour hold for every claude-code manager, whatever
+ * its credential. A value the caller set wins.
+ */
+const CLAUDE_CODE_ONE_HOUR_CACHE = 'ENABLE_PROMPT_CACHING_1H'
+
 /** Run a harness-brained manager through the same executor factory as its children. The manager's
  * full profile is preserved, the live coordination server is added under one reserved alias, and
  * every streamed turn is charged to the manager's scope before it may continue. */
@@ -1039,7 +1049,13 @@ function driveHarnessFromBackend(
         ...boundBackend,
         defaults: {
           ...(boundBackend.defaults ?? {}),
-          env: { ...(boundBackend.defaults?.env ?? {}), [credentialName]: authorization.slice(7) },
+          env: {
+            ...(providerDriverProfile.harness === 'claude-code'
+              ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' }
+              : {}),
+            ...(boundBackend.defaults?.env ?? {}),
+            [credentialName]: authorization.slice(7),
+          },
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
@@ -1341,17 +1357,9 @@ function driveHarnessFromBackend(
       // The stream file opens at the first attempt that actually runs an executor, so a resumed
       // owner whose accepted result was restored above leaves it untouched.
       await rootStream?.beginAttempt()
-      // Only the bridge executor reads the stop seam and ends at its next turn boundary. Any other
-      // executor ends its execution on the stop: an accepted `submit_result` ends the manager. Before,
-      // a provider-placed director ran its harness on after acceptance; measured 2026-10-05,
-      // accepted directors settled 13 to 29 minutes after their submissions.
-      const executeSignal =
-        boundBackend.backend === 'bridge' || stopSignal === undefined
-          ? scope.signal
-          : AbortSignal.any([scope.signal, stopSignal])
       const run = retainedOwner?.admissions.length
-        ? executor.recover!(originalTask, executeSignal)
-        : executor.execute(originalTask, executeSignal)
+        ? executor.recover!(originalTask, scope.signal)
+        : executor.execute(originalTask, scope.signal)
       if (isAsyncIterable<UsageEvent>(run)) {
         let turns = 0
         for await (const event of run) {

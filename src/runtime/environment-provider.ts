@@ -94,9 +94,11 @@ import {
 } from './sandbox-events'
 import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort, RunCancellationReason } from './supervise/abortable'
+import { bridgeStopSignalKey } from './supervise/bridge-config'
 import { priceUnreceiptedWork } from './supervise/cost-estimate'
 import { isDeadlineAbortReason } from './supervise/deadline'
 import { errorText } from './supervise/error-message'
+import { readOptionalAbortSignal } from './supervise/executor-seams'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -657,6 +659,26 @@ function createProviderExecutor(
   let harnessTranscript: HarnessTranscriptCapture =
     harnessTranscriptUnavailable('execution-never-started')
   const retention = retainedExecutorContext(ctx)
+  // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
+  // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
+  // turn, so the stream ends and the harness session and the turn's usage are still read. Before,
+  // a provider-placed director ran its harness on after acceptance: measured 2026-10-05, accepted
+  // directors settled 13 to 29 minutes after their submissions. A run with no retained control
+  // could only abort locally, which skips those reads, so it keeps running to the end of its turn.
+  const managerStop = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'provider')
+  const cancelRetainedOnManagerStop = (handle: RetainedRunHandle): void => {
+    if (managerStop === undefined) return
+    const cancel = (): void => {
+      void handle
+        .cancel({
+          operationId: `manager-stop:${randomUUID()}`,
+          reason: String(managerStop.reason ?? 'the manager stopped'),
+        })
+        .catch(() => undefined)
+    }
+    if (managerStop.aborted) cancel()
+    else managerStop.addEventListener('abort', cancel, { once: true })
+  }
   // The stream destroys the environment on settle by default, so a later `teardown` would issue a
   // SECOND delete against a resource that is already gone. That second call is what the provider
   // answered 409 to.
@@ -1237,6 +1259,7 @@ function createProviderExecutor(
             retained = handle
             workspaceControlRef = freezeControlRef(handle.controlRef)
             providerSessionId = workspaceControlRef.sessionId
+            cancelRetainedOnManagerStop(handle)
           },
           onPending: (value) => {
             pending = value

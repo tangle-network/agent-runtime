@@ -77,19 +77,23 @@ describe('pursuit projection usage and totals', () => {
     const pursuitId = 'pursuit:usage-provenance'
     const runId = 'run:usage-provenance:1'
     const workers = ['reader', 'writer']
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-      for (const label of workers) {
-        await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'spawn_worker',
-          arguments: { profile: testAgentProfile(label), task: `work as ${label}`, label },
-        })
+    // Drive 1 spawns both workers and ends its turn. Each wake brings settlements; the manager
+    // stops once both have arrived.
+    let settled = 0
+    let drives = 0
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      drives += 1
+      if (drives === 1) {
+        for (const label of workers) {
+          await jsonRpc(coordinationMcpUrl, 'tools/call', {
+            name: 'spawn_worker',
+            arguments: { profile: testAgentProfile(label), task: `work as ${label}`, label },
+          })
+        }
+        return
       }
-      for (const _ of workers) {
-        await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'await_event',
-          arguments: { kinds: ['settled'] },
-        })
-      }
+      settled += task.split('"type":"settled"').length - 1
+      if (settled < workers.length) return
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
 
@@ -97,7 +101,7 @@ describe('pursuit projection usage and totals', () => {
       const executed = await supervisePursuit(
         testAgentProfile('usage-root', {
           prompt: { systemPrompt: 'Delegate twice, wait for both, then stop.' },
-          tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+          tools: runtimeToolDeclarations('spawn_worker', 'stop'),
         }),
         'measure two workers exactly once',
         {

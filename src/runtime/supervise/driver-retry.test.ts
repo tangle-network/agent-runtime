@@ -1121,6 +1121,188 @@ describe('runDriverWithRetry — continuations end when they stop making progres
   })
 })
 
+describe('runDriverWithRetry — a completed drive that left work open is a wait', () => {
+  /** A wait policy whose work stays open for `wakes` wakes, then closes. */
+  function waitFor(wakes: number, idleMs = 40) {
+    let woken = 0
+    const attempts: number[] = []
+    return {
+      attempts,
+      woken: () => woken,
+      policy: {
+        open: () => woken < wakes,
+        wake: async (attempt: number) => {
+          attempts.push(attempt)
+          woken += 1
+          return { input: `wake ${woken}`, idleMs }
+        },
+      },
+    }
+  }
+
+  it('wakes the manager with what happened, and ends once nothing is open', async () => {
+    const wait = waitFor(2)
+    const entered: Array<DriverReentry | undefined> = []
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async (_attempt, reentry) => {
+        entered.push(reentry)
+      },
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      wait: wait.policy,
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+
+    expect(entered).toEqual([
+      undefined,
+      { reason: 'wake', input: 'wake 1', wake: 1 },
+      { reason: 'wake', input: 'wake 2', wake: 2 },
+    ])
+    // Each wake is asked for by the attempt it will start.
+    expect(wait.attempts).toEqual([2, 3])
+    expect(records.map((record) => record.waitedMs)).toEqual([40, 40, undefined])
+    expect(records.map((record) => record.stop)).toEqual([undefined, undefined, 'completed'])
+    expect(records.map((record) => record.reentry)).toEqual([undefined, 'wake', 'wake'])
+    expect(summarizeDriverAttempts(records)).toMatchObject({
+      attempts: 3,
+      wakes: 2,
+      waitedMs: 80,
+      reprompts: 0,
+      failureRetries: 0,
+      ended: 'completed',
+    })
+  })
+
+  it('ends at the first completion when nothing is open, and never asks for a wake', async () => {
+    let asked = 0
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async () => undefined,
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      wait: {
+        open: () => false,
+        wake: async () => {
+          asked += 1
+          return undefined
+        },
+      },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(asked).toBe(0)
+    expect(summarizeDriverAttempts(records)).toMatchObject({ attempts: 1, wakes: 0, waitedMs: 0 })
+  })
+
+  it('ends when the wake finds nothing open any more', async () => {
+    const records: DriverAttemptRecord[] = []
+    let drives = 0
+    await runDriverWithRetry({
+      drive: async () => {
+        drives += 1
+      },
+      progress: () => noProgress,
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      wait: { open: () => true, wake: async () => undefined },
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(drives).toBe(1)
+    expect(records.at(-1)?.stop).toBe('completed')
+  })
+
+  it('does not wait for a run the coordinator closed, or past the budget or a cancellation', async () => {
+    for (const bound of ['closed', 'budget', 'aborted'] as const) {
+      const controller = new AbortController()
+      if (bound === 'aborted') controller.abort(new Error('cancelled'))
+      let asked = 0
+      const records: DriverAttemptRecord[] = []
+      const run = runDriverWithRetry({
+        drive: async () => undefined,
+        progress: () => noProgress,
+        budget: () => (bound === 'budget' ? budget({ tokensLeft: 0 }) : budget()),
+        signal: controller.signal,
+        wait: {
+          open: () => true,
+          wake: async () => {
+            asked += 1
+            return { input: 'unused', idleMs: 0 }
+          },
+        },
+        ...(bound === 'closed' ? { continuation: continuation({ closed: () => true }) } : {}),
+        onAttempt: (record) => void records.push(record),
+        sleep: instantSleep,
+      })
+      // An aborted or exhausted run is refused at admission; a closed run completes at once.
+      await run.catch(() => undefined)
+      expect(asked, bound).toBe(0)
+    }
+  })
+
+  it('never counts a wake as a barren re-entry, so waiting cannot exhaust the continuation bound', async () => {
+    // Four wakes with the check unmet and nothing delivered: past `maxBarren` (2) if a wake counted.
+    const wait = waitFor(4)
+    const entered: Array<DriverReentry | undefined> = []
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: async (_attempt, reentry) => {
+        entered.push(reentry)
+      },
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      continuation: continuation(),
+      wait: wait.policy,
+      onAttempt: (record) => void records.push(record),
+      sleep: instantSleep,
+    })
+    expect(entered.slice(0, 5).map((reentry) => reentry?.reason)).toEqual([
+      undefined,
+      'wake',
+      'wake',
+      'wake',
+      'wake',
+    ])
+    // The first drive after the last wake is the first the continuation judges, so it is sent
+    // back for the unmet contract instead of being refused as barren.
+    expect(entered[5]?.reason).toBe('unmet-contract')
+    expect(summarizeDriverAttempts(records)).toMatchObject({ wakes: 4, waitedMs: 160 })
+  })
+
+  it('sums the time a manager waited between turns, and counts only wake re-entries', () => {
+    const records: DriverAttemptRecord[] = [
+      { attempt: 1, durationMs: 5, madeProgress: false, waitedMs: 1_000, retryInMs: 0 },
+      {
+        attempt: 2,
+        durationMs: 5,
+        madeProgress: false,
+        reentry: 'wake',
+        waitedMs: 2_500,
+        retryInMs: 0,
+      },
+      {
+        attempt: 3,
+        durationMs: 5,
+        madeProgress: false,
+        reentry: 'wake',
+        contract: 'unmet',
+        stop: 'completed',
+      },
+    ]
+    expect(summarizeDriverAttempts(records)).toMatchObject({
+      attempts: 3,
+      wakes: 2,
+      waitedMs: 3_500,
+      barrenReentries: 0,
+    })
+  })
+})
+
 describe('driver admission after asynchronous callbacks', () => {
   it('never dispatches a pre-cancelled invocation', async () => {
     const controller = new AbortController()

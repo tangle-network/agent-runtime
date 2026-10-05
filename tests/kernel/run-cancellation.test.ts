@@ -30,10 +30,7 @@ const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const rootProfile = (): AgentProfile =>
   testAgentProfile('root', {
     harness: 'cli-base',
-    tools: {
-      agent_runtime_coordination_spawn_worker: true,
-      agent_runtime_coordination_await_event: true,
-    },
+    tools: { agent_runtime_coordination_spawn_worker: true },
   })
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -113,7 +110,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     })
     const script = scriptedBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     let call = 0
@@ -156,7 +153,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const dir = await runDir()
     const script = scriptedBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     let call = 0
@@ -203,6 +200,8 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       signal: cleanup.signal,
       childSettleGraceMs: 5_000,
       makeWorkerAgent: () => hangingLeaf('w'),
+      // The turn cap ends the director with its child live: a turn that ends earlier would wait.
+      maxTurns: 2,
       brain: scriptedBrain([
         {
           toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }],
@@ -299,7 +298,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
         {
           toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the worker' },
       ]),
     })
     await live
@@ -317,7 +316,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const dir = await runDir()
     const script = scriptedBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     const result = await supervise(rootProfile(), 'solve it', {
@@ -361,7 +360,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     })
     const script = scriptedBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     const brain: ToolLoopChat = async (messages, tools, context) => {

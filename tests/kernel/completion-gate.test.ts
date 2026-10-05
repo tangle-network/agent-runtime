@@ -123,7 +123,7 @@ describe('gateOnDeliverable — the leaf completion-oracle (valid ⟺ the delive
 
 // ── End-to-end: the honest settle through a real driver + the recursion ───────────────────
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
-const spawnAndAwait = ['spawn_worker', 'await_event'] as const
+const spawnOnly = ['spawn_worker'] as const
 let blobs = new InMemoryResultBlobStore()
 
 function driverOpts(
@@ -137,7 +137,7 @@ function driverOpts(
     blobs,
     makeWorkerAgent,
     perWorker,
-    toolNames: spawnAndAwait,
+    toolNames: spawnOnly,
     systemPrompt: 'drive',
     maxTurns: 8,
   }
@@ -168,7 +168,7 @@ const spawnAwaitStop: ScriptedTurn[] = [
       },
     ],
   },
-  { toolCalls: [{ name: 'await_event', arguments: {} }] },
+  { content: 'waiting for the worker' },
   { content: 'stop' },
 ]
 
@@ -226,7 +226,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { check: () => false },
     )
     const makeAgent = (profile: AgentProfile) => (profile.metadata?.which === 'b' ? ran : delivered)
-    // spawn BOTH, await BOTH, stop.
+    // spawn BOTH, end the turn so both settlements arrive in a wake, stop.
     const turns: ScriptedTurn[] = [
       {
         toolCalls: [
@@ -240,12 +240,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
           },
         ],
       },
-      {
-        toolCalls: [
-          { name: 'await_event', arguments: {} },
-          { name: 'await_event', arguments: {} },
-        ],
-      },
+      { content: 'waiting for the workers' },
       { content: 'stop' },
     ]
     const root = driverAgent(driverOpts('root', scriptedBrain(turns), makeAgent))
@@ -290,7 +285,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'stop' },
     ]
     const root = driverAgent(driverOpts('root', scriptedBrain(rootTurns), makeAgent))

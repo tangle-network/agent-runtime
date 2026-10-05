@@ -1477,11 +1477,12 @@ export const coordinationVerbNames = [
 /**
  * The `CoordinationEvent` kinds that wake a waiting manager. The queue carries the UP-leg only:
  * `steer` / `answer` / `instruction` / `delivery-attempt` are recorded `queue: false` (history and
- * subscribers, never delivered back), and `mail` is delivered to its addressee's inbox.
+ * subscribers, never delivered back), and `mail` is delivered to its addressee's inbox. A
+ * `question` on this bus is the manager's own `ask_parent`, already escalated: it never wakes the
+ * asker, whose answer arrives as a `lead-message`.
  */
 const wakeEventKinds = [
   'settled',
-  'question',
   'finding',
   'tool-outcome',
   'lead-message',
@@ -2115,6 +2116,9 @@ export function createCoordinationToolsForManager(
   // reaches the manager as a `tool-outcome` event on the next wake.
   const openReceipts = new Map<string, { readonly tool: string; readonly startedAt: number }>()
   let receiptSeq = 0
+  // Lead messages accepted and still being published. The sender is told `delivered` the moment the
+  // message is accepted, so a manager that ends its turn then must still count it as open work.
+  let leadPublishing = 0
   let driverAttempt: number | undefined
   let journalReadTo = 0
   let lastRejection: { readonly at: number; readonly reason: string } | undefined
@@ -2602,7 +2606,18 @@ export function createCoordinationToolsForManager(
     }
   }
 
+  // Settlements being published with their analysis right now. The settled event is queued first
+  // and the analysis it triggers follows, so a wake waits for both.
+  let flushing = 0
   const flushPendingSettlement = async (): Promise<boolean> => {
+    flushing += 1
+    try {
+      return await flushPendingSettlementOnce()
+    } finally {
+      flushing -= 1
+    }
+  }
+  const flushPendingSettlementOnce = async (): Promise<boolean> => {
     const pending = pendingSettlement
     if (!pending) return false
     await bus.publish(pending.event)
@@ -3535,7 +3550,11 @@ export function createCoordinationToolsForManager(
       unqueued.length > 0 ||
       queued.length > 0 ||
       bus.pending(wakeEventKinds) > 0 ||
-      openReceipts.size > 0
+      openReceipts.size > 0 ||
+      leadPublishing > 0 ||
+      // A settlement taken from the cursor and still being published, with its analysis.
+      pendingSettlement !== undefined ||
+      flushing > 0
     )
   }
   const awaitWake = async (input: AwaitWakeInput): Promise<ManagerWake | undefined> => {
@@ -3552,8 +3571,9 @@ export function createCoordinationToolsForManager(
     let outsideWake = false
     try {
       const queuedEvent = new Promise<void>((resolve) => {
-        unsubscribe = bus.subscribe(() => {
-          if (bus.pending(wakeEventKinds) > 0) resolve()
+        // Once the record is pull-visible: a subscriber runs before the record is queued.
+        unsubscribe = bus.onQueued((record) => {
+          if ((wakeEventKinds as ReadonlyArray<string>).includes(record.event.type)) resolve()
         })
       })
       const elapsed = new Promise<void>((resolve) => {
@@ -3593,6 +3613,9 @@ export function createCoordinationToolsForManager(
         }
       }
       if (input.signal.aborted) return undefined
+      // A settlement queued mid-flush still has its analysis to publish: let that bounded flush
+      // finish, so the settlement and the finding it triggers ride one wake.
+      if (flushing > 0 && inFlightDrain !== null) await inFlightDrain.catch(() => false)
       // Coalesce: whatever else lands within the debounce rides the same wake. Only while other
       // workers still run: with none, nothing else is coming.
       if (
@@ -4920,12 +4943,18 @@ export function createCoordinationToolsForManager(
     receiveLeadMessage: (message) => {
       const parsed = leadMessageOf(message)
       if (parsed === undefined) return false
-      bus.publish({ type: 'lead-message', message: parsed }).catch((error: unknown) => {
-        console.error('Runtime could not queue a lead message for its manager', {
-          manager: opts.scope.view.root,
-          error: error instanceof Error ? error.message : String(error),
+      leadPublishing += 1
+      bus
+        .publish({ type: 'lead-message', message: parsed })
+        .catch((error: unknown) => {
+          console.error('Runtime could not queue a lead message for its manager', {
+            manager: opts.scope.view.root,
+            error: error instanceof Error ? error.message : String(error),
+          })
         })
-      })
+        .finally(() => {
+          leadPublishing -= 1
+        })
       return true
     },
     openToolReceipt: (tool) => {

@@ -191,6 +191,7 @@ describe('supervise — peer mail mounts on the backend-derived worker path', ()
     const senderReadouts: Array<Record<string, unknown>> = []
     const receiverInboxes: Array<Record<string, unknown>> = []
     let sendOutcome: Record<string, unknown> | undefined
+    let leadTurns = 0
 
     const mailUrlFor = async (index: number): Promise<string> =>
       waitFor(async () => mailUrls[index], `peer-mail url for worker ${index}`)
@@ -200,12 +201,22 @@ describe('supervise — peer mail mounts on the backend-derived worker path', ()
       const mail = body.runtime_attachments?.mcp[PEER_MAIL_ALIAS]?.url
 
       if (coordination !== undefined) {
+        // The lead spawns both workers and ends its turn. Each wake it asks to stop; Runtime refuses
+        // while a worker still runs, so it stops on the wake that finds both settled.
+        leadTurns += 1
         void (async () => {
-          await callTool(coordination, 'spawn_worker', { profile: codexProfile('w1'), task: 'go' })
-          await callTool(coordination, 'spawn_worker', { profile: codexProfile('w2'), task: 'go' })
-          await callTool(coordination, 'await_event', {})
-          await callTool(coordination, 'await_event', {})
-          await callTool(coordination, 'stop', {})
+          if (leadTurns === 1) {
+            await callTool(coordination, 'spawn_worker', {
+              profile: codexProfile('w1'),
+              task: 'go',
+            })
+            await callTool(coordination, 'spawn_worker', {
+              profile: codexProfile('w2'),
+              task: 'go',
+            })
+          } else {
+            await callTool(coordination, 'stop', {})
+          }
           respondWithBridgeStream(res, body)
         })()
         return
@@ -249,7 +260,7 @@ describe('supervise — peer mail mounts on the backend-derived worker path', ()
     const { port } = server.address() as AddressInfo
 
     const result = await supervise(
-      codexProfile('lead', runtimeToolDeclarations('spawn_worker', 'await_event', 'stop')),
+      codexProfile('lead', runtimeToolDeclarations('spawn_worker', 'stop')),
       'fan out and compare notes',
       {
         backend: {
@@ -259,6 +270,7 @@ describe('supervise — peer mail mounts on the backend-derived worker path', ()
         },
         budget: { maxIterations: 12, maxTokens: 200_000 },
         peerMail: true,
+        wake: { debounceMs: 0 },
       },
     )
 

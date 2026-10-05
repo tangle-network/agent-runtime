@@ -1411,7 +1411,11 @@ function buildSupervisorAgent(
             budget: () => scope.budget,
             signal: scope.signal,
             wait: {
-              open: () => !mcp.submittedResult() && !mcp.isStopped() && controls.hasOpenWork(),
+              open: () =>
+                !mcp.submittedResult() &&
+                !mcp.isStopped() &&
+                progressStopReason === undefined &&
+                controls.hasOpenWork(),
               wake: async (nextAttempt) => {
                 const deadlineMs = scope.budget.deadlineMs
                 const warnAt = deadlineWarningAt(deadlineMs, wakePolicy, deadlineWarned)
@@ -1421,12 +1425,13 @@ function buildSupervisorAgent(
                 try {
                   const wake = await controls.awaitWake({
                     attempt: nextAttempt,
-                    signal: scope.signal,
+                    // A stop (accepted result, stop rule, report_blocked) ends the wait too.
+                    signal: AbortSignal.any([scope.signal, stopController.signal]),
                     heartbeatMs: wakePolicy.heartbeatMs,
                     debounceMs: wakePolicy.debounceMs,
                     ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
                   })
-                  if (wake === undefined) return undefined
+                  if (wake === undefined || stopController.signal.aborted) return undefined
                   if (wake.reason === 'deadline') deadlineWarned = true
                   return {
                     input: composeWakeInput(wake, {

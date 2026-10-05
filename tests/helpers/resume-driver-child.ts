@@ -4,11 +4,12 @@
  *
  * Usage: `node --import tsx resume-driver-child.ts <dir> <runId> <phase:1|2|control>`
  *
- * Phase `1` SIGKILLs itself from inside the brain the instant it has pulled three settlements — no
- * unwinding, no flush. Phase `2` is a brand-new process pointed at the SAME dir + runId. Phase
+ * Phase `1` SIGKILLs itself from inside the brain the instant its wakes have delivered three
+ * settlements — no unwinding, no flush. Phase `2` is a brand-new process pointed at the SAME dir + runId. Phase
  * `control` runs the identical script start-to-finish in a fresh directory.
  *
- * Every phase runs the SAME brain script — five keyed workers, then pull events until idle. The
+ * Every phase runs the SAME brain script — five keyed workers, then end the turn until Runtime has
+ * woken it with every settlement it will get. The
  * brain is deliberately NOT resume-aware: it re-issues the identical plan every time. The runtime
  * must return committed work and refuse a potentially live prior execution, never duplicate it.
  */
@@ -118,10 +119,13 @@ const brain: ToolLoopChat = async (messages) => {
     if (result.includes('"error":"in-doubt"')) inDoubtRefusals.push(result)
   }
   observedToolResultCount = toolResults.length
-  const settlementsPulled = toolResults.filter((t) => t.includes('"type":"settled"')).length
+  // A wake lists each settlement as one `"type":"settled"` event line.
+  const settlementsPulled = messages
+    .filter((m) => m.role === 'user')
+    .reduce((count, m) => count + String(m.content ?? '').split('"type":"settled"').length - 1, 0)
 
   // PHASE 1 CRASH: three assignments are committed (their blob + `settled` record are fsynced
-  // before `await_event` can return them), two are still running. Die the way a real process dies.
+  // before a wake can deliver them), two are still running. Die the way a real process dies.
   if (phase === '1' && settlementsPulled >= 3) process.kill(process.pid, 'SIGKILL')
 
   if (!spawnedPlan) {
@@ -141,14 +145,9 @@ const brain: ToolLoopChat = async (messages) => {
     }
   }
 
-  // Nothing queued and nothing live — every assignment is accounted for, so close the run.
-  if ((toolResults[toolResults.length - 1] ?? '').includes('"idle":true')) {
-    return { content: 'done', toolCalls: [], usage: brainUsage }
-  }
-  return {
-    toolCalls: [{ id: `await-${toolResults.length}`, name: 'await_event', arguments: '{}' }],
-    usage: brainUsage,
-  }
+  // Ending the turn is the wait: Runtime wakes the brain with each settlement, and closes the run
+  // once nothing is queued and nothing is live.
+  return { content: 'waiting for the workers', toolCalls: [], usage: brainUsage }
 }
 
 const result = await supervise(
@@ -156,7 +155,6 @@ const result = await supervise(
     ...offlineProfile('root'),
     tools: {
       agent_runtime_coordination_spawn_worker: true,
-      agent_runtime_coordination_await_event: true,
     },
   },
   'five assignments',

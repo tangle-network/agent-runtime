@@ -39,7 +39,6 @@ export function shotLoopResumed(): {
           ...offlineProfile('reviewer', 'Verify.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
       },
@@ -89,7 +88,7 @@ export function shotLoopResumed(): {
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for shot 1', until: '"settled":"rshots:s0"' },
       {
         toolCalls: [
           {
@@ -98,7 +97,7 @@ export function shotLoopResumed(): {
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for shot 2', until: '"settled":"rshots:s1"' },
       {
         toolCalls: [
           {
@@ -107,7 +106,7 @@ export function shotLoopResumed(): {
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for shot 3', until: '"settled":"rshots:s2"' },
       { content: 'done' },
     ]),
   }

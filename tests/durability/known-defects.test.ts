@@ -52,13 +52,14 @@ describe('known defect: 2026-08-11 resume appended the root record twice', () =>
     await rm(dir, { recursive: true, force: true })
   })
 
-  // Kills that land inside or right at the edge of the finalization window: after every
-  // settlement exists, around the side-effect commit, and around the submission turn.
+  // Kills that land inside or right at the edge of the finalization window: after the wake that
+  // delivered every settlement (turn 3 is the commit turn), around the side-effect commit, and
+  // around the submission turn (turn 4).
   const windowKills = [
-    'driver:turn:5:before',
+    'driver:turn:3:before',
     'tool:commit:after-effect',
-    'driver:turn:6:before',
-    'driver:turn:6:after',
+    'driver:turn:4:before',
+    'driver:turn:4:after',
   ] as const
 
   it.each(windowKills)(
@@ -153,7 +154,6 @@ describe('known defect: 2026-09-16 re-entry lost the director state (non-retaine
       prompt: { systemPrompt: 'Drive the workers.' },
       tools: {
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
         agent_runtime_coordination_submit_result: true,
       },
     }

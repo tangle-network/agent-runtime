@@ -68,19 +68,20 @@ describe('Runtime pursuit -> Eval evidence', () => {
     const runDir = await mkdtemp(join(tmpdir(), 'runtime-eval-pursuit-'))
     const pursuitId = 'pursuit:runtime-eval-e2e'
     const runId = 'run:runtime-eval-e2e:1'
+    let drives = 0
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_worker',
-        arguments: {
-          profile: testAgentProfile('evidence-worker'),
-          task: 'produce the measured artifact',
-          label: 'evidence-worker',
-        },
-      })
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'await_event',
-        arguments: { kinds: ['settled'] },
-      })
+      drives += 1
+      if (drives === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: {
+            profile: testAgentProfile('evidence-worker'),
+            task: 'produce the measured artifact',
+            label: 'evidence-worker',
+          },
+        })
+        return
+      }
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
         name: 'stop',
         arguments: {},
@@ -92,7 +93,7 @@ describe('Runtime pursuit -> Eval evidence', () => {
         testAgentProfile('evidence-root', {
           harness: 'opencode',
           prompt: { systemPrompt: 'Delegate once, wait for the result, then stop.' },
-          tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+          tools: runtimeToolDeclarations('spawn_worker', 'stop'),
         }),
         'produce independently measurable output',
         {

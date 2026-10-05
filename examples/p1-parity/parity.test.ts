@@ -57,7 +57,6 @@ const parityCell = (shots: number): CellSpec => ({
     harness: 'cli-base',
     tools: {
       agent_runtime_coordination_spawn_worker: true,
-      agent_runtime_coordination_await_event: true,
     },
     model: {
       provider: 'scripted',
@@ -161,8 +160,9 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
     const cell = parityCell(3)
     const script = ['fail', 'pass'] as const
 
+    const graph = offlineGraphBackend(cell, script)
     const multishotRecord = await runMultishotArm(cell, offlineMultishotBackend(script).backend)
-    const graphRecord = await runGraphArm(cell, offlineGraphBackend(cell, script).backend)
+    const graphRecord = await runGraphArm(cell, graph.backend)
     expectWellFormed(multishotRecord)
     expectWellFormed(graphRecord)
 
@@ -186,11 +186,15 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
     expect(graphRecord.steeringDelivered.bytes).toBeGreaterThan(0)
     expect(multishotRecord.steeringDelivered.bytes).toBeGreaterThan(0)
 
-    // Spend flows through each arm's own metering, driver leg included: graph = 2 leaf shots ×
-    // {5,5} + 7 metered driver-brain turns × {5,5} (2 spawns + 4 awaits + the final stop),
-    // reconciled from the conserved pool's journal; multishot = (3 agent + 2 driver) × {5,5} at
-    // the transport seam.
-    expect(graphRecord.spend).toEqual({ tokens: { input: 45, output: 45 }, usd: 0 })
+    // Spend flows through each arm's own metering, driver leg included: graph = (2 leaf shots +
+    // every metered driver-brain turn) × {5,5}, reconciled from the conserved pool's journal;
+    // multishot = (3 agent + 2 driver) × {5,5} at the transport seam. How many turns the reviewer
+    // takes depends on how many wakes its workers' events arrive in, so the brain counts them.
+    const graphTokens = (2 + graph.capture.driverTurns()) * 5
+    expect(graphRecord.spend).toEqual({
+      tokens: { input: graphTokens, output: graphTokens },
+      usd: 0,
+    })
     expect(multishotRecord.spend).toEqual({ tokens: { input: 25, output: 25 }, usd: 0 })
 
     // The honest ledger asymmetry: the graph's edge ledger is present and complete (2 delivered
@@ -293,7 +297,7 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
           ],
         },
         // ONE event: the down settle. (No verify report — analysts fire on `done` settles only.)
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the worker' },
         // The retry spawn drives INTO the exhausted delegates cap — refused, ledgered.
         {
           toolCalls: [

@@ -81,11 +81,14 @@ describe('supervise delivers parent questions, not just callback configuration',
       const child = testAgentProfile('specialist', {
         tools: runtimeToolDeclarations('ask_parent', 'submit_result'),
       })
+      let rootDrives = 0
       const driveHarness: DriveHarness = async ({
         profile,
         coordinationMcpUrl,
         coordinationMcpHeaders,
       }) => {
+        // The root's second drive is its wake with the specialist's result; it has nothing to ask.
+        if (profile.name === 'root' && (rootDrives += 1) > 1) return
         const response = await call(
           coordinationMcpUrl,
           coordinationMcpHeaders,
@@ -100,7 +103,6 @@ describe('supervise delivers parent questions, not just callback configuration',
           })
           expect(spawned).not.toHaveProperty('error')
           await childDone
-          await call(coordinationMcpUrl, coordinationMcpHeaders, 'await_event', {})
         } else {
           await call(coordinationMcpUrl, coordinationMcpHeaders, 'submit_result', {
             result: { answer: 'checked' },
@@ -110,7 +112,7 @@ describe('supervise delivers parent questions, not just callback configuration',
       }
       await supervise(
         testAgentProfile('root', {
-          tools: runtimeToolDeclarations('ask_parent', 'spawn_worker', 'await_event'),
+          tools: runtimeToolDeclarations('ask_parent', 'spawn_worker'),
         }),
         'research',
         {
@@ -120,6 +122,7 @@ describe('supervise delivers parent questions, not just callback configuration',
           driveHarness,
           coordination: { authentication: true },
           driverRetry: { enabled: false },
+          wake: { debounceMs: 0 },
           journal: new InMemorySpawnJournal(),
           runId: 'question-tree',
           deliverable: { check: () => true },

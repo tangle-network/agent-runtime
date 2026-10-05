@@ -85,12 +85,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
           },
         ],
       },
-      {
-        toolCalls: [
-          { name: 'await_event', arguments: {} },
-          { name: 'await_event', arguments: {} },
-        ],
-      },
+      { content: 'waiting for the workers' },
       { content: 'done' },
     ]
 
@@ -108,7 +103,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       blobs,
       makeWorkerAgent: makeWorker,
       perWorker,
-      toolNames: ['spawn_worker', 'await_event'],
+      toolNames: ['spawn_worker'],
       systemPrompt: supervisorInstructions({ goal: 'evaluate an arithmetic expression' }), // the SKILL is the supervisor's prompt
       maxTurns: 8,
     })

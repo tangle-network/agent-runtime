@@ -98,13 +98,13 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       {
         toolCalls: [{ name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } }],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     const result = await supervise(
       rootProfile({
         prompt: { systemPrompt: 'drive the worker' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'solve it',
       { budget, makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }), brain },
@@ -150,7 +150,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     }
     const running = supervise(
-      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
       'solve it',
       {
         budget,
@@ -162,7 +162,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
               { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the worker' },
         ]),
       },
     )
@@ -274,10 +274,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       })
       return response.json()
     }
+    let rootTurns = 0
     const driveHarness: DriveHarness = async ({ profile, coordinationMcpUrl }) => {
       if (profile.name === 'root') {
-        await call(coordinationMcpUrl, 'spawn_worker', { profile: child, task: 'solve' })
-        await call(coordinationMcpUrl, 'await_event', {})
+        // The root spawns on its first turn and ends it; its wake has nothing more to start.
+        rootTurns += 1
+        if (rootTurns === 1) {
+          await call(coordinationMcpUrl, 'spawn_worker', { profile: child, task: 'solve' })
+        }
         return
       }
       childRefusal = await call(coordinationMcpUrl, 'submit_result', { result: { answer: 0 } })
@@ -287,7 +291,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const result = await supervise(
       testAgentProfile('root', {
         harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'delegate',
       {
@@ -305,7 +309,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
             failures: ['FAIL root-obligation run: remains incomplete'],
           }),
         },
-        // A deadline already past: every manager gets one turn, so the counts below are exact.
+        // A deadline already past: no manager is re-entered for its unmet check, so the counts below are exact.
         continuation: testContinuation({ deadline: 1 }),
         resolveDeliverable: (input) =>
           input.profile.name === 'specialist'
@@ -355,7 +359,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
               { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the worker' },
           { content: 'done' },
         ])
       const opts = {
@@ -366,7 +370,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       }
 
       const first = await supervise(
-        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
           ...opts,
@@ -388,7 +392,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       // `resume` flag threaded through, this would fail loud in `beginTree` ("already begun at …,
       // refusing to overwrite") because the wall-clock `at` differs between the two calls.
       const second = await supervise(
-        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
           ...opts,
@@ -441,7 +445,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         onCoordinationEvent,
       }
       const first = await supervise(
-        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
           ...common,
@@ -451,7 +455,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
                 { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
               ],
             },
-            { toolCalls: [{ name: 'await_event', arguments: {} }] },
+            { content: 'waiting for the worker' },
             { content: 'stop after the observer error' },
           ]),
         },
@@ -463,7 +467,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
       acknowledge = true
       const replayScript = scriptedBrain([
-        { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+        { content: 'waiting for the worker' },
         { content: 'finish from committed work' },
       ])
       const replayBrain: typeof replayScript = async (...args) => {
@@ -471,7 +475,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         return replayScript(...args)
       }
       const second = await supervise(
-        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
         'solve it',
         {
           ...common,
@@ -492,7 +496,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     let attempt = 0
     const events: Array<{ eventId: string; workerId: string; assignmentId?: string }> = []
     const result = await supervise(
-      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
       'retry once',
       {
         budget,
@@ -513,7 +517,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+          { content: 'waiting for the worker' },
           {
             toolCalls: [
               {
@@ -526,7 +530,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+          { content: 'waiting for the worker' },
           { content: 'done' },
         ]),
         onCoordinationEvent: (_context, eventId, record) => {
@@ -1276,7 +1280,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
       {
         toolCalls: [{ name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } }],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
 
@@ -1306,7 +1310,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
 
   it('a NAMED finalizer decides the run output', async () => {
     const result = await supervise(
-      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
       'solve it',
       {
         budget,
@@ -1381,7 +1385,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
       },
     }
     const result = await supervise(
-      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
       'solve it',
       {
         budget,
@@ -1399,7 +1403,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
 
   it('a non-string option value is untouched (existing callers keep passing values)', async () => {
     const result = await supervise(
-      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
       'solve it',
       {
         budget,
@@ -1430,7 +1434,7 @@ describe('supervise — the profiles table', () => {
   const spawnByName = () =>
     scriptedBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: 'critic', task: 'go' } }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
   const sealedPlay = (profileDigest: string) =>
@@ -1480,7 +1484,7 @@ describe('supervise — the profiles table', () => {
     const journal = new InMemorySpawnJournal()
     const received: AgentProfile[] = []
     const result = await supervise(
-      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
       't',
       {
         budget,
@@ -1544,7 +1548,7 @@ describe('supervise — the profiles table', () => {
       makeWorkerAgent: leafRunning,
       registry: { profiles: profiles([entry]) },
     })
-    const root = rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') })
+    const root = rootProfile({ tools: runtimeToolDeclarations('spawn_worker') })
     const experiment = await sealedPlay(digest)
     expect(promoted.promote).toBe(true)
     const run = await supervise(
@@ -1659,11 +1663,12 @@ describe('supervise — peerMail threads from options through both supervisor ar
 
   it('supervise({ peerMail: true }) hands every backend-derived worker a peerMailUrl', async () => {
     const seen: Array<string | undefined> = []
+    let turns = 0
     const makeLeaf = workerFromBackend(offlineBackend)
     await supervise(
       testAgentProfile('root', {
         harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
       }),
       'fan out',
       {
@@ -1673,7 +1678,15 @@ describe('supervise — peerMail threads from options through both supervisor ar
           return makeLeaf(profile, context)
         },
         peerMail: true,
+        wake: { debounceMs: 0 },
         driveHarness: async ({ coordinationMcpUrl }) => {
+          // The first turn spawns both workers and ends. Each wake asks to stop, which Runtime
+          // refuses while a worker still runs.
+          turns += 1
+          if (turns > 1) {
+            await callTool(coordinationMcpUrl, 'stop', {})
+            return
+          }
           await callTool(coordinationMcpUrl, 'spawn_worker', {
             profile: workerProfile('w1'),
             task: 'go',
@@ -1682,9 +1695,6 @@ describe('supervise — peerMail threads from options through both supervisor ar
             profile: workerProfile('w2'),
             task: 'go',
           })
-          await callTool(coordinationMcpUrl, 'await_event', {})
-          await callTool(coordinationMcpUrl, 'await_event', {})
-          await callTool(coordinationMcpUrl, 'stop', {})
         },
       },
     )

@@ -385,6 +385,9 @@ function poolStarved(
  *  deadline or dollar cap bounds it. */
 const UNMETERED_DRIVER_TURNS = 16
 
+/** How often a waiting driver applies operator cancels and steers between its turns. */
+const WAITING_CONTROL_POLL_MS = 5_000
+
 /**
  * Safety guards for a manager's own turns when no deadline bounds them.
  *
@@ -1391,13 +1394,31 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             if (inbox.pending() === 0 && !coord.hasOpenWork()) return undefined
             const deadlineMs = scope.budget.deadlineMs
             const warnAt = deadlineWarningAt(deadlineMs, wakePolicy, deadlineWarned)
-            const wake = await coord.awaitWake({
-              signal: scope.signal,
-              heartbeatMs: wakePolicy.heartbeatMs,
-              debounceMs: wakePolicy.debounceMs,
-              ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
-              alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),
-            })
+            // Operator controls are applied at turn boundaries; while the driver waits between turns,
+            // apply them on a short clock instead. A cancelled worker then settles into the wake, and
+            // a root steer reaches the inbox, which ends the wait.
+            const controlClock =
+              acknowledger === undefined && steerAcknowledger === undefined
+                ? undefined
+                : setInterval(() => {
+                    void (async () => {
+                      await steerAcknowledger?.pass('turn')
+                      acknowledger?.pass('turn')
+                    })().catch(() => undefined)
+                  }, WAITING_CONTROL_POLL_MS)
+            controlClock?.unref?.()
+            let wake: Awaited<ReturnType<typeof coord.awaitWake>>
+            try {
+              wake = await coord.awaitWake({
+                signal: scope.signal,
+                heartbeatMs: wakePolicy.heartbeatMs,
+                debounceMs: wakePolicy.debounceMs,
+                ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
+                alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),
+              })
+            } finally {
+              if (controlClock !== undefined) clearInterval(controlClock)
+            }
             if (wake === undefined) return undefined
             if (wake.reason === 'deadline') deadlineWarned = true
             return composeWakeInput(wake, {

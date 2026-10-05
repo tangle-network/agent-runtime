@@ -8,20 +8,14 @@ import { createKnowledgeTools, createRunScopedStores } from '@tangle-network/age
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from '../../src/mcp/tools/coordination'
-import {
-  COORDINATION_CLIENT_TOOL_TIMEOUT_MS,
-  declaredAwaitFenceMs,
-  declaredToolTimeoutMs,
-  MAX_DECLARED_AWAIT_FENCE_MS,
-  MCP_TOOL_TIMEOUT_HEADER,
-} from '../../src/mcp/tools/coordination-request-context'
+import type { AwaitWakeInput } from '../../src/mcp/tools/coordination'
 import type { CheckVerdict } from '../../src/runtime/supervise/continuation'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
   assertCoordinationTransport,
   coordinationResponseFenceMs,
   serveCoordinationMcp,
+  serveCoordinationMcpForManager,
 } from '../../src/runtime/supervise/coordination-mcp'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -73,30 +67,13 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
   }
 }
 
-/** A leaf that stays LIVE until the test releases it — what a long-running worker looks like. */
-function blockingLeaf(name: string, out: unknown, release: Promise<void>): Agent<unknown, unknown> {
-  const ex: Executor<unknown> = {
-    runtime: 'router',
-    execute() {
-      return (async function* () {
-        yield { kind: 'iteration' } as UsageEvent
-        await release
-        yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
-      })()
-    },
-    teardown: () => Promise.resolve({ destroyed: true }),
-    resultArtifact: (): ExecutorResult<unknown> => ({
-      outRef: `w:${name}`,
-      out,
-      verdict: { valid: true, score: 1 },
-      spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
-    }),
-  }
-  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor: ex }
-  return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
-    executorSpec: AgentSpec
-  }
-}
+/** A wake input that waits on no timer unless the test sets one. */
+const wakeInput = (over: Partial<AwaitWakeInput> = {}): AwaitWakeInput => ({
+  signal: new AbortController().signal,
+  heartbeatMs: 60_000,
+  debounceMs: 0,
+  ...over,
+})
 
 async function jsonRpc(
   url: string,
@@ -121,12 +98,12 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const root: Agent<unknown, unknown> = {
       name: 'reader',
       async act(_task, scope) {
-        const mcp = await serveCoordinationMcp({
+        const { handle: mcp, controls } = await serveCoordinationMcpForManager({
           scope,
           blobs,
           makeWorkerAgent: () => deliveringLeaf('writer', output),
           perWorker: { maxIterations: 4, maxTokens: 1000 },
-          toolNames: ['spawn_worker', 'await_event', 'observe_agent'],
+          toolNames: ['spawn_worker', 'observe_agent'],
           authentication: true,
         })
         const call = async (name: string, args: unknown) => {
@@ -141,7 +118,10 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
         }
         try {
           const { workerId } = await call('spawn_worker', { profile: {}, task: 'check' })
-          const settled = await call('await_event', {})
+          const settled = (await controls.awaitWake(wakeInput()))?.events[0] as unknown as {
+            outputRead: unknown
+            outRef: string
+          }
           expect(settled.outputRead).toEqual({ tool: 'observe_agent', arguments: { workerId } })
           const chunks: string[] = []
           let outputOffset = 0
@@ -181,12 +161,12 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const root: Agent<unknown, unknown> = {
       name: 'mcp-driver',
       async act(_task, scope: Scope<unknown>) {
-        const mcp = await serveCoordinationMcp({
+        const { handle: mcp, controls } = await serveCoordinationMcpForManager({
           scope,
           blobs,
           makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
           perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-          toolNames: ['spawn_worker', 'await_event'],
+          toolNames: ['spawn_worker'],
           authentication: true,
         })
         try {
@@ -200,7 +180,8 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
             },
             mcp.headers,
           )
-          await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} }, mcp.headers)
+          // The manager ends its turn here; Runtime blocks and wakes it with the settlement.
+          await controls.awaitWake(wakeInput())
           observed = { toolsList: toolsList.result, settled: mcp.settled() }
           const done = mcp.settled().filter((w) => w.status === 'done' && w.valid === true)
           return done[0]?.outRef ? await blobs.get(done[0].outRef) : undefined
@@ -228,8 +209,8 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const names = ((observed?.toolsList as { tools?: Array<{ name: string }> })?.tools ?? []).map(
       (t) => t.name,
     )
-    expect(names).toContain('spawn_worker')
-    expect(names).toContain('await_event')
+    // Waiting is not a tool: the manager ends its turn, and the grant is only what was named.
+    expect(names).toEqual(['spawn_worker'])
   })
 
   it('observe_agent over the wire names a finished-but-undrained worker instead of calling it running', async () => {
@@ -243,12 +224,12 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const root: Agent<unknown, unknown> = {
       name: 'poller',
       async act(_task, scope: Scope<unknown>) {
-        const mcp = await serveCoordinationMcp({
+        const { handle: mcp, controls } = await serveCoordinationMcpForManager({
           scope,
           blobs,
           makeWorkerAgent: () => deliveringLeaf('quick', { answer: 1 }),
           perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-          toolNames: ['spawn_worker', 'observe_agent', 'await_event'],
+          toolNames: ['spawn_worker', 'observe_agent'],
           authentication: true,
         })
         try {
@@ -274,12 +255,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
               ).result.content[0].text,
             ) as Record<string, unknown>
           seen.push(await observe())
-          await jsonRpc(
-            mcp.url,
-            'tools/call',
-            { name: 'await_event', arguments: { kinds: ['settled'] } },
-            mcp.headers,
-          )
+          await controls.awaitWake(wakeInput())
           seen.push(await observe())
           return undefined
         } finally {
@@ -299,7 +275,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     // Before the drain: status has not flipped, but the finished state is named with its kind and
     // the manager is told which call resolves it, so a poller cannot mistake this for live work.
     expect(seen[0]).toMatchObject({ status: 'running', settlementPending: { kind: 'done' } })
-    expect(String(seen[0]?.hint)).toContain('await_event')
+    expect(String(seen[0]?.hint)).toContain('end your turn')
     // After the drain: the window is closed, the output is there, nothing is pending.
     expect(seen[1]).toMatchObject({ status: 'done', output: { answer: 1 } })
     expect(seen[1]).not.toHaveProperty('settlementPending')
@@ -594,12 +570,17 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
     const blobs = new InMemoryResultBlobStore()
     const mailUrls: Array<string | undefined> = []
     let mailToolNames: ReadonlyArray<string> = []
+    let drives = 0
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_worker',
-        arguments: { profile: {}, task: 'go' },
-      })
-      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+      // The first drive spawns and ends its turn; Runtime wakes the harness for the second.
+      drives += 1
+      if (drives === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: {}, task: 'go' },
+        })
+        return
+      }
       const mailUrl = mailUrls[0]
       if (mailUrl !== undefined) {
         const listed = await jsonRpc(mailUrl, 'tools/list', {})
@@ -612,7 +593,7 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
       }),
       {
         blobs,
@@ -635,6 +616,7 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
       now: () => 0,
     })
     expect(result.kind).toBe('winner')
+    expect(drives).toBe(2)
     expect(mailUrls).toHaveLength(1)
     expect(mailUrls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
     expect([...mailToolNames].sort()).toEqual(['read_mail', 'send_mail'])
@@ -771,7 +753,6 @@ describe('authenticated and bounded coordination HTTP', () => {
         'spawn_worker',
         'observe_agent',
         'steer_agent',
-        'await_event',
         'list_questions',
         'answer_question',
         'ask_parent',
@@ -1104,13 +1085,14 @@ describe('authenticated and bounded coordination HTTP', () => {
           await started
           expect(fenced.status).toBe(200)
           expect(await fenced.json()).toMatchObject({
-            result: { structuredContent: { pending: true, tool: 'probe' } },
+            result: { structuredContent: { running: true, tool: 'probe' } },
           })
           expect((await postHttp(mcp, mcp.headers)).status).toBe(429)
           release()
           await tick()
+          // Settled, it holds no slot; the next call is a fresh run.
           expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
-          expect(calls).toBe(1)
+          expect(calls).toBe(2)
         } finally {
           release()
         }
@@ -1444,17 +1426,20 @@ const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 async function withMethodTool<T>(
   body: (input: {
     mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>
+    controls: Awaited<ReturnType<typeof serveCoordinationMcpForManager>>['controls']
     calls: () => number
     runs: ReadonlyArray<ReturnType<typeof deferred<unknown>>>
   }) => Promise<T>,
 ): Promise<T> {
   let calls = 0
   const runs: Array<ReturnType<typeof deferred<unknown>>> = []
-  const mcp = await serveCoordinationMcp({
+  const { handle: mcp, controls } = await serveCoordinationMcpForManager({
     scope: {
       signal: new AbortController().signal,
       view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
-    } as Scope<unknown>,
+      next: async () => null,
+      nextResolved: async () => null,
+    } as unknown as Scope<unknown>,
     blobs: new InMemoryResultBlobStore(),
     makeWorkerAgent: () => deliveringLeaf('unused', {}),
     perWorker: { maxIterations: 1, maxTokens: 1 },
@@ -1476,7 +1461,7 @@ async function withMethodTool<T>(
     ],
   })
   try {
-    return await body({ mcp, calls: () => calls, runs })
+    return await body({ mcp, controls, calls: () => calls, runs })
   } finally {
     for (const run of runs) run.resolve(undefined)
     await mcp.close()
@@ -1486,226 +1471,138 @@ async function withMethodTool<T>(
 const sourcing = (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>, args: unknown) =>
   jsonRpc(mcp.url, 'tools/call', { name: 'literature_sourcing', arguments: args })
 
+/** The receipt a fenced call answered with: the call is still running and nothing failed. */
+const receiptOf = (response: { result?: unknown; error?: unknown }) => {
+  expect(response.error).toBeUndefined()
+  expect(response.result).toMatchObject({ isError: false, structuredContent: { running: true } })
+  return (response.result as { structuredContent: { receipt: string; instruction: string } })
+    .structuredContent
+}
+
 describe('method tools on the coordination MCP are single-flight within one fenced scope', () => {
-  it('answers pending while one invocation runs, then hands its result to the collecting call', async () => {
-    await withMethodTool(async ({ mcp, calls, runs }) => {
+  it('answers with a receipt while one invocation runs, then delivers its result in the next wake', async () => {
+    await withMethodTool(async ({ mcp, controls, calls, runs }) => {
       // The two argument spellings the director actually sent: same values, different key order.
-      const first = await sourcing(mcp, {
-        sources: [{ id: 'daniel-murfet', kind: 'researcher', name: 'Daniel Murfet' }],
-      })
-      const second = await sourcing(mcp, {
-        sources: [{ name: 'Daniel Murfet', kind: 'researcher', id: 'daniel-murfet' }],
-      })
-      for (const response of [first, second]) {
-        expect(response.error).toBeUndefined()
-        expect(response.result).toMatchObject({
-          isError: false,
-          structuredContent: { pending: true, tool: 'literature_sourcing' },
-        })
-        const { instruction } = (response.result as { structuredContent: { instruction: string } })
-          .structuredContent
-        expect(instruction).toContain('same arguments')
-      }
+      const first = receiptOf(
+        await sourcing(mcp, {
+          sources: [{ id: 'daniel-murfet', kind: 'researcher', name: 'Daniel Murfet' }],
+        }),
+      )
+      const second = receiptOf(
+        await sourcing(mcp, {
+          sources: [{ name: 'Daniel Murfet', kind: 'researcher', id: 'daniel-murfet' }],
+        }),
+      )
+      // The identical call joined the one invocation, so it holds the one receipt.
+      expect(second.receipt).toBe(first.receipt)
+      expect(first.instruction).toContain('Do not call it again')
       expect(calls()).toBe(1)
+      // A receipted call is open work: a manager that ends its turn now is still waiting.
+      expect(controls.hasOpenWork()).toBe(true)
 
       runs[0]!.resolve({ charter: 'first run' })
       await tick()
-      const collected = await sourcing(mcp, {
-        sources: [{ id: 'daniel-murfet', kind: 'researcher', name: 'Daniel Murfet' }],
+      const wake = await controls.awaitWake(wakeInput())
+      expect(wake).toMatchObject({
+        reason: 'events',
+        events: [
+          {
+            type: 'tool-outcome',
+            receipt: first.receipt,
+            tool: 'literature_sourcing',
+            ok: true,
+            value: { charter: 'first run' },
+            elapsedMs: expect.any(Number),
+            eventSeq: expect.any(Number),
+          },
+        ],
       })
-      expect(collected.error).toBeUndefined()
-      expect(collected.result).toMatchObject({
-        structuredContent: { charter: 'first run' },
-      })
+      expect(controls.hasOpenWork()).toBe(false)
       expect(calls()).toBe(1)
 
-      // Identity ends when the outcome is returned: equal arguments are a fresh run after that, so
-      // a caller that repeats a read (code mode's `execute`, `knowledge_search`) still gets a
+      // Identity ends when the handler settles: equal arguments are a fresh run after that, so a
+      // caller that repeats a read (code mode's `execute`, `knowledge_search`) still gets a
       // current answer and needs no escape hatch.
-      const again = await sourcing(mcp, {
-        sources: [{ id: 'daniel-murfet', kind: 'researcher', name: 'Daniel Murfet' }],
-      })
+      const again = receiptOf(
+        await sourcing(mcp, {
+          sources: [{ id: 'daniel-murfet', kind: 'researcher', name: 'Daniel Murfet' }],
+        }),
+      )
       expect(calls()).toBe(2)
-      expect(again.result).toMatchObject({ structuredContent: { pending: true } })
+      expect(again.receipt).not.toBe(first.receipt)
       runs[1]!.resolve({ charter: 'second run' })
       await tick()
-      const collectedAgain = await sourcing(mcp, {
-        sources: [{ id: 'daniel-murfet', kind: 'researcher', name: 'Daniel Murfet' }],
-      })
-      expect(collectedAgain.result).toMatchObject({ structuredContent: { charter: 'second run' } })
-      expect(calls()).toBe(2)
+      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
+        { type: 'tool-outcome', receipt: again.receipt, value: { charter: 'second run' } },
+      ])
     })
   })
 
-  it('runs different arguments separately and returns each its own result', async () => {
-    await withMethodTool(async ({ mcp, calls, runs }) => {
-      const murfet = await sourcing(mcp, { sources: [{ id: 'daniel-murfet' }] })
-      const ghrist = await sourcing(mcp, { sources: [{ id: 'robert-ghrist' }] })
-      expect(murfet.result).toMatchObject({ structuredContent: { pending: true } })
-      expect(ghrist.result).toMatchObject({ structuredContent: { pending: true } })
+  it('runs different arguments separately and delivers each its own outcome', async () => {
+    await withMethodTool(async ({ mcp, controls, calls, runs }) => {
+      const murfet = receiptOf(await sourcing(mcp, { sources: [{ id: 'daniel-murfet' }] }))
+      const ghrist = receiptOf(await sourcing(mcp, { sources: [{ id: 'robert-ghrist' }] }))
+      expect(murfet.receipt).not.toBe(ghrist.receipt)
       expect(calls()).toBe(2)
 
       runs[0]!.resolve({ charter: 'murfet' })
       runs[1]!.resolve({ charter: 'ghrist' })
       await tick()
-      expect(await sourcing(mcp, { sources: [{ id: 'robert-ghrist' }] })).toMatchObject({
-        result: { structuredContent: { charter: 'ghrist' } },
-      })
-      expect(await sourcing(mcp, { sources: [{ id: 'daniel-murfet' }] })).toMatchObject({
-        result: { structuredContent: { charter: 'murfet' } },
-      })
+      // Both outcomes ride one wake, in the order they settled.
+      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
+        { type: 'tool-outcome', receipt: murfet.receipt, value: { charter: 'murfet' } },
+        { type: 'tool-outcome', receipt: ghrist.receipt, value: { charter: 'ghrist' } },
+      ])
       expect(calls()).toBe(2)
     })
   })
 
-  it('surfaces a rejected handler as the collecting call’s error without invoking it again', async () => {
-    await withMethodTool(async ({ mcp, calls, runs }) => {
-      const pending = await sourcing(mcp, { sources: [{ id: 'tai-danae-bradley' }] })
-      expect(pending.result).toMatchObject({ structuredContent: { pending: true } })
+  it('delivers a rejected handler as a failed outcome without invoking it again', async () => {
+    await withMethodTool(async ({ mcp, controls, calls, runs }) => {
+      const pending = receiptOf(await sourcing(mcp, { sources: [{ id: 'tai-danae-bradley' }] }))
 
       runs[0]!.reject(new Error('extract stage exhausted its budget'))
       await tick()
-      const collected = await sourcing(mcp, { sources: [{ id: 'tai-danae-bradley' }] })
-      expect(collected.result).toBeUndefined()
-      expect(collected.error).toMatchObject({
-        code: -32000,
-        message: 'extract stage exhausted its budget',
-      })
+      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
+        {
+          type: 'tool-outcome',
+          receipt: pending.receipt,
+          tool: 'literature_sourcing',
+          ok: false,
+          error: 'extract stage exhausted its budget',
+        },
+      ])
       expect(calls()).toBe(1)
     })
   })
 
-  it('derives both response fences from the request timeout so neither can outlive it', () => {
-    expect(coordinationResponseFenceMs(90_000)).toBe(DEFAULT_AWAIT_EVENT_TIMEOUT_MS)
+  it('wakes a manager that waits on nothing but a receipted call as soon as its outcome lands', async () => {
+    await withMethodTool(async ({ mcp, controls, runs }) => {
+      receiptOf(await sourcing(mcp, { sources: [{ id: 'daniel-murfet' }] }))
+      // No worker is live and no event is queued: only the running call is open. A long heartbeat
+      // shows the outcome itself ends the wait.
+      const wake = controls.awaitWake(wakeInput({ heartbeatMs: 500 }))
+      await tick()
+      runs[0]!.resolve({ charter: 'late' })
+      const woken = await wake
+      expect(woken).toMatchObject({
+        reason: 'events',
+        events: [{ type: 'tool-outcome', ok: true, value: { charter: 'late' } }],
+      })
+      expect(woken?.idleMs).toBeLessThan(400)
+    })
+  })
+
+  it('derives the response fence from the request timeout so it cannot outlive it', () => {
+    expect(coordinationResponseFenceMs(90_000)).toBe(45_000)
     expect(coordinationResponseFenceMs(10_000)).toBe(5_000)
-    // A long transport timeout does not lengthen each wait beyond the await_event default.
-    expect(coordinationResponseFenceMs(600_000)).toBe(DEFAULT_AWAIT_EVENT_TIMEOUT_MS)
+    // A long transport timeout does not lengthen the fence past what harness clients allow.
+    expect(coordinationResponseFenceMs(600_000)).toBe(45_000)
     for (const requestTimeoutMs of [1, 2, 50, 999, 30_000, 2_147_483_647]) {
       const fence = coordinationResponseFenceMs(requestTimeoutMs)
       expect(fence).toBeGreaterThan(0)
       expect(fence).toBeLessThanOrEqual(requestTimeoutMs)
     }
-  })
-
-  it('bounds await_event by the same derived fence instead of erroring on the request timeout', async () => {
-    const release = deferred<void>()
-    const blobs = new InMemoryResultBlobStore()
-    let awaited: { result?: unknown; error?: unknown } | undefined
-    const root: Agent<unknown, unknown> = {
-      name: 'await-fence-driver',
-      async act(_task, scope: Scope<unknown>) {
-        const mcp = await serveCoordinationMcp({
-          scope,
-          blobs,
-          makeWorkerAgent: () => blockingLeaf('slow', { answer: 1 }, release.promise),
-          perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-          // Under the old default the await fence stayed at 15 s here and every call 504'd.
-          requestTimeoutMs: 300,
-          toolNames: ['spawn_worker', 'await_event'],
-        })
-        try {
-          await jsonRpc(mcp.url, 'tools/call', {
-            name: 'spawn_worker',
-            arguments: { profile: {}, task: 'go' },
-          })
-          awaited = await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} })
-        } finally {
-          release.resolve()
-          await mcp.close()
-        }
-        return undefined
-      },
-    }
-    await createSupervisor<unknown, unknown>().run(root, 'await', {
-      budget: { maxIterations: 100, maxTokens: 100_000 },
-      runId: 'await-fence',
-      journal: new InMemorySpawnJournal(),
-      blobs,
-      executors: createExecutorRegistry(),
-      maxDepth: 4,
-      now: () => 0,
-    })
-    expect(awaited?.error).toBeUndefined()
-    expect(awaited?.result).toMatchObject({ structuredContent: { pending: true } })
-  })
-})
-
-describe('a caller that declares its MCP tool-call timeout', () => {
-  async function awaitWith(headers: Readonly<Record<string, string>> | undefined) {
-    const release = deferred<void>()
-    const blobs = new InMemoryResultBlobStore()
-    let awaited: { result?: unknown; error?: unknown } | undefined
-    const root: Agent<unknown, unknown> = {
-      name: 'declared-fence-driver',
-      async act(_task, scope: Scope<unknown>) {
-        const mcp = await serveCoordinationMcp({
-          scope,
-          blobs,
-          makeWorkerAgent: () => blockingLeaf('slow', { answer: 1 }, release.promise),
-          perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-          // A 300 ms request timeout gives undeclared callers a 150 ms fence.
-          requestTimeoutMs: 300,
-          toolNames: ['spawn_worker', 'await_event'],
-        })
-        // The worker settles at 600 ms: after the default fence, inside a declared one.
-        const settle = setTimeout(() => release.resolve(), 600)
-        try {
-          await jsonRpc(mcp.url, 'tools/call', {
-            name: 'spawn_worker',
-            arguments: { profile: {}, task: 'go' },
-          })
-          awaited = await jsonRpc(
-            mcp.url,
-            'tools/call',
-            { name: 'await_event', arguments: { kinds: ['settled'] } },
-            headers,
-          )
-        } finally {
-          clearTimeout(settle)
-          release.resolve()
-          await mcp.close()
-        }
-        return undefined
-      },
-    }
-    await createSupervisor<unknown, unknown>().run(root, 'await', {
-      budget: { maxIterations: 100, maxTokens: 100_000 },
-      runId: 'declared-fence',
-      journal: new InMemorySpawnJournal(),
-      blobs,
-      executors: createExecutorRegistry(),
-      maxDepth: 4,
-      now: () => 0,
-    })
-    return awaited
-  }
-
-  it('is held for 60% of the declared timeout, so a worker that settles inside it is returned in the same call', async () => {
-    // 2 s declared: a 1.2 s fence and a 2 s request bound.
-    const awaited = await awaitWith({ [MCP_TOOL_TIMEOUT_HEADER]: '2000' })
-    expect(awaited?.error).toBeUndefined()
-    expect(awaited?.result).not.toMatchObject({ structuredContent: { pending: true } })
-    expect(awaited?.result).toMatchObject({
-      structuredContent: { eventSeq: 0, outRef: expect.any(String) },
-    })
-  })
-
-  it('keeps the default fence for a caller that declares nothing or something malformed', async () => {
-    for (const headers of [undefined, { [MCP_TOOL_TIMEOUT_HEADER]: '12.5' }]) {
-      const awaited = await awaitWith(headers)
-      expect(awaited?.error).toBeUndefined()
-      expect(awaited?.result).toMatchObject({ structuredContent: { pending: true } })
-    }
-  })
-
-  it('derives the fence from the declared timeout and caps it at what the Sandbox edge held', () => {
-    expect(declaredToolTimeoutMs('300000')).toBe(300_000)
-    expect(declaredToolTimeoutMs('999')).toBeUndefined()
-    expect(declaredToolTimeoutMs('-1')).toBeUndefined()
-    expect(declaredToolTimeoutMs(['300000'])).toBeUndefined()
-    expect(declaredAwaitFenceMs(300_000)).toBe(MAX_DECLARED_AWAIT_FENCE_MS)
-    expect(declaredAwaitFenceMs(60_000)).toBe(36_000)
-    expect(COORDINATION_CLIENT_TOOL_TIMEOUT_MS).toBe(300_000)
   })
 })
 
@@ -1719,6 +1616,7 @@ describe('a caller that declares its MCP tool-call timeout', () => {
 async function withSlowCheck<T>(
   body: (input: {
     mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>
+    controls: Awaited<ReturnType<typeof serveCoordinationMcpForManager>>['controls']
     checks: () => number
     verdicts: ReadonlyArray<ReturnType<typeof deferred<boolean | CheckVerdict>>>
   }) => Promise<T>,
@@ -1726,16 +1624,18 @@ async function withSlowCheck<T>(
 ): Promise<T> {
   let checks = 0
   const verdicts: Array<ReturnType<typeof deferred<boolean | CheckVerdict>>> = []
-  const mcp = await serveCoordinationMcp({
+  const { handle: mcp, controls } = await serveCoordinationMcpForManager({
     scope: {
       signal: new AbortController().signal,
       view: { root: 'mcp-fixture', nodes: [], inFlight: 0, waiting: 0 },
-    } as Scope<unknown>,
+      next: async () => null,
+      nextResolved: async () => null,
+    } as unknown as Scope<unknown>,
     blobs: new InMemoryResultBlobStore(),
     makeWorkerAgent: () => deliveringLeaf('unused', {}),
     perWorker: { maxIterations: 1, maxTokens: 1 },
     // 500 ms request timeout ⇒ a 250 ms fence, the same half the 30 s default gives 15 s. The
-    // pending answer leaves 250 ms before the transport's 504, room for a loaded CI runner.
+    // receipt leaves 250 ms before the transport's 504, room for a loaded CI runner.
     requestTimeoutMs: 500,
     ...transport,
     toolNames: ['submit_result'],
@@ -1750,7 +1650,7 @@ async function withSlowCheck<T>(
     },
   })
   try {
-    return await body({ mcp, checks: () => checks, verdicts })
+    return await body({ mcp, controls, checks: () => checks, verdicts })
   } finally {
     for (const verdict of verdicts) verdict.resolve(false)
     await mcp.close()
@@ -1776,14 +1676,18 @@ const structured = async (response: Response) => {
 }
 
 describe('submit_result on the coordination MCP is single-flight and fenced', () => {
-  it('answers pending instead of 504 while the check runs, then hands the verdict and its reason to the resubmission', async () => {
-    await withSlowCheck(async ({ mcp, checks, verdicts }) => {
+  it('answers with a receipt instead of 504 while the check runs, then delivers the verdict and its reason in the next wake', async () => {
+    await withSlowCheck(async ({ mcp, controls, checks, verdicts }) => {
       const first = await structured(await submit(mcp, { status: 'complete', evidence: ['a'] }))
-      expect(first).toMatchObject({ pending: true, tool: 'submit_result' })
-      expect(String(first.instruction)).toContain('same arguments')
-      // The resubmission re-emits the packet with its keys in another order.
+      expect(first).toMatchObject({
+        running: true,
+        tool: 'submit_result',
+        receipt: expect.any(String),
+      })
+      expect(String(first.instruction)).toContain('Do not call it again')
+      // The resubmission re-emits the packet with its keys in another order: it joins the check.
       const second = await structured(await submit(mcp, { evidence: ['a'], status: 'complete' }))
-      expect(second).toMatchObject({ pending: true, tool: 'submit_result' })
+      expect(second).toMatchObject({ running: true, receipt: first.receipt })
       expect(checks()).toBe(1)
 
       verdicts[0]!.resolve({
@@ -1792,47 +1696,63 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
         failures: ['FAIL verify_product testCommand: exited 1'],
       })
       await tick()
-      const collected = await structured(await submit(mcp, { status: 'complete', evidence: ['a'] }))
-      expect(collected).toMatchObject({ accepted: false, stop: false })
-      expect(String(collected.reason)).toContain('FAIL verify_product testCommand: exited 1')
+      const wake = await controls.awaitWake(wakeInput())
+      expect(wake?.events).toMatchObject([
+        {
+          type: 'tool-outcome',
+          receipt: first.receipt,
+          tool: 'submit_result',
+          ok: true,
+          value: { accepted: false, stop: false },
+        },
+      ])
+      expect(JSON.stringify(wake?.events[0]?.value)).toContain(
+        'FAIL verify_product testCommand: exited 1',
+      )
       expect(checks()).toBe(1)
       expect(mcp.submittedResult()).toBeUndefined()
     })
   })
 
-  it('accepts a passing verdict collected after the fence, and checks again once a verdict was returned', async () => {
-    await withSlowCheck(async ({ mcp, checks, verdicts }) => {
-      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
+  it('accepts a passing verdict delivered after the fence, and checks again once a verdict was returned', async () => {
+    await withSlowCheck(async ({ mcp, controls, checks, verdicts }) => {
+      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
       verdicts[0]!.resolve(false)
       await tick()
-      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ accepted: false })
+      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
+        { type: 'tool-outcome', ok: true, value: { accepted: false } },
+      ])
       // Identity ended with that verdict: the same packet after a repair is a fresh check.
-      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
+      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
       expect(checks()).toBe(2)
       verdicts[1]!.resolve(true)
       await tick()
-      expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({
-        accepted: true,
-        retained: 'this-result',
-        stop: true,
-      })
+      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
+        {
+          type: 'tool-outcome',
+          ok: true,
+          value: { accepted: true, retained: 'this-result', stop: true },
+        },
+      ])
       expect(mcp.submittedResult()).toMatchObject({ result: { n: 1 } })
     })
   })
 
   it('keeps a check that outlived its request charged against the concurrency bound until it settles', async () => {
     await withSlowCheck(
-      async ({ mcp, checks, verdicts }) => {
-        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ pending: true })
-        // Answering pending freed the request, not the work: the running check holds the one slot.
+      async ({ mcp, controls, checks, verdicts }) => {
+        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
+        // Answering with a receipt freed the request, not the work: the running check holds the one slot.
         expect((await submit(mcp, { n: 2 })).status).toBe(429)
         expect(checks()).toBe(1)
         verdicts[0]!.resolve(false)
         await tick()
-        // Settled, it no longer holds the slot, and its verdict still waits for its own resubmission.
-        expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ accepted: false })
-        expect(await structured(await submit(mcp, { n: 2 }))).toMatchObject({ pending: true })
+        // Settled, it no longer holds the slot, and its verdict waits for the manager's next wake.
+        expect(await structured(await submit(mcp, { n: 2 }))).toMatchObject({ running: true })
         expect(checks()).toBe(2)
+        expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
+          { type: 'tool-outcome', ok: true, value: { accepted: false } },
+        ])
       },
       { maxConcurrentRequests: 1 },
     )

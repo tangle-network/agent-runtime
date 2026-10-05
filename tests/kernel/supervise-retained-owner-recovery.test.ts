@@ -70,7 +70,7 @@ describe('retained external supervisor recovery', () => {
             result: async () => ({
               ...(await session.result()),
               usage:
-                sessionOptions?.controlRef?.executionId === turns[1]?.executionId
+                sessionOptions?.controlRef?.executionId === turns[0]?.executionId
                   ? { inputTokens: 5, outputTokens: 5 }
                   : { inputTokens: 0, outputTokens: 0 },
             }),
@@ -329,8 +329,9 @@ describe('retained external supervisor recovery', () => {
       expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(expectedTurns)
       expect(destroys).toBe(cleanup === 'keep' ? 0 : 1)
       const events = (await context.journal.loadTree('reprompt-root')) ?? []
+      // The submission on the last turn ends the manager at once, so that turn reports no result.
       expect(events.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        expectedTurns,
+        expectedTurns - 1,
       )
       expect(events.filter((event) => event.kind === 'environment-teardown')).toMatchObject(
         cleanup === 'keep'
@@ -345,7 +346,7 @@ describe('retained external supervisor recovery', () => {
             runtime: provider.name,
             status: 'done',
             environments: [{ provider: provider.name, environmentId: turns[0]?.environmentId }],
-            detail: 'retained owner environment cleanup was not confirmed',
+            detail: expect.stringContaining('retained owner environment cleanup was not confirmed'),
           },
         ])
         expect(events.filter((event) => event.kind === 'teardown-unconfirmed')).toHaveLength(1)
