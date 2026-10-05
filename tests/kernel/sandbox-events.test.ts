@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   assertSandboxServedModel,
   extractLlmCallEvent,
+  createSandboxToolPartState,
   mapSandboxEvent,
+  mapSandboxToolEvent,
   sandboxEventServedBackend,
+  sandboxProgressEvents,
   sumSandboxUsage,
 } from '../../src/runtime/sandbox-events'
 
@@ -461,5 +464,51 @@ describe('sandboxEventServedBackend — a request is not a receipt', () => {
         { provider: 'zai-coding-plan', model: 'glm-5.2' },
       ),
     ).toThrow(/sandbox served model "deepseek\/deepseek-v4-flash"/)
+  })
+})
+
+describe('mapSandboxToolEvent — a liveness frame is not a tool call', () => {
+  // The sidecar's shape, measured 2026-10-05 on a claude-code root: one real call, then a
+  // heartbeat every 5 s and one slow notice while it runs, each with its own numeric event id.
+  const call = {
+    type: 'message.part.updated',
+    id: '518',
+    data: {
+      part: {
+        type: 'tool',
+        callID: 'toolu_01Sz',
+        tool: 'mcp__agent-runtime-coordination__await_event',
+        state: { status: 'running', input: { max: 5 } },
+      },
+    },
+  } as unknown as SandboxEvent
+  const liveness = ['tool-heartbeat', 'tool-slow', 'tool-heartbeat'].map(
+    (type, index) =>
+      ({
+        type,
+        id: String(519 + index),
+        data: {
+          toolName: 'mcp__agent-runtime-coordination__await_event',
+          partId: 'prt_1',
+          elapsedMs: 5_000 * (index + 1),
+          thresholdMs: 10_000,
+        },
+      }) as unknown as SandboxEvent,
+  )
+
+  it('records one call for a call that heartbeats while it runs', () => {
+    const state = createSandboxToolPartState()
+    const projected = [call, ...liveness].flatMap((event) => mapSandboxToolEvent(event, state))
+    expect(projected).toEqual([
+      {
+        type: 'tool_call',
+        toolName: 'mcp__agent-runtime-coordination__await_event',
+        toolCallId: 'toolu_01Sz',
+        args: { max: 5 },
+      },
+    ])
+    const fresh = createSandboxToolPartState()
+    const progress = [call, ...liveness].flatMap((event) => sandboxProgressEvents(event, fresh))
+    expect(progress.filter((event) => event.kind === 'tool_call')).toHaveLength(1)
   })
 })
