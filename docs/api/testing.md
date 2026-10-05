@@ -1233,7 +1233,7 @@ resumable run per directory but collides across concurrent runs sharing one `run
 > `readonly` `optional` **resume?**: `boolean`
 
 Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
@@ -2284,7 +2284,7 @@ resumable run per directory but collides across concurrent runs sharing one `run
 > `readonly` `optional` **resume?**: `boolean`
 
 Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs`, e.g. `createSqlRunContext`) instead of derived from `runDir`. Exactly what the file
+`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
