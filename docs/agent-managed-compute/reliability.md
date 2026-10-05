@@ -112,6 +112,13 @@ Root and child scopes use the same durable writer.
 A bounded capture can finish after cancellation; its evidence remains appendable after the terminal record.
 Evidence publication does not accept a result, finalize spend, or authorize replacing a retained invocation.
 A failed capture keeps its live source and records missing evidence.
+A retained manager whose port has `captureNative` hands its turn's workspace capture to its scope owner instead of waiting for it, when the manager stopped or the turn failed.
+The node settles once the turn's usage is metered; the owner awaits the capture before the environment's next turn and before its release, so the capture still precedes the destroy.
+A deadline or abort that reaches a manager whose submission was accepted waits, for at most 5 minutes, for the turn that submitted it to end, and the node settles `done` with the accepted result.
+A nested manager releases its own environment once its scope finishes, and the run settlement waits for every manager's capture and release.
+At that release a verified capture recorded as `execution-evidence` is the turn's receipt.
+A `not_found` answer for a checkpoint request older than ten request bounds no longer keeps the source environment alive.
+Each workspace capture journals a `workspace-capture` record with its queue wait, capture time and archive bytes.
 Recoverable tool failures inside a completed turn do not fail the child.
 
 Terminal success and failure receipts preserve observed usage and explicit completeness flags.

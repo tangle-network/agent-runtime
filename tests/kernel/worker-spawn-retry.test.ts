@@ -295,7 +295,7 @@ describe('supervise({ workerRetry })', () => {
     const result = await supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'delegate one unit',
       {
@@ -309,7 +309,7 @@ describe('supervise({ workerRetry })', () => {
               { name: 'spawn_worker', arguments: { profile: workerProfile('w1'), task: 'go' } },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the worker' },
           { content: 'done' },
         ]),
       },
@@ -325,7 +325,7 @@ describe('supervise({ workerRetry })', () => {
     const result = await supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'delegate one unit',
       {
@@ -337,7 +337,7 @@ describe('supervise({ workerRetry })', () => {
               { name: 'spawn_worker', arguments: { profile: workerProfile('w1'), task: 'go' } },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the worker' },
           { content: 'done' },
         ]),
       },

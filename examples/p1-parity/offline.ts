@@ -23,7 +23,7 @@ import type {
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { MakeWorkerAgent } from '@tangle-network/agent-runtime/kernel'
 import type { ToolLoopChat } from '../../src/testing'
-import { type LeafShot, leafSeam, type ScriptedTurn, scriptedBrain } from '../graphs/shared'
+import { type LeafShot, leafSeam, type ScriptedTurn, scriptedBrain, seen } from '../graphs/shared'
 import type { CellSpec, GraphArmBackend, MultishotArmBackend } from './arms'
 
 /** Per-shot scripted outcome; the last entry repeats for later shots. */
@@ -113,6 +113,8 @@ export interface GraphCapture {
   readonly spawnedProfiles: AgentProfile[]
   /** Every spawn's task payload, in spawn order — shot 1 must be the cell task verbatim. */
   readonly spawnedTasks: unknown[]
+  /** How many turns the reviewer brain took; each one is metered `{5,5}`. */
+  readonly driverTurns: () => number
 }
 
 /** Scripted graph backend for one cell: the leaf settles each shot per the script, and the
@@ -151,21 +153,29 @@ export function offlineGraphBackend(
         },
       ],
     })
-    // A delivered shot produces two bus events (settle, then its verify report). The final
-    // over-cap spawn of a non-converging script is REFUSED, so it awaits nothing.
+    // A delivered shot produces two bus events (settle, then its verify report); the reviewer
+    // ends its turn and is woken with them. The final over-cap spawn of a non-converging script
+    // is REFUSED, so it waits for nothing.
     if (shot <= cell.shots) {
-      turns.push({ toolCalls: [{ name: 'await_event', arguments: {} }] })
-      turns.push({ toolCalls: [{ name: 'await_event', arguments: {} }] })
+      turns.push({
+        content: 'waiting for the verify report',
+        until: seen('"analyst":"verify"', shot),
+      })
     }
   }
   turns.push({ content: 'done' })
+  const brain = meteredScriptedBrain(turns)
+  let driverTurns = 0
   return {
     backend: {
       kind: 'seam',
       makeLeafAgent,
-      brain: meteredScriptedBrain(turns),
+      brain: async (messages, tools, context) => {
+        driverTurns += 1
+        return brain(messages, tools, context)
+      },
       shotPassed: offlineShotPassed,
     },
-    capture: { spawnedProfiles, spawnedTasks },
+    capture: { spawnedProfiles, spawnedTasks, driverTurns: () => driverTurns },
   }
 }

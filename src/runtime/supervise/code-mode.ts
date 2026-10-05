@@ -45,7 +45,7 @@ import type {
 /** The coordination verbs callable in code, and the `context.verbs` member each maps to. */
 const CODE_CALLABLE_VERBS = {
   spawn_worker: 'spawnAgent',
-  await_event: 'awaitEvent',
+  await_settlement: 'awaitSettlement',
   steer_agent: 'steerAgent',
   observe_agent: 'observeAgent',
   list_questions: 'listQuestions',
@@ -54,6 +54,19 @@ const CODE_CALLABLE_VERBS = {
   read_journal: 'readJournal',
   define_analyst: 'defineAnalyst',
 } as const
+
+/** A program that spawns may join what it spawned. Not an MCP tool: a manager waits by ending its
+ *  turn, and only code inside one call needs to wait in place. */
+const AWAIT_SETTLEMENT_FACE: CoordinationToolFace = Object.freeze({
+  name: 'await_settlement',
+  description:
+    'Wait until at least one of the named workers has settled; returns { settled: [ids] }. Read each output with observe_agent. Takes nothing from your inbox, so you still hear of each settlement when you are woken.',
+  inputSchema: {
+    type: 'object',
+    properties: { workerIds: { type: 'array', items: { type: 'string' } } },
+    required: ['workerIds'],
+  },
+})
 
 /** The manager's own lifecycle verbs — never callable from code; `search` names them and why. */
 const LIFECYCLE_VERBS = ['submit_result', 'stop', 'ask_parent'] as const
@@ -274,10 +287,14 @@ export function codeModeSupervisorTools(
     )
   }
 
-  const faces = (context: SupervisorToolInvocationContext): ReadonlyArray<CoordinationToolFace> =>
-    context
+  const faces = (context: SupervisorToolInvocationContext): ReadonlyArray<CoordinationToolFace> => {
+    const granted = context
       .coordinationTools()
       .filter((tool) => (CODE_CALLABLE_VERBS as Record<string, unknown>)[tool.name] !== undefined)
+    return granted.some((tool) => tool.name === 'spawn_worker')
+      ? [...granted, AWAIT_SETTLEMENT_FACE]
+      : granted
+  }
 
   return () => [
     {

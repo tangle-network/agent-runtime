@@ -29,7 +29,7 @@ const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
 const task = 'deliver one settled result'
 const rootProfile = testAgentProfile('fork-root', {
   prompt: { systemPrompt: 'Delegate once, wait, then stop.' },
-  tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+  tools: runtimeToolDeclarations('spawn_worker', 'stop'),
 })
 const change: AgentProfileDiff = {
   kind: 'agent-profile-diff',
@@ -242,7 +242,7 @@ function run(runDir: string, runId: string, overrides: Record<string, unknown> =
     runDir,
     budget,
     perWorker,
-    driveHarness,
+    driveHarness: delegateOnce(),
     makeWorkerAgent: () => deliveringLeaf('worker'),
     ...options,
   })
@@ -317,14 +317,18 @@ async function jsonRpc(url: string, method: string, params: unknown): Promise<vo
   if (body.error || body.result?.isError) throw new Error(JSON.stringify(body))
 }
 
-const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-    name: 'spawn_worker',
-    arguments: { profile: testAgentProfile('worker'), task: 'deliver', label: 'worker' },
-  })
-  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-    name: 'await_event',
-    arguments: { kinds: ['settled'] },
-  })
-  await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+/** Spawns one worker and ends its turn; the wake that carries its settlement stops. */
+function delegateOnce(): DriveHarness {
+  let drives = 0
+  return async ({ coordinationMcpUrl }) => {
+    drives += 1
+    if (drives === 1) {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: testAgentProfile('worker'), task: 'deliver', label: 'worker' },
+      })
+      return
+    }
+    await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+  }
 }

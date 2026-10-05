@@ -195,6 +195,28 @@ export interface ProviderWorkspaceCaptureResult {
   readonly incompleteReason?: string
 }
 
+/**
+ * Where one workspace capture's time went: the wait for a slot of the port's queue, which every
+ * recursive environment shares, and the capture itself. Reported once per workspace capture, on
+ * success and on failure, so a run records the split instead of leaving it to inference: on
+ * Discovery Lab run terraform-economics-20261005f a turn's result arrived 4 to 28 minutes after its
+ * stream ended, and nothing said how much of that was queue.
+ */
+export interface ProviderWorkspaceCaptureTiming {
+  /** Captures of this port holding or waiting for a slot when this one was requested. */
+  readonly ahead: number
+  /** From the request to the slot being granted, or to the failure when none was granted. */
+  readonly queuedMs: number
+  /** From the slot being granted to the verified archive, or to the failure. Absent when the
+   *  capture never held a slot. */
+  readonly captureMs?: number
+  /** Bytes of the verified workspace archive. */
+  readonly archiveBytes?: number
+  readonly outcome: 'captured' | 'failed'
+  /** Why a failed capture failed, bounded. */
+  readonly error?: string
+}
+
 /** The exact live execution facts supplied to a retention callback. */
 export interface ProviderWorkspaceRetentionContext {
   readonly environment: AgentEnvironment
@@ -286,6 +308,9 @@ function nativeSlots(port: ProviderWorkspaceRetentionPort): CaptureSlots {
   return key
 }
 
+// Captures of one port that hold or wait for a slot, read as `ahead` by the next request.
+const capturesInFlight = new WeakMap<CaptureSlots, number>()
+
 async function withCaptureSlot<T>(
   port: CaptureSlots,
   signal: AbortSignal,
@@ -309,17 +334,67 @@ async function withCaptureSlot<T>(
   }
 }
 
+/** Count one capture of `port` in flight until `work` settles, and say how many were ahead. */
+function trackCapture<T>(port: CaptureSlots, work: (ahead: number) => Promise<T>): Promise<T> {
+  const ahead = capturesInFlight.get(port) ?? 0
+  capturesInFlight.set(port, ahead + 1)
+  return work(ahead).finally(() => {
+    capturesInFlight.set(port, Math.max(0, (capturesInFlight.get(port) ?? 1) - 1))
+  })
+}
+
 /**
  * Capture, require durable refs, and verify every returned manifest/archive byte.
  * `native` calls {@link ProviderWorkspaceRetentionPort.captureNative} under its own queue and
- * bound, and judges coverage by the sessions alone.
+ * bound, and judges coverage by the sessions alone. `onTiming` receives the queue wait and the
+ * capture time of a workspace capture once it settles, whether it succeeded or failed.
  */
 export async function captureProviderWorkspaceSnapshot(
   port: ProviderWorkspaceRetentionPort,
   context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
   scope: 'environment' | 'native' = 'environment',
+  onTiming?: (timing: ProviderWorkspaceCaptureTiming) => void,
 ): Promise<ProviderWorkspaceCaptureResult> {
   assertProviderWorkspaceRetentionPort(port, 'provider workspace retention')
+  if (scope === 'native' || onTiming === undefined) {
+    return await captureWithinSlot(port, context, scope)
+  }
+  return await trackCapture(port, async (ahead) => {
+    const requestedAt = Date.now()
+    let grantedAt: number | undefined
+    const report = (timing: Omit<ProviderWorkspaceCaptureTiming, 'ahead' | 'queuedMs'>): void => {
+      const settledAt = Date.now()
+      try {
+        onTiming({
+          ahead,
+          queuedMs: (grantedAt ?? settledAt) - requestedAt,
+          ...(grantedAt === undefined ? {} : { captureMs: settledAt - grantedAt }),
+          ...timing,
+        })
+      } catch {
+        // An observer that throws must not change the capture's outcome.
+      }
+    }
+    try {
+      const captured = await captureWithinSlot(port, context, scope, () => {
+        grantedAt = Date.now()
+      })
+      report({ outcome: 'captured', archiveBytes: captured.snapshot.archive.byteLength })
+      return captured
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      report({ outcome: 'failed', error: message.slice(0, 1_000) })
+      throw error
+    }
+  })
+}
+
+async function captureWithinSlot(
+  port: ProviderWorkspaceRetentionPort,
+  context: Omit<ProviderWorkspaceRetentionContext, 'signal'>,
+  scope: 'environment' | 'native',
+  onGranted?: () => void,
+): Promise<ProviderWorkspaceCaptureResult> {
   const native = scope === 'native'
   if (native && port.captureNative === undefined) {
     throw new ValidationError('provider workspace retention: the port has no captureNative')
@@ -351,6 +426,7 @@ export async function captureProviderWorkspaceSnapshot(
     const snapshot = await runAbortable(
       () =>
         withCaptureSlot(native ? nativeSlots(port) : port, controller.signal, async () => {
+          onGranted?.()
           // Detach before any asynchronous artifact read. The callback owns its return object and
           // could otherwise mutate the manifest or archive references while verification is in flight.
           const input = {

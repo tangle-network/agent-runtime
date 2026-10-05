@@ -104,6 +104,13 @@ export interface Agent<Task, Out> {
     | HarnessTranscriptCapture
     | undefined /** Forwarded the same way: resolves once {@link harnessTranscript} is final (see `Executor`). */
   harnessTranscriptSettled?(): Promise<void>
+  /**
+   * True once this agent's result is committed: its completion check accepted a submission and
+   * the coordination record holds it. `act` then resolves with that result once the turn that
+   * submitted it has ended, so an abort that arrives after acceptance waits for it, bounded,
+   * instead of discarding it (see `Executor.resultAccepted`).
+   */
+  resultAccepted?(): boolean
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
@@ -288,6 +295,15 @@ export interface Executor<Out> {
    * Never rejects. An executor whose transcript is final when `execute` ends omits it.
    */
   harnessTranscriptSettled?(): Promise<void>
+  /**
+   * True once this execution's result is committed and `execute` will resolve with it: a
+   * manager whose completion check accepted its submission. The scope does not settle such a node
+   * `down` when its deadline or an abort arrives while the accepted turn is still ending; it waits
+   * for `execute` to resolve, and the executor bounds that wait itself. Measured on Discovery Lab
+   * run terraform-economics-20261005f: 5 of 20 nodes with accepted results were settled `down` by
+   * deadlines that fell while their turns were still ending.
+   */
+  resultAccepted?(): boolean
 }
 
 /** Why Runtime cannot provide structured tool-call evidence for one settled execution. */
@@ -1194,9 +1210,8 @@ export interface Scope<Out> {
    * predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
    * the pool's hard wall-clock ceiling — a wait never extends a budget guard).
    *
-   * NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 45s fence makes
-   * the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
-   * and nothing about it survives a restart. See `supervise/wait.ts`.
+   * NOT a manager's wake: that is an in-run rendezvous on the coordination bus in a process that
+   * must stay up, and nothing about it survives a restart. See `supervise/wait.ts`.
    */
   wait(
     spec: WaitSpec,
@@ -1380,7 +1395,7 @@ export interface NodeSnapshot {
   readonly spent: Spend
   /**
    * The node's executor has FINISHED and its settlement is queued for the manager to drain with
-   * `await_event`/`next()`, but `status` still reads as it did while running because the settle
+   * its next wake/`next()`, but `status` still reads as it did while running because the settle
    * transition happens at drain time. Present only in that window; absent once drained or while
    * the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
    * can tell "still working" from "finished, waiting for you to read it".
@@ -1886,6 +1901,28 @@ export type SpawnEvent =
       sourceEnvironmentId: string
       verified: boolean
       detail?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** One end-of-turn workspace capture of this node's environment and where its time went.
+       *  Captures queue on one port that every recursive environment shares, so `queuedMs` is
+       *  the wait behind other nodes' captures and `captureMs` the capture and its verification.
+       *  Informational, like `workspace-checkpoint`; `seq` counts this node's records. */
+      kind: 'workspace-capture'
+      id: NodeId
+      /** The Runtime invocation the capture belongs to. */
+      executionId: string
+      environmentId: string
+      /** Captures holding or waiting for a slot when this one was requested. */
+      ahead: number
+      queuedMs: number
+      /** Absent when the capture never held a slot. */
+      captureMs?: number
+      /** Bytes of the verified workspace archive. */
+      archiveBytes?: number
+      outcome: 'captured' | 'failed'
+      error?: string
       seq: number
       at: string
     }

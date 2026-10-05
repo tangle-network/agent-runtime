@@ -59,6 +59,7 @@ function scopeWithSettledChild(): Scope<unknown> {
   return {
     spawn: () => ({ ok: false as const, reason: 'budget-exhausted' as const }),
     next: async () => null,
+    nextResolved: async () => null,
     send: () => false,
     get view() {
       return { root: 'root', nodes, inFlight: 0 }
@@ -206,9 +207,13 @@ describe('define_analyst', () => {
       'tool-thrash',
     ])
 
-    // Record-only: a manager's own action never lands in the inbox it pulls from.
-    const awaited = await tool(tb, 'await_event').handler({ kinds: ['finding'] })
-    expect(JSON.stringify(awaited)).not.toContain('analyst-defined')
+    // Record-only: a manager's own action never lands in the inbox its wake delivers.
+    const woken = await tb.awaitWake({
+      signal: new AbortController().signal,
+      heartbeatMs: 20,
+      debounceMs: 0,
+    })
+    expect(woken?.events).toEqual([])
   })
 
   it('the same words always produce the same digest; different words never do', async () => {

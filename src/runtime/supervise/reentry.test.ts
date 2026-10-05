@@ -19,7 +19,7 @@ describe('composeReentryTask', () => {
     const task = composeReentryTask({
       originalTask: 'Fetch the holder token and submit it.',
       contract: 'an object {token}',
-      tools: ['submit_result', 'read_journal', 'await_event', 'observe_agent'],
+      tools: ['submit_result', 'read_journal', 'observe_agent'],
       reentry: { reason: 'driver-failure', failure: 'Sandbox not found', retry: 1 },
       continuity: {
         session: 'new',
@@ -105,5 +105,32 @@ describe('composeReentryTask', () => {
     expect(task).toContain('What is still unmet:')
     expect(task).toContain('Submit the product packet.')
     expect(task).toContain('Workers running: none.')
+  })
+
+  it('sends only the wake input into a proven-continuous session', () => {
+    const input = '1 event arrived. You waited 3 min without spending a turn.'
+    const task = composeReentryTask({
+      originalTask: 'Fetch the holder token and submit it.',
+      reentry: { reason: 'wake', input, wake: 1 },
+      continuity: { session: 'continued', environment: 'same', workspace: 'kept' },
+      state,
+      attempt: 2,
+    })
+    expect(task).toBe(input)
+  })
+
+  it('carries the objective and what woke it into a session it cannot prove', () => {
+    const input = '2 events arrived. You waited 1 min without spending a turn.'
+    const task = composeReentryTask({
+      originalTask: 'Fetch the holder token and submit it.',
+      reentry: { reason: 'wake', input, wake: 2 },
+      continuity: { session: 'new', environment: 'same', workspace: 'kept' },
+      state,
+      attempt: 3,
+    })
+    expect(task).toContain('Your previous turn ended while your workers ran')
+    expect(task).toContain('Fetch the holder token and submit it.')
+    expect(task).toContain(`## What woke you\n\n${input}`)
+    expect(task).toContain('Workers running: run:s1 (verifier, running)')
   })
 })

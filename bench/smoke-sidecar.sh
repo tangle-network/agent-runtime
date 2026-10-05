@@ -39,9 +39,9 @@ curl -s -X POST "$URL" -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spawn_worker","arguments":{"profile":{"name":"smoke-worker"},"task":"echo SMOKE_WORKER_RAN"}}}'
 echo
 sleep 6
-echo "=== await_event ==="
+echo "=== observe_agent ==="
 curl -s -X POST "$URL" -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"await_event","arguments":{}}}' | head -c 800
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"observe_agent","arguments":{"workerId":"tb-supervisor-sidecar:s0"}}}' | head -c 800
 echo
 
 echo "=== stop sidecar (SIGTERM) -> dumps final ledger ==="

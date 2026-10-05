@@ -1,6 +1,6 @@
 /**
  *
- * Serve the coordination verbs (spawn_worker / await_event / observe_agent / steer_agent / stop)
+ * Serve the coordination verbs (spawn_worker / observe_agent / steer_agent / submit_result / stop)
  * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
  * agent (opencode via the cli-bridge, claude-code, codex) BE the supervisor: it mounts this MCP
  * (`mcp.mcpServers.coordination`) and calls `spawn_worker` as a native tool, which lands on
@@ -34,7 +34,6 @@ import {
   type CoordinationEvent,
   type CoordinationTools,
   createCoordinationToolsForManager,
-  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   type DefinedAnalystRecord,
   type EscalateQuestion,
   type MakeWorkerAgent,
@@ -199,20 +198,21 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
  */
 const DELIVERABLE_VERB = 'submit_result'
 
+/** The longest any coordination call holds its response, whatever the request timeout: under the
+ *  60 s MCP tool-call timeout Claude Code and Codex apply by default. */
+const RESPONSE_FENCE_CAP_MS = 45_000
+
 /**
- * The longest one coordination call holds its HTTP response before it answers with a re-pollable
- * pending result instead: `await_event` by default, and `submit_result` and every method-supplied
- * node tool always.
+ * The longest a fenced coordination call (`submit_result` and every method-supplied node tool)
+ * holds its HTTP response before it answers with a receipt instead. The call keeps running, and
+ * its outcome reaches the manager in its next wake.
  *
  * It is half of `requestTimeoutMs`, so the answer leaves before the transport's own 504 at
- * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization.
- * Deriving it here means a configured request timeout moves both fences with it. It is capped at
- * {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS} so a long request timeout does not lengthen each wait; at
- * the default 90 s request timeout both values are 45 s, under the 60 s MCP tool-call timeout that
- * Claude Code and Codex apply by default.
+ * `requestTimeoutMs`, with the other half left for body transfer, admission, and serialization,
+ * and at most {@link RESPONSE_FENCE_CAP_MS}.
  */
 export function coordinationResponseFenceMs(requestTimeoutMs: number): number {
-  return Math.max(1, Math.min(DEFAULT_AWAIT_EVENT_TIMEOUT_MS, Math.floor(requestTimeoutMs / 2)))
+  return Math.max(1, Math.min(RESPONSE_FENCE_CAP_MS, Math.floor(requestTimeoutMs / 2)))
 }
 
 /** Stand up the existing coordination tools with bounded HTTP access over one live scope. */
@@ -227,18 +227,13 @@ export async function serveCoordinationMcp(
     perWorker: Budget
     /** Independent completion check exposed to the driver as `submit_result`. The check runs
      *  inside that call, so the call is served single-flight and fenced like `nodeTools`: a check
-     *  still running at the fence returns a pending result, and an identical resubmission joins
-     *  that check and returns its verdict. */
+     *  still running at the fence returns a receipt, and the verdict reaches the manager in its
+     *  next wake. */
     deliverable?: DeliverableSpec<unknown>
     /** Serve `read_continuation` from the manager's continuation records. */
     readContinuation?: (continuation: number | undefined) => unknown
     /** Called once when the external manager accepts a result or declares completion. */
     onStop?: (reason: string | undefined) => void
-    /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
-     *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
-     *  the `coordinationResponseFenceMs` derived from the request timeout; `<= 0` = prior unbounded
-     *  block (in-process only). */
-    awaitTimeoutMs?: number
     /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
     analysts?: AnalystRegistry
     /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
@@ -275,7 +270,8 @@ export async function serveCoordinationMcp(
     /** Product-selected tools already bound to this exact supervisor node. They share this server
      *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
      *  Each is served single-flight and fenced (`./single-flight-tools`): an identical call joins
-     *  the unreturned run, and a call still running at the fence returns a pending result. */
+     *  the running call, and a call still running at the fence returns a receipt whose outcome
+     *  reaches the manager in its next wake. */
     nodeTools?: ReadonlyArray<McpToolDescriptor>
     /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
      *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
@@ -315,7 +311,10 @@ export async function serveCoordinationMcp(
     /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
      *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
      *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
-    onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
+    onCoordinationTools?: (
+      tools: ReadonlyArray<McpToolDescriptor>,
+      coordination: Pick<CoordinationTools, 'awaitSettlement'>,
+    ) => void
   },
 ): Promise<CoordinationMcpHandle> {
   return (await serveCoordinationMcpForManager(opts)).handle
@@ -462,7 +461,6 @@ export async function serveCoordinationMcpForManager(
       ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
       ...(opts.readContinuation ? { readContinuation: opts.readContinuation } : {}),
       ...(opts.onStop ? { onStop: opts.onStop } : {}),
-      awaitTimeoutMs: opts.awaitTimeoutMs ?? responseFenceMs,
       ...(opts.analysts ? { analysts: opts.analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
       ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
@@ -506,15 +504,18 @@ export async function serveCoordinationMcpForManager(
     }
     reservedNames.add(tool.name)
   }
-  const nodeTools = singleFlightTools(opts.nodeTools ?? [], { fenceMs: responseFenceMs })
+  const nodeTools = singleFlightTools(opts.nodeTools ?? [], {
+    fenceMs: responseFenceMs,
+    receipts: coord,
+  })
   // `submit_result` runs the injected completion check inside its request, and a product check can
   // re-run a build and a model review for minutes. Unfenced, the transport answered 504 at
   // `requestTimeoutMs` while the check kept running, so the manager never saw the verdict or its
-  // reason: 25 of 25 submits in one 2026-09-22 factory run. Fenced, the call answers pending and an
-  // identical resubmission collects the verdict from the same check instead of starting another.
+  // reason: 25 of 25 submits in one 2026-09-22 factory run. Fenced, the call answers with a receipt
+  // and the verdict reaches the manager in its next wake, from the same check.
   const fencedVerbs = singleFlightTools(
     coord.tools.filter((tool) => tool.name === DELIVERABLE_VERB),
-    { fenceMs: responseFenceMs },
+    { fenceMs: responseFenceMs, receipts: coord },
   )
   // A rename in src/mcp/tools/coordination.ts must fail here, not leave the check unfenced and bring
   // back the 504. The test is the one that passed the deliverable to the coordination tools above.
@@ -556,7 +557,7 @@ export async function serveCoordinationMcpForManager(
   // Before the listener opens: a node tool invoked on the first request must already be able to
   // call these verbs. Read back the server's ordered set so every consumer records the exact MCP
   // surface.
-  opts.onCoordinationTools?.([...mcp.tools.values()])
+  opts.onCoordinationTools?.([...mcp.tools.values()], coord)
 
   const server: Server = createServer(
     coordinationHttpHandler({

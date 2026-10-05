@@ -116,7 +116,6 @@ describe('continuation instructions agree with the served coordination capabilit
     for (const note of tasks.slice(1)) {
       expect(note).not.toContain('submit_result')
       expect(note).not.toContain('read_journal')
-      expect(note).not.toContain('await_event')
       expect(note).not.toContain('observe_agent')
       expect(note).toContain('This run cannot certify product success.')
     }
@@ -131,7 +130,7 @@ describe('continuation instructions agree with the served coordination capabilit
     const root = supervisorAgent(
       testAgentProfile('checked-root', {
         harness: 'pi',
-        tools: runtimeToolDeclarations('submit_result', 'read_journal', 'await_event'),
+        tools: runtimeToolDeclarations('submit_result', 'read_journal'),
       }),
       {
         blobs,
@@ -143,16 +142,16 @@ describe('continuation instructions agree with the served coordination capabilit
           drives += 1
           tasks.push(String(task))
           expect(listedToolNames(await rpc(coordinationMcpUrl, 'tools/list', {}))).toEqual([
-            'await_event',
             'read_journal',
             'submit_result',
           ])
-          for (const name of ['read_journal', 'await_event']) {
-            const reply = await rpc(coordinationMcpUrl, 'tools/call', { name, arguments: {} })
-            expect(reply).toHaveProperty('result')
-            expect(reply).not.toHaveProperty('error')
-            expect(reply).not.toMatchObject({ result: { isError: true } })
-          }
+          const reply = await rpc(coordinationMcpUrl, 'tools/call', {
+            name: 'read_journal',
+            arguments: {},
+          })
+          expect(reply).toHaveProperty('result')
+          expect(reply).not.toHaveProperty('error')
+          expect(reply).not.toMatchObject({ result: { isError: true } })
           if (drives === 2) {
             await rpc(coordinationMcpUrl, 'tools/call', {
               name: 'submit_result',
@@ -175,7 +174,6 @@ describe('continuation instructions agree with the served coordination capabilit
     expect(drives).toBe(2)
     expect(tasks[1]).toContain('submit_result')
     expect(tasks[1]).toContain('read_journal')
-    expect(tasks[1]).toContain('await_event')
     expect(checks).toBe(1)
   })
 })

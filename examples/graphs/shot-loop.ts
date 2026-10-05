@@ -21,7 +21,7 @@ import {
   promptHandle,
 } from '@tangle-network/agent-runtime/kernel'
 import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
-import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain, seen } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -42,7 +42,6 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
           ...offlineProfile('reviewer', 'Verify.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
       },
@@ -82,9 +81,9 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
           },
         ],
       },
-      // Shot 1 settles, then its verify report lands: two bus events.
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      // Shot 1 settles, then its verify report lands: two bus events. The driver ends its turn
+      // and is woken with them; it re-briefs once the report is in.
+      { content: 'waiting for the verify report', until: seen('"fromWorker":"shots:s0"') },
       {
         toolCalls: [
           {
@@ -96,8 +95,7 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the verify report', until: seen('"fromWorker":"shots:s1"') },
       { content: 'done' },
     ]),
   }

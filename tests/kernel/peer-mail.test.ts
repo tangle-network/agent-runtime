@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { CoordinationEvent, WorkerSpawnContext } from '../../src/mcp/tools/coordination'
-import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
+import { serveCoordinationMcpForManager } from '../../src/runtime/supervise/coordination-mcp'
 import { createInbox } from '../../src/runtime/supervise/inbox'
 import {
   createPeerMailbox,
@@ -130,7 +130,7 @@ async function runTwoSiblings(
   const driver: Agent<unknown, unknown> = {
     name: 'mail-driver',
     async act(_task, scope: Scope<unknown>) {
-      const mcp = await serveCoordinationMcp({
+      const { handle: mcp, controls } = await serveCoordinationMcpForManager({
         scope,
         blobs,
         makeWorkerAgent: (profile, context) => {
@@ -140,7 +140,7 @@ async function runTwoSiblings(
           return scriptedWorker(name, context, script)
         },
         perWorker: { maxIterations: 4, maxTokens: 1000 },
-        toolNames: ['spawn_worker', 'await_event'],
+        toolNames: ['spawn_worker'],
         peerMail: limits ? { limits } : true,
         onEvent: (event) => {
           events.push(event)
@@ -161,10 +161,13 @@ async function runTwoSiblings(
           }
           workerIds.push(structured.workerId)
         }
-        // Drain both settlements so every worker's script has finished before we read the log.
-        for (let i = 0; i < workerIds.length; i += 1) {
-          await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} })
+        // Wake until nothing is open, so every worker's script has finished before we read the log.
+        const wakeInput = {
+          signal: new AbortController().signal,
+          heartbeatMs: 60_000,
+          debounceMs: 0,
         }
+        while (await controls.awaitWake(wakeInput)) {}
         await mcp.drainResolved()
         outcome = { mail: mcp.mailHistory(), events: [...events], workerIds }
         return undefined

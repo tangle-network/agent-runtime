@@ -9,18 +9,16 @@
  *
  * Two rules close that failure:
  * - Identity. A call joins an existing invocation when its tool name and its RFC 8785 canonical
- *   arguments match, and that invocation has not yet returned its outcome to a caller. The handler
- *   is not invoked again. Key order does not matter: the observed retry reordered every key.
- * - Fence. A call waits at most `fenceMs` for the outcome. If the handler is still running, the call
- *   returns a non-error pending result. A later identical call keeps waiting, then returns the value
- *   or throws the handler's error once the handler settles.
+ *   arguments match, and that invocation has not yet settled. The handler is not invoked again.
+ *   Key order does not matter: the observed retry reordered every key.
+ * - Fence. A call waits at most `fenceMs` for the outcome. If the handler is still running, the
+ *   call returns a receipt. The handler keeps running, and its outcome is published to the
+ *   manager's inbox, where its next wake delivers it. Nothing has to call again to collect it.
  *
- * An invocation's identity ends when a call returns its outcome. The next identical call is a fresh
- * run, because equal arguments do not make a call a replay. Code mode's `execute` and Knowledge's
+ * An invocation's identity ends when its handler settles. The next identical call is a fresh run,
+ * because equal arguments do not make a call a replay: code mode's `execute` and Knowledge's
  * `knowledge_search` read live state, so their callers repeat identical arguments to get a current
  * answer. A handler that finishes within the fence therefore behaves exactly as it did unwrapped.
- * No escape hatch is needed: the only calls this absorbs are ones whose caller could not have seen
- * the outcome.
  */
 
 import { canonicalCandidateJson } from '@tangle-network/agent-interface'
@@ -39,14 +37,28 @@ interface Invocation {
   outcome: Outcome | undefined
   /** Calls currently inside their fence for this invocation. */
   waiting: number
+  /** Set when a call's fence elapsed first: the outcome then goes to the inbox under it. */
+  receipt: string | undefined
 }
 
-/** The non-error answer for a call whose handler is still running when its fence elapses. */
-export interface PendingToolCall {
-  readonly pending: true
+/** The answer for a call whose handler is still running when its fence elapses. */
+export interface ToolCallReceipt {
+  readonly running: true
+  readonly receipt: string
   readonly tool: string
   readonly elapsedMs: number
   readonly instruction: string
+}
+
+/** Where a receipted call's outcome goes: the manager's inbox (`CoordinationTools`). */
+export interface ToolReceiptSink {
+  openToolReceipt(tool: string): string
+  settleToolReceipt(
+    receipt: string,
+    outcome:
+      | { readonly ok: true; readonly value: unknown }
+      | { readonly ok: false; readonly error: unknown },
+  ): Promise<void>
 }
 
 export interface SingleFlightTools {
@@ -58,18 +70,22 @@ export interface SingleFlightTools {
 
 export function singleFlightTools(
   tools: ReadonlyArray<McpToolDescriptor>,
-  options: { readonly fenceMs: number; readonly now?: () => number },
+  options: {
+    readonly fenceMs: number
+    readonly receipts: ToolReceiptSink
+    readonly now?: () => number
+  },
 ): SingleFlightTools {
-  const { fenceMs } = options
+  const { fenceMs, receipts } = options
   if (!Number.isSafeInteger(fenceMs) || fenceMs <= 0) {
     throw new ValidationError('singleFlightTools: fenceMs must be a positive safe integer')
   }
   const now = options.now ?? Date.now
   // One registry per coordination server, which serves exactly one manager scope. Driver retries
-  // and re-prompts reuse that server, so a re-entered harness joins the run it already started.
+  // and re-entries reuse that server, so a re-entered harness joins the run it already started.
   const invocations = new Map<string, Invocation>()
 
-  const start = (tool: McpToolDescriptor, raw: unknown): Invocation => {
+  const start = (tool: McpToolDescriptor, raw: unknown, key: string): Invocation => {
     const invocation: Invocation = {
       startedAt: now(),
       // An async wrapper turns a synchronous throw into a recorded failure, like a rejection.
@@ -85,7 +101,20 @@ export function singleFlightTools(
       ),
       outcome: undefined,
       waiting: 0,
+      receipt: undefined,
     }
+    void invocation.settled.then(async (outcome) => {
+      if (invocations.get(key) === invocation) invocations.delete(key)
+      if (invocation.receipt !== undefined) {
+        await receipts.settleToolReceipt(invocation.receipt, outcome).catch((error: unknown) => {
+          console.error('Runtime could not publish a receipted tool outcome', {
+            tool: tool.name,
+            receipt: invocation.receipt,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
+    })
     return invocation
   }
 
@@ -96,7 +125,7 @@ export function singleFlightTools(
         const key = invocationKey(tool.name, raw)
         let invocation = invocations.get(key)
         if (invocation === undefined) {
-          invocation = start(tool, raw)
+          invocation = start(tool, raw, key)
           invocations.set(key, invocation)
         }
         if (invocation.outcome === undefined) {
@@ -108,9 +137,10 @@ export function singleFlightTools(
           }
         }
         const outcome = invocation.outcome
-        if (outcome === undefined) return pendingToolCall(tool.name, now() - invocation.startedAt)
-        // This call returns the outcome, so the invocation's identity ends here.
-        if (invocations.get(key) === invocation) invocations.delete(key)
+        if (outcome === undefined) {
+          invocation.receipt ??= receipts.openToolReceipt(tool.name)
+          return toolCallReceipt(tool.name, invocation.receipt, now() - invocation.startedAt)
+        }
         if (outcome.ok) return outcome.value
         throw outcome.error
       },
@@ -139,14 +169,14 @@ function invocationKey(name: string, raw: unknown): string {
   }
 }
 
-function pendingToolCall(tool: string, elapsedMs: number): PendingToolCall {
+function toolCallReceipt(tool: string, receipt: string, elapsedMs: number): ToolCallReceipt {
   return {
-    pending: true,
+    running: true,
+    receipt,
     tool,
     elapsedMs,
     instruction:
-      `${tool} is still running; nothing failed. Call ${tool} again with the same arguments to ` +
-      'keep waiting. That call joins this run and returns its result, or its error, once it ' +
-      'finishes. Different arguments start a separate run.',
+      `${tool} is still running; nothing failed. Do not call it again: its result arrives with ` +
+      `receipt ${receipt} when you are next woken. Continue other work, or end your turn to wait.`,
   }
 }

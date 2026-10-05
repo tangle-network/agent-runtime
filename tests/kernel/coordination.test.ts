@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { registry } from 'zod'
 import { createMcpServer } from '../../src/mcp/server'
 import {
+  type AwaitWakeInput,
   type CoordinationEvent,
   canonicalFindingEvent,
   createCoordinationTools,
@@ -116,6 +117,7 @@ function mockScope({ children = true }: { readonly children?: boolean } = {}) {
         : { ok: false as const, reason: refusal }
     },
     next: async () => null,
+    nextResolved: async () => null,
     send: (id: string, msg: unknown) => {
       if (id === 'w0') {
         sent.push({ id, msg })
@@ -146,6 +148,39 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
   if (!t) throw new Error(`no tool ${name}`)
   return t
 }
+
+/** A scope whose cursor yields these settlements, once each, then reports no live child. */
+function settlingScope<S extends { next: unknown; nextResolved: unknown }>(
+  scope: S,
+  settlements: unknown[],
+): S {
+  const take = () => Promise.resolve(settlements.shift() ?? null)
+  return { ...scope, next: take, nextResolved: take }
+}
+
+/** A wake input that never waits on a timer unless the test sets one. */
+function wakeInput(over: Partial<AwaitWakeInput> = {}): AwaitWakeInput {
+  return {
+    signal: new AbortController().signal,
+    heartbeatMs: 60_000,
+    debounceMs: 0,
+    ...over,
+  }
+}
+
+const settledWorker = (id: string, extra: Record<string, unknown> = {}) => ({
+  kind: 'done' as const,
+  handle: { id, label: 'w', status: 'done' as const, abort() {} },
+  out: { answer: 1 },
+  outRef: `blob:${id}`,
+  verdict: { valid: true, score: 0.5 },
+  spent: zeroSpend(),
+  trace: noTrace,
+  seq: 0,
+  ...extra,
+})
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 describe('coordination tools', () => {
   it.each([2, 3, 4, 5, 6, 7])(
@@ -856,48 +891,37 @@ describe('coordination tools', () => {
     expect(reads).toEqual(['blob:w1', 'blob:w1', 'blob:w1'])
   })
 
-  it('await_event(settled) drains settlements into the driver ledger', async () => {
-    const { scope } = mockScope()
-    const settlements = [
-      {
-        kind: 'done' as const,
-        handle: { id: 'w7', label: 'w', status: 'done' as const, abort() {} },
-        out: { answer: 42 },
-        outRef: 'blob:w7',
-        verdict: { valid: true, score: 0.83 },
-        spent: zeroSpend(),
-        trace: noTrace,
-        seq: 0,
-      },
-    ]
-    const drainScope = {
-      ...scope,
-      next: () => Promise.resolve(settlements.shift() ?? null),
-    } as typeof scope
+  it('a wake delivers a settlement with no tool call and drains it into the driver ledger', async () => {
+    const { scope } = mockScope({ children: false })
     const tb = createCoordinationTools({
-      scope: drainScope,
+      scope: settlingScope(scope, [
+        settledWorker('w7', { out: { answer: 42 }, verdict: { valid: true, score: 0.83 } }),
+      ]),
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    // Every reply carries `freeSlots` — a settlement is exactly when capacity frees up, so the
-    // reading travels with the event that freed it (`null` here: no cap configured).
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
-      type: 'settled',
-      settled: 'w7',
-      status: 'done',
-      score: 0.83,
-      valid: true,
-      outRef: 'blob:w7',
-      spent: zeroSpend(),
-      trace: noTrace,
-      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
-      eventSeq: 0,
+    // The wake carries the event, the workers still running, and `freeSlots` — a settlement is
+    // exactly when capacity frees up (`null` here: no cap configured).
+    expect(await tb.awaitWake(wakeInput())).toEqual({
+      reason: 'events',
+      events: [
+        {
+          type: 'settled',
+          settled: 'w7',
+          status: 'done',
+          score: 0.83,
+          valid: true,
+          outRef: 'blob:w7',
+          spent: zeroSpend(),
+          trace: noTrace,
+          outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
+          eventSeq: 0,
+        },
+      ],
+      live: [],
       freeSlots: null,
-    })
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
-      idle: true,
-      freeSlots: null,
+      idleMs: expect.any(Number),
     })
     expect(tb.settled()).toMatchObject([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
@@ -905,12 +929,14 @@ describe('coordination tools', () => {
     // This hand-rolled scope supplied no durable terminal timestamp. Missing stays missing; the
     // coordination layer never invents a read-time value that would change on replay.
     expect(tb.settled()[0]?.settledAt).toBeUndefined()
+    // Delivered once: with nothing open, the next wake has nothing to deliver.
+    expect(tb.hasOpenWork()).toBe(false)
+    expect(await tb.awaitWake(wakeInput())).toBeUndefined()
   })
 
-  it('await_event bounds the block: { pending, live } while a worker runs, then pulls the settlement once it lands', async () => {
+  it('a wake blocks with no model turn while a worker runs, then delivers its settlement once it lands', async () => {
     const { scope } = mockScope()
-    // A cursor that stays blocked until we release it — models a live worker mid-run, the case where
-    // the unbounded await outlived the MCP request timeout and surfaced as a hard tool error.
+    // A cursor that stays blocked until we release it — a live worker mid-run.
     let release!: () => void
     const gate = new Promise<void>((r) => {
       release = r
@@ -930,37 +956,18 @@ describe('coordination tools', () => {
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      awaitTimeoutMs: 30,
     })
 
-    // The drain is still blocked → the bounded wait returns a re-pollable liveness snapshot, never a
-    // hang and never an error. `live` names the worker(s) still in flight (w0 is running in the mock).
-    const pending = (await tool(tb, 'await_event').handler({ kinds: ['settled'] })) as {
-      pending?: boolean
-      live?: Array<{ id: string }>
-    }
-    expect(pending.pending).toBe(true)
-    expect(pending.live?.map((w) => w.id)).toContain('w0')
+    const wake = tb.awaitWake(wakeInput())
+    // Nothing has happened, so the wait holds: it neither returns nor errors.
+    expect(await Promise.race([wake, sleep(40).then(() => 'still waiting')])).toBe('still waiting')
 
-    // The worker settles after the bound. The SAME in-flight drain publishes it to the bus, so a
-    // later await_event pulls it — a settlement that lands after the fence is not lost.
-    settlement = {
-      kind: 'done' as const,
-      handle: { id: 'w0', label: 'w', status: 'done' as const, abort() {} },
-      out: { answer: 1 },
-      outRef: 'blob:w0',
-      verdict: { valid: true, score: 0.5 },
-      spent: zeroSpend(),
-      trace: noTrace,
-      seq: 0,
-    }
+    settlement = settledWorker('w0')
     release()
-    let got: { type?: string; settled?: string; status?: string } = {}
-    for (let i = 0; i < 50; i++) {
-      got = (await tool(tb, 'await_event').handler({ kinds: ['settled'] })) as typeof got
-      if (got.type === 'settled') break
-    }
-    expect(got).toMatchObject({ type: 'settled', settled: 'w0', status: 'done' })
+    expect(await wake).toMatchObject({
+      reason: 'events',
+      events: [{ type: 'settled', settled: 'w0', status: 'done' }],
+    })
   })
 
   it('blocks stop under failClosed until a parent question is answered', async () => {
@@ -1168,15 +1175,14 @@ describe('coordination tools', () => {
     expect(analystCalls).toBe(0)
   })
 
-  it('await_event bumps a blocking question ahead of a non-blocking one (urgency→priority)', async () => {
-    const { scope } = mockScope()
+  it("a manager's own ask_parent is recorded with its urgency, and never wakes it", async () => {
+    const { scope } = mockScope({ children: false })
     const tb = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    // A low-urgency question is raised first...
     await tool(tb, 'ask_parent').handler({
       from: 'w-a',
       level: 'worker',
@@ -1184,7 +1190,6 @@ describe('coordination tools', () => {
       reason: 'minor',
       urgency: 'continue-without',
     })
-    // ...then a blocking one. It arrives later but must be pulled FIRST.
     await tool(tb, 'ask_parent').handler({
       from: 'w-b',
       level: 'driver',
@@ -1192,29 +1197,21 @@ describe('coordination tools', () => {
       reason: 'blocks the run',
       urgency: 'blocks-run',
     })
-    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toMatchObject({
-      type: 'question',
-      question: { question: 'which API version?', urgency: 'blocks-run' },
-    })
-    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toMatchObject({
-      type: 'question',
-      question: { question: 'nice-to-know?' },
-    })
+    // The question already went up through the escalation; its answer arrives as a lead message.
+    // Nothing else is open, so ending the turn is not a wait.
+    expect(tb.hasOpenWork()).toBe(false)
+    expect(await tb.awaitWake(wakeInput())).toBeUndefined()
     // The history audit trail recorded both, in publish order, with the bumped priority stamped.
-    // Each ask_parent also writes its escalation outcome (record-only, priority 0).
     expect(
       tb
         .history()
         .filter((r) => r.event.type === 'question')
         .map((r) => r.priority),
     ).toEqual([0, 20])
-    expect(tb.stats()).toMatchObject({
-      pulled: 2,
-      byKind: { question: 2, escalation: 2 },
-    })
+    expect(tb.stats()).toMatchObject({ byKind: { question: 2, escalation: 2 } })
   })
 
-  it('steer_agent routes down + records in history but is never pulled back', async () => {
+  it('steer_agent routes down + records in history but is never delivered back', async () => {
     const { scope, sent } = mockScope()
     const emitted: CoordinationEvent[] = []
     const tb = createCoordinationTools({
@@ -1287,8 +1284,12 @@ describe('coordination tools', () => {
       outcome: 'unknown-worker',
       delivered: false,
     })
-    // ...but the parent never pulls its own outbound messages back.
-    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true, freeSlots: null })
+    // ...but the parent never receives its own outbound messages back: the worker is still
+    // running, and the heartbeat is the only thing that wakes it.
+    expect(await tb.awaitWake(wakeInput({ heartbeatMs: 20 }))).toMatchObject({
+      reason: 'heartbeat',
+      events: [],
+    })
   })
 
   it('authorizes and commits the exact continuation before delivery', async () => {
@@ -1381,24 +1382,16 @@ describe('coordination tools', () => {
     ])
   })
 
-  it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {
-    const { scope } = mockScope()
+  it('analyze-on-settle auto-runs lenses and a wake surfaces settled + finding', async () => {
+    const { scope } = mockScope({ children: false })
     const settlements = [
-      {
-        kind: 'done' as const,
-        handle: { id: 'w7', label: 'w', status: 'done' as const, abort() {} },
+      settledWorker('w7', {
         out: { diff: '...' },
-        outRef: 'blob:w7',
         verdict: { valid: false, score: 0.1 },
-        spent: zeroSpend(),
         trace: availableTrace,
-        seq: 0,
-      },
+      }),
     ]
-    const drainScope = {
-      ...scope,
-      next: () => Promise.resolve(settlements.shift() ?? null),
-    } as typeof scope
+    const drainScope = settlingScope(scope, settlements)
     const emitted: string[] = []
     const tb = createCoordinationTools({
       scope: drainScope,
@@ -1422,31 +1415,31 @@ describe('coordination tools', () => {
       onEvent: (e) => emitted.push(e.type),
     })
 
-    // First pull drains the cursor: returns the settled worker; its analyst fires as a side effect.
-    expect(await tool(tb, 'await_event').handler({})).toEqual({
-      type: 'settled',
-      settled: 'w7',
-      status: 'done',
-      score: 0.1,
-      valid: false,
-      outRef: 'blob:w7',
-      spent: zeroSpend(),
-      trace: availableTrace,
-      outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
-      eventSeq: 0,
-      freeSlots: null,
-    })
-    // The analyze-on-settle finding is now queued; the next pull surfaces it.
-    expect(await tool(tb, 'await_event').handler({})).toEqual({
-      type: 'finding',
-      fromWorker: 'w7',
-      analyst: 'completeness',
-      findings: [{ claim: 'stub left in place' }],
-      eventSeq: 1,
-      freeSlots: null,
-    })
-    // Cursor dry and queue empty → idle.
-    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true, freeSlots: null })
+    // One wake drains the cursor and carries the settled worker; its analyst fires as a side
+    // effect, and the finding rides the same wake.
+    expect((await tb.awaitWake(wakeInput()))?.events).toEqual([
+      {
+        type: 'settled',
+        settled: 'w7',
+        status: 'done',
+        score: 0.1,
+        valid: false,
+        outRef: 'blob:w7',
+        spent: zeroSpend(),
+        trace: availableTrace,
+        outputRead: { tool: 'observe_agent', arguments: { workerId: 'w7' } },
+        eventSeq: 0,
+      },
+      {
+        type: 'finding',
+        fromWorker: 'w7',
+        analyst: 'completeness',
+        findings: [{ claim: 'stub left in place' }],
+        eventSeq: 1,
+      },
+    ])
+    // Cursor dry and queue empty → nothing to wait for.
+    expect(await tb.awaitWake(wakeInput())).toBeUndefined()
     // Pass-through lane saw both events, in order.
     expect(emitted).toEqual(['settled', 'finding'])
   })
@@ -1458,20 +1451,14 @@ describe('coordination tools', () => {
     // same failed-`steer` shape a failed delivery attempt publishes.
     const { scope } = mockScope()
     const settlements = [
-      {
-        kind: 'done' as const,
-        handle: { id: 'w7', label: 'w', status: 'done' as const, abort() {} },
+      settledWorker('w7', {
         out: { diff: '...' },
-        outRef: 'blob:w7',
         verdict: { valid: true, score: 1 },
-        spent: zeroSpend(),
         trace: availableTrace,
-        seq: 0,
-      },
+      }),
     ]
     const drainScope = {
-      ...scope,
-      next: () => Promise.resolve(settlements.shift() ?? null),
+      ...settlingScope(scope, settlements),
       // One LIVE worker the route can name (by label) — deliberately WITHOUT durable identity.
       view: {
         root: 'root',
@@ -1503,7 +1490,7 @@ describe('coordination tools', () => {
       onEvent: (e) => emitted.push(e),
     })
 
-    expect(await tool(tb, 'await_event').handler({})).toMatchObject({ type: 'settled' })
+    expect((await tb.awaitWake(wakeInput()))?.events[0]).toMatchObject({ type: 'settled' })
     // The settle path SURVIVED the throw, and the failure is a recorded fact, not a silent drop.
     expect(emitted.map((e) => e.type)).toEqual(['settled', 'finding', 'steer'])
     const steer = emitted.find((e) => e.type === 'steer') as Extract<
@@ -1520,24 +1507,10 @@ describe('coordination tools', () => {
     expect(steer.down.instruction).toContain('stub left in place')
   })
 
-  it('retains a settlement when an awaited observer loses its acknowledgement', async () => {
-    const { scope } = mockScope()
-    const settlements = [
-      {
-        kind: 'done' as const,
-        handle: { id: 'w-retry', label: 'w', status: 'done' as const, abort() {} },
-        out: { answer: 1 },
-        outRef: 'blob:w-retry',
-        verdict: { valid: true, score: 0.8 },
-        spent: zeroSpend(),
-        trace: noTrace,
-        seq: 0,
-      },
-    ]
-    const drainScope = {
-      ...scope,
-      next: () => Promise.resolve(settlements.shift() ?? null),
-    } as typeof scope
+  it('retains a settlement when a woken observer loses its acknowledgement', async () => {
+    const { scope } = mockScope({ children: false })
+    const settlements = [settledWorker('w-retry', { verdict: { valid: true, score: 0.8 } })]
+    const drainScope = settlingScope(scope, settlements)
     const stamps: Array<{ seq: number; at: number }> = []
     let loseAcknowledgement = true
     const tb = createCoordinationTools({
@@ -1552,15 +1525,13 @@ describe('coordination tools', () => {
       },
     })
 
-    await expect(tool(tb, 'await_event').handler({})).rejects.toThrow('ack lost after commit')
+    await expect(tb.awaitWake(wakeInput())).rejects.toThrow('ack lost after commit')
     expect(tb.settled()).toEqual([])
     expect(tb.history()).toEqual([])
 
     loseAcknowledgement = false
-    await expect(tool(tb, 'await_event').handler({})).resolves.toMatchObject({
-      type: 'settled',
-      settled: 'w-retry',
-      status: 'done',
+    await expect(tb.awaitWake(wakeInput())).resolves.toMatchObject({
+      events: [{ type: 'settled', settled: 'w-retry', status: 'done' }],
     })
     expect(stamps).toHaveLength(2)
     expect(stamps[1]).toEqual(stamps[0])
@@ -1568,73 +1539,7 @@ describe('coordination tools', () => {
     expect(tb.history()).toHaveLength(1)
   })
 
-  it('await_event with kinds filter waits for a specific message type', async () => {
-    const { scope } = mockScope()
-    const settlements = [
-      {
-        kind: 'done' as const,
-        handle: { id: 'w8', label: 'w', status: 'done' as const, abort() {} },
-        out: {},
-        outRef: 'blob:w8',
-        verdict: { valid: true, score: 1 },
-        spent: zeroSpend(),
-        trace: noTrace,
-        seq: 0,
-      },
-    ]
-    const tb = createCoordinationTools({
-      scope: { ...scope, next: () => Promise.resolve(settlements.shift() ?? null) } as typeof scope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-    })
-    // Asking only for 'settled' drains and returns it.
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
-      type: 'settled',
-      settled: 'w8',
-      valid: true,
-      trace: noTrace,
-    })
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
-      idle: true,
-      freeSlots: null,
-    })
-  })
-
-  it('await_event returns idle when the only live event mismatches the kinds filter', async () => {
-    const { scope } = mockScope()
-    const settlements = [
-      {
-        kind: 'done' as const,
-        handle: { id: 'w9', label: 'w', status: 'done' as const, abort() {} },
-        out: {},
-        outRef: 'blob:w9',
-        verdict: { valid: true, score: 1 },
-        spent: zeroSpend(),
-        trace: noTrace,
-        seq: 0,
-      },
-    ]
-    const tb = createCoordinationTools({
-      scope: { ...scope, next: () => Promise.resolve(settlements.shift() ?? null) } as typeof scope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-    })
-    // A worker is settle-able, but the driver only wants questions: await_event drains the cursor
-    // (progress was made → not idle) WITHOUT leaking the settled event to a question-only pull.
-    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toEqual({
-      idle: false,
-      freeSlots: null,
-    })
-    // The drained settled event was queued, not lost — a caller that asks for it still gets it.
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
-      settled: 'w9',
-      trace: noTrace,
-    })
-  })
-
-  it('an ONLINE detector raises a finding on the bus that the driver pulls (the live pipe → bus chain)', async () => {
+  it('an ONLINE detector raises a finding on the bus that the driver is woken with (the live pipe → bus chain)', async () => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -1653,17 +1558,10 @@ describe('coordination tools', () => {
     record({ toolName: 'grep', args: { q: 'x' } })
     record({ toolName: 'grep', args: { q: 'x' } })
     record({ toolName: 'grep', args: { q: 'x' } })
-    // The driver pulls the finding off the bus mid-run — no need to wait for settle.
-    const ev = (await tool(tb, 'await_event').handler({ kinds: ['finding'] })) as {
-      type: string
-      fromWorker: string
-      analyst: string
-    }
-    expect(ev).toMatchObject({
-      type: 'finding',
-      fromWorker: 'w0',
-      analyst: 'online:repeated-action',
-    })
+    // The driver is woken with the finding mid-run — no need to wait for settle.
+    expect((await tb.awaitWake(wakeInput()))?.events).toMatchObject([
+      { type: 'finding', fromWorker: 'w0', analyst: 'online:repeated-action' },
+    ])
   })
 
   it('createMcpServer serves coordination tools alongside built-ins; a shadow throws', () => {
@@ -1690,6 +1588,213 @@ describe('coordination tools', () => {
         ],
       }),
     ).toThrow(/shadows a built-in/)
+  })
+})
+
+describe('a manager that ends its turn waits in Runtime and is woken', () => {
+  it('coalesces events that land within the debounce while other workers still run', async () => {
+    const { scope } = mockScope()
+    const settlements = [settledWorker('w7')]
+    // `onEvent` sends a steer 20 ms after the settlement lands: inside the 150 ms debounce.
+    let tb!: ReturnType<typeof createCoordinationTools>
+    tb = createCoordinationTools({
+      scope: {
+        ...scope,
+        next: () =>
+          settlements.length > 0
+            ? sleep(10).then(() => settlements.shift())
+            : new Promise<never>(() => undefined),
+      } as unknown as typeof scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (event) => {
+        if (event.type === 'settled') {
+          setTimeout(() => void tb.receiveLeadMessage({ steer: 'still there?' }), 20)
+        }
+      },
+    })
+    const wake = await tb.awaitWake(wakeInput({ debounceMs: 150 }))
+    expect(wake?.events.map((event) => event.type)).toEqual(['settled', 'lead-message'])
+    expect(wake?.idleMs).toBeGreaterThanOrEqual(140)
+    // Everything rode one wake: the steer is not left for another.
+    expect(tb.stats()).toMatchObject({ pulled: 2 })
+  })
+
+  it('does not hold the debounce when no other worker runs, because nothing else is coming', async () => {
+    const { scope } = mockScope({ children: false })
+    const tb = createCoordinationTools({
+      scope: settlingScope(scope, [settledWorker('w7')]),
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const wake = await tb.awaitWake(wakeInput({ debounceMs: 10_000 }))
+    expect(wake?.events).toMatchObject([{ type: 'settled', settled: 'w7' }])
+    expect(wake?.idleMs).toBeLessThan(5_000)
+  })
+
+  it('wakes with no events on the heartbeat, so a waiting manager can reconsider', async () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const wake = await tb.awaitWake(wakeInput({ heartbeatMs: 25 }))
+    expect(wake).toMatchObject({ reason: 'heartbeat', events: [], live: [{ id: 'w0' }] })
+    expect(wake?.idleMs).toBeGreaterThanOrEqual(20)
+    // A heartbeat delivered nothing, so there is nothing to acknowledge.
+    expect(tb.stats()).toMatchObject({ pulled: 0 })
+  })
+
+  it('wakes with reason deadline when the deadline warning comes due, ahead of the heartbeat', async () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const wake = await tb.awaitWake(wakeInput({ heartbeatMs: 60_000, deadlineAt: Date.now() + 25 }))
+    expect(wake).toMatchObject({ reason: 'deadline', events: [], live: [{ id: 'w0' }] })
+    expect(wake?.idleMs).toBeLessThan(5_000)
+  })
+
+  it('returns undefined when no work is open, and when the signal aborts', async () => {
+    const idle = createCoordinationTools({
+      scope: mockScope({ children: false }).scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(idle.hasOpenWork()).toBe(false)
+    expect(await idle.awaitWake(wakeInput())).toBeUndefined()
+
+    // A worker is running, so the wait would hold until the abort ends it.
+    const busy = createCoordinationTools({
+      scope: mockScope().scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(busy.hasOpenWork()).toBe(true)
+    const abort = new AbortController()
+    const wake = busy.awaitWake(wakeInput({ signal: abort.signal }))
+    await sleep(20)
+    abort.abort()
+    expect(await wake).toBeUndefined()
+  })
+
+  it('queues a steer from the lead as a lead-message event that a waiting wake delivers', async () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    // A long heartbeat: the message itself ends the wait, not the heartbeat.
+    const wake = tb.awaitWake(wakeInput({ heartbeatMs: 500 }))
+    await sleep(20)
+    expect(tb.receiveLeadMessage({ steer: 'focus on the proof', interrupt: true })).toBe(true)
+    const woken = await wake
+    expect(woken).toMatchObject({
+      reason: 'events',
+      events: [
+        { type: 'lead-message', kind: 'steer', text: 'focus on the proof', interrupt: true },
+      ],
+    })
+    expect(woken?.idleMs).toBeLessThan(400)
+
+    // An answer keeps the question it answers.
+    expect(tb.receiveLeadMessage({ answer: 'use v2', questionId: 'q-1' })).toBe(true)
+    expect((await tb.awaitWake(wakeInput()))?.events).toMatchObject([
+      { type: 'lead-message', kind: 'answer', text: 'use v2', questionId: 'q-1', interrupt: false },
+    ])
+
+    // Anything that is neither is refused, and queues nothing.
+    expect(tb.receiveLeadMessage({ note: 'hello' })).toBe(false)
+    expect(tb.receiveLeadMessage('hello')).toBe(false)
+  })
+
+  it('treats a queued lead message as open work, so a manager that ended its turn is woken', async () => {
+    const { scope } = mockScope({ children: false })
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(tb.hasOpenWork()).toBe(false)
+    expect(tb.receiveLeadMessage({ steer: 'change course' })).toBe(true)
+    await sleep(5)
+    expect(tb.hasOpenWork()).toBe(true)
+    expect((await tb.awaitWake(wakeInput()))?.events).toMatchObject([
+      { type: 'lead-message', kind: 'steer', text: 'change course', interrupt: false },
+    ])
+    expect(tb.hasOpenWork()).toBe(false)
+  })
+
+  it('awaitSettlement waits for the named workers and leaves their settlements in the inbox', async () => {
+    const node = (id: string, status: 'running' | 'done') => ({
+      id,
+      label: id,
+      status,
+      runtime: 'router',
+      budget: { maxIterations: 1, maxTokens: 10 },
+      spent: zeroSpend(),
+    })
+    const nodes = [node('w7', 'running'), node('w8', 'running')]
+    const { scope } = mockScope()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let drained = false
+    const tb = createCoordinationTools({
+      scope: {
+        ...scope,
+        get view() {
+          return { root: 'root', nodes, inFlight: 2 }
+        },
+        next: async () => {
+          if (drained) return new Promise<never>(() => undefined)
+          await gate
+          drained = true
+          nodes[0] = node('w7', 'done')
+          return settledWorker('w7')
+        },
+      } as unknown as typeof scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+
+    // No named worker is live or settled: nothing to wait for.
+    expect(await tb.awaitSettlement(['nobody'])).toEqual([])
+
+    const waiting = tb.awaitSettlement(['w7'])
+    expect(await Promise.race([waiting, sleep(30).then(() => 'still waiting')])).toBe(
+      'still waiting',
+    )
+    release()
+    expect(await waiting).toEqual(['w7'])
+    expect(tb.settled()).toMatchObject([{ id: 'w7', status: 'done' }])
+    // Already settled: it answers at once.
+    expect(await tb.awaitSettlement(['w7', 'w8'])).toEqual(['w7'])
+
+    // Nothing was taken from the inbox: the manager is still woken with the settlement.
+    expect((await tb.awaitWake(wakeInput()))?.events).toMatchObject([
+      { type: 'settled', settled: 'w7', status: 'done' },
+    ])
+
+    // An abort ends a wait on a worker that never settles.
+    const abort = new AbortController()
+    const never = tb.awaitSettlement(['w8'], abort.signal)
+    abort.abort(new Error('stopped'))
+    await expect(never).rejects.toThrow('stopped')
   })
 })
 

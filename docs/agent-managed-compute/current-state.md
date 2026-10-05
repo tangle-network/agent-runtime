@@ -33,7 +33,7 @@ They do not establish distributed recovery, secure remote use, or production per
 | Area | Implementation | Honest capability |
 |---|---|---|
 | Recursive execution | `src/runtime/supervise/types.ts`, `scope.ts`, `supervisor.ts` | A driver can start child agents recursively under one budget and depth limit. |
-| Agent-facing coordination | `src/mcp/tools/coordination.ts` | A driver can call `spawn_worker`, `observe_agent`, `steer_agent`, `await_event`, `ask_parent`, and `stop`. |
+| Agent-facing coordination | `src/mcp/tools/coordination.ts` | A driver can call `spawn_worker`, `observe_agent`, `steer_agent`, `ask_parent`, and `stop`; it waits by ending its turn, and Runtime wakes it with what happened. |
 | Native MCP transport | `src/runtime/supervise/coordination-mcp.ts` | A local agent runner can call coordination actions over HTTP. |
 | Driver reasoning | `src/runtime/supervise/coordination-driver.ts` | A model can choose coordination actions dynamically. |
 | Child execution | `Executor` and `createExecutor` | Router, bridge, CLI, sandbox, worktree, and custom implementations share one execution contract. |

@@ -29,6 +29,7 @@ import type {
   AuthorizeDownMessage,
   ContinuityMode,
   CoordinationEvent,
+  CoordinationTools,
   EscalateQuestion,
   MakeWorkerAgent,
   SpawnPreflight,
@@ -77,6 +78,7 @@ import {
   enforceTokenLimits,
   profileModelExecutionSettings,
 } from './model-policy'
+import { isLiveNodeStatus } from './node-status'
 import type { PeerMailLimits } from './peer-mail'
 import type { ExecutorProgress } from './progress'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
@@ -105,6 +107,12 @@ import type {
   ResultBlobStore,
   Scope,
 } from './types'
+import {
+  composeWakeInput,
+  deadlineWarningAt,
+  type ManagerWakePolicy,
+  resolveWakePolicy,
+} from './wake'
 import { observeWorkerControls } from './worker-control-observer'
 
 /** Runtime-owned coordination is mounted under this MCP alias. */
@@ -132,6 +140,9 @@ export function runtimeToolDeclarationError(
   mountedStaticToolNames: ReadonlyArray<string> = [],
 ): string | undefined {
   const mountedStaticToolNameSet = new Set(mountedStaticToolNames)
+  if (declaredRuntimeToolNames(profile).includes('await_event')) {
+    return `the profile declares ${JSON.stringify(`${coordinationProfileToolPrefix}await_event`)}, which no longer exists: a manager ends its turn to wait, and Runtime wakes it with what happened. Remove the grant`
+  }
   const unresolved = declaredRuntimeToolNames(profile).filter(
     (name) =>
       !coordinationVerbNameSet.has(name) &&
@@ -308,7 +319,9 @@ export type SupervisorNodeContextSeed = Omit<SupervisorNodeContext, 'nodeId' | '
  */
 export interface CoordinationVerbs {
   spawnAgent(args: unknown): Promise<unknown>
-  awaitEvent(args: unknown): Promise<unknown>
+  /** Wait in code until at least one of `{ workerIds }` has settled; returns `{ settled: ids }`.
+   *  Takes nothing from the manager's inbox, so the manager still hears of each settlement. */
+  awaitSettlement(args: unknown): Promise<unknown>
   steerAgent(args: unknown): Promise<unknown>
   observeAgent(args: unknown): Promise<unknown>
   listQuestions(args: unknown): Promise<unknown>
@@ -356,11 +369,15 @@ export interface CoordinationToolFace {
 interface VerbSlot {
   readonly verbs: CoordinationVerbs
   readonly descriptors: () => ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
-  bind(tools: ReadonlyArray<McpToolDescriptor>): void
+  bind(
+    tools: ReadonlyArray<McpToolDescriptor>,
+    coordination: Pick<CoordinationTools, 'awaitSettlement'>,
+  ): void
 }
 
 function createVerbSlot(): VerbSlot {
   let bound: ReadonlyArray<McpToolDescriptor> | undefined
+  let waits: Pick<CoordinationTools, 'awaitSettlement'> | undefined
   const verb =
     (name: string) =>
     async (args: unknown): Promise<unknown> => {
@@ -380,7 +397,18 @@ function createVerbSlot(): VerbSlot {
   return {
     verbs: Object.freeze({
       spawnAgent: verb('spawn_worker'),
-      awaitEvent: verb('await_event'),
+      awaitSettlement: async (args: unknown): Promise<unknown> => {
+        if (waits === undefined) {
+          throw new ValidationError(
+            'supervisorAgent: coordination verb "awaitSettlement" was called before this manager\'s coordination tools were bound',
+          )
+        }
+        const ids = (args as { workerIds?: unknown } | undefined)?.workerIds
+        if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && id.length > 0)) {
+          throw new ValidationError('awaitSettlement: workerIds must be an array of worker ids')
+        }
+        return { settled: await waits.awaitSettlement(ids as string[]) }
+      },
       steerAgent: verb('steer_agent'),
       observeAgent: verb('observe_agent'),
       listQuestions: verb('list_questions'),
@@ -401,8 +429,9 @@ function createVerbSlot(): VerbSlot {
         ),
       )
     },
-    bind(tools): void {
+    bind(tools, coordination): void {
       bound = tools
+      waits = coordination
     },
   }
 }
@@ -429,7 +458,7 @@ export type ObserveSupervisorNodeEvent = (
 /** How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
  *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  *  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- *  so the harness calls spawn_worker / await_event / stop as native tools over the live scope. */
+ *  so the harness calls spawn_worker / observe_agent / submit_result as native tools over the live scope. */
 export interface DriveHarness {
   (args: {
     /** The exact provider-visible projection. Runtime-owned coordination tool declarations are
@@ -571,9 +600,9 @@ export interface SupervisorAgentDeps {
   readonly watchWorkers?: WorkerWatchOptions
   /** Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default. */
   readonly stallAfterMs?: number
-  /** Router-driver arm only: max ms one `await_event` blocks before returning `{ pending }`. The
-   *  harness arm keeps the fence derived from its MCP request timeout. Omit = runtime default. */
-  readonly awaitTimeoutMs?: number
+  /** How Runtime wakes this manager after it ends a turn with work open (both arms). Omit = the
+   *  defaults in `./wake`. */
+  readonly wake?: ManagerWakePolicy
   /** Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
    *  that name to the node's latest settled worker; `spawn_worker`'s per-call `continuity`
    *  overrides. Omit = every spawn fresh (status quo). */
@@ -874,7 +903,7 @@ function buildSupervisorAgent(
         ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
-        ...(deps.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: deps.awaitTimeoutMs } : {}),
+        ...(deps.wake !== undefined ? { wake: deps.wake } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
@@ -890,7 +919,9 @@ function buildSupervisorAgent(
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(priorCoordination ? { priorCoordination } : {}),
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
-        ...(slot ? { onCoordinationTools: (tools) => slot.bind(tools) } : {}),
+        ...(slot
+          ? { onCoordinationTools: (tools, coordination) => slot.bind(tools, coordination) }
+          : {}),
         ...(deps.controlDir === undefined ? {} : { controlDir: deps.controlDir }),
         ...(deps.steerDir === undefined ? {} : { steerDir: deps.steerDir }),
         ...(deps.controlScope === undefined ? {} : { controlScope: deps.controlScope }),
@@ -939,17 +970,31 @@ function buildSupervisorAgent(
     )
   }
   const deliverReady = rawDeliverReady?.bind(driveHarness)
+  const wakePolicy = resolveWakePolicy(deps.wake)
+  // Set while `act` runs: where a message from this manager's lead goes. A harness with a live
+  // inbox takes it inside the running turn; otherwise it is the input of the manager's next wake.
+  // Before, a manager on an executor with no inbox refused every steer as `runtime-has-no-inbox`.
+  let managerInbox: ((message: unknown) => boolean) | undefined
+  // The workers this manager is waiting on, while it waits between turns.
+  let waitingOn: number | undefined
+  // The coordinator of the running `act`. Its submission is set only once the accepted result is
+  // durable, so it is what `resultAccepted` reads.
+  let liveCoordinator: { submittedResult(): unknown } | undefined
   const externalAgent: Agent<unknown, unknown> = {
     name,
-    ...(deliver
-      ? {
-          deliver(message: unknown): boolean {
-            return deliver(message)
-          },
-        }
-      : {}),
+    deliver(message: unknown): boolean {
+      return managerInbox?.(message) ?? false
+    },
+    resultAccepted: () => Boolean(liveCoordinator?.submittedResult()),
     traceSource: () => driveHarness.traceSource?.(),
-    progress: () => driveHarness.progress?.(),
+    progress: () => {
+      const harnessProgress = driveHarness.progress?.()
+      if (waitingOn === undefined) return harnessProgress
+      return {
+        ...harnessProgress,
+        note: `waiting for ${waitingOn} worker${waitingOn === 1 ? '' : 's'}; Runtime wakes it when one reports`,
+      }
+    },
     // Present only when the harness has a transcript port, so an absent one still settles as
     // `executor-exposes-no-transcript` rather than as a capture that did not run.
     ...(driveHarness.harnessTranscript
@@ -1080,7 +1125,7 @@ function buildSupervisorAgent(
             : {}),
           ...(nodeTools?.length ? { nodeTools } : {}),
           toolNames: runtimeToolNames,
-          onCoordinationTools: (tools) => slot.bind(tools),
+          onCoordinationTools: (tools, coordination) => slot.bind(tools, coordination),
         },
         coordinationLifetime.signal,
       ).catch((error: unknown) => {
@@ -1088,6 +1133,18 @@ function buildSupervisorAgent(
         throw error
       })
       ledger = mcp
+      liveCoordinator = mcp
+      managerInbox = (message) => {
+        if (
+          deliver !== undefined &&
+          harnessInvocationActive &&
+          (deliverReady === undefined || deliverReady()) &&
+          deliver(message)
+        ) {
+          return true
+        }
+        return controls.receiveLeadMessage(message)
+      }
       const coordinationTools = slot.descriptors()
       const providerProfile = detachedSnapshot(
         providerVisibleProfile(stableProfile),
@@ -1107,10 +1164,10 @@ function buildSupervisorAgent(
               ? {}
               : {
                   deliverRoot: (message: { steer: string; interrupt: boolean }) =>
-                    deliver?.(message) ?? false,
-                  deliverRootReady: () =>
-                    deliver === undefined ||
-                    (harnessInvocationActive && (deliverReady === undefined || deliverReady())),
+                    managerInbox?.(message) ?? false,
+                  // Between turns a root steer is the input of the next wake, so it is always
+                  // deliverable once the coordinator exists.
+                  deliverRootReady: () => true,
                 }),
             onError: (error) => {
               coordinationLifetime.abort(error)
@@ -1256,6 +1313,8 @@ function buildSupervisorAgent(
           }
         }
         const loopRecords: DriverAttemptRecord[] = []
+        let deadlineWarned = false
+        const managerStartedAt = Date.now()
         let environmentReplacements = 0
         let workspaceRestores = 0
         const describe = deps.deliverable?.describe
@@ -1347,7 +1406,8 @@ function buildSupervisorAgent(
               }
               // Decide this parent's completion before the retry loop reads progress. Cache the
               // checked candidate so neither the finalizer nor its oracle runs twice on return.
-              if (contractDeclared && !mcp.submittedResult()) {
+              // A turn that ended with work open is a wait: the manager decides when it is done.
+              if (contractDeclared && !mcp.submittedResult() && !controls.hasOpenWork()) {
                 await mcp.drainResolved()
                 candidate = await finalize()
                 if (candidate === undefined && !mcp.isStopped()) await readCheckAtTurnEnd(attempt)
@@ -1356,6 +1416,47 @@ function buildSupervisorAgent(
             progress: readProgress,
             budget: () => scope.budget,
             signal: scope.signal,
+            wait: {
+              open: () =>
+                !mcp.submittedResult() &&
+                !mcp.isStopped() &&
+                progressStopReason === undefined &&
+                controls.hasOpenWork(),
+              wake: async (nextAttempt) => {
+                const deadlineMs = scope.budget.deadlineMs
+                const warnAt = deadlineWarningAt(
+                  deadlineMs,
+                  wakePolicy,
+                  deadlineWarned,
+                  managerStartedAt,
+                )
+                waitingOn = scope.view.nodes.filter(
+                  (node) => node.id !== scope.view.root && isLiveNodeStatus(node.status),
+                ).length
+                try {
+                  const wake = await controls.awaitWake({
+                    attempt: nextAttempt,
+                    // A stop (accepted result, stop rule, report_blocked) ends the wait too.
+                    signal: AbortSignal.any([scope.signal, stopController.signal]),
+                    heartbeatMs: wakePolicy.heartbeatMs,
+                    debounceMs: wakePolicy.debounceMs,
+                    ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
+                  })
+                  if (wake === undefined || stopController.signal.aborted) return undefined
+                  if (wake.reason === 'deadline') deadlineWarned = true
+                  return {
+                    input: composeWakeInput(wake, {
+                      tools: runtimeToolNames,
+                      deadlineMs,
+                      now: Date.now(),
+                    }),
+                    idleMs: wake.idleMs,
+                  }
+                } finally {
+                  waitingOn = undefined
+                }
+              },
+            },
             ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
             ...(continuation !== undefined && keeper !== undefined && continuationDeadlineMs
               ? {
@@ -1432,6 +1533,7 @@ function buildSupervisorAgent(
         })
         throw error
       } finally {
+        managerInbox = undefined
         coordinationLifetime.abort(new Error('supervisor manager stopped'))
         try {
           await controlObserver?.close()

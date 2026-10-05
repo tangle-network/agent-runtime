@@ -40,7 +40,20 @@ interface ChatMessage {
   readonly tool_call_id?: string
 }
 
-/** A scripted Router brain. A manager at `level` spawns FANOUT children, then awaits each one. */
+/** The settlements a manager's wakes have delivered so far: each is one `"type":"settled"` event. */
+function settlementsWoken(messages: ReadonlyArray<ChatMessage>): Set<string> {
+  const settled = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== 'user') continue
+    for (const match of String(message.content).matchAll(/"settled":"([^"]+)"/gu)) {
+      settled.add(match[1] as string)
+    }
+  }
+  return settled
+}
+
+/** A scripted Router brain. A manager at `level` spawns FANOUT children, then ends its turn until
+ *  its wakes have delivered each one. */
 function treeBrain(depth: number, calls: { count: number }) {
   return async (body: Record<string, unknown>) => {
     calls.count += 1
@@ -60,12 +73,7 @@ function treeBrain(depth: number, calls: { count: number }) {
     for (const message of messages) {
       for (const call of message.tool_calls ?? []) callNames.set(call.id, call.function.name)
     }
-    const settled = messages.filter(
-      (message) =>
-        message.role === 'tool' &&
-        callNames.get(message.tool_call_id ?? '') === 'await_event' &&
-        /"status":"(done|down)"/u.test(String(message.content)),
-    ).length
+    const settled = settlementsWoken(messages).size
     const spawned = [...callNames.values()].filter((name) => name === 'spawn_worker').length
     if (spawned === 0) {
       const leafLevel = level + 1 === depth
@@ -91,18 +99,7 @@ function treeBrain(depth: number, calls: { count: number }) {
         })),
       })
     }
-    if (settled < FANOUT) {
-      return reply({
-        content: null,
-        tool_calls: [
-          {
-            id: `await-${level}-${settled}-${calls.count}`,
-            type: 'function',
-            function: { name: 'await_event', arguments: '{}' },
-          },
-        ],
-      })
-    }
+    if (settled < FANOUT) return reply({ content: `level ${level} is waiting for its team` })
     return reply({ content: `manager at level ${level} done` })
   }
 }
@@ -136,7 +133,7 @@ describe('one tree scales to depth and width', () => {
         name: 'root',
         harness: 'cli-base',
         model,
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'cancel_worker'),
+        tools: runtimeToolDeclarations('spawn_worker', 'cancel_worker'),
       },
       'level=0',
       {
@@ -145,8 +142,8 @@ describe('one tree scales to depth and width', () => {
         router,
         backend: { backend: 'router', ...router },
         workerSlots: slots,
+        wake: { debounceMs: 0 },
         deliverable: { check: () => true, describe: 'any answer' },
-        awaitTimeoutMs: 60_000,
         journal,
         blobs: new InMemoryResultBlobStore(),
         runId: 'tree-scaling',
@@ -193,7 +190,7 @@ describe('one tree scales to depth and width', () => {
         name: 'root',
         harness: 'cli-base',
         model,
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       },
       'level=0',
       {
@@ -201,8 +198,8 @@ describe('one tree scales to depth and width', () => {
         router,
         backend: { backend: 'router', ...router },
         inheritSpawnRights: false,
+        wake: { debounceMs: 0 },
         deliverable: { check: () => true, describe: 'any answer' },
-        awaitTimeoutMs: 60_000,
         journal,
         blobs: new InMemoryResultBlobStore(),
         runId: 'tree-scaling-off',
@@ -216,14 +213,13 @@ describe('one tree scales to depth and width', () => {
 })
 
 /**
- * A scripted brain for a wide fleet: every manager spawns `fanout` children in one turn, then reads
- * their settlements `batch` at a time with `await_event({ max })`, and counts each receipt once by
- * its workerId. Leaves answer after a short wait so the tree really runs them concurrently.
+ * A scripted brain for a wide fleet: every manager spawns `fanout` children in one turn, then ends
+ * its turn until its wakes have delivered every settlement, counting each by its workerId. Leaves
+ * answer after a short wait so the tree really runs them concurrently.
  */
 function fleetBrain(
   fanout: number,
   depth: number,
-  batch: number,
   turns: Map<number, number>,
   leaves: { live: number; peak: number },
 ) {
@@ -251,14 +247,7 @@ function fleetBrain(
     for (const message of messages) {
       for (const call of message.tool_calls ?? []) names.set(call.id, call.function.name)
     }
-    const settled = new Set<string>()
-    for (const message of messages) {
-      if (message.role !== 'tool' || names.get(message.tool_call_id ?? '') !== 'await_event')
-        continue
-      for (const match of String(message.content).matchAll(/"settled":"([^"]+)"/gu)) {
-        settled.add(match[1] as string)
-      }
-    }
+    const settled = settlementsWoken(messages)
     if (![...names.values()].includes('spawn_worker')) {
       const leafLevel = level + 1 === depth
       return reply({
@@ -285,20 +274,7 @@ function fleetBrain(
         })),
       })
     }
-    if (settled.size < fanout) {
-      // A real brain thinks for a while between reads, and more workers settle meanwhile.
-      await new Promise((resolve) => setTimeout(resolve, 100))
-      return reply({
-        content: null,
-        tool_calls: [
-          {
-            id: `await-${level}-${names.size}`,
-            type: 'function',
-            function: { name: 'await_event', arguments: JSON.stringify({ max: batch }) },
-          },
-        ],
-      })
-    }
+    if (settled.size < fanout) return reply({ content: `level ${level} is waiting for its team` })
     return reply({ content: `manager at level ${level} read ${settled.size} results` })
   }
 }
@@ -310,7 +286,7 @@ describe('a fleet of hundreds of agents runs on the defaults', () => {
     const router = {
       routerBaseUrl: 'http://offline.invalid/v1',
       routerKey: 'offline',
-      complete: fleetBrain(20, 2, 50, turns, leaves),
+      complete: fleetBrain(20, 2, turns, leaves),
     }
     const journal = new InMemorySpawnJournal()
     const result = await supervise(
@@ -318,7 +294,7 @@ describe('a fleet of hundreds of agents runs on the defaults', () => {
         name: 'root',
         harness: 'cli-base',
         model,
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       },
       'level=0',
       {
@@ -327,7 +303,6 @@ describe('a fleet of hundreds of agents runs on the defaults', () => {
         router,
         backend: { backend: 'router', ...router },
         deliverable: { check: () => true, describe: 'any answer' },
-        awaitTimeoutMs: 60_000,
         journal,
         blobs: new InMemoryResultBlobStore(),
         runId: 'fleet-defaults',
@@ -346,13 +321,13 @@ describe('a fleet of hundreds of agents runs on the defaults', () => {
     expect(settled.filter((event) => event.status === 'done')).toHaveLength(420)
     // No slot or turn bound held the leaves back: most of the 400 ran at the same time.
     expect(leaves.peak).toBeGreaterThanOrEqual(200)
-    // Each manager read its 20 receipts in batches: well under one turn per receipt.
+    // Each manager was woken with its 20 receipts together: well under one turn per receipt.
     expect(turns.get(1)).toBeLessThan(20 * 20)
   }, 120_000)
 })
 
 describe('a manager with no deadline is still bounded by money', () => {
-  it('stops polling a worker that never settles once it has overdrawn its pool', async () => {
+  it('stops waking for a worker that never settles once it has overdrawn its pool', async () => {
     let turns = 0
     const complete = async (body: Record<string, unknown>) => {
       const tools = ((body.tools as ReadonlyArray<{ function: { name: string } }>) ?? []).map(
@@ -368,27 +343,27 @@ describe('a manager with no deadline is still bounded by money', () => {
         await new Promise(() => undefined)
       }
       turns += 1
-      const name = turns === 1 ? 'spawn_worker' : 'await_event'
-      const args =
-        turns === 1
-          ? {
-              profile: {
-                name: 'hung',
-                harness: 'cli-base',
-                model,
-                tools: { agent_runtime_coordination_spawn_worker: false },
-              },
-              task: 'never finish',
-              budget: { maxIterations: 10, maxTokens: 5_000 },
-            }
-          : {}
+      // Every later turn is a heartbeat wake: the manager reconsiders and waits again.
+      if (turns > 1) return reply({ content: 'still waiting for the worker' })
       return reply({
         content: null,
         tool_calls: [
           {
             id: `call-${turns}`,
             type: 'function',
-            function: { name, arguments: JSON.stringify(args) },
+            function: {
+              name: 'spawn_worker',
+              arguments: JSON.stringify({
+                profile: {
+                  name: 'hung',
+                  harness: 'cli-base',
+                  model,
+                  tools: { agent_runtime_coordination_spawn_worker: false },
+                },
+                task: 'never finish',
+                budget: { maxIterations: 10, maxTokens: 5_000 },
+              }),
+            },
           },
         ],
       })
@@ -399,7 +374,7 @@ describe('a manager with no deadline is still bounded by money', () => {
         name: 'root',
         harness: 'cli-base',
         model,
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       },
       'wait on one worker',
       {
@@ -408,7 +383,7 @@ describe('a manager with no deadline is still bounded by money', () => {
         router,
         backend: { backend: 'router', ...router },
         deliverable: { check: () => true, describe: 'any answer' },
-        awaitTimeoutMs: 5,
+        wake: { heartbeatMs: 5 },
         journal: new InMemorySpawnJournal(),
         blobs: new InMemoryResultBlobStore(),
         runId: 'overdraw-guard',
@@ -470,11 +445,15 @@ describe('a lead takes back what a stalled worker holds', () => {
           seen.refusedForeign = (await call('cancel_worker', { workerId: 'someone-else' })).error
           seen.cancelQueued = (await call('cancel_worker', { workerId: second.workerId })).cancelled
           seen.cancelRunning = (await call('cancel_worker', { workerId: first.workerId })).cancelled
-          const settled = [
-            await call('await_event', { kinds: ['settled'] }),
-            await call('await_event', { kinds: ['settled'] }),
-          ]
-          seen.settled = settled.map((event) => event.status)
+          const workers = [first.workerId, second.workerId] as string[]
+          for (let waiting = workers; waiting.length > 0; ) {
+            const settled = await tools.awaitSettlement(waiting)
+            if (settled.length === 0) break
+            waiting = waiting.filter((id) => !settled.includes(id))
+          }
+          seen.settled = workers.map(
+            (id) => tools.settled().find((worker) => worker.id === id)?.status,
+          )
           seen.freedTokens = scope.budget.tokensLeft
           seen.working = scope.workerCapacity.working
           return 'reclaimed'

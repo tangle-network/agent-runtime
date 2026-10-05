@@ -58,6 +58,8 @@ export interface Inbox {
   /** The `Executor.deliver` implementation. Returns false when the raw message is malformed and
    * therefore was not queued; callers must not acknowledge a message this inbox discarded. */
   deliver(msg: unknown): boolean
+  /** Resolves at the next accepted delivery, so a manager waiting between turns wakes for it. */
+  nextDelivery(): Promise<void>
   /** Remove and return all pending messages (the flush). */
   drain(): InboxMessage[]
   pending(): number
@@ -120,11 +122,20 @@ function renderPeerMail(message: PeerInboxMessage, nonce: string): string {
 export function createInbox(): Inbox {
   const pending: InboxMessage[] = []
   let live: AbortController | null = null
+  let waiters: Array<() => void> = []
   return {
+    nextDelivery() {
+      return new Promise<void>((resolve) => {
+        waiters.push(resolve)
+      })
+    },
     deliver(msg) {
       const m = parseDown(msg)
       if (!m) return false
       pending.push(m)
+      const woken = waiters
+      waiters = []
+      for (const wake of woken) wake()
       // A forceful message aborts the turn currently in flight (if any).
       if (m.interrupt && live && !live.signal.aborted) live.abort()
       return true

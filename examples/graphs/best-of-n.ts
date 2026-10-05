@@ -2,7 +2,8 @@
  * best-of-n — breadth as a topology: one delegates edge per candidate node.
  *
  * Two coder nodes with distinct ids and distinct profiles hang off one root. The driver spawns
- * BOTH in a single turn (`workerSlots: 2` runs them concurrently), awaits both settles, and
+ * BOTH in a single turn (`workerSlots: 2` runs them concurrently), ends its turn to wait for both
+ * settles, and
  * the run keeps the winner — the candidate whose settle passed the deliverable. The edge ledger
  * shows exactly two delivered spawn traversals, one per candidate edge: breadth is two edges in
  * the data, not a fan-out helper in code.
@@ -27,7 +28,6 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
           ...offlineProfile('lead', 'Keep the best.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
       },
@@ -68,8 +68,7 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the candidates' },
       { content: 'done' },
     ]),
   }

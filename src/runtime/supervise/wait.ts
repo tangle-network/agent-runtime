@@ -14,13 +14,12 @@
  *               absolute `timeoutAtMs` passes (CI status, file existence, an HTTP probe, an
  *               inbox message).
  *
- * ── How this differs from `await_event`'s 45s poll fence (`DEFAULT_AWAIT_EVENT_TIMEOUT_MS`) ──
+ * ── How this differs from a manager's wake (`./wake`) ──
  *
- * They look similar and are not the same mechanism. `await_event` is an IN-RUN RENDEZVOUS: the
- * driver blocks on the coordination bus for the next event from a live worker, and the 45s fence
- * exists only so a remote MCP request does not exceed the client's timeout — the caller re-polls.
- * Every re-poll is another driver inference turn (real tokens) against a process that must stay
- * up, and nothing about that wait is recorded: kill the process and the wait is simply gone.
+ * They look similar and are not the same mechanism. A wake is an IN-RUN RENDEZVOUS: a manager
+ * that ends its turn with work open is resumed when the coordination bus delivers its next event.
+ * It costs no model turn, but it lives in a process that must stay up, and nothing about that
+ * wait is recorded: kill the process and the wait is simply gone.
  *
  * A wait-state is a NODE, not a call. It has a node id in the tree, a journal record carrying its
  * ABSOLUTE deadline, and it settles through the same `Scope.next()` cursor as any worker. Nobody

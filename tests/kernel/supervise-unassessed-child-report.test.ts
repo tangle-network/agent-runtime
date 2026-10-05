@@ -13,6 +13,14 @@ import { testContinuation } from '../helpers/continuation'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
+/** The events a woken manager's input lists, in order. A first turn lists none. */
+function wakeEventsIn(prompt: unknown): Array<Record<string, any>> {
+  return String(prompt ?? '')
+    .split('\n')
+    .filter((line) => line.startsWith('- {'))
+    .map((line) => JSON.parse(line.slice(2)) as Record<string, any>)
+}
+
 async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'submitted' | 'failed') {
   const directory = await mkdtemp(join(tmpdir(), 'unassessed-child-report-'))
   const runId = 'child-report'
@@ -29,7 +37,7 @@ async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'subm
     harness: 'claude-code',
     tools:
       mode === 'nested'
-        ? runtimeToolDeclarations('spawn_worker', 'await_event', 'observe_agent')
+        ? runtimeToolDeclarations('spawn_worker', 'observe_agent')
         : runtimeToolDeclarations(mode === 'submitted' ? 'submit_result' : 'observe_agent'),
   })
   const grandchild = testAgentProfile('checked-specialist', {
@@ -37,6 +45,8 @@ async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'subm
     tools: runtimeToolDeclarations('submit_result'),
   })
   let childCheckCalls = 0
+  // A woken manager reattaches its environment through `get`, so each environment keeps its wrapper.
+  const wrappers = new Map<string, (environment: AgentEnvironment) => AgentEnvironment>()
   const provider: AgentEnvironmentProvider = {
     ...base,
     capabilities: async () => ({
@@ -69,27 +79,31 @@ async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'subm
       const isRoot = typeof input.profile !== 'string' && input.profile.name === 'root'
       const isGrandchild =
         typeof input.profile !== 'string' && input.profile.name === grandchild.name
-      const wrap: AgentEnvironment = {
+      const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         dispatch: async (turn) => {
           const dispatched = await environment.dispatch!(turn)
+          // A manager's first turn spawns and ends; its wake lists what its worker reported.
+          const woken = wakeEventsIn(turn.prompt)
           if (isRoot) {
-            await call('spawn_worker', {
-              profile: child,
-              task: 'Investigate and report the evidence.',
-            })
-            const receipt = await call('await_event', { kinds: ['settled'] })
-            receipts.push(receipt)
-            if (receipt.outputRead)
-              reads.push(await call(receipt.outputRead.tool, receipt.outputRead.arguments))
+            if (woken.length === 0) {
+              await call('spawn_worker', {
+                profile: child,
+                task: 'Investigate and report the evidence.',
+              })
+            }
+            for (const receipt of woken.filter((event) => event.type === 'settled')) {
+              receipts.push(receipt)
+              if (receipt.outputRead)
+                reads.push(await call(receipt.outputRead.tool, receipt.outputRead.arguments))
+            }
           } else if (mode === 'submitted' || isGrandchild) {
             await call('submit_result', { result: accepted })
-          } else if (mode === 'nested') {
+          } else if (mode === 'nested' && woken.length === 0) {
             await call('spawn_worker', {
               profile: grandchild,
               task: 'Produce an independently checked answer.',
             })
-            await call('await_event', { kinds: ['settled'] })
           }
           return dispatched
         },
@@ -107,15 +121,21 @@ async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'subm
             }),
           }
         },
-      }
-      return wrap
+      })
+      wrappers.set(environment.id, wrap)
+      return wrap(environment)
+    },
+    get: async (id) => {
+      const environment = await base.get!(id)
+      const wrap = wrappers.get(id)
+      return environment && wrap ? wrap(environment) : environment
     },
   }
   try {
     const result = await supervise(
       testAgentProfile('root', {
         harness: 'claude-code',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'observe_agent'),
+        tools: runtimeToolDeclarations('spawn_worker', 'observe_agent'),
       }),
       'Delegate useful research.',
       {
@@ -129,6 +149,8 @@ async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'subm
         perWorker: { maxIterations: 4, maxTokens: 100 },
         maxDepth: 3,
         driverRetry: { enabled: false },
+        // The deadline here is short; a warning due at once would wake a manager that heard nothing.
+        wake: { deadlineWarningMs: 0 },
         deliverable: { check: (value) => (value as { answer?: unknown })?.answer === 42 },
         continuation: testContinuation({ deadline: 1 }),
         resolveDeliverable: (input) =>
@@ -171,7 +193,7 @@ async function childReportFlow(mode: 'unassessed' | 'nested' | 'checked' | 'subm
   }
 }
 
-describe('managed native child report through parent await_event', () => {
+describe('managed native child report in the parent wake', () => {
   it('retains a direct report as unassessed without making it a checked winner', async () => {
     const flow = await childReportFlow('unassessed')
     expect(flow.persisted).toMatchObject({ content: JSON.stringify(flow.report) })

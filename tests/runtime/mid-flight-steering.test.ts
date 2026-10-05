@@ -24,6 +24,10 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type {
+  AgentEnvironmentEvent,
+  AgentEnvironmentProvider,
+} from '@tangle-network/agent-interface/environment-provider'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { downMessageRefusalReasons } from '../../src/mcp/tools/coordination'
@@ -45,17 +49,11 @@ const rootProfile = {
   harness: 'cli-base' as const,
   model: { provider: 'offline', default: 'offline/supervisor' },
   prompt: { systemPrompt: 'drive one coder and correct it' },
-  tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'steer_agent', 'await_event'),
+  tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'steer_agent'),
 }
 const messageAuthorityRootProfile = {
   ...rootProfile,
-  tools: runtimeToolDeclarations(
-    'spawn_worker',
-    'steer_agent',
-    'ask_parent',
-    'answer_question',
-    'await_event',
-  ),
+  tools: runtimeToolDeclarations('spawn_worker', 'steer_agent', 'ask_parent', 'answer_question'),
 }
 const coderProfile = {
   name: 'coder',
@@ -170,7 +168,7 @@ interface BrainRecord {
 
 /**
  * A REACTIVE brain (not a fixed script): it spawns, waits until the worker is genuinely mid-flight,
- * observes it through `observe_agent`, steers on what it saw, releases the worker, and drains.
+ * observes it through `observe_agent`, steers on what it saw, releases the worker, and ends its turn to wait for it.
  * Reactive because a fixed script cannot prove "observed a running worker" — it could just as
  * easily have run before the worker started or after it settled.
  */
@@ -202,7 +200,7 @@ function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat 
       record.steerResult = parsed as Record<string, unknown>
       // The steer is queued in the worker's inbox; let its held turn finish so it can fold it.
       harness.releaseFirstTurn()
-      return call('await_event', {})
+      return { toolCalls: [], content: 'waiting for the worker' }
     }
     return { toolCalls: [], content: 'done' }
   }
@@ -250,7 +248,7 @@ function missingMessageAuthorityBrain(
     if (turn === 5) {
       record.answer = parsed
       harness.releaseFirstTurn()
-      return call('await_event', {})
+      return { toolCalls: [], content: 'waiting for the worker' }
     }
     return { toolCalls: [], content: 'done' }
   }
@@ -416,5 +414,111 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     expect(harness.actions.length).toBeGreaterThan(0)
     expect(new Set(harness.actions.map((a) => a.file))).toEqual(new Set([WRONG]))
     expect(harness.actions.some((a) => a.file === RIGHT)).toBe(false)
+  })
+  it('shows a lead the harness activity of a running child manager, not an idle executor', async () => {
+    // The provider executor keeps no activity log of its own. A director that was streaming a turn
+    // read `turns: 0`, an idle time counted from its start, and `stalled: true`.
+    let streaming!: () => void
+    const directorStreaming = new Promise<void>((resolve) => {
+      streaming = resolve
+    })
+    let endTurn!: () => void
+    const turnHeld = new Promise<void>((resolve) => {
+      endTurn = resolve
+    })
+    const stallAfterMs = 200
+    const provider: AgentEnvironmentProvider = {
+      name: 'manager-activity-fixture',
+      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+      async create() {
+        return {
+          id: 'env-director',
+          provider: 'manager-activity-fixture',
+          status: async () => 'running',
+          destroy: async () => {},
+          async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+            // Quiet for longer than the stall window, then active just before it is observed.
+            await new Promise((resolve) => setTimeout(resolve, stallAfterMs + 150))
+            yield {
+              type: 'message.part.updated',
+              data: { delta: 'reading the notes', part: { type: 'text' } },
+            } as unknown as AgentEnvironmentEvent
+            yield {
+              type: 'message.part.updated',
+              data: {
+                part: {
+                  type: 'tool',
+                  tool: 'read',
+                  callID: 'call-1',
+                  state: { status: 'completed', input: { filePath: 'notes.md' } },
+                },
+              },
+            } as unknown as AgentEnvironmentEvent
+            streaming()
+            await turnHeld
+            yield { type: 'done', data: { outcome: { type: 'completed' } } }
+          },
+        }
+      },
+    }
+    let observed: Record<string, unknown> | undefined
+    let turn = 0
+    const brain: ToolLoopChat = async (messages) => {
+      turn += 1
+      const lastTool = [...messages]
+        .reverse()
+        .find((m) => (m as { role?: string }).role === 'tool') as { content?: string } | undefined
+      const parsed = lastTool?.content ? safeJson(lastTool.content) : undefined
+      if (turn === 1) {
+        return call('spawn_worker', {
+          profile: {
+            name: 'director',
+            harness: 'codex',
+            model: { provider: 'offline', default: 'offline/director' },
+            tools: runtimeToolDeclarations('spawn_worker'),
+          },
+          task: 'investigate',
+        })
+      }
+      if (turn === 2) {
+        await directorStreaming
+        return call('observe_agent', { workerId: String(parsed?.workerId) })
+      }
+      if (turn === 3) {
+        observed = parsed
+        endTurn()
+        return { toolCalls: [], content: 'waiting for the director' }
+      }
+      return { toolCalls: [], content: 'done' }
+    }
+
+    try {
+      await supervise(rootProfile, 'run the investigation', {
+        budget,
+        backend: { backend: 'provider', provider },
+        coordination: {
+          authentication: true,
+          publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+        },
+        stallAfterMs,
+        driverRetry: { enabled: false },
+        brain,
+      })
+    } finally {
+      endTurn()
+    }
+
+    const progress = observed?.progress as Record<string, unknown> | undefined
+    expect(progress, 'observe_agent returned no progress for a running manager').toBeDefined()
+    expect(progress?.live).toBe(true)
+    // Its own drive's progress events are its activity: the tool it ran and the text it produced.
+    const activity = progress?.recentActivity as Array<{ kind: string; label: string }>
+    expect(activity.map((entry) => `${entry.kind}:${entry.label}`)).toEqual(
+      expect.arrayContaining(['tool:read', 'turn:model output']),
+    )
+    // That activity is recent, so the manager is not idle, though it started longer ago than the
+    // stall window.
+    expect(progress?.idleMs as number).toBeLessThan(stallAfterMs)
+    expect(progress?.stalled).toBe(false)
   })
 })

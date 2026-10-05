@@ -98,7 +98,6 @@ function parityCell(index: number, shots: number): CellSpec {
       harness: 'cli-base',
       tools: {
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
       },
       model: {
         provider: 'scripted',
@@ -217,8 +216,8 @@ function liveParityCell(index: number, shots: number, env: LiveEnv, nonce: strin
           "You supervise exactly ONE pinned worker node named 'coder'; the graph pins its full " +
             'profile. To run a shot call spawn_worker with arguments ' +
             '{"profile":{"name":"coder"},"task":"<brief>"} — never author any other profile.',
-          "Shot 1's task must be the root task COPIED VERBATIM. After each spawn, call " +
-            'await_event until that worker settles; the settle reports valid:true only when ' +
+          "Shot 1's task must be the root task COPIED VERBATIM. After each spawn, end your " +
+            'turn until that worker settles; the settle reports valid:true only when ' +
             'the deliverable check passed.',
           "valid:false → spawn 'coder' again with a short corrective brief (the session " +
             'resumes automatically). valid:true → stop calling tools and reply with a one-line ' +
@@ -363,7 +362,7 @@ function liveBackends(
       bearer: env.bearer,
       router: { routerBaseUrl: env.routerUrl, routerKey: env.routerKey },
       shotPassed,
-      // Spawns + awaits + a final reply for the shot budget, with slack for re-reads; the
+      // Spawns + wake turns + a final reply for the shot budget, with slack for re-reads; the
       // delegates cap, not this, owns the shot budget.
       maxTurns: cell.shots * 6 + 6,
     },

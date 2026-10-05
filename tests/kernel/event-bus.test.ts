@@ -127,3 +127,27 @@ describe('event bus', () => {
     expect(bus.stats()).toEqual({ published: 1, pulled: 1, byKind: { settled: 1 } })
   })
 })
+
+describe('EventBus.onQueued — the moment a waiting consumer can pull a record', () => {
+  it('fires after the record is pull-visible, never for a record-only event, until unsubscribed', async () => {
+    const bus = createEventBus<{ type: 'a' | 'b' }>()
+    const seen: Array<{ type: string; pending: number }> = []
+    // A subscriber runs before the record is queued; onQueued runs after it.
+    bus.subscribe(() => {
+      seen.push({ type: 'subscriber', pending: bus.pending() })
+    })
+    const stop = bus.onQueued((record) => {
+      seen.push({ type: record.event.type, pending: bus.pending() })
+    })
+    await bus.publish({ type: 'a' })
+    await bus.publish({ type: 'b' }, { queue: false })
+    stop()
+    await bus.publish({ type: 'a' })
+    expect(seen).toEqual([
+      { type: 'subscriber', pending: 0 },
+      { type: 'a', pending: 1 },
+      { type: 'subscriber', pending: 1 },
+      { type: 'subscriber', pending: 1 },
+    ])
+  })
+})

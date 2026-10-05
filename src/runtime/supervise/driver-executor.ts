@@ -42,6 +42,7 @@ import { ValidationError } from '../../errors'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
+import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer } from './deadline'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
   attestRuntimeOwnedDeferredExecutor,
@@ -55,6 +56,7 @@ import {
   type NestedScopeSeam,
   nestedScopeSeamKey,
   registerNestedTeardownScope,
+  releaseManagerEnvironment,
   releaseRetainedEnvironments,
   startScopeRecoveries,
   unconfirmedTeardowns,
@@ -251,6 +253,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     ...(spec.harnessTranscriptSettled
       ? { harnessTranscriptSettled: spec.harnessTranscriptSettled }
       : {}),
+    resultAccepted: () => driver.resultAccepted?.() === true,
     ...(deliver
       ? {
           deliver(message: unknown): boolean {
@@ -300,8 +303,21 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
       signal.throwIfAborted()
 
       const controller = new AbortController()
-      const onParentAbort = () => controller.abort(signal.reason)
-      if (signal.aborted) controller.abort(signal.reason)
+      // A manager whose result was already accepted is ending the turn that submitted it. Aborting
+      // its scope now would cut that turn off before its usage is metered and its result
+      // committed, and the node would settle `down` with accepted work. It gets a bounded grace
+      // to return the result instead; the parent scope waits for it (`resultAccepted`).
+      let clearAcceptedGrace: (() => void) | undefined
+      const onParentAbort = (): void => {
+        if (driver.resultAccepted?.() === true) {
+          clearAcceptedGrace ??= armDeadlineTimer(ACCEPTED_RESULT_GRACE_MS, () =>
+            controller.abort(signal.reason),
+          )
+          return
+        }
+        controller.abort(signal.reason)
+      }
+      if (signal.aborted) onParentAbort()
       else signal.addEventListener('abort', onParentAbort, { once: true })
       let nestedScope: Scope<unknown>
       try {
@@ -334,6 +350,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         // A driver may choose its answer while descendants still run. Its allocation is not
         // refundable until every descendant has stopped and reached a terminal journal record.
         await closeActive('driver completed')
+        // No turn of this manager runs again, so the environment it kept between its turns is
+        // released now rather than left to the provider's idle suspension. The release waits for
+        // the last turn's handed-over capture first, so it runs beside this settlement; the run's
+        // settlement joins it.
+        void releaseManagerEnvironment(nestedScope).catch(() => undefined)
 
         // Read the nested tree's events ONCE. Keep two journal categories while reconciling their
         // sum against this driver's one parent reservation:
@@ -409,6 +430,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         throw err
       } finally {
         signal.removeEventListener('abort', onParentAbort)
+        clearAcceptedGrace?.()
         active = undefined
       }
     },

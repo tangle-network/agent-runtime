@@ -396,6 +396,20 @@ function overBudgetSubmissionStream(): string {
   ].join('\n\n')
 }
 
+/**
+ * A manager that ends its turn with work open is woken with a further bridge request. A fake
+ * manager acts on its first request and only reports on its wakes, so this says which request is
+ * the first for `manager`.
+ */
+function firstTurnOf(): (manager: string) => boolean {
+  const taken = new Set<string>()
+  return (manager) => {
+    if (taken.has(manager)) return false
+    taken.add(manager)
+    return true
+  }
+}
+
 describe('supervise — complete profiles over recursive cli-bridge managers', () => {
   let server: Server | undefined
 
@@ -405,7 +419,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
   })
 
   it.each([
-    { label: 'explicit unchecked tools', tools: ['await_event'], inherit: false, runs: true },
+    { label: 'explicit unchecked tools', tools: ['observe_agent'], inherit: false, runs: true },
     { label: 'unchecked bridge leaf', tools: [], inherit: false, runs: true },
     { label: 'explicit submit grant', tools: ['submit_result'], inherit: false, runs: false },
     {
@@ -421,17 +435,17 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const events: SpawnEvent[] = []
     const childProfile = codexTestProfile('unchecked-child', 'Report the measurement.', tools)
     let checkerCalls = 0
+    const firstTurn = firstTurnOf()
     server = createBridgeServer(async (req, res) => {
       try {
         const body = await readJson(req)
         requests.push(body)
         const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
-        if (body.agent_profile.name === 'root' && coordination?.url) {
+        if (body.agent_profile.name === 'root' && coordination?.url && firstTurn('root')) {
           await callCoordination(coordination.url, 'spawn_worker', {
             profile: childProfile,
             task: 'Return the unassessed measurement.',
           })
-          await callCoordination(coordination.url, 'await_event', {})
         }
         respondWithBridgeStream(
           res,
@@ -447,7 +461,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const { port } = server.address() as AddressInfo
     const runId = 'unchecked-managed-child'
     const result = await supervise(
-      codexTestProfile('root', 'Lead.', ['spawn_worker', 'await_event', 'submit_result']),
+      codexTestProfile('root', 'Lead.', ['spawn_worker', 'submit_result']),
       'Collect a report without judging the child.',
       {
         backend: { backend: 'bridge', bridgeUrl: `http://127.0.0.1:${port}`, bridgeBearer: 'test' },
@@ -470,7 +484,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       },
     )
     expect(requests.map((request) => request.agent_profile.name)).toEqual(
-      runs ? ['root', 'unchecked-child'] : ['root'],
+      runs ? ['root', 'unchecked-child', 'root'] : ['root', 'root'],
     )
     if (runs) {
       const child = requests[1]!
@@ -497,6 +511,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const receipts: unknown[] = []
     const journal = new InMemorySpawnJournal()
     const blobs = new InMemoryResultBlobStore()
+    const firstTurn = firstTurnOf()
     server = createBridgeServer(async (req, res) => {
       try {
         const body = await readJson(req)
@@ -511,12 +526,12 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           }
           await writeFile(join(directory, 'child-skill.md'), resource.content)
         }
-        if (coordination?.url) {
+        if (coordination?.url && firstTurn(name)) {
           const profile: AgentProfile = {
             ...codexTestProfile(
               name === 'root' ? 'manager' : 'grandchild',
               undefined,
-              name === 'root' ? ['spawn_worker', 'await_event'] : [],
+              name === 'root' ? ['spawn_worker'] : [],
             ),
             resources: {
               skills: [
@@ -549,7 +564,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           if (!response.ok || typeof result.workerId !== 'string') {
             throw new Error(`resource spawn refused: ${JSON.stringify(result)}`)
           }
-          await callCoordination(coordination.url, 'await_event', {})
         }
         respondWithBridgeStream(res, body, successStream('resource consumer completed'))
       } catch (error) {
@@ -561,7 +575,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const { port } = server.address() as AddressInfo
     try {
       await supervise(
-        codexTestProfile('root', undefined, ['spawn_worker', 'await_event']),
+        codexTestProfile('root', undefined, ['spawn_worker']),
         'Delegate the exact mounted method through two generations.',
         {
           backend: {
@@ -579,12 +593,15 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           runId: 'resource-tree',
         },
       )
+      // Each manager is woken once with its worker's result: the manager, then the root.
       expect(requests.map((request) => request.agent_profile.name)).toEqual([
         'root',
         'manager',
         'grandchild',
+        'manager',
+        'root',
       ])
-      for (const request of requests.slice(1)) {
+      for (const request of requests.slice(1, 3)) {
         expect(request.agent_profile.resources?.skills?.[0]).toEqual({
           kind: 'inline',
           name: 'profile-authoring',
@@ -690,26 +707,27 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         storage === 'file' ? new FileResultBlobStore(directory) : new InMemoryResultBlobStore()
       const journal = new InMemorySpawnJournal()
       const requests: string[] = []
+      const firstTurn = firstTurnOf()
       server = createBridgeServer(async (req, res) => {
         try {
           const body = await readJson(req)
           const name = body.agent_profile.name ?? ''
           requests.push(name)
           const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
-          if (coordination?.url) {
+          const first = coordination?.url !== undefined && firstTurn(name)
+          if (coordination?.url && first) {
             await callCoordination(coordination.url, 'spawn_worker', {
               profile:
                 name === 'root'
-                  ? codexTestProfile('manager', 'Inspect the leaf artifact.', [
-                      'spawn_worker',
-                      'await_event',
-                    ])
+                  ? codexTestProfile('manager', 'Inspect the leaf artifact.', ['spawn_worker'])
                   : codexTestProfile('leaf', 'Return the measured artifact.'),
               task: 'Measure the payload.',
             })
-            await callCoordination(coordination.url, 'await_event', {})
           }
-          if (name === 'manager' && managerThrows) throw new Error('manager execution failed')
+          // The manager fails on its wake, after its leaf delivered the artifact.
+          if (name === 'manager' && managerThrows && !first) {
+            throw new Error('manager execution failed')
+          }
           respondWithBridgeStream(
             res,
             body,
@@ -724,7 +742,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       const { port } = server.address() as AddressInfo
       try {
         const result = await supervise(
-          codexTestProfile('root', 'Inspect the manager.', ['spawn_worker', 'await_event']),
+          codexTestProfile('root', 'Inspect the manager.', ['spawn_worker']),
           'Run an ungraded recursive measurement.',
           {
             backend: {
@@ -741,7 +759,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             runId: 'unassessed',
           },
         )
-        expect(requests).toEqual(['root', 'manager', 'leaf'])
+        expect(requests).toEqual(['root', 'manager', 'leaf', 'manager', 'root'])
         expect(result.kind).toBe('no-winner')
         const parentRows = await replaySpawnTree(journal, blobs, 'unassessed')
         expect(parentRows).toHaveLength(1)
@@ -1038,7 +1056,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       ...codexTestProfile('tool-evidence-root', 'Lead with exact tool evidence.'),
       tools: {
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
         agent_runtime_coordination_read_root_evidence: true,
         // A false Runtime declaration grants nothing. The reserved namespace must not leak into
         // strict provider materialization as an invented harness-native tool.
@@ -1310,7 +1327,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     }> = []
     let turn = 0
     const result = await supervise(
-      routerTestProfile('root', 'Run all checks.', ['spawn_worker', 'await_event']),
+      routerTestProfile('root', 'Run all checks.', ['spawn_worker']),
       'Compare implementation and evaluation evidence.',
       {
         backend: {
@@ -1328,6 +1345,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           describe: 'fallback artifact is ready',
         },
         continuation: testContinuation({ deadline: 1 }),
+        wake: { debounceMs: 0 },
         brain: async () => {
           turn += 1
           if (turn === 1) {
@@ -1363,13 +1381,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
               ],
             }
           }
-          if (turn <= 4) {
-            return {
-              toolCalls: [
-                { id: `await-${turn}`, name: 'await_event', arguments: JSON.stringify({}) },
-              ],
-            }
-          }
+          // Every later turn ends the turn: Runtime wakes this manager with each result and
+          // completes it once none is left.
           return { content: 'done', toolCalls: [] }
         },
         authorizeSpawn: (input) => ({
@@ -1518,7 +1531,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const journal = recordingJournal(events)
     let turn = 0
     await supervise(
-      routerTestProfile('root', 'Delegate the work.', ['spawn_worker', 'await_event']),
+      routerTestProfile('root', 'Delegate the work.', ['spawn_worker']),
       'Delegate the work.',
       {
         backend: {
@@ -1550,11 +1563,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   }),
                 },
               ],
-            }
-          }
-          if (turn === 2) {
-            return {
-              toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
             }
           }
           return { content: 'done', toolCalls: [] }
@@ -1873,11 +1881,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             ],
           }
         }
-        if (turn === 2) {
-          return {
-            toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
-          }
-        }
         return { content: 'done', toolCalls: [] }
       }
     }
@@ -1901,7 +1904,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         }
       },
     }
-    const profile = routerTestProfile('root', undefined, ['spawn_worker', 'await_event'])
+    const profile = routerTestProfile('root', undefined, ['spawn_worker'])
     try {
       const first = await supervise(profile, 'resume the exact result', {
         ...common,
@@ -1933,6 +1936,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       profile: AgentProfile
       task: unknown
     }> = []
+    const firstTurn = firstTurnOf()
     server = createBridgeServer(async (req, res) => {
       try {
         const body = await readJson(req)
@@ -1941,7 +1945,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
         const depth = profile.metadata?.depth
 
-        if (coordination?.url) {
+        if (coordination?.url && firstTurn(String(profile.name))) {
           if (depth === 0) {
             await callCoordination(coordination.url, 'spawn_worker', {
               profile: {
@@ -1953,7 +1957,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 tools: {
                   shell: true,
                   agent_runtime_coordination_spawn_worker: true,
-                  agent_runtime_coordination_await_event: true,
                 },
                 resources: {
                   skills: [
@@ -2001,7 +2004,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
               task: 'Measure the system and report RESULT=42.',
             })
           }
-          await callCoordination(coordination.url, 'await_event', {})
         }
 
         respondWithBridgeStream(
@@ -2030,7 +2032,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       tools: {
         web: true,
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
       },
       mcp: {
         literature: { transport: 'http', url: 'https://papers.example.test/mcp' },
@@ -2097,22 +2098,25 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     })
 
     expect(result.kind).toBe('winner')
+    // Each manager is woken once with its worker's result, on its own session: the nested
+    // supervisor, then the leader.
     expect(requests.map((request) => request.agent_profile.name)).toEqual([
       'pi-leader',
       'methods-supervisor',
       'experiment-worker',
+      'methods-supervisor',
+      'pi-leader',
     ])
-    expect(requests.map((request) => request.model)).toEqual([
-      'codex/openai/gpt-5.6',
-      'codex/openai/gpt-5.6',
-      'codex/openai/gpt-5.6',
-    ])
-    expect(requests.map((request) => request.session_id)).toEqual([
+    expect(requests.map((request) => request.model)).toEqual(Array(5).fill('codex/openai/gpt-5.6'))
+    const sessions = requests.map((request) => request.session_id)
+    expect(sessions).toEqual([
       expect.stringMatching(/^supervised-manager-[a-f0-9]{64}$/),
       expect.stringMatching(/^supervised-manager-[a-f0-9]{64}$/),
       expect.stringMatching(/^supervised-worker-[a-f0-9]{64}$/),
+      sessions[1],
+      sessions[0],
     ])
-    expect(new Set(requests.map((request) => request.session_id)).size).toBe(3)
+    expect(new Set(sessions).size).toBe(3)
 
     const pi = requests[0]!.agent_profile
     expect(pi.tools).toEqual({ web: true })
@@ -2138,9 +2142,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(worker.resources?.files?.[0]?.path).toBe('protocol.txt')
     expect(requests[2]?.runtime_attachments).toBeUndefined()
     expect(requests.every((request) => request.messages[0]?.role === 'user')).toBe(true)
+    // Five bridge requests of 11 input and 7 output tokens each: three first turns and two wakes.
     expect(result.spentTotal.tokens).toEqual({
-      input: 33,
-      output: 21,
+      input: 55,
+      output: 35,
       cacheBreakdownKnown: false,
     })
     expect(result.spentTotal.iterations).toBe(1)
@@ -2392,13 +2397,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           costUsd: 0,
         }
       }
-      if (turn === 2) {
-        return {
-          toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
-          usage: { input: 1, output: 1 },
-          costUsd: 0,
-        }
-      }
       return { content: 'done', toolCalls: [], usage: { input: 1, output: 1 }, costUsd: 0 }
     }
     const rootProfile: AgentProfile = {
@@ -2408,7 +2406,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       prompt: { systemPrompt: 'Use the worker.' },
       tools: {
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
       },
     }
     const backend = {
@@ -2879,17 +2876,17 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     // root's own stream needs its own record and its own reference.
     const runDir = await mkdtemp(join(tmpdir(), 'root-stream-bridge-'))
     const requests: BridgeRequest[] = []
+    const firstTurn = firstTurnOf()
     server = createBridgeServer(async (req, res) => {
       try {
         const body = await readJson(req)
         requests.push(body)
         const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
-        if (body.agent_profile.name === 'root' && coordination?.url) {
+        if (body.agent_profile.name === 'root' && coordination?.url && firstTurn('root')) {
           await callCoordination(coordination.url, 'spawn_worker', {
             profile: codexTestProfile('worker', 'Return the measured result.'),
             task: 'Measure and report RESULT=42.',
           })
-          await callCoordination(coordination.url, 'await_event', {})
         }
         respondWithBridgeStream(
           res,
@@ -2907,7 +2904,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const { port } = server.address() as AddressInfo
     try {
       const result = await supervise(
-        codexTestProfile('root', 'Lead the pursuit.', ['spawn_worker', 'await_event']),
+        codexTestProfile('root', 'Lead the pursuit.', ['spawn_worker']),
         'Delegate one measurement.',
         {
           backend: {
@@ -2928,12 +2925,17 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           continuation: testContinuation({ deadline: 1 }),
         },
       )
-      expect(requests.map((request) => request.agent_profile.name)).toEqual(['root', 'worker'])
+      expect(requests.map((request) => request.agent_profile.name)).toEqual([
+        'root',
+        'worker',
+        'root',
+      ])
       expect(result.kind).toBe('winner')
       if (result.kind !== 'winner') return
 
       // The root's stream is journaled AS IT ARRIVES into the run directory, one line per
-      // progress event, in arrival order, with the drive attempt that produced it.
+      // progress event, in arrival order, with the drive attempt that produced it. The root's
+      // wake is a second attempt, and its stream continues the first.
       const bytes = await readFile(join(runDir, 'root-stream.jsonl'))
       const lines = bytes
         .toString('utf8')
@@ -2943,17 +2945,18 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           (line) =>
             JSON.parse(line) as { seq: number; at: string; attempt: number; event: unknown },
         )
-      expect(lines.map((line) => line.event)).toEqual([
+      const turn = [
         { kind: 'text_delta', text: 'root says hi' },
         { kind: 'tool_call', toolName: 'note', toolCallId: 'call-1', args: { text: 'hello' } },
-      ])
-      expect(lines.map((line) => line.seq)).toEqual([1, 2])
-      expect(lines.map((line) => line.attempt)).toEqual([1, 1])
+      ]
+      expect(lines.map((line) => line.event)).toEqual([...turn, ...turn])
+      expect(lines.map((line) => line.seq)).toEqual([1, 2, 3, 4])
+      expect(lines.map((line) => line.attempt)).toEqual([1, 1, 2, 2])
       expect(lines.every((line) => Number.isFinite(Date.parse(line.at)))).toBe(true)
 
       // The result references the root stream by the content address of the file's bytes,
       // SEPARATELY from the winner's outRef, which keeps naming the selected child's blob.
-      expect(result.rootStream).toEqual({ ref: sha256Bytes(bytes), events: 2 })
+      expect(result.rootStream).toEqual({ ref: sha256Bytes(bytes), events: 4 })
       const events =
         (await new FileSpawnJournal(join(runDir, 'spawn-journal.jsonl')).loadTree(
           'root-stream-bridge',
@@ -3041,12 +3044,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it("preserves a leaf's unknown dollar cost and refuses it under a dollar cap", async () => {
     const requests: BridgeRequest[] = []
+    const firstTurn = firstTurnOf()
     server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       requests.push(body)
       const profile = body.agent_profile
       const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
-      if (coordination?.url) {
+      if (coordination?.url && firstTurn(String(profile.name))) {
         await callCoordination(coordination.url, 'spawn_worker', {
           profile: {
             name: 'worker',
@@ -3056,7 +3060,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           },
           task: 'Return RESULT=42.',
         })
-        await callCoordination(coordination.url, 'await_event', {})
       }
       respondWithBridgeStream(
         res,
@@ -3073,7 +3076,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
         model: { provider: 'openai', default: 'gpt-5.6' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       },
       'Choose the next experiment.',
       {

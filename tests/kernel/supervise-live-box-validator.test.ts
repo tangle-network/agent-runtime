@@ -159,14 +159,14 @@ function inBoxValidator(expected: string): {
 
 // ── The supervised run ────────────────────────────────────────────────────────
 
-/** The two driver turns that spawn one worker and wait for it. */
+/** The driver turns that spawn one worker, end the turn to wait for it, and stop when woken. */
 const SPAWN_ONE_WORKER = [
   {
     toolCalls: [
       { name: 'spawn_worker', arguments: { profile: testAgentProfile('worker'), task: 'go' } },
     ],
   },
-  { toolCalls: [{ name: 'await_event', arguments: {} }] },
+  { content: 'waiting for the worker' },
   { content: 'done' },
 ]
 
@@ -180,7 +180,7 @@ async function superviseWithSeam(
     testAgentProfile('root', {
       harness: 'cli-base',
       prompt: { systemPrompt: 'drive the worker' },
-      tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      tools: runtimeToolDeclarations('spawn_worker'),
     }),
     'solve it',
     {

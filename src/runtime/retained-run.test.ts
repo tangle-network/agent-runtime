@@ -35,15 +35,16 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RetainedRunAdmissionError, RetainedRunDispatchBindingError } from '../errors'
+import { createRetainedRunHandle } from './retained-run-handle'
 import {
+  assertRetainedRunReplayMaterial,
+  mintRetainedIdentity,
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
   startRetainedRunInEnvironment,
 } from './retained-run-start'
 import type { RetainedRunAdmission, RetainedRunAdmissionHook } from './retained-run-types'
-import { createRetainedRunHandle } from './retained-run-handle'
-import { assertRetainedRunReplayMaterial, mintRetainedIdentity } from './retained-run-start'
 
 const childScript = new URL('../../tests/helpers/retained-run-child.ts', import.meta.url).pathname
 const retainedRequestDigest = `sha256:${'a'.repeat(64)}` as const

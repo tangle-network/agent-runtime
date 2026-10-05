@@ -151,6 +151,20 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve }
 }
 
+/** The workers whose settlement any wake input in `messages` has reported. */
+function settledByWakes(messages: ReadonlyArray<Record<string, unknown>>): Set<string> {
+  const settled = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== 'user' || !String(message.content).includes('## Events')) continue
+    for (const line of String(message.content).split('\n')) {
+      if (!line.startsWith('- {')) continue
+      const event = JSON.parse(line.slice(2)) as { type?: string; settled?: string }
+      if (event.type === 'settled' && event.settled !== undefined) settled.add(event.settled)
+    }
+  }
+  return settled
+}
+
 function meteredTokens(tokens: number, iterations = 0) {
   return { iterations, tokens: { input: tokens, output: 0 }, usd: 0, ms: 0 }
 }
@@ -269,7 +283,7 @@ describe('supervise tree-wide worker capacity', () => {
     const managerProfiles = Array.from({ length: 6 }, (_, index) =>
       testAgentProfile(`manager-${index}`, {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
     )
     const script = scriptedBrain(
@@ -281,27 +295,31 @@ describe('supervise tree-wide worker capacity', () => {
           })),
           usage: { input: 0, output: 0 },
         },
-        ...Array.from({ length: 4 }, (_, index) => ({
-          toolCalls: [{ name: 'await_event', arguments: {} }],
-          usage: { input: index === 0 ? 1 : 0, output: 0 },
-        })),
-        { content: 'owner completed after all children', usage: { input: 1, output: 0 } },
+        { content: 'waiting for the managers', usage: { input: 1, output: 0 } },
       ],
       seen,
     )
     let ownerTurns = 0
-    const brain: ToolLoopChat = async (...args) => {
+    // The owner ends its turn until every manager has reported, then completes.
+    const brain: ToolLoopChat = async (messages, tools, context) => {
       ownerTurns += 1
       if (ownerTurns === 2) ownerSecondTurn.resolve()
-      return script(...args)
+      if (ownerTurns <= 2) return script(messages, tools, context)
+      const finished = settledByWakes(messages).size === 6
+      return {
+        content: finished ? 'owner completed after all children' : 'waiting for the managers',
+        toolCalls: [],
+        usage: { input: finished ? 1 : 0, output: 0 },
+      }
     }
     const running = supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'admit one descendant under a held fleet',
       {
+        wake: { debounceMs: 0 },
         budget: { maxTokens: 20_000_000, maxIterations: 400 },
         perWorker: managerBudget,
         maxDepth: 3,
@@ -348,7 +366,9 @@ describe('supervise tree-wide worker capacity', () => {
       for (const gate of managerGates.slice(1)) gate.resolve()
       const result = await running
       expect(result.kind).toBe('winner')
-      expect(ownerTurns).toBe(6)
+      // Spawn, one turn that ends to wait, then a turn per wake: at least one wake, as the last
+      // report is what completes the owner.
+      expect(ownerTurns).toBeGreaterThanOrEqual(3)
       const terminalNestedEvents = (await journal.loadTree(managerTree!)) ?? []
       expect(
         terminalNestedEvents.find(
@@ -364,7 +384,7 @@ describe('supervise tree-wide worker capacity', () => {
       const ownerMeters = rootEvents.filter(
         (event) => event.kind === 'metered' && event.id === 'held-recursive-reservation-policy',
       )
-      expect(ownerMeters).toHaveLength(6)
+      expect(ownerMeters).toHaveLength(ownerTurns)
       expect(ownerMeters.at(-1)?.spend.tokens).toMatchObject({ input: 1, output: 0 })
       if (result.kind === 'winner') {
         expect(result.spentTotal.tokens).toMatchObject({ input: 16_000_002, output: 0 })
@@ -697,7 +717,7 @@ describe('supervise tree-wide worker capacity', () => {
           ? [
               testAgentProfile(`${profile.name}-sub-manager`, {
                 harness: 'cli-base',
-                tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+                tools: runtimeToolDeclarations('spawn_worker'),
                 metadata: { depth: 2 },
               }),
             ]
@@ -714,11 +734,11 @@ describe('supervise tree-wide worker capacity', () => {
             arguments: { profile: child, task: `run ${child.name}` },
           })),
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'managed' },
       ])
       const nested = supervisorAgent(profile, {
+        wake: { debounceMs: 0 },
         blobs,
         makeWorkerAgent,
         perWorker:
@@ -749,25 +769,25 @@ describe('supervise tree-wide worker capacity', () => {
           arguments: {
             profile: testAgentProfile(`manager-${index}`, {
               harness: 'cli-base',
-              tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+              tools: runtimeToolDeclarations('spawn_worker'),
               metadata: { depth: 1 },
             }),
             task: `run branch ${index}`,
           },
         })),
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the managers' },
       { content: 'done' },
     ])
 
     const result = await supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'run a three-level tree',
       {
+        wake: { debounceMs: 0 },
         budget: { maxIterations: 500, maxTokens: 500_000 },
         perWorker: { maxIterations: 160, maxTokens: 160_000 },
         maxDepth: 5,

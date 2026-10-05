@@ -268,7 +268,7 @@ describe("the root's harness session", () => {
     const result = await superviseWithBrain(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'Answer.',
       {

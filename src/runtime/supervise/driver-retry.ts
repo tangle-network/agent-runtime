@@ -184,6 +184,9 @@ export interface DriverAttemptRecord {
   readonly contract?: DriverContractState
   /** True when this COMPLETED attempt's unmet contract sent the loop back with a continuation. */
   readonly reprompted?: boolean
+  /** For a completed attempt that left work open: how long the manager then waited, with no
+   *  model turn, before the wake that started the next attempt. */
+  readonly waitedMs?: number
   /** Why an unmet contract did NOT re-enter the session. Absent when the contract was met, when
    *  the manager has no continuation policy, or when the continuation was sent. */
   readonly repromptRefusedBy?: DriverRepromptRefusal
@@ -246,6 +249,15 @@ export type DriverReentry =
       readonly retry: number
     }
   | {
+      /** The previous turn ended with work open, and Runtime woke the manager when something
+       *  happened. Not a continuation: the manager chose to wait, and `input` is what it waited for. */
+      readonly reason: 'wake'
+      /** The wake input: every event since the last turn, or the heartbeat or deadline notice. */
+      readonly input: string
+      /** 1-based: which wake this is. */
+      readonly wake: number
+    }
+  | {
       /** The upstream refused the previous drive for capacity, or the check could not run, and the
        *  loop paused before this one. Re-entered like a failure, with the original task and the
        *  run's state. */
@@ -273,6 +285,19 @@ export interface DriverContinuationPolicy {
   readonly closed: () => boolean
 }
 
+/**
+ * A turn that ends with work open is a wait, not a completion. Runtime blocks with no model turn
+ * until something happens, then enters the same driver again with what happened.
+ */
+export interface DriverWaitPolicy {
+  /** True while the manager has work it must hear back about. */
+  readonly open: () => boolean
+  /** Wait for the next wake of `attempt`; the wake input, or undefined when nothing is open. */
+  readonly wake: (
+    attempt: number,
+  ) => Promise<{ readonly input: string; readonly idleMs: number } | undefined>
+}
+
 export interface DriverRetryRun {
   /** Run one attempt. Rejects exactly as the un-retried driver would. `reentry` is present on
    *  every attempt after the first; see {@link DriverReentry}. */
@@ -287,6 +312,8 @@ export interface DriverRetryRun {
   /** How a COMPLETED drive with its check unmet is re-entered. Omit = never, which is correct
    *  only for a manager with no check. */
   readonly continuation?: DriverContinuationPolicy
+  /** How a completed drive that left work open waits. Omit = a completed drive is the end. */
+  readonly wait?: DriverWaitPolicy
   readonly onAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   readonly now?: () => number
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
@@ -651,6 +678,10 @@ export interface DriverLoopRecord {
   readonly unavailableMs: number
   /** Re-entered drives, in a row at the end, that completed without a delivery. */
   readonly barrenReentries: number
+  /** Turns started by a wake: the manager ended its turn with work open and Runtime resumed it. */
+  readonly wakes: number
+  /** Time the manager waited between turns with no model turn, summed over its wakes. */
+  readonly waitedMs: number
   /** Why the loop ended: its last record's stop, or `unrecorded` when it ended without one (an
    *  admission refusal before the first attempt, or a throw from outside the loop). */
   readonly ended: DriverAttemptStop | 'unrecorded'
@@ -687,6 +718,7 @@ export function summarizeDriverAttempts(
     else if (
       record.error === undefined &&
       record.reentry !== undefined &&
+      record.reentry !== 'wake' &&
       record.contract === 'unmet'
     )
       barren += 1
@@ -709,6 +741,8 @@ export function summarizeDriverAttempts(
       0,
     ),
     barrenReentries: barren,
+    wakes: records.filter((record) => record.reentry === 'wake').length,
+    waitedMs: records.reduce((sum, record) => sum + (record.waitedMs ?? 0), 0),
     ended: last?.stop ?? 'unrecorded',
     ...(last?.repromptRefusedBy === undefined ? {} : { repromptRefusedBy: last.repromptRefusedBy }),
   }
@@ -773,6 +807,7 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   // Every pause this loop took, for the re-entry it names.
   let pauses = 0
   let continuations = 0
+  let wakes = 0
   let reentry: DriverReentry | undefined
 
   const emit = async (record: DriverAttemptRecord): Promise<void> => {
@@ -977,7 +1012,35 @@ export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
     const contract = contractOf(after)
     const contractField = contract === 'none' ? {} : { contract }
     if (progressed) barrenReentries = 0
-    else if (reentry !== undefined && contract === 'unmet') barrenReentries += 1
+    else if (reentry !== undefined && reentry.reason !== 'wake' && contract === 'unmet') {
+      barrenReentries += 1
+    }
+    // A turn that ends with work open is a wait. The bounds the failure path applies hold here
+    // too; a closed run (accepted, stopped, blocked) never waits.
+    const wait = run.wait
+    if (
+      wait !== undefined &&
+      contract !== 'met' &&
+      !(continuation?.closed() ?? false) &&
+      !run.signal.aborted &&
+      budgetStop(run.budget(), now()) === undefined &&
+      wait.open()
+    ) {
+      const woken = await wait.wake(attempt + 1)
+      if (woken !== undefined && !run.signal.aborted) {
+        wakes += 1
+        await emit({
+          attempt,
+          durationMs,
+          madeProgress: progressed,
+          ...contractField,
+          waitedMs: woken.idleMs,
+          retryInMs: 0,
+        })
+        reentry = { reason: 'wake', input: woken.input, wake: wakes }
+        continue
+      }
+    }
     if (contract === 'unmet' && continuation !== undefined) {
       const decision = await decideContinuation(continuation, attempt, after)
       if ('steer' in decision) {

@@ -541,7 +541,7 @@ settle**, with one firewall that keeps it honest.
                         ▼
         Scope: spawn child agent(s) → run → settle → verdict on the artifact
                         │
-                        └──▶ await_event → terminal? → winner = argmax(valid score)
+                        └──▶ wake (the manager's next turn) → terminal? → winner = argmax(valid score)
 ```
 
 The firewall is the load-bearing line: the **analyst reads the trace and may not cite the
@@ -662,7 +662,7 @@ out of the recursion, so there is no "driver-of-driver" special case.
                     │
                     ▼  flows UP to the parent (driver ← worker, supervisor ← driver, …)
             ┌───────────────┐
-            │ parent pulls   │  await_event({kinds}) — the ONE wait verb
+            │ parent woken   │  ends its turn; Runtime wakes it with the event
             │ or subscribes  │  (immediate push) — folds the child's analysis
             └───────────────┘  into its own next decision
 ```

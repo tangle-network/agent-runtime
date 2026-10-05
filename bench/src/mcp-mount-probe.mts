@@ -3,7 +3,7 @@
  * actually MOUNT my coordination MCP and CALL spawn_worker — landing on a real Scope.spawn?
  *
  * Serves the coordination MCP over a live Scope, then asks the bridge's opencode (with that MCP in
- * its config) to call spawn_worker + await_event. If the Scope spawned+settled, the in-box driving
+ * its config) to call spawn_worker. If the Scope spawned+settled, the in-box driving
  * path is real. No mock.
  *
  *   ROUTER_BASE=http://127.0.0.1:3355/v1 TANGLE_API_KEY=<bridge-bearer> \
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
         blobs,
         makeWorkerAgent: () => deliveringLeaf('w', { ok: true }),
         perWorker: { maxIterations: 4, maxTokens: 2000 },
-        toolNames: ['spawn_worker', 'await_event', 'stop'],
+        toolNames: ['spawn_worker', 'stop'],
       })
       console.error(`[probe] coordination MCP live at ${mcp.url}`)
       try {
@@ -99,13 +99,15 @@ async function main(): Promise<void> {
             {
               role: 'user',
               content:
-                'You have an MCP server named "coordination" with tools: spawn_worker, await_event, stop. ' +
-                'Call spawn_worker with arguments {"profile":{},"task":"hello"}. Then call await_event. ' +
-                'Then reply with exactly what await_event returned.',
+                'You have an MCP server named "coordination" with tools: spawn_worker, stop. ' +
+                'Call spawn_worker with arguments {"profile":{},"task":"hello"}. ' +
+                'Then reply with exactly what spawn_worker returned.',
             },
           ],
           mcp.url,
         )
+        // The harness ended its turn after spawning; move the settled worker into the ledger.
+        await mcp.drainResolved()
         const settled = mcp.settled()
         mounted = settled.length > 0
         console.error(`[probe] opencode replied: ${content.slice(0, 400)}`)

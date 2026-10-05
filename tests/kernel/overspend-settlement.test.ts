@@ -300,7 +300,7 @@ describe('a completed child that overspent its reservation', () => {
     expect(await settledRecord(journal, 'run:s0')).not.toHaveProperty('budgetViolation')
   })
 
-  it('shows the overspend to a director through await_event', async () => {
+  it('shows the overspend to a director in its wake', async () => {
     const pool = createBudgetPool({ maxIterations: 100, maxTokens: 2_000_000 }, 0)
     const { scope, blobs } = await scopeOver(pool)
     const out = { review: 'accepted' }
@@ -318,17 +318,22 @@ describe('a completed child that overspent its reservation', () => {
       makeWorkerAgent: () => leaf('unused', oneShotExecutor('unused', spendOf([]))),
       perWorker: { maxIterations: 1, maxTokens: 800_000 },
     })
-    const awaitEvent = tools.tools.find((tool) => tool.name === 'await_event')
-    if (!awaitEvent) throw new Error('await_event is missing')
     const violation = {
       overspent: [{ channel: 'tokens', reserved: 800_000, spent: 1_115_291 }],
     }
-    expect(await awaitEvent.handler({ kinds: ['settled'] })).toMatchObject({
-      type: 'settled',
-      status: 'done',
-      outRef: contentAddress(out),
-      budgetViolation: violation,
+    const wake = await tools.awaitWake({
+      signal: new AbortController().signal,
+      heartbeatMs: 1_000,
+      debounceMs: 0,
     })
+    expect(wake?.events).toMatchObject([
+      {
+        type: 'settled',
+        status: 'done',
+        outRef: contentAddress(out),
+        budgetViolation: violation,
+      },
+    ])
     expect(tools.settled()).toMatchObject([{ status: 'done', budgetViolation: violation }])
   })
 })

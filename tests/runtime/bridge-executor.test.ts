@@ -1952,7 +1952,7 @@ describe('workerFromBackend continuity — bridge session re-attachment', () => 
           profile: testAgentProfile('driver', {
             harness: 'cli-base',
             prompt: { systemPrompt: 'Drive the worker until it delivers.' },
-            tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+            tools: runtimeToolDeclarations('spawn_worker'),
           }),
         },
         { id: 'worker', profile: exactBridgeProfile('worker', 'safe-model') },
@@ -1973,16 +1973,16 @@ describe('workerFromBackend continuity — bridge session re-attachment', () => 
     const spawnTurn = (task: string) => ({
       toolCalls: [{ name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task } }],
     })
-    const awaitTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
+    const waitTurn = { content: 'waiting for the worker' }
     const res = await runGraph(graph, {
       runId: 'bridge-resume',
       journal: new InMemorySpawnJournal(),
       backend: bridgeBackend,
       brain: scriptedBrain([
         spawnTurn('shot 1'),
-        awaitTurn,
+        waitTurn,
         spawnTurn('shot 2'),
-        awaitTurn,
+        waitTurn,
         { content: 'done' },
       ]),
     })

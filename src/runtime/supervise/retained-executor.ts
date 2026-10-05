@@ -46,6 +46,16 @@ export interface RetainedExecutorContext {
   readonly continueInvocation?: (task: unknown) => Promise<RetainedExecutorContext>
   /** Journal a pause of this node on an unavailable upstream: infrastructure time. */
   readonly onPause?: (pause: RetainedExecutorPause) => Promise<void>
+  /**
+   * Take over the end-of-turn workspace capture of a turn whose manager stopped, which the
+   * executor runs after it has committed the turn's result. An owner whose environment outlives
+   * its turns has it: the owner awaits the work before its next invocation starts and before it
+   * releases the environment, so the capture still precedes the destroy. Its receipt arrives
+   * through `onEvidence`. Never rejects.
+   */
+  readonly onEndOfTurnWork?: (work: Promise<void>) => void
+  /** Journal where one workspace capture's time went: queue wait, capture time, archive bytes. */
+  readonly onWorkspaceCapture?: (capture: RetainedWorkspaceCapture) => Promise<void>
   /** The checkpoint a NEW environment of this invocation starts from: set only when the provider
    *  lost the environment the previous invocation ran in, and it holds a checkpoint of it. */
   readonly restoreWorkspace?: RetainedWorkspaceRestore
@@ -97,6 +107,31 @@ export type RetainedExecutorPause = Omit<
   Extract<SpawnEvent, { kind: 'paused' }>,
   'kind' | 'id' | 'seq' | 'at'
 >
+
+/** What a `workspace-capture` spawn event records, less the fields the scope supplies. */
+export type RetainedWorkspaceCapture = Omit<
+  Extract<SpawnEvent, { kind: 'workspace-capture' }>,
+  'kind' | 'id' | 'seq' | 'at'
+>
+
+/** @internal The journal writer for `onWorkspaceCapture`; `nextSequence` is the node's own. */
+export function workspaceCaptureWriter(args: {
+  journal: SpawnJournal
+  rootId: string
+  nodeId: string
+  nextSequence: () => number
+  now: () => number
+}): (capture: RetainedWorkspaceCapture) => Promise<void> {
+  return async (capture) => {
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'workspace-capture',
+      id: args.nodeId,
+      ...detachedSnapshot(capture, 'workspace capture timing'),
+      seq: args.nextSequence(),
+      at: new Date(args.now()).toISOString(),
+    })
+  }
+}
 
 export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorContext | undefined {
   return ctx.seams[retainedExecutorSeamKey] as RetainedExecutorContext | undefined

@@ -95,7 +95,7 @@ const toolSpan = (runId: string): ToolSpan => ({
   endedAt: 105,
 })
 
-const graphDriverTools = runtimeToolDeclarations('spawn_worker', 'await_event', 'steer_agent')
+const graphDriverTools = runtimeToolDeclarations('spawn_worker', 'steer_agent')
 
 interface LeafOptions {
   /** Block settlement until a deliver() arrives (so a steer can reach a LIVE worker). */
@@ -265,7 +265,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -342,7 +342,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
                 },
               ],
             },
-            { toolCalls: [{ name: 'await_event', arguments: {} }] },
+            { content: 'waiting for the workers' },
             { content: 'done' },
           ]),
         },
@@ -383,7 +383,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -433,7 +433,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -468,7 +468,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
         makeLeafAgent: leafSeam([], { fail: true }),
         brain: scriptedBrain([
           spawnTurn,
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the workers' },
           spawnTurn, // the cycle: re-spawn after failure — refused by the cap
           { content: 'give up' },
         ]),
@@ -509,9 +509,9 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     }
     const inner = scriptedBrain([
       spawnTurn,
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the workers' },
       spawnTurn, // the cycle: re-spawn after failure — refused by the cap, exhausting the edge
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the workers' },
     ])
     let turn = 0
     const brain: ToolLoopChat = async (messages) => {
@@ -564,7 +564,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
             { name: 'steer_agent', arguments: { workerId: 'g7:s0', instruction: 'deliver now' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -617,7 +617,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
         makeLeafAgent: leafSeam([]),
         brain: scriptedBrain([
           keyedSpawn,
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the workers' },
           keyedSpawn, // deduplicated to the completed seat: no worker binds
           keyedSpawn, // deduplicated again — the re-spawn the pre-fix cap refused
           { content: 'done' },
@@ -661,20 +661,26 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
         },
       ],
     })
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(graph, {
       runId: 'g3',
       analysts,
       makeLeafAgent: leafSeam([], { withTrace: true }),
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
-          ],
-        },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { content: 'done' },
-      ]),
+      brain: scriptedBrain(
+        [
+          {
+            toolCalls: [
+              {
+                name: 'spawn_worker',
+                arguments: { profile: { name: 'worker' }, task: 'build it' },
+              },
+            ],
+          },
+          { content: 'waiting for the workers' },
+          { content: 'done' },
+        ],
+        seen,
+      ),
     })
     expect(res.result.kind).toBe('winner')
     const analyzed = res.ledger.filter((row) => row.kind === 'analyzes')
@@ -683,6 +689,13 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     expect(analyzed[0]!.outcome).toBe('delivered')
     expect(analyzed[0]!.workerId).toBe('g3:s0')
     expect(analyzed[0]!.bytes).toBeGreaterThan(0)
+    // The finding reached the driver in a wake.
+    const wokenWith = (seen.at(-1) ?? [])
+      .filter((message) => message.role === 'user')
+      .map((message) => String(message.content))
+      .join('\n')
+    expect(wokenWith).toContain('"type":"finding"')
+    expect(wokenWith).toContain('"analyst":"convergence"')
   })
 
   it('routes findings to a live WORKER as an authorized steer — the destination is generalized', async () => {
@@ -734,6 +747,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     const res = await runGraph(graph, {
       runId: 'g4',
       analysts,
+      wake: { debounceMs: 0 },
       makeLeafAgent: leafSeam(received, {
         builder: { withTrace: true },
         fixer: { awaitSteer: true },
@@ -749,8 +763,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
             { name: 'spawn_worker', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -797,8 +810,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -860,8 +872,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -910,8 +921,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'give up' },
       ]),
     })
@@ -1015,6 +1025,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
     const res = await runGraph(inspectorGraph('driver'), {
       runId: 'gan',
       journal,
+      wake: { debounceMs: 0 },
       makeLeafAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }, contexts),
       brain: scriptedBrain([
         {
@@ -1022,8 +1033,8 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(worker)
-        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // finding(inspector output)
+        // Woken with settled(worker), then the finding the inspector's output becomes.
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1088,6 +1099,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
       {
         makeLeafAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }),
         profileGuidance: 'profile-kb',
+        wake: { debounceMs: 0 },
         authorizeSpawn: (input) => {
           authorized.push(input.profile)
           return { profile: input.profile }
@@ -1101,8 +1113,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the workers' },
           { content: 'done' },
         ]),
       },
@@ -1120,6 +1131,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
     const received: AgentProfile[] = []
     const res = await runGraph(inspectorGraph('fixer'), {
       runId: 'gar',
+      wake: { debounceMs: 0 },
       makeLeafAgent: leafSeam(received, {
         worker: { withTrace: true },
         fixer: { awaitSteer: true },
@@ -1136,9 +1148,9 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
             { name: 'spawn_worker', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(worker)
-        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // finding (audit copy)
-        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(fixer, released by the steer)
+        // Woken with settled(worker), the finding (audit copy), and settled(fixer, released by
+        // the steer).
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1279,7 +1291,7 @@ describe('runGraph — every supervise option a graph does not own reaches super
         (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
       )
       if (!settled) {
-        return { toolCalls: [{ id: 'c2', name: 'await_event', arguments: JSON.stringify({}) }] }
+        return { content: 'waiting for the worker', toolCalls: [] }
       }
       return { content: 'done', toolCalls: [] }
     }
@@ -1293,12 +1305,7 @@ describe('runGraph — every supervise option a graph does not own reaches super
                 ...node,
                 profile: {
                   ...node.profile,
-                  tools: runtimeToolDeclarations(
-                    'spawn_worker',
-                    'await_event',
-                    'steer_agent',
-                    'measure_rung',
-                  ),
+                  tools: runtimeToolDeclarations('spawn_worker', 'steer_agent', 'measure_rung'),
                 },
               }
             : node,
@@ -1381,7 +1388,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
             { name: 'spawn_worker', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1425,7 +1432,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
             { name: 'spawn_worker', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1456,7 +1463,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1489,7 +1496,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
             },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1539,7 +1546,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
         (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
       )
       if (!settled) {
-        return { toolCalls: [{ id: 'c2', name: 'await_event', arguments: JSON.stringify({}) }] }
+        return { content: 'waiting for the worker', toolCalls: [] }
       }
       return { content: 'done', toolCalls: [] }
     }
@@ -1614,7 +1621,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
         (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
       )
       if (!settled) {
-        return { toolCalls: [{ id: 'c2', name: 'await_event', arguments: JSON.stringify({}) }] }
+        return { content: 'waiting for the worker', toolCalls: [] }
       }
       return { content: 'done', toolCalls: [] }
     }
@@ -1657,16 +1664,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
           ],
         }
       }
-      if (!sawOnlineFinding) {
-        // Yield one macrotask so the spawned executor starts and the detector publishes before
-        // this pull — the deterministic offline ordering, not a sleep.
-        await new Promise((resolve) => setImmediate(resolve))
-        return {
-          toolCalls: [
-            { id: 'cw', name: 'await_event', arguments: JSON.stringify({ kinds: ['finding'] }) },
-          ],
-        }
-      }
+      if (!sawOnlineFinding) return { content: 'waiting for a finding', toolCalls: [] }
       if (!steered) {
         steered = true
         return {
@@ -1686,7 +1684,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
         (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
       )
       if (!settled) {
-        return { toolCalls: [{ id: 'c3', name: 'await_event', arguments: JSON.stringify({}) }] }
+        return { content: 'waiting for the worker', toolCalls: [] }
       }
       return { content: 'done', toolCalls: [] }
     }
@@ -1694,6 +1692,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
       runId: 'gw',
       makeLeafAgent: leafSeam([], { worker: { awaitSteer: true, storm: 5 } }),
       watchWorkers: { maxFindingsPerWorker: 1 },
+      wake: { debounceMs: 0 },
       brain,
     })
     expect(res.result.kind).toBe('winner')
@@ -1718,7 +1717,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
               { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build' } },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the workers' },
           { content: 'done' },
         ],
         seen,
@@ -1796,14 +1795,14 @@ describe('runGraph — driverBackend selects WHERE the root harness brain runs',
 })
 
 describe('runGraph — the caller-brain seam on the production surface (#694 option A)', () => {
-  /** The driver's three decisions, identical across both arms: spawn, await the settle, stop. */
+  /** The driver's three decisions, identical across both arms: spawn, end the turn to wait, stop. */
   const driverDecisions = [
     {
       toolCalls: [
         { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
       ],
     },
-    { toolCalls: [{ name: 'await_event', arguments: {} }] },
+    { content: 'waiting for the workers' },
     { content: 'done' },
   ]
 
@@ -1950,7 +1949,7 @@ describe('runGraph — caller hooks compose onto the same event stream', () => {
             { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'waiting for the workers' },
         { content: 'done' },
       ]),
     })
@@ -1982,7 +1981,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task, ...extra } },
     ],
   })
-  const awaitTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
+  const waitTurn = { content: 'waiting for the workers' }
 
   it("a resume edge: spawn 1 'fresh', spawn 2 'resume' with lineage at the executor seam, spend in ONE pool", async () => {
     const contexts: Array<WorkerSpawnContext | undefined> = []
@@ -1993,9 +1992,9 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       makeLeafAgent: leafSeam([], {}, contexts),
       brain: scriptedBrain([
         spawnTurn('shot 1'),
-        awaitTurn,
+        waitTurn,
         spawnTurn('shot 2'),
-        awaitTurn,
+        waitTurn,
         { content: 'done' },
       ]),
     })
@@ -2043,9 +2042,9 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       makeLeafAgent: leafSeam([], {}, freshOverride),
       brain: scriptedBrain([
         spawnTurn('shot 1'),
-        awaitTurn,
+        waitTurn,
         spawnTurn('shot 2', { continuity: 'fresh' }),
-        awaitTurn,
+        waitTurn,
         { content: 'done' },
       ]),
     })
@@ -2061,9 +2060,9 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       makeLeafAgent: leafSeam([], {}, resumeOverride),
       brain: scriptedBrain([
         spawnTurn('shot 1'),
-        awaitTurn,
+        waitTurn,
         spawnTurn('shot 2', { continuity: 'resume' }),
-        awaitTurn,
+        waitTurn,
         { content: 'done' },
       ]),
     })
@@ -2105,7 +2104,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
               { name: 'steer_agent', arguments: { workerId: 'gc4:s0', instruction: 'deliver' } },
             ],
           },
-          awaitTurn,
+          waitTurn,
           { content: 'done' },
         ],
         seen,
@@ -2152,7 +2151,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the workers' },
           {
             toolCalls: [
               {
@@ -2161,7 +2160,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the workers' },
           { content: 'done' },
         ]),
       },
@@ -2181,7 +2180,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       brain: scriptedBrain(
         [
           spawnTurn('shot 1', { key: 'build' }),
-          awaitTurn,
+          waitTurn,
           spawnTurn('shot 2', { key: 'build', continuity: 'resume' }),
           { content: 'done' },
         ],
@@ -2207,7 +2206,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
             { name: 'steer_agent', arguments: { workerId: 'gc6:s0', instruction: 'deliver now' } },
           ],
         },
-        awaitTurn,
+        waitTurn,
         { content: 'done' },
       ]),
     })
@@ -2250,7 +2249,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
         runId: 'gc7',
         analysts,
         makeLeafAgent: leafSeam([], { withTrace: true }),
-        brain: scriptedBrain([spawnTurn('build it'), awaitTurn, awaitTurn, { content: 'done' }]),
+        brain: scriptedBrain([spawnTurn('build it'), waitTurn, { content: 'done' }]),
       },
     )
     expect(res.result.kind).toBe('winner')

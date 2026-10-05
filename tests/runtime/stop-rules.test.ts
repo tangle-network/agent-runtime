@@ -41,12 +41,31 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { testContinuation } from '../helpers/continuation'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
-const spawnAndAwait = ['spawn_worker', 'await_event'] as const
+const spawnOnly = ['spawn_worker'] as const
+
+/** A driver brain that spawns one worker on every odd turn and ends its turn on every even one:
+ *  ending the turn is how it waits, and Runtime wakes it with that worker's settlement. */
+function spawnThenWait(): ToolLoopChat {
+  const spawn = scriptedBrain([
+    {
+      toolCalls: [
+        {
+          name: 'spawn_worker',
+          arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+        },
+      ],
+    },
+  ])
+  const wait = scriptedBrain([{ content: 'waiting for the worker' }])
+  let turn = 0
+  return (...args) => (turn++ % 2 === 0 ? spawn : wait)(...args)
+}
 
 async function jsonRpc(url: string, method: string, params: unknown): Promise<unknown> {
   const r = await fetch(url, {
@@ -352,12 +371,12 @@ describe('a plateaued tree stops before its token ceiling — and a progressing 
 // ── The driver-level wiring: the guard block beside poolStarved / deadlinePassed ───────────────
 
 describe('driverAgent stopRule — evaluated after the hard ceilings, never instead of them', () => {
-  /** A driver whose brain spawns a worker every single turn, forever. Without a stop rule it runs
-   *  to `maxTurns`; with one it stops the moment the objective flattens. */
+  /** A driver whose brain spawns a worker, waits for it, and does so forever. Without a stop rule
+   *  it runs `rounds` rounds; with one it stops the moment the objective flattens. */
   async function runDriver(opts: {
     readonly score: (n: number) => number
     readonly stopRule?: StopRule
-    readonly maxTurns: number
+    readonly rounds: number
   }) {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
@@ -367,28 +386,17 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
       spawned += 1
       return leaf
     }
-    // Every turn: spawn one, await one. The brain never stops on its own.
-    const chat = scriptedBrain([
-      {
-        toolCalls: [
-          {
-            name: 'spawn_worker',
-            arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
-          },
-          { name: 'await_event', arguments: {} },
-        ],
-      },
-    ])
+    // Every round: spawn one, end the turn, and be woken with it. The brain never stops on its own.
     const stops: string[] = []
     const root = driverAgent({
       name: 'root',
-      brain: chat,
+      brain: spawnThenWait(),
       blobs,
       makeWorkerAgent,
       perWorker: perUnit,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
-      maxTurns: opts.maxTurns,
+      maxTurns: opts.rounds * 2,
       ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
       onProgressStop: (reason) => stops.push(reason),
     })
@@ -409,14 +417,14 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
     const withRule = await runDriver({
       score: flatScore,
       stopRule: plateau({ window: 3, minDelta: 0.01 }),
-      maxTurns: 20,
+      rounds: 20,
     })
-    const withoutRule = await runDriver({ score: flatScore, maxTurns: 20 })
+    const withoutRule = await runDriver({ score: flatScore, rounds: 20 })
 
     // The rule ended the run, and said why.
     expect(withRule.stops).toHaveLength(1)
     expect(withRule.stops[0]).toContain('plateau')
-    // The control — identical everything except the rule — burned the full turn cap.
+    // The control — identical everything except the rule — ran every round.
     expect(withRule.spawned).toBeLessThan(withoutRule.spawned)
     expect(withoutRule.spawned).toBe(20)
     // Both still produced the same deliverable: stopping early cost no result here, which is the
@@ -429,7 +437,7 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
     const rising = await runDriver({
       score: (n) => Math.min(0.95, 0.1 + n * 0.05),
       stopRule: plateau({ window: 3, minDelta: 0.01 }),
-      maxTurns: 12,
+      rounds: 12,
     })
     expect(rising.stops).toEqual([])
     expect(rising.spawned).toBe(12)
@@ -443,26 +451,16 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
     let spawned = 0
     const root = driverAgent({
       name: 'root',
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            {
-              name: 'spawn_worker',
-              arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
-            },
-            { name: 'await_event', arguments: {} },
-          ],
-        },
-      ]),
+      brain: spawnThenWait(),
       blobs,
       makeWorkerAgent: () => {
         spawned += 1
         return scoredLeaf(`w${spawned}`, 0.5)
       },
       perWorker: perUnit,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
-      maxTurns: 50,
+      maxTurns: 100,
       stopRule: never,
     })
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
@@ -480,7 +478,7 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
   it('a run with no stopRule allocates no tracker and behaves exactly as before', async () => {
     // The opt-in guarantee: the guard block is the only thing that changed, and it short-circuits
     // when no rule is configured.
-    const before = await runDriver({ score: () => 0.4, maxTurns: 5 })
+    const before = await runDriver({ score: () => 0.4, rounds: 5 })
     expect(before.stops).toEqual([])
     expect(before.spawned).toBe(5)
   })
@@ -542,9 +540,10 @@ describe('ProgressView reads the live worker feed off the scope', () => {
 })
 
 describe('external-arm stopRule — the harness arm stops on the settle that plateaus', () => {
-  /** A harness that keeps spawning workers over the live coordination MCP until its stop signal
-   *  aborts — the shape a real in-box supervisor has: its own loop, stopped only at a turn
-   *  boundary. Returns how many workers it managed to spawn. */
+  /** A harness that spawns one worker over the live coordination MCP and ends its drive. Runtime
+   *  wakes it with that worker's settlement and drives it again, until its stop signal aborts —
+   *  the shape a real in-box supervisor has: its own loop, stopped only at a turn boundary.
+   *  Returns how many workers it managed to spawn. */
   async function runHarnessArm(opts: {
     readonly score: (n: number) => number
     readonly stopRule?: StopRule
@@ -554,23 +553,22 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
     const journal = new InMemorySpawnJournal()
     let spawned = 0
     const stops: string[] = []
+    let drives = 0
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, stopSignal }) => {
-      for (let i = 0; i < opts.maxSpawns; i += 1) {
-        if (stopSignal?.aborted) return
-        await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'spawn_worker',
-          arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
-        })
-        // Each settle is this arm's evaluation boundary — the harness pulls it, the bus publishes
-        // it, and the stop rule is folded over the ledger before the next spawn.
-        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
-      }
+      drives += 1
+      if (stopSignal?.aborted || drives > opts.maxSpawns) return
+      // Each settle is this arm's evaluation boundary: the bus publishes it, and the stop rule is
+      // folded over the ledger before the woken harness spawns again.
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+      })
     }
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
-        tools: runtimeToolDeclarations(...spawnAndAwait),
+        tools: runtimeToolDeclarations(...spawnOnly),
       }),
       {
         blobs,
@@ -635,21 +633,18 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
     const loops: unknown[] = []
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, stopSignal }) => {
       drives += 1
-      for (let i = 0; i < 12; i += 1) {
-        if (stopSignal?.aborted) return
-        await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'spawn_worker',
-          arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
-        })
-        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
-      }
+      if (stopSignal?.aborted || drives > 12) return
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+      })
     }
     let spawned = 0
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
-        tools: runtimeToolDeclarations(...spawnAndAwait),
+        tools: runtimeToolDeclarations(...spawnOnly),
       }),
       {
         blobs,
@@ -674,10 +669,14 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
       executors: createExecutorRegistry(),
       maxDepth: 4,
     })
-    expect(drives).toBe(1)
+    // The rule ended the loop with most of the queue unspawned, and Runtime sent no re-prompt.
+    // Each drive spawned one worker; the settle that fired the rule ended the wait, so no drive
+    // followed it.
+    expect(spawned).toBeLessThan(12)
+    expect(drives).toBe(spawned)
     expect(loops).toEqual([
       expect.objectContaining({
-        attempts: 1,
+        wakes: spawned - 1,
         reprompts: 0,
         closedBy: 'stop-rule',
         repromptRefusedBy: 'closed',

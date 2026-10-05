@@ -96,7 +96,6 @@ function meteredChat(turns: ScriptedTurn[]): ToolLoopChat {
 }
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
-const spawnAndAwait = ['spawn_worker', 'await_event'] as const
 const spawnOnly = ['spawn_worker'] as const
 const listQuestionsOnly = ['list_questions'] as const
 
@@ -161,7 +160,7 @@ describe("driver inference metering — the driver's own tokens count against th
     const journal = new InMemorySpawnJournal()
     const worker = workerLeaf('w', { input: 10, output: 5 })
 
-    // 3 driver turns, each with REAL usage: spawn → await → stop.
+    // 3 driver turns, each with REAL usage: spawn → end the turn to wait → stop when woken.
     const chat = meteredChat([
       {
         toolCalls: [
@@ -174,7 +173,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.01,
       },
       {
-        toolCalls: [{ name: 'await_event', arguments: {} }],
+        content: 'waiting for the worker',
         usage: { input: 80, output: 40 },
         costUsd: 0.008,
       },
@@ -186,7 +185,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: () => worker,
       perWorker,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
       maxTurns: 8,
     }
@@ -246,7 +245,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: makeAgent,
       perWorker: workerBudget,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
       maxTurns: 8,
     })
@@ -267,7 +266,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.05,
       },
       {
-        toolCalls: [{ name: 'await_event', arguments: {} }],
+        content: 'waiting for the worker',
         usage: { input: 30, output: 20 },
         costUsd: 0,
       },
@@ -304,7 +303,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.02,
       },
       {
-        toolCalls: [{ name: 'await_event', arguments: {} }],
+        content: 'waiting for the worker',
         usage: { input: 50, output: 30 },
         costUsd: 0,
       },
@@ -370,7 +369,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: makeAgent,
       perWorker: workerBudget,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
       maxTurns: 8,
     })
@@ -391,7 +390,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.05,
       },
       {
-        toolCalls: [{ name: 'await_event', arguments: {} }],
+        content: 'waiting for the worker',
         usage: { input: 30, output: 20 },
         costUsd: 0,
       },
@@ -427,7 +426,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.02,
       },
       {
-        toolCalls: [{ name: 'await_event', arguments: {} }],
+        content: 'waiting for the worker',
         usage: { input: 50, output: 30 },
         costUsd: 0,
       },
@@ -510,7 +509,7 @@ describe("driver inference metering — the driver's own tokens count against th
         ],
         usage: { input: 100, output: 50 },
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] }, // drains the sub-driver's down settlement
+      { content: 'waiting for the sub-driver' }, // woken with the sub-driver's down settlement
       { content: 'root done' }, // no usage → root inference = 100/50
     ])
 
@@ -521,7 +520,7 @@ describe("driver inference metering — the driver's own tokens count against th
         blobs,
         makeWorkerAgent: makeAgent,
         perWorker,
-        toolNames: spawnAndAwait,
+        toolNames: spawnOnly,
         systemPrompt: 'drive',
         maxTurns: 8,
       }),
@@ -667,7 +666,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.01,
       },
       {
-        toolCalls: [{ name: 'await_event', arguments: {} }],
+        content: 'waiting for the worker',
         usage: { input: 80, output: 40 },
         costUsd: 0,
       },
@@ -679,7 +678,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 10, output: 5 }),
       perWorker,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
       maxTurns: 8,
     }
@@ -723,7 +722,7 @@ describe("driver inference metering — the driver's own tokens count against th
         spend: { tokens: { input: number } }
       }
     expect(at(1).turn).toBe(1)
-    expect(at(1).toolCalls).toEqual(['await_event'])
+    expect(at(1).toolCalls).toEqual([]) // the waiting turn named no tool either
     expect(at(1).spend.tokens.input).toBe(80)
     expect(at(2).turn).toBe(2)
     expect(at(2).toolCalls).toEqual([]) // the stop turn named no tool
@@ -930,7 +929,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'delivered' },
     ])
     const opts: DriverAgentOptions = {
@@ -939,7 +938,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 10, output: 5 }),
       perWorker,
-      toolNames: spawnAndAwait,
+      toolNames: spawnOnly,
       systemPrompt: 'drive',
       maxTurns: 8,
     }

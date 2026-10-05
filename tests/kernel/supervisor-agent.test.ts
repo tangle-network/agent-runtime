@@ -64,6 +64,26 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
   }
 }
 
+/** A leaf that does nothing until `gate` opens, so its manager is provably waiting meanwhile. */
+function gatedLeaf(name: string, out: unknown, gate: Promise<void>): Agent<unknown, unknown> {
+  const delivering = deliveringLeaf(name, out) as Agent<unknown, unknown> & {
+    executorSpec: AgentSpec
+  }
+  const executor = delivering.executorSpec.executor as Executor<unknown>
+  const gated: Executor<unknown> = {
+    ...executor,
+    execute: (task, signal) =>
+      (async function* () {
+        await gate
+        yield* executor.execute(task, signal) as AsyncIterable<UsageEvent>
+      })(),
+  }
+  return { ...delivering, executorSpec: { ...delivering.executorSpec, executor: gated } } as Agent<
+    unknown,
+    unknown
+  > & { executorSpec: AgentSpec }
+}
+
 async function jsonRpc(url: string, method: string, params: unknown): Promise<unknown> {
   const r = await fetch(url, {
     method: 'POST',
@@ -121,7 +141,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const worker = deliveringLeaf('w', { answer: 42 })
-    // A scripted brain stands in for routerBrain (no creds): spawn → await → stop.
+    // A scripted brain stands in for routerBrain (no creds): spawn → end the turn → woken → stop.
     const brain = scriptedBrain([
       {
         toolCalls: [
@@ -131,14 +151,14 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           },
         ],
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'waiting for the worker' },
       { content: 'done' },
     ])
     const root = supervisorAgent(
       testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       { brain, blobs, makeWorkerAgent: () => worker, perWorker, maxTurns: 8 },
     )
@@ -151,24 +171,87 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const journal = new InMemorySpawnJournal()
     // The stub harness drives the coordination MCP over REAL HTTP — exactly what an in-box
     // opencode/claude-code supervisor does via mcp.mcpServers. No router brain, no hand-built loop.
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_worker',
-        arguments: { profile: testAgentProfile('worker'), task: 'go' },
-      })
-      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+    // Turn 1 spawns and ends; Runtime wakes the harness with the settlement; turn 2 stops.
+    const tasks: unknown[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      tasks.push(task)
+      if (tasks.length === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: testAgentProfile('worker'), task: 'go' },
+        })
+        return
+      }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
       }),
       { blobs, makeWorkerAgent: () => deliveringLeaf('w', { answer: 7 }), perWorker, driveHarness },
     )
     const result = await runSupervisor(root, blobs, journal)
     expect(result.kind).toBe('winner')
+    expect(tasks).toHaveLength(2)
+    expect(String(tasks[1])).toContain('"type":"settled"')
+  })
+
+  it('SANDBOX arm: a drive that returns while its worker runs spends no drive until the settlement wakes it', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const tasks: string[] = []
+    const attempts: DriverAttemptRecord[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      tasks.push(String(task))
+      if (tasks.length === 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: testAgentProfile('worker'), task: 'go' },
+        })
+        return
+      }
+      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+    }
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => gatedLeaf('w', { answer: 7 }, held),
+        perWorker,
+        driveHarness,
+        onDriverAttempt: (record) => void attempts.push(record),
+      },
+    )
+    const running = runSupervisor(root, blobs, journal)
+    try {
+      // The worker holds. The first drive has returned and the manager waits with no model turn.
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(tasks).toHaveLength(1)
+      expect(attempts).toHaveLength(0)
+    } finally {
+      release()
+    }
+    const result = await running
+
+    expect(result.kind).toBe('winner')
+    // One more drive, started by the settlement, and its task is the wake input carrying it.
+    expect(tasks).toHaveLength(2)
+    expect(tasks[1]).toContain('"type":"settled"')
+    expect(tasks[1]).toContain('"status":"done"')
+    expect(attempts).toMatchObject([
+      { attempt: 1, retryInMs: 0 },
+      { attempt: 2, reentry: 'wake', stop: 'completed' },
+    ])
+    expect(attempts[0]?.waitedMs).toBeGreaterThanOrEqual(250)
   })
 
   it('refuses an enabled unknown Runtime declaration before dispatching the provider', () => {
@@ -313,10 +396,10 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     expect(
       declaredRuntimeToolNames(
         testAgentProfile('sup', {
-          tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+          tools: runtimeToolDeclarations('spawn_worker', 'observe_agent'),
         }),
       ),
-    ).toEqual(['await_event', 'spawn_worker'])
+    ).toEqual(['observe_agent', 'spawn_worker'])
   })
 
   it('SANDBOX arm retains a checked direct result even when the backend exits with an error afterward', async () => {
@@ -485,7 +568,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const root = supervisorAgent(
       testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('await_event'),
+        tools: runtimeToolDeclarations('observe_agent'),
         model: {
           provider: 'offline',
           default: 'offline-test-model',
@@ -692,7 +775,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const resolveSupervisorTools: ResolveSupervisorTools = async () => [
       {
         name: 'compose_children',
-        description: 'Spawn two children in code and await the first settlement',
+        description: 'Spawn two children in code and wait in code for the first settlement',
         inputSchema: { type: 'object', properties: {} },
         handler: async (_raw, context) => {
           const first = await context.verbs.spawnAgent({
@@ -706,7 +789,10 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
             task: 'go',
             label: 'composed-b',
           })
-          const settled = await context.verbs.awaitEvent({ kinds: ['settled'] })
+          const workerIds = [first, second].map(
+            (spawned) => (spawned as { workerId: string }).workerId,
+          )
+          const settled = await context.verbs.awaitSettlement({ workerIds })
           return { first, second, settled }
         },
       },
@@ -739,7 +825,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
           supervisorAgent(
             testAgentProfile('router-manager', {
               harness: 'cli-base',
-              tools: runtimeToolDeclarations('compose_children', 'spawn_worker', 'await_event'),
+              tools: runtimeToolDeclarations('compose_children', 'spawn_worker'),
             }),
             {
               ...deps,
@@ -752,7 +838,11 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         )
         return { journal, result: composeResult }
       }
+      let turns = 0
       const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+        // The woken turn has nothing left to compose.
+        turns += 1
+        if (turns > 1) return
         composeResult = await jsonRpc(coordinationMcpUrl, 'tools/call', {
           name: 'compose_children',
           arguments: {},
@@ -762,7 +852,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         supervisorAgent(
           testAgentProfile('external-manager', {
             harness: 'opencode',
-            tools: runtimeToolDeclarations('compose_children', 'spawn_worker', 'await_event'),
+            tools: runtimeToolDeclarations('compose_children', 'spawn_worker'),
           }),
           {
             ...deps,
@@ -1007,12 +1097,17 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     let invocations = 0
+    let invocationsWhileRunning = 0
     let resolveGraph!: (value: unknown) => void
     const graph = new Promise<unknown>((resolve) => {
       resolveGraph = resolve
     })
     const responses: Array<{ result?: unknown; error?: unknown }> = []
-    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+    const tasks: string[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+      tasks.push(String(task))
+      // The second turn is Runtime's wake with the receipted outcome; it calls nothing.
+      if (tasks.length > 1) return
       const call = async (sources: unknown) =>
         (await jsonRpc(coordinationMcpUrl, 'tools/call', {
           name: 'literature_sourcing',
@@ -1020,6 +1115,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         })) as { result?: unknown; error?: unknown }
       responses.push(await call([{ id: 'daniel-murfet', kind: 'researcher' }]))
       responses.push(await call([{ kind: 'researcher', id: 'daniel-murfet' }]))
+      invocationsWhileRunning = invocations
       resolveGraph({ charter: 'one graph, one run' })
       await new Promise<void>((resolve) => setImmediate(resolve))
       responses.push(await call([{ id: 'daniel-murfet', kind: 'researcher' }]))
@@ -1069,19 +1165,33 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       now: () => 0,
     })
 
-    expect(invocations).toBe(1)
+    // The reordered retry joined the run in flight, and both calls got the one receipt.
+    expect(invocationsWhileRunning).toBe(1)
     expect(responses).toHaveLength(3)
-    for (const pending of responses.slice(0, 2)) {
-      expect(pending.error).toBeUndefined()
-      expect(pending.result).toMatchObject({
+    for (const running of responses.slice(0, 2)) {
+      expect(running.error).toBeUndefined()
+      expect(running.result).toMatchObject({
         isError: false,
-        structuredContent: { pending: true, tool: 'literature_sourcing' },
+        structuredContent: { running: true, tool: 'literature_sourcing' },
       })
     }
+    const receiptOf = (response: { result?: unknown } | undefined): unknown =>
+      (response?.result as { structuredContent?: { receipt?: unknown } } | undefined)
+        ?.structuredContent?.receipt
+    const receipt = String(receiptOf(responses[0]))
+    expect(receipt).not.toBe('undefined')
+    expect(receiptOf(responses[1])).toBe(receipt)
+    // A call after the run settled is a fresh run, and it answers within the fence.
+    expect(invocations).toBe(2)
     expect(responses[2]?.error).toBeUndefined()
     expect(responses[2]?.result).toMatchObject({
       structuredContent: { charter: 'one graph, one run' },
     })
+    // The receipted outcome reaches the manager in its next wake, with no call to collect it.
+    expect(tasks).toHaveLength(2)
+    expect(tasks[1]).toContain('"type":"tool-outcome"')
+    expect(tasks[1]).toContain(receipt)
+    expect(tasks[1]).toContain('one graph, one run')
   })
 
   it('captures the resolver and rejects descriptor collisions before brain compute or MCP listen', async () => {
@@ -1284,7 +1394,6 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
       harness: 'opencode',
       tools: {
         agent_runtime_coordination_spawn_worker: true,
-        agent_runtime_coordination_await_event: true,
         // A false declaration grants nothing and never becomes a provider-native tool.
         agent_runtime_coordination_not_a_grant: false,
       },
@@ -1631,9 +1740,10 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
           name: 'spawn_worker',
           arguments: { profile: testAgentProfile('holder'), task: 'return the token' },
         })
-        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
-        throw new Error('Sandbox not found')
+        return
       }
+      // The woken turn receives the child's settlement and dies before acting on it.
+      if (tasks.length === 2) throw new Error('Sandbox not found')
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
         name: 'submit_result',
         arguments: { result: { answer: 42 } },
@@ -1642,7 +1752,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'pi',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'submit_result'),
+        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
       }),
       {
         blobs,
@@ -1661,8 +1771,9 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
 
     const result = await runSupervisor(root, blobs, journal)
     expect(result.kind).toBe('winner')
-    expect(tasks).toHaveLength(2)
-    const reentry = tasks[1] ?? ''
+    expect(tasks).toHaveLength(3)
+    expect(tasks[1]).toContain('"type":"settled"')
+    const reentry = tasks[2] ?? ''
     expect(reentry).toContain('re-entering a run that is already in progress')
     expect(reentry).toContain('Your previous turn ended before it finished (retry 1)')
     expect(reentry).not.toContain('Sandbox not found')
@@ -1670,14 +1781,15 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     expect(reentry).toContain('an object whose answer is 42')
     expect(reentry).toMatch(/Workers settled: sup:s0 \(done/u)
     expect(reentry).toMatch(
-      /Events delivered to a turn that did not finish.*#\d+ settled from sup:s0/u,
+      /Events delivered to a turn that has not finished.*#\d+ settled from sup:s0/u,
     )
     expect(reentry).toMatch(/Journal: \d+ rows/u)
     expect(loops).toEqual([
       expect.objectContaining({
-        attempts: 2,
+        attempts: 3,
         reprompts: 0,
         failureRetries: 1,
+        wakes: 1,
         ended: 'completed',
         closedBy: 'result-accepted',
         continuations: [],
@@ -1713,7 +1825,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const root = supervisorAgent(
       testAgentProfile('sup', {
         harness: 'pi',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'submit_result'),
+        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
       }),
       {
         blobs,
@@ -1726,12 +1838,11 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
               name: 'spawn_worker',
               arguments: { profile: testAgentProfile('component'), task: 'build the database' },
             })
-            await jsonRpc(coordinationMcpUrl, 'tools/call', {
-              name: 'await_event',
-              arguments: {},
-            })
             return
           }
+          // The woken turn reads the partial component and ends without finishing: the unmet
+          // check, not the wake, sends the director back in.
+          if (tasks.length === 2) return
           await jsonRpc(coordinationMcpUrl, 'tools/call', {
             name: 'submit_result',
             arguments: { result: complete },
@@ -1761,11 +1872,12 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const result = await runSupervisor(root, blobs, journal)
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual(complete)
-    expect(tasks).toHaveLength(2)
+    expect(tasks).toHaveLength(3)
+    expect(tasks[1]).toContain('"type":"settled"')
     expect(finalizations).toBe(1)
     expect(checked).toEqual([partial, complete])
     // The finalizer's check of the child candidate is the verdict the note reports.
-    expect(tasks[1]).toContain('FAIL product result: only the database component')
+    expect(tasks[2]).toContain('FAIL product result: only the database component')
     expect(await journal.loadTree('sup')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1789,10 +1901,11 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
       const journal = new InMemorySpawnJournal()
       let checks = 0
       let finalizations = 0
+      let turns = 0
       const root = supervisorAgent(
         testAgentProfile('sup', {
           harness,
-          tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+          tools: runtimeToolDeclarations('spawn_worker'),
         }),
         {
           blobs,
@@ -1801,13 +1914,12 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
           ...(harness === 'pi'
             ? {
                 driveHarness: async ({ coordinationMcpUrl }: Parameters<DriveHarness>[0]) => {
+                  // The woken turn finds nothing left to start.
+                  turns += 1
+                  if (turns > 1) return
                   await jsonRpc(coordinationMcpUrl, 'tools/call', {
                     name: 'spawn_worker',
                     arguments: { profile: testAgentProfile('component'), task: 'build component' },
-                  })
-                  await jsonRpc(coordinationMcpUrl, 'tools/call', {
-                    name: 'await_event',
-                    arguments: {},
                   })
                 },
                 // A deadline already past: the external arm ends on its first turn, as the router
@@ -1827,7 +1939,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
                       },
                     ],
                   },
-                  { toolCalls: [{ name: 'await_event', arguments: {} }] },
+                  { content: 'waiting for the worker' },
                   { content: 'done' },
                 ]),
               }),

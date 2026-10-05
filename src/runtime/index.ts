@@ -65,6 +65,7 @@ export type {
   AuthoredAnalystLimits,
   AuthorizeDownMessage,
   AuthorizedDownMessage,
+  AwaitWakeInput,
   ContinuationInstruction,
   ContinuityMode,
   CoordinationEvent,
@@ -76,8 +77,10 @@ export type {
   DownMessageEvent,
   EscalateQuestion,
   EventAcknowledgement,
+  LeadMessage,
   MakeWorkerAgent,
   ManagerReentryState,
+  ManagerWake,
   QuestionEscalationOutcome,
   QuestionEscalationRecord,
   SpawnPreflight,
@@ -85,13 +88,13 @@ export type {
   SpawnRefusal,
   SpawnRefusalCause,
   SuperviseProfileEntry,
+  ToolOutcomeEvent,
   WorkerResumeContext,
   WorkerSpawnContext,
   WorkerWatchOptions,
 } from './../mcp/tools/coordination'
 export {
   canonicalFindingEvent,
-  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   normalizeAnalyzeOnSettle,
 } from './../mcp/tools/coordination'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
@@ -1296,8 +1299,8 @@ export {
 export type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
 // (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
-// deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
-// an in-run rendezvous whose re-polls each cost a driver turn and vanish with the process.
+// deadline, so a killed run resumes still waiting to the same instant. Not a manager's wake: that
+// is an in-run rendezvous on the coordination bus that vanishes with the process.
 export {
   createWaitProbes,
   isWaitOutcome,
@@ -1312,6 +1315,13 @@ export {
   type WaitSpec,
   waitUntil,
 } from './supervise/wait'
+// How a manager that ended its turn with work open is woken: heartbeat, debounce, deadline notice.
+export {
+  DEFAULT_DEADLINE_WARNING_MS,
+  DEFAULT_WAKE_DEBOUNCE_MS,
+  DEFAULT_WAKE_HEARTBEAT_MS,
+  type ManagerWakePolicy,
+} from './supervise/wake'
 // The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
 // blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
 // Promoted from the loops repo (#4519).

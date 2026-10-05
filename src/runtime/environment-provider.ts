@@ -60,6 +60,7 @@ import {
   type ProviderNativeCapturePhase,
   type ProviderWorkspaceCaptureProvenance,
   type ProviderWorkspaceCaptureReceipt,
+  type ProviderWorkspaceCaptureTiming,
   type ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 import { environmentGone } from './retained-interactive-lifecycle'
@@ -94,9 +95,11 @@ import {
 } from './sandbox-events'
 import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort, RunCancellationReason } from './supervise/abortable'
+import { bridgeStopSignalKey } from './supervise/bridge-config'
 import { priceUnreceiptedWork } from './supervise/cost-estimate'
 import { isDeadlineAbortReason } from './supervise/deadline'
 import { errorText } from './supervise/error-message'
+import { readOptionalAbortSignal } from './supervise/executor-seams'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -657,6 +660,26 @@ function createProviderExecutor(
   let harnessTranscript: HarnessTranscriptCapture =
     harnessTranscriptUnavailable('execution-never-started')
   const retention = retainedExecutorContext(ctx)
+  // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
+  // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
+  // turn, so the stream ends and the harness session and the turn's usage are still read. Before,
+  // a provider-placed director ran its harness on after acceptance: measured 2026-10-05, accepted
+  // directors settled 13 to 29 minutes after their submissions. A run with no retained control
+  // could only abort locally, which skips those reads, so it keeps running to the end of its turn.
+  const managerStop = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'provider')
+  const cancelRetainedOnManagerStop = (handle: RetainedRunHandle): void => {
+    if (managerStop === undefined) return
+    const cancel = (): void => {
+      void handle
+        .cancel({
+          operationId: `manager-stop:${randomUUID()}`,
+          reason: String(managerStop.reason ?? 'the manager stopped'),
+        })
+        .catch(() => undefined)
+    }
+    if (managerStop.aborted) cancel()
+    else managerStop.addEventListener('abort', cancel, { once: true })
+  }
   // The stream destroys the environment on settle by default, so a later `teardown` would issue a
   // SECOND delete against a resource that is already gone. That second call is what the provider
   // answered 409 to.
@@ -800,8 +823,31 @@ function createProviderExecutor(
         profile: createProfile,
         ...(outcome === undefined ? {} : { outcome }),
       }
+      // Where the capture's time went, journaled on the node before its outcome is used.
+      const reportTiming = retention?.onWorkspaceCapture
+      let timing: ProviderWorkspaceCaptureTiming | undefined
+      const capturedExecutionId = workspaceExecutionId
       workspaceCapturePromise = (nativeInFlight ?? Promise.resolve())
-        .then(() => captureProviderWorkspaceSnapshot(workspaceRetention, captureContext))
+        .then(() =>
+          captureProviderWorkspaceSnapshot(
+            workspaceRetention,
+            captureContext,
+            'environment',
+            reportTiming === undefined
+              ? undefined
+              : (measured) => {
+                  timing = measured
+                },
+          ),
+        )
+        .finally(async () => {
+          if (timing === undefined || reportTiming === undefined) return
+          await reportTiming({
+            executionId: capturedExecutionId,
+            environmentId: next.id,
+            ...timing,
+          }).catch(() => undefined)
+        })
         .then(({ snapshot, provenance, coverageComplete, incompleteReason }) => {
           workspaceSnapshot = snapshot
           workspaceProvenance = provenance
@@ -1233,10 +1279,12 @@ function createProviderExecutor(
           mayContinue:
             options.unavailablePause !== false &&
             invocation.retention?.continueInvocation !== undefined,
+          managerStopped: () => managerStop?.aborted === true,
           onRetained: (handle) => {
             retained = handle
             workspaceControlRef = freezeControlRef(handle.controlRef)
             providerSessionId = workspaceControlRef.sessionId
+            cancelRetainedOnManagerStop(handle)
           },
           onPending: (value) => {
             pending = value
@@ -1640,6 +1688,8 @@ interface StreamProviderExecutorArgs {
    *  caller to continue (`ProviderExecutorOptions.unavailablePause`). Only a retained source
    *  continues, because only it journals each invocation. */
   mayContinue: boolean
+  /** Whether the manager this turn serves has stopped: an accepted result, `stop`, a stop rule. */
+  managerStopped: () => boolean
   onRetained: (handle: RetainedRunHandle) => void
   onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
@@ -1791,6 +1841,48 @@ async function* streamProviderExecutor(
   let failed = false
   // Set when the turn was refused for capacity and the caller will continue in this environment.
   let unavailable: ProviderInvocationEnd['unavailable']
+  // Whether the turn's final session copy was already taken: a turn whose workspace capture the
+  // owner took over copies its session before it hands the capture over.
+  let finalCopyTaken = false
+  // Whether this turn's owner takes its workspace capture over, so the turn ends without waiting
+  // for it. The owner's environment outlives its turns; the owner awaits the capture before the
+  // environment's next turn and before it destroys the environment, and the capture's receipt is
+  // journaled as evidence of this invocation. Only a port that copies the session on its own
+  // queue hands the capture over: without one, the workspace capture is the only record of the
+  // session the node settles with.
+  const ownerTakesCapture = (): boolean =>
+    args.options.workspaceRetention?.captureNative !== undefined &&
+    args.createProfile.harness !== undefined &&
+    source.retained &&
+    args.retention?.preserveEnvironment === true &&
+    args.retention.onEndOfTurnWork !== undefined
+  // Hand the workspace capture to the owner. Its receipt reaches the journal as evidence of this
+  // invocation; a capture that fails leaves none, and the owner's release then keeps the source.
+  const handCaptureToOwner = (
+    reported: object,
+    captureOutcome: AgentRunOutcome | undefined,
+    publish: boolean,
+  ): void => {
+    args.retention?.onEndOfTurnWork?.(
+      args.captureWorkspace(environment, captureOutcome).then(
+        async (snapshot) => {
+          if (publish) args.onPublishedSnapshot(snapshot)
+          if (snapshot === undefined) return
+          await args.retention?.onEvidence?.({
+            ...reported,
+            workspaceSnapshot: snapshot,
+            workspaceCapture: providerWorkspaceCaptureReceipt(
+              args,
+              environment,
+              snapshot,
+              turn.sessionId ?? null,
+            ),
+          })
+        },
+        () => undefined,
+      ),
+    )
+  }
   // A deadline or a cancellation stops the harness once, before any capture of its session, so
   // the failure capture and the final copy read a session that has stopped changing.
   let harnessStop: Promise<void> | undefined
@@ -1919,6 +2011,14 @@ async function* streamProviderExecutor(
       }),
       signal: linked,
     })
+    // A turn its manager stopped is that manager's last turn of this drive, and the node's output
+    // is the submission the manager's check accepted, not this turn's workspace. The workspace
+    // capture waits on a queue every recursive environment shares: measured on Discovery Lab run
+    // terraform-economics-20261005f, turns returned 4 to 28 minutes after their streams ended, and
+    // five nodes with accepted results were settled `down` by deadlines inside that wait. The
+    // owner therefore takes the capture over: the result is committed now, with the turn's usage,
+    // and the capture runs afterwards.
+    const deferCapture = ownerTakesCapture() && args.managerStopped()
     // The turn has settled, so a capture that fails or exceeds its deadline is a fact about the
     // evidence, never the turn's outcome. Measured 2026-10-03 on Runtime 0.295.4: one capture that
     // waited past its 1,200,000 ms deadline behind a two-slot queue shared by 34 workers threw an
@@ -1927,12 +2027,14 @@ async function* streamProviderExecutor(
     // owner reads the receipt-less result as a retention failure, and the turn is not re-run.
     let retainedWorkspace: AgentCandidateWorkspaceSnapshotEvidence | undefined
     let workspaceCaptureFailure: string | undefined
-    try {
-      retainedWorkspace = await args.captureWorkspace(environment, outcome)
-    } catch (error) {
-      workspaceCaptureFailure = `${errorText(error instanceof Error ? error.message : error)}; source environment preserved`
+    if (!deferCapture) {
+      try {
+        retainedWorkspace = await args.captureWorkspace(environment, outcome)
+      } catch (error) {
+        workspaceCaptureFailure = `${errorText(error instanceof Error ? error.message : error)}; source environment preserved`
+      }
+      args.onPublishedSnapshot(retainedWorkspace)
     }
-    args.onPublishedSnapshot(retainedWorkspace)
     const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...result,
       ...(workspaceCaptureFailure === undefined ? {} : { workspaceCaptureFailure }),
@@ -1984,6 +2086,13 @@ async function* streamProviderExecutor(
     else if (retainedWorkspace !== undefined) await args.retention?.onEvidence?.(settledResult)
     args.onPending(false)
     args.onArtifact(settled)
+    if (deferCapture) {
+      // The session copy this turn settles with is taken first, on the native queue, which never
+      // waits behind workspace captures; the workspace capture then reads a session that ended.
+      await args.finishNativeMirror(environment, 'settled')
+      finalCopyTaken = true
+      handCaptureToOwner(settledResult, outcome, true)
+    }
   } catch (error) {
     failure = source.retained ? new RetainedExecutionPendingError(error) : error
     failed = true
@@ -2005,34 +2114,46 @@ async function* streamProviderExecutor(
     // settled a deadline node with its last running copy, `native_snapshot_live`.
     if (linked.aborted) await args.finishNativeMirror(environment, 'failed')
     args.onTranscriptSettled()
-    try {
-      const retainedWorkspace = await args.captureWorkspace(environment, failureOutcome)
-      if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {
-        await args.retention.onEvidence({
-          ...resultFromEvents(archive.events(), text),
-          outcome: failureOutcome,
-          workspaceSnapshot: retainedWorkspace,
-          workspaceCapture: providerWorkspaceCaptureReceipt(
-            args,
-            environment,
-            retainedWorkspace,
-            turn.sessionId ?? null,
-          ),
-        })
-      }
-    } catch (captureError) {
-      // Preserve the stream failure alongside capture's own cause. A persistence error can
-      // be shared with the supervisor, so never replace its cause or make it refer to itself
-      // when capture was also the original failure.
-      if (captureError instanceof Error && captureError !== error) {
-        failure =
-          captureError.cause === undefined
-            ? Object.assign(captureError, { cause: failure })
-            : new AggregateError([captureError, failure], captureError.message, {
-                cause: captureError,
-              })
-      } else {
-        failure = captureError
+    if (ownerTakesCapture()) {
+      // The owner takes this failed turn's capture over too, so the drive ends now and the
+      // owner's release reads the capture's receipt before it decides what to destroy.
+      if (!linked.aborted) await args.finishNativeMirror(environment, 'failed')
+      finalCopyTaken = true
+      handCaptureToOwner(
+        { ...resultFromEvents(archive.events(), text), outcome: failureOutcome },
+        failureOutcome,
+        false,
+      )
+    } else {
+      try {
+        const retainedWorkspace = await args.captureWorkspace(environment, failureOutcome)
+        if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {
+          await args.retention.onEvidence({
+            ...resultFromEvents(archive.events(), text),
+            outcome: failureOutcome,
+            workspaceSnapshot: retainedWorkspace,
+            workspaceCapture: providerWorkspaceCaptureReceipt(
+              args,
+              environment,
+              retainedWorkspace,
+              turn.sessionId ?? null,
+            ),
+          })
+        }
+      } catch (captureError) {
+        // Preserve the stream failure alongside capture's own cause. A persistence error can
+        // be shared with the supervisor, so never replace its cause or make it refer to itself
+        // when capture was also the original failure.
+        if (captureError instanceof Error && captureError !== error) {
+          failure =
+            captureError.cause === undefined
+              ? Object.assign(captureError, { cause: failure })
+              : new AggregateError([captureError, failure], captureError.message, {
+                  cause: captureError,
+                })
+        } else {
+          failure = captureError
+        }
       }
     }
     if (args.options.workspaceRetention === undefined) {
@@ -2048,10 +2169,12 @@ async function* streamProviderExecutor(
     await stopEndedHarness()
     // Before any teardown: the final copy reads the session from the live environment. This is
     // the only capture that runs when the stream was closed by an abort or a deadline.
-    await args.finishNativeMirror(
-      environment,
-      failed ? 'failed' : settled !== undefined ? 'settled' : 'interrupted',
-    )
+    if (!finalCopyTaken) {
+      await args.finishNativeMirror(
+        environment,
+        failed ? 'failed' : settled !== undefined ? 'settled' : 'interrupted',
+      )
+    }
     if (
       (!source.retained || (settled !== undefined && !failed)) &&
       !(source.retained && args.retention?.preserveEnvironment) &&

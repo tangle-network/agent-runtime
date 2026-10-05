@@ -106,6 +106,7 @@ import {
   type RetainedExecutorContext,
   type RetainedPendingCause,
   retainedExecutorSeamKey,
+  workspaceCaptureWriter,
 } from './retained-executor'
 import {
   bindScopeRetainedOwnerWorkspaceRetention,
@@ -113,6 +114,7 @@ import {
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
   retainedOwnerWorkspaceRetentionSeamKey,
+  scopeRetainedOwnerSettled,
 } from './retained-scope-owner'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -328,6 +330,10 @@ const teardownRetriable = new WeakMap<object, (release: boolean) => boolean>()
 const ownerUnconfirmedByScope = new WeakMap<object, ReadonlyArray<UnconfirmedTeardown>>()
 /** The scope a recursive executor owns, so the settlement retry reaches its descendants. */
 const nestedTeardownScopes = new WeakMap<object, () => Scope<unknown> | undefined>()
+/** Each scope's reader of the manager scopes its children own, read live. */
+const nestedManagerScopeReaders = new WeakMap<object, () => Scope<unknown>[]>()
+/** A manager scope's release of its own environment, started once and joined by later callers. */
+const managerEnvironmentReleases = new WeakMap<object, Promise<void>>()
 /** Scopes whose settlement released retained environments: none of their retained children is
  *  kept for a resume any longer. */
 const releasingScopes = new WeakSet<object>()
@@ -423,8 +429,55 @@ export async function releaseRetainedEnvironments(
   releasingScopes.add(scope)
   const release = retainedReleasers.get(scope)
   if (release) await release()
+  // A nested manager whose own teardown confirmed is not among the children `release` reaches,
+  // and it still holds the environment it kept between its turns.
+  await releaseNestedManagerEnvironments(scope)
   ownerUnconfirmedByScope.set(scope, await releaseScopeRetainedOwnerEnvironment(scope))
   return unconfirmedTeardowns(scope)
+}
+
+/** The manager scopes this scope's children own, read live. */
+function nestedManagerScopes(scope: Scope<unknown>): Scope<unknown>[] {
+  return nestedManagerScopeReaders.get(scope)?.() ?? []
+}
+
+async function releaseNestedManagerEnvironments(scope: Scope<unknown>): Promise<void> {
+  await Promise.all(
+    nestedManagerScopes(scope).map(async (nested) => {
+      await releaseNestedManagerEnvironments(nested)
+      // One a retained release already reached keeps that release's answer.
+      if (!ownerUnconfirmedByScope.has(nested)) await releaseManagerEnvironment(nested)
+    }),
+  )
+}
+
+/**
+ * @internal Release the environment a manager kept between its turns, once its own scope has
+ * finished and no turn of it will run again. The release first waits for the manager's last
+ * end-of-turn capture, so it runs in the background of the manager's settlement; a later call,
+ * including the run's settlement sweep, joins it. Its receipt is journaled in the manager's own
+ * tree. It is the manager's own resource, not one of its descendants, so it never changes the
+ * teardown answer its executor gives the parent.
+ */
+export function releaseManagerEnvironment(scope: Scope<unknown>): Promise<void> {
+  let release = managerEnvironmentReleases.get(scope)
+  if (release === undefined) {
+    release = releaseScopeRetainedOwnerEnvironment(scope).then(() => undefined)
+    managerEnvironmentReleases.set(scope, release)
+  }
+  return release
+}
+
+/**
+ * @internal Wait for the work every manager in this scope's tree still has in flight after its
+ * node settled: the end-of-turn capture its last turn handed over, and the release of its
+ * environment. The run's settlement awaits it under either retention policy, so nothing writes to
+ * the run's journal after the run settles and no capture is cut short by the process exiting.
+ */
+export async function settleManagerWork(scope: Scope<unknown>): Promise<void> {
+  await Promise.all(nestedManagerScopes(scope).map((nested) => settleManagerWork(nested)))
+  await scopeRetainedOwnerSettled(scope)
+  await managerEnvironmentReleases.get(scope)?.catch(() => undefined)
 }
 
 /**
@@ -1236,6 +1289,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           )
           live.recoveryPending = false
         })
+      let captureSeq = 0
+      const onWorkspaceCapture = workspaceCaptureWriter({
+        journal: args.journal,
+        rootId: args.root,
+        nodeId: id,
+        nextSequence: () => captureSeq++,
+        now,
+      })
       const onPause: NonNullable<RetainedExecutorContext['onPause']> = (pause) =>
         retainedWrite(async () => {
           await args.journal.appendEvent(args.root, {
@@ -1275,6 +1336,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           now,
         }),
         onPause,
+        onWorkspaceCapture,
         continueInvocation: async (nextTask) => {
           controller.signal.throwIfAborted()
           // An input after a committed result starts a new invocation; before one, it would pay
@@ -1458,6 +1520,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         if (
           !live.executorDone &&
           live.acceptedResult === undefined &&
+          executor.resultAccepted?.() !== true &&
           controller.signal.reason instanceof RunCancellationReason
         ) {
           live.cancellationReason = controller.signal.reason
@@ -2491,6 +2554,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     (release) =>
       retriableTeardowns().length > 0 ||
       (release && (releasable().length > 0 || retainedOwnerReleaseRetriable(scope))),
+  )
+  nestedManagerScopeReaders.set(scope, () =>
+    [...children.values()].flatMap((child) => {
+      const nested = child.readNestedScope?.()
+      return nested === undefined ? [] : [nested]
+    }),
   )
   teardownRetriers.set(scope, async () => {
     await Promise.all(
@@ -3733,7 +3802,7 @@ async function runChild<C>(
       if (reconcileError !== undefined) throw reconcileError
     } else {
       const terminal = await retainOutput(
-        await awaitAbortable(Promise.resolve(ran), childAbort.signal),
+        await awaitUnlessAccepted(Promise.resolve(ran), childAbort.signal, executor),
       )
       await executionEvidence.complete()
       const accounting = executor.accounting?.()
@@ -3754,7 +3823,11 @@ async function runChild<C>(
     const trace = await captureTraceOnce()
     const childHarnessTranscript = await persistTranscriptOnce()
 
-    if (childAbort.signal.aborted && live.acceptedResult === undefined) {
+    if (
+      childAbort.signal.aborted &&
+      live.acceptedResult === undefined &&
+      executor.resultAccepted?.() !== true
+    ) {
       await teardownOnce(opts.shutdown ?? 'brutalKill')
       return downRecord(
         'aborted before settle',
@@ -4379,6 +4452,24 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...((streamed.tokensProvenance ?? terminal.tokensProvenance) === undefined
       ? {}
       : { tokensProvenance: streamed.tokensProvenance ?? terminal.tokensProvenance }),
+  }
+}
+
+/**
+ * Await a one-shot executor's terminal result unless an abort wins first, except for an execution
+ * whose result was accepted before the abort arrived: it is ending the turn that submitted that
+ * result, so it is awaited rather than discarded, and the executor bounds that wait itself.
+ */
+async function awaitUnlessAccepted<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+  executor: Pick<Executor<unknown>, 'resultAccepted'>,
+): Promise<T> {
+  try {
+    return await awaitAbortable(work, signal)
+  } catch (error) {
+    if (signal.aborted && executor.resultAccepted?.() === true) return await work
+    throw error
   }
 }
 

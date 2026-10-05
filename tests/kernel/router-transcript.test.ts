@@ -25,7 +25,8 @@ interface ChatMessage {
   readonly tool_call_id?: string
 }
 
-/** A manager at level 0 or 1 spawns two children and awaits them; a level-2 agent answers. */
+/** A manager at level 0 or 1 spawns two children and ends its turn until both report; a level-2
+ *  agent answers. */
 function brain() {
   let call = 0
   return async (body: Record<string, unknown>) => {
@@ -44,12 +45,14 @@ function brain() {
       for (const tool of message.tool_calls ?? []) names.set(tool.id, tool.function.name)
     }
     const spawned = [...names.values()].filter((name) => name === 'spawn_worker').length
-    const settled = messages.filter(
-      (message) =>
-        message.role === 'tool' &&
-        names.get(message.tool_call_id ?? '') === 'await_event' &&
-        /"status":"(done|down)"/u.test(String(message.content)),
-    ).length
+    // Settlements reach a waiting manager in the user messages its wakes add.
+    const settled = messages
+      .filter((message) => message.role === 'user')
+      .reduce(
+        (count, message) =>
+          count + (String(message.content).match(/"status":"(?:done|down)"/gu)?.length ?? 0),
+        0,
+      )
     if (spawned === 0) {
       return reply({
         content: `level ${level} splits the work`,
@@ -74,18 +77,7 @@ function brain() {
         })),
       })
     }
-    if (settled < 2) {
-      return reply({
-        content: null,
-        tool_calls: [
-          {
-            id: `await-${level}-${call}`,
-            type: 'function',
-            function: { name: 'await_event', arguments: '{}' },
-          },
-        ],
-      })
-    }
+    if (settled < 2) return reply({ content: `level ${level} waits for its workers` })
     return reply({ content: `level ${level} done` })
   }
 }
@@ -119,7 +111,7 @@ describe('a router-brained agent keeps its conversation', () => {
         name: 'root',
         harness: 'cli-base',
         model,
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       },
       'level=0',
       {
@@ -127,7 +119,7 @@ describe('a router-brained agent keeps its conversation', () => {
         router,
         backend: { backend: 'router', ...router },
         deliverable: { check: () => true, describe: 'any answer' },
-        awaitTimeoutMs: 60_000,
+        wake: { debounceMs: 0 },
         journal,
         blobs,
         runId: 'router-transcript',

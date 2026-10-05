@@ -147,7 +147,7 @@ describe('explicit per-play Knowledge binding over the real Runtime MCP path', (
       },
     })
     const child = testAgentProfile('director', {
-      tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'memory_recall', 'qmd_search'),
+      tools: runtimeToolDeclarations('spawn_worker', 'memory_recall', 'qmd_search'),
     })
     const grandchild = testAgentProfile('nonspawning-worker', {
       tools: {
@@ -156,29 +156,38 @@ describe('explicit per-play Knowledge binding over the real Runtime MCP path', (
         agent_runtime_coordination_qmd_search: false,
       },
     })
+    // A manager that spawns returns from its drive; Runtime drives it again when its worker settles.
+    const driven = new Set<string>()
+    const wokenManagers: string[] = []
     const driveHarness: DriveHarness = async ({ profile, coordinationMcpUrl: url }) => {
+      const woken = driven.has(profile.name!)
+      driven.add(profile.name!)
+      if (woken) wokenManagers.push(profile.name!)
       const listed = await rpc<{ tools: Array<{ name: string }> }>(url, 'tools/list', {})
       toolSets.set(
         profile.name!,
         listed.tools.map((tool: { name: string }) => tool.name),
       )
       if (profile.name === 'root') {
-        await call(url, 'memory_record', {
-          id: 'root-finding',
-          kind: 'fact',
-          text: 'prior result from root',
-          sourceRefs: [source.uri],
-        })
-        await call(url, 'spawn_worker', {
-          profile: child,
-          task: 'consult the retained result',
-          key: 'director',
-        })
-        await call(url, 'await_event', { kinds: ['settled'] })
+        if (!woken) {
+          await call(url, 'memory_record', {
+            id: 'root-finding',
+            kind: 'fact',
+            text: 'prior result from root',
+            sourceRefs: [source.uri],
+          })
+          await call(url, 'spawn_worker', {
+            profile: child,
+            task: 'consult the retained result',
+            key: 'director',
+          })
+          return
+        }
         expect(
           JSON.stringify(await call(url, 'memory_recall', { question: 'prior result' })),
         ).toContain('prior result from descendant')
       } else if (profile.name === 'director') {
+        if (woken) return
         expect(
           JSON.stringify(await call(url, 'memory_recall', { question: 'prior result' })),
         ).toContain('prior result from root')
@@ -191,7 +200,6 @@ describe('explicit per-play Knowledge binding over the real Runtime MCP path', (
           task: 'read the exact source',
           key: 'reader',
         })
-        await call(url, 'await_event', { kinds: ['settled'] })
       } else {
         expect(await call(url, 'qmd_read', { sourceId: 'buffer-source' })).toMatchObject({
           document: {
@@ -210,12 +218,7 @@ describe('explicit per-play Knowledge binding over the real Runtime MCP path', (
     try {
       await supervise(
         testAgentProfile('root', {
-          tools: runtimeToolDeclarations(
-            'spawn_worker',
-            'await_event',
-            'memory_record',
-            'memory_recall',
-          ),
+          tools: runtimeToolDeclarations('spawn_worker', 'memory_record', 'memory_recall'),
         }),
         'Use only the commissioned sources.',
         {
@@ -236,6 +239,7 @@ describe('explicit per-play Knowledge binding over the real Runtime MCP path', (
         },
       )
       expect(driverFailures).toEqual([])
+      expect(wokenManagers.sort()).toEqual(['director', 'root'])
       expect(toolSets.get('nonspawning-worker')).toEqual(['memory_record', 'qmd_read'])
       expect(toolSets.get('director')).not.toContain('memory_record')
       expect(toolSets.get('root')).not.toContain('qmd_search')

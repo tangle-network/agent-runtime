@@ -49,7 +49,7 @@ import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { addSpend } from '../util'
 import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
-import { armDeadlineTimer, ROOT_DEADLINE_REASON } from './deadline'
+import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer, ROOT_DEADLINE_REASON } from './deadline'
 import { DriverAttemptsExhaustedError } from './driver-retry'
 import { errMessage, errorProperty } from './error-message'
 import { runTree } from './finalizer'
@@ -76,6 +76,7 @@ import {
   hasRetriableTeardowns,
   releaseRetainedEnvironments,
   retryUnconfirmedTeardowns,
+  settleManagerWork,
   startScopeRecoveries,
   unconfirmedTeardowns,
   waitForScopeChildren,
@@ -475,6 +476,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     task = input.task
     const rootAct = root.act.bind(root)
     const rootDeliver = root.deliver?.bind(root)
+    const rootResultAccepted = root.resultAccepted?.bind(root)
     const now = opts.now ?? Date.now
     assertRootIdentity(opts)
     // Reserve the attached control synchronously, before the first journal read or write. A handle
@@ -693,15 +695,26 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
 
       let deadlineExceeded = false
       const rootDeadlineAtMs = pool.readout().deadlineMs
-      if (rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
+      // A root whose result was already accepted is ending the turn that submitted it. The
+      // deadline gives it a bounded grace to return that result before cascading: cascading now
+      // would discard accepted work and settle the run with no winner. Every child carries the
+      // same cutoff on its own timer, so the grace keeps nothing else running.
+      let clearAcceptedGrace: (() => void) | undefined
+      const reachRootDeadline = (): void => {
+        if (clearAcceptedGrace !== undefined) return
+        if (rootResultAccepted?.() === true) {
+          clearAcceptedGrace = armDeadlineTimer(ACCEPTED_RESULT_GRACE_MS, () => {
+            deadlineExceeded = cascadeAbort(ROOT_DEADLINE_REASON)
+          })
+          return
+        }
         deadlineExceeded = cascadeAbort(ROOT_DEADLINE_REASON)
       }
+      if (rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) reachRootDeadline()
       const clearRootDeadline =
         opts.budget.deadlineMs === undefined
           ? undefined
-          : armDeadlineTimer(Math.max(0, rootDeadlineAtMs - now()), () => {
-              deadlineExceeded = cascadeAbort(ROOT_DEADLINE_REASON)
-            })
+          : armDeadlineTimer(Math.max(0, rootDeadlineAtMs - now()), reachRootDeadline)
       let actOutcome: { ok: true; out: Out } | { ok: false; error: unknown } = {
         ok: false,
         error: new RuntimeRunStateError('supervisor: root execution did not start'),
@@ -750,6 +763,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           deadlineExceeded = true
         }
         clearRootDeadline?.()
+        clearAcceptedGrace?.()
         // Join barrier: tear down every still-live child. Generalizes the kernel's
         // `finally{ Promise.allSettled(destroy) }` — a teardown throw is allSettled'd and
         // journaled, never re-thrown.
@@ -770,6 +784,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           : 0
         try {
           teardownUnconfirmed = await drainLiveChildren(openScope, controller, settleGraceMs)
+          // A manager that settled may still be capturing the workspace of its last turn, which
+          // it took over so that its node could settle first, and may be releasing its
+          // environment after it. Both finish before the run settles, under either policy.
+          await settleManagerWork(openScope)
           // A retained-pending child kept its environment through the barrier so that a process
           // resuming this run could reconcile the paid execution inside it. When the run will not
           // be resumed, nothing ever would — measured 2026-09-11, four settled `no-winner` runs

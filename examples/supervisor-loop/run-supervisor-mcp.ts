@@ -52,17 +52,16 @@ import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
 
 /** Standing role belongs to the profile; the concrete assignment is one user turn. */
 const supervisorSystem =
-  'You are a SUPERVISOR with a "coordination" MCP exposing spawn_worker, await_event, and stop. ' +
+  'You are a SUPERVISOR with a "coordination" MCP exposing spawn_worker. ' +
   'Delegate the assignment; do not solve it yourself. Author a worker profile (a JSON object with a "name" and a ' +
-  'rich "systemPrompt"), call spawn_worker with { profile, task }, use await_event to observe it, ' +
-  'and call stop only after a worker delivers a valid result.'
+  'rich "systemPrompt"), call spawn_worker with { profile, task }, and end your turn. ' +
+  'The worker runs after you finish and its result is checked there.'
 
 const supervisorTask =
   `A worker must produce the exact line "${expectedAnswer}". ` +
   'Author a worker profile with a ' +
   `rich "systemPrompt" instructing the worker to emit the exact line "${expectedAnswer}") and call ` +
-  'spawn_worker with { profile, task }. Then call await_event to wait for it to settle, and call ' +
-  'stop once a worker has delivered (valid:true).'
+  'spawn_worker with { profile, task }. Then end your turn.'
 
 /** One real bridge harness turn, with the coordination MCP mounted so the supervisor can call
  *  spawn_worker as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
@@ -131,6 +130,9 @@ async function main(): Promise<void> {
   const supervisor: Agent<unknown, unknown> = {
     name: 'supervisor',
     async act(_task, scope: Scope<unknown>) {
+      let awaitSettlement = undefined as
+        | ((workerIds: ReadonlyArray<string>) => Promise<ReadonlyArray<string>>)
+        | undefined
       const mcp = await serveCoordinationMcp({
         scope,
         blobs,
@@ -141,7 +143,10 @@ async function main(): Promise<void> {
           describe: `worker output contains ${expectedAnswer}`,
         }),
         perWorker: { maxIterations: 2, maxTokens: 200_000 },
-        toolNames: ['spawn_worker', 'await_event', 'stop'],
+        toolNames: ['spawn_worker'],
+        onCoordinationTools: (_tools, coordination) => {
+          awaitSettlement = coordination.awaitSettlement
+        },
       })
       try {
         console.log(`[mcp] coordination server at ${mcp.url}`)
@@ -151,6 +156,12 @@ async function main(): Promise<void> {
         })
         console.log(`\n── supervisor said ──\n${said.slice(0, 800)}`)
 
+        // The harness ended its turn after spawning. This bare coordination server has no manager
+        // loop to wake it, so wait here for the workers to settle into the ledger.
+        const workerIds = scope.view.nodes
+          .filter((node) => node.id !== scope.view.root)
+          .map((node) => node.id)
+        await awaitSettlement?.(workerIds)
         const settled = mcp.settled()
         const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
         console.log(

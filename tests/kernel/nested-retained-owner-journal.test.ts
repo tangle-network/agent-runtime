@@ -124,7 +124,7 @@ describe('nested retained owner journal isolation', () => {
       })
       const root = testAgentProfile('root', {
         harness: 'cli-base',
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       })
       await supervise(root, 'Delegate.', {
         runDir: join(directory, 'run'),
@@ -150,7 +150,7 @@ describe('nested retained owner journal isolation', () => {
               },
             ],
           },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'waiting for the manager' },
           { content: 'done' },
         ]),
       }).catch((error: unknown) => {
@@ -216,10 +216,7 @@ describe('nested retained owner journal isolation', () => {
           driverRetry: { maxAttempts: 1, initialBackoffMs: 0, maxBackoffMs: 0 },
           coordination,
           finalizer,
-          brain: scriptedBrain([
-            { toolCalls: [{ name: 'await_event', arguments: {} }] },
-            { content: 'done' },
-          ]),
+          brain: scriptedBrain([{ content: 'waiting for the manager' }, { content: 'done' }]),
         })
         const recoveredParent = (await restarted.journal.loadTree('root')) ?? []
         const recoveredNested = (await restarted.journal.loadTree(spawn.ownedTreeRoot)) ?? []

@@ -74,6 +74,9 @@ export interface EventBus<E extends BusEvent> {
   /** Register a pass-through handler; it receives the stamped record of every event published after
    *  registration. Returns an unsubscribe fn. */
   subscribe(handler: (record: BusRecord<E>) => void | Promise<void>): () => void
+  /** Register a handler called once an event has entered the pull queue, after every subscriber
+   *  acknowledged it — the moment a waiting consumer can pull it. Returns an unsubscribe fn. */
+  onQueued(handler: (record: BusRecord<E>) => void): () => void
   /** Count of queued, not-yet-pulled events (filtered by `kinds` when given). */
   pending(kinds?: ReadonlyArray<E['type']>): number
   /** The full ordered log of every event published in this process (audit evidence, not replay). */
@@ -88,6 +91,7 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
   const queue: BusRecord<E>[] = []
   const log: BusRecord<E>[] = []
   const subscribers: Array<(record: BusRecord<E>) => void | Promise<void>> = []
+  const queuedHandlers: Array<(record: BusRecord<E>) => void> = []
   const byKind: Record<string, number> = {}
   // A failed publication is staged, not published. Coordination retains and retries the same event
   // object, so the exact BusRecord survives a lost acknowledgement and downstream idempotency keys
@@ -138,6 +142,7 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       log.push(record)
       published += 1
       byKind[event.type] = (byKind[event.type] ?? 0) + 1
+      if (opts?.queue !== false) for (const handler of [...queuedHandlers]) handler(record)
       return record
     },
     pull(kinds) {
@@ -152,6 +157,13 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       return () => {
         const i = subscribers.indexOf(handler)
         if (i >= 0) subscribers.splice(i, 1)
+      }
+    },
+    onQueued(handler) {
+      queuedHandlers.push(handler)
+      return () => {
+        const i = queuedHandlers.indexOf(handler)
+        if (i >= 0) queuedHandlers.splice(i, 1)
       }
     },
     pending(kinds) {

@@ -33,7 +33,7 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../src/durable/spawn-journal'
-import { startRetainedInteractiveRun } from '../../src/runtime/retained-run'
+import { startRetainedInteractiveRun } from '../../src/runtime/retained-interactive'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'

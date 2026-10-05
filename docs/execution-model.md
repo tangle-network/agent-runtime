@@ -79,11 +79,11 @@ A profile with explicit credential intent keeps its dedicated provider.
                     │  each round it decides the TOPOLOGY MOVE ─────┐ this IS
                     │   refine │ fanout │ select │ stop          │ │ "topology grown
                     │  then drives workers via the toolbox:      │ │  by LLM decision"
-                    │   spawn_worker · await_event · steer_agent │ │ (driver.ts:52)
+                    │   spawn_worker · steer_agent · end turn    │ │ (driver.ts:52)
                     └───────────────┬────────────────────────────┘ │
        spawn_worker(profile,task) ──┤  reserves budget (fails       │
        steer_agent(id,msg) ────────┤  CLOSED if the pool is dry)   │
-       await_event ──────────────────┘                               │
+       end turn (wait) ──────────────┘                               │
                     ┌───────────────┼───────────────┐               │
                     ▼               ▼                ▼               │
              ┌───────────┐   ┌───────────┐   ┌───────────┐          │
@@ -143,7 +143,7 @@ A profile with explicit credential intent keeps its dedicated provider.
         └─ 4. settle  ──►  pool.reconcile(ticket, actualSpend)
                                             │
                                             ▼
-                              await_event wakes the driver with this child's result
+                              Runtime wakes the driver with this child's result
 ```
 
 **Net:** the "unified thing" is the `Executor` port. Everything that runs work — a router call, a cli-bridge turn, a `claude -p` subprocess, a full sandbox rollout, or a BYO agent — is an `Executor`, chosen by data via `createExecutor`, metered by one budget pool. Drivers and workers are both `act`s over that port; the only structural difference is the driver carries the operator toolbox (so it can spawn/steer) and the worker does not.

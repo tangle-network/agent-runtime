@@ -111,10 +111,12 @@ import {
   type SupervisorSpanRecorder,
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
+import { createActivityLog } from './progress'
 import { type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
 import {
+  beginScopeRetainedOwnerDrive,
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
   consumeScopeRetainedOwnerResult,
@@ -124,6 +126,7 @@ import {
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerRestorePoint,
   scopeRetainedOwnerResult,
+  scopeRetainedOwnerTurnEnded,
 } from './retained-scope-owner'
 import { createRootStreamSink, ROOT_STREAM_FILE, type RootStreamSink } from './root-stream'
 import { watchRunCancellation } from './run-cancellation'
@@ -187,6 +190,7 @@ import type {
   ExecutorExecutionBinding,
   ExecutorFactory,
   ExecutorMaterialization,
+  ExecutorProgressEvent,
   ExecutorResult,
   NodeExecutionIdentity,
   ProviderModelAttemptEvidence,
@@ -203,6 +207,7 @@ import type {
   UsageEvent,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
+import type { ManagerWakePolicy } from './wake'
 import {
   type WorkerSpawnRetryAttempt,
   type WorkerSpawnRetryPolicy,
@@ -841,6 +846,16 @@ async function providerAcceptsCoordinationAttachments(
   )
 }
 
+/**
+ * A manager waits between turns, and a wake can come much later than five minutes after its last
+ * turn. Claude Code 2.1.289 writes its prompt cache with a five-minute lifetime unless this variable
+ * is set; a wake after the cache expired re-writes the manager's whole context, about 140K tokens
+ * per turn on a Discovery root measured 2026-10-05. That root ran on a subscription and already
+ * wrote one-hour entries; the variable makes the hour hold for every claude-code manager, whatever
+ * its credential. A value the caller set wins.
+ */
+const CLAUDE_CODE_ONE_HOUR_CACHE = 'ENABLE_PROMPT_CACHING_1H'
+
 /** Run a harness-brained manager through the same executor factory as its children. The manager's
  * full profile is preserved, the live coordination server is added under one reserved alias, and
  * every streamed turn is charged to the manager's scope before it may continue. */
@@ -870,6 +885,26 @@ function driveHarnessFromBackend(
         resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
       : 'cli'
   let activeExecutor: Executor<unknown> | undefined
+  // What this manager's harness has been doing, from the progress events its drives stream. An
+  // executor that keeps no activity log of its own (a provider) otherwise reads as idle to the
+  // lead that observes it: measured 2026-10-05, a director mid-turn read `turns: 0`, `idleMs`
+  // 463967, `stalled: true`.
+  const driveActivity = createActivityLog()
+  let driveTurns = 0
+  const noteDriveProgress = (event: ExecutorProgressEvent): void => {
+    const at = Date.now()
+    if (event.kind === 'tool_call') {
+      driveActivity.push({ at, kind: 'tool', label: event.toolName })
+    } else if (event.kind === 'tool_result') {
+      driveActivity.push({ at, kind: 'tool', label: event.toolName, status: 'ok' })
+    } else if (event.kind === 'text_delta' || event.kind === 'reasoning_delta') {
+      const last = driveActivity.last()
+      // One note per stretch of model output, refreshed every 30 s, so deltas cannot flood the ring.
+      if (last === undefined || last.kind !== 'turn' || at - last.at > 30_000) {
+        driveActivity.push({ at, kind: 'turn', label: 'model output' })
+      }
+    }
+  }
   // The manager's own harness session, as the newest attempt captured it.
   let managerTranscript: HarnessTranscriptCapture | undefined
   let managerArtifact: ExecutorResult<unknown> | undefined
@@ -900,6 +935,9 @@ function driveHarnessFromBackend(
         const execution = runtimeOwnedExecutorMaterialization(activeExecutor)?.execution
         return execution?.kind === 'environment' ? execution.id : undefined
       })
+      // The workspace capture the previous turn handed over reads the environment this turn
+      // would change, and its receipt belongs to that turn's invocation: it finishes first.
+      await scopeRetainedOwnerTurnEnded(scope)
     }
     // What this drive continues decides what a re-entered driver must be told. Only a proven
     // same-session turn gets the unmet items alone; a replacement environment gets the objective
@@ -978,8 +1016,8 @@ function driveHarnessFromBackend(
         : stopSignal === undefined
           ? turnStop.signal
           : AbortSignal.any([stopSignal, turnStop.signal])
-    // The harness is asked for a 300 s tool-call timeout so await_event can hold for up to
-    // 180 s per call instead of 45 s; a sidecar that applies it says so on each request.
+    // The harness is asked for a 300 s tool-call timeout so a fenced tool can hold its response
+    // longer than the 60 s harness default; a sidecar that applies it says so on each request.
     const attachment = {
       transport: 'http' as const,
       url: coordinationMcpUrl,
@@ -1016,7 +1054,13 @@ function driveHarnessFromBackend(
         ...boundBackend,
         defaults: {
           ...(boundBackend.defaults ?? {}),
-          env: { ...(boundBackend.defaults?.env ?? {}), [credentialName]: authorization.slice(7) },
+          env: {
+            ...(providerDriverProfile.harness === 'claude-code'
+              ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' }
+              : {}),
+            ...(boundBackend.defaults?.env ?? {}),
+            [credentialName]: authorization.slice(7),
+          },
           runtimeAttachments: {
             mcp: {
               ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
@@ -1185,6 +1229,9 @@ function driveHarnessFromBackend(
         },
       )
       if (retainedOwner) committedOwnerSpend = addRetainedSpend(committedOwnerSpend, charge)
+      // The check stops a driver that would run on past its budget or deadline. A stopped manager
+      // is already ending this turn, and throwing here would discard the result it committed.
+      if (effectiveStopSignal?.aborted === true) return
       const budget = scope.budget
       if (
         budget.tokensLeft <= 0 ||
@@ -1272,6 +1319,8 @@ function driveHarnessFromBackend(
       await retainedOwner!.onResult(result)
       terminalAccountingCaptured = true
     }
+    // The owner's release waits for this drive to end its turn, so it reads the turn's receipt.
+    const endDrive = retainedOwner ? beginScopeRetainedOwnerDrive(scope) : () => {}
     try {
       // Construction transfers cleanup ownership immediately. Even a rejected receipt or an
       // unmetered runtime reaches the single bounded teardown path below.
@@ -1327,6 +1376,7 @@ function driveHarnessFromBackend(
           if (event.kind === 'iteration') {
             await meterPending()
             turns += 1
+            driveTurns += 1
             if (turnStop !== undefined && turns >= turnCap && !turnStop.signal.aborted) {
               turnStop.abort(`supervise: maxTurns ${turnCap} reached`)
             }
@@ -1334,6 +1384,7 @@ function driveHarnessFromBackend(
             // A progress event carries the driver's observed output, never accounting: it is
             // retained in the run directory as it arrives and never reaches a meter.
             rootStream?.append(event.progress)
+            noteDriveProgress(event.progress)
           } else {
             pendingUsage.push(event)
           }
@@ -1535,6 +1586,7 @@ function driveHarnessFromBackend(
         managerTranscript = capture
       }
       if (activeExecutor === executor) activeExecutor = undefined
+      endDrive()
     }
     if (failed) throw failure
     if (turnFailure !== undefined) throw turnFailure
@@ -1548,7 +1600,18 @@ function driveHarnessFromBackend(
   }
   drive.deliverReady = (): boolean => activeExecutor !== undefined
   drive.traceSource = () => activeExecutor?.traceSource?.()
-  drive.progress = () => activeExecutor?.progress?.()
+  drive.progress = () => {
+    const fromExecutor = activeExecutor?.progress?.()
+    const own = driveActivity.read()
+    const recentActivity = [...(fromExecutor?.recentActivity ?? []), ...own]
+      .sort((a, b) => a.at - b.at)
+      .slice(-12)
+    return {
+      ...fromExecutor,
+      turns: Math.max(fromExecutor?.turns ?? 0, driveTurns),
+      ...(recentActivity.length > 0 ? { recentActivity } : {}),
+    }
+  }
   // Only the provider backend has a transcript port. Any other backend leaves the method off, so
   // its managers keep settling as `executor-exposes-no-transcript`.
   if (boundBackend.backend === 'provider') {
@@ -1921,7 +1984,7 @@ export interface SuperviseOptions {
    *  Omit to run profiles exactly as authored: Runtime selects no standing guidance by itself. */
   readonly profileGuidance?: 'profile-kb'
   /** Whether a spawned profile that declares no Runtime coordination tool receives its manager's
-   *  coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+   *  coordination grants (`spawn_worker`, `observe_agent`, and the rest, plus `submit_result` so it
    *  can still deliver work it does itself), so every child can lead children of its own. Default
    *  `true`. A child whose author wrote any coordination entry, true or false, keeps what was
    *  written (a `false` entry is dropped once it has kept the child a leaf). A child this run
@@ -2084,13 +2147,13 @@ export interface SuperviseOptions {
    *  `registry.analysts`. */
   readonly analysts?: AnalystRegistry | string
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
-   *  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
+   *  the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
    *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /**
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
-   * moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+   * moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
    * instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
    * is the correction. Requires a backend whose executor exposes a trace source (the steerable
    * sandbox worker and the pi wrapper do); other runtimes are simply not watched.
@@ -2101,11 +2164,10 @@ export interface SuperviseOptions {
   /** Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
    *  at observation time — nothing is killed or retried. Omit = the runtime default. */
   readonly stallAfterMs?: number
-  /** Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
-   *  re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
-   *  workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
-   *  supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default. */
-  readonly awaitTimeoutMs?: number
+  /** How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
+   *  that coalesces events into one wake, and the deadline warning. Omit = the defaults in
+   *  `./wake` (15 min, 2 s, 15 min). */
+  readonly wake?: ManagerWakePolicy
   /** Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
    *  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
    *  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
@@ -2305,7 +2367,7 @@ const superviseOptionKeys = [
   'runId',
   'signal',
   'stallAfterMs',
-  'awaitTimeoutMs',
+  'wake',
   'steerDir',
   'stopRule',
   'watchWorkers',
@@ -3674,9 +3736,7 @@ function superviseInternal(
             : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
-          ...(options.awaitTimeoutMs !== undefined
-            ? { awaitTimeoutMs: options.awaitTimeoutMs }
-            : {}),
+          ...(options.wake !== undefined ? { wake: options.wake } : {}),
           ...(options.continuityByProfile
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
@@ -3922,7 +3982,7 @@ function superviseInternal(
       ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
-      ...(options.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: options.awaitTimeoutMs } : {}),
+      ...(options.wake !== undefined ? { wake: options.wake } : {}),
       ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
       ...(options.stopRule ? { stopRule: stopRuleOf(options.stopRule) } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),

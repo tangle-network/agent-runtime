@@ -50,7 +50,6 @@ function driverProfile(): AgentProfile {
     ...offlineProfile('root'),
     tools: {
       agent_runtime_coordination_spawn_worker: true,
-      agent_runtime_coordination_await_event: true,
     },
   }
 }
@@ -277,7 +276,7 @@ function leaf(name: string, out: unknown, score: number, valid: boolean): Agent<
   }
 }
 
-/** Two workers, then pull both settlements, then close. */
+/** Two workers, then end the turn so both settlements arrive in a wake, then close. */
 const twoWorkerScript = () =>
   scriptedBrain([
     {
@@ -292,8 +291,7 @@ const twoWorkerScript = () =>
         },
       ],
     },
-    { toolCalls: [{ name: 'await_event', arguments: {} }] },
-    { toolCalls: [{ name: 'await_event', arguments: {} }] },
+    { content: 'waiting for the workers' },
     { content: 'done' },
   ])
 

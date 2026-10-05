@@ -6,7 +6,7 @@
  * `supervise()`'s online detector panel (`watchTrace` + `defaultToolDetectors` — the same
  * streaming stuck-loop/error-streak kernel agent-eval ships), which watches every worker's live
  * trace and raises a `finding` on the coordination bus the moment the builder starts hammering
- * the same failing command. The driver pulls that finding from `await_event`, composes a
+ * the same failing command. The driver ends its turn to wait, is woken with that finding, composes a
  * corrective instruction FROM it, and steers the still-live builder; the steer is the mid-run
  * leg of the delegates edge and lands in the ledger like every other traversal.
  *
@@ -24,23 +24,27 @@ import { leafSeam, offlineProfile, printLedger } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
-/** The online finding the watchdog raised, read back out of the driver's own transcript. */
+/** The online finding the watchdog raised, read back out of the wake that delivered it. */
 function onlineFinding(
   messages: ReadonlyArray<Record<string, unknown>>,
 ): { detector: string; reason: string; streak: number } | undefined {
   for (const message of messages) {
     const content = typeof message.content === 'string' ? message.content : undefined
     if (content === undefined || !content.includes('"analyst":"online:')) continue
-    try {
-      const event = JSON.parse(content) as {
-        findings?: { detector?: string; reason?: string; streak?: number }
+    // A wake lists each event as one `- {json}` line.
+    for (const line of content.split('\n')) {
+      if (!line.startsWith('- {') || !line.includes('"analyst":"online:')) continue
+      try {
+        const event = JSON.parse(line.slice(2)) as {
+          findings?: { detector?: string; reason?: string; streak?: number }
+        }
+        const f = event.findings
+        if (f?.detector !== undefined) {
+          return { detector: f.detector, reason: f.reason ?? '', streak: f.streak ?? 0 }
+        }
+      } catch {
+        // a line that is not an event is simply not the finding
       }
-      const f = event.findings
-      if (f?.detector !== undefined) {
-        return { detector: f.detector, reason: f.reason ?? '', streak: f.streak ?? 0 }
-      }
-    } catch {
-      // a non-JSON tool message is simply not the finding
     }
   }
   return undefined
@@ -56,7 +60,6 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
           ...offlineProfile('driver', 'Watch and steer.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
             agent_runtime_coordination_steer_agent: true,
           },
         },
@@ -73,7 +76,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
   const received: AgentProfile[] = []
   const seam = leafSeam(received, { builder: { awaitSteer: true, withTrace: true, storm: 5 } })
 
-  // ── The driver: spawn, PULL the watchdog finding, steer with the evidence, settle ──
+  // ── The driver: spawn, wait for the watchdog finding, steer with the evidence, settle ──
   let spawned = false
   let steered = false
   const brain: ToolLoopChat = async (messages) => {
@@ -90,17 +93,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
       }
     }
     const finding = onlineFinding(messages)
-    if (finding === undefined) {
-      // Yield one macrotask so the freshly-spawned builder's executor starts and the detector's
-      // finding reaches the bus BEFORE this pull — otherwise the pull races the spawn by a few
-      // microtasks and the driver burns a full await fence learning nothing.
-      await new Promise((resolve) => setImmediate(resolve))
-      return {
-        toolCalls: [
-          { id: 'cw', name: 'await_event', arguments: JSON.stringify({ kinds: ['finding'] }) },
-        ],
-      }
-    }
+    if (finding === undefined) return { content: 'waiting for a finding', toolCalls: [] }
     if (!steered) {
       steered = true
       return {
@@ -122,9 +115,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
       (message) =>
         typeof message.content === 'string' && message.content.includes('"type":"settled"'),
     )
-    if (!settled) {
-      return { toolCalls: [{ id: 'c3', name: 'await_event', arguments: JSON.stringify({}) }] }
-    }
+    if (!settled) return { content: 'waiting for the builder', toolCalls: [] }
     return { content: 'done', toolCalls: [] }
   }
 
@@ -133,6 +124,8 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
     makeLeafAgent: seam,
     brain,
     watchWorkers: { maxFindingsPerWorker: 1 },
+    // Deliver the finding as it lands instead of coalescing events for the default 2 s.
+    wake: { debounceMs: 0 },
   }
   return { graph, opts }
 }

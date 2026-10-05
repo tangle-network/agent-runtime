@@ -30,7 +30,6 @@ it.each(['reported', 'missing', 'malformed', 'retried'])(
                 name: 'spawn_worker',
                 arguments: JSON.stringify({ profile: testAgentProfile('leaf'), task: 'work' }),
               },
-              { id: 'await', name: 'await_event', arguments: '{}' },
             ]
           : [],
       usage: { input: 1, output: 1 },
@@ -68,7 +67,7 @@ it.each(['reported', 'missing', 'malformed', 'retried'])(
         model: {
           metadata: { retry: { maxAttempts: 2, initialBackoffMs: 0, maxBackoffMs: 0, jitter: 0 } },
         },
-        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+        tools: runtimeToolDeclarations('spawn_worker'),
       }),
       'work',
       {

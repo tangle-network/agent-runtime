@@ -171,12 +171,18 @@ async function main(): Promise<void> {
   const root: Agent<unknown, unknown> = {
     name: 'supervisor',
     async act(_t, scope: Scope<unknown>) {
+      let awaitSettlement = undefined as
+        | ((workerIds: ReadonlyArray<string>) => Promise<ReadonlyArray<string>>)
+        | undefined
       const mcp = await serveCoordinationMcp({
         scope,
         blobs,
         makeWorkerAgent: (raw) => makeWorker(raw, ws, n++),
         perWorker: { maxIterations: 2, maxTokens: 200_000 },
-        toolNames: ['spawn_worker', 'await_event', 'stop'],
+        toolNames: ['spawn_worker'],
+        onCoordinationTools: (_tools, coordination) => {
+          awaitSettlement = coordination.awaitSettlement
+        },
       })
       // The supervisor's cwd carries the REAL skill file (opencode loads it from the cwd skill dirs).
       const supCwd = mkdtempSync(join(tmpdir(), 'e2e-sup-'))
@@ -190,13 +196,19 @@ async function main(): Promise<void> {
           messages: [
             {
               role: 'user',
-              content: `${TASK}\n\nYou are a SUPERVISOR. You have the "supervise" skill and a "coordination" MCP with tools spawn_worker, await_event, stop. Do NOT write code yourself. Author a worker profile (a JSON object with name + a rich systemPrompt telling the worker exactly what to implement) and call spawn_worker with it, then await_event, and stop once a worker delivered (valid:true).`,
+              content: `${TASK}\n\nYou are a SUPERVISOR. You have the "supervise" skill and a "coordination" MCP with the tool spawn_worker. Do NOT write code yourself. Author a worker profile (a JSON object with name + a rich systemPrompt telling the worker exactly what to implement) and call spawn_worker with it, then end your turn; the worker runs after you finish and its result is checked there.`,
             },
           ],
           cwd: supCwd,
           mcpUrl: mcp.url,
         })
         transcripts.push({ who: 'supervisor', said: said.slice(0, 400) })
+        // The harness ended its turn after spawning. This bare coordination server has no manager
+        // loop to wake it, so wait here for the workers to settle into the ledger.
+        const workerIds = scope.view.nodes
+          .filter((node) => node.id !== scope.view.root)
+          .map((node) => node.id)
+        await awaitSettlement?.(workerIds)
         const settled = mcp.settled()
         const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
         console.error(`[e2e] supervisor spawned ${settled.length} worker(s), ${delivered.length} delivered`)

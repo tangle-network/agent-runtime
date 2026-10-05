@@ -54,7 +54,7 @@ const routerRoot: AgentProfile = {
   harness: 'cli-base',
   model: { provider: 'tangle-router', default: 'test' },
   prompt: { systemPrompt: 'Delegate.' },
-  tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+  tools: runtimeToolDeclarations('spawn_worker'),
 }
 
 const spawnCapableChild = {
@@ -96,7 +96,7 @@ async function spawnLeadFromRoot(
         }
       }
       if (waitForChild && turn === 2) {
-        return { toolCalls: [{ id: 'await', name: 'await_event', arguments: '{}' }] }
+        return { content: 'waiting for the lead', toolCalls: [] }
       }
       for (const message of messages) {
         if (typeof message.content === 'string') toolResults.push(message.content)

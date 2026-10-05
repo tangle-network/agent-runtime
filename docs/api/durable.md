@@ -1921,7 +1921,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-27)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-28)
 
 ##### execution?
 
@@ -2269,7 +2269,7 @@ OPT-IN standing guidance from the profile knowledge base
 > `readonly` `optional` **inheritSpawnRights?**: `boolean`
 
 Whether a spawned profile that declares no Runtime coordination tool receives its manager's
- coordination grants (`spawn_worker`, `await_event`, and the rest, plus `submit_result` so it
+ coordination grants (`spawn_worker`, `observe_agent`, and the rest, plus `submit_result` so it
  can still deliver work it does itself), so every child can lead children of its own. Default
  `true`. A child whose author wrote any coordination entry, true or false, keeps what was
  written (a `false` entry is dropped once it has kept the child a leaf). A child this run
@@ -2612,7 +2612,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 > `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
- the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
+ the driver receives in its next wake and composes its next steer from. The self-improving UP-leg,
  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
  Omit/empty = status quo (no analyst feed). Requires `analysts`.
 
@@ -2625,7 +2625,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 > `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
-moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+moment one loops or error-storms — so the supervisor learns it mid-run (in its next wake)
 instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
 is the correction. Requires a backend whose executor exposes a trace source (the steerable
 sandbox worker and the pi wrapper do); other runtimes are simply not watched.
@@ -2647,18 +2647,17 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`stallAfterMs`](runtime.md#stallafterms-3)
 
-##### awaitTimeoutMs?
+##### wake?
 
-> `readonly` `optional` **awaitTimeoutMs?**: `number`
+> `readonly` `optional` **wake?**: [`ManagerWakePolicy`](runtime.md#managerwakepolicy)
 
-Max wall-clock ms one `await_event` of an in-process Router driver blocks before it returns a
- re-pollable `{ pending, live }` snapshot. Each return costs the driver a turn, so a run whose
- workers take hours needs either a large `maxTurns` or a longer wait. A harness-driven
- supervisor keeps the fence derived from its MCP request timeout. Omit = the runtime default.
+How Runtime wakes a manager that ended its turn with work open: the heartbeat, the debounce
+ that coalesces events into one wake, and the deadline warning. Omit = the defaults in
+ `./wake` (15 min, 2 s, 15 min).
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`awaitTimeoutMs`](runtime.md#awaittimeoutms-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`wake`](runtime.md#wake-1)
 
 ##### continuityByProfile?
 
@@ -2684,7 +2683,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-6)
 
 ##### resume?
 
@@ -2697,7 +2696,7 @@ reused id without it. Ignored when `runDir` is also set — the file context own
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-8)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resume`](runtime.md#resume-7)
 
 ##### steerDir?
 
@@ -2718,7 +2717,7 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-6)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`journal`](runtime.md#journal-5)
 
 ##### probes?
 

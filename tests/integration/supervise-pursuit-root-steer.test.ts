@@ -10,6 +10,7 @@ import {
   workerInboxFileFromEventDir,
   writeWorkerSteer,
 } from '../../src/runtime'
+import type { Agent, AgentSpec, ExecutorResult } from '../../src/runtime/supervise/types'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const roots: string[] = []
@@ -29,6 +30,30 @@ async function jsonRpc(url: string, method: string, params: unknown): Promise<vo
   if (body.error || body.result?.isError) throw new Error(JSON.stringify(body))
 }
 
+/** A worker that settles once its gate opens, so the manager has work to wait for. */
+function gatedWorker(gate: Promise<void>): Agent<unknown, unknown> {
+  const result: ExecutorResult<unknown> = {
+    outRef: 'root-steer:worker',
+    out: { worker: 'done' },
+    verdict: { valid: true, score: 1 },
+    spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+  }
+  const spec: AgentSpec = {
+    profile: testAgentProfile('worker'),
+    harness: null,
+    executor: {
+      runtime: 'root-steer-test-worker',
+      execute: () => gate.then((): ExecutorResult<unknown> => result),
+      teardown: () => Promise.resolve({ destroyed: true }),
+      resultArtifact: () => result,
+    },
+  }
+  return { name: 'worker', act: async () => result.out, executorSpec: spec } as Agent<
+    unknown,
+    unknown
+  > & { executorSpec: AgentSpec }
+}
+
 describe('supervisePursuit root steering', () => {
   it.each([false, true])(
     'consumes an admitted root steer with explicit event directory=%s',
@@ -38,10 +63,9 @@ describe('supervisePursuit root steering', () => {
       const runId = 'public-root-steer'
       const operationId = 'public-root-steer-1'
       const eventDir = explicitEventDir ? join(root, 'flat-events') : supervisorRunDir(root, runId)
-      const received: unknown[] = []
-      let delivered!: () => void
-      const deliveredPromise = new Promise<void>((resolve) => {
-        delivered = resolve
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
       })
 
       const steerOptions = {
@@ -55,31 +79,33 @@ describe('supervisePursuit root steering', () => {
       expect(admitted.replayed).toBe(false)
       expect(retry.replayed).toBe(true)
 
-      const driveHarness: DriveHarness = Object.assign(
-        async ({ coordinationMcpUrl }) => {
-          await Promise.race([
-            deliveredPromise,
-            new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
-          ])
+      // No harness inbox was live when the steer was admitted, so it waits as a lead-message
+      // event. The first drive spawns a worker and ends its turn; the steer wakes the manager, and
+      // the second drive's task carries it. The worker's settlement wakes the third drive.
+      const tasks: string[] = []
+      const driveHarness: DriveHarness = async ({ coordinationMcpUrl, task }) => {
+        tasks.push(task)
+        if (tasks.length === 1) {
           await jsonRpc(coordinationMcpUrl, 'tools/call', {
-            name: 'stop',
-            arguments: {},
+            name: 'spawn_worker',
+            arguments: { profile: testAgentProfile('worker'), task: 'work', label: 'worker' },
           })
-        },
-        {
-          deliver: (message: unknown) => {
-            received.push(message)
-            delivered()
-            return true
-          },
-          deliverReady: () => true,
-        },
-      )
+          return
+        }
+        if (tasks.length === 2) {
+          release()
+          return
+        }
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'stop',
+          arguments: {},
+        })
+      }
 
       await supervisePursuit(
         testAgentProfile('public-root-steer', {
           harness: 'codex',
-          tools: runtimeToolDeclarations('stop'),
+          tools: runtimeToolDeclarations('spawn_worker', 'stop'),
         }),
         'drive the root',
         {
@@ -91,11 +117,22 @@ describe('supervisePursuit root steering', () => {
           perWorker: { maxIterations: 1, maxTokens: 10 },
           driverRetry: { enabled: false },
           driveHarness,
-          makeWorkerAgent: () => ({ name: 'unused', act: async () => undefined }),
+          makeWorkerAgent: () => gatedWorker(gate),
         },
       )
 
-      expect(received).toEqual([{ steer: 'use the admitted root correction', interrupt: true }])
+      expect(tasks).toHaveLength(3)
+      const leadMessages = tasks.flatMap((task) =>
+        task
+          .split('\n')
+          .filter((line) => line.startsWith('- {'))
+          .map((line) => JSON.parse(line.slice(2)))
+          .filter((event) => event.type === 'lead-message'),
+      )
+      expect(leadMessages).toEqual([
+        expect.objectContaining({ text: steerOptions.message, interrupt: true }),
+      ])
+      expect(tasks[1]).toContain('"type":"lead-message"')
       expect(readWorkerSteerAcknowledgement(root, operationId)).toBeUndefined()
       expect(readWorkerSteerAcknowledgement(eventDir, operationId)?.effect).toBe('delivered')
       const acknowledgedRetry = writeWorkerSteer(root, runId, runId, steerOptions)

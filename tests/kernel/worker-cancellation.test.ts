@@ -111,9 +111,10 @@ function driverOpts(
     blobs,
     makeWorkerAgent,
     perWorker,
-    toolNames: ['spawn_worker', 'await_event', 'list_questions'],
+    toolNames: ['spawn_worker', 'list_questions'],
     systemPrompt: 'drive',
     maxTurns: 12,
+    wake: { debounceMs: 0 },
     ...extra,
   }
 }
@@ -131,7 +132,8 @@ afterEach(() => {
 const spawnCall = (label: string, kind = 'hang'): ScriptedTurn['toolCalls'] => [
   { name: 'spawn_worker', arguments: { profile: { metadata: { kind } }, task: 'go', label } },
 ]
-const awaitTurn: ScriptedTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
+/** A turn without a tool call: the manager waits, and Runtime wakes it with what happened. */
+const awaitTurn: ScriptedTurn = { content: 'waiting for the workers' }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -267,7 +269,6 @@ describe('acknowledged worker cancellation (#758)', () => {
         ],
       },
       { toolCalls: [{ name: 'list_questions', arguments: {} }] },
-      awaitTurn,
       awaitTurn,
       { content: 'stopping' },
     ])
@@ -489,7 +490,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
       if (p.metadata?.kind === 'lead') {
         // The lead polls its own turn boundaries until its acknowledger has applied the
-        // operation, pulls the settle, and lets one more boundary reconcile it.
+        // operation, waits for the settle, and lets one more boundary reconcile it.
         const leadChat: ToolLoopChat = async () => {
           const record = readWorkerCancellation(dir, 'op-deep')
           if (record === undefined) {
@@ -551,7 +552,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       if (index === 1) {
         await descendantLive
         cancelWorker(dir, 'run-deep:s0:s0', 'op-deep', { source: 'test' })
-        // Wait for the OWNING manager (the lead) to acknowledge before pulling its settle.
+        // Wait for the OWNING manager (the lead) to acknowledge before waiting for its settle.
         while (readWorkerCancellation(dir, 'op-deep')?.effect !== 'cancelled') await sleep(5)
       }
       return rootScript(messages, tools, context)
@@ -655,12 +656,14 @@ describe('acknowledged worker cancellation (#758)', () => {
         leadDupAbortsAtCancel ??= leadDupAborts
         return turnOf({ content: 'stopping' })
       }
-      // Pull the aborted worker's settlement so the next boundary can reconcile it.
+      // Wait for the aborted worker's settlement so the next boundary can reconcile it.
       return turnOf(awaitTurn)
     }
 
     const root = driverAgent(
-      driverOpts('root', rootChat, makeAgent, blobs, { controlDir: dir, maxTurns: 40 }),
+      // Spawn, list, wait, stop: the nested manager's worker is still live at the last turn, and
+      // only the last turn the bound allows ends a manager that has work open.
+      driverOpts('root', rootChat, makeAgent, blobs, { controlDir: dir, maxTurns: 4 }),
     )
     await createSupervisor<unknown, unknown>().run(root, 'x', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -713,6 +716,8 @@ describe('acknowledged worker cancellation (#758)', () => {
     const root = driverAgent(
       driverOpts('root', chat, makeAgent, blobs, {
         controlDir: dir,
+        // Spawn, then the one turn that cannot be followed by another.
+        maxTurns: 2,
         finalizer: () => {
           abortsAtFinalize = aborts
           return undefined
@@ -761,7 +766,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       if (kind === 'lead') {
         const leadBrain = scriptedBrain([
           { toolCalls: [...(spawnCall('d-self', 'self') ?? []), ...(spawnCall('d-hang') ?? [])] },
-          awaitTurn, // pulls d-self's own death, then holds until the cascade
+          awaitTurn, // woken by d-self's own death, then holds until the cascade
         ])
         return driverChild(
           testAgentProfile('lead'),

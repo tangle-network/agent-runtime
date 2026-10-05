@@ -18,7 +18,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { type AgentGraph, promptHandle } from '@tangle-network/agent-runtime/kernel'
 import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
-import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain, seen } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -33,7 +33,6 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphTestOpt
           ...offlineProfile('driver', 'Drive the build.'),
           tools: {
             agent_runtime_coordination_spawn_worker: true,
-            agent_runtime_coordination_await_event: true,
           },
         },
       },
@@ -77,9 +76,9 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphTestOpt
         ],
       },
       // implementer settles → the reviewer AGENT is spawned over its trace → its settle output
-      // arrives as the finding. Two bus events: settled, finding.
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      // arrives as the finding. Two bus events: settled, finding. The driver ends its turn and
+      // is woken with them.
+      { content: 'waiting for the review', until: seen('"fromWorker":"rev:s0"') },
       { content: 'done' },
     ]),
   }

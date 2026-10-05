@@ -72,12 +72,25 @@ describe('native analyst assignment recovery', () => {
             profile: offlineProfile('research', 'Produce a candidate.'),
             task: 'candidate',
           })
-          expect(await call(tools, 'await_event')).toMatchObject({ type: 'settled' })
-          expect(await call(tools, 'await_event')).toMatchObject({
-            type: 'finding',
-            analyst: 'research-critique',
-            assignmentId: 'analyst:research-critique:o0',
-          })
+          // The manager ends its turn; each wake delivers what arrived, until the review's finding.
+          const received: Array<Record<string, unknown>> = []
+          while (!received.some((event) => event.type === 'finding')) {
+            const wake = await tools.awaitWake({
+              signal: scope.signal,
+              heartbeatMs: 60_000,
+              debounceMs: 0,
+            })
+            if (wake === undefined) break
+            received.push(...wake.events)
+          }
+          expect(received).toMatchObject([
+            { type: 'settled' },
+            {
+              type: 'finding',
+              analyst: 'research-critique',
+              assignmentId: 'analyst:research-critique:o0',
+            },
+          ])
           expect(tools.settled()).toHaveLength(1)
           throw new Error('controller lost after review, before root settlement')
         },
