@@ -308,7 +308,6 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'resume',
   'runContext',
   'steerDir',
-  'probes',
   'stopRule',
   'onProgressStop',
   'maxDepth',

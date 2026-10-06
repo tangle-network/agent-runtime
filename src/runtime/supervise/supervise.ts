@@ -206,7 +206,6 @@ import type {
   SupervisedResult,
   UsageEvent,
 } from './types'
-import type { WaitProbeRegistry } from './wait'
 import type { ManagerWakePolicy } from './wake'
 import {
   type WorkerSpawnRetryAttempt,
@@ -967,7 +966,7 @@ function driveHarnessFromBackend(
       return
     }
     const initialBudget = scope.budget
-    const hasLiveCoordination = scope.view.inFlight > 0 || scope.view.waiting > 0
+    const hasLiveCoordination = scope.view.inFlight > 0
     if (
       !hasLiveCoordination &&
       (initialBudget.tokensLeft <= 0 ||
@@ -1677,22 +1676,22 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
   )
 }
 
-/** A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry`
- *  uses): construction stays the caller's, lookup stays lazy, and a table backed by a file, a
- *  plugin loader, or a plain object all satisfy one interface. */
+/** A name→value table in this package's resolver-port shape: construction stays the caller's,
+ *  lookup stays lazy, and a table backed by a file, a plugin loader, or a plain object all
+ *  satisfy one interface. */
 export interface SuperviseRegistryTable<T> {
   resolve(name: string): T | undefined
-  /** The names the table holds. The four code-valued tables may omit it, because a caller names
+  /** The names the table holds. The three code-valued tables may omit it, because a caller names
    *  their entries from data it already has. The profiles table must list them, because a
    *  director can choose only from a menu it can read. */
   names?(): readonly string[]
 }
 
 /**
- * The name→value tables that make the four CODE-valued options expressible as run DATA, and the
+ * The name→value tables that make the three CODE-valued options expressible as run DATA, and the
  * profiles a director may spawn by name.
  *
- * `deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
+ * `deliverable` / `finalizer` / `analysts` are functions and registries, so a recorded
  * run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
  * a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
  * the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
@@ -1709,20 +1708,18 @@ export interface SuperviseRegistry {
   readonly deliverables?: SuperviseRegistryTable<DeliverableSpec<unknown>>
   readonly finalizers?: SuperviseRegistryTable<SupervisorFinalizer>
   readonly analysts?: SuperviseRegistryTable<AnalystRegistry>
-  readonly probes?: SuperviseRegistryTable<WaitProbeRegistry>
   readonly profiles?: SuperviseRegistryTable<SuperviseProfileEntry> & {
     names(): readonly string[]
   }
 }
 
 /** Which registry table each nameable option resolves against. Indexing this map inside
- *  {@link resolveNamed} makes the pairing a type error to get wrong: `resolveNamed('probes',
+ *  {@link resolveNamed} makes the pairing a type error to get wrong: `resolveNamed('analysts',
  *  'deliverables', …)` does not compile. */
 interface SuperviseRegistryTableFor {
   readonly deliverable: 'deliverables'
   readonly finalizer: 'finalizers'
   readonly analysts: 'analysts'
-  readonly probes: 'probes'
 }
 
 /** Resolve one option that may be given as a value OR as a name into `opts.registry`. Both failure
@@ -2214,11 +2211,6 @@ export interface SuperviseOptions {
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
    *  with `blobs` — a journal whose result payloads live in a different store cannot replay. */
   readonly journal?: SpawnJournal
-  /** Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
-   *  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
-   *  refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
-   *  `registry.probes`. */
-  readonly probes?: WaitProbeRegistry | string
   /**
    * PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
    * exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -2351,7 +2343,6 @@ const superviseOptionKeys = [
   'peerMail',
   'perWorker',
   'reservationPolicy',
-  'probes',
   'profileGuidance',
   'profileSecurity',
   'registry',
@@ -2616,7 +2607,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     blobs,
     journal,
     runContext,
-    probes,
     registry,
     hooks,
     otel,
@@ -2774,7 +2764,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(runContext === undefined ? {} : { runContext }),
     // A number is decision data; a shared allocator is a live collaborator other runs also hold.
     ...(workerSlots === undefined ? {} : { workerSlots }),
-    ...(probes === undefined ? {} : { probes }),
     ...(authorizeSpawn === undefined ? {} : { authorizeSpawn }),
     ...(authorizeMessage === undefined ? {} : { authorizeMessage }),
     ...(driveHarness === undefined ? {} : { driveHarness }),
@@ -3257,7 +3246,6 @@ function superviseInternal(
     options.analysts,
     options.registry?.analysts,
   )
-  const probes = resolveNamed('probes', 'probes', options.probes, options.registry?.probes)
   // The spawn path applies these checks to the profile `authorizeSpawn` returns, so they can run
   // early only when no caller-owned authorization or worker seam sits between the entry and mount.
   const profileTable = snapshotProfileTable(
@@ -4077,7 +4065,6 @@ function superviseInternal(
         managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
       ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
       ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
-      ...(probes ? { probes } : {}),
       ...(ctx.resume === true || (options.runDir === undefined && options.resume === true)
         ? { resume: true }
         : {}),

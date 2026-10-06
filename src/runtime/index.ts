@@ -25,10 +25,6 @@ export {
   InMemorySpawnJournal,
   loadSpawnForest,
   materializeTreeView,
-  // The waits a journaled tree shows as armed but never woken — what a resumed run re-arms with
-  // the ORIGINAL deadline. Exported for the same reason the replay readers are: a durable wait a
-  // consumer cannot read back is only a log line.
-  pendingWaits,
   replaySpawnTree,
   type SpawnForest,
   type SpawnForestEvent,
@@ -1257,7 +1253,6 @@ export type {
   UnconfirmedTeardown,
   UnknownMaterializationReason,
   UsageEvent,
-  WaitOpts,
   WidenGate,
   WorkerInteractiveSession,
   WorkerInteractiveUnavailableReason,
@@ -1277,24 +1272,6 @@ export {
 // One pause rule for an upstream that cannot serve now: a driver re-enters after it, and a
 // provider-backed leaf continues in its environment after it (`ProviderExecutorOptions`).
 export type { UnavailablePausePolicy } from './supervise/upstream-unavailable'
-// WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
-// (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
-// deadline, so a killed run resumes still waiting to the same instant. Not a manager's wake: that
-// is an in-run rendezvous on the coordination bus that vanishes with the process.
-export {
-  createWaitProbes,
-  isWaitOutcome,
-  type PendingWait,
-  pollFor,
-  timerAt,
-  validateWaitSpec,
-  type WaitOutcome,
-  type WaitProbe,
-  type WaitProbeRegistry,
-  type WaitRejection,
-  type WaitSpec,
-  waitUntil,
-} from './supervise/wait'
 // How a manager that ended its turn with work open is woken: heartbeat, debounce, deadline notice.
 export {
   DEFAULT_DEADLINE_WARNING_MS,

@@ -254,7 +254,6 @@ describe('runTree — a view merge over a resumed run, not a runtime', () => {
     root: 'root',
     nodes,
     inFlight: 1,
-    waiting: 0,
     ...over,
   })
 

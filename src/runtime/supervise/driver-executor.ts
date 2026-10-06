@@ -523,10 +523,8 @@ async function closeNestedScope(
     if (settled === null) break
   }
   const view = scope.view
-  if (view.inFlight > 0 || view.waiting > 0) {
-    throw new ValidationError(
-      `driverExecutor: nested cleanup left ${view.inFlight} running and ${view.waiting} waiting nodes`,
-    )
+  if (view.inFlight > 0) {
+    throw new ValidationError(`driverExecutor: nested cleanup left ${view.inFlight} running nodes`)
   }
 }
 

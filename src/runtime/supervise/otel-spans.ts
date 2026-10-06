@@ -214,16 +214,13 @@ export function createSupervisorSpanRecorder(
     if (!childId) return
     const label = str(p.label) ?? 'node'
     const runtime = str(p.runtime)
-    const isWait = runtime === 'wait'
     const attrs: Attrs = {
       ...base,
-      // A wait-state node holds no executor and burns nothing; `CHAIN` keeps a token/cost reader
-      // from counting it as an agent that reported nothing.
-      [ATTR.spanKind]: isWait ? 'CHAIN' : 'AGENT',
+      [ATTR.spanKind]: 'AGENT',
       'agent.name': label,
       'tangle.supervise.node.id': childId,
       'tangle.supervise.node.label': label,
-      'tangle.supervise.node.kind': isWait ? 'wait' : 'agent',
+      'tangle.supervise.node.kind': 'agent',
       // The journal tree this node lives in: a nested driver subtree gets its own tree key, which
       // is what joins a span back to the journal rows that prove its spend.
       'tangle.supervise.tree.root': event.runId,

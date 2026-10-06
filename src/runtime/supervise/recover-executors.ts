@@ -9,7 +9,6 @@ import {
   loadSpawnForest,
   materializeTreeView,
   ownedTreeRootSpawn,
-  pendingWaits,
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
@@ -703,8 +702,6 @@ export async function prepareScopeResume(
       // An open node's journaled cursor seq is reserved across processes: the resumed scope must
       // never mint it for another node, or the heal above could only ever collide.
       maxCursorSeq: reservedCursorFloor(prior),
-      maxWaitOrdinal: maxSeqOf(prior, (event) => event.kind === 'waiting'),
-      waits: pendingWaits(prior),
       keys: keyedAssignments(prior, settled),
       priorSpend: sumMeasuredSpendFromEvents(prior),
     },

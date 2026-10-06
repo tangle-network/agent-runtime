@@ -1966,7 +1966,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-21)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-20)
 
 ##### sandboxId?
 

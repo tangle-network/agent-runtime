@@ -406,7 +406,7 @@ function forestFixture(
     root: trees[0]?.root ?? 'forest',
     trees: trees.map((tree) => ({
       ...tree,
-      view: { root: tree.root, nodes: [], inFlight: 0, waiting: 0 },
+      view: { root: tree.root, nodes: [], inFlight: 0 },
     })),
     nodes,
     events: [],

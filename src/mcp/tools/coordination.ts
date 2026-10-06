@@ -3338,15 +3338,12 @@ export function createCoordinationToolsForManager(
   // a settlement or finding queued for the next wake, or a settlement the coordinator holds and
   // has not queued yet. Measured in Autopsy C (2026-09-03): a root stopped 15 to 45 s after its
   // children returned without reading them, and the verification it had commissioned sat
-  // unclaimed. The refusal names the open work so the manager can go and read it. A wait-state
-  // node holds no executor, so it is not running work.
+  // unclaimed. The refusal names the open work so the manager can go and read it.
   const openWork = () => {
     const received = new Set(ledger.map((worker) => worker.id))
     // A hand-built scope may expose no view at all; it then has no children to wait for.
     const nodes = (opts.scope as Partial<Scope<unknown>>).view?.nodes ?? []
-    const running = nodes.filter(
-      (node) => isLiveNodeStatus(node.status) && node.status !== 'waiting',
-    )
+    const running = nodes.filter((node) => isLiveNodeStatus(node.status))
     const unqueued = nodes.filter(
       (node) =>
         !isLiveNodeStatus(node.status) &&

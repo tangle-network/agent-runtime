@@ -257,11 +257,9 @@ describe('semantic spawn keys', () => {
       now: () => 0,
       resumeFrom: {
         settled: [],
-        view: { root: 'resumed', nodes: [], inFlight: 0, waiting: 0 },
+        view: { root: 'resumed', nodes: [], inFlight: 0 },
         maxSpawnOrdinal: 0,
         maxCursorSeq: 0,
-        maxWaitOrdinal: 0,
-        waits: [],
         keys: new Map([
           ['assignment-1', { id: 'resumed:s0', label: 'unknown', identity, state: 'in-doubt' }],
         ]),

@@ -77,10 +77,8 @@ export async function trajectoryReport(
       id: ev.id,
       parent: ev.parent,
       label: ev.label,
-      // A wait-state has no executor, so it has no runtime in the executor sense — it is tagged
-      // `'wait'` so a reader can separate zero-cost waiting from paid work in the trajectory.
-      runtime: ev.kind === 'waiting' ? 'wait' : ev.runtime,
-      status: ev.kind === 'waiting' ? 'waiting' : 'pending',
+      runtime: ev.runtime,
+      status: 'pending',
       ownSpend: zeroSpend(),
       children: [],
     })
@@ -89,12 +87,6 @@ export async function trajectoryReport(
     const node = requireNode(nodes, ev.id, root)
     if (ev.kind === 'cancelled') {
       node.status = 'cancelled'
-      continue
-    }
-    if (ev.kind === 'woken') {
-      // A wait's spend stays zero by construction — it never reserved and never reconciled.
-      node.status = ev.by === 'cancelled' ? 'cancelled' : 'done'
-      node.outRef = ev.outRef
       continue
     }
     node.status = ev.status === 'done' ? 'done' : 'failed'
@@ -272,7 +264,6 @@ function countStatuses(
     failed: 0,
     cancelled: 0,
     pending: 0,
-    waiting: 0,
   }
   for (const node of reported) counts[node.status] += 1
   return counts
@@ -315,12 +306,10 @@ function medianOf(values: ReadonlyArray<number>): number {
 
 // ── Guards + narrowers ───────────────────────────────────────────────────────────
 
-/** Node-CREATION events — a spawned child or an armed wait-state. Both mint a node in the
- *  ordinal namespace; their settlements (`settled` / `woken`) close them in the cursor namespace. */
-function isNodeCreation(
-  ev: SpawnEvent,
-): ev is Extract<SpawnEvent, { kind: 'spawned' | 'waiting' }> {
-  return ev.kind === 'spawned' || ev.kind === 'waiting'
+/** Node-CREATION events: a spawned child mints a node in the ordinal namespace; its settlement
+ *  closes it in the cursor namespace. */
+function isNodeCreation(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'spawned' }> {
+  return ev.kind === 'spawned'
 }
 
 function isNode(node: MutableNode | undefined): node is MutableNode {

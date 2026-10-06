@@ -205,7 +205,7 @@ describe('FileCoordinationLog delivery evidence', () => {
         send: () => false,
         next: async () => null,
         get view() {
-          return { root: 'run', nodes: [], inFlight: 0, waiting: 0 }
+          return { root: 'run', nodes: [], inFlight: 0 }
         },
         budget: {
           tokensLeft: 100,
