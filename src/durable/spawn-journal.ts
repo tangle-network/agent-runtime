@@ -4,7 +4,7 @@
  *
  * The supervision tree is journaled as an append-only event log: every `spawned`,
  * `settled`, and `cancelled` is recorded AFTER it is observed-committed (never
- * speculative), mirroring `ConversationJournal`'s begin/append/load shape. The log
+ * speculative), with a begin/append/load shape. The log
  * holds only the THIN decision record — ids, parentage, budget, the spend a decision
  * consumed, and a content-addressed `outRef`. The payloads the driver branched on
  * (the `out` artifacts) live in a separate `ResultBlobStore`, keyed by `outRef`, so

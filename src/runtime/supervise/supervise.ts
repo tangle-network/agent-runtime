@@ -2200,8 +2200,9 @@ export interface SuperviseOptions {
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
    */
   readonly runDir?: string
-  /** Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-   * `blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
+  /** Advanced test seam: opt into resume-first when the durable stores are caller-supplied
+   * (`journal` + `blobs` / `runContext`) instead of derived from `runDir`. The normal durable path
+   * is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file
    * context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
    * reused id without it. Ignored when `runDir` is also set — the file context owns the flag. */
   readonly resume?: boolean

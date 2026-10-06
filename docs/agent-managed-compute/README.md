@@ -86,7 +86,7 @@ This table tracks the existing documents that materially overlap this plan.
 | [Canonical API](../canonical-api.md) | Current reference | Shipped entry points and anti-duplication guidance. |
 | [Execution model](../execution-model.md) | Current reference | Existing executor and driver behavior. |
 | [Agent bus protocol](../agent-bus-protocol.md) | Current reference | Call-routing headers and depth controls. It is not durable coordination state. |
-| [Durability adapters](../durability-adapters.md) | Current reference | Conversation persistence only. It does not provide supervised-tree recovery. |
+| [Durability owner map](../durability.md) | Current reference | One owner per durability primitive, recovery outcomes, and the acceptance answers. |
 | [Environment provider adapter](../research/environment-provider-adapter-spec.md) | Current source | Provider contract and adapter implementation history. |
 | [Context lifecycle](../research/smart-loops-context-lifecycle.md) | Current source | Long-run context and knowledge transfer research. |
 | [Interactive sessions](../research/interactive-sessions-spec.md) | Historical input | Session UX and tmux exploration. Its completion checklist is not current acceptance evidence. |
@@ -105,7 +105,7 @@ This table tracks the existing documents that materially overlap this plan.
 | Shared budget and depth limits across a tree | Implemented | `src/runtime/supervise/budget.ts`, `src/runtime/supervise/scope.ts` |
 | Provider-neutral compute adapter | Implemented | `src/runtime/environment-provider.ts` |
 | One-shot delegation restart recovery | Partially implemented | `src/mcp/task-queue.ts` |
-| Conversation turn restart recovery | Implemented for one writer | `src/conversation/run-conversation.ts` |
+| Conversation turn restart recovery | Owned by Agent App's turn store; Runtime's `runConversation` is in-process only | `@tangle-network/agent-app/stream`, [durability.md](../durability.md) |
 | Supervised tree restart recovery | Committed replay, retained children, and reconstructed nested managers with original reservations and finalizers | `src/runtime/supervise/supervisor.ts` |
 | Durable cross-process coordination messages | Owner-scoped SQL side-log, replayed with original bus stamps | `tests/durability/sql-context-stores.test.ts` |
 | Authenticated remote coordination MCP | Implemented; requires caller-provided reachable endpoint | `src/runtime/supervise/coordination-mcp.ts` |

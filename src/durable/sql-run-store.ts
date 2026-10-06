@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { SqlAdapter } from '../conversation/journal-sql'
+import type { SqlAdapter } from './sql-adapter'
 
 /** @internal The SQL run context owns the payload schema; this store owns publication. */
 export interface SqlRunStoreOptions {

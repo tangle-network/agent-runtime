@@ -477,7 +477,7 @@ describe('retained runtime run control', () => {
         },
         onAdmission: recoveryAdmissions.onAdmission,
       })
-      expect(recovered.outcome).toBe('recovered')
+      expect(recovered).toMatchObject({ outcome: 'recovered', via: 'resumed' })
       expect(recovered.outcome === 'recovered' && recovered.handle.controlRef).toMatchObject(
         identity,
       )
@@ -3736,7 +3736,7 @@ describe('retained runtime run control', () => {
       sessionId: controlRef.sessionId,
       executionId: controlRef.executionId,
     })
-    expect(recovered.outcome).toBe('recovered')
+    expect(recovered).toMatchObject({ outcome: 'recovered', via: 'reattached' })
     if (recovered.outcome === 'recovered') {
       expect(recovered.handle.controlRef).toEqual(controlRef)
     }

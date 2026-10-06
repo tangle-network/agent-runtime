@@ -1,5 +1,5 @@
 /**
- * Phase 2 — durable journal + retry/deadline/circuit-breaker + header propagation.
+ * Phase 2 — retry/deadline/circuit-breaker + header propagation.
  * Each block exercises one primitive end-to-end against the real runner; no
  * unit-test-only fakes of the primitives themselves.
  */
@@ -10,7 +10,6 @@ import type { AgentBackendContext, AgentExecutionBackend, RuntimeStreamEvent } f
 import { CircuitOpenError, DeadlineExceededError, defaultIsRetryable } from './call-policy'
 import { defineConversation } from './define-conversation'
 import { FORWARD_HEADERS } from './headers'
-import { InMemoryConversationJournal } from './journal'
 import { runConversation, runConversationStream } from './run-conversation'
 import { turnId as deriveTurnId, slugifySpeaker } from './turn-id'
 import type { ConversationStreamEvent } from './types'
@@ -160,141 +159,6 @@ describe('turnId — deterministic', () => {
     expect(slugifySpeaker('GPT-5 Codex')).toBe('gpt-5-codex')
     expect(slugifySpeaker('inner-a')).toBe('inner-a')
     expect(slugifySpeaker('!@#$')).toBe('anon')
-  })
-})
-
-// ── Journal ───────────────────────────────────────────────────────────
-
-describe('journal — durable resume', () => {
-  it('persists every committed turn and resumes from the last entry', async () => {
-    const journal = new InMemoryConversationJournal()
-    const conv = defineConversation({
-      participants: [
-        { name: 'a', backend: steadyBackend('a', ['a-1', 'a-2', 'a-3']) },
-        { name: 'b', backend: steadyBackend('b', ['b-1', 'b-2', 'b-3']) },
-      ],
-      policy: { maxTurns: 6 },
-    })
-
-    // First run aborts after 4 turns via custom haltOn so we have a clean
-    // mid-run state in the journal.
-    let counted = 0
-    const aborted = defineConversation({
-      participants: conv.participants as any,
-      policy: {
-        ...conv.policy,
-        haltOn: () => {
-          counted += 1
-          return counted >= 4 ? { halted: true, reason: 'mid-run pause' } : false
-        },
-      },
-    })
-    const firstRun = await runConversation(aborted, { seed: 'start', journal, runId: 'run-resume' })
-    expect(firstRun.turns).toBe(4)
-
-    // Journal should hold all 4 committed turns + the halt.
-    const after = await journal.loadRun('run-resume')
-    expect(after?.turns).toHaveLength(4)
-    expect(after?.halted?.kind).toBe('predicate')
-
-    // Calling with the same runId on a halted journal entry just replays the
-    // final state without invoking any backend.
-    const replay = await runConversation(conv, {
-      seed: 'ignored on resume',
-      journal,
-      runId: 'run-resume',
-    })
-    expect(replay.turns).toBe(4)
-    expect(replay.transcript).toEqual(firstRun.transcript)
-  })
-
-  it('resumes mid-run when journal has unfinished entry', async () => {
-    const journal = new InMemoryConversationJournal()
-    await journal.beginRun('run-mid', new Date().toISOString())
-    // Pre-seed 2 turns as if a prior process had committed them.
-    await journal.appendTurn('run-mid', {
-      index: 0,
-      speaker: 'a',
-      turnId: deriveTurnId('run-mid', 0, 'a'),
-      text: 'previously-a',
-      attempts: 1,
-      usage: { costUsd: 0.01 },
-      startedAt: '2026-05-27T00:00:00.000Z',
-      endedAt: '2026-05-27T00:00:01.000Z',
-    })
-    await journal.appendTurn('run-mid', {
-      index: 1,
-      speaker: 'b',
-      turnId: deriveTurnId('run-mid', 1, 'b'),
-      text: 'previously-b',
-      attempts: 1,
-      usage: { costUsd: 0.01 },
-      startedAt: '2026-05-27T00:00:01.000Z',
-      endedAt: '2026-05-27T00:00:02.000Z',
-    })
-
-    const conv = defineConversation({
-      participants: [
-        { name: 'a', backend: steadyBackend('a', ['fresh-a-1', 'fresh-a-2']) },
-        { name: 'b', backend: steadyBackend('b', ['fresh-b-1', 'fresh-b-2']) },
-      ],
-      policy: { maxTurns: 4 },
-    })
-
-    const events: ConversationStreamEvent[] = []
-    for await (const e of runConversationStream(conv, {
-      seed: 'never-used-on-resume',
-      journal,
-      runId: 'run-mid',
-    })) {
-      events.push(e)
-    }
-
-    // First event MUST be conversation_resumed (not conversation_start) and
-    // carry the persisted transcript.
-    expect(events[0]?.type).toBe('conversation_resumed')
-    if (events[0]?.type === 'conversation_resumed') {
-      expect(events[0].transcript).toHaveLength(2)
-      expect(events[0].transcript.map((t) => t.text)).toEqual(['previously-a', 'previously-b'])
-    }
-    const end = events.find((e) => e.type === 'conversation_end')
-    if (end?.type !== 'conversation_end') throw new Error('no end event')
-    expect(end.result.turns).toBe(4) // 2 resumed + 2 fresh
-    expect(end.result.transcript.map((t) => t.text)).toEqual([
-      'previously-a',
-      'previously-b',
-      'fresh-a-1',
-      'fresh-b-1',
-    ])
-  })
-
-  it('refuses to overwrite an existing journal entry with a different startedAt', async () => {
-    const journal = new InMemoryConversationJournal()
-    await journal.beginRun('clash', '2026-05-27T00:00:00.000Z')
-    await expect(journal.beginRun('clash', '2026-05-27T01:00:00.000Z')).rejects.toThrow(
-      /already exists/,
-    )
-  })
-
-  it('refuses appends to a halted journal entry', async () => {
-    const journal = new InMemoryConversationJournal()
-    await journal.beginRun('finished', '2026-05-27T00:00:00.000Z')
-    await journal.recordHalt(
-      'finished',
-      { kind: 'max_turns', turns: 0 },
-      '2026-05-27T01:00:00.000Z',
-    )
-    await expect(
-      journal.appendTurn('finished', {
-        index: 0,
-        speaker: 'x',
-        turnId: 'foo',
-        text: 'after-halt',
-        attempts: 1,
-        startedAt: '2026-05-27T02:00:00.000Z',
-        endedAt: '2026-05-27T02:00:01.000Z',
-      }),
-    ).rejects.toThrow(/halted/)
   })
 })
 

@@ -15,7 +15,6 @@
 import type { AgentExecutionBackend, RuntimeSessionStore } from '../types'
 import type { BackendCallPolicy } from './call-policy'
 import type { PropagatedHeaders } from './headers'
-import type { ConversationJournal } from './journal'
 
 /** @stable */
 export interface ConversationParticipant {
@@ -178,10 +177,10 @@ export interface RunConversationOptions {
   /** First message kicking off the conversation. Routes to the first speaker. */
   seed: string
   /**
-   * Optional run identifier for cross-participant trace correlation. Auto-
-   * generated when omitted. Reusing a runId against the same `journal`
-   * resumes the prior run — the runner replays the persisted transcript and
-   * continues from the first un-recorded turn.
+   * Optional run identifier for cross-participant trace correlation and
+   * deterministic turn ids. Auto-generated when omitted. A conversation is
+   * in-process: durable multi-turn work belongs to Agent App's turn store or
+   * to `supervise` with a run context.
    */
   runId?: string
   /** Cancellation signal — aborts mid-stream and halts with `{ kind: 'abort' }`. */
@@ -194,16 +193,8 @@ export interface RunConversationOptions {
    */
   onEvent?: (event: ConversationStreamEvent) => void | Promise<void>
   /**
-   * Optional durable transcript. When set, the runner persists every
-   * committed turn before yielding `turn_end`. Reusing the same `runId`
-   * against the same journal resumes from the last committed turn — so a
-   * driver process crash mid-run loses zero acknowledged turns.
-   */
-  journal?: ConversationJournal
-  /**
    * Stores each participant's backend session. The runner keeps an in-memory
-   * store for one invocation when omitted. Reuse a durable store with the same
-   * `runId` and journal after a process restart. Backends implementing `resume`
+   * store for one invocation when omitted. Backends implementing `resume`
    * continue their provider session; other backends receive the full transcript.
    */
   sessionStore?: RuntimeSessionStore
@@ -248,13 +239,6 @@ export type ConversationStreamEvent =
       runId: string
       participants: readonly string[]
       seed: string
-      timestamp: string
-    }
-  | {
-      type: 'conversation_resumed'
-      runId: string
-      participants: readonly string[]
-      transcript: readonly ConversationTurn[]
       timestamp: string
     }
   | {

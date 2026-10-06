@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 313 exports.
+Import from `@tangle-network/agent-runtime` — 308 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -117,8 +117,6 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 | `AgentEvalError` | class | Base class for every contract error this package throws — carries the stable |
 | `BackendTransportError` | class | A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success |
 | `ConfigError` | class | Configuration missing or malformed (`HOME` unset, required image not supplied, env var absent). |
-| `FileConversationJournal` | class | JSONL on disk. One line per record; first line is the `begin`, subsequent |
-| `InMemoryConversationJournal` | class | In-memory `ConversationJournal` — suitable for testing and single-process runs. |
 | `InMemoryRuntimeSessionStore` | class | In-memory `RuntimeSessionStore` for single-process use and tests. |
 | `JudgeError` | class | A judge call failed in a way that's not retryable: schema parse failure, bad rubric, conflicting dimensions. |
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
@@ -130,7 +128,6 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 | `RetainedRunDispatchBindingError` | class | A retained dispatch answered with coordinates that do not bind to the |
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SearchEnvironmentFault` | class | The environment, not the candidate, ended the attempt: a box that died, a platform that |
-| `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
 | `BuildPromptFindingsInput` | interface | Evidence supplied to a generated tool or MCP build instruction. |
@@ -192,7 +189,7 @@ Import from `@tangle-network/agent-runtime` — 313 exports.
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatModelCandidate`, `CheckpointServingPort`, `ControlBudget`, `ControlEvalResult`, `ControlledTrainingCommand`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationJournalEntry`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateKnowledgeImprovementActivationExecutorOptions`, `CreateProfileImprovementHarnessOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DecideSearchImprovementOptions`, `DelegatedLoopResult`, `HaltContext`, `HaltSignal`, `ImproveCodeBaseOptions`, `ImproveCodeResult`, `ImproveCustomCodeGeneratorOptions`, `ImprovementCodeCandidate`, `ImprovementProfileCandidate`, `ImproveMethodContext`, `ImproveMethodResult`, `ImproveRuntimeCodeGeneratorOptions`, `ImproveSearchResult`, `ImproveSkillsOptions`, `ImproveTrainingOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessDecision`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `McpServeSpec`, `OfficialSensitiveCandidateInput`, `OtelAttribute`, `OtelExportConfig`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ProfileTrainerRequest`, `RawTraceDistillerOptions`, `ReflectiveGeneratorOptions`, `ReflectiveProfileProposerOptions`, `ReflectiveProposerReply`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolvedChatModel`, `RunAgentTaskOptions`, `RunAgentTaskStreamOptions`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunCompleteInput`, `RuntimeRunCost`, `RuntimeRunHandle`, `RuntimeRunOptions`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSession`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeStreamEventSummary`, `RuntimeTelemetryOptions`, `SanitizedKnowledgeReadinessReport`, `SanitizedKnowledgeRequirement`, `SearchImprovementDecision`, `SearchMethodOptions`, `ServerSentEventOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `TrainingDatasetDocument`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgenticGeneratorExecutorForWorktree`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ChatModelValidation`, `ControlDecision`, `ConversationStreamEvent`, `DeepReadonly`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `HaltPredicate`, `HaltReason`, `ImproveCodeOptions`, `ImprovementCandidate`, `ImproveMethodSource`, `ImproveOptimizationRunOptions`, `ImproveProfileSurface`, `ImproveResult`, `ImproveTrainingResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileImprovementHarnessRunOptions`, `ProfileImprovementHarnessTrainOptions`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeRunStatus`, `RuntimeStreamEvent`, `RuntimeStreamEventSink`, `SupervisedKnowledgeUpdater`, `TrainingBoundaryResult`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatModelCandidate`, `CheckpointServingPort`, `ControlBudget`, `ControlEvalResult`, `ControlledTrainingCommand`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateKnowledgeImprovementActivationExecutorOptions`, `CreateProfileImprovementHarnessOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DecideSearchImprovementOptions`, `DelegatedLoopResult`, `HaltContext`, `HaltSignal`, `ImproveCodeBaseOptions`, `ImproveCodeResult`, `ImproveCustomCodeGeneratorOptions`, `ImprovementCodeCandidate`, `ImprovementProfileCandidate`, `ImproveMethodContext`, `ImproveMethodResult`, `ImproveRuntimeCodeGeneratorOptions`, `ImproveSearchResult`, `ImproveSkillsOptions`, `ImproveTrainingOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessDecision`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `McpServeSpec`, `OfficialSensitiveCandidateInput`, `OtelAttribute`, `OtelExportConfig`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ProfileTrainerRequest`, `RawTraceDistillerOptions`, `ReflectiveGeneratorOptions`, `ReflectiveProfileProposerOptions`, `ReflectiveProposerReply`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolvedChatModel`, `RunAgentTaskOptions`, `RunAgentTaskStreamOptions`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunCompleteInput`, `RuntimeRunCost`, `RuntimeRunHandle`, `RuntimeRunOptions`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSession`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeStreamEventSummary`, `RuntimeTelemetryOptions`, `SanitizedKnowledgeReadinessReport`, `SanitizedKnowledgeRequirement`, `SearchImprovementDecision`, `SearchMethodOptions`, `ServerSentEventOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `TrainingDatasetDocument`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgenticGeneratorExecutorForWorktree`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ChatModelValidation`, `ControlDecision`, `ConversationStreamEvent`, `DeepReadonly`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `HaltPredicate`, `HaltReason`, `ImproveCodeOptions`, `ImprovementCandidate`, `ImproveMethodSource`, `ImproveOptimizationRunOptions`, `ImproveProfileSurface`, `ImproveResult`, `ImproveTrainingResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileImprovementHarnessRunOptions`, `ProfileImprovementHarnessTrainOptions`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeRunStatus`, `RuntimeStreamEvent`, `RuntimeStreamEventSink`, `SupervisedKnowledgeUpdater`, `TrainingBoundaryResult`, `TurnOrder`.
 
 ### Vertical agent — manifest + surface proposal source
 
@@ -239,37 +236,27 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 74 exports.
+Import from `@tangle-network/agent-runtime/durable` — 62 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock`, or refuse. |
 | `assertPursuitVersions` | function | Validate a `versions` option before any compute. The same check runs inside `supervisePursuit`; |
-| `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
-| `deliverPursuitObserver` | function | POST one projection. Never throws; the outcome says whether Intelligence accepted it. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
-| `pursuitVersionsLedgerPath` | function | The chain's directory beside the first version's: the ledger and its content blobs. |
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
 | `readRootStream` | function | Every committed line of the root stream, in order, or `undefined` when there is no file. A |
 | `readRootStreamReceipt` | function | The receipt for the root stream a run directory holds, recomputed from the file's bytes, or |
 | `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
-| `settleRecordJson` | function | The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785 |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
-| `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
-| `FORK_PARENT_UNCERTAIN_NODES_KEY` | const | The correlation key an accepted uncertain parent adds: its uncertain node ids, comma-joined. |
-| `PURSUIT_OBSERVER_DELIVERY_PATH` | const | The Intelligence route that persists a delivered projection on its run spine. |
-| `REVIEW_DIR` | const | Where `'review-of-best'` mounts a review: `inputs/review/version-<n>.md`. One review lives in |
 | `ROOT_STREAM_FILE` | const | The root stream: one JSONL line per progress event the root's executor observed. |
-| `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
-| `SETTLE_RECORD_FILE` | const | The settle record: the returned `SupervisedResult` as canonical JSON, written once. |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
 | `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |
 | `SettledRunDirectoryError` | class | The directory already holds a settle record, so the run it records must not be re-entered. |
@@ -303,11 +290,10 @@ Import from `@tangle-network/agent-runtime/durable` — 74 exports.
 | `NextPursuitVersion` | type | Build the one change the next version applies to `best.profile`. Its `id` must be non-empty. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
 | `PursuitNodePlacement` | type | Where and how a node's execution was placed, read off its execution-binding receipt. |
-| `PursuitObserverState` | type | The execution state Runtime reports. It never claims the pursuit's semantic success. |
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
 | `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`, `PursuitObserverDeliveryOutcome`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `JudgedPursuitVersion`, `NextPursuitVersionInput`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `VersionVerdict`, `ObserverRecordKind`.
 
 ### Bounded tool calls for browser and edge runtimes
 
@@ -458,7 +444,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -507,7 +493,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `compareCheckOutcomes` | function | The selection order: crash < ran; then official pass-fraction; authored guesses only |
 | `completionAuthorizes` | function | Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. |
 | `composeCheckSources` | function | Concatenate check sources (official first by convention — ordering does not affect |
-| `composeContinuationNote` | function | Write one continuation note, sections 1 to 8 of docs/38. Section 9, the run's state, is |
 | `composeReentryTask` | function | Compose the task for one re-entered drive. |
 | `composeWorkerEvidence` | function | Compose the settle evidence block. Section order is priority order under the |
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
@@ -642,7 +627,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
 | `readWorkerCancelRequests` | function | Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped. |
-| `readWorkerInteractiveAdmissions` | function | Read all durable admissions for one worker, oldest phase first. |
 | `readWorkerInteractiveBinding` | function | Read and validate one exact durable worker binding. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
 | `readWorkerSteerAcknowledgement` | function | Read one runtime steer acknowledgement, or `undefined` while no manager has answered. |
@@ -738,9 +722,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `workerFromInteractiveProvider` | function | Build a `MakeWorkerAgent` that starts one exact provider-owned native TUI per worker. |
 | `workerInboxFile` | function | The durable inbox file for one worker of one run. |
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
-| `workerInteractiveAdmissionFile` | function | Return the exact credential-free admission file for one worker and phase. |
-| `workerInteractiveBindingFile` | function | Exact durable binding file for one worker id. |
-| `workerInteractiveBindingsDir` | function | Directory containing exact per-worker interactive binding records. |
 | `workerSteerAcknowledgementFile` | function | Runtime acknowledgement file for one caller-owned steer operation id. |
 | `workerSteerAcknowledgementsDir` | function | Directory containing one runtime acknowledgement per steer operation. |
 | `workerSteerRequestFile` | function | Canonical request file for one caller-owned steer operation id. |
@@ -761,7 +742,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `collectDelivered` | const | Every verified distinct output, highest score first — the shape for competing hypotheses, a |
 | `CONTINUATION_FACTS` | const | The facts a profile template may name. |
-| `CONTINUATIONS_DIR` | const | A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested |
 | `DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY` | const | Manager-authored profiles are untrusted until product policy says otherwise. Remote MCP and |
 | `DEFAULT_DEADLINE_WARNING_MS` | const | How long before its deadline a manager is woken once to submit its best result: 15 min. |
 | `DEFAULT_MAX_DEPTH` | const | The default recursion-depth ceiling. The conserved pool is what bounds a tree's depth: every |
@@ -770,8 +750,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `DEFAULT_SHARED_BOX_RESOURCES` | const | The box shape the default placement creates: memory for 8 workers at about 0.5 GB each plus |
 | `DEFAULT_SHARED_BOX_WORKERS` | const | The most workers one default box carries at once. |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
-| `DEFAULT_WAKE_DEBOUNCE_MS` | const | How long a wake waits for more events after its first, while other workers still run: 2 s. |
-| `DEFAULT_WAKE_HEARTBEAT_MS` | const | How long a waiting manager hears nothing before Runtime wakes it to reconsider: 15 min. |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
 | `defaultEdgeTraversalCap` | const | Default per-edge traversal cap — the cyclic-graph backstop when an edge names none. |
@@ -816,9 +794,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `SandboxEvidenceRetentionError` | class | A failed capture keeps the live source handle available for an explicit retry. |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
-| `SqlResultBlobStore` | class | SQL-backed `ResultBlobStore`. One content-addressed row per settled result. |
 | `SqlRunOwnershipError` | class | Refuses a competing or stale SQL run owner before it can publish new work. |
-| `SqlSpawnJournal` | class | SQL-backed `SpawnJournal`. One row per event; insertion order is replay order. |
 | `ActivityLog` | interface | A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. |
 | `ActivityNote` | interface | The most recent activity the executor can name — one tool call, one turn, or a free-form note. |
 | `AdmittedFinding` | interface | A finding that reached the note, with the continuation that admitted it. |
@@ -1131,12 +1107,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `SpawnForestMissingTree` | interface | A driver spawn whose owned journal tree was never begun before the process stopped. |
 | `SpawnForestNode` | interface | One flattened node with the journal tree that owns its records. |
 | `SpawnForestTree` | interface | One journal tree in a recursively loaded supervision forest. |
-| `SpawnJournal` | interface | The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape). |
+| `SpawnJournal` | interface | The spawn-tree event source (begin/append/load). |
 | `SpawnPreflightContext` | interface | What a pre-flight sees: the authored child profile and the spawn it is being asked to admit. |
 | `SpawnRefusal` | interface | A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it. |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd are separate |
 | `SpendGap` | interface | One journaled node whose usage accounting is incomplete — the named gap behind a `false` |
-| `SqlStatements` | interface | The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts. |
 | `StartRetainedInteractiveRunOptions` | interface | Start one retry-safe native coding-agent TUI in a new environment. |
 | `StartRetainedRunInEnvironmentOptions` | interface | A fresh retained session inside a provider environment that already exists. |
 | `StartRetainedRunOptions` | interface | A retained start is retry-safe only when environment and turn keys are explicit. |
@@ -1272,7 +1247,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `ProviderNativeCapturePhase` | type | When {@link ProviderWorkspaceRetentionPort.captureNative} runs relative to its turn. |
 | `ProviderPromptOptions` | type | Per-run Sandbox prompt options for the provider path — the same field, the same name, and the |
 | `QuestionEscalationOutcome` | type | The result of handing a question this manager cannot answer to whatever is above it. |
-| `RecoverRetainedRunResult` | type | Outcome of one recovery attempt from pre-dispatch admission coordinates. |
+| `RecoverRetainedRunResult` | type | Outcome of one recovery attempt. |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `ReservationRejection` | type | Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it |
 | `ReservationStage` | type | Where in the spawn lifecycle a reservation was last seen. `admitted` is the window between |

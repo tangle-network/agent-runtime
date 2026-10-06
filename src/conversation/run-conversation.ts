@@ -14,9 +14,6 @@
  *     between turns; stateless backends receive one reconstructed transcript.
  *   - **Idempotent turn ids** — `turnId(runId, index, speaker)` stays stable
  *     across retries so caching gateways can dedupe.
- *   - **Durable journal** — optional `ConversationJournal` persists every
- *     committed turn; reusing a runId against the same journal resumes
- *     transparently from the last committed turn.
  *   - **Per-turn call policy** — deadline, retry-with-backoff, and a
  *     per-participant circuit breaker. Retries replay the same logical turn
  *     (same `turnId`); the retry loop lives inside the outer generator so
@@ -101,85 +98,25 @@ export async function* runConversationStream(
     breakers.set(participant.name, new CircuitBreakerState(cfg))
   }
 
-  let transcript: ConversationTurn[] = []
+  const transcript: ConversationTurn[] = []
   let spentCreditsCents = 0
-  let startedAt = nowIso()
-  let resumed = false
+  const startedAt = nowIso()
   const sessionStore = options.sessionStore ?? new InMemoryRuntimeSessionStore()
-
-  if (options.journal) {
-    const prior = await options.journal.loadRun(runId)
-    if (prior) {
-      if (prior.halted) {
-        // Run already terminated — surface its final state without re-running.
-        const replayResult: ConversationResult = {
-          runId,
-          transcript: prior.turns,
-          turns: prior.turns.length,
-          spentCreditsCents: prior.turns.reduce(
-            (sum, t) => sum + centsFromUsd(t.usage?.costUsd ?? 0),
-            0,
-          ),
-          halted: prior.halted,
-          durationMs: 0,
-          startedAt: prior.startedAt,
-          endedAt: prior.endedAt ?? prior.startedAt,
-        }
-        yield {
-          type: 'conversation_resumed',
-          runId,
-          participants: conversation.participants.map((p) => p.name),
-          transcript: prior.turns,
-          timestamp: nowIso(),
-        }
-        yield { type: 'conversation_end', runId, result: replayResult, timestamp: nowIso() }
-        return
-      }
-      transcript = [...prior.turns]
-      spentCreditsCents = transcript.reduce(
-        (sum, t) => sum + centsFromUsd(t.usage?.costUsd ?? 0),
-        0,
-      )
-      startedAt = prior.startedAt
-      resumed = true
-    } else {
-      await options.journal.beginRun(runId, startedAt)
-    }
-  }
   const startedAtMs = Date.now()
-  const participantSessions = sessionIdsFrom(transcript)
+  const participantSessions = new Map<string, string>()
 
-  if (resumed) {
-    yield {
-      type: 'conversation_resumed',
-      runId,
-      participants: conversation.participants.map((p) => p.name),
-      // Snapshot the resumed transcript — the live `transcript` array gets
-      // pushed to as the run continues, so handing the bare reference to a
-      // subscriber would leak future writes into a past event.
-      transcript: [...transcript],
-      timestamp: nowIso(),
-    }
-  } else {
-    yield {
-      type: 'conversation_start',
-      runId,
-      participants: conversation.participants.map((p) => p.name),
-      seed: options.seed,
-      timestamp: startedAt,
-    }
+  yield {
+    type: 'conversation_start',
+    runId,
+    participants: conversation.participants.map((p) => p.name),
+    seed: options.seed,
+    timestamp: startedAt,
   }
 
-  // When resumed, the next user input is the last persisted turn's text;
-  // for a fresh run, it's the caller's seed.
-  let currentInput =
-    transcript.length === 0
-      ? options.seed
-      : (transcript[transcript.length - 1]?.text ?? options.seed)
+  let currentInput = options.seed
   let halt: HaltReason | undefined
 
-  const initialOffset = transcript.length
-  for (let turnIndex = initialOffset; turnIndex < conversation.policy.maxTurns; turnIndex++) {
+  for (let turnIndex = 0; turnIndex < conversation.policy.maxTurns; turnIndex++) {
     if (options.signal?.aborted) {
       halt = { kind: 'abort' }
       break
@@ -344,9 +281,6 @@ export async function* runConversationStream(
     }
     transcript.push(turn)
     spentCreditsCents += centsFromUsd(turn.usage?.costUsd ?? 0)
-    if (options.journal) {
-      await options.journal.appendTurn(runId, turn)
-    }
 
     yield { type: 'turn_end', runId, turn, timestamp: nowIso() }
 
@@ -384,10 +318,6 @@ export async function* runConversationStream(
     startedAt,
     endedAt,
   }
-  if (options.journal) {
-    await options.journal.recordHalt(runId, halt, endedAt)
-  }
-
   yield { type: 'conversation_end', runId, result, timestamp: endedAt }
 }
 
@@ -624,14 +554,6 @@ function continuedConversationInput(
       ? unseen.map((turn) => `[${turn.speaker}] ${turn.text}`).join('\n\n')
       : 'Continue.'
   return { task, message, messages: [{ role: 'user', content: message }] }
-}
-
-function sessionIdsFrom(transcript: readonly ConversationTurn[]): Map<string, string> {
-  const sessions = new Map<string, string>()
-  for (const turn of transcript) {
-    if (turn.sessionId) bindParticipantSession(sessions, turn.speaker, turn.sessionId)
-  }
-  return sessions
 }
 
 function bindParticipantSession(

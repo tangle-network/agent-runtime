@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { createIterableBackend } from '../backends'
 import { ValidationError } from '../errors'
-import { InMemoryRuntimeSessionStore } from '../sessions'
 import type {
   AgentBackendInput,
   AgentExecutionBackend,
@@ -11,7 +10,6 @@ import type {
 } from '../types'
 import { createConversationBackend } from './conversation-backend'
 import { defineConversation } from './define-conversation'
-import { InMemoryConversationJournal } from './journal'
 import { runConversation, runConversationStream } from './run-conversation'
 import type { ConversationStreamEvent } from './types'
 
@@ -337,36 +335,6 @@ describe('runConversation — happy path', () => {
       { role: 'user', content: 'solve the task' },
       { role: 'user', content: '[author] draft' },
     ])
-  })
-
-  it('continues actor sessions after the conversation driver restarts', async () => {
-    const calls: SessionCall[] = []
-    const journal = new InMemoryConversationJournal()
-    const sessionStore = new InMemoryRuntimeSessionStore()
-    const conv = defineConversation({
-      participants: [
-        { name: 'author', backend: sessionBackend('author', ['a-1', 'a-2'], calls) },
-        { name: 'critic', backend: sessionBackend('critic', ['c-1', 'c-2'], calls) },
-      ],
-      policy: { maxTurns: 4 },
-    })
-    const options = {
-      seed: 'solve the task',
-      runId: 'driver-restart',
-      journal,
-      sessionStore,
-    }
-
-    let committedTurns = 0
-    for await (const event of runConversationStream(conv, options)) {
-      if (event.type === 'turn_end') committedTurns += 1
-      if (committedTurns === 2) break
-    }
-    const result = await runConversation(conv, options)
-
-    expect(result.transcript.map((turn) => turn.text)).toEqual(['a-1', 'c-1', 'a-2', 'c-2'])
-    expect(calls.filter((call) => call.phase === 'start')).toHaveLength(2)
-    expect(calls.filter((call) => call.phase === 'resume')).toHaveLength(2)
   })
 
   it('does not bind a participant to a session from a failed attempt', async () => {

@@ -15,190 +15,6 @@ concurrency, abort, cost aggregation, and trace emission.
 
 ## Classes
 
-### SqlSpawnJournal
-
-SQL-backed `SpawnJournal`. One row per event; insertion order is replay order.
-
-#### Implements
-
-- [`SpawnJournal`](#spawnjournal)
-
-#### Constructors
-
-##### Constructor
-
-> **new SqlSpawnJournal**(`db`, `table?`): [`SqlSpawnJournal`](#sqlspawnjournal)
-
-###### Parameters
-
-###### db
-
-[`SqlStatements`](#sqlstatements)
-
-###### table?
-
-`string` = `'runtime_spawn_journal'`
-
-###### Returns
-
-[`SqlSpawnJournal`](#sqlspawnjournal)
-
-#### Methods
-
-##### migrate()
-
-> **migrate**(): `Promise`\<`void`\>
-
-Create the journal's tables if absent. Idempotent.
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### loadTree()
-
-> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
-
-###### Parameters
-
-###### root
-
-`string`
-
-###### Returns
-
-`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
-
-###### Implementation of
-
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
-
-##### beginTree()
-
-> **beginTree**(`root`, `at`): `Promise`\<`void`\>
-
-###### Parameters
-
-###### root
-
-`string`
-
-###### at
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
-
-##### appendEvent()
-
-> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
-
-###### Parameters
-
-###### root
-
-`string`
-
-###### ev
-
-[`SpawnEvent`](#spawnevent)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
-
-***
-
-### SqlResultBlobStore
-
-SQL-backed `ResultBlobStore`. One content-addressed row per settled result.
-
-#### Implements
-
-- [`ResultBlobStore`](#resultblobstore)
-
-#### Constructors
-
-##### Constructor
-
-> **new SqlResultBlobStore**(`db`, `table?`): [`SqlResultBlobStore`](#sqlresultblobstore)
-
-###### Parameters
-
-###### db
-
-[`SqlStatements`](#sqlstatements)
-
-###### table?
-
-`string` = `'runtime_result_blobs'`
-
-###### Returns
-
-[`SqlResultBlobStore`](#sqlresultblobstore)
-
-#### Methods
-
-##### migrate()
-
-> **migrate**(): `Promise`\<`void`\>
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### put()
-
-> **put**(`outRef`, `artifact`): `Promise`\<`void`\>
-
-###### Parameters
-
-###### outRef
-
-`string`
-
-###### artifact
-
-`unknown`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-###### Implementation of
-
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-6)
-
-##### get()
-
-> **get**(`outRef`): `Promise`\<`unknown`\>
-
-###### Parameters
-
-###### outRef
-
-`string`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-###### Implementation of
-
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-7)
-
-***
-
 ### InMemoryResultBlobStore
 
 **`Stable`**
@@ -243,7 +59,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-6)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
 
 ##### get()
 
@@ -261,7 +77,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-7)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
 
 ***
 
@@ -315,7 +131,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-6)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-5)
 
 ##### get()
 
@@ -333,7 +149,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-7)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-6)
 
 ***
 
@@ -379,7 +195,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
 
 ##### beginTree()
 
@@ -401,7 +217,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
 
 ##### appendEvent()
 
@@ -423,7 +239,7 @@ the corruption guards a durable replay rests on:
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
 
 ***
 
@@ -475,7 +291,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-3)
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
 
 ##### beginTree()
 
@@ -497,7 +313,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-3)
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
 
 ##### appendEvent()
 
@@ -519,7 +335,7 @@ writes never loses an acknowledged event.
 
 ###### Implementation of
 
-[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-3)
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
 
 ***
 
@@ -725,7 +541,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-3)
+[`Corpus`](#corpus).[`query`](#query-2)
 
 ***
 
@@ -802,7 +618,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus).[`query`](#query-3)
+[`Corpus`](#corpus).[`query`](#query-2)
 
 ***
 
@@ -1204,7 +1020,7 @@ readonly [`DriverAttemptRecord`](#driverattemptrecord)[]
 
 ###### Overrides
 
-[`RuntimeRunStateError`](index.md#runtimerunstateerror).[`constructor`](index.md#constructor-4)
+[`RuntimeRunStateError`](index.md#runtimerunstateerror).[`constructor`](index.md#constructor-1)
 
 #### Properties
 
@@ -1270,60 +1086,6 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 > `readonly` **result**: [`SupervisedResult`](#supervisedresult)\<`unknown`\>
 
 ## Interfaces
-
-### SqlStatements
-
-The minimal statement seam; structurally the same shape `SqlConversationJournal` accepts.
-
-#### Methods
-
-##### exec()
-
-> **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
-
-Execute a write statement (INSERT/UPDATE/DELETE/DDL).
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### params?
-
-readonly `unknown`[]
-
-###### Returns
-
-`Promise`\<\{ `rowsAffected`: `number`; \}\>
-
-##### query()
-
-> **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
-
-Execute a read statement (SELECT). Returns rows as plain objects.
-
-###### Type Parameters
-
-###### TRow
-
-`TRow` = `Record`\<`string`, `unknown`\>
-
-###### Parameters
-
-###### sql
-
-`string`
-
-###### params?
-
-readonly `unknown`[]
-
-###### Returns
-
-`Promise`\<`TRow`[]\>
-
-***
 
 ### SpawnForestTree
 
@@ -11068,7 +10830,7 @@ this digest and length; storing an object that already exists is a success.
 
 ###### Inherited from
 
-[`PrivateCasDurableStore`](#privatecasdurablestore).[`put`](#put-3)
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`put`](#put-2)
 
 ##### get()
 
@@ -11098,7 +10860,7 @@ The stored bytes, or undefined when the store holds no object for this digest.
 
 ###### Inherited from
 
-[`PrivateCasDurableStore`](#privatecasdurablestore).[`get`](#get-5)
+[`PrivateCasDurableStore`](#privatecasdurablestore).[`get`](#get-4)
 
 ##### putPointer()
 
@@ -18836,8 +18598,9 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **resume?**: `boolean`
 
-Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
+Advanced test seam: opt into resume-first when the durable stores are caller-supplied
+(`journal` + `blobs` / `runContext`) instead of derived from `runDir`. The normal durable path
+is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
@@ -23564,8 +23327,9 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **resume?**: `boolean`
 
-Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
+Advanced test seam: opt into resume-first when the durable stores are caller-supplied
+(`journal` + `blobs` / `runContext`) instead of derived from `runDir`. The normal durable path
+is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
@@ -27127,7 +26891,7 @@ Workspace-relative path.
 
 ### SpawnJournal
 
-The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).
+The spawn-tree event source (begin/append/load).
 `loadTree` returns events for inspection and completed-settlement replay, not live process
 recovery; `appendEvent` runs only AFTER the event is observed-committed (never speculative).
 
@@ -32170,19 +31934,22 @@ for recovery when provider work has already started.
 
 ### RecoverRetainedRunResult
 
-> **RecoverRetainedRunResult** = \{ `outcome`: `"recovered"`; `handle`: [`RetainedRunHandle`](#retainedrunhandle); \} \| \{ `outcome`: `"not_found"`; \} \| \{ `outcome`: `"unverifiable"`; `environment`: `AgentEnvironment`; \}
+> **RecoverRetainedRunResult** = \{ `outcome`: `"recovered"`; `via`: `"reattached"` \| `"resumed"`; `handle`: [`RetainedRunHandle`](#retainedrunhandle); \} \| \{ `outcome`: `"not_found"`; \} \| \{ `outcome`: `"unverifiable"`; `environment`: `AgentEnvironment`; \}
 
 **`Stable`**
 
-Outcome of one recovery attempt from pre-dispatch admission coordinates.
+Outcome of one recovery attempt.
 
-`not_found`: the provider no longer holds the environment; nothing remains
-to destroy. `recovered`: the provider self-identified the session with a
-strict exact reference matching the recorded coordinates. `unverifiable`:
-the environment exists but the provider cannot self-identify the session;
-never destroy on this outcome — keep the environment, retry
-`reconnectRetainedRun` with a dispatched admission record, or inspect it
-with provider-native tools.
+`recovered` with `via: 'reattached'`: the provider self-identified the
+original session with a strict exact reference matching the recorded
+environment coordinates. `recovered` with `via: 'resumed'`: a pre-create
+intent was replayed through the exact, idempotent create and dispatch; the
+handle controls the admitted run, whether this call or the crashed one
+dispatched it. `not_found`: the provider no longer holds the environment;
+nothing remains to destroy. `unverifiable`: the environment exists but the
+provider cannot self-identify the session. Never destroy on this outcome:
+keep the environment, retry `reconnectRetainedRun` with a dispatched
+admission record, or inspect it with provider-native tools.
 
 ***
 
@@ -35827,15 +35594,6 @@ The facts a profile template may name.
 
 ***
 
-### CONTINUATIONS\_DIR
-
-> `const` **CONTINUATIONS\_DIR**: `"continuations"` = `'continuations'`
-
-A run directory's continuation files: the root's at `<runDir>/continuations/<n>/`, a nested
- manager's at `<runDir>/continuations/managers/<owner>/<n>/`.
-
-***
-
 ### defaultDelegateBudget
 
 > `const` **defaultDelegateBudget**: [`Budget`](#budget-16)
@@ -36041,22 +35799,6 @@ The default recursion-depth ceiling. The conserved pool is what bounds a tree's 
 > `const` **WORKER\_TOOL\_TRACE\_SCHEMA\_VERSION**: `1`
 
 Schema version for content-addressed worker tool-trace artifacts.
-
-***
-
-### DEFAULT\_WAKE\_HEARTBEAT\_MS
-
-> `const` **DEFAULT\_WAKE\_HEARTBEAT\_MS**: `number`
-
-How long a waiting manager hears nothing before Runtime wakes it to reconsider: 15 min.
-
-***
-
-### DEFAULT\_WAKE\_DEBOUNCE\_MS
-
-> `const` **DEFAULT\_WAKE\_DEBOUNCE\_MS**: `2000` = `2_000`
-
-How long a wake waits for more events after its first, while other workers still run: 2 s.
 
 ***
 
@@ -38432,6 +38174,10 @@ process admissions follow only after their exact provider coordinates exist.
 
 Retry one exact start after its provider response may have been lost.
 
+Resolves to the handle of the admitted process (resumed through the exact,
+idempotent start request), or `null` when the provider no longer holds the
+environment (not found; nothing remains to stop).
+
 #### Parameters
 
 ##### options
@@ -40466,25 +40212,6 @@ readonly `string`[]
 
 ***
 
-### composeContinuationNote()
-
-> **composeContinuationNote**(`input`): `string`
-
-Write one continuation note, sections 1 to 8 of docs/38. Section 9, the run's state, is
-`composeReentryTask`, which wraps this text. Pure: the same input writes the same note.
-
-#### Parameters
-
-##### input
-
-[`ContinuationNoteInput`](#continuationnoteinput)
-
-#### Returns
-
-`string`
-
-***
-
 ### finalizeBestDelivered()
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
@@ -40920,54 +40647,6 @@ Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `ans
 #### Returns
 
 [`Inbox`](#inbox)
-
-***
-
-### workerInteractiveAdmissionFile()
-
-> **workerInteractiveAdmissionFile**(`eventDir`, `workerId`, `phase`): `string`
-
-Return the exact credential-free admission file for one worker and phase.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### workerId
-
-`string`
-
-##### phase
-
-`"interactive_intent"` \| `"interactive_environment"` \| `"interactive_started"`
-
-#### Returns
-
-`string`
-
-***
-
-### readWorkerInteractiveAdmissions()
-
-> **readWorkerInteractiveAdmissions**(`eventDir`, `workerId`): readonly [`WorkerInteractiveAdmission`](#workerinteractiveadmission)[]
-
-Read all durable admissions for one worker, oldest phase first.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### workerId
-
-`string`
-
-#### Returns
-
-readonly [`WorkerInteractiveAdmission`](#workerinteractiveadmission)[]
 
 ***
 
@@ -42916,50 +42595,6 @@ final verdict line — written last — survives into the evidence block
 #### Returns
 
 `string` \| `undefined`
-
-***
-
-### workerInteractiveBindingsDir()
-
-> **workerInteractiveBindingsDir**(`eventDir`): `string`
-
-**`Stable`**
-
-Directory containing exact per-worker interactive binding records.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-#### Returns
-
-`string`
-
-***
-
-### workerInteractiveBindingFile()
-
-> **workerInteractiveBindingFile**(`eventDir`, `workerId`): `string`
-
-**`Stable`**
-
-Exact durable binding file for one worker id.
-
-#### Parameters
-
-##### eventDir
-
-`string`
-
-##### workerId
-
-`string`
-
-#### Returns
-
-`string`
 
 ***
 
