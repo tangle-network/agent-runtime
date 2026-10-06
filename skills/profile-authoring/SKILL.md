@@ -51,8 +51,7 @@ Proposers: cheap, high-throughput models where an exact checker exists, with an 
 Referee: a skeptic from another model family, holding the artifact itself and its own instrument.
 An instrument is exact recomputation, execution, a literature search, or an attempt to build a counter-case.
 A change of family alone is weak, because models share many errors.
-A referee can reject a claim; only the held-back check accepts one.
-When a claim is compared across lines, require the same named boundary in each line's pages before the comparison is treated as meaningful.
+A referee can reject a claim; only the held-back check accepts one. If the run depends on a root-authored boundary or comparison claim, preserve a reproducible pre-reveal record of that claim in Knowledge before any child sees it, so the blind check can compare against the exact same statement later.
 Monitor: reads the journal and live notes during the run, flags drift or proxy gaming, and steers or reports; it never scores.
 Choose each model from measured cost and quality on this kind of work, and state its dollars.
 Admit the referee's model in `allowedModels`; Runtime refuses a model outside that list at spawn.
