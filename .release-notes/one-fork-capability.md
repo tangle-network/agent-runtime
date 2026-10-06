@@ -1,0 +1,3 @@
+type: minor
+---
+Removed the legacy CRIU fork probe: `probeSandboxCapabilities`, `SandboxCapabilities`, `CriuCapableClient`, `SandboxClient.criuStatus`, `CheckpointCapableBox` and `ForkCapableBox`, and the `createSandboxLineage` capabilities argument (now `createSandboxLineage(client, options)`). The Sandbox SDK removed `client.criuStatus()` in agent-dev-container#5227 because the route was never served, so every real client already reported `canFork = false` and the checkpoint-fork path could not run. A fanout branches the live parent when the box exposes `branch(count)`, and otherwise starts fresh boxes.

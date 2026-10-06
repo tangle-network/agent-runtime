@@ -11029,50 +11029,6 @@ Capture and persist evidence before failed-readiness cleanup.
 
 ***
 
-### SandboxCapabilities
-
-**`Experimental`**
-
-What the loop kernel is allowed to know about a sandbox backend: a single
-capability bit, never the backend's identity. `canFork` gates the legacy
-checkpoint+fork fanout path; current live branching is detected on the box.
-
-#### Properties
-
-##### canFork
-
-> **canFork**: `boolean`
-
-**`Experimental`**
-
-True only when `client.criuStatus()` returned `{ available: true }`.
-Current live `branch(count)` boxes do not need this bit. When both paths
-are absent, a fork-enabled fanout degrades to independent fresh boxes.
-
-***
-
-### CriuCapableClient
-
-**`Experimental`**
-
-Narrowed view of the optional CRIU probe. The loop-side `SandboxClient`
-does not require `criuStatus`; this widens it optionally so the probe can be
-read without importing sandbox-backend specifics.
-
-#### Properties
-
-##### criuStatus?
-
-> `optional` **criuStatus?**: () => `Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
-
-**`Experimental`**
-
-###### Returns
-
-`Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
-
-***
-
 ### SandboxServedBackend
 
 The provider/model the platform reports it actually bound to a turn, when it reports one.
@@ -11396,8 +11352,7 @@ The owned, running sandbox this handle drives.
 Stable session id threaded through this box's `streamPrompt` calls. Minted
 by the lineage on `start`; reused on `continue` so the server continues the
 same conversation. A forked handle starts a fresh session on its new box —
-the shared context comes from the live branch or legacy checkpoint, not a
-shared session id.
+the shared context comes from the live branch, not a shared session id.
 
 ***
 
@@ -11486,8 +11441,8 @@ branching, each child inherits the parent's running state — and therefore
 the parent's IMAGE and PROFILE: under a real fork `specs[i]` does NOT
 re-select a per-branch
 profile (the SDK forks the running box, it can't swap the image). `specs[i]`
-picks the per-branch profile ONLY on the degraded fresh-box path (no branch
-or legacy fork support).
+picks the per-branch profile ONLY on the degraded fresh-box path (no live
+branch support).
 A heterogeneous-profile fanout therefore homogenizes to the parent's profile
 when fork is available — pass a single shared spec for forked fanouts, or
 use `random@k` (no fork) when branches must differ. Each child's first turn
@@ -11562,41 +11517,6 @@ Destroy every box this lineage owns. Best-effort, bounded, parallel.
 
 ***
 
-### CheckpointCapableBox
-
-**`Experimental`**
-
-Loop-side widening of the box's optional checkpoint method. The
-`SandboxClient`/`SandboxInstance` surface the kernel relies on does not
-require checkpointing; this reads it optionally so the lineage can probe-gate
-without importing sandbox-backend specifics.
-
-#### Properties
-
-##### checkpoint?
-
-> `optional` **checkpoint?**: (`options?`) => `Promise`\<\{ `checkpointId`: `string`; \}\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### options?
-
-###### leaveRunning?
-
-`boolean`
-
-###### tags?
-
-`string`[]
-
-###### Returns
-
-`Promise`\<\{ `checkpointId`: `string`; \}\>
-
-***
-
 ### BranchCapableBox
 
 **`Experimental`**
@@ -11624,38 +11544,6 @@ Loop-side view of the current Sandbox SDK's live branch method.
 ###### Returns
 
 `Promise`\<`SandboxInstance`[]\>
-
-***
-
-### ForkCapableBox
-
-**`Experimental`**
-
-Loop-side widening of the legacy checkpoint fork method.
-
-#### Properties
-
-##### fork?
-
-> `optional` **fork?**: (`checkpointId`, `options?`) => `Promise`\<`SandboxInstance`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### checkpointId
-
-`string`
-
-###### options?
-
-###### name?
-
-`string`
-
-###### Returns
-
-`Promise`\<`SandboxInstance`\>
 
 ***
 
@@ -18599,8 +18487,9 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **resume?**: `boolean`
 
-Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
+Advanced test seam: opt into resume-first when the durable stores are caller-supplied
+(`journal` + `blobs` / `runContext`) instead of derived from `runDir`. The normal durable path
+is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
@@ -23391,8 +23280,9 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **resume?**: `boolean`
 
-Opt into resume-first explicitly when the durable stores are caller-supplied (`journal` +
-`blobs` / `runContext`) instead of derived from `runDir`. Exactly what the file
+Advanced test seam: opt into resume-first when the durable stores are caller-supplied
+(`journal` + `blobs` / `runContext`) instead of derived from `runDir`. The normal durable path
+is `runDir` or a `runContext` (see `docs/durability.md`). Exactly what the file
 context sets automatically: load the prior tree for `runId` before starting fresh, refuse a
 reused id without it. Ignored when `runDir` is also set — the file context owns the flag.
 
@@ -29873,24 +29763,6 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 ###### Returns
 
 [`LoopSandboxPlacement`](#loopsandboxplacement)
-
-##### criuStatus()?
-
-> `optional` **criuStatus**(): `Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
-
-**`Experimental`**
-
-Optional legacy CRIU capability probe. When present and it resolves
-`{ available: true }`, the loop's `lineage.fork` seam may checkpoint and fork
-a parent box when live `branch(count)` is unavailable. Current Sandbox boxes
-expose live branching directly. The kernel reads this ONLY through the
-capability probe — it never branches on backend kind.
-The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
-(⇒ `canFork = false`).
-
-###### Returns
-
-`Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
 
 ***
 
@@ -39032,29 +38904,6 @@ Cold-start-resilient sandbox acquisition: create by name, observe readiness from
 
 ***
 
-### probeSandboxCapabilities()
-
-> **probeSandboxCapabilities**(`client`): `Promise`\<[`SandboxCapabilities`](#sandboxcapabilities)\>
-
-**`Experimental`**
-
-Probe (and memoize per client) what the loop may rely on. A client without a
-`criuStatus` method, or whose probe rejects, yields `canFork = false` — a
-failed probe must never claim a capability the platform may not have. The
-promise is cached so concurrent fanout branches share one round-trip.
-
-#### Parameters
-
-##### client
-
-[`SandboxClient`](#sandboxclient-5)
-
-#### Returns
-
-`Promise`\<[`SandboxCapabilities`](#sandboxcapabilities)\>
-
-***
-
 ### sandboxEventServedBackend()
 
 > **sandboxEventServedBackend**(`event`): [`SandboxServedBackend`](#sandboxservedbackend) \| `undefined`
@@ -39396,23 +39245,17 @@ Capture, verify, durably record, then destroy. A failure leaves the source intac
 
 ### createSandboxLineage()
 
-> **createSandboxLineage**(`client`, `capabilities`, `options?`): [`SandboxLineage`](#sandboxlineage)
+> **createSandboxLineage**(`client`, `options?`): [`SandboxLineage`](#sandboxlineage)
 
 **`Experimental`**
 
-Build a lineage bound to one client + its probed capabilities. The
-capabilities are passed in (not re-probed) so the kernel probes once per run
-and the lineage stays a pure function of "what this platform can do".
+Build a lineage bound to one client. Branching is read from each box.
 
 #### Parameters
 
 ##### client
 
 [`SandboxClient`](#sandboxclient-5)
-
-##### capabilities
-
-[`SandboxCapabilities`](#sandboxcapabilities)
 
 ##### options?
 

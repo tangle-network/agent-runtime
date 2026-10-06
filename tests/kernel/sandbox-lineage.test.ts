@@ -7,7 +7,6 @@ import {
   type OutputAdapter,
   runAgentRounds,
 } from '../../src/runtime'
-import { probeSandboxCapabilities } from '../../src/runtime/sandbox-capabilities'
 import { createSandboxLineage } from '../../src/runtime/sandbox-lineage'
 import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
@@ -48,7 +47,6 @@ interface StreamCall {
 }
 
 interface FakeClientOpts {
-  criuAvailable: boolean
   deleteFailure?: boolean
   /** Whether boxes expose the current live branch(count) API. */
   branchAvailable?: boolean
@@ -66,24 +64,21 @@ interface FakeClientOpts {
 }
 
 /**
- * A fake sandbox client whose boxes record every `streamPrompt` call, support
- * checkpoint+fork, and report a configurable CRIU status. The recorder lets the
- * tests assert which box + session id each iteration ran on. `peakFork` tracks
- * the highest number of `fork` calls in flight at once — so a test can prove
- * fork creation respects the concurrency bound.
+ * A fake sandbox client whose boxes record every `streamPrompt` call and may
+ * expose live `branch(count)`. The recorder lets the tests assert which box +
+ * session id each iteration ran on. `peakCreate` tracks the highest number of
+ * `create` calls in flight at once — so a test can prove fresh-box fanout
+ * respects the concurrency bound.
  */
 function createFakeClient(opts: FakeClientOpts) {
   const streamCalls: StreamCall[] = []
   const created: string[] = []
-  const forked: string[] = []
   const branched: string[] = []
   const deleted: string[] = []
-  const peakFork = { value: 0 }
-  let forkInFlight = 0
+  const peakCreate = { value: 0 }
+  let createInFlight = 0
   let boxSeq = 0
-  let forkSeq = 0
   let branchSeq = 0
-  let checkpointSeq = 0
 
   function makeBox(id: string): SandboxInstance {
     const box = {
@@ -100,20 +95,6 @@ function createFakeClient(opts: FakeClientOpts) {
         opts.onStream?.(streamCalls.length)
         yield { type: 'result', data: { ok: true } } satisfies SandboxEvent
         yield { type: 'done', data: { outcome: { type: 'completed' } } } satisfies SandboxEvent
-      },
-      async checkpoint(_o?: { leaveRunning?: boolean }) {
-        return { checkpointId: `cp-${checkpointSeq++}`, createdAt: new Date(), tags: [] }
-      },
-      async fork(_checkpointId: string): Promise<SandboxInstance> {
-        forkInFlight += 1
-        peakFork.value = Math.max(peakFork.value, forkInFlight)
-        // Yield so concurrently-started forks overlap — peakFork then reflects
-        // the real in-flight ceiling, not a serialized 1.
-        await Promise.resolve()
-        const child = makeBox(`fork-${forkSeq++}`)
-        forked.push(child.id as string)
-        forkInFlight -= 1
-        return child
       },
       ...(opts.branchAvailable
         ? {
@@ -150,22 +131,24 @@ function createFakeClient(opts: FakeClientOpts) {
 
   const client = {
     async create(): Promise<SandboxInstance> {
+      createInFlight += 1
+      peakCreate.value = Math.max(peakCreate.value, createInFlight)
+      // Yield so concurrently-started creates overlap — peakCreate then reflects
+      // the real in-flight ceiling, not a serialized 1.
+      await Promise.resolve()
       const id = `box-${boxSeq++}`
       created.push(id)
+      createInFlight -= 1
       return makeBox(id)
     },
-    async criuStatus() {
-      return { available: opts.criuAvailable }
-    },
   }
-  return { client, streamCalls, created, forked, branched, deleted, peakFork }
+  return { client, streamCalls, created, branched, deleted, peakCreate }
 }
 
 describe('sandbox lineage evidence cleanup', () => {
   it('surfaces a required capture failure and keeps the box available', async () => {
-    const { client, deleted } = createFakeClient({ criuAvailable: false, deleteFailure: true })
-    const capabilities = await probeSandboxCapabilities(client)
-    const lineage = createSandboxLineage(client, capabilities, { failOnDestroyError: true })
+    const { client, deleted } = createFakeClient({ deleteFailure: true })
+    const lineage = createSandboxLineage(client, { failOnDestroyError: true })
     await lineage.start(
       spec('retained') as AgentRunSpec<unknown>,
       'work',
@@ -185,7 +168,7 @@ function scriptedPlanner(moves: ScriptedMove<Task>[]): ScriptedPlanner<Task, Out
 
 describe('runAgentRounds lineage — sessionContinuity OFF (the independence invariant)', () => {
   it('is fresh-box-per-iteration with no sessionId reuse when the flag is off', async () => {
-    const { client, streamCalls, created } = createFakeClient({ criuAvailable: true })
+    const { client, streamCalls, created } = createFakeClient({})
     // refine, refine, stop — three single-task rounds.
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'a' } },
@@ -269,7 +252,7 @@ describe('runAgentRounds — streaming: poll (drop-resilient batch path)', () =>
 
 describe('runAgentRounds lineage — sessionContinuity ON', () => {
   it('a refine continues the parent on the SAME box with the SAME session id', async () => {
-    const { client, streamCalls, created } = createFakeClient({ criuAvailable: false })
+    const { client, streamCalls, created } = createFakeClient({})
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'a' } },
       { kind: 'refine', task: { goal: 'b' } },
@@ -295,8 +278,7 @@ describe('runAgentRounds lineage — sessionContinuity ON', () => {
 
 describe('runAgentRounds lineage — forkFanout', () => {
   it('branches the live parent when the current Sandbox API is available', async () => {
-    const { client, streamCalls, created, forked, branched } = createFakeClient({
-      criuAvailable: false,
+    const { client, streamCalls, created, branched } = createFakeClient({
       branchAvailable: true,
     })
     const planner = scriptedPlanner([
@@ -314,14 +296,12 @@ describe('runAgentRounds lineage — forkFanout', () => {
     })
     expect(streamCalls).toHaveLength(4)
     expect(created).toHaveLength(1)
-    expect(forked).toHaveLength(0)
     expect(branched).toHaveLength(3)
     expect(streamCalls.slice(1).every((call) => call.boxId.startsWith('branch-'))).toBe(true)
   })
 
   it('reaps partial live branches before rejecting the fanout', async () => {
     const { client, deleted, branched } = createFakeClient({
-      criuAvailable: false,
       branchAvailable: true,
       branchResultCount: 1,
     })
@@ -346,35 +326,8 @@ describe('runAgentRounds lineage — forkFanout', () => {
     expect(deleted.sort()).toEqual(['box-0', 'branch-0'])
   })
 
-  it('forks the parent checkpoint when criuStatus.available', async () => {
-    const { client, streamCalls, created, forked } = createFakeClient({ criuAvailable: true })
-    // refine (seed a parent), then a 3-way fanout descending from it, then stop.
-    const planner = scriptedPlanner([
-      { kind: 'refine', task: { goal: 'seed' } },
-      { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }] },
-      { kind: 'stop' },
-    ])
-    await runAgentRounds({
-      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
-      agentRuns: [spec('a'), spec('b'), spec('c')],
-      output,
-      task: { goal: 'seed' },
-      ctx: { sandboxClient: client },
-      lineage: { forkFanout: true },
-    })
-    // 1 seed stream + 3 branch streams.
-    expect(streamCalls).toHaveLength(4)
-    // The 3 fanout branches ran on forked boxes, NOT fresh creates: one fresh
-    // box for the seed, three forks for the branches.
-    expect(created).toHaveLength(1)
-    expect(forked).toHaveLength(3)
-    const branchBoxes = streamCalls.slice(1).map((c) => c.boxId)
-    expect(branchBoxes.every((id) => id.startsWith('fork-'))).toBe(true)
-    expect(new Set(branchBoxes).size).toBe(3)
-  })
-
-  it('degrades to fresh boxes when criuStatus reports fork unavailable', async () => {
-    const { client, streamCalls, created, forked } = createFakeClient({ criuAvailable: false })
+  it('starts fresh boxes when the parent box has no live branch API', async () => {
+    const { client, streamCalls, created, branched } = createFakeClient({})
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'seed' } },
       { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }] },
@@ -389,38 +342,16 @@ describe('runAgentRounds lineage — forkFanout', () => {
       lineage: { forkFanout: true },
     })
     expect(streamCalls).toHaveLength(4)
-    expect(forked).toHaveLength(0)
-    // seed (1) + three independent fresh branches (3) = 4 creates, no forks.
+    expect(branched).toHaveLength(0)
+    // seed (1) + three independent fresh branches (3) = 4 creates.
     expect(created).toHaveLength(4)
     expect(streamCalls.slice(1).every((c) => c.boxId.startsWith('box-'))).toBe(true)
-  })
-
-  it('falls back to fresh boxes when the client has no criuStatus probe', async () => {
-    const base = createFakeClient({ criuAvailable: true })
-    // Strip the probe: a client without criuStatus ⇒ canFork=false.
-    const client = { create: base.client.create.bind(base.client) }
-    const planner = scriptedPlanner([
-      { kind: 'refine', task: { goal: 'seed' } },
-      { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }] },
-      { kind: 'stop' },
-    ])
-    await runAgentRounds({
-      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
-      agentRuns: [spec('a'), spec('b')],
-      output,
-      task: { goal: 'seed' },
-      ctx: { sandboxClient: client },
-      lineage: { forkFanout: true },
-    })
-    expect(base.forked).toHaveLength(0)
-    // seed + 2 fresh branches = 3 creates.
-    expect(base.created).toHaveLength(3)
   })
 })
 
 describe('runAgentRounds lineage — guardrails', () => {
   it('rejects lineage + onWorkerBox (both own worker boxes)', async () => {
-    const { client } = createFakeClient({ criuAvailable: true })
+    const { client } = createFakeClient({})
     const planner = scriptedPlanner([{ kind: 'stop' }])
     await expect(
       runAgentRounds({
@@ -436,7 +367,7 @@ describe('runAgentRounds lineage — guardrails', () => {
   })
 
   it('tears down every lineage-owned box at loop end', async () => {
-    const { client, deleted } = createFakeClient({ criuAvailable: true })
+    const { client, deleted } = createFakeClient({ branchAvailable: true })
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'seed' } },
       { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }] },
@@ -450,14 +381,14 @@ describe('runAgentRounds lineage — guardrails', () => {
       ctx: { sandboxClient: client },
       lineage: { forkFanout: true },
     })
-    // 1 seed box + 2 forked branch boxes all reaped by lineage.teardown().
-    expect(deleted.sort()).toEqual(['box-0', 'fork-0', 'fork-1'])
+    // 1 seed box + 2 live branch boxes all reaped by lineage.teardown().
+    expect(deleted.sort()).toEqual(['box-0', 'branch-0', 'branch-1'])
   })
 })
 
 describe('runAgentRounds lineage — continue asserts session liveness (fail-loud)', () => {
   it('throws when the platform reports the continued session is unknown', async () => {
-    const { client } = createFakeClient({ criuAvailable: false, sessionState: 'dead' })
+    const { client } = createFakeClient({ sessionState: 'dead' })
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'a' } },
       { kind: 'refine', task: { goal: 'b' } },
@@ -476,7 +407,7 @@ describe('runAgentRounds lineage — continue asserts session liveness (fail-lou
   })
 
   it('proceeds when the platform reports the session is live', async () => {
-    const { client, streamCalls } = createFakeClient({ criuAvailable: false, sessionState: 'live' })
+    const { client, streamCalls } = createFakeClient({ sessionState: 'live' })
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'a' } },
       { kind: 'refine', task: { goal: 'b' } },
@@ -497,9 +428,9 @@ describe('runAgentRounds lineage — continue asserts session liveness (fail-lou
   })
 })
 
-describe('runAgentRounds lineage — fork creation respects the concurrency bound', () => {
-  it('never has more than maxConcurrency forks in flight at once', async () => {
-    const { client, peakFork, forked } = createFakeClient({ criuAvailable: true })
+describe('runAgentRounds lineage — fanout creation respects the concurrency bound', () => {
+  it('never has more than maxConcurrency fresh branch boxes being created at once', async () => {
+    const { client, peakCreate, created } = createFakeClient({})
     // refine seed, then a 6-way fanout descending from it, under maxConcurrency 2.
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'seed' } },
@@ -525,10 +456,10 @@ describe('runAgentRounds lineage — fork creation respects the concurrency boun
       maxConcurrency: 2,
       lineage: { forkFanout: true },
     })
-    expect(forked).toHaveLength(6)
-    // Pre-fix this was 6 (all forks fired via Promise.all); bounded it is ≤ 2.
-    expect(peakFork.value).toBeLessThanOrEqual(2)
-    expect(peakFork.value).toBeGreaterThan(0)
+    // seed (1) + six fresh branches (6), created at most two at a time.
+    expect(created).toHaveLength(7)
+    expect(peakCreate.value).toBeLessThanOrEqual(2)
+    expect(peakCreate.value).toBeGreaterThan(0)
   })
 })
 
@@ -552,8 +483,8 @@ function noDescribePlanDriver(plans: Task[][]): Driver<Task, Out, string> {
 
 describe('runAgentRounds lineage — prune frees non-frontier boxes mid-loop', () => {
   it('reaps boxes no future round can descend from before loop end', async () => {
-    const { client, streamCalls, deleted } = createFakeClient({ criuAvailable: true })
-    // round 0: refine seed (box-0); round 1: fork 3 from seed (fork-0/1/2);
+    const { client, streamCalls, deleted } = createFakeClient({ branchAvailable: true })
+    // round 0: refine seed (box-0); round 1: branch 3 from seed (branch-0/1/2);
     // round 2: refine continuing the branch point; then stop.
     await runAgentRounds({
       driver: noDescribePlanDriver([
@@ -569,19 +500,19 @@ describe('runAgentRounds lineage — prune frees non-frontier boxes mid-loop', (
       lineage: { sessionContinuity: true, forkFanout: true },
     })
     // No verdicts ⇒ branchPoint is the latest iteration. After the round-1 fork
-    // (iterations 1,2,3) the branch point is index 3 (fork-2), so the seed box
-    // and the two non-selected forks are unreachable and pruned. The round-2
+    // (iterations 1,2,3) the branch point is index 3 (branch-2), so the seed box
+    // and the two non-selected branches are unreachable and pruned. The round-2
     // continue stream therefore starts AFTER 3 deletes have happened — proving
     // they were freed mid-loop, not at teardown.
     const round2Stream = streamCalls.at(-1)!
     expect(round2Stream.deletedAtStart).toBe(3)
     expect(deleted).toContain('box-0')
-    expect(deleted).toContain('fork-0')
-    expect(deleted).toContain('fork-1')
+    expect(deleted).toContain('branch-0')
+    expect(deleted).toContain('branch-1')
   })
 
   it('does NOT prune when the driver authors its own branch point', async () => {
-    const { client, streamCalls } = createFakeClient({ criuAvailable: true })
+    const { client, streamCalls } = createFakeClient({ branchAvailable: true })
     // scriptedDriver defines describePlan ⇒ canPrune false ⇒ every box is
     // held until teardown, so no stream ever starts with a prior delete.
     const planner = scriptedPlanner([
@@ -606,7 +537,6 @@ describe('runAgentRounds lineage — abort during a lineage run', () => {
   it('rejects and tears down every owned box (no leak)', async () => {
     const controller = new AbortController()
     const { client, deleted } = createFakeClient({
-      criuAvailable: false,
       // Abort while the seed turn streams — the next round must not run.
       onStream: (n) => {
         if (n === 1) controller.abort()

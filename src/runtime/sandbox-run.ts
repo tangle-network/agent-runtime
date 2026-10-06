@@ -37,7 +37,6 @@ import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { boxReadErrorMessage, readBoxPathWithRetry } from './box-read-retry'
 import { readPromptOptions } from './prompt-options'
-import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { notifySandboxEventObserver } from './sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, SandboxClient } from './types'
@@ -181,8 +180,7 @@ export async function openSandboxRun<Out>(
   // type promises: the Omit does not reject a value that carries them, and an untyped host
   // is not checked at all.
   const promptOptions = readPromptOptions(options.promptOptions, 'openSandboxRun: promptOptions')
-  const capabilities = await probeSandboxCapabilities(client)
-  const lineage = createSandboxLineage(client, capabilities, {
+  const lineage = createSandboxLineage(client, {
     ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
   })
   let handle: SandboxLineageHandle | undefined

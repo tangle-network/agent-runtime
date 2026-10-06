@@ -444,7 +444,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 167 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -522,7 +522,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
 | `createRootHandle` | function | Mint a `RootHandle` plus its supervisor-private control. The handle is the substrate a |
 | `createS3PrivateCasStore` | function | Durable private CAS bytes in one S3-compatible bucket under `<prefix><namespace>/sha256/<hex>`. |
-| `createSandboxLineage` | function | Build a lineage bound to one client + its probed capabilities. The |
+| `createSandboxLineage` | function | Build a lineage bound to one client. Branching is read from each box. |
 | `createSandboxToolPartState` | function | Fresh per-turn {@link SandboxToolPartState} for {@link mapSandboxToolEvent} — an |
 | `createSandboxUsageLedger` | function | A {@link SandboxUsageLedger} for one worker. Pass the worker's harness to decode with that |
 | `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
@@ -616,7 +616,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 | `plateauLength` | function | How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value |
 | `pollFor` | function | Build a bounded `poll` spec from a duration. |
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
-| `probeSandboxCapabilities` | function | Probe (and memoize per client) what the loop may rely on. A client without a |
 | `profileChatClient` | function | Profile-exact adapter for packages that consume agent-eval's ChatClient contract. |
 | `profileOptimizerModelCall` | function | Profile-exact adapter for agent-eval's external optimizer callback. |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
@@ -846,7 +845,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 | `ChatWorkerSeamOptions` | interface | Transport/session configuration shared by every spawned exact profile. |
 | `CheckExecChannel` | interface | Minimal exec channel the default runner needs. `SandboxInstance` (and therefore |
 | `CheckOutcome` | interface | How one candidate fared against the frozen visible checks, split by check kind. |
-| `CheckpointCapableBox` | interface | Loop-side widening of the box's optional checkpoint method. The |
 | `CheckRead` | interface | One time the check ran inside the run, whatever started it. |
 | `CheckRunner` | interface | Executes the frozen checks against one candidate. Implementations MUST fail loud |
 | `CheckSource` | interface | Produces the task's visible checks. MUST derive them from agent-visible information |
@@ -885,7 +883,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 | `CorpusRecord` | interface | One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from |
 | `CreateSandboxOptions` | interface | Configuration for creating a new sandbox. |
 | `CreateScopeAnalystOptions` | interface | The analyst run an `Agent<unknown, AnalystFinding[]>` performs over the children settled so far. |
-| `CriuCapableClient` | interface | Narrowed view of the optional CRIU probe. The loop-side `SandboxClient` |
 | `DeclaredCheck` | interface | A check program as a record declares it. |
 | `DeclaredCheckPlacement` | interface | Where a declared check's boxes are created: a client on the check account, and every account |
 | `DefaultVerdict` | interface | Minimal verdict shape — `valid` + `score` are required; `scores` + |
@@ -932,7 +929,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 | `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
 | `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
 | `FleetYield` | interface | How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at |
-| `ForkCapableBox` | interface | Loop-side widening of the legacy checkpoint fork method. |
 | `GraphNode` | interface | A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way a node is |
 | `Handle` | interface | A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into |
 | `HarnessTranscriptReadLimits` | interface | Projection limits do not change what the original archive retained. |
@@ -1077,7 +1073,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
 | `S3PrivateCasStore` | interface | The S3 store also holds small named pointers beside its content-addressed objects. A pointer |
 | `S3PrivateCasStoreOptions` | interface | An S3-compatible bucket (Amazon S3, Cloudflare R2) addressed with path-style requests. |
-| `SandboxCapabilities` | interface | What the loop kernel is allowed to know about a sandbox backend: a single |
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxEvidenceRetentionPort` | interface | One durable capture before a Sandbox box is removed. |

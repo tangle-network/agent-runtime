@@ -33,7 +33,6 @@ import type { RuntimeStreamEvent } from '../types'
 import { readPromptOptions } from './prompt-options'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
-import { probeSandboxCapabilities } from './sandbox-capabilities'
 import {
   assertSandboxServedModel,
   createSandboxUsageLedger,
@@ -504,9 +503,8 @@ async function setUpLineage<Task, Output, Decision>(
       'runAgentRounds: `lineage` and `onWorkerBox` both own worker boxes — pass only one',
     )
   }
-  const capabilities = await probeSandboxCapabilities(options.ctx.sandboxClient)
   return {
-    lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities, {
+    lineage: createSandboxLineage(options.ctx.sandboxClient, {
       maxConcurrency,
       streaming: lineageOpts.streaming,
       recordMount,

@@ -105,9 +105,6 @@ function createFakeClient(opts: FakeOpts = {}) {
       created.push(id)
       return makeBox(id)
     },
-    async criuStatus() {
-      return { available: false }
-    },
   }
   return { client, streamCalls, created, deleted, readPaths }
 }

@@ -388,17 +388,6 @@ export interface SandboxClient {
     requestOptions?: CreateRequestOptions,
   ): Promise<SandboxInstance>
   describePlacement?(box: SandboxInstance): LoopSandboxPlacement
-  /**
-   * Optional legacy CRIU capability probe. When present and it resolves
-   * `{ available: true }`, the loop's `lineage.fork` seam may checkpoint and fork
-   * a parent box when live `branch(count)` is unavailable. Current Sandbox boxes
-   * expose live branching directly. The kernel reads this ONLY through the
-   * capability probe — it never branches on backend kind.
-   * The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
-   * (⇒ `canFork = false`).
-   * @experimental
-   */
-  criuStatus?(): Promise<{ available: boolean; criuVersion?: string; reason?: string }>
 }
 
 /**
