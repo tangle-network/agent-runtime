@@ -494,7 +494,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1059 exports.
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `chatTransportExecutor` | function | Build one exact profile-driven chat executor through `createExecutor`. |
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
-| `checkProgramDigest` | function | The canonical digest of a directory's files: the digest a record names a program by. |
+| `checkProgramDigest` | function | The canonical digest of a check program's files: the digest a record names a program by. |
 | `checkVerdictOf` | function | Read a check function's return value into a verdict. Anything but `true` or a passing verdict |
 | `claimRetainedInteractiveControl` | function | Acquire provider-issued write authority without reading authority from status. |
 | `claimsAuthority` | function | True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because |

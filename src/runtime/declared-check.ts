@@ -142,9 +142,18 @@ export function assertDeclaredCheck(check: DeclaredCheck, context: string): void
   }
 }
 
-/** The canonical digest of a directory's files: the digest a record names a program by. */
+/**
+ * A check program's files as a commit holds them: every file under the directory except Python
+ * bytecode caches, which running the program writes and Git ignores. The digest a record names a
+ * program by, and the bytes a check box receives, both come from this capture.
+ */
+function captureProgram(dir: string) {
+  return captureMaterializedWorkspace(dir, { skipPythonBytecode: true })
+}
+
+/** The canonical digest of a check program's files: the digest a record names a program by. */
 export async function checkProgramDigest(dir: string): Promise<Sha256Digest> {
-  return canonicalCandidateDigest((await captureMaterializedWorkspace(dir)).manifest)
+  return canonicalCandidateDigest((await captureProgram(dir)).manifest)
 }
 
 /** The digest a version judge records: the program, the sealed cases, and how they are run. */
@@ -371,7 +380,7 @@ async function copyVerified(
   to: string,
   label: string,
 ): Promise<void> {
-  const captured = await captureMaterializedWorkspace(from)
+  const captured = await captureProgram(from)
   const actual = canonicalCandidateDigest(captured.manifest)
   if (actual !== digest) {
     throw new ValidationError(

@@ -1,0 +1,3 @@
+type: minor
+---
+A check program's digest and the bytes a check box receives now leave out Python bytecode caches (`__pycache__/` directories and `*.pyc` files). Running a program writes them, Git ignores them, and each embeds its source's modification time. A digest that covered them changed when a program was merely run and could not be reproduced from any checkout. Discovery Lab retired twelve registrations sealed that way (discovery-lab#1260). `checkProgramDigest` of a directory without caches is unchanged, so records sealed over clean programs still match. A record sealed over a directory that held caches named bytes no commit contains, and it stays refused.

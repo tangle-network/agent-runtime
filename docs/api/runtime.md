@@ -37216,7 +37216,7 @@ Refuse a malformed declaration before any compute.
 
 > **checkProgramDigest**(`dir`): `Promise`\<`` `sha256:${string}` ``\>
 
-The canonical digest of a directory's files: the digest a record names a program by.
+The canonical digest of a check program's files: the digest a record names a program by.
 
 #### Parameters
 

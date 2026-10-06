@@ -123,9 +123,19 @@ export async function scanMaterializedWorkspaceManifest(
   return workspaceManifestFromEntries(await walkWorkspace(root, options, false))
 }
 
+/**
+ * Capture settings Runtime's own callers may add. `skipPythonBytecode` leaves out `__pycache__/`
+ * directories and `*.pyc` files: the interpreter writes them beside the sources it runs, Git
+ * ignores them, and each carries its source's modification time, so a digest that covered them
+ * would change when a program was merely run and could not be reproduced from any checkout.
+ */
+export interface WorkspaceCaptureOptions extends WorkspaceScanOptions {
+  readonly skipPythonBytecode?: boolean
+}
+
 export async function captureMaterializedWorkspace(
   root: string,
-  options: WorkspaceScanOptions = {},
+  options: WorkspaceCaptureOptions = {},
 ): Promise<{
   manifest: AgentCandidateWorkspaceManifestMaterial
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>
@@ -273,7 +283,7 @@ interface ScannedWorkspaceEntry {
 
 async function walkWorkspace(
   root: string,
-  options: WorkspaceScanOptions,
+  options: WorkspaceCaptureOptions,
   keepBytes: boolean,
 ): Promise<ScannedWorkspaceEntry[]> {
   const ignoredProtectedRootEntries = new Set<string>(options.ignoredProtectedRootEntries ?? [])
@@ -303,6 +313,13 @@ async function walkWorkspace(
     for (const entry of entries) {
       options.signal?.throwIfAborted()
       if (directory === absoluteRoot && ignoredProtectedRootEntries.has(entry.name)) {
+        continue
+      }
+      if (
+        options.skipPythonBytecode === true &&
+        ((entry.isDirectory() && entry.name === '__pycache__') ||
+          (entry.isFile() && entry.name.endsWith('.pyc')))
+      ) {
         continue
       }
       const absolute = resolve(directory, entry.name)
