@@ -1,3 +1,15 @@
+## 0.303.0
+
+A `supervisePursuit` version chain stops before proposing when its last `stop.identicalFailures` versions (default 3) ended `driver-failed` with the same normalized error or were unscored by the judge, and `versions.identicalFailures` names the failure. The rule is part of the chain's process revision, so a chain opened under an earlier release is a different search and is refused on resume.
+
+A stdio MCP server that exits during the handshake is reported with its complete (redacted) stderr: a stdin write failure now waits up to 250 ms for the server's exit instead of failing first with no stderr. A server that stays alive with its stdin closed still fails promptly.
+
+`reflectiveProfileProposer({ model, chat, pricing, frame, evidence? })` is the maintained `SurfaceProposer` for a profile's prompt, instructions, skill or named text components in `searchMethod`: one priced call per proposal under `optimizerMethod`, reading the parents, their train cells and the caller's train-only evidence, with a declared maximum so a failed call counts at that bound.
+
+`improve()` with `searchMethod` ships a search whose only accounting gap is calls of unknown cost under a priced maximum they declared before running, such as a request that failed in transit: each counts at that maximum, `result.cost.costBound` states the bound, and the search ships when the bounded total fits `costCeiling`. A shipped search returns `result.promotion`, `{ experiment, decision }` ready for a `SuperviseRegistry.profiles` entry beside `result.candidate.profile`: the claim as a sealed experiment naming the root and every tested finalist by profile digest, and Eval's paired decision for the shipped finalist. `decideSearchImprovement({ searchDir })` decides a closed search from its directory with no model call. The ship rule is no longer part of a search's identity, so a search an earlier rule held is decided again rather than run again; searches opened before this release have another key and are not continued by `improve()`, but `decideSearchImprovement` reads them. Requires `@tangle-network/agent-eval` `>=0.208.2 <0.209.0` and `@tangle-network/agent-knowledge` `^19.1.5`.
+
+The profile-authoring and generate-eval skills name the merged peer skills `eval-engineering` and `pursue` instead of the retired `calibrate-before-measure` and `arena-experiment`.
+
 ## 0.302.0
 
 Removed `superviseSurface` and its `SuperviseSurfaceOptions`, `SuperviseSurfaceResult`, `SurfaceWorkerConfig` and `SurfaceWorkerOut` types from `./kernel`. No tangle-network checkout on the build hosts calls it, and its own map entry recorded that it silently dropped options. `analystsFromRegistry`, `AnalystAuthoring` and `failuresAnalyst` are unchanged and keep their `./kernel` exports. They now live in `src/runtime/supervise-analysts.ts`. To supervise workers over a graded surface, compose `supervise()` with a worker profile whose tools reach the surface, and attach `failuresAnalyst()` as an analyst.
