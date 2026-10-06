@@ -114,6 +114,7 @@ import {
   promptOptionsFromAgentTurnInput,
   providerMessageText,
 } from './turn-input'
+import { isAsyncIterable } from './util'
 
 /**
  * The execution substrate one turn runs on — a closed discriminated union over
@@ -1020,7 +1021,7 @@ async function* driveExecutorTurn(
   const taskValue = executorTaskValue(input)
   const run = executor.execute(taskValue, signal)
   let result: ExecutorResult<unknown>
-  if (isAsyncIterable(run)) {
+  if (isAsyncIterable<UsageEvent>(run)) {
     for await (const usage of abortableValues(run, signal)) {
       if (usage.kind === 'progress') {
         const projected = executorProgressStreamEvent(usage.progress, task, session)
@@ -1113,10 +1114,6 @@ function executorTaskValue(input: AgentTurnInput): unknown {
     ...(input.parts === undefined ? {} : { parts: structuredClone(input.parts) }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
   }
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
-  return typeof value === 'object' && value !== null && Symbol.asyncIterator in value
 }
 
 /**

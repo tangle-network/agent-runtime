@@ -74,6 +74,7 @@ import type {
 import {
   addTokenUsage,
   deleteBoxSafe,
+  fnv1a32Hex,
   promptCacheTokenClasses,
   randomSuffix,
   randomUuid,
@@ -1501,11 +1502,5 @@ function hashJson(value: unknown): string {
   } catch {
     str = String(value)
   }
-  // FNV-1a 32-bit — branch-free, dependency-free, good enough for grouping.
-  let h = 0x811c9dc5
-  for (let i = 0; i < str.length; i += 1) {
-    h ^= str.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return (h >>> 0).toString(16).padStart(8, '0')
+  return fnv1a32Hex(str)
 }

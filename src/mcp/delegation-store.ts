@@ -18,6 +18,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { AgentEvalError } from '../errors'
+import { errorMessage } from '../runtime/util'
 import type { DelegationRecord } from './task-queue'
 
 /** @stable */
@@ -263,8 +264,4 @@ function parsePersistedState(raw: string): PersistedDelegationState {
 
 function cloneRecord(record: DelegationRecord): DelegationRecord {
   return structuredClone(record)
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
 }

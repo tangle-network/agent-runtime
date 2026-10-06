@@ -37,6 +37,7 @@ import { closeSync, constants as fsConstants, fsyncSync, openSync, writeSync } f
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { isNoEntError, prepareJsonlAppend, readCommittedJsonLines } from '../../durable/jsonl-file'
+import { errorMessage } from '../util'
 import { assertNoSymlinkDescendant } from './durable-file'
 import type { ExecutorProgressEvent, RootStreamReceipt } from './types'
 
@@ -211,8 +212,4 @@ export async function readRootStream(runDir: string): Promise<RootStreamRecord[]
     throw error
   }
   return records
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

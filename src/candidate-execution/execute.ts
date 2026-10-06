@@ -3,7 +3,7 @@ import type {
   AgentCandidateTaskOutcomeSpec,
   AgentCandidateTermination,
 } from '@tangle-network/agent-interface'
-
+import { errorMessage } from '../runtime/util'
 import type {
   AgentCandidateExecutionClaim,
   AgentCandidateExecutionClaimStore,
@@ -1000,10 +1000,6 @@ function joinErrors(...errors: unknown[]): string {
     .filter((error) => error !== undefined)
     .map(errorMessage)
     .join('; ')
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 class CandidateExecutionDeadlineError extends Error {
