@@ -57,6 +57,8 @@ const TEST_RESOURCES = Object.freeze({ cpu: 2, memoryMb: 2_048, diskMb: 8_192 })
 
 afterEach(cleanupCandidateFixtures)
 
+const TIMED_OUT_TASK_MS = 2_000
+
 describe('exact process candidate experiment executor', () => {
   it('composes host-owned ports with protected model grants', async () => {
     const fixture = createCandidateOutputExecutionFixture('application/json', 32)
@@ -695,8 +697,10 @@ describe('exact process candidate experiment executor', () => {
 
   it('records the Runtime timeout and destroys the environment', async () => {
     const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    // The task timeout is also the result deadline for finalizing the timed-out run's evidence,
+    // so it must cover that work on a loaded host: at 100 ms a self-hosted publish runner missed it.
     replaceCandidateFixtureTask(fixture, {
-      limits: { ...fixture.task.task.limits, timeoutMs: 100 },
+      limits: { ...fixture.task.task.limits, timeoutMs: TIMED_OUT_TASK_MS },
     })
     const experiment = candidateExperiment(fixture)
     let running = true
@@ -722,7 +726,7 @@ describe('exact process candidate experiment executor', () => {
     const { adapter, destroyed } = exactAdapter(fixture, process, status)
 
     const evidence = await adapter.execute(candidateCell(experiment, fixture))
-    expect(evidence.receipt.termination).toEqual({ kind: 'timeout', timeoutMs: 100 })
+    expect(evidence.receipt.termination).toEqual({ kind: 'timeout', timeoutMs: TIMED_OUT_TASK_MS })
     expect(kill).toHaveBeenCalledOnce()
     expect(destroyed()).toBe(true)
   })

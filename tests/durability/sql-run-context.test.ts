@@ -251,48 +251,56 @@ describe('SQL run context', () => {
     CASE_MS,
   )
 
-  it('two live orchestrators: rejects the contender, then the SAME process takes over after SIGKILL', async () => {
-    const shared = await directory()
-    const owner = start(
-      shared,
-      await directory(),
-      'hold',
-      'sql:execution-admitted-dispatched:after',
-    )
-    await owner.message('checkpoint')
-    const contender = start(shared, await directory(), 'contend')
-    const denied = await contender.message('denied')
-    expect(String(denied.error)).toMatch(/owned|lease|busy/i)
-    owner.child.kill('SIGKILL')
-    expect(await owner.exit).toEqual({ code: null, signal: 'SIGKILL' })
-    contender.child.send('retry')
-    assertComplete(await contender.report())
-  }, CASE_MS)
-  it('fences a SIGSTOP/SIGCONT owner without releasing its live successor', async () => {
-    const shared = await directory()
-    const owner = start(shared, await directory(), 'lease')
-    await owner.message('owned')
-    owner.child.kill('SIGSTOP')
-    const successor = start(shared, await directory(), 'lease')
-    await successor.message('owned')
-    owner.child.kill('SIGCONT')
-    owner.child.send('write')
-    expect(String((await owner.message('fenced')).error)).toMatch(/lease|ownership/i)
-    expect(await owner.exit).toEqual({ code: 0, signal: null })
+  it(
+    'two live orchestrators: rejects the contender, then the SAME process takes over after SIGKILL',
+    async () => {
+      const shared = await directory()
+      const owner = start(
+        shared,
+        await directory(),
+        'hold',
+        'sql:execution-admitted-dispatched:after',
+      )
+      await owner.message('checkpoint')
+      const contender = start(shared, await directory(), 'contend')
+      const denied = await contender.message('denied')
+      expect(String(denied.error)).toMatch(/owned|lease|busy/i)
+      owner.child.kill('SIGKILL')
+      expect(await owner.exit).toEqual({ code: null, signal: 'SIGKILL' })
+      contender.child.send('retry')
+      assertComplete(await contender.report())
+    },
+    CASE_MS,
+  )
+  it(
+    'fences a SIGSTOP/SIGCONT owner without releasing its live successor',
+    async () => {
+      const shared = await directory()
+      const owner = start(shared, await directory(), 'lease')
+      await owner.message('owned')
+      owner.child.kill('SIGSTOP')
+      const successor = start(shared, await directory(), 'lease')
+      await successor.message('owned')
+      owner.child.kill('SIGCONT')
+      owner.child.send('write')
+      expect(String((await owner.message('fenced')).error)).toMatch(/lease|ownership/i)
+      expect(await owner.exit).toEqual({ code: 0, signal: null })
 
-    const db = openSql(join(shared, 'run-context.sqlite'))
-    try {
-      const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
-      await expect(observer.acquire()).rejects.toThrow(/owned|lease|busy/i)
-      successor.child.send('write')
-      await successor.message('written')
-      expect(await successor.exit).toEqual({ code: 0, signal: null })
-      expect(await observer.blobs.get(contentAddress({ pid: owner.child.pid }))).toBeUndefined()
-      expect(await observer.blobs.get(contentAddress({ pid: successor.child.pid }))).toEqual({
-        pid: successor.child.pid,
-      })
-    } finally {
-      db.database.close()
-    }
-  }, CASE_MS)
+      const db = openSql(join(shared, 'run-context.sqlite'))
+      try {
+        const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
+        await expect(observer.acquire()).rejects.toThrow(/owned|lease|busy/i)
+        successor.child.send('write')
+        await successor.message('written')
+        expect(await successor.exit).toEqual({ code: 0, signal: null })
+        expect(await observer.blobs.get(contentAddress({ pid: owner.child.pid }))).toBeUndefined()
+        expect(await observer.blobs.get(contentAddress({ pid: successor.child.pid }))).toEqual({
+          pid: successor.child.pid,
+        })
+      } finally {
+        db.database.close()
+      }
+    },
+    CASE_MS,
+  )
 })
