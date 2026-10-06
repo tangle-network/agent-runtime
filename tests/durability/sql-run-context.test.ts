@@ -18,6 +18,10 @@ const childFile = fileURLToPath(
 )
 const tsx = createRequire(import.meta.url).resolve('tsx')
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+// A resumed graph run takes a few seconds on an idle host and several times that on a loaded CI
+// runner or build host; these bound a hung child, not a slow one.
+const CHILD_REPORT_MS = 90_000
+const CASE_MS = 150_000
 
 async function directory() {
   const path = await mkdtemp(join(tmpdir(), 'sql-run-context-'))
@@ -88,7 +92,7 @@ function start(shared: string, cwd: string, mode = 'run', checkpoint = '') {
       const result = await Promise.race([
         exit,
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error(`child timed out: ${stderr}`)), 30000)
+          timer = setTimeout(() => reject(new Error(`child timed out: ${stderr}`)), CHILD_REPORT_MS)
         }),
       ]).finally(() => clearTimeout(timer))
       expect(result, stderr).toEqual({ code: 0, signal: null })
@@ -244,7 +248,7 @@ describe('SQL run context', () => {
       assertComplete(await start(shared, secondHost).report())
       expect(await readdir(secondHost)).toEqual([])
     },
-    60000,
+    CASE_MS,
   )
 
   it('two live orchestrators: rejects the contender, then the SAME process takes over after SIGKILL', async () => {
@@ -263,7 +267,7 @@ describe('SQL run context', () => {
     expect(await owner.exit).toEqual({ code: null, signal: 'SIGKILL' })
     contender.child.send('retry')
     assertComplete(await contender.report())
-  }, 60000)
+  }, CASE_MS)
   it('fences a SIGSTOP/SIGCONT owner without releasing its live successor', async () => {
     const shared = await directory()
     const owner = start(shared, await directory(), 'lease')
@@ -290,5 +294,5 @@ describe('SQL run context', () => {
     } finally {
       db.database.close()
     }
-  }, 60000)
+  }, CASE_MS)
 })

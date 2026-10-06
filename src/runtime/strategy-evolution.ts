@@ -66,12 +66,12 @@ import {
   sha256Bytes,
 } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
+import { runtimeShipDecision } from '../improvement/search-decision'
 import {
   dedicatedLane,
   reconcileInterruptedSearchCalls,
   searchExecutor,
 } from '../improvement/search-executor'
-import { runtimeShipDecision } from '../improvement/search-method'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { type BenchmarkConfig, type Environment, preflightModels } from './run-benchmark'
 import {
@@ -675,7 +675,10 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   const { decision, reason } = runtimeShipDecision({
     claim: claimResult,
     verified: result.claimVerification.status === 'verified',
-    accountingComplete: spend.unknownCostCells === 0 && spend.unknownCostOperations === 0,
+    cost: {
+      accountingComplete: spend.unknownCostCells === 0 && spend.unknownCostOperations === 0,
+    },
+    costCeiling: undefined,
     lowerBound: shipped?.test?.interval[0] ?? null,
     minimumLift: 0,
   })

@@ -36,6 +36,11 @@ import {
 // hand made every new option type a three-file edit.
 export type * from './improve-types'
 export {
+  type DecideSearchImprovementOptions,
+  decideSearchImprovement,
+  type SearchImprovementDecision,
+} from './search-decision'
+export {
   dedicatedLane,
   isSearchEnvironmentFault,
   routerLane,
