@@ -96,6 +96,13 @@ export interface PursuitVersionStop {
   /** A version takes the lead when its score beats the kept version's by more than this.
    *  Default 0. */
   readonly minImprovement?: number
+  /**
+   * Stop after this many versions in a row failed identically: each run ended `driver-failed`
+   * with the same error, or the judge could not score it. Such a failure repeats whatever the
+   * next change is (a refused workspace file, a broken credential), so neither patience nor a
+   * version cap should be what stops it. Default 3.
+   */
+  readonly identicalFailures?: number
 }
 
 /** An outside judge. Runtime calls it after a version's settle record exists, never inside the
@@ -170,6 +177,9 @@ export interface PursuitVersionChain {
   /** Why the chain stopped: the kernel's close reason (`patience`, `max-nodes`, `budget`,
    *  `deadline` or `converged`). */
   readonly reason: SearchCloseReason
+  /** Present when the chain stopped because its last `versions` versions failed identically
+   *  (`stop.identicalFailures`); `reason` is then `converged`. */
+  readonly identicalFailures?: { readonly versions: number; readonly failure: string }
   /** The kept version's number: the kernel's leader when the chain closed. */
   readonly best: number
   /** Every judged version, first first. */
@@ -216,13 +226,26 @@ export function assertPursuitVersions(versions: unknown): asserts versions is Pu
   }
   if (typeof stop !== 'object' || stop === null) fail('stop must be an object')
   const rule = stop as Record<string, unknown>
-  const known = new Set(['patience', 'maxVersions', 'maxUsd', 'deadlineMs', 'minImprovement'])
+  const known = new Set([
+    'patience',
+    'maxVersions',
+    'maxUsd',
+    'deadlineMs',
+    'minImprovement',
+    'identicalFailures',
+  ])
   const unknown = Object.keys(rule).filter((key) => !known.has(key))
   if (unknown.length > 0) fail(`stop has unknown fields: ${unknown.join(', ')}`)
   for (const key of ['patience', 'maxVersions'] as const) {
     if (!Number.isInteger(rule[key]) || (rule[key] as number) < 1) {
       fail(`stop.${key} must be an integer of at least 1`)
     }
+  }
+  if (
+    rule.identicalFailures !== undefined &&
+    (!Number.isInteger(rule.identicalFailures) || (rule.identicalFailures as number) < 1)
+  ) {
+    fail('stop.identicalFailures must be an integer of at least 1')
   }
   for (const key of ['maxUsd', 'deadlineMs'] as const) {
     if (!isFiniteNumber(rule[key]) || (rule[key] as number) <= 0) {
@@ -247,6 +270,8 @@ const VERSION_CHAIN_DEFINITION = {
   outcome:
     'a scored winner passes; a scored no-winner fails with its reason; an unscored version is a final error; a run that throws fails the call and leaves its cell open',
   deadline: 'the chain deadline aborts a running version; its judge still runs',
+  failures:
+    'before proposing, the chain closes converged when its last stop.identicalFailures judged versions failed identically: driver-failed with the same error name and message, digits, hex runs and absolute paths normalized, or unscored by the judge',
   directories: 'version n runs at <runDir>.v<n> with run id <runId>.v<n>; version 1 at <runDir>',
 } as const
 
@@ -367,6 +392,7 @@ export async function runPursuitVersions(
         LATEST_DEADLINE_MS,
       ),
     ).toISOString()
+  const failureLimit = stop.identicalFailures ?? DEFAULT_IDENTICAL_FAILURES
   const policy = incumbent({
     patience: stop.patience,
     ...(stop.minImprovement === undefined ? {} : { minImprovement: stop.minImprovement }),
@@ -543,6 +569,14 @@ export async function runPursuitVersions(
     async propose(request) {
       const parent = request.parents[0]!
       const judged = await judgedVersions(await versionsOf())
+      const failure = identicalFailureStreak(judged, failureLimit)
+      if (failure !== null) {
+        return {
+          children: [],
+          stop: `the last ${failureLimit} versions failed identically: ${failure}`,
+          accounting: FREE,
+        }
+      }
       const best = judged.find((version) => version.nodeId === parent.nodeId)
       if (best === undefined || parent.artifact.profile === null) {
         throw new RuntimeRunStateError(
@@ -611,6 +645,10 @@ export async function runPursuitVersions(
       now,
     })
     const judged = await judgedVersions(await versionsOf())
+    // A converged chain whose last versions share a failure stopped by the identical-failure rule.
+    const failed =
+      closed.reason === 'converged' ? identicalFailureStreak(judged, failureLimit) : null
+    const stopped = failed === null ? null : { versions: failureLimit, failure: failed }
     const best = judged.find((version) => version.nodeId === closed.leader)
     if (best === undefined) {
       throw new RuntimeRunStateError(
@@ -627,6 +665,7 @@ export async function runPursuitVersions(
         ledgerPath,
         searchId,
         reason: closed.reason,
+        ...(stopped === null ? {} : { identicalFailures: stopped }),
         best: best.version,
         versions: Object.freeze(judged),
         spend: closed.state.audit.spend,
@@ -1039,7 +1078,40 @@ function canonicalStop(stop: PursuitVersionStop): PursuitVersionStop {
     maxUsd: stop.maxUsd,
     deadlineMs: stop.deadlineMs,
     ...(stop.minImprovement === undefined ? {} : { minImprovement: stop.minImprovement }),
+    identicalFailures: stop.identicalFailures ?? DEFAULT_IDENTICAL_FAILURES,
   }
+}
+
+const DEFAULT_IDENTICAL_FAILURES = 3
+
+/**
+ * What a version that did no work failed with: a driver error, by its name and its message with
+ * the parts that differ between runs (digits, hex runs, absolute paths) normalized, or an unscored
+ * verdict. Null for a version that ran, won or not.
+ */
+export function versionFailure(version: JudgedPursuitVersion): string | null {
+  if (version.verdict.score === null) return 'unscored by the judge'
+  const { result } = version
+  if (result.kind !== 'no-winner' || result.reason !== 'driver-failed') return null
+  const message = result.error.message
+    .replace(/(?:\/[\w.@~+-]+){2,}/gu, '<path>')
+    .replace(/\b[0-9a-f]{8,}\b/giu, '<hex>')
+    .replace(/\d+/gu, '<n>')
+    .slice(0, 500)
+  return `driver-failed: ${result.error.name}: ${message}`
+}
+
+/** The failure the last `count` judged versions share, or null when they do not all share one. */
+export function identicalFailureStreak(
+  versions: readonly JudgedPursuitVersion[],
+  count: number,
+): string | null {
+  if (versions.length < count) return null
+  const failures = versions.slice(-count).map(versionFailure)
+  const [first] = failures
+  return first !== null && first !== undefined && failures.every((failure) => failure === first)
+    ? first
+    : null
 }
 
 /**
