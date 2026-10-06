@@ -1,3 +1,9 @@
+## 0.305.0
+
+Removed the legacy CRIU fork probe: `probeSandboxCapabilities`, `SandboxCapabilities`, `CriuCapableClient`, `SandboxClient.criuStatus`, `CheckpointCapableBox` and `ForkCapableBox`, and the `createSandboxLineage` capabilities argument (now `createSandboxLineage(client, options)`). The Sandbox SDK removed `client.criuStatus()` in agent-dev-container#5227 because the route was never served, so every real client already reported `canFork = false` and the checkpoint-fork path could not run. A fanout branches the live parent when the box exposes `branch(count)`, and otherwise starts fresh boxes.
+
+Removed the supervise wait-state nodes: `Scope.wait`, `timerAt`, `pollFor`, `waitUntil`, `createWaitProbes`, `pendingWaits`, the `probes` option and registry table, the journal `waiting`/`woken` events, the `waiting` node status and the `waiting` counts on `TreeView` and `ProgressView`. They kept a second sleeping-wait mechanism inside the supervisor process, and nothing outside this repository called them. A wait for time or an external event belongs to a Platform workflow `wait.*` action, whose stores own the sleep outside customer compute.
+
 ## 0.304.0
 
 Durability now has one owner per job, documented in `docs/durability.md`.
