@@ -7,11 +7,6 @@
 
 export { buildAuditorSystemPrompt, LENS_BRIEFS, SHARED_AUDITOR_RULES } from './lens-prompts'
 export { parseAuditorEvents } from './output-adapter'
-export {
-  decodeAuditTaskEnvelope,
-  encodeAuditTaskEnvelope,
-  formatAuditorPrompt,
-} from './prompt'
 export type {
   UiFinding,
   UiFindingScreenshot,
@@ -26,4 +21,3 @@ export type {
   UiAuditTask,
   UiAuditViewport,
 } from './task'
-export { createUiAuditorValidator } from './validator'

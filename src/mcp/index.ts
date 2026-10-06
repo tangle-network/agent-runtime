@@ -14,8 +14,6 @@
  * @module
  */
 
-export type { DetectExecutorArgs } from './bin-helpers'
-export { detectExecutor } from './bin-helpers'
 export type {
   CoderDelegate,
   CoderReview,

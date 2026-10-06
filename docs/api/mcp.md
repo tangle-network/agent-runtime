@@ -632,52 +632,6 @@ Test-only — number of in-flight (non-terminal) records.
 
 ## Interfaces
 
-### DetectExecutorArgs
-
-**`Experimental`**
-
-#### Properties
-
-##### sandboxClient
-
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-5)
-
-**`Experimental`**
-
-##### env?
-
-> `optional` **env?**: `Record`\<`string`, `string` \| `undefined`\>
-
-**`Experimental`**
-
-Raw env (defaults to `process.env`). Pass an explicit map for tests.
-
-##### resolveFleet?
-
-> `optional` **resolveFleet?**: (`client`, `fleetId`) => `Promise`\<[`FleetHandle`](#fleethandle)\>
-
-**`Experimental`**
-
-Override how a fleet handle is resolved from the client + fleet id. The
-default reads `client.fleets.get(fleetId)` and validates the returned
-shape against the structural `FleetHandle` contract.
-
-###### Parameters
-
-###### client
-
-[`SandboxClient`](runtime.md#sandboxclient-5)
-
-###### fleetId
-
-`string`
-
-###### Returns
-
-`Promise`\<[`FleetHandle`](#fleethandle)\>
-
-***
-
 ### CodexExecutionFailureDiagnostic
 
 Bounded, credential-redacted process context attached when reproducible Codex output fails
@@ -7226,35 +7180,6 @@ Every delegation profile a queued record can carry. One owner: the tool schemas 
 that filter on a profile read this list, so a profile added here cannot be one a tool refuses.
 
 ## Functions
-
-### detectExecutor()
-
-> **detectExecutor**(`args`): `Promise`\<[`DelegationExecutor`](#delegationexecutor)\>
-
-**`Experimental`**
-
-Pick the right executor for an MCP server invocation based on env vars.
-
-- `TANGLE_FLEET_ID` set → fleet-workspace placement; resolves the handle
-  via `sandboxClient.fleets.get(...)`.
-- Otherwise → sibling-sandbox placement; each delegation creates a fresh
-  sandbox via `sandboxClient.create(...)`.
-
-Fails loud (throws) when fleet mode is requested but the SDK shape is
-incompatible — the operator chose fleet semantics, silently degrading to
-sibling mode would lie about workspace topology.
-
-#### Parameters
-
-##### args
-
-[`DetectExecutorArgs`](#detectexecutorargs)
-
-#### Returns
-
-`Promise`\<[`DelegationExecutor`](#delegationexecutor)\>
-
-***
 
 ### detachedSessionDelegate()
 
