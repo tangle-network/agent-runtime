@@ -16,12 +16,12 @@
  *      `box.session(id).status()`): if the platform never honored the
  *      client-minted id (or reaped it), `status()` is `null` and `continue`
  *      fails loud rather than silently re-running the turn without prior context.
- *   - `fork(handle, n, ...)` → when the Sandbox SDK exposes live `branch(count)`,
- *      branch the running parent in bounded waves so N children inherit its
- *      context prefix; otherwise use the legacy checkpoint path when its
- *      capability probe is positive, or N independent fresh boxes. Either way
- *      each branch streams its own turn. Child-box creation is bounded by the
- *      lineage's `maxConcurrency`.
+ *   - `fork(handle, n, ...)` → when the box exposes live `branch(count)`, branch
+ *      the running parent in bounded waves so N children inherit its context
+ *      prefix; otherwise start N independent fresh boxes. Either way each branch
+ *      streams its own turn. Child-box creation is bounded by the lineage's
+ *      `maxConcurrency`. The box itself is the one capability read: there is no
+ *      separate client probe.
  *
  * Invariant: the lineage OWNS every box it starts or forks and tears them all
  * down on `teardown()` (or earlier via `prune`). It never tears down a box
@@ -44,7 +44,6 @@ import type {
 import { ValidationError } from '../errors'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
-import type { SandboxCapabilities } from './sandbox-capabilities'
 import type { AgentRunSpec, MountRecorder, SandboxClient } from './types'
 import {
   deleteBoxSafe,
@@ -151,8 +150,7 @@ export interface SandboxLineageHandle {
    * Stable session id threaded through this box's `streamPrompt` calls. Minted
    * by the lineage on `start`; reused on `continue` so the server continues the
    * same conversation. A forked handle starts a fresh session on its new box —
-   * the shared context comes from the live branch or legacy checkpoint, not a
-   * shared session id.
+   * the shared context comes from the live branch, not a shared session id.
    */
   sessionId: string
 }
@@ -193,8 +191,8 @@ export interface SandboxLineage {
    * the parent's IMAGE and PROFILE: under a real fork `specs[i]` does NOT
    * re-select a per-branch
    * profile (the SDK forks the running box, it can't swap the image). `specs[i]`
-   * picks the per-branch profile ONLY on the degraded fresh-box path (no branch
-   * or legacy fork support).
+   * picks the per-branch profile ONLY on the degraded fresh-box path (no live
+   * branch support).
    * A heterogeneous-profile fanout therefore homogenizes to the parent's profile
    * when fork is available — pass a single shared spec for forked fanouts, or
    * use `random@k` (no fork) when branches must differ. Each child's first turn
@@ -224,15 +222,12 @@ export interface SandboxLineage {
 }
 
 /**
- * Build a lineage bound to one client + its probed capabilities. The
- * capabilities are passed in (not re-probed) so the kernel probes once per run
- * and the lineage stays a pure function of "what this platform can do".
+ * Build a lineage bound to one client. Branching is read from each box.
  *
  * @experimental
  */
 export function createSandboxLineage(
   client: SandboxClient,
-  capabilities: SandboxCapabilities,
   options: {
     maxConcurrency?: number
     streaming?: 'sse' | 'poll'
@@ -359,34 +354,12 @@ export function createSandboxLineage(
           }
         })
       }
-      const checkpointId = capabilities.canFork
-        ? await checkpointForFork(parent.box, signal)
-        : undefined
-      // checkpointId === undefined ⇒ either the platform can't fork or the
-      // checkpoint call yielded nothing usable: degrade to independent fresh
-      // boxes. Never silently reuse the parent box for a branch.
-      //
-      // Bounded by `forkConcurrency`: an N-way fanout creates child boxes in
-      // waves of at most `forkConcurrency`, not all N at once. Abort is checked
-      // per branch (between waves), since the SDK's `fork`/`create` calls take no
-      // signal and cannot be interrupted once in flight.
+      // No live branching: independent fresh boxes, created in waves of at most
+      // `forkConcurrency`. A branch that cannot inherit context never pretends to.
       return mapWithConcurrency(prompts, forkConcurrency, async (prompt, i) => {
         throwIfAborted(signal)
         const spec = specs[i % specs.length]
         if (!spec) throw new ValidationError('SandboxLineage.fork: no AgentRunSpec for branch')
-        if (checkpointId !== undefined) {
-          const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
-          owned.push(box)
-          const inheritedProfile = profiles.get(parent.box) ?? spec.profile
-          profiles.set(box, inheritedProfile)
-          options.onAcquire?.(box, inheritedProfile)
-          await spec.prepareBox?.(box, { signal, recordMount })
-          const sessionId = mintSessionId()
-          return {
-            handle: { box, sessionId },
-            events: promptEvents(streaming, box, prompt, sessionId, signal, optionsFor(i)),
-          }
-        }
         const box = await acquireFresh(spec, signal)
         const sessionId = mintSessionId()
         return {
@@ -447,8 +420,8 @@ function mintSessionId(): string {
 
 /**
  * Branch a running parent through the current Sandbox SDK, in bounded waves.
- * `undefined` means the box exposes only the legacy checkpoint API (or no
- * branching API), so the caller may try the legacy capability-gated path.
+ * `undefined` means the box exposes no branching API, so the caller starts
+ * fresh boxes.
  */
 async function branchParent(
   box: SandboxInstance,
@@ -474,48 +447,6 @@ async function branchParent(
     if (children.length) return children
     throw error
   }
-}
-
-/**
- * Checkpoint the parent leaving it running, returning the checkpoint id to fork
- * from, or `undefined` when the box exposes no legacy `checkpoint` method or
- * the call produced no id. `undefined` makes the caller use fresh boxes — a
- * fork that cannot preserve context must not pretend to share it.
- */
-async function checkpointForFork(
-  box: SandboxInstance,
-  signal: AbortSignal,
-): Promise<string | undefined> {
-  const checkpoint = (box as CheckpointCapableBox).checkpoint
-  if (typeof checkpoint !== 'function') return undefined
-  if (signal.aborted) throwAbort()
-  const result = await checkpoint.call(box, { leaveRunning: true })
-  const id = result?.checkpointId
-  return typeof id === 'string' && id.length > 0 ? id : undefined
-}
-
-/**
- * Fork a child box from `checkpointId`. The box exposes `fork` whenever the
- * platform advertised `canFork`; a missing `fork` here is a contract violation
- * (probe said yes, box says no) and fails loud rather than silently degrading.
- *
- * `signal` gates entry only: the legacy SDK's `fork(checkpointId, options)`
- * takes no abort signal, so an in-flight fork cannot be interrupted. The
- * caller checks abort per branch, so cancellation is responsive at boundaries.
- */
-async function forkFromCheckpoint(
-  box: SandboxInstance,
-  checkpointId: string,
-  signal: AbortSignal,
-): Promise<SandboxInstance> {
-  const fork = (box as unknown as ForkCapableBox).fork
-  if (typeof fork !== 'function') {
-    throw new ValidationError(
-      'SandboxLineage.fork: capabilities report canFork but the box has no fork() method',
-    )
-  }
-  if (signal.aborted) throwAbort()
-  return fork.call(box, checkpointId)
 }
 
 /**
@@ -555,26 +486,9 @@ async function destroyBounded(
   await withTimeout(deleteBoxSafe(box), TEARDOWN_TIMEOUT_MS)
 }
 
-/**
- * Loop-side widening of the box's optional checkpoint method. The
- * `SandboxClient`/`SandboxInstance` surface the kernel relies on does not
- * require checkpointing; this reads it optionally so the lineage can probe-gate
- * without importing sandbox-backend specifics. @experimental
- */
-export interface CheckpointCapableBox {
-  checkpoint?: (options?: { leaveRunning?: boolean; tags?: string[] }) => Promise<{
-    checkpointId: string
-  }>
-}
-
 /** Loop-side view of the current Sandbox SDK's live branch method. @experimental */
 export interface BranchCapableBox {
   branch?: (count: number, options?: BranchOptions) => Promise<SandboxInstance[]>
-}
-
-/** Loop-side widening of the legacy checkpoint fork method. @experimental */
-export interface ForkCapableBox {
-  fork?: (checkpointId: string, options?: { name?: string }) => Promise<SandboxInstance>
 }
 
 /**

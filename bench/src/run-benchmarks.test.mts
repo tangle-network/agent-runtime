@@ -269,9 +269,6 @@ async function main(): Promise<void> {
           },
         }
       },
-      async criuStatus() {
-        return { available: false }
-      },
     }
     const boxAdapter: BenchmarkAdapter = {
       name: 'boxy',
@@ -431,7 +428,6 @@ async function managedExecutionProof(): Promise<void> {
           async delete() { operations.push('delete') },
         }
       },
-      async criuStatus() { return { available: false } },
     }
     const adapter: BenchmarkAdapter = {
       name: 'managed',

@@ -186,7 +186,6 @@ const report = await runBenchmarks({
     judge: async (_task, artifact) => ({ resolved: artifact === 'corrected', score: artifact === 'corrected' ? 1 : 0 }),
   }),
   resolveClient: () => ({
-    criuStatus: async () => ({ available: false }),
     create: async () => ({
       id: 'packed-fixture',
       async *streamPrompt(prompt: string, options?: { sessionId?: string }) {

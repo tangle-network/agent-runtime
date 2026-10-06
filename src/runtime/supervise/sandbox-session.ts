@@ -36,7 +36,6 @@ import { ValidationError } from '../../errors'
 import type { RuntimeStreamEvent } from '../../types'
 import { readPromptOptions } from '../prompt-options'
 import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
-import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import {
   assertSandboxServedModel,
   createSandboxToolPartState,
@@ -201,8 +200,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     let preservationFailure: string | undefined
     let preservationError: unknown
     let executionFailure: unknown
-    const capabilities = await probeSandboxCapabilities(args.sandboxClient)
-    const lineage = createSandboxLineage(args.sandboxClient, capabilities, {
+    const lineage = createSandboxLineage(args.sandboxClient, {
       maxConcurrency: 1,
       failOnDestroyError: args.failOnDestroyError,
     })

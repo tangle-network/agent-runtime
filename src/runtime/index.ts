@@ -519,11 +519,6 @@ export {
 } from './s3-private-cas-store'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
-  type CriuCapableClient,
-  probeSandboxCapabilities,
-  type SandboxCapabilities,
-} from './sandbox-capabilities'
-export {
   assertSandboxServedModel,
   createSandboxToolPartState,
   createSandboxUsageLedger,
@@ -546,9 +541,7 @@ export {
 } from './sandbox-evidence-retention'
 export {
   type BranchCapableBox,
-  type CheckpointCapableBox,
   createSandboxLineage,
-  type ForkCapableBox,
   type SandboxLineage,
   type SandboxLineageHandle,
   type SessionCapableBox,
