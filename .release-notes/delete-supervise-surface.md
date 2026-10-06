@@ -1,0 +1,3 @@
+type: minor
+---
+Removed `superviseSurface` and its `SuperviseSurfaceOptions`, `SuperviseSurfaceResult`, `SurfaceWorkerConfig` and `SurfaceWorkerOut` types from `./kernel`. No tangle-network checkout on the build hosts calls it, and its own map entry recorded that it silently dropped options. `analystsFromRegistry`, `AnalystAuthoring` and `failuresAnalyst` are unchanged and keep their `./kernel` exports. They now live in `src/runtime/supervise-analysts.ts`. To supervise workers over a graded surface, compose `supervise()` with a worker profile whose tools reach the surface, and attach `failuresAnalyst()` as an analyst.

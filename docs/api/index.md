@@ -4452,7 +4452,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-18)
+> **budget**: [`Budget`](runtime.md#budget-16)
 
 ##### readinessCheck?
 
@@ -4778,7 +4778,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-18)
+> **budget**: [`Budget`](runtime.md#budget-16)
 
 ##### backend?
 
@@ -4941,7 +4941,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-18)
+> **budget**: [`Budget`](runtime.md#budget-16)
 
 **`Experimental`**
 
@@ -8075,7 +8075,7 @@ search; resume reuses the campaign's cached cell before trying again.
 
 ##### workerSlots?
 
-> `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-7)
+> `optional` **workerSlots?**: [`WorkerSlots`](runtime.md#workerslots-6)
 
 Bounds working cells across every search that shares this allocator.
 
